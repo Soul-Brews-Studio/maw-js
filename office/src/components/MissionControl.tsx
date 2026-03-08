@@ -1,5 +1,6 @@
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { AgentAvatar } from "./AgentAvatar";
+import { HoverPreviewCard } from "./HoverPreviewCard";
 import { roomStyle } from "../lib/constants";
 import type { AgentState, Session } from "../lib/types";
 
@@ -19,11 +20,42 @@ export const MissionControl = memo(function MissionControl({
   onSelectAgent,
 }: MissionControlProps) {
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const [previewAgent, setPreviewAgent] = useState<AgentState | null>(null);
+  const [previewRoom, setPreviewRoom] = useState<{ label: string; accent: string }>({ label: "", accent: "#26c6da" });
+  const [previewPos, setPreviewPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const previewTimeout = useRef<ReturnType<typeof setTimeout>>();
   const [zoom, setZoom] = useState(1.1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Show preview card on hover (with delay to allow moving to card)
+  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, e: React.MouseEvent) => {
+    clearTimeout(previewTimeout.current);
+    setPreviewAgent(agent);
+    setPreviewRoom(room);
+    // Position card to the right of cursor, clamped to viewport
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+    const cx = e.clientX - containerRect.left;
+    const cy = e.clientY - containerRect.top;
+    const cardW = 320;
+    const cardH = 500;
+    // If card would overflow right, show on left side of cursor
+    const x = cx + 20 + cardW > containerRect.width ? cx - cardW - 20 : cx + 20;
+    // Clamp vertically
+    const y = Math.max(10, Math.min(cy - 100, containerRect.height - cardH - 20));
+    setPreviewPos({ x, y });
+  }, []);
+
+  const hidePreview = useCallback(() => {
+    previewTimeout.current = setTimeout(() => setPreviewAgent(null), 300);
+  }, []);
+
+  const keepPreview = useCallback(() => {
+    clearTimeout(previewTimeout.current);
+  }, []);
 
   const busyCount = agents.filter((a) => a.status === "busy").length;
   const readyCount = agents.filter((a) => a.status === "ready").length;
@@ -229,8 +261,14 @@ export const MissionControl = memo(function MissionControl({
                     )}
                     <g
                       transform={`scale(${scale})`}
-                      onMouseEnter={() => setHoveredAgent(agent.target)}
-                      onMouseLeave={() => setHoveredAgent(null)}
+                      onMouseEnter={(e) => {
+                        setHoveredAgent(agent.target);
+                        showPreview(agent, { label: s.style.label, accent: s.style.accent }, e);
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredAgent(null);
+                        hidePreview();
+                      }}
                       style={{ transition: "transform 0.15s ease-out" }}
                     >
                       <AgentAvatar
@@ -293,6 +331,28 @@ export const MissionControl = memo(function MissionControl({
         <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.05))}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
+
+      {/* Hover Preview Card — follows mouse */}
+      {previewAgent && (
+        <div
+          className="absolute z-30 pointer-events-auto"
+          style={{
+            left: previewPos.x,
+            top: previewPos.y,
+            // Clamp: if card would overflow right, flip to left side of cursor
+            maxWidth: 320,
+            animation: "fadeSlideIn 0.15s ease-out",
+          }}
+          onMouseEnter={keepPreview}
+          onMouseLeave={hidePreview}
+        >
+          <HoverPreviewCard
+            agent={previewAgent}
+            roomLabel={previewRoom.label}
+            accent={previewRoom.accent}
+          />
+        </div>
+      )}
 
       {/* Bottom stats */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-6 px-6 py-2 rounded-xl bg-black/40 backdrop-blur border border-white/[0.04]">

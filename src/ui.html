@@ -18,6 +18,10 @@
   .header .status { font-size: 12px; margin-left: auto; }
   .header .status.online { color: #4caf50; }
   .header .status.offline { color: #f44336; }
+  .header .nav-links { display: flex; gap: 16px; margin-left: 16px; font-size: 14px; }
+  .header .nav-links a { color: rgba(255,255,255,0.5); text-decoration: none; transition: color 0.2s; }
+  .header .nav-links a:hover { color: rgba(255,255,255,0.8); }
+  .header .nav-links a.active { color: #26c6da; font-weight: bold; }
 
   .container { display: flex; height: calc(100vh - 45px); }
 
@@ -90,6 +94,12 @@
   <h1>maw <span style="color:#555;font-weight:400;font-size:12px">by cat lab</span></h1>
   <span class="target-name" id="targetName"></span>
   <span class="status offline" id="status">connecting...</span>
+  <div class="nav-links">
+    <a href="/office/#office">Office</a>
+    <a href="/office/#mission">Mission</a>
+    <a href="/" class="active">Terminal</a>
+    <a href="/dashboard">Orbital</a>
+  </div>
 </div>
 
 <div class="container">

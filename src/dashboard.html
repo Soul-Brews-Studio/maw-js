@@ -34,6 +34,19 @@
   .hero .stats {
     margin-top: 16px; display: flex; justify-content: center; gap: 24px; font-size: 13px;
   }
+  .nav-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 24px;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 14px;
+  }
+  .nav-bar .brand { font-size: 16px; font-weight: bold; color: #26c6da; letter-spacing: 4px; text-transform: uppercase; }
+  .nav-bar .links { margin-left: auto; display: flex; gap: 18px; }
+  .nav-bar .links a { color: rgba(255,255,255,0.5); text-decoration: none; transition: color 0.2s; }
+  .nav-bar .links a:hover { color: rgba(255,255,255,0.8); }
+  .nav-bar .links a.active { color: #26c6da; font-weight: bold; }
   .hero .stat { color: #888; }
   .hero .stat strong { color: #e0e0e0; font-weight: 600; }
   .conn-dot {
@@ -242,8 +255,19 @@
 </head>
 <body>
 
+<!-- Nav Bar -->
+<div class="nav-bar">
+  <span class="brand">Oracle Orbital</span>
+  <div class="links">
+    <a href="/office/#office">Office</a>
+    <a href="/office/#mission">Mission</a>
+    <a href="/">Terminal</a>
+    <a href="/dashboard" class="active">Orbital</a>
+  </div>
+</div>
+
 <!-- Hero -->
-<div class="hero">
+<div class="hero" style="padding-top: 80px;">
   <h1>maw</h1>
   <div class="subtitle">multi-agent workflow orchestra</div>
   <div class="stats">

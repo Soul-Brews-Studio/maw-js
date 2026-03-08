@@ -24,7 +24,7 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
         {activeView === "mission" ? "oracle fleet overview" : "multi-agent workflow orchestra"}
       </span>
 
-      <div className="ml-auto flex items-center gap-4 text-[11px] text-white/70">
+      <div className="ml-auto flex items-center gap-5 text-sm text-white/70">
         <span className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-400 shadow-[0_0_6px_#4caf50]" : "bg-red-400 animate-pulse"}`} />
           {connected ? "LIVE" : "RECONNECTING"}
