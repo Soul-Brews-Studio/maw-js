@@ -435,8 +435,8 @@ export const MissionControl = memo(function MissionControl({
                       {agent.name.replace(/-oracle$/, "").replace(/-/g, " ")}
                     </text>
 
-                    {/* Hover tooltip */}
-                    {isHovered && (
+                    {/* Hover tooltip — hidden when preview card is showing */}
+                    {isHovered && !hoverPreview && (
                       <g>
                         <rect x={-100} y={-65} width={200} height={34} rx={8}
                           fill="rgba(8,8,16,0.95)" stroke={s.style.accent} strokeWidth={0.8} opacity={0.95} />
