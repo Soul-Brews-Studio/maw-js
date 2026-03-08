@@ -74,7 +74,7 @@ export const MissionControl = memo(function MissionControl({
     } else {
       x = rightX + cardW > containerRect.width ? leftX : rightX;
     }
-    const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
+    const y = Math.max(10, Math.min(screen.y - 190, containerRect.height - cardH - 20));
     return { x, y };
   }, [svgToScreen]);
 
