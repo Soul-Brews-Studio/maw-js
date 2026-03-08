@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     host: true,
+    allowedHosts: ["white.local"],
     proxy: {
       "/api": "http://white.local:3456",
       "/ws": { target: "ws://white.local:3456", ws: true },
