@@ -66,13 +66,25 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
     return () => { clearInterval(poll); send({ type: "subscribe", target: "" }); };
   }, [agent.target, send]);
 
+  const isFirstContent = useRef(true);
   useEffect(() => {
     const el = termRef.current;
     if (el) {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-      if (atBottom) el.scrollTop = el.scrollHeight;
+      // Always scroll to bottom on first content load
+      if (isFirstContent.current && content) {
+        isFirstContent.current = false;
+        el.scrollTop = el.scrollHeight;
+      } else {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        if (atBottom) el.scrollTop = el.scrollHeight;
+      }
     }
   }, [content]);
+
+  // Reset first-content flag when switching agents
+  useEffect(() => {
+    isFirstContent.current = true;
+  }, [agent.target]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
