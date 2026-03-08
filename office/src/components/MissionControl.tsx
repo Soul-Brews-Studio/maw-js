@@ -255,28 +255,39 @@ export const MissionControl = memo(function MissionControl({
     return map;
   }, [layout]);
 
-  // Auto-pin saiyan agents: cycle if auto-pinned, skip if user-pinned
+  // Auto-pin saiyan agents: cycle through busy agents every 6s, skip if user-pinned
+  const saiyanCycleIndex = useRef(0);
   useEffect(() => {
-    if (saiyanTargets.size === 0 || agentPositions.size === 0) return;
-    if (pinnedPreview && pinnedByUser.current) return;
-    const currentTarget = pinnedPreview?.agent.target;
-    const targets = [...saiyanTargets];
-    const nextTarget = targets.find(t => t !== currentTarget) || targets[0];
-    if (nextTarget === currentTarget) return;
-    const agent = agents.find(a => a.target === nextTarget);
-    const pos = agentPositions.get(nextTarget);
-    if (agent && pos) {
-      const cardPos = calcCardPos(pos.svgX, pos.svgY);
-      pinnedByUser.current = false;
-      setPinnedPreview({ agent, room: { label: pos.style.label, accent: pos.style.accent }, pos: cardPos, svgX: pos.svgX, svgY: pos.svgY });
-      setHoverPreview(null);
-      send({ type: "subscribe", target: nextTarget });
+    const pinNext = () => {
+      if (saiyanTargets.size === 0 || agentPositions.size === 0) return;
+      if (pinnedByUser.current) return;
+      const targets = [...saiyanTargets];
+      saiyanCycleIndex.current = saiyanCycleIndex.current % targets.length;
+      const nextTarget = targets[saiyanCycleIndex.current];
+      saiyanCycleIndex.current = (saiyanCycleIndex.current + 1) % targets.length;
+      const agent = agents.find(a => a.target === nextTarget);
+      const pos = agentPositions.get(nextTarget);
+      if (agent && pos) {
+        const cardPos = calcCardPos(pos.svgX, pos.svgY);
+        pinnedByUser.current = false;
+        setPinnedPreview({ agent, room: { label: pos.style.label, accent: pos.style.accent }, pos: cardPos, svgX: pos.svgX, svgY: pos.svgY });
+        setHoverPreview(null);
+        send({ type: "subscribe", target: nextTarget });
+      }
+    };
+    // Pin immediately on change
+    pinNext();
+    // Cycle every 6s if multiple targets
+    if (saiyanTargets.size > 1) {
+      const interval = setInterval(pinNext, 6000);
+      return () => clearInterval(interval);
     }
-  }, [saiyanTargets, agentPositions]);
+  }, [saiyanTargets, agentPositions, agents]);
 
-  // Handle Saiyan toast click -> pin that agent
+  // Handle Saiyan toast click -> pin that agent (user-initiated)
   const onSaiyanToastClick = useCallback((card: SaiyanCard) => {
     const pos = calcCardPos(card.svgX, card.svgY);
+    pinnedByUser.current = true; // user clicked toast = user pin, don't auto-override
     setPinnedPreview({ agent: card.agent, room: card.room, pos, svgX: card.svgX, svgY: card.svgY });
     setHoverPreview(null);
     send({ type: "subscribe", target: card.agent.target });
