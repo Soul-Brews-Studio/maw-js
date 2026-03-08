@@ -57,7 +57,7 @@ export const MissionControl = memo(function MissionControl({
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (!containerRect) return;
     const screen = svgToScreen(svgX, svgY);
-    const cardW = 320;
+    const cardW = 420;
     const cardH = 500;
     // Place card to the right of the agent avatar (offset ~40px for avatar width)
     const rightX = screen.x + 40;
@@ -359,7 +359,7 @@ export const MissionControl = memo(function MissionControl({
             left: previewPos.x,
             top: previewPos.y,
             // Clamp: if card would overflow right, flip to left side of cursor
-            maxWidth: 320,
+            maxWidth: 420,
             animation: "fadeSlideIn 0.15s ease-out",
           }}
           onMouseEnter={keepPreview}

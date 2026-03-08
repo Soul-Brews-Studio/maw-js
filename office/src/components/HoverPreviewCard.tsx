@@ -75,7 +75,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
       className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08] shadow-2xl"
       style={{
         background: "#0a0a0f",
-        width: 320,
+        width: 420,
         height: "calc(100vh - 120px)",
         maxHeight: 700,
       }}
