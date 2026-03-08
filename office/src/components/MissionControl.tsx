@@ -29,25 +29,43 @@ export const MissionControl = memo(function MissionControl({
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
-  // Show preview card on hover (with delay to allow moving to card)
-  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, e: React.MouseEvent) => {
+  // Convert SVG coordinates to screen-relative position
+  const svgToScreen = useCallback((svgX: number, svgY: number): { x: number; y: number } => {
+    const svg = svgRef.current;
+    const container = containerRef.current;
+    if (!svg || !container) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint();
+    pt.x = svgX;
+    pt.y = svgY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const screenPt = pt.matrixTransform(ctm);
+    const containerRect = container.getBoundingClientRect();
+    return {
+      x: screenPt.x - containerRect.left,
+      y: screenPt.y - containerRect.top,
+    };
+  }, []);
+
+  // Show preview card on hover — anchored to agent's SVG position
+  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
     clearTimeout(previewTimeout.current);
     setPreviewAgent(agent);
     setPreviewRoom(room);
-    // Position card to the right of cursor, clamped to viewport
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (!containerRect) return;
-    const cx = e.clientX - containerRect.left;
-    const cy = e.clientY - containerRect.top;
+    const screen = svgToScreen(svgX, svgY);
     const cardW = 320;
     const cardH = 500;
-    // If card would overflow right, show on left side of cursor
-    const x = cx + 20 + cardW > containerRect.width ? cx - cardW - 20 : cx + 20;
-    // Clamp vertically
-    const y = Math.max(10, Math.min(cy - 100, containerRect.height - cardH - 20));
+    // Place card to the right of the agent avatar (offset ~40px for avatar width)
+    const rightX = screen.x + 40;
+    const leftX = screen.x - cardW - 40;
+    const x = rightX + cardW > containerRect.width ? leftX : rightX;
+    const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
     setPreviewPos({ x, y });
-  }, []);
+  }, [svgToScreen]);
 
   const hidePreview = useCallback(() => {
     previewTimeout.current = setTimeout(() => setPreviewAgent(null), 300);
@@ -149,6 +167,7 @@ export const MissionControl = memo(function MissionControl({
     >
       {/* SVG Mission Control */}
       <svg
+        ref={svgRef}
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         className="w-full h-full"
         preserveAspectRatio="xMidYMid meet"
@@ -261,9 +280,9 @@ export const MissionControl = memo(function MissionControl({
                     )}
                     <g
                       transform={`scale(${scale})`}
-                      onMouseEnter={(e) => {
+                      onMouseEnter={() => {
                         setHoveredAgent(agent.target);
-                        showPreview(agent, { label: s.style.label, accent: s.style.accent }, e);
+                        showPreview(agent, { label: s.style.label, accent: s.style.accent }, ax, ay);
                       }}
                       onMouseLeave={() => {
                         setHoveredAgent(null);
