@@ -81,8 +81,7 @@ export const MissionControl = memo(function MissionControl({
   // Show preview card on hover — anchored to agent's SVG position
   const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
     clearTimeout(hoverTimeout.current);
-    const side: "left" | "right" = svgX > 600 ? "left" : "right";
-    const pos = calcCardPos(svgX, svgY, side);
+    const pos = calcCardPos(svgX, svgY);
     setHoverPreview({ agent, room, pos });
   }, [calcCardPos]);
 
@@ -473,11 +472,9 @@ export const MissionControl = memo(function MissionControl({
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
 
-      {/* Saiyan auto-popup cards — position based on agent's side */}
+      {/* Saiyan auto-popup cards — prefer right, left only at edge */}
       {[...saiyanCards.entries()].map(([target, card]) => {
-        // Agents right of center → card left, agents left of center → card right
-        const side: "left" | "right" = card.svgX > 600 ? "left" : "right";
-        const pos = calcCardPos(card.svgX, card.svgY, side);
+        const pos = calcCardPos(card.svgX, card.svgY);
         // Don't show if hover preview is for the same agent
         if (hoverPreview?.agent.target === target) return null;
         return (
