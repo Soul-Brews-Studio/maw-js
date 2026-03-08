@@ -23,6 +23,7 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
         </span>
         <span><strong className="text-cyan-400">{agentCount}</strong> agents</span>
         <span><strong className="text-purple-400">{sessionCount}</strong> rooms</span>
+        <a href="#mission" className="text-white/25 hover:text-white/60 transition-colors">Mission</a>
         <a href="/" className="text-white/25 hover:text-white/60 transition-colors">Terminal</a>
         <a href="/dashboard" className="text-white/25 hover:text-white/60 transition-colors">Orbital</a>
       </div>
