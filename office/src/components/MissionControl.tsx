@@ -60,9 +60,9 @@ export const MissionControl = memo(function MissionControl({
     const screen = svgToScreen(svgX, svgY);
     const cardW = 420;
     const cardH = 500;
-    const rightX = screen.x + 40;
-    const leftX = screen.x - cardW - 40;
-    const x = rightX + cardW > containerRect.width ? leftX : rightX;
+    // Agent left of center (SVG x=600) → card on right, and vice versa
+    const onLeft = svgX < 600;
+    const x = onLeft ? screen.x + 40 : screen.x - cardW - 40;
     const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
     return { x, y };
   }, [svgToScreen]);
