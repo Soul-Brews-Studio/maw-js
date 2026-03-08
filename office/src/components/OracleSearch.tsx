@@ -223,8 +223,8 @@ export const OracleSearch = memo(function OracleSearch({ onClose }: OracleSearch
                   >
                     {r.type}
                   </span>
-                  <span className="text-sm text-white/90 font-medium truncate flex-1">
-                    {r.title}
+                  <span className={`text-sm font-medium truncate flex-1 ${r.title ? "text-white/90" : "text-white/40 italic"}`}>
+                    {r.title || r.content?.slice(0, 60)?.trim() || `${r.type} #${r.id}`}
                   </span>
                   {r.score != null && (
                     <span className="text-[9px] font-mono text-white/30">
