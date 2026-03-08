@@ -3,8 +3,11 @@ import { AgentAvatar } from "./AgentAvatar";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { Joystick } from "./Joystick";
 import { OracleSearch } from "./OracleSearch";
-import { roomStyle, agentColor } from "../lib/constants";
+import { SaiyanToasts } from "./SaiyanToasts";
+import { BottomStats } from "./BottomStats";
+import { roomStyle } from "../lib/constants";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
+import type { SaiyanCard } from "./SaiyanToasts";
 
 interface MissionControlProps {
   sessions: Session[];
@@ -32,15 +35,6 @@ export const MissionControl = memo(function MissionControl({
   const [pinnedPreview, setPinnedPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number }; svgX: number; svgY: number } | null>(null);
   const pinnedByUser = useRef(false); // true = user clicked, false = auto-pinned by saiyan
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
-
-  // Auto-popup cards for Saiyan agents — max 3 visible, 2s stagger, FIFO
-  type SaiyanCard = { agent: AgentState; room: { label: string; accent: string }; svgX: number; svgY: number; order: number };
-  const [saiyanCards, setSaiyanCards] = useState<Map<string, SaiyanCard>>(new Map());
-  const saiyanQueue = useRef<string[]>([]); // pending targets waiting to appear
-  const saiyanStaggerTimer = useRef<ReturnType<typeof setTimeout>>();
-  const saiyanDismissTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const saiyanOrderCounter = useRef(0);
-  const prevSaiyanTargets = useRef<Set<string>>(new Set());
 
   const [showSearch, setShowSearch] = useState(false);
 
@@ -109,7 +103,7 @@ export const MissionControl = memo(function MissionControl({
 
   // Show preview card on hover — anchored to agent's SVG position (skip when pinned)
   const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
-    if (pinnedPreview) return; // don't show hover when a card is pinned
+    if (pinnedPreview) return;
     clearTimeout(hoverTimeout.current);
     const pos = calcCardPos(svgX, svgY);
     setHoverPreview({ agent, room, pos });
@@ -122,12 +116,6 @@ export const MissionControl = memo(function MissionControl({
   const keepPreview = useCallback(() => {
     clearTimeout(hoverTimeout.current);
   }, []);
-
-  const busyCount = agents.filter((a) => a.status === "busy").length;
-  const readyCount = agents.filter((a) => a.status === "ready").length;
-  const idleCount = agents.filter((a) => a.status === "idle").length;
-
-  // Disable mouse wheel zoom entirely — use +/- buttons instead
 
   // Pan with middle mouse or drag
   const onMouseDown = useCallback((e: React.MouseEvent) => {
@@ -165,7 +153,6 @@ export const MissionControl = memo(function MissionControl({
   }, [agents]);
 
   // Layout: arrange sessions in a hex-ish grid
-  // Each session is a cluster of agents
   const layout = useMemo(() => {
     const sessionList = sessions.map((s) => ({
       session: s,
@@ -173,7 +160,6 @@ export const MissionControl = memo(function MissionControl({
       style: roomStyle(s.name),
     }));
 
-    // Calculate positions in a radial layout — fill the viewport
     const cx = 600, cy = 500;
     const radius = Math.min(320, 160 + sessionList.length * 22);
 
@@ -192,25 +178,23 @@ export const MissionControl = memo(function MissionControl({
     setInputBufs(prev => ({ ...prev, [target]: val }));
   }, []);
 
-  // Click agent → pin preview card (not fullscreen modal)
-  // If already pinned, just log event + sound — don't open another popup
+  // Click agent -> pin preview card
   const onAgentClick = useCallback(
     (agent: AgentState, svgX: number, svgY: number, room: { label: string; accent: string }) => {
       if (pinnedPreview) {
-        // Already have a pinned card — just add event badge, no new popup
         addEvent(agent.target, "command", `clicked ${agent.name}`);
         return;
       }
       const pos = calcCardPos(svgX, svgY);
       pinnedByUser.current = true;
       setPinnedPreview({ agent, room, pos, svgX, svgY });
-      setHoverPreview(null); // hide hover
+      setHoverPreview(null);
       send({ type: "subscribe", target: agent.target });
     },
     [calcCardPos, send, pinnedPreview, addEvent]
   );
 
-  // Fullscreen → close pin first, then open modal (so focus transfers cleanly)
+  // Fullscreen -> close pin first, then open modal
   const onPinnedFullscreen = useCallback(() => {
     if (pinnedPreview) {
       const agent = pinnedPreview.agent;
@@ -229,9 +213,7 @@ export const MissionControl = memo(function MissionControl({
   const [pinnedAnimPos, setPinnedAnimPos] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => {
     if (pinnedPreview) {
-      // Start at hover position
       setPinnedAnimPos({ left: pinnedPreview.pos.x, top: pinnedPreview.pos.y });
-      // Transition to center on next frame
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const containerW = containerRef.current?.getBoundingClientRect().width || 800;
@@ -251,7 +233,6 @@ export const MissionControl = memo(function MissionControl({
         setPinnedPreview(null);
       }
     };
-    // Delay to avoid the same click that pinned it from closing it
     const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
     return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
   }, [pinnedPreview]);
@@ -277,13 +258,11 @@ export const MissionControl = memo(function MissionControl({
   // Auto-pin saiyan agents: cycle if auto-pinned, skip if user-pinned
   useEffect(() => {
     if (saiyanTargets.size === 0 || agentPositions.size === 0) return;
-    // If user manually pinned, don't override
     if (pinnedPreview && pinnedByUser.current) return;
-    // Find a saiyan target that isn't already shown
     const currentTarget = pinnedPreview?.agent.target;
     const targets = [...saiyanTargets];
     const nextTarget = targets.find(t => t !== currentTarget) || targets[0];
-    if (nextTarget === currentTarget) return; // already showing this one
+    if (nextTarget === currentTarget) return;
     const agent = agents.find(a => a.target === nextTarget);
     const pos = agentPositions.get(nextTarget);
     if (agent && pos) {
@@ -295,90 +274,13 @@ export const MissionControl = memo(function MissionControl({
     }
   }, [saiyanTargets, agentPositions]);
 
-  // Process queue: show next card from queue (max 3 visible, 2s stagger)
-  const processQueue = useCallback(() => {
-    clearTimeout(saiyanStaggerTimer.current);
-    const showNext = () => {
-      if (saiyanQueue.current.length === 0) return;
-      const target = saiyanQueue.current.shift()!;
-      const agent = agents.find(a => a.target === target);
-      const pos = agentPositions.get(target);
-      if (!agent || !pos) { showNext(); return; } // skip invalid, try next
-
-      saiyanOrderCounter.current++;
-      const card: SaiyanCard = {
-        agent,
-        room: { label: pos.style.label, accent: pos.style.accent },
-        svgX: pos.svgX,
-        svgY: pos.svgY,
-        order: saiyanOrderCounter.current,
-      };
-
-      setSaiyanCards(prev => {
-        const next = new Map(prev);
-        // If already at 3, remove the oldest (lowest order)
-        if (next.size >= 3) {
-          let oldestKey = "";
-          let oldestOrder = Infinity;
-          for (const [k, v] of next) {
-            if (v.order < oldestOrder) { oldestOrder = v.order; oldestKey = k; }
-          }
-          if (oldestKey) {
-            next.delete(oldestKey);
-            clearTimeout(saiyanDismissTimers.current[oldestKey]);
-          }
-        }
-        next.set(target, card);
-        return next;
-      });
-
-      // Auto-dismiss after 10s
-      clearTimeout(saiyanDismissTimers.current[target]);
-      saiyanDismissTimers.current[target] = setTimeout(() => {
-        setSaiyanCards(prev => {
-          const next = new Map(prev);
-          next.delete(target);
-          return next;
-        });
-      }, 10000);
-
-      // Schedule next card with 2s stagger
-      if (saiyanQueue.current.length > 0) {
-        saiyanStaggerTimer.current = setTimeout(showNext, 2000);
-      }
-    };
-    showNext();
-  }, [agents, agentPositions]);
-
-  // Watch saiyanTargets — queue new ones, remove departed
-  useEffect(() => {
-    const prev = prevSaiyanTargets.current;
-    const newTargets = [...saiyanTargets].filter(t => !prev.has(t));
-
-    if (newTargets.length > 0) {
-      const wasEmpty = saiyanQueue.current.length === 0;
-      saiyanQueue.current.push(...newTargets);
-      // Start processing if queue was empty (otherwise already running)
-      if (wasEmpty) processQueue();
-    }
-
-    // Remove cards for agents that lost Saiyan
-    const removed = [...prev].filter(t => !saiyanTargets.has(t));
-    if (removed.length > 0) {
-      // Also remove from queue
-      saiyanQueue.current = saiyanQueue.current.filter(t => !removed.includes(t));
-      setSaiyanCards(prev => {
-        const next = new Map(prev);
-        for (const t of removed) {
-          next.delete(t);
-          clearTimeout(saiyanDismissTimers.current[t]);
-        }
-        return next;
-      });
-    }
-
-    prevSaiyanTargets.current = new Set(saiyanTargets);
-  }, [saiyanTargets, processQueue]);
+  // Handle Saiyan toast click -> pin that agent
+  const onSaiyanToastClick = useCallback((card: SaiyanCard) => {
+    const pos = calcCardPos(card.svgX, card.svgY);
+    setPinnedPreview({ agent: card.agent, room: card.room, pos, svgX: card.svgX, svgY: card.svgY });
+    setHoverPreview(null);
+    send({ type: "subscribe", target: card.agent.target });
+  }, [calcCardPos, send]);
 
   // Compute viewBox based on zoom and pan
   const vbW = 1200 / zoom;
@@ -584,63 +486,13 @@ export const MissionControl = memo(function MissionControl({
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
 
-      {/* Saiyan toast notifications — top-right, small face + name like blockchain tx */}
-      <div className="absolute top-3 right-3 z-50 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: 220 }}>
-        {[...saiyanCards.entries()].map(([target, card]) => {
-          const color = agentColor(card.agent.name);
-          const displayName = card.agent.name.replace(/-oracle$/, "").replace(/-/g, " ");
-          return (
-            <div
-              key={`toast-${target}`}
-              className="flex items-center gap-3 px-3 py-2 rounded-xl pointer-events-auto cursor-pointer"
-              style={{
-                background: "rgba(8,8,16,0.92)",
-                border: `1px solid ${card.room.accent}40`,
-                backdropFilter: "blur(12px)",
-                boxShadow: `0 0 20px ${card.room.accent}15`,
-                animation: "fadeSlideIn 0.25s ease-out",
-              }}
-              onClick={() => {
-                // Click toast → pin that agent's card
-                const pos = calcCardPos(card.svgX, card.svgY);
-                setPinnedPreview({ agent: card.agent, room: card.room, pos, svgX: card.svgX, svgY: card.svgY });
-                setHoverPreview(null);
-                send({ type: "subscribe", target: card.agent.target });
-                // Dismiss toast
-                setSaiyanCards(prev => { const next = new Map(prev); next.delete(target); return next; });
-              }}
-            >
-              {/* Mini chibi face */}
-              <svg width={36} height={36} viewBox="-24 -34 48 68">
-                <circle cx={0} cy={-10} r={20} fill={color} stroke="#fff" strokeWidth={2} />
-                {/* Eyes */}
-                <circle cx={-7} cy={-12} r={4.5} fill="#fff" />
-                <circle cx={7} cy={-12} r={4.5} fill="#fff" />
-                <circle cx={-6} cy={-12} r={2.5} fill="#222" />
-                <circle cx={8} cy={-12} r={2.5} fill="#222" />
-                <circle cx={-5} cy={-13.5} r={1} fill="#fff" />
-                <circle cx={9} cy={-13.5} r={1} fill="#fff" />
-                {/* Mouth */}
-                <path d="M -3 -5 Q 0 -2 3 -5" fill="none" stroke="#333" strokeWidth={1.2} strokeLinecap="round" />
-                {/* Hair */}
-                <ellipse cx={-4} cy={-28} rx={6} ry={4} fill={color} stroke="#fff" strokeWidth={1} />
-                <ellipse cx={4} cy={-29} rx={5} ry={3} fill={color} stroke="#fff" strokeWidth={1} />
-                {/* Status dot */}
-                <circle cx={16} cy={-28} r={4} fill="#fdd835" stroke="#1a1a1a" strokeWidth={1.5} />
-              </svg>
-              {/* Name + status */}
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-bold truncate" style={{ color: card.room.accent }}>
-                  {displayName}
-                </span>
-                <span className="text-[10px] text-white/50 truncate">
-                  {card.agent.preview?.slice(0, 30) || card.agent.status}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* Saiyan toast notifications */}
+      <SaiyanToasts
+        saiyanTargets={saiyanTargets}
+        agents={agents}
+        agentPositions={agentPositions}
+        onToastClick={onSaiyanToastClick}
+      />
 
       {/* Hover Preview Card — manual hover (hidden when pinned) */}
       {hoverPreview && !pinnedPreview && (
@@ -705,36 +557,11 @@ export const MissionControl = memo(function MissionControl({
         <kbd className="text-[8px] text-white/20 ml-1">⌘K</kbd>
       </button>
 
-      {/* Oracle Search overlay — auto-shows when idle, dismissed until next activity */}
+      {/* Oracle Search overlay */}
       {showSearch && <OracleSearch onClose={() => setShowSearch(false)} />}
 
       {/* Bottom stats */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-6 px-6 py-2 rounded-xl bg-black/40 backdrop-blur border border-white/[0.04]">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-yellow-400" />
-          <strong className="text-yellow-400 text-xs">{busyCount}</strong>
-          <span className="text-[10px] text-white/50">busy</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          <strong className="text-emerald-400 text-xs">{readyCount}</strong>
-          <span className="text-[10px] text-white/50">ready</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-white/30" />
-          <strong className="text-white/50 text-xs">{idleCount}</strong>
-          <span className="text-[10px] text-white/50">idle</span>
-        </span>
-        <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${Math.min(100, (busyCount / Math.max(1, agents.length)) * 100)}%`,
-              background: busyCount > 5 ? "#ef5350" : busyCount > 2 ? "#fdd835" : "#4caf50",
-            }}
-          />
-        </div>
-      </div>
+      <BottomStats agents={agents} />
     </div>
   );
 });
