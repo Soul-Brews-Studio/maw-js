@@ -20,10 +20,15 @@ export const MissionControl = memo(function MissionControl({
   onSelectAgent,
 }: MissionControlProps) {
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
-  const [previewAgent, setPreviewAgent] = useState<AgentState | null>(null);
-  const [previewRoom, setPreviewRoom] = useState<{ label: string; accent: string }>({ label: "", accent: "#26c6da" });
-  const [previewPos, setPreviewPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const previewTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+  // Auto-popup cards for Saiyan agents (multiple simultaneous)
+  type SaiyanCard = { agent: AgentState; room: { label: string; accent: string }; svgX: number; svgY: number };
+  const [saiyanCards, setSaiyanCards] = useState<Map<string, SaiyanCard>>(new Map());
+  const saiyanCardTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const prevSaiyanTargets = useRef<Set<string>>(new Set());
+
   const [zoom, setZoom] = useState(1.1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -49,30 +54,32 @@ export const MissionControl = memo(function MissionControl({
     };
   }, []);
 
-  // Show preview card on hover — anchored to agent's SVG position
-  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
-    clearTimeout(previewTimeout.current);
-    setPreviewAgent(agent);
-    setPreviewRoom(room);
+  const calcCardPos = useCallback((svgX: number, svgY: number) => {
     const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
+    if (!containerRect) return { x: 0, y: 0 };
     const screen = svgToScreen(svgX, svgY);
     const cardW = 420;
     const cardH = 500;
-    // Place card to the right of the agent avatar (offset ~40px for avatar width)
     const rightX = screen.x + 40;
     const leftX = screen.x - cardW - 40;
     const x = rightX + cardW > containerRect.width ? leftX : rightX;
     const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
-    setPreviewPos({ x, y });
+    return { x, y };
   }, [svgToScreen]);
 
+  // Show preview card on hover — anchored to agent's SVG position
+  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
+    clearTimeout(hoverTimeout.current);
+    const pos = calcCardPos(svgX, svgY);
+    setHoverPreview({ agent, room, pos });
+  }, [calcCardPos]);
+
   const hidePreview = useCallback(() => {
-    previewTimeout.current = setTimeout(() => setPreviewAgent(null), 300);
+    hoverTimeout.current = setTimeout(() => setHoverPreview(null), 300);
   }, []);
 
   const keepPreview = useCallback(() => {
-    clearTimeout(previewTimeout.current);
+    clearTimeout(hoverTimeout.current);
   }, []);
 
   const busyCount = agents.filter((a) => a.status === "busy").length;
@@ -148,6 +155,70 @@ export const MissionControl = memo(function MissionControl({
     (agent: AgentState) => onSelectAgent(agent),
     [onSelectAgent]
   );
+
+  // Build lookup: agent target -> { svgX, svgY, room style }
+  const agentPositions = useMemo(() => {
+    const map = new Map<string, { svgX: number; svgY: number; style: ReturnType<typeof roomStyle> }>();
+    for (const s of layout) {
+      const count = s.agents.length;
+      s.agents.forEach((agent, ai) => {
+        const angle = (ai / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2;
+        const r = count === 1 ? 0 : Math.min(Math.max(70, 35 + count * 18) - 35, 35 + count * 6);
+        map.set(agent.target, {
+          svgX: s.x + Math.cos(angle) * r,
+          svgY: s.y + Math.sin(angle) * r,
+          style: s.style,
+        });
+      });
+    }
+    return map;
+  }, [layout]);
+
+  // Auto-popup cards when agents go Saiyan — show all simultaneously
+  useEffect(() => {
+    const prev = prevSaiyanTargets.current;
+    const newTargets = [...saiyanTargets].filter(t => !prev.has(t));
+
+    for (const target of newTargets) {
+      const agent = agents.find(a => a.target === target);
+      const pos = agentPositions.get(target);
+      if (!agent || !pos) continue;
+
+      const card: SaiyanCard = {
+        agent,
+        room: { label: pos.style.label, accent: pos.style.accent },
+        svgX: pos.svgX,
+        svgY: pos.svgY,
+      };
+
+      setSaiyanCards(prev => new Map(prev).set(target, card));
+
+      // Auto-dismiss after 10s (matches Saiyan animation)
+      clearTimeout(saiyanCardTimers.current[target]);
+      saiyanCardTimers.current[target] = setTimeout(() => {
+        setSaiyanCards(prev => {
+          const next = new Map(prev);
+          next.delete(target);
+          return next;
+        });
+      }, 10000);
+    }
+
+    // Remove cards for agents that are no longer Saiyan
+    const removed = [...prev].filter(t => !saiyanTargets.has(t));
+    if (removed.length > 0) {
+      setSaiyanCards(prev => {
+        const next = new Map(prev);
+        for (const t of removed) {
+          next.delete(t);
+          clearTimeout(saiyanCardTimers.current[t]);
+        }
+        return next;
+      });
+    }
+
+    prevSaiyanTargets.current = new Set(saiyanTargets);
+  }, [saiyanTargets, agents, agentPositions]);
 
   // Compute viewBox based on zoom and pan
   const vbW = 1200 / zoom;
@@ -351,14 +422,58 @@ export const MissionControl = memo(function MissionControl({
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
 
-      {/* Hover Preview Card — follows mouse */}
-      {previewAgent && (
+      {/* Saiyan auto-popup cards — multiple simultaneous */}
+      {[...saiyanCards.entries()].map(([target, card], index) => {
+        const pos = calcCardPos(card.svgX, card.svgY);
+        // Don't show if hover preview is for the same agent
+        if (hoverPreview?.agent.target === target) return null;
+        return (
+          <div
+            key={`saiyan-${target}`}
+            className="absolute z-20 pointer-events-auto"
+            style={{
+              left: pos.x,
+              top: pos.y,
+              maxWidth: 420,
+              animation: "fadeSlideIn 0.2s ease-out",
+            }}
+            onClick={() => {
+              // Dismiss on click
+              setSaiyanCards(prev => {
+                const next = new Map(prev);
+                next.delete(target);
+                return next;
+              });
+            }}
+          >
+            {/* Saiyan order badge */}
+            <div
+              className="absolute -top-3 -left-3 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold z-10 border-2"
+              style={{
+                background: card.room.accent,
+                borderColor: "#0a0a0f",
+                color: "#0a0a0f",
+                boxShadow: `0 0 12px ${card.room.accent}`,
+              }}
+            >
+              {index + 1}
+            </div>
+            <HoverPreviewCard
+              agent={card.agent}
+              roomLabel={card.room.label}
+              accent={card.room.accent}
+            />
+          </div>
+        );
+      })}
+
+      {/* Hover Preview Card — manual hover */}
+      {hoverPreview && (
         <div
           className="absolute z-30 pointer-events-auto"
           style={{
-            left: previewPos.x,
-            top: previewPos.y,
-            // Clamp: if card would overflow right, flip to left side of cursor
+            left: hoverPreview.pos.x,
+            top: hoverPreview.pos.y,
             maxWidth: 420,
             animation: "fadeSlideIn 0.15s ease-out",
           }}
@@ -366,9 +481,9 @@ export const MissionControl = memo(function MissionControl({
           onMouseLeave={hidePreview}
         >
           <HoverPreviewCard
-            agent={previewAgent}
-            roomLabel={previewRoom.label}
-            accent={previewRoom.accent}
+            agent={hoverPreview.agent}
+            roomLabel={hoverPreview.room.label}
+            accent={hoverPreview.room.accent}
           />
         </div>
       )}
