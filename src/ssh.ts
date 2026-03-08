@@ -87,10 +87,16 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     const escaped = text === "'" ? "\"'\"" : `'${text}'`;
     await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
   } else {
-    // Send text literally, then Enter separately (avoids paste-mode in Claude Code)
-    const escaped = text.replace(/'/g, "'\\''");
-    await ssh(`tmux send-keys -t '${target}' -l '${escaped}'`, host);
-    // Small delay so Claude Code processes the text before Enter
+    // Send in small chunks to avoid tmux bracketed paste mode in Claude Code.
+    // tmux triggers paste detection when it receives many characters at once,
+    // so we send ~50 chars at a time with a tiny gap between them.
+    const CHUNK = 50;
+    for (let i = 0; i < text.length; i += CHUNK) {
+      const chunk = text.slice(i, i + CHUNK).replace(/'/g, "'\\''");
+      await ssh(`tmux send-keys -t '${target}' -l '${chunk}'`, host);
+      if (i + CHUNK < text.length) await new Promise(r => setTimeout(r, 30));
+    }
+    // Small delay then Enter separately
     await new Promise(r => setTimeout(r, 100));
     await ssh(`tmux send-keys -t '${target}' Enter`, host);
   }
