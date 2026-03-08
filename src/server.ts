@@ -152,7 +152,8 @@ export function startServer(port = +(process.env.MAW_PORT || 3456)) {
   return server;
 }
 
-// Auto-start unless imported by CLI (CLI sets MAW_CLI=1)
-if (!process.env.MAW_CLI) {
+// Auto-start only when run directly (not imported by CLI)
+const isMain = import.meta.path === Bun.main;
+if (isMain) {
   startServer();
 }

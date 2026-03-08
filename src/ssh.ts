@@ -86,15 +86,12 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     // Single char — send literally, no Enter (used for streaming mode)
     const escaped = text === "'" ? "\"'\"" : `'${text}'`;
     await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
-  } else if (text.startsWith("/")) {
-    // Slash commands: send char by char for interactive tools (Claude Code, etc.)
-    for (const ch of text) {
-      const escaped = ch === "'" ? "\"'\"" : `'${ch}'`;
-      await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
-    }
-    await ssh(`tmux send-keys -t '${target}' Enter`, host);
   } else {
+    // Send text literally, then Enter separately (avoids paste-mode in Claude Code)
     const escaped = text.replace(/'/g, "'\\''");
-    await ssh(`tmux send-keys -t '${target}' -- '${escaped}' Enter`, host);
+    await ssh(`tmux send-keys -t '${target}' -l '${escaped}'`, host);
+    // Small delay so Claude Code processes the text before Enter
+    await new Promise(r => setTimeout(r, 100));
+    await ssh(`tmux send-keys -t '${target}' Enter`, host);
   }
 }
