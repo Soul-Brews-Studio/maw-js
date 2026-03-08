@@ -35,7 +35,7 @@ export const MissionControl = memo(function MissionControl({
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
       setZoom((z) => Math.max(0.5, Math.min(3, z + delta)));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -217,15 +217,21 @@ export const MissionControl = memo(function MissionControl({
                 const ax = s.x + Math.cos(agentAngle) * agentRadius;
                 const ay = s.y + Math.sin(agentAngle) * agentRadius;
                 const isHovered = hoveredAgent === agent.target;
-                const scale = isHovered ? 0.75 : 0.65;
+                const scale = isHovered ? 1.4 : 0.65;
 
                 return (
-                  <g key={agent.target} transform={`translate(${ax}, ${ay})`}>
+                  <g key={agent.target} transform={`translate(${ax}, ${ay})`}
+                    style={{ zIndex: isHovered ? 999 : 0 }}
+                  >
+                    {/* Hover backdrop glow */}
+                    {isHovered && (
+                      <circle cx={0} cy={-5} r={55} fill={s.style.accent} opacity={0.08} />
+                    )}
                     <g
                       transform={`scale(${scale})`}
                       onMouseEnter={() => setHoveredAgent(agent.target)}
                       onMouseLeave={() => setHoveredAgent(null)}
-                      style={{ transition: "transform 0.2s" }}
+                      style={{ transition: "transform 0.15s ease-out" }}
                     >
                       <AgentAvatar
                         name={agent.name}
@@ -252,16 +258,18 @@ export const MissionControl = memo(function MissionControl({
                     </text>
 
                     {/* Hover tooltip */}
-                    {isHovered && agent.preview && (
+                    {isHovered && (
                       <g>
-                        <rect x={-80} y={-55} width={160} height={28} rx={6}
-                          fill="rgba(8,8,16,0.92)" stroke={s.style.accent} strokeWidth={0.5} opacity={0.95} />
-                        <text x={0} y={-40} textAnchor="middle" fill="#e0e0e0" fontSize={7}
-                          fontFamily="'SF Mono', monospace">
-                          {agent.preview.slice(0, 40)}
-                        </text>
-                        <text x={0} y={-32} textAnchor="middle" fill={s.style.accent} fontSize={6}
-                          fontFamily="'SF Mono', monospace" opacity={0.6}>
+                        <rect x={-100} y={-65} width={200} height={34} rx={8}
+                          fill="rgba(8,8,16,0.95)" stroke={s.style.accent} strokeWidth={0.8} opacity={0.95} />
+                        {agent.preview && (
+                          <text x={0} y={-48} textAnchor="middle" fill="#e0e0e0" fontSize={9}
+                            fontFamily="'SF Mono', monospace">
+                            {agent.preview.slice(0, 35)}
+                          </text>
+                        )}
+                        <text x={0} y={-38} textAnchor="middle" fill={s.style.accent} fontSize={8}
+                          fontFamily="'SF Mono', monospace" opacity={0.7}>
                           {agent.status} · {agent.target}
                         </text>
                       </g>
@@ -276,13 +284,13 @@ export const MissionControl = memo(function MissionControl({
 
       {/* Zoom controls */}
       <div className="absolute bottom-4 right-6 flex flex-col items-center gap-1">
-        <button onClick={() => setZoom((z) => Math.min(3, z + 0.2))}
+        <button onClick={() => setZoom((z) => Math.min(3, z + 0.05))}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">+</button>
         <button onClick={resetView}
           className="w-8 h-6 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-[9px] text-white/50 hover:text-white hover:bg-white/10 cursor-pointer font-mono">
           {Math.round(zoom * 100)}%
         </button>
-        <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))}
+        <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.05))}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
 
