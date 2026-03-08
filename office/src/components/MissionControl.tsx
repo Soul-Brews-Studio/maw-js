@@ -57,15 +57,23 @@ export const MissionControl = memo(function MissionControl({
     };
   }, []);
 
-  const calcCardPos = useCallback((svgX: number, svgY: number) => {
+  // side: "right" (default/hover), "left", or "auto" (prefer right, fallback left)
+  const calcCardPos = useCallback((svgX: number, svgY: number, side: "left" | "right" | "auto" = "auto") => {
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (!containerRect) return { x: 0, y: 0 };
     const screen = svgToScreen(svgX, svgY);
     const cardW = 420;
     const cardH = 500;
-    // Prefer right side — only go left if card would overflow viewport
     const rightX = screen.x + 40;
-    const x = rightX + cardW > containerRect.width ? screen.x - cardW - 40 : rightX;
+    const leftX = screen.x - cardW - 40;
+    let x: number;
+    if (side === "right") {
+      x = rightX + cardW > containerRect.width ? leftX : rightX;
+    } else if (side === "left") {
+      x = leftX < 0 ? rightX : leftX;
+    } else {
+      x = rightX + cardW > containerRect.width ? leftX : rightX;
+    }
     const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
     return { x, y };
   }, [svgToScreen]);
@@ -464,9 +472,10 @@ export const MissionControl = memo(function MissionControl({
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
 
-      {/* Saiyan auto-popup cards — multiple simultaneous */}
+      {/* Saiyan auto-popup cards — alternate left/right for balance */}
       {[...saiyanCards.entries()].map(([target, card], index) => {
-        const pos = calcCardPos(card.svgX, card.svgY);
+        const side: "left" | "right" = index % 2 === 0 ? "right" : "left";
+        const pos = calcCardPos(card.svgX, card.svgY, side);
         // Don't show if hover preview is for the same agent
         if (hoverPreview?.agent.target === target) return null;
         return (
