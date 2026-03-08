@@ -23,10 +23,13 @@ export const MissionControl = memo(function MissionControl({
   const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
 
-  // Auto-popup cards for Saiyan agents (multiple simultaneous)
-  type SaiyanCard = { agent: AgentState; room: { label: string; accent: string }; svgX: number; svgY: number };
+  // Auto-popup cards for Saiyan agents — max 3 visible, 2s stagger, FIFO
+  type SaiyanCard = { agent: AgentState; room: { label: string; accent: string }; svgX: number; svgY: number; order: number };
   const [saiyanCards, setSaiyanCards] = useState<Map<string, SaiyanCard>>(new Map());
-  const saiyanCardTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const saiyanQueue = useRef<string[]>([]); // pending targets waiting to appear
+  const saiyanStaggerTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saiyanDismissTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const saiyanOrderCounter = useRef(0);
   const prevSaiyanTargets = useRef<Set<string>>(new Set());
 
   const [zoom, setZoom] = useState(1.1);
@@ -60,9 +63,9 @@ export const MissionControl = memo(function MissionControl({
     const screen = svgToScreen(svgX, svgY);
     const cardW = 420;
     const cardH = 500;
-    // Agent left of center (SVG x=600) → card on right, and vice versa
-    const onLeft = svgX < 600;
-    const x = onLeft ? screen.x + 40 : screen.x - cardW - 40;
+    // Prefer right side — only go left if card would overflow viewport
+    const rightX = screen.x + 40;
+    const x = rightX + cardW > containerRect.width ? screen.x - cardW - 40 : rightX;
     const y = Math.max(10, Math.min(screen.y - 120, containerRect.height - cardH - 20));
     return { x, y };
   }, [svgToScreen]);
@@ -174,51 +177,90 @@ export const MissionControl = memo(function MissionControl({
     return map;
   }, [layout]);
 
-  // Auto-popup cards when agents go Saiyan — show all simultaneously
-  useEffect(() => {
-    const prev = prevSaiyanTargets.current;
-    const newTargets = [...saiyanTargets].filter(t => !prev.has(t));
-
-    for (const target of newTargets) {
+  // Process queue: show next card from queue (max 3 visible, 2s stagger)
+  const processQueue = useCallback(() => {
+    clearTimeout(saiyanStaggerTimer.current);
+    const showNext = () => {
+      if (saiyanQueue.current.length === 0) return;
+      const target = saiyanQueue.current.shift()!;
       const agent = agents.find(a => a.target === target);
       const pos = agentPositions.get(target);
-      if (!agent || !pos) continue;
+      if (!agent || !pos) { showNext(); return; } // skip invalid, try next
 
+      saiyanOrderCounter.current++;
       const card: SaiyanCard = {
         agent,
         room: { label: pos.style.label, accent: pos.style.accent },
         svgX: pos.svgX,
         svgY: pos.svgY,
+        order: saiyanOrderCounter.current,
       };
 
-      setSaiyanCards(prev => new Map(prev).set(target, card));
+      setSaiyanCards(prev => {
+        const next = new Map(prev);
+        // If already at 3, remove the oldest (lowest order)
+        if (next.size >= 3) {
+          let oldestKey = "";
+          let oldestOrder = Infinity;
+          for (const [k, v] of next) {
+            if (v.order < oldestOrder) { oldestOrder = v.order; oldestKey = k; }
+          }
+          if (oldestKey) {
+            next.delete(oldestKey);
+            clearTimeout(saiyanDismissTimers.current[oldestKey]);
+          }
+        }
+        next.set(target, card);
+        return next;
+      });
 
-      // Auto-dismiss after 10s (matches Saiyan animation)
-      clearTimeout(saiyanCardTimers.current[target]);
-      saiyanCardTimers.current[target] = setTimeout(() => {
+      // Auto-dismiss after 10s
+      clearTimeout(saiyanDismissTimers.current[target]);
+      saiyanDismissTimers.current[target] = setTimeout(() => {
         setSaiyanCards(prev => {
           const next = new Map(prev);
           next.delete(target);
           return next;
         });
       }, 10000);
+
+      // Schedule next card with 2s stagger
+      if (saiyanQueue.current.length > 0) {
+        saiyanStaggerTimer.current = setTimeout(showNext, 2000);
+      }
+    };
+    showNext();
+  }, [agents, agentPositions]);
+
+  // Watch saiyanTargets — queue new ones, remove departed
+  useEffect(() => {
+    const prev = prevSaiyanTargets.current;
+    const newTargets = [...saiyanTargets].filter(t => !prev.has(t));
+
+    if (newTargets.length > 0) {
+      const wasEmpty = saiyanQueue.current.length === 0;
+      saiyanQueue.current.push(...newTargets);
+      // Start processing if queue was empty (otherwise already running)
+      if (wasEmpty) processQueue();
     }
 
-    // Remove cards for agents that are no longer Saiyan
+    // Remove cards for agents that lost Saiyan
     const removed = [...prev].filter(t => !saiyanTargets.has(t));
     if (removed.length > 0) {
+      // Also remove from queue
+      saiyanQueue.current = saiyanQueue.current.filter(t => !removed.includes(t));
       setSaiyanCards(prev => {
         const next = new Map(prev);
         for (const t of removed) {
           next.delete(t);
-          clearTimeout(saiyanCardTimers.current[t]);
+          clearTimeout(saiyanDismissTimers.current[t]);
         }
         return next;
       });
     }
 
     prevSaiyanTargets.current = new Set(saiyanTargets);
-  }, [saiyanTargets, agents, agentPositions]);
+  }, [saiyanTargets, processQueue]);
 
   // Compute viewBox based on zoom and pan
   const vbW = 1200 / zoom;
@@ -456,7 +498,7 @@ export const MissionControl = memo(function MissionControl({
                 boxShadow: `0 0 12px ${card.room.accent}`,
               }}
             >
-              {index + 1}
+              {card.order}
             </div>
             <HoverPreviewCard
               agent={card.agent}
