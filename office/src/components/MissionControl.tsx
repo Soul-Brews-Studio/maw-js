@@ -64,7 +64,7 @@ export const MissionControl = memo(function MissionControl({
     const screen = svgToScreen(svgX, svgY);
     const cardW = 420;
     const cardH = 500;
-    const rightX = screen.x + 40;
+    const rightX = screen.x + 60;
     const leftX = screen.x - cardW - 40;
     let x: number;
     if (side === "right") {
