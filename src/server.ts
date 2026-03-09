@@ -58,6 +58,13 @@ app.get("/war-room/*", serveStatic({
   rewriteRequestPath: (p) => p.replace(/^\/war-room/, "/dist-war-room"),
 }));
 
+// Serve Race Track (Bevy WASM)
+app.get("/race-track", serveStatic({ root: "./dist-race-track", path: "/index.html" }));
+app.get("/race-track/*", serveStatic({
+  root: "./",
+  rewriteRequestPath: (p) => p.replace(/^\/race-track/, "/dist-race-track"),
+}));
+
 // Oracle v2 proxy — search, stats
 const ORACLE_URL = process.env.ORACLE_URL || "http://localhost:47779";
 
