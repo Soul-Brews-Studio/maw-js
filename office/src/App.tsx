@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useSessions } from "./hooks/useSessions";
+import { useSessionsWasm } from "./hooks/useSessionsWasm";
 import { UniverseBg } from "./components/UniverseBg";
 import { StatusBar } from "./components/StatusBar";
 import { RoomGrid } from "./components/RoomGrid";
@@ -59,7 +60,10 @@ export function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage } = useSessions();
+  // ?vm=1 enables WASM engine for state management
+  const useWasm = new URLSearchParams(window.location.search).has("vm");
+  const sessionsHook = useWasm ? useSessionsWasm() : useSessions();
+  const { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage } = sessionsHook;
   const { connected, send } = useWebSocket(handleMessage);
 
   const onSelectAgent = useCallback((agent: AgentState) => {

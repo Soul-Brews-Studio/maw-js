@@ -10,6 +10,10 @@ export default defineConfig({
     outDir: "../dist-office",
     emptyOutDir: true,
   },
+  optimizeDeps: {
+    exclude: ["office-vm"],
+  },
+  assetsInclude: ["**/*.wasm"],
   server: {
     host: true,
     allowedHosts: ["white.local"],

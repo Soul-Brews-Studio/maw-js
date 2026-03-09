@@ -3,3 +3,4 @@ dist-office/
 
 # Bun global link artifacts
 ~/
+wasm-office/target/

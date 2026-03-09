@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Oracle Office — WASM Bridge</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
+        canvas {
+            display: block; width: 100vw; height: 100vh;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+        #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; }
+        #agent-popup {
+            position: fixed; pointer-events: auto; z-index: 30;
+            opacity: 0; transition: opacity 0.15s ease;
+            filter: drop-shadow(0 8px 24px rgba(0,0,0,0.6));
+        }
+        #agent-popup.visible { opacity: 1; }
+
+        /* Terminal popup card */
+        .popup-card {
+            background: #0d0d14;
+            border: 1px solid #333;
+            border-radius: 8px;
+            width: 480px;
+            max-height: 400px;
+            overflow: hidden;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+        }
+        .popup-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            background: rgba(255,255,255,0.02);
+        }
+        .popup-name { font-size: 13px; font-weight: 600; }
+        .popup-status { font-size: 11px; color: #888; }
+        .popup-session { font-size: 10px; color: #555; padding: 4px 12px; }
+        .popup-terminal {
+            padding: 8px 12px;
+            max-height: 320px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+        .popup-terminal::-webkit-scrollbar { width: 4px; }
+        .popup-terminal::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        .term-content {
+            font-size: 11px;
+            line-height: 1.5;
+            color: #cdd6f4;
+            white-space: pre;
+            tab-size: 4;
+        }
+        .term-loading {
+            font-size: 11px;
+            color: #555;
+            padding: 12px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay"></div>
+    <div id="agent-popup"></div>
+    <canvas id="glcanvas" tabindex="1"></canvas>
+
+    <!-- Macroquad runtime -->
+    <script src="/wasm-office/mq_js_bundle.js"></script>
+    <script>load("/wasm-office/oracle-office.wasm");</script>
+
+    <!-- Bridge -->
+    <script type="module">
+    import { startDataLoop } from '/wasm-office/lib/data-loop.js';
+    import { startPopupLoop } from '/wasm-office/lib/popup.js';
+
+    const ready = setInterval(() => {
+        if (typeof wasm_exports !== 'undefined' && wasm_exports.wasm_push_agents) {
+            clearInterval(ready);
+            console.log('[bridge] WASM ready');
+            startDataLoop(wasm_exports);
+            startPopupLoop(wasm_exports);
+        }
+    }, 100);
+    </script>
+</body>
+</html>
