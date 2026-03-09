@@ -1,5 +1,4 @@
-//! Data store — JS pushes data in, Macroquad reads it for rendering.
-//! For WASM→HTML output, we export state that JS reads and renders as HTML overlays.
+//! Data types shared across the WASM office.
 
 use std::collections::HashMap;
 
@@ -53,36 +52,11 @@ pub struct OfficeStats {
     pub idle: u32,
 }
 
-/// Popup request — WASM tells JS to show/hide popups
-#[derive(Clone, Debug)]
-pub struct PopupState {
-    pub visible: bool,
-    pub x: f32,
-    pub y: f32,
-    pub agent_name: String,
-    pub agent_session: String,
-    pub agent_status: String,
-    pub agent_preview: String,
-    pub agent_color: String,
-}
-
-impl Default for PopupState {
-    fn default() -> Self {
-        PopupState {
-            visible: false, x: 0.0, y: 0.0,
-            agent_name: String::new(), agent_session: String::new(),
-            agent_status: String::new(), agent_preview: String::new(),
-            agent_color: String::new(),
-        }
-    }
-}
-
 pub struct DataStore {
     pub agents: HashMap<String, AgentData>,
     pub rooms: Vec<RoomData>,
     pub saiyan_targets: Vec<String>,
     pub stats: OfficeStats,
-    pub popup: PopupState,
 }
 
 impl DataStore {
@@ -92,7 +66,6 @@ impl DataStore {
             rooms: Vec::new(),
             saiyan_targets: Vec::new(),
             stats: OfficeStats::default(),
-            popup: PopupState::default(),
         }
     }
 
@@ -116,7 +89,6 @@ impl DataStore {
         self.rooms = room_map.into_iter().map(|(name, targets)| RoomData {
             name, agent_targets: targets,
         }).collect();
-        // Sort rooms by name for stable layout
         self.rooms.sort_by(|a, b| a.name.cmp(&b.name));
     }
 }

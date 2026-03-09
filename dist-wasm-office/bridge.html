@@ -8,14 +8,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
         canvas { display: block; width: 100vw; height: 100vh; }
-
-        /* HTML overlay — sits above canvas, WASM controls it */
-        #overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            pointer-events: none; z-index: 10;
-        }
-
-        /* Agent popup — WASM tells us when/where to show it */
+        #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; }
         #agent-popup {
             position: fixed; pointer-events: auto; z-index: 30;
             opacity: 0; transition: opacity 0.15s ease;
@@ -29,183 +22,22 @@
     <div id="agent-popup"></div>
     <canvas id="glcanvas" tabindex="1"></canvas>
 
-    <!-- Macroquad JS runtime -->
+    <!-- Macroquad runtime -->
     <script src="/wasm-office/mq_js_bundle.js"></script>
-    <script>
-    // Boot Macroquad — sets window.wasm_exports when ready
-    load("/wasm-office/oracle-office.wasm");
+    <script>load("/wasm-office/oracle-office.wasm");</script>
 
-    // ============================================================
-    // Two-way bridge
-    //
-    // JS → WASM: push agent data via wasm_push_agents(), wasm_push_saiyan()
-    // WASM → JS: read popup state via wasm_get_popup_ptr()/len(), render HTML
-    // ============================================================
+    <!-- Bridge: connect JS data to WASM canvas -->
+    <script type="module">
+    import { startDataLoop } from '/wasm-office/lib/data-loop.js';
+    import { startPopupLoop } from '/wasm-office/lib/popup.js';
 
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
-    function writeStr(s) {
-        const encoded = encoder.encode(s);
-        const ptr = wasm_exports.wasm_alloc(encoded.length);
-        new Uint8Array(wasm_exports.memory.buffer, ptr, encoded.length).set(encoded);
-        return [ptr, encoded.length];
-    }
-
-    function pushAgents(agents) {
-        const lines = agents.map(a =>
-            `${a.target}|${a.name}|${a.session}|${a.windowIndex}|${a.active ? 1 : 0}|${a.status}|${a.preview}`
-        ).join('\n');
-        const [ptr, len] = writeStr(lines);
-        wasm_exports.wasm_push_agents(ptr, len);
-        wasm_exports.wasm_free(ptr, len);
-    }
-
-    function pushSaiyan(targets) {
-        const [ptr, len] = writeStr(targets.join('\n'));
-        wasm_exports.wasm_push_saiyan(ptr, len);
-        wasm_exports.wasm_free(ptr, len);
-    }
-
-    function readPopup() {
-        const ptr = wasm_exports.wasm_get_popup_ptr();
-        const len = wasm_exports.wasm_get_popup_len();
-        if (len === 0) return null;
-        return decoder.decode(new Uint8Array(wasm_exports.memory.buffer, ptr, len));
-    }
-
-    // Status detection
-    function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
-    function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return h; }
-
-    const busyRx = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◑◒◓]/;
-    const hashHist = {};
-
-    function detectStatus(target, content) {
-        const text = stripAnsi(content);
-        const lines = text.split('\n').filter(l => l.trim());
-        const bottom = lines.slice(-5).join('\n');
-        const hasPrompt = bottom.includes('❯');
-        const hasBusy = busyRx.test(bottom) || /● \w+/.test(bottom) ||
-            /\b(Read|Edit|Write|Bash|Grep|Glob|Agent)\b/.test(bottom);
-        const topPart = text.split('\n').slice(0, Math.floor(text.split('\n').length * 0.85)).join('\n');
-        const h = hash(topPart);
-        const e = hashHist[target] || { prev: 0, curr: 0, n: 0 };
-        e.prev = e.curr; e.curr = h;
-        e.n = (e.prev !== 0 && e.prev !== e.curr) ? 0 : e.n + 1;
-        hashHist[target] = e;
-        if (hasBusy) return 'busy';
-        if (hasPrompt && e.n >= 2) return 'ready';
-        if (e.prev === 0) return hasPrompt ? 'ready' : 'idle';
-        if (e.n <= 3) return 'busy';
-        if (e.n <= 8) return 'ready';
-        return hasPrompt ? 'ready' : 'idle';
-    }
-
-    // ============================================================
-    // Data loop: fetch → push to WASM canvas
-    // ============================================================
-
-    let sessions = [];
-    let prevStatus = {};
-
-    function startBridge() {
-        console.log('[bridge] Connected — starting data loop');
-
-        // WebSocket for session tree
-        function connectWS() {
-            const ws = new WebSocket(`ws://${location.host}/ws`);
-            ws.onmessage = (e) => {
-                const d = JSON.parse(e.data);
-                if (d.type === 'sessions') sessions = d.sessions;
-            };
-            ws.onclose = () => setTimeout(connectWS, 1000);
-            ws.onerror = () => {};
-        }
-        connectWS();
-
-        // Poll captures → detect status → push into WASM
-        async function poll() {
-            const targets = [];
-            sessions.forEach(s =>
-                s.windows.forEach(w => targets.push({
-                    target: `${s.name}:${w.index}`, name: w.name,
-                    session: s.name, windowIndex: w.index, active: w.active
-                }))
-            );
-
-            const agents = [];
-            const saiyanList = [];
-
-            for (let i = 0; i < targets.length; i += 4) {
-                await Promise.allSettled(targets.slice(i, i + 4).map(async (t) => {
-                    try {
-                        const res = await fetch(`/api/capture?target=${encodeURIComponent(t.target)}`);
-                        const data = await res.json();
-                        const content = data.content || '';
-                        const status = detectStatus(t.target, content);
-                        const text = stripAnsi(content);
-                        const lines = text.split('\n').filter(l => l.trim());
-                        const preview = (lines[lines.length - 1] || '').slice(0, 120);
-
-                        if (prevStatus[t.target] && prevStatus[t.target] !== 'busy' && status === 'busy')
-                            saiyanList.push(t.target);
-                        prevStatus[t.target] = status;
-                        agents.push({ ...t, status, preview });
-                    } catch {
-                        agents.push({ ...t, status: 'idle', preview: '' });
-                    }
-                }));
-            }
-
-            if (agents.length > 0) pushAgents(agents);
-            if (saiyanList.length > 0) pushSaiyan(saiyanList);
-
-            setTimeout(poll, 5000);
-        }
-        poll();
-
-        // WASM → JS: poll popup state, render as HTML overlay
-        const popupEl = document.getElementById('agent-popup');
-        let lastPopup = '';
-
-        setInterval(() => {
-            try {
-                const popup = readPopup();
-                if (popup === lastPopup) return;
-                lastPopup = popup;
-
-                if (!popup || popup === '0') {
-                    popupEl.className = '';
-                    return;
-                }
-
-                // "1|x|y|name|session|status|preview|color"
-                const parts = popup.split('|');
-                if (parts[0] !== '1' || parts.length < 8) {
-                    popupEl.className = '';
-                    return;
-                }
-                const [, x, y, name, session, status, preview, color] = parts;
-
-                popupEl.style.left = `${x}px`;
-                popupEl.style.top = `${y}px`;
-                popupEl.className = 'visible';
-                popupEl.innerHTML = `
-                    <div style="background:#1a1a2e;border:1px solid ${color};border-radius:8px;padding:12px;min-width:200px;color:#fff;font-family:monospace">
-                        <div style="font-size:14px;font-weight:bold;color:${color};margin-bottom:4px">${name}</div>
-                        <div style="font-size:11px;color:#888;margin-bottom:8px">${session} &bull; ${status}</div>
-                        <div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px">${preview || '...'}</div>
-                    </div>`;
-            } catch (e) {}
-        }, 50);
-    }
-
-    // Wait for Macroquad WASM to be ready
+    // Wait for Macroquad to expose wasm_exports
     const ready = setInterval(() => {
         if (typeof wasm_exports !== 'undefined' && wasm_exports.wasm_push_agents) {
             clearInterval(ready);
-            startBridge();
+            console.log('[bridge] WASM ready — starting data + popup loops');
+            startDataLoop(wasm_exports);
+            startPopupLoop(wasm_exports);
         }
     }, 100);
     </script>
