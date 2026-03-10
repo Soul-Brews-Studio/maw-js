@@ -124,8 +124,8 @@ describe("paneTitle", () => {
 describe("mirrorCmd", () => {
   test("uses watch --color for flicker-free ANSI display", () => {
     const cmd = mirrorCmd({ session: "2-hermes", window: 2, windowName: "hermes-oracle", oracle: "hermes" });
-    expect(cmd).toContain("watch --color -t -n2");
-    expect(cmd).toContain("maw peek hermes-oracle");
+    expect(cmd).toContain("watch --color -t -n0.5");
+    expect(cmd).toContain("tmux capture-pane");
   });
 
   test("does not echo input (watch handles this)", () => {

@@ -26,12 +26,30 @@ export function buildTargets(sessions: Session[], filters: string[]): OverviewTa
   return targets;
 }
 
+const PANE_COLORS = [
+  "colour204",  // pink
+  "colour114",  // green
+  "colour81",   // blue
+  "colour220",  // yellow
+  "colour177",  // purple
+  "colour208",  // orange
+  "colour44",   // cyan
+  "colour196",  // red
+  "colour83",   // lime
+  "colour141",  // lavender
+];
+
+export function paneColor(index: number): string {
+  return PANE_COLORS[index % PANE_COLORS.length];
+}
+
 export function paneTitle(t: OverviewTarget): string {
   return `${t.oracle} (${t.session}:${t.window})`;
 }
 
 export function mirrorCmd(t: OverviewTarget): string {
-  return `watch --color -t -n2 'maw peek ${t.windowName} 2>/dev/null || echo "(offline)"'`;
+  const target = `${t.session}:${t.window}`;
+  return `watch --color -t -n0.5 "tmux capture-pane -t '${target}' -e -p -S -200 2>/dev/null | tail -\\$(tput lines)"`;
 }
 
 export function pickLayout(count: number): string {
@@ -66,11 +84,21 @@ export async function cmdOverview(filterArgs: string[]) {
   // Create overview session with first window
   await ssh("tmux new-session -d -s 0-overview -n page-1");
 
-  // Enable pane border titles
+  // Style: pane borders
   await ssh("tmux set -t 0-overview pane-border-status top");
   await ssh('tmux set -t 0-overview pane-border-format " #{pane_title} "');
-  await ssh("tmux set -t 0-overview pane-border-style fg=colour240");
+  await ssh("tmux set -t 0-overview pane-border-style fg=colour238");
   await ssh("tmux set -t 0-overview pane-active-border-style fg=colour45");
+
+  // Style: status bar
+  await ssh("tmux set -t 0-overview status-style bg=colour235,fg=colour248");
+  await ssh("tmux set -t 0-overview status-left-length 40");
+  await ssh("tmux set -t 0-overview status-right-length 60");
+  await ssh(`tmux set -t 0-overview status-left '#[fg=colour16,bg=colour204,bold] \u2588 MAW #[fg=colour204,bg=colour238] #[fg=colour255,bg=colour238] ${targets.length} oracles #[fg=colour238,bg=colour235] '`);
+  await ssh(`tmux set -t 0-overview status-right '#[fg=colour238,bg=colour235]#[fg=colour114,bg=colour238] \u25cf live #[fg=colour81,bg=colour238] %H:%M #[fg=colour16,bg=colour81,bold] %d-%b '`);
+  await ssh("tmux set -t 0-overview status-justify centre");
+  await ssh("tmux set -t 0-overview window-status-format '#[fg=colour248,bg=colour235] #I:#W '");
+  await ssh("tmux set -t 0-overview window-status-current-format '#[fg=colour16,bg=colour45,bold] #I:#W '");
 
   for (let p = 0; p < pages.length; p++) {
     const page = pages[p];
@@ -81,16 +109,19 @@ export async function cmdOverview(filterArgs: string[]) {
       await ssh(`tmux new-window -t 0-overview -n ${winName}`);
     }
 
-    // First pane — set title and start mirror
+    // First pane — set colored title and start mirror
+    const baseIdx = p * PANES_PER_PAGE;
     const pane0 = `0-overview:${winName}.0`;
-    await ssh(`tmux select-pane -t ${pane0} -T '${paneTitle(page[0])}'`);
+    const color0 = paneColor(baseIdx);
+    await ssh(`tmux select-pane -t ${pane0} -T '#[fg=${color0},bold]${paneTitle(page[0])}#[default]'`);
     await ssh(`tmux send-keys -t ${pane0} "${mirrorCmd(page[0]).replace(/"/g, '\\"')}" Enter`);
 
     // Split for remaining targets in this page
     for (let i = 1; i < page.length; i++) {
       await ssh(`tmux split-window -t 0-overview:${winName}`);
       const paneId = `0-overview:${winName}.${i}`;
-      await ssh(`tmux select-pane -t ${paneId} -T '${paneTitle(page[i])}'`);
+      const color = paneColor(baseIdx + i);
+      await ssh(`tmux select-pane -t ${paneId} -T '#[fg=${color},bold]${paneTitle(page[i])}#[default]'`);
       await ssh(`tmux send-keys -t ${paneId} "${mirrorCmd(page[i]).replace(/"/g, '\\"')}" Enter`);
       await ssh(`tmux select-layout -t 0-overview:${winName} tiled`);
     }
