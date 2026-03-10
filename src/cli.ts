@@ -228,11 +228,13 @@ async function ensurePeriodComments(repo: string, threadNum: number): Promise<Re
       result[p.key] = existing;
     } else {
       // Create period comment
-      const body = `${p.label}\\n\\n_(no tasks yet)_`;
+      const body = `${p.label}\n\n_(no tasks yet)_`;
+      const jsonBody = JSON.stringify({ body });
+      const escapedBody = jsonBody.replace(/'/g, "'\\''");
       const created = (await ssh(
-        `gh api repos/${repo}/issues/${threadNum}/comments -f body='${body}' --jq '.id'`
+        `echo '${escapedBody}' | gh api repos/${repo}/issues/${threadNum}/comments --input - --jq '.id'`
       )).trim();
-      result[p.key] = { id: created, body: `${p.label}\n\n_(no tasks yet)_` };
+      result[p.key] = { id: created, body };
     }
   }
 
@@ -253,11 +255,13 @@ async function addTaskToPeriodComment(repo: string, threadNum: number, period: s
   if (comment.body.includes("_(no tasks yet)_")) {
     newBody = comment.body.replace("_(no tasks yet)_", taskLine);
   } else {
-    newBody = comment.body + "\\n" + taskLine;
+    newBody = comment.body + "\n" + taskLine;
   }
 
-  const escaped = newBody.replace(/'/g, "'\\''");
-  await ssh(`gh api repos/${repo}/issues/comments/${comment.id} -X PATCH -f body='${escaped}'`);
+  // Use --input to pass body via stdin (handles newlines correctly)
+  const jsonBody = JSON.stringify({ body: newBody });
+  const escaped = jsonBody.replace(/'/g, "'\\''");
+  await ssh(`echo '${escaped}' | gh api repos/${repo}/issues/comments/${comment.id} -X PATCH --input -`);
 }
 
 async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }) {
