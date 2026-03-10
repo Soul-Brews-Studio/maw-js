@@ -123,7 +123,7 @@ export { app };
 
 // --- WebSocket + Server ---
 
-type WSData = { target: string | null };
+type WSData = { target: string | null; previewTargets: Set<string> };
 
 const clients = new Set<ServerWebSocket<WSData>>();
 
@@ -144,6 +144,34 @@ async function pushCapture(ws: ServerWebSocket<WSData>) {
   }
 }
 
+// Preview capture: lightweight 3-line captures for visible agents
+const lastPreviews = new Map<ServerWebSocket<WSData>, Map<string, string>>();
+
+async function pushPreviews(ws: ServerWebSocket<WSData>) {
+  const targets = ws.data.previewTargets;
+  if (!targets || targets.size === 0) return;
+  const prevMap = lastPreviews.get(ws) || new Map<string, string>();
+  const changed: Record<string, string> = {};
+  let hasChanges = false;
+
+  await Promise.allSettled([...targets].map(async (target) => {
+    try {
+      const content = await capture(target, 3);
+      const prev = prevMap.get(target);
+      if (content !== prev) {
+        prevMap.set(target, content);
+        changed[target] = content;
+        hasChanges = true;
+      }
+    } catch {}
+  }));
+
+  lastPreviews.set(ws, prevMap);
+  if (hasChanges) {
+    ws.send(JSON.stringify({ type: "previews", data: changed }));
+  }
+}
+
 // Broadcast sessions to all clients (diff-only: skip if unchanged)
 let lastSessionsJson = "";
 async function broadcastSessions() {
@@ -161,21 +189,27 @@ async function broadcastSessions() {
 // Capture loop — push to each subscribed client
 let captureInterval: ReturnType<typeof setInterval> | null = null;
 let sessionInterval: ReturnType<typeof setInterval> | null = null;
+let previewInterval: ReturnType<typeof setInterval> | null = null;
 
 function startIntervals() {
   if (captureInterval) return;
-  // Capture every 50ms for real-time feel
+  // Capture every 50ms for real-time feel (full terminal, single subscribed target)
   captureInterval = setInterval(() => {
     for (const ws of clients) pushCapture(ws);
   }, 50);
   // Sessions every 5s
   sessionInterval = setInterval(broadcastSessions, 5000);
+  // Previews every 2s (lightweight 3-line captures for visible agents)
+  previewInterval = setInterval(() => {
+    for (const ws of clients) pushPreviews(ws);
+  }, 2000);
 }
 
 function stopIntervals() {
   if (clients.size > 0) return;
   if (captureInterval) { clearInterval(captureInterval); captureInterval = null; }
   if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
+  if (previewInterval) { clearInterval(previewInterval); previewInterval = null; }
 }
 
 export function startServer(port = +(process.env.MAW_PORT || 3456)) {
@@ -186,7 +220,7 @@ export function startServer(port = +(process.env.MAW_PORT || 3456)) {
       const url = new URL(req.url);
       // Upgrade WebSocket
       if (url.pathname === "/ws") {
-        if (server.upgrade(req, { data: { target: null } })) return;
+        if (server.upgrade(req, { data: { target: null, previewTargets: new Set() } })) return;
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
       return app.fetch(req);
@@ -204,6 +238,9 @@ export function startServer(port = +(process.env.MAW_PORT || 3456)) {
           if (data.type === "subscribe") {
             ws.data.target = data.target;
             pushCapture(ws); // immediate first push
+          } else if (data.type === "subscribe-previews") {
+            ws.data.previewTargets = new Set(data.targets || []);
+            pushPreviews(ws); // immediate first push
           } else if (data.type === "select") {
             selectWindow(data.target).catch(() => {});
           } else if (data.type === "send") {
@@ -220,6 +257,7 @@ export function startServer(port = +(process.env.MAW_PORT || 3456)) {
       close(ws: ServerWebSocket<WSData>) {
         clients.delete(ws);
         lastContent.delete(ws);
+        lastPreviews.delete(ws);
         stopIntervals();
       },
     },

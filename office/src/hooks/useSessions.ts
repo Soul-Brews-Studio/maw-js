@@ -36,6 +36,23 @@ export function useSessions() {
   const handleMessage = useCallback((data: any) => {
     if (data.type === "sessions") {
       setSessions(data.sessions);
+    } else if (data.type === "previews") {
+      // Lightweight preview updates from viewport-aware subscription
+      const previews: Record<string, string> = data.data;
+      setCaptureData((prev) => {
+        let next = prev;
+        for (const [target, raw] of Object.entries(previews)) {
+          const text = stripAnsi(raw);
+          const lines = text.split("\n").filter((l: string) => l.trim());
+          const preview = (lines[lines.length - 1] || "").slice(0, 120);
+          const existing = next[target];
+          if (!existing || existing.preview !== preview) {
+            if (next === prev) next = { ...prev };
+            next[target] = { preview, status: existing?.status || "idle" };
+          }
+        }
+        return next;
+      });
     }
   }, []);
 

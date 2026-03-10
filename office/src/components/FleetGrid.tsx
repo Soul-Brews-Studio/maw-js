@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 import { roomStyle } from "../lib/constants";
 import { BottomStats } from "./BottomStats";
@@ -13,6 +13,74 @@ interface FleetGridProps {
   onSelectAgent: (agent: AgentState) => void;
   eventLog: AgentEvent[];
   addEvent: (target: string, type: AgentEvent["type"], detail: string) => void;
+}
+
+/** FPS counter — measures requestAnimationFrame rate */
+function useFps() {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let frames = 0;
+    let last = performance.now();
+    let id: number;
+    const tick = () => {
+      frames++;
+      const now = performance.now();
+      if (now - last >= 1000) {
+        setFps(frames);
+        frames = 0;
+        last = now;
+      }
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return fps;
+}
+
+/** Track visible agent targets via IntersectionObserver */
+function useVisibleTargets(send: (msg: object) => void) {
+  const visibleRef = useRef(new Set<string>());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const syncToServer = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      send({ type: "subscribe-previews", targets: [...visibleRef.current] });
+    }, 150);
+  }, [send]);
+
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const target = (entry.target as HTMLElement).dataset.target;
+          if (!target) continue;
+          if (entry.isIntersecting) {
+            if (!visibleRef.current.has(target)) { visibleRef.current.add(target); changed = true; }
+          } else {
+            if (visibleRef.current.has(target)) { visibleRef.current.delete(target); changed = true; }
+          }
+        }
+        if (changed) syncToServer();
+      },
+      { rootMargin: "100px" }
+    );
+    return () => {
+      observerRef.current?.disconnect();
+      clearTimeout(debounceRef.current);
+    };
+  }, [syncToServer]);
+
+  const observe = useCallback((el: HTMLElement | null, target: string) => {
+    if (!el || !observerRef.current) return;
+    el.dataset.target = target;
+    observerRef.current.observe(el);
+  }, []);
+
+  return observe;
 }
 
 function sortRooms(sessions: Session[], agentMap: Map<string, AgentState[]>) {
@@ -37,6 +105,8 @@ export const FleetGrid = memo(function FleetGrid({
   eventLog,
   addEvent,
 }: FleetGridProps) {
+  const fps = useFps();
+  const observe = useVisibleTargets(send);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (name: string) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -102,6 +172,8 @@ export const FleetGrid = memo(function FleetGrid({
           <span className="text-white/60">{sessions.length} rooms</span>
           <span className="text-white/20">/</span>
           <span className="text-white/60">{agents.length} agents</span>
+          <span className="text-white/20">/</span>
+          <span style={{ color: fps >= 50 ? "#4caf50" : fps >= 30 ? "#ffa726" : "#ef5350" }}>{fps} fps</span>
         </div>
         <div className="flex items-center gap-5 text-sm font-mono">
           {busyCount > 0 && (
@@ -195,6 +267,7 @@ export const FleetGrid = memo(function FleetGrid({
                   return (
                     <div
                       key={agent.target}
+                      ref={(el) => observe(el, agent.target)}
                       className="flex items-center gap-5 px-6 py-3.5 cursor-pointer transition-all duration-150"
                       style={{
                         borderBottom: !isLast ? `1px solid rgba(255,255,255,0.04)` : "none",
