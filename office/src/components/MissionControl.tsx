@@ -152,7 +152,7 @@ export const MissionControl = memo(function MissionControl({
     return map;
   }, [agents]);
 
-  // Layout: arrange sessions in a hex-ish grid
+  // Layout: merge solo rooms into "Oracles" cluster, arrange in circle
   const layout = useMemo(() => {
     const sessionList = sessions.map((s) => ({
       session: s,
@@ -160,11 +160,27 @@ export const MissionControl = memo(function MissionControl({
       style: roomStyle(s.name),
     }));
 
-    const cx = 640, cy = 460;
-    const radius = Math.min(370, 160 + sessionList.length * 22);
+    // Separate multi-agent rooms from solo rooms
+    const multi = sessionList.filter(s => s.agents.length > 1);
+    const soloAgents = sessionList.filter(s => s.agents.length === 1).flatMap(s => s.agents);
 
-    return sessionList.map((s, i) => {
-      const angle = (i / sessionList.length) * Math.PI * 2 - Math.PI / 2;
+    // Build virtual sessions: "Oracles" cluster + multi-agent rooms
+    type LayoutItem = typeof sessionList[0];
+    const virtual: LayoutItem[] = [];
+    if (soloAgents.length > 0) {
+      virtual.push({
+        session: { name: "_oracles", windows: [] },
+        agents: soloAgents,
+        style: { accent: "#7e57c2", floor: "#1a1428", wall: "#120e1e", label: "Oracles" },
+      });
+    }
+    virtual.push(...multi);
+
+    const cx = 640, cy = 460;
+    const radius = Math.min(370, 160 + virtual.length * 28);
+
+    return virtual.map((s, i) => {
+      const angle = (i / virtual.length) * Math.PI * 2 - Math.PI / 2;
       const x = cx + Math.cos(angle) * radius;
       const y = cy + Math.sin(angle) * radius;
       return { ...s, x, y };

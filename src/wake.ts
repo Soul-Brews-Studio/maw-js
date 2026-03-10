@@ -1,6 +1,31 @@
 import { listSessions, ssh } from "./ssh";
 import type { Session } from "./ssh";
 
+/** Fetch a GitHub issue and build a prompt for claude -p */
+export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise<string> {
+  // Detect repo from git remote if not specified
+  let repoSlug = repo;
+  if (!repoSlug) {
+    try {
+      const remote = await ssh("git remote get-url origin 2>/dev/null");
+      const m = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+      if (m) repoSlug = m[1];
+    } catch {}
+  }
+  if (!repoSlug) throw new Error("Could not detect repo — pass --repo org/name");
+
+  const json = await ssh(`gh issue view ${issueNum} --repo '${repoSlug}' --json title,body,labels`);
+  const issue = JSON.parse(json);
+  const labels = (issue.labels || []).map((l: any) => l.name).join(", ");
+  const parts = [
+    `Work on issue #${issueNum}: ${issue.title}`,
+    labels ? `Labels: ${labels}` : "",
+    "",
+    issue.body || "(no description)",
+  ];
+  return parts.filter(Boolean).join("\n");
+}
+
 export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   const ghqOut = await ssh(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`);
   if (!ghqOut) {

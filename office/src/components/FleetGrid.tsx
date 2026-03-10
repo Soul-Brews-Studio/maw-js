@@ -209,8 +209,8 @@ export const FleetGrid = memo(function FleetGrid({
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectAgent(agent); } }}
                     >
                       {/* Avatar */}
-                      <div className="w-11 h-11 flex-shrink-0" style={{ overflow: "visible" }}>
-                        <svg viewBox="-40 -50 80 80" width={44} height={44} overflow="visible">
+                      <div className="w-14 h-14 flex-shrink-0" style={{ overflow: "visible" }}>
+                        <svg viewBox="-40 -50 80 80" width={56} height={56} overflow="visible">
                           <AgentAvatar
                             name={agent.name}
                             target={agent.target}
@@ -223,35 +223,40 @@ export const FleetGrid = memo(function FleetGrid({
                         </svg>
                       </div>
 
-                      {/* Name */}
-                      <span
-                        className="text-[14px] font-medium w-48 flex-shrink-0 truncate"
-                        style={{ color: isBusy ? style.accent : "#CBD5E1" }}
-                      >
-                        {agent.name.replace(/-oracle$/, "").replace(/-/g, " ")}
-                      </span>
+                      {/* Info column */}
+                      <div className="flex flex-col gap-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-3">
+                          {/* Name */}
+                          <span
+                            className="text-[15px] font-semibold truncate"
+                            style={{ color: isBusy ? style.accent : "#E2E8F0" }}
+                          >
+                            {agent.name.replace(/-oracle$/, "").replace(/-/g, " ")}
+                          </span>
 
-                      {/* Status badge */}
-                      <span
-                        className="text-[11px] font-mono px-2.5 py-1 rounded-md flex-shrink-0"
-                        style={{
-                          background: isBusy ? "#ffa72620" : agent.status === "ready" ? "#22C55E18" : "rgba(255,255,255,0.06)",
-                          color: isBusy ? "#ffa726" : agent.status === "ready" ? "#22C55E" : "#94A3B8",
-                        }}
-                      >
-                        {agent.status}
-                      </span>
+                          {/* Status badge */}
+                          <span
+                            className="text-[11px] font-mono px-2.5 py-1 rounded-md flex-shrink-0"
+                            style={{
+                              background: isBusy ? "#ffa72620" : agent.status === "ready" ? "#22C55E18" : "rgba(255,255,255,0.06)",
+                              color: isBusy ? "#ffa726" : agent.status === "ready" ? "#22C55E" : "#94A3B8",
+                            }}
+                          >
+                            {agent.status}
+                          </span>
 
-                      {isSaiyan && (
-                        <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-amber-400/20 text-amber-400 flex-shrink-0">
-                          SAIYAN
+                          {isSaiyan && (
+                            <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-amber-400/20 text-amber-400 flex-shrink-0">
+                              SAIYAN
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Activity preview */}
+                        <span className="text-[13px] truncate" style={{ color: "#64748B" }}>
+                          {agent.preview?.slice(0, 80) || "\u00a0"}
                         </span>
-                      )}
-
-                      {/* Activity preview */}
-                      <span className="text-[13px] truncate flex-1" style={{ color: "#64748B" }}>
-                        {agent.preview?.slice(0, 60) || ""}
-                      </span>
+                      </div>
                     </div>
                   );
                 })}

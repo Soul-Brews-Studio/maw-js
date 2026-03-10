@@ -3,7 +3,7 @@ process.env.MAW_CLI = "1";
 
 import { listSessions, findWindow, capture, sendKeys } from "./ssh";
 import { cmdOverview } from "./overview";
-import { cmdWake } from "./wake";
+import { cmdWake, fetchIssuePrompt } from "./wake";
 import { cmdPulseAdd, cmdPulseLs } from "./pulse";
 import { cmdSpawn } from "./spawn";
 import { cmdOracleList } from "./oracle";
@@ -66,6 +66,7 @@ function usage() {
   maw peek [agent]            Peek agent screen (or all)
   maw hey <agent> <msg...>    Send message to agent (alias: tell)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
+  maw wake <oracle> --issue N Wake oracle with GitHub issue as prompt
   maw fleet init              Scan ghq repos, generate fleet/*.json
   maw wake all [--kill]       Wake entire fleet from fleet/*.json
   maw stop                    Stop all fleet sessions
@@ -83,6 +84,8 @@ function usage() {
   maw wake neo                Wake main repo
   maw wake hermes bitkub      Wake existing worktree
   maw wake neo --new free     Create worktree + wake
+  maw wake neo --issue 5      Fetch issue #5 + send as claude -p prompt
+  maw wake neo --issue 5 --repo org/repo   Explicit repo
 
 \x1b[33mPulse add:\x1b[0m
   maw pulse ls                Board table (terminal)
@@ -126,10 +129,19 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   if (args[1].toLowerCase() === "all") {
     await cmdWakeAll({ kill: args.includes("--kill") });
   } else {
-    const wakeOpts: { task?: string; newWt?: string } = {};
+    const wakeOpts: { task?: string; newWt?: string; prompt?: string } = {};
+    let issueNum: number | null = null;
+    let repo: string | undefined;
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }
+      else if (args[i] === "--issue" && args[i + 1]) { issueNum = +args[++i]; }
+      else if (args[i] === "--repo" && args[i + 1]) { repo = args[++i]; }
       else if (!wakeOpts.task) { wakeOpts.task = args[i]; }
+    }
+    if (issueNum) {
+      console.log(`\x1b[36m⚡\x1b[0m fetching issue #${issueNum}...`);
+      wakeOpts.prompt = await fetchIssuePrompt(issueNum, repo);
+      if (!wakeOpts.task) wakeOpts.task = `issue-${issueNum}`;
     }
     await cmdWake(args[1], wakeOpts);
   }

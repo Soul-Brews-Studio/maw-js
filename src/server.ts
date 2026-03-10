@@ -144,11 +144,15 @@ async function pushCapture(ws: ServerWebSocket<WSData>) {
   }
 }
 
-// Broadcast sessions to all clients
+// Broadcast sessions to all clients (diff-only: skip if unchanged)
+let lastSessionsJson = "";
 async function broadcastSessions() {
   if (clients.size === 0) return;
   try {
     const sessions = await listSessions();
+    const json = JSON.stringify(sessions);
+    if (json === lastSessionsJson) return;
+    lastSessionsJson = json;
     const msg = JSON.stringify({ type: "sessions", sessions });
     for (const ws of clients) ws.send(msg);
   } catch {}
