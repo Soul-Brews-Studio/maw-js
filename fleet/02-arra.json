@@ -1,0 +1,25 @@
+{
+  "name": "02-arra",
+  "windows": [
+    {
+      "name": "arthur-oracle",
+      "repo": "Arthur-Oracle-AI/arthur-oracle"
+    },
+    {
+      "name": "dustboy-oracle",
+      "repo": "laris-co/DustBoy-Phd-Oracle"
+    },
+    {
+      "name": "floodboy-oracle",
+      "repo": "laris-co/floodboy-oracle"
+    },
+    {
+      "name": "fireman-oracle",
+      "repo": "laris-co/fireman-oracle"
+    },
+    {
+      "name": "dustboy-chain-oracle",
+      "repo": "laris-co/dustboy-chain-oracle"
+    }
+  ]
+}

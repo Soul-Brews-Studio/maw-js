@@ -1,0 +1,13 @@
+{
+  "name": "01-oracles",
+  "windows": [
+    {
+      "name": "homekeeper-oracle",
+      "repo": "laris-co/homelab"
+    },
+    {
+      "name": "nexus-oracle",
+      "repo": "laris-co/nexus-oracle"
+    }
+  ]
+}

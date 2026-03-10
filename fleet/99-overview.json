@@ -1,0 +1,10 @@
+{
+  "name": "99-overview",
+  "windows": [
+    {
+      "name": "live",
+      "repo": "laris-co/homelab"
+    }
+  ],
+  "skip_command": true
+}

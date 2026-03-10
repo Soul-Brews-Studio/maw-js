@@ -1,0 +1,29 @@
+{
+  "name": "07-hermes",
+  "windows": [
+    {
+      "name": "hermes-oracle",
+      "repo": "laris-co/hermes-oracle"
+    },
+    {
+      "name": "hermes-bitkub",
+      "repo": "laris-co/hermes-oracle.wt-1-bitkub"
+    },
+    {
+      "name": "hermes-psru",
+      "repo": "laris-co/hermes-oracle.wt-2-psru"
+    },
+    {
+      "name": "hermes-pettag",
+      "repo": "laris-co/hermes-oracle.wt-3-pettag"
+    },
+    {
+      "name": "hermes-arthur",
+      "repo": "laris-co/hermes-oracle.wt-4-arthur"
+    },
+    {
+      "name": "hermes-dustboy",
+      "repo": "laris-co/hermes-oracle.wt-5-dustboy-floodboy-fireman"
+    }
+  ]
+}

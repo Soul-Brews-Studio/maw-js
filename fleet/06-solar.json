@@ -1,0 +1,9 @@
+{
+  "name": "06-solar",
+  "windows": [
+    {
+      "name": "volt-oracle",
+      "repo": "laris-co/volt-oracle"
+    }
+  ]
+}

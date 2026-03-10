@@ -7,6 +7,7 @@ import { cmdWake } from "./wake";
 import { cmdPulseAdd, cmdPulseLs } from "./pulse";
 import { cmdSpawn } from "./spawn";
 import { cmdOracleList } from "./oracle";
+import { cmdWakeAll, cmdSleep } from "./fleet";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -64,6 +65,8 @@ function usage() {
   maw peek [agent]            Peek agent screen (or all)
   maw hey <agent> <msg...>    Send message to agent (alias: tell)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
+  maw wake all [--kill]       Wake entire fleet from fleet/*.json
+  maw sleep                   Put all fleet sessions to sleep
   maw spawn <oracle> [opts]   Create tmux session from worktrees
   maw oracle ls               Fleet status (awake/sleeping/worktrees)
   maw overview              War-room: all oracles in split panes
@@ -112,14 +115,20 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 } else if (cmd === "hey" || cmd === "send" || cmd === "tell") {
   if (!args[1] || !args[2]) { console.error("usage: maw hey <agent> <message>"); process.exit(1); }
   await cmdSend(args[1], args.slice(2).join(" "));
+} else if (cmd === "sleep" || cmd === "rest") {
+  await cmdSleep();
 } else if (cmd === "wake") {
-  if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>]"); process.exit(1); }
-  const wakeOpts: { task?: string; newWt?: string } = {};
-  for (let i = 2; i < args.length; i++) {
-    if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }
-    else if (!wakeOpts.task) { wakeOpts.task = args[i]; }
+  if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>]\n       maw wake all [--kill]"); process.exit(1); }
+  if (args[1].toLowerCase() === "all") {
+    await cmdWakeAll({ kill: args.includes("--kill") });
+  } else {
+    const wakeOpts: { task?: string; newWt?: string } = {};
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }
+      else if (!wakeOpts.task) { wakeOpts.task = args[i]; }
+    }
+    await cmdWake(args[1], wakeOpts);
   }
-  await cmdWake(args[1], wakeOpts);
 } else if (cmd === "pulse") {
   const subcmd = args[1];
   if (subcmd === "add") {

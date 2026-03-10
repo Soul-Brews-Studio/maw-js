@@ -1,0 +1,9 @@
+{
+  "name": "10-calliope",
+  "windows": [
+    {
+      "name": "calliope-oracle",
+      "repo": "laris-co/calliope-oracle"
+    }
+  ]
+}

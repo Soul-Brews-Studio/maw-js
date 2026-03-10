@@ -1,0 +1,13 @@
+{
+  "name": "03-brewing",
+  "windows": [
+    {
+      "name": "xiaoer-oracle",
+      "repo": "laris-co/thong-pradit-brewing-oracle"
+    },
+    {
+      "name": "maeon-oracle",
+      "repo": "laris-co/maeon-craft-oracle"
+    }
+  ]
+}

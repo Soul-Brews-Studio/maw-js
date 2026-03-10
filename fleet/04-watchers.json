@@ -1,0 +1,17 @@
+{
+  "name": "04-watchers",
+  "windows": [
+    {
+      "name": "mother-oracle",
+      "repo": "laris-co/mother-oracle"
+    },
+    {
+      "name": "landing-oracle",
+      "repo": "Soul-Brews-Studio/landing-oracle"
+    },
+    {
+      "name": "odin-oracle",
+      "repo": "laris-co/odin-oracle"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "09-pulse",
+  "windows": [
+    {
+      "name": "pulse-oracle",
+      "repo": "laris-co/pulse-oracle"
+    },
+    {
+      "name": "pulse-1-scheduler",
+      "repo": "laris-co/pulse-oracle.wt-1-scheduler"
+    },
+    {
+      "name": "pulse-2-realtime",
+      "repo": "laris-co/pulse-oracle.wt-2-realtime"
+    }
+  ]
+}

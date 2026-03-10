@@ -1,0 +1,13 @@
+{
+  "name": "05-tools",
+  "windows": [
+    {
+      "name": "skills-cli-oracle",
+      "repo": "Soul-Brews-Studio/oracle-skills-cli"
+    },
+    {
+      "name": "oracle-v2",
+      "repo": "Soul-Brews-Studio/oracle-v2"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "08-neo",
+  "windows": [
+    {
+      "name": "neo-oracle",
+      "repo": "laris-co/neo-oracle"
+    },
+    {
+      "name": "neo-1-freelance",
+      "repo": "laris-co/neo-oracle.wt-1-freelance"
+    },
+    {
+      "name": "neo-2-freelance",
+      "repo": "laris-co/neo-oracle.wt-2-freelance"
+    },
+    {
+      "name": "neo-3-maw-js",
+      "repo": "laris-co/neo-oracle.wt-3-maw-js"
+    },
+    {
+      "name": "neo-4-oracle-v2",
+      "repo": "laris-co/neo-oracle.wt-4-oracle-v2"
+    },
+    {
+      "name": "neo-hermes-oracle",
+      "repo": "laris-co/neo-oracle.wt-5-hermes-oracle"
+    }
+  ]
+}

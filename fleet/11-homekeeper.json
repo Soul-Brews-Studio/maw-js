@@ -1,0 +1,13 @@
+{
+  "name": "11-homekeeper",
+  "windows": [
+    {
+      "name": "homekeeper-oracle",
+      "repo": "laris-co/homelab"
+    },
+    {
+      "name": "homekeeper-statusline",
+      "repo": "laris-co/homelab-wt-statusline"
+    }
+  ]
+}
