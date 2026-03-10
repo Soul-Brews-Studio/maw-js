@@ -8,6 +8,7 @@ import { cmdPulseAdd, cmdPulseLs } from "./pulse";
 import { cmdSpawn } from "./spawn";
 import { cmdOracleList } from "./oracle";
 import { cmdWakeAll, cmdSleep } from "./fleet";
+import { cmdFleetInit } from "./fleet-init";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -65,6 +66,7 @@ function usage() {
   maw peek [agent]            Peek agent screen (or all)
   maw hey <agent> <msg...>    Send message to agent (alias: tell)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
+  maw fleet init              Scan ghq repos, generate fleet/*.json
   maw wake all [--kill]       Wake entire fleet from fleet/*.json
   maw sleep                   Put all fleet sessions to sleep
   maw spawn <oracle> [opts]   Create tmux session from worktrees
@@ -115,6 +117,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 } else if (cmd === "hey" || cmd === "send" || cmd === "tell") {
   if (!args[1] || !args[2]) { console.error("usage: maw hey <agent> <message>"); process.exit(1); }
   await cmdSend(args[1], args.slice(2).join(" "));
+} else if (cmd === "fleet" && args[1] === "init") {
+  await cmdFleetInit();
 } else if (cmd === "sleep" || cmd === "rest") {
   await cmdSleep();
 } else if (cmd === "wake") {
