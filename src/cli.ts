@@ -169,7 +169,7 @@ async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; pr
   return `${session}:${windowName}`;
 }
 
-async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; worktree?: boolean; wt?: string }) {
+async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }) {
   const repo = "laris-co/pulse-oracle";
   const projectNum = 6; // Master Board
 
@@ -198,18 +198,16 @@ async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: st
   // 3. Wake oracle if specified
   if (opts.oracle) {
     const wakeOpts: { task?: string; newWt?: string; prompt?: string } = {};
-    if (opts.worktree) {
-      // Auto-generate worktree name from title slug
-      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
-      wakeOpts.newWt = slug;
-    } else if (opts.wt) {
-      wakeOpts.task = opts.wt;
+    if (opts.wt) {
+      // --wt <name>: use existing or create new worktree with this name
+      wakeOpts.newWt = opts.wt;
     }
-    const prompt = `Implement: ${title}. Issue: ${issueUrl} — Read the issue for full context. When done: (1) commit and push the branch, (2) comment on the issue via gh issue comment with commit hash, files changed, and brief summary.`;
+    // First command: orient with /recap --deep, not implement
+    const prompt = `/recap --deep — You have been assigned issue #${issueNum}: ${title}. Issue URL: ${issueUrl}. Orient yourself, then wait for human instructions.`;
     wakeOpts.prompt = prompt;
 
     const target = await cmdWake(opts.oracle, wakeOpts);
-    console.log(`\x1b[32m🚀\x1b[0m ${target}: claude -p running autonomously`);
+    console.log(`\x1b[32m🚀\x1b[0m ${target}: waking up with /recap --deep → then --continue`);
   }
 }
 
@@ -274,8 +272,8 @@ function usage() {
 
 \x1b[33mPulse add:\x1b[0m
   maw pulse add "Fix bug" --oracle neo
-  maw pulse add "Dashboard" --oracle hermes --worktree
-  maw pulse add "Deploy" --oracle neo --wt bitkub --priority P1
+  maw pulse add "Add status tool" --oracle neo --wt oracle-v2
+  maw pulse add "Deploy" --oracle hermes --wt bitkub
 
 \x1b[33mSpawn options:\x1b[0m
   --name <session>            Custom tmux session name
@@ -315,16 +313,15 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 } else if (cmd === "pulse") {
   const subcmd = args[1];
   if (subcmd === "add") {
-    const pulseOpts: { oracle?: string; priority?: string; worktree?: boolean; wt?: string } = {};
+    const pulseOpts: { oracle?: string; priority?: string; wt?: string } = {};
     let title = "";
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--oracle" && args[i + 1]) { pulseOpts.oracle = args[++i]; }
       else if (args[i] === "--priority" && args[i + 1]) { pulseOpts.priority = args[++i]; }
-      else if (args[i] === "--worktree") { pulseOpts.worktree = true; }
-      else if (args[i] === "--wt" && args[i + 1]) { pulseOpts.wt = args[++i]; }
+      else if ((args[i] === "--wt" || args[i] === "--worktree") && args[i + 1]) { pulseOpts.wt = args[++i]; }
       else if (!title) { title = args[i]; }
     }
-    if (!title) { console.error('usage: maw pulse add "task title" --oracle <name> [--worktree] [--priority P1]'); process.exit(1); }
+    if (!title) { console.error('usage: maw pulse add "task title" --oracle <name> [--wt <repo>]'); process.exit(1); }
     await cmdPulseAdd(title, pulseOpts);
   } else {
     console.error("usage: maw pulse add <title> [opts]");
