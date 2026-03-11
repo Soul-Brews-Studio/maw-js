@@ -222,31 +222,33 @@ export const AgentRow = memo(function AgentRow({
         {/* Agent controls */}
         {send && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Sleep — Ctrl+C */}
-            <button
-              className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
-              style={{ background: "rgba(251,191,36,0.12)" }}
-              onClick={(e) => { e.stopPropagation(); send({ type: "sleep", target: agent.target }); }}
-              title="Sleep (Ctrl+C)"
-              aria-label={`Sleep ${displayName}`}
-            >
-              <svg width={14} height={14} viewBox="0 0 24 24" fill="#fbbf24">
-                <rect x={6} y={5} width={4} height={14} rx={1} />
-                <rect x={14} y={5} width={4} height={14} rx={1} />
-              </svg>
-            </button>
-            {/* Wake — restart command */}
-            <button
-              className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
-              style={{ background: "rgba(34,197,94,0.12)" }}
-              onClick={(e) => { e.stopPropagation(); send({ type: "wake", target: agent.target, command: guessCommand(agent.name) }); }}
-              title="Wake (restart)"
-              aria-label={`Wake ${displayName}`}
-            >
-              <svg width={14} height={14} viewBox="0 0 24 24" fill="#22c55e">
-                <polygon points="8,5 19,12 8,19" />
-              </svg>
-            </button>
+            {/* Sleep when busy, Wake when idle/ready */}
+            {isBusy ? (
+              <button
+                className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
+                style={{ background: "rgba(251,191,36,0.12)" }}
+                onClick={(e) => { e.stopPropagation(); send({ type: "sleep", target: agent.target }); }}
+                title="Sleep (Ctrl+C)"
+                aria-label={`Sleep ${displayName}`}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="#fbbf24">
+                  <rect x={6} y={5} width={4} height={14} rx={1} />
+                  <rect x={14} y={5} width={4} height={14} rx={1} />
+                </svg>
+              </button>
+            ) : (
+              <button
+                className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
+                style={{ background: "rgba(34,197,94,0.12)" }}
+                onClick={(e) => { e.stopPropagation(); send({ type: "wake", target: agent.target, command: guessCommand(agent.name) }); }}
+                title="Wake (restart)"
+                aria-label={`Wake ${displayName}`}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="#22c55e">
+                  <polygon points="8,5 19,12 8,19" />
+                </svg>
+              </button>
+            )}
             {/* Mic button */}
             <button
               className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
