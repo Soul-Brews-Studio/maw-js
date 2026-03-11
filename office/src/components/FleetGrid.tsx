@@ -341,7 +341,7 @@ export const FleetGrid = memo(function FleetGrid({
                   <AgentRow key={`recent-${entry.target}`} agent={agent} accent={rs.accent} roomLabel={rs.label}
                     saiyan={saiyanTargets.has(entry.target)} saiyanSource={saiyanSources[entry.target]} isLast={i === recentlyActive.length - 1}
                     featured={i === 0} agoLabel={agoLabel} feedLog={getAgentFeedLog(agent.name)}
-                    slept={sleptTargets.includes(entry.target)}
+                    slept={sleptTargets.includes(entry.target)} alignWidth={96}
                     observe={observe} showPreview={showPreview} hidePreview={hidePreview} onAgentClick={onAgentClick}
                     send={send} onSendDone={onSendDone} />
                 );

@@ -18,6 +18,7 @@ interface AgentRowProps {
   featured?: boolean;
   feedLog?: FeedLogEntry[] | null;
   slept?: boolean;
+  alignWidth?: number;
   observe: (el: HTMLElement | null, target: string) => void;
   showPreview: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
   hidePreview: () => void;
@@ -37,6 +38,7 @@ export const AgentRow = memo(function AgentRow({
   featured,
   feedLog,
   slept,
+  alignWidth,
   observe,
   showPreview,
   hidePreview,
@@ -131,8 +133,8 @@ export const AgentRow = memo(function AgentRow({
           className="flex-shrink-0 cursor-pointer flex items-center justify-center"
           style={{
             overflow: "visible",
-            width: 96, height: featured ? 96 : 56,
-            transition: "height 0.3s",
+            width: alignWidth || (featured ? 96 : 56), height: featured ? 96 : 56,
+            transition: "width 0.3s, height 0.3s",
             animation: saiyan ? "saiyanPulse 1.5s ease-in-out infinite" : "none",
           }}
           onMouseEnter={isTouch ? undefined : (e) => showPreview(agent, accent, roomLabel, e)}
