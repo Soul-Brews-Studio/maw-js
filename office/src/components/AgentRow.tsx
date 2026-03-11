@@ -3,6 +3,8 @@ import { AgentAvatar } from "./AgentAvatar";
 import { MiniMonitor } from "./MiniMonitor";
 import type { AgentState } from "../lib/types";
 
+const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
 interface AgentRowProps {
   agent: AgentState;
   accent: string;
@@ -76,8 +78,8 @@ export const AgentRow = memo(function AgentRow({
         <div
           className="w-14 h-14 flex-shrink-0 cursor-pointer"
           style={{ overflow: "visible" }}
-          onMouseEnter={(e) => showPreview(agent, accent, roomLabel, e)}
-          onMouseLeave={() => hidePreview()}
+          onMouseEnter={isTouch ? undefined : (e) => showPreview(agent, accent, roomLabel, e)}
+          onMouseLeave={isTouch ? undefined : () => hidePreview()}
         >
           <svg viewBox="-40 -50 80 80" width={56} height={56} overflow="visible">
             <AgentAvatar
@@ -92,15 +94,17 @@ export const AgentRow = memo(function AgentRow({
           </svg>
         </div>
 
-        {/* Mini monitor */}
-        <MiniMonitor
-          target={agent.target}
-          accent={accent}
-          busy={isBusy}
-          onMouseEnter={(e) => showPreview(agent, accent, roomLabel, e)}
-          onMouseLeave={() => hidePreview()}
-          onClick={(e) => onAgentClick(agent, accent, roomLabel, e)}
-        />
+        {/* Mini monitor — hidden on touch (no hover to preview) */}
+        {!isTouch && (
+          <MiniMonitor
+            target={agent.target}
+            accent={accent}
+            busy={isBusy}
+            onMouseEnter={(e) => showPreview(agent, accent, roomLabel, e)}
+            onMouseLeave={() => hidePreview()}
+            onClick={(e) => onAgentClick(agent, accent, roomLabel, e)}
+          />
+        )}
 
         {/* Info column */}
         <div className="flex flex-col gap-1 flex-1 min-w-0">
