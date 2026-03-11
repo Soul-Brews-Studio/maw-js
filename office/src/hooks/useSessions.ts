@@ -4,6 +4,7 @@ import { stripAnsi } from "../lib/ansi";
 import { playSaiyanSound } from "../lib/sounds";
 import { agentSortKey } from "../lib/constants";
 import { useFleetStore } from "../lib/store";
+import { activeOracles, describeActivity, type FeedEvent } from "../lib/feed";
 
 // Simple string hash
 function hash(s: string): number {
@@ -27,6 +28,10 @@ export function useSessions() {
   const [eventLog, setEventLog] = useState<AgentEvent[]>([]);
   const MAX_EVENTS = 200;
 
+  // Oracle feed state
+  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
+  const MAX_FEED = 100;
+
   const addEvent = useCallback((target: string, type: AgentEvent["type"], detail: string) => {
     setEventLog(prev => {
       const next = [...prev, { time: Date.now(), target, type, detail }];
@@ -43,6 +48,15 @@ export function useSessions() {
       // Server-side recent agents → merge into zustand store
       const agents: { target: string; name: string; session: string }[] = data.agents || [];
       if (agents.length > 0) markBusy(agents);
+    } else if (data.type === "feed") {
+      // Single real-time feed event
+      setFeedEvents(prev => {
+        const next = [...prev, data.event as FeedEvent];
+        return next.length > MAX_FEED ? next.slice(-MAX_FEED) : next;
+      });
+    } else if (data.type === "feed-history") {
+      // Batch of recent events on connect
+      setFeedEvents((data.events as FeedEvent[]).slice(-MAX_FEED));
     } else if (data.type === "previews") {
       // Lightweight preview updates from viewport-aware subscription
       const previews: Record<string, string> = data.data;
@@ -189,5 +203,8 @@ export function useSessions() {
     return list;
   }, [sessions, captureData]);
 
-  return { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage };
+  // Compute active oracles from feed (memoized, 5min window)
+  const feedActive = useMemo(() => activeOracles(feedEvents, 5 * 60_000), [feedEvents]);
+
+  return { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage, feedEvents, feedActive };
 }

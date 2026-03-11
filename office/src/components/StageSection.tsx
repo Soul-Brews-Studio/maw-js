@@ -21,11 +21,17 @@ export const StageSection = memo(function StageSection({
   hidePreview,
   onAgentClick,
 }: StageSectionProps) {
-  // Ghost agents: recent but not busy, shown greyed out on stage
+  // Ghost agents: recent but not busy, shown greyed out on stage (dedup by name)
   const ghostAgents = useMemo(() => {
-    const busyTargets = new Set(busyAgents.map(a => a.target));
+    const busyNames = new Set(busyAgents.map(a => a.name));
+    const seenNames = new Set<string>();
     return recentlyActive
-      .filter(e => !busyTargets.has(e.target))
+      .filter(e => !busyNames.has(e.name))
+      .filter(e => {
+        if (seenNames.has(e.name)) return false;
+        seenNames.add(e.name);
+        return true;
+      })
       .slice(0, 5)
       .map(e => {
         if ("status" in e) return e as AgentState;

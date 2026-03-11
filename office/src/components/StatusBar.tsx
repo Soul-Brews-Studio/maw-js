@@ -5,6 +5,7 @@ interface StatusBarProps {
   agentCount: number;
   sessionCount: number;
   activeView?: string;
+  onJump?: () => void;
 }
 
 const NAV_ITEMS = [
@@ -15,7 +16,9 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Orbital", id: "orbital" },
 ];
 
-export const StatusBar = memo(function StatusBar({ connected, agentCount, sessionCount, activeView = "office" }: StatusBarProps) {
+const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+export const StatusBar = memo(function StatusBar({ connected, agentCount, sessionCount, activeView = "office", onJump }: StatusBarProps) {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 mx-4 sm:mx-6 mt-3 px-4 sm:px-6 py-2.5 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/[0.06] shadow-[0_4px_30px_rgba(0,0,0,0.4)]">
       <h1 className="text-base sm:text-lg font-bold tracking-[4px] sm:tracking-[6px] text-cyan-400 uppercase whitespace-nowrap">
@@ -34,7 +37,18 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
         <strong className="text-purple-400">{sessionCount}</strong> rooms
       </span>
 
-      <nav className="ml-auto flex items-center gap-3 sm:gap-4 text-sm">
+      {isTouch && onJump && (
+        <button
+          onClick={onJump}
+          className="ml-auto px-3 py-1.5 rounded-lg text-xs font-mono font-bold cursor-pointer active:scale-95 transition-all whitespace-nowrap"
+          style={{ background: "rgba(34,211,238,0.15)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}
+          title="Jump to agent (⌘J)"
+        >
+          ⌘J Jump
+        </button>
+      )}
+
+      <nav className={`${isTouch && onJump ? "" : "ml-auto "}flex items-center gap-3 sm:gap-4 text-sm`}>
         {NAV_ITEMS.map((item) => (
           <a
             key={item.id}

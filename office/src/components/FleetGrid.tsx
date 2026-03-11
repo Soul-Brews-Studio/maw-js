@@ -7,6 +7,7 @@ import { BottomStats } from "./BottomStats";
 import { useFps } from "./FpsCounter";
 import { useFleetStore, RECENT_TTL_MS, type RecentEntry } from "../lib/store";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
+import { describeActivity, type FeedEvent } from "../lib/feed";
 
 interface FleetGridProps {
   sessions: Session[];
@@ -17,6 +18,7 @@ interface FleetGridProps {
   onSelectAgent: (agent: AgentState) => void;
   eventLog: AgentEvent[];
   addEvent: (target: string, type: AgentEvent["type"], detail: string) => void;
+  feedActive?: Map<string, FeedEvent>;
 }
 
 /** Track visible agent targets via IntersectionObserver */
@@ -76,7 +78,7 @@ function sortRooms(sessions: Session[], agentMap: Map<string, AgentState[]>, mod
 }
 
 export const FleetGrid = memo(function FleetGrid({
-  sessions, agents, saiyanTargets, connected, send, onSelectAgent, eventLog, addEvent,
+  sessions, agents, saiyanTargets, connected, send, onSelectAgent, eventLog, addEvent, feedActive,
 }: FleetGridProps) {
   const fps = useFps();
   const observe = useVisibleTargets(send);
@@ -184,25 +186,49 @@ export const FleetGrid = memo(function FleetGrid({
     return result;
   }, [sorted, sessionAgents, grouped]);
 
+  // Resolve feed activity for an agent by oracle name
+  const getFeedActivity = useCallback((agentName: string): string | null => {
+    if (!feedActive) return null;
+    const oracleName = agentName.replace(/-oracle$/, "");
+    const event = feedActive.get(oracleName);
+    if (!event) return null;
+    return describeActivity(event);
+  }, [feedActive]);
+
   const busyAgents = useMemo(() => agents.filter(a => a.status === "busy"), [agents]);
   const busyCount = busyAgents.length;
   const readyCount = agents.filter(a => a.status === "ready").length;
   const idleCount = agents.length - busyCount - readyCount;
 
   // Recently active: busy agents first, then recently-gone from store
+  // Deduplicated by agent name (same agent may have multiple tmux windows)
   const recentlyActive = useMemo((): (AgentState | RecentEntry)[] => {
     const agentMap = new Map(agents.map(a => [a.target, a]));
     const busyTargets = new Set(busyAgents.map(a => a.target));
 
-    // Recently-gone: in store but not currently busy
-    const recentGone = Object.values(recentMap)
-      .filter(e => !busyTargets.has(e.target))
+    // Dedup busy agents by name — keep first (arbitrary, same agent)
+    const seenNames = new Set<string>();
+    const dedupBusy = busyAgents.filter(a => {
+      if (seenNames.has(a.name)) return false;
+      seenNames.add(a.name);
+      return true;
+    });
+
+    // Recently-gone: in store but not currently busy, dedup by name (keep most recent)
+    const recentByName = new Map<string, RecentEntry>();
+    for (const e of Object.values(recentMap)) {
+      if (busyTargets.has(e.target)) continue;
+      const prev = recentByName.get(e.name);
+      if (!prev || e.lastBusy > prev.lastBusy) recentByName.set(e.name, e);
+    }
+    const recentGone = [...recentByName.values()]
+      .filter(e => !seenNames.has(e.name))
       .sort((a, b) => b.lastBusy - a.lastBusy)
       .slice(0, 10)
       .map(e => agentMap.get(e.target) || e);
 
     // Active first, then recently-gone
-    return [...busyAgents, ...recentGone];
+    return [...dedupBusy, ...recentGone];
   }, [agents, busyAgents, recentMap]);
 
   return (
@@ -290,7 +316,7 @@ export const FleetGrid = memo(function FleetGrid({
                 return (
                   <AgentRow key={`recent-${entry.target}`} agent={agent} accent={rs.accent} roomLabel={rs.label}
                     saiyan={saiyanTargets.has(entry.target)} isLast={i === recentlyActive.length - 1}
-                    agoLabel={agoLabel}
+                    agoLabel={agoLabel} feedActivity={getFeedActivity(agent.name)}
                     observe={observe} showPreview={showPreview} hidePreview={hidePreview} onAgentClick={onAgentClick}
                     send={send} onSendDone={onSendDone} />
                 );
@@ -324,6 +350,7 @@ export const FleetGrid = memo(function FleetGrid({
                   {vr.agents.map((agent, i) => (
                     <AgentRow key={agent.target} agent={agent} accent={style.accent} roomLabel={vr.label}
                       saiyan={saiyanTargets.has(agent.target)} isLast={i === vr.agents.length - 1}
+                      feedActivity={getFeedActivity(agent.name)}
                       observe={observe} showPreview={showPreview} hidePreview={hidePreview} onAgentClick={onAgentClick}
                       send={send} onSendDone={onSendDone} />
                   ))}

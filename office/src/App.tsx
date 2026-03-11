@@ -74,7 +74,7 @@ export function App() {
     return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
-  const { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage } = useSessions();
+  const { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage, feedActive } = useSessions();
   const { connected, send } = useWebSocket(handleMessage);
 
   const onSelectAgent = useCallback((agent: AgentState) => {
@@ -119,7 +119,7 @@ export function App() {
     return (
       <div className="relative min-h-screen" style={{ background: "#020208" }}>
         <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="overview" />
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="overview" onJump={() => setShowJump(true)} />
         </div>
         <OverviewGrid
           sessions={sessions}
@@ -141,7 +141,7 @@ export function App() {
     return (
       <div className="relative min-h-screen" style={{ background: "#020208" }}>
         <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="fleet" />
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="fleet" onJump={() => setShowJump(true)} />
         </div>
         <FleetGrid
           sessions={sessions}
@@ -152,6 +152,7 @@ export function App() {
           onSelectAgent={onSelectAgent}
           eventLog={eventLog}
           addEvent={addEvent}
+          feedActive={feedActive}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
@@ -165,7 +166,7 @@ export function App() {
     return (
       <div className="relative min-h-screen" style={{ background: "#020208" }}>
         <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="mission" />
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="mission" onJump={() => setShowJump(true)} />
         </div>
         <MissionControl
           sessions={sessions}
@@ -189,11 +190,12 @@ export function App() {
     <div className="relative min-h-screen">
       <UniverseBg />
       <div className="relative z-10">
-        <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="office" />
+        <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="office" onJump={() => setShowJump(true)} />
         <RoomGrid sessions={sessions} agents={agents} saiyanTargets={saiyanTargets} onSelectAgent={onSelectAgent} />
       </div>
       {terminalModal}
       {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+      {jumpOverlay}
     </div>
   );
 }

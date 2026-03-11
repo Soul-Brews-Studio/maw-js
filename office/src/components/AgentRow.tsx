@@ -12,6 +12,7 @@ interface AgentRowProps {
   saiyan: boolean;
   isLast: boolean;
   agoLabel?: string;
+  feedActivity?: string | null;
   observe: (el: HTMLElement | null, target: string) => void;
   showPreview: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
   hidePreview: () => void;
@@ -27,6 +28,7 @@ export const AgentRow = memo(function AgentRow({
   saiyan,
   isLast,
   agoLabel,
+  feedActivity,
   observe,
   showPreview,
   hidePreview,
@@ -141,6 +143,11 @@ export const AgentRow = memo(function AgentRow({
           <span className="text-[13px] truncate" style={{ color: "#64748B" }}>
             {agent.preview?.slice(0, 80) || "\u00a0"}
           </span>
+          {feedActivity && (
+            <span className="text-[11px] truncate" style={{ color: "#fbbf24", opacity: 0.7 }}>
+              {feedActivity}
+            </span>
+          )}
         </div>
 
         {/* Mic button */}

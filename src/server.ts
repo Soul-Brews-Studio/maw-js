@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { listSessions, capture, sendKeys, selectWindow } from "./ssh";
 import { processMirror } from "./overview";
+import { FeedTailer } from "./feed-tail";
 import type { ServerWebSocket } from "bun";
 
 const app = new Hono();
@@ -115,6 +116,18 @@ app.get("/api/oracle/stats", async (c) => {
   } catch (e: any) {
     return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
   }
+});
+
+// --- Oracle Feed ---
+const feedTailer = new FeedTailer();
+
+app.get("/api/feed", (c) => {
+  const limit = Math.min(200, +(c.req.query("limit") || "50"));
+  const oracle = c.req.query("oracle") || undefined;
+  let events = feedTailer.getRecent(limit);
+  if (oracle) events = events.filter(e => e.oracle === oracle);
+  const active = [...feedTailer.getActive().keys()];
+  return c.json({ events: events.reverse(), total: events.length, active_oracles: active });
 });
 
 app.onError((err, c) => c.json({ error: err.message }, 500));
@@ -246,6 +259,9 @@ let captureInterval: ReturnType<typeof setInterval> | null = null;
 let sessionInterval: ReturnType<typeof setInterval> | null = null;
 let previewInterval: ReturnType<typeof setInterval> | null = null;
 
+// Feed broadcast: emit events to all clients in real-time
+let feedUnsub: (() => void) | null = null;
+
 function startIntervals() {
   if (captureInterval) return;
   // Capture every 50ms for real-time feel (full terminal, single subscribed target)
@@ -258,6 +274,12 @@ function startIntervals() {
   previewInterval = setInterval(() => {
     for (const ws of clients) pushPreviews(ws);
   }, 2000);
+  // Feed tailer
+  feedTailer.start();
+  feedUnsub = feedTailer.onEvent((event) => {
+    const msg = JSON.stringify({ type: "feed", event });
+    for (const ws of clients) ws.send(msg);
+  });
 }
 
 function stopIntervals() {
@@ -265,6 +287,8 @@ function stopIntervals() {
   if (captureInterval) { clearInterval(captureInterval); captureInterval = null; }
   if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
   if (previewInterval) { clearInterval(previewInterval); previewInterval = null; }
+  if (feedUnsub) { feedUnsub(); feedUnsub = null; }
+  feedTailer.stop();
 }
 
 export function startServer(port = +(process.env.MAW_PORT || 3456)) {
@@ -284,11 +308,12 @@ export function startServer(port = +(process.env.MAW_PORT || 3456)) {
       open(ws: ServerWebSocket<WSData>) {
         clients.add(ws);
         startIntervals();
-        // Send sessions + recent immediately
+        // Send sessions + recent + feed history immediately
         listSessions().then(s => {
           ws.send(JSON.stringify({ type: "sessions", sessions: s }));
           ws.send(JSON.stringify({ type: "recent", agents: getRecentList() }));
         }).catch(() => {});
+        ws.send(JSON.stringify({ type: "feed-history", events: feedTailer.getRecent(50) }));
       },
       message(ws: ServerWebSocket<WSData>, msg) {
         try {
