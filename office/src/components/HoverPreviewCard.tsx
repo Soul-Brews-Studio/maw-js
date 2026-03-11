@@ -519,6 +519,37 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
         </div>
       )}
 
+      {/* Quick command shortcuts */}
+      {pinned && send && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0a0a14] border-t border-white/[0.04] overflow-x-auto">
+          {[
+            { label: "y", text: "y\r", color: "#22C55E" },
+            { label: "n", text: "n\r", color: "#ef5350" },
+            { label: "↵", text: "\r", color: "#64748B" },
+            { label: "/recap", text: "/recap\r", color: "#fbbf24" },
+            { label: "/help", text: "/help\r", color: "#42a5f5" },
+            { label: "Ctrl+C", text: "\x03", color: "#ef5350" },
+            { label: "Ctrl+Z", text: "\x1a", color: "#ffa726" },
+            { label: "exit", text: "exit\r", color: "#94A3B8" },
+          ].map(cmd => (
+            <button
+              key={cmd.label}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                send({ type: "send", target: agent.target, text: cmd.text });
+                addEvent?.(agent.target, "command", cmd.label);
+                inputRef.current?.focus();
+              }}
+              className="shrink-0 px-2.5 py-1 rounded-md text-[10px] font-mono cursor-pointer active:scale-90 transition-all"
+              style={{ background: `${cmd.color}15`, color: cmd.color, border: `1px solid ${cmd.color}25` }}
+            >
+              {cmd.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Shortcut hints — always visible when pinned */}
       {pinned && (
         <div className="flex items-center justify-center gap-3 px-3 py-1.5 bg-[#08080c] border-t border-white/[0.04] font-mono text-[8px] text-white/20">
