@@ -11,13 +11,21 @@ interface StatusBarProps {
   children?: ReactNode;
 }
 
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  id: string;
+  external?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/office/#office", label: "Office", id: "office" },
   { href: "/office/#fleet", label: "Fleet", id: "fleet" },
   { href: "/office/#mission", label: "Mission", id: "mission" },
   { href: "/office/#vs", label: "VS", id: "vs" },
   { href: "/office/#overview", label: "Overview", id: "overview" },
   { href: "/office/#config", label: "Config", id: "config" },
+  { href: "http://localhost:3456/", label: "Terminal", id: "terminal", external: true },
   { href: "/dashboard", label: "Orbital", id: "orbital" },
 ];
 
@@ -79,6 +87,8 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
           <a
             key={item.id}
             href={item.href}
+            target={item.external ? "_blank" : undefined}
+            rel={item.external ? "noopener noreferrer" : undefined}
             className={`transition-colors whitespace-nowrap ${
               activeView === item.id
                 ? "text-cyan-400 font-bold"
