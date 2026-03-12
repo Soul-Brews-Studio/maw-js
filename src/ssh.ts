@@ -1,4 +1,6 @@
-const DEFAULT_HOST = process.env.MAW_HOST || "white.local";
+import { loadConfig } from "./config";
+
+const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "white.local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
 
 export async function ssh(cmd: string, host = DEFAULT_HOST): Promise<string> {
@@ -75,6 +77,7 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     "\x1b[C": "Right",
     "\x1b[D": "Left",
     "\r": "Enter",
+    "\n": "Enter",
     "\b": "BSpace",
     "\x15": "C-u",
   };
@@ -82,19 +85,31 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     await ssh(`tmux send-keys -t '${target}' ${SPECIAL_KEYS[text]}`, host);
     return;
   }
-  if (text.length === 1) {
-    // Single char — send literally, no Enter (used for streaming mode)
-    const escaped = text === "'" ? "\"'\"" : `'${text}'`;
+
+  // Strip trailing \r or \n — Enter is appended separately
+  const endsWithEnter = text.endsWith("\r") || text.endsWith("\n");
+  const body = endsWithEnter ? text.slice(0, -1) : text;
+
+  // If only the enter was left after stripping, just send Enter
+  if (!body) {
+    await ssh(`tmux send-keys -t '${target}' Enter`, host);
+    return;
+  }
+
+  if (body.length === 1) {
+    // Single char — send literally
+    const escaped = body === "'" ? "\"'\"" : `'${body}'`;
     await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
-  } else if (text.startsWith("/")) {
+    if (endsWithEnter) await ssh(`tmux send-keys -t '${target}' Enter`, host);
+  } else if (body.startsWith("/")) {
     // Slash commands: send char by char for interactive tools (Claude Code, etc.)
-    for (const ch of text) {
+    for (const ch of body) {
       const escaped = ch === "'" ? "\"'\"" : `'${ch}'`;
       await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
     }
     await ssh(`tmux send-keys -t '${target}' Enter`, host);
   } else {
-    const escaped = text.replace(/'/g, "'\\''");
+    const escaped = body.replace(/'/g, "'\\''");
     await ssh(`tmux send-keys -t '${target}' -- '${escaped}' Enter`, host);
   }
 }

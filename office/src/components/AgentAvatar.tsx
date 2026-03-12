@@ -27,7 +27,7 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
 
   const displayName = name.replace(/-oracle$/, "").replace(/-/g, " ");
   const shortName = displayName.length > 10 ? displayName.slice(0, 10) + ".." : displayName;
-  const isCompacting = preview.toLowerCase().includes("compact");
+  const isCompacting = preview.toLowerCase().includes("compacting");
 
   // Deterministic features from name hash
   let h = 0;

@@ -83,7 +83,7 @@ export const useFleetStore = create<FleetStore>()(
     }),
     {
       name: "maw.fleet",
-      version: 1,
+      version: 2,
       partialize: (s) => ({
         recentMap: s.recentMap,
         sortMode: s.sortMode,
@@ -94,20 +94,20 @@ export const useFleetStore = create<FleetStore>()(
       }),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>;
-        if (version === 0 && state.recentMap) {
-          // v0: recentMap was Record<string, number>, migrate to Record<string, RecentEntry>
+        if (version < 1 && state.recentMap) {
+          // v0→v1: recentMap was Record<string, number>, migrate to Record<string, RecentEntry>
           const old = state.recentMap as Record<string, unknown>;
           const next: Record<string, RecentEntry> = {};
           for (const [k, v] of Object.entries(old)) {
-            if (typeof v === "number") {
-              // Old format — drop it (no metadata to reconstruct)
-              continue;
-            }
-            if (v && typeof v === "object" && "lastBusy" in v) {
-              next[k] = v as RecentEntry;
-            }
+            if (typeof v === "number") continue;
+            if (v && typeof v === "object" && "lastBusy" in v) next[k] = v as RecentEntry;
           }
           state.recentMap = next;
+        }
+        if (version < 2) {
+          // v1→v2: recentMap keys used session:windowName, now use session:windowIndex
+          // Drop stale entries — they'll repopulate with correct format
+          state.recentMap = {};
         }
         return state;
       },

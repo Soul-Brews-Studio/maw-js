@@ -85,15 +85,28 @@ export function useSessions() {
   const FEED_BUSY_EVENTS = new Set<FeedEventType>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "SubagentStart", "PostToolUseFailure"]);
   const FEED_STOP_EVENTS = new Set<FeedEventType>(["Stop", "SessionEnd", "TaskCompleted", "Notification"]);
 
+  /** Resolve feed event → agent. Uses project field for worktree-aware matching. */
+  const resolveAgentFromFeed = useCallback((event: FeedEvent): AgentState | undefined => {
+    // project like "hermes-oracle.wt-1-bitkub" → window name "hermes-bitkub"
+    const project = event.project;
+    const wtMatch = project.match(/\.wt-\d+-(.+)$/);
+    if (wtMatch) {
+      const windowName = `${event.oracle}-${wtMatch[1]}`;
+      const agent = agentsRef.current.find(a => a.name === windowName);
+      if (agent) return agent;
+    }
+    // Fallback: match by oracle name (main window)
+    return agentsRef.current.find(a => a.name === `${event.oracle}-oracle`);
+  }, []);
+
   const updateStatusFromFeed = useCallback((event: FeedEvent) => {
-    const oracleName = `${event.oracle}-oracle`;
-    const agent = agentsRef.current.find(a => a.name === oracleName);
+    const agent = resolveAgentFromFeed(event);
     if (!agent) return;
 
     const target = agent.target;
 
     if (FEED_BUSY_EVENTS.has(event.event)) {
-      feedLastSeen.current[event.oracle] = Date.now();
+      feedLastSeen.current[target] = Date.now();
       setCaptureData(prev => {
         const existing = prev[target];
         if (existing?.status === "busy") return prev;
@@ -102,7 +115,7 @@ export function useSessions() {
         return { ...prev, [target]: { preview: existing?.preview || "", status: "busy" } };
       });
     } else if (FEED_STOP_EVENTS.has(event.event)) {
-      feedLastSeen.current[event.oracle] = 0; // mark stopped
+      feedLastSeen.current[target] = 0; // mark stopped
       setCaptureData(prev => {
         const existing = prev[target];
         if (existing?.status === "ready") return prev;
@@ -110,7 +123,7 @@ export function useSessions() {
         return { ...prev, [target]: { preview: existing?.preview || "", status: "ready" } };
       });
     }
-  }, [addEvent, clearSlept]);
+  }, [addEvent, clearSlept, resolveAgentFromFeed]);
 
   // Decay: busy → ready after 15s, ready → idle after 60s without feed events
   useEffect(() => {
@@ -119,9 +132,7 @@ export function useSessions() {
       setCaptureData(prev => {
         let next = prev;
         for (const agent of agentsRef.current) {
-          if (!agent.name.endsWith("-oracle")) continue;
-          const oracleName = agent.name.replace(/-oracle$/, "");
-          const lastSeen = feedLastSeen.current[oracleName] || 0;
+          const lastSeen = feedLastSeen.current[agent.target] || 0;
           const existing = prev[agent.target];
           if (!existing) continue;
 
@@ -140,7 +151,7 @@ export function useSessions() {
   }, []);
 
   const triggerFeedSaiyan = useCallback((event: FeedEvent) => {
-    const agent = agentsRef.current.find(a => a.name === `${event.oracle}-oracle`);
+    const agent = resolveAgentFromFeed(event);
     if (!agent) return;
 
     if (SAIYAN_STOP_EVENTS.has(event.event)) {
@@ -151,7 +162,7 @@ export function useSessions() {
       console.debug(`[feed] saiyan: ${event.oracle} event=${event.event}`);
       extendSaiyan(agent.target, agent.name, agent.session, "F");
     }
-  }, [extendSaiyan, dropSaiyan]);
+  }, [extendSaiyan, dropSaiyan, resolveAgentFromFeed]);
 
   const handleMessage = useCallback((data: any) => {
     if (data.type === "sessions") {
@@ -179,7 +190,9 @@ export function useSessions() {
         for (const [target, raw] of Object.entries(previews)) {
           const text = stripAnsi(raw);
           const lines = text.split("\n").filter((l: string) => l.trim());
-          const preview = (lines[lines.length - 1] || "").slice(0, 120);
+          // Prefer a line showing "Compacting" (from /compact) over the default last line (prompt)
+          const compactingLine = lines.find((l: string) => l.toLowerCase().includes("compacting"));
+          const preview = (compactingLine || lines[lines.length - 1] || "").slice(0, 120);
           const existing = next[target];
           if (!existing || existing.preview !== preview) {
             if (next === prev) next = { ...prev };

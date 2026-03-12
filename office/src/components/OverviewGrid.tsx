@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef, useMemo } from "react";
 import { ansiToHtml, processCapture } from "../lib/ansi";
 import { roomStyle, agentColor } from "../lib/constants";
 import { useFps } from "./FpsCounter";
+import { useFleetStore } from "../lib/store";
 import type { AgentState, Session } from "../lib/types";
 
 /** Extract leading number from session name: "08-neo" → 8, "0" → 0 */
@@ -146,11 +147,12 @@ export const OverviewGrid = memo(function OverviewGrid({
 }: OverviewGridProps) {
   const fps = useFps();
 
+  const grouped = useFleetStore((s) => s.grouped);
   const busyCount = agents.filter(a => a.status === "busy").length;
   const readyCount = agents.filter(a => a.status === "ready").length;
   const idleCount = agents.length - busyCount - readyCount;
 
-  // Group agents by session, sorted by number
+  // Group agents by session, with optional solo oracle merging
   const sessionGroups = useMemo(() => {
     const map = new Map<string, AgentState[]>();
     for (const a of agents) {
@@ -158,8 +160,20 @@ export const OverviewGrid = memo(function OverviewGrid({
       arr.push(a);
       map.set(a.session, arr);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
-  }, [agents]);
+    const entries = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+    if (!grouped) return entries;
+
+    const soloAgents: AgentState[] = [];
+    const multi: [string, AgentState[]][] = [];
+    for (const [name, sessionAgents] of entries) {
+      if (sessionAgents.length <= 1) soloAgents.push(...sessionAgents);
+      else multi.push([name, sessionAgents]);
+    }
+    const result: [string, AgentState[]][] = [];
+    if (soloAgents.length > 0) result.push(["_oracles", soloAgents]);
+    result.push(...multi);
+    return result;
+  }, [agents, grouped]);
 
   return (
     <div className="relative w-full min-h-screen" style={{ background: "#0a0a12" }}>
@@ -197,9 +211,11 @@ export const OverviewGrid = memo(function OverviewGrid({
       {/* Session groups */}
       <div className="max-w-[1600px] mx-auto px-6 py-6 flex flex-col gap-6">
         {sessionGroups.map(([sessionName, sessionAgents]) => {
-          const style = roomStyle(sessionName);
+          const isOracles = sessionName === "_oracles";
+          const style = isOracles ? { accent: "#7e57c2", floor: "#1a1428", wall: "#120e1e", label: "Oracles" } : roomStyle(sessionName);
           const hasBusy = sessionAgents.some(a => a.status === "busy");
           const num = sessionNum(sessionName);
+          const displayName = style.label || sessionName;
           return (
             <section key={sessionName}>
               {/* Session header */}
@@ -208,7 +224,7 @@ export const OverviewGrid = memo(function OverviewGrid({
                   className="w-6 h-6 flex items-center justify-center rounded text-[10px] font-bold font-mono flex-shrink-0"
                   style={{ background: `${style.accent}15`, color: `${style.accent}80`, border: `1px solid ${style.accent}25` }}
                 >
-                  {num >= 0 ? num : "·"}
+                  {isOracles ? "★" : num >= 0 ? num : "·"}
                 </kbd>
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -221,7 +237,7 @@ export const OverviewGrid = memo(function OverviewGrid({
                   className="text-sm font-bold tracking-[3px] uppercase"
                   style={{ color: style.accent }}
                 >
-                  {sessionName}
+                  {displayName}
                 </h3>
                 <span
                   className="text-[10px] font-mono px-2 py-0.5 rounded"

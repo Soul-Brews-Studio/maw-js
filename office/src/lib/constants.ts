@@ -87,9 +87,8 @@ export const PREVIEW_CARD = {
   maxHeight: 760,
 } as const;
 
-/** Guess launch command from agent/window name */
-export function guessCommand(agentName: string): string {
-  if (agentName.startsWith("codex-")) return "codex -c 'model_reasoning_summary=\"detailed\"' -c 'model_reasoning_summary_format=\"experimental\"' --search --dangerously-auto-approve";
-  if (agentName.startsWith("claude-") || agentName.endsWith("-oracle")) return "claude";
-  return ""; // empty = just press Enter (restart shell)
+/** Client-side fallback — server resolves the real command from maw.config.json via buildCommand().
+ *  When empty string is sent, the server handler uses buildCommand() automatically. */
+export function guessCommand(_agentName: string): string {
+  return ""; // empty = let server resolve from maw.config.json
 }

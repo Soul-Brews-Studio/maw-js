@@ -1,0 +1,24 @@
+{
+  "host": "local",
+  "port": 3456,
+  "ghqRoot": "/home/nat/Code/github.com",
+  "oracleUrl": "http://localhost:47779",
+
+  "env": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "<your-token-here>"
+  },
+
+  "commands": {
+    "default": "claude --dangerously-skip-permissions --continue",
+    "*-oracle": "claude --dangerously-skip-permissions --continue",
+    "codex-*": "codex --dangerously-auto-approve --search"
+  },
+
+  "sessions": {
+    "nexus": "01-oracles",
+    "hermes": "07-hermes",
+    "pulse": "09-pulse",
+    "calliope": "10-calliope",
+    "homekeeper": "11-homekeeper"
+  }
+}

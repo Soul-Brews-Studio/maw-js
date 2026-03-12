@@ -304,7 +304,7 @@ export const FleetGrid = memo(function FleetGrid({
       .filter(e => !seenNames.has(e.name))
       .sort((a, b) => b.lastBusy - a.lastBusy)
       .slice(0, 6)
-      .map(e => agentMap.get(e.target) || e);
+      .map(e => agentMap.get(e.target) || agents.find(a => a.name === e.name) || e);
 
     // Active first, then recently-gone
     return [...dedupBusy, ...recentGone];

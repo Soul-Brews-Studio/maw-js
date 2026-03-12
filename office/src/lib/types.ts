@@ -27,3 +27,13 @@ export interface AgentEvent {
   type: "status" | "command" | "saiyan";
   detail: string;
 }
+
+export interface ConfigData {
+  host: string;
+  port: number;
+  ghqRoot: string;
+  oracleUrl: string;
+  envMasked: Record<string, string>;
+  commands: Record<string, string>;
+  sessions: Record<string, string>;
+}

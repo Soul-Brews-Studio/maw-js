@@ -66,3 +66,7 @@ button, [role="button"], a[href], summary { cursor: pointer; }
 
 /* Terminal modal slide up */
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* VS View */
+@keyframes toolCardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes vsPulse { 0%, 100% { text-shadow: 0 0 8px rgba(251,191,36,0.4); } 50% { text-shadow: 0 0 20px rgba(251,191,36,0.8); } }

@@ -8,6 +8,8 @@ import { TerminalModal } from "./components/TerminalModal";
 import { MissionControl } from "./components/MissionControl";
 import { FleetGrid, FleetControls } from "./components/FleetGrid";
 import { OverviewGrid } from "./components/OverviewGrid";
+import { VSView } from "./components/VSView";
+import { ConfigView } from "./components/ConfigView";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
@@ -69,6 +71,9 @@ export function App() {
         e.preventDefault();
         e.stopPropagation();
         setShowJump(true);
+      }
+      if (e.key.toLowerCase() === "v" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        window.location.hash = "vs";
       }
     };
     window.addEventListener("keydown", handler, true);
@@ -192,6 +197,33 @@ export function App() {
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
         {jumpOverlay}
 
+      </div>
+    );
+  }
+
+  if (route === "vs") {
+    return (
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="vs" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <VSView agents={agents} send={send} />
+        {terminalModal}
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "config") {
+    return (
+      <div className="relative flex flex-col h-screen overflow-hidden" style={{ background: "#020208" }}>
+        <div className="relative z-10 flex-shrink-0">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="config" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <ConfigView />
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
       </div>
     );
   }

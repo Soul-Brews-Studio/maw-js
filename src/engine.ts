@@ -119,9 +119,9 @@ export class MawEngine {
 
     for (const s of sessions) {
       for (const w of s.windows) {
-        const target = `${s.name}:${w.name}`;
+        const target = `${s.name}:${w.index}`;
         checks.push(
-          capture(target, 5).then(content => {
+          capture(`${s.name}:${w.name}`, 5).then(content => {
             const lines = content.split("\n").filter(l => l.trim());
             const bottom = lines.slice(-5).join("\n");
             if (BUSY_PATTERNS.test(bottom)) {

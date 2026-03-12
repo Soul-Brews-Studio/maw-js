@@ -1,6 +1,7 @@
 import { join } from "path";
 import { readdirSync } from "fs";
 import { ssh } from "./ssh";
+import { loadConfig, buildCommand } from "./config";
 
 interface FleetWindow {
   name: string;
@@ -14,8 +15,6 @@ interface FleetSession {
 }
 
 const FLEET_DIR = join(import.meta.dir, "../fleet");
-const GHQ_ROOT = "/home/nat/Code/github.com";
-const COMMAND = "claude --continue --dangerously-skip-permissions";
 
 function loadFleet(): FleetSession[] {
   const files = readdirSync(FLEET_DIR)
@@ -71,22 +70,22 @@ export async function cmdWakeAll(opts: { kill?: boolean } = {}) {
 
     // Create session with first window
     const first = sess.windows[0];
-    const firstPath = `${GHQ_ROOT}/${first.repo}`;
+    const firstPath = `${loadConfig().ghqRoot}/${first.repo}`;
     await ssh(`tmux new-session -d -s '${sess.name}' -n '${first.name}' -c '${firstPath}'`);
 
     if (!sess.skip_command) {
-      try { await ssh(`tmux send-keys -t '${sess.name}:${first.name}' '${COMMAND}' Enter`); } catch { /* ok */ }
+      try { await ssh(`tmux send-keys -t '${sess.name}:${first.name}' '${buildCommand(first.name)}' Enter`); } catch { /* ok */ }
     }
     winCount++;
 
     // Add remaining windows
     for (let i = 1; i < sess.windows.length; i++) {
       const win = sess.windows[i];
-      const winPath = `${GHQ_ROOT}/${win.repo}`;
+      const winPath = `${loadConfig().ghqRoot}/${win.repo}`;
       try {
         await ssh(`tmux new-window -t '${sess.name}' -n '${win.name}' -c '${winPath}'`);
         if (!sess.skip_command) {
-          await ssh(`tmux send-keys -t '${sess.name}:${win.name}' '${COMMAND}' Enter`);
+          await ssh(`tmux send-keys -t '${sess.name}:${win.name}' '${buildCommand(win.name)}' Enter`);
         }
         winCount++;
       } catch {

@@ -1,5 +1,6 @@
 import { ssh } from "./ssh";
 import { resolveOracle, findWorktrees } from "./wake";
+import { buildCommand } from "./config";
 
 export async function cmdSpawn(oracle: string, opts: { name?: string; continue?: boolean }) {
   const { repoPath, repoName, parentDir } = await resolveOracle(oracle);
@@ -31,7 +32,7 @@ export async function cmdSpawn(oracle: string, opts: { name?: string; continue?:
   if (opts.continue) {
     const winList = await ssh(`tmux list-windows -t '${sessionName}' -F '#{window_index}'`);
     for (const idx of winList.split("\n").filter(Boolean)) {
-      await ssh(`tmux send-keys -t '${sessionName}:${idx}' 'claude --continue' Enter`);
+      await ssh(`tmux send-keys -t '${sessionName}:${idx}' '${buildCommand(oracle + "-oracle")}' Enter`);
     }
     console.log(`\x1b[36mall waking with --continue\x1b[0m`);
   }

@@ -1,5 +1,6 @@
 import { listSessions, ssh } from "./ssh";
 import type { Session } from "./ssh";
+import { loadConfig, buildCommand } from "./config";
 
 /** Fetch a GitHub issue and build a prompt for claude -p */
 export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise<string> {
@@ -47,17 +48,14 @@ export async function findWorktrees(parentDir: string, repoName: string): Promis
   });
 }
 
-// Oracle → tmux session mapping
-export const SESSION_MAP: Record<string, string> = {
-  neo: "8-neo",
-  hermes: "7-hermes",
-  pulse: "9-pulse",
-  calliope: "10-calliope",
-};
+// Oracle → tmux session mapping (from config, with hardcoded fallback)
+export function getSessionMap(): Record<string, string> {
+  return loadConfig().sessions;
+}
 
 export async function detectSession(oracle: string): Promise<string | null> {
   const sessions = await listSessions();
-  const mapped = SESSION_MAP[oracle];
+  const mapped = getSessionMap()[oracle];
   if (mapped) {
     const exists = sessions.find(s => s.name === mapped);
     if (exists) return mapped;
@@ -73,11 +71,11 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   // Detect or create tmux session (spawn all worktrees if new)
   let session = await detectSession(oracle);
   if (!session) {
-    session = SESSION_MAP[oracle] || oracle;
+    session = getSessionMap()[oracle] || oracle;
     // Create session with main window
     await ssh(`tmux new-session -d -s '${session}' -n '${oracle}' -c '${repoPath}'`);
     await new Promise(r => setTimeout(r, 300));
-    await ssh(`tmux send-keys -t '${session}:${oracle}' 'claude' Enter`);
+    await ssh(`tmux send-keys -t '${session}:${oracle}' '${buildCommand(oracle + "-oracle")}' Enter`);
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${oracle})`);
 
     // Spawn all existing worktree windows
@@ -86,7 +84,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
       const wtWindowName = `${oracle}-${wt.name}`;
       await ssh(`tmux new-window -t '${session}' -n '${wtWindowName}' -c '${wt.path}'`);
       await new Promise(r => setTimeout(r, 300));
-      await ssh(`tmux send-keys -t '${session}:${wtWindowName}' 'claude' Enter`);
+      await ssh(`tmux send-keys -t '${session}:${wtWindowName}' '${buildCommand(wtWindowName)}' Enter`);
       console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
     }
   }
@@ -131,7 +129,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
         console.log(`\x1b[33m⚡\x1b[0m '${windowName}' exists, sending prompt`);
         await ssh(`tmux select-window -t '${session}:${windowName}'`);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
-        await ssh(`tmux send-keys -t '${session}:${windowName}' "claude -p '${escaped}' --dangerously-skip-permissions && claude --continue --dangerously-skip-permissions" Enter`);
+        const cmd = buildCommand(windowName);
+        await ssh(`tmux send-keys -t '${session}:${windowName}' "${cmd.replace(/"/g, '\\"')} -p '${escaped}'" Enter`);
         return `${session}:${windowName}`;
       }
       console.log(`\x1b[33m⚡\x1b[0m '${windowName}' already running in ${session}`);
@@ -140,14 +139,15 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     }
   } catch { /* session might be fresh */ }
 
-  // Create window + start claude (or claude -p with prompt)
+  // Create window + start command (or with prompt)
   await ssh(`tmux new-window -t '${session}' -n '${windowName}' -c '${targetPath}'`);
   await new Promise(r => setTimeout(r, 300));
+  const cmd = buildCommand(windowName);
   if (opts.prompt) {
     const escaped = opts.prompt.replace(/'/g, "'\\''");
-    await ssh(`tmux send-keys -t '${session}:${windowName}' "claude -p '${escaped}' --dangerously-skip-permissions && claude --continue --dangerously-skip-permissions" Enter`);
+    await ssh(`tmux send-keys -t '${session}:${windowName}' "${cmd.replace(/"/g, '\\"')} -p '${escaped}'" Enter`);
   } else {
-    await ssh(`tmux send-keys -t '${session}:${windowName}' 'claude' Enter`);
+    await ssh(`tmux send-keys -t '${session}:${windowName}' '${cmd}' Enter`);
   }
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);

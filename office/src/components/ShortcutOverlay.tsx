@@ -11,6 +11,9 @@ const SHORTCUTS = [
     ["Shift+Drag", "Pan view"],
     ["Joystick", "Drag to pan"],
   ]],
+  ["Views", [
+    ["V", "VS view"],
+  ]],
   ["Pinned Card", [
     ["Click agent", "Pin card + input"],
     ["Enter", "Send command"],

@@ -1,5 +1,6 @@
 node_modules/
 dist-office/
+maw.config.json
 
 # Bun global link artifacts
 ~/
