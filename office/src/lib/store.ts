@@ -11,7 +11,7 @@ export interface RecentEntry {
 interface FleetStore {
   // Recently active: target → agent metadata + timestamp
   recentMap: Record<string, RecentEntry>;
-  markBusy: (agents: { target: string; name: string; session: string }[]) => void;
+  markBusy: (agents: { target: string; name: string; session: string }[], at?: number) => void;
   pruneRecent: () => void;
 
   // Slept agents (Ctrl+C'd from UI — grey + collapsed until wake/busy)
@@ -99,14 +99,15 @@ export const useFleetStore = create<FleetStore>()(
   persist(
     (set, get) => ({
       recentMap: {},
-      markBusy: (agents) => set((s) => {
-        const now = Date.now();
+      markBusy: (agents, at) => set((s) => {
+        const ts = at ?? Date.now();
         const next = { ...s.recentMap };
         let changed = false;
         for (const a of agents) {
           const prev = next[a.target];
-          if (!prev || prev.lastBusy !== now || prev.name !== a.name || prev.session !== a.session) {
-            next[a.target] = { name: a.name, session: a.session, target: a.target, lastBusy: now };
+          // Only update if new timestamp is more recent
+          if (!prev || prev.lastBusy < ts || prev.name !== a.name || prev.session !== a.session) {
+            next[a.target] = { name: a.name, session: a.session, target: a.target, lastBusy: ts };
             changed = true;
           }
         }

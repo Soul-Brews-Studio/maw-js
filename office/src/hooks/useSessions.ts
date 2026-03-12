@@ -181,8 +181,14 @@ export function useSessions() {
     } else if (data.type === "feed-history") {
       const events = (data.events as FeedEvent[]).slice(-MAX_FEED);
       setFeedEvents(events);
-      // Set initial status from recent feed events
-      for (const e of events) updateStatusFromFeed(e);
+      // Set initial status + populate recentMap from feed events
+      for (const e of events) {
+        updateStatusFromFeed(e);
+        if (FEED_BUSY_EVENTS.has(e.event as FeedEventType)) {
+          const agent = resolveAgentFromFeed(e);
+          if (agent) markBusy([{ target: agent.target, name: agent.name, session: agent.session }], e.ts);
+        }
+      }
     } else if (data.type === "previews") {
       const previews: Record<string, string> = data.data;
       setCaptureData((prev) => {
