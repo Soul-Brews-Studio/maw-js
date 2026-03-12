@@ -96,7 +96,6 @@ export const VSAgentPanel = memo(function VSAgentPanel({ agent, send, onPickAgen
               status={status}
               preview=""
               accent={accent}
-              saiyan={status === "busy"}
               onClick={() => {}}
             />
           </svg>

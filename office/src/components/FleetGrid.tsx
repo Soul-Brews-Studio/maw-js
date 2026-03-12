@@ -75,8 +75,6 @@ export function FleetControls({ agents, send }: { agents: AgentState[]; send: (m
 interface FleetGridProps {
   sessions: Session[];
   agents: AgentState[];
-  saiyanTargets: Set<string>;
-  saiyanSources: Record<string, string>;
   connected: boolean;
   send: (msg: object) => void;
   onSelectAgent: (agent: AgentState) => void;
@@ -143,7 +141,7 @@ function sortRooms(sessions: Session[], agentMap: Map<string, AgentState[]>, mod
 }
 
 export const FleetGrid = memo(function FleetGrid({
-  sessions, agents, saiyanTargets, saiyanSources, connected, send, onSelectAgent, eventLog, addEvent, feedActive, agentFeedLog,
+  sessions, agents, connected, send, onSelectAgent, eventLog, addEvent, feedActive, agentFeedLog,
 }: FleetGridProps) {
   const fps = useFps();
   const observe = useVisibleTargets(send);
@@ -321,7 +319,6 @@ export const FleetGrid = memo(function FleetGrid({
       <StageSection
         busyAgents={busyAgents}
         recentlyActive={recentlyActive}
-        saiyanTargets={saiyanTargets}
         recentMap={recentMap}
         getAgentFeedLog={getAgentFeedLog}
         showPreview={showPreview}
@@ -362,7 +359,7 @@ export const FleetGrid = memo(function FleetGrid({
                   : { target: entry.target, name: entry.name, session: entry.session, windowIndex: 0, active: false, preview: "", status: "idle" };
                 return (
                   <AgentRow key={`recent-${entry.target}`} agent={agent} accent={rs.accent} roomLabel={rs.label}
-                    saiyan={saiyanTargets.has(entry.target)} saiyanSource={saiyanSources[entry.target]} isLast={i === recentlyActive.length - 1}
+                    isLast={i === recentlyActive.length - 1}
                     featured={i === 0} agoLabel={agoLabel} feedLog={getAgentFeedLog(agent.name)}
                     slept={sleptTargets.includes(entry.target)} alignWidth={96}
                     observe={observe} showPreview={showPreview} hidePreview={hidePreview} onAgentClick={onAgentClick}
@@ -413,7 +410,7 @@ export const FleetGrid = memo(function FleetGrid({
                 <div className="flex flex-col">
                   {vr.agents.map((agent, i) => (
                     <AgentRow key={agent.target} agent={agent} accent={style.accent} roomLabel={vr.label}
-                      saiyan={saiyanTargets.has(agent.target)} saiyanSource={saiyanSources[agent.target]} isLast={i === vr.agents.length - 1}
+                      isLast={i === vr.agents.length - 1}
                       feedLog={getAgentFeedLog(agent.name)}
                       slept={sleptTargets.includes(agent.target)}
                       observe={observe} showPreview={showPreview} hidePreview={hidePreview} onAgentClick={onAgentClick}

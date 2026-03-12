@@ -5,11 +5,10 @@ import type { AgentState } from "../lib/types";
 interface AgentCardProps {
   agent: AgentState;
   accent: string;
-  saiyan?: boolean;
   onClick: () => void;
 }
 
-export const AgentCard = memo(function AgentCard({ agent, accent, saiyan, onClick }: AgentCardProps) {
+export const AgentCard = memo(function AgentCard({ agent, accent, onClick }: AgentCardProps) {
   const [hovered, setHovered] = useState(false);
   const displayName = agent.name.replace(/-oracle$/, "").replace(/-/g, " ");
   return (
@@ -26,7 +25,6 @@ export const AgentCard = memo(function AgentCard({ agent, accent, saiyan, onClic
           status={agent.status}
           preview={agent.preview}
           accent={accent}
-          saiyan={saiyan}
           onClick={onClick}
         />
       </svg>

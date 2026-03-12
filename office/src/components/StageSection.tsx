@@ -8,7 +8,6 @@ import type { FeedLogEntry } from "./FleetGrid";
 interface StageSectionProps {
   busyAgents: AgentState[];
   recentlyActive: (AgentState | RecentEntry)[];
-  saiyanTargets: Set<string>;
   recentMap: Record<string, RecentEntry>;
   getAgentFeedLog?: (name: string) => FeedLogEntry[] | null;
   showPreview: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
@@ -33,33 +32,23 @@ function ghostSize(lastBusy: number): number {
 export const StageSection = memo(function StageSection({
   busyAgents,
   recentlyActive,
-  saiyanTargets,
   recentMap,
   getAgentFeedLog,
   showPreview,
   hidePreview,
   onAgentClick,
 }: StageSectionProps) {
-  // Active performers: busy OR saiyan-active (covers long-think where hash poll misses busy)
+  // Active performers: busy agents
   const activeAgents = useMemo(() => {
     const seenNames = new Set<string>();
     const result: AgentState[] = [];
-    // First add all busy agents
     for (const a of busyAgents) {
       if (!seenNames.has(a.name)) { seenNames.add(a.name); result.push(a); }
-    }
-    // Then add saiyan targets that aren't already included (feed-detected activity)
-    for (const entry of recentlyActive) {
-      if (seenNames.has(entry.name)) continue;
-      if (!saiyanTargets.has(entry.target)) continue;
-      seenNames.add(entry.name);
-      if ("status" in entry) result.push(entry as AgentState);
-      else result.push({ target: entry.target, name: entry.name, session: entry.session, windowIndex: 0, active: false, preview: "", status: "busy" });
     }
     // Sort by most recently active first (leftmost)
     result.sort((a, b) => (recentMap[b.target]?.lastBusy || 0) - (recentMap[a.target]?.lastBusy || 0));
     return result;
-  }, [busyAgents, recentlyActive, saiyanTargets, recentMap]);
+  }, [busyAgents, recentMap]);
 
   // Ghost agents: recent but not active, shown greyed out on stage (dedup by name)
   const ghostAgents = useMemo(() => {
@@ -167,7 +156,6 @@ export const StageSection = memo(function StageSection({
           {/* Active performers — 2x size */}
           {activeAgents.map((agent) => {
             const rs = roomStyle(agent.session);
-            const isSaiyan = saiyanTargets.has(agent.target);
             const displayName = agent.name.replace(/-oracle$/, "").replace(/-/g, " ");
             const feedLog = getAgentFeedLog?.(agent.name);
             return (
@@ -190,7 +178,6 @@ export const StageSection = memo(function StageSection({
                     status={agent.status}
                     preview={agent.preview}
                     accent={rs.accent}
-                    saiyan={isSaiyan}
                     activity={feedLog?.[0]?.text}
                     onClick={() => {}}
                   />
@@ -198,9 +185,6 @@ export const StageSection = memo(function StageSection({
                 <span className="text-[12px] font-semibold truncate max-w-[120px] text-center" style={{ color: rs.accent }}>
                   {displayName}
                 </span>
-                {isSaiyan && (
-                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-400/20 text-amber-400">⚡</span>
-                )}
               </div>
             );
           })}
@@ -230,7 +214,6 @@ export const StageSection = memo(function StageSection({
                     status={agent.status}
                     preview={agent.preview}
                     accent={rs.accent}
-                    saiyan={false}
                     onClick={() => {}}
                   />
                 </svg>

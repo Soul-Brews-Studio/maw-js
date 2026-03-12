@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Session, AgentState, PaneStatus, AgentEvent } from "../lib/types";
 import { stripAnsi } from "../lib/ansi";
-import { playSaiyanSound } from "../lib/sounds";
 import { agentSortKey } from "../lib/constants";
 import { useFleetStore } from "../lib/store";
 import { activeOracles, describeActivity, type FeedEvent, type FeedEventType } from "../lib/feed";
@@ -16,11 +15,6 @@ export function useSessions() {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
-  const lastSoundTime = useRef(0);
-  const [saiyanTargets, setSaiyanTargets] = useState<Set<string>>(new Set());
-  const saiyanTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const saiyanSourceTimers = useRef<Record<string, { hash: number; feed: number }>>({});
-  const [saiyanSources, setSaiyanSources] = useState<Record<string, string>>({});
   const [eventLog, setEventLog] = useState<AgentEvent[]>([]);
   const MAX_EVENTS = 200;
 
@@ -41,45 +35,7 @@ export function useSessions() {
   const markSlept = useFleetStore((s) => s.markSlept);
   const clearSlept = useFleetStore((s) => s.clearSlept);
 
-  // Feed-triggered Saiyan
   const agentsRef = useRef<AgentState[]>([]);
-  const SAIYAN_FEED_EVENTS = new Set<FeedEventType>(["PreToolUse", "UserPromptSubmit", "SubagentStart"]);
-  const SAIYAN_DURATION = 10_000;
-
-  const extendSaiyan = useCallback((target: string, agentName: string, session: string, source: "H" | "F") => {
-    const now = Date.now();
-    if (now - lastSoundTime.current > 60000) {
-      lastSoundTime.current = now;
-      playSaiyanSound();
-    }
-    clearTimeout(saiyanTimers.current[target]);
-    setSaiyanTargets(prev => new Set(prev).add(target));
-    saiyanTimers.current[target] = setTimeout(() => {
-      setSaiyanTargets(prev => { const n = new Set(prev); n.delete(target); return n; });
-      setSaiyanSources(prev => { const n = { ...prev }; delete n[target]; return n; });
-      delete saiyanSourceTimers.current[target];
-    }, SAIYAN_DURATION);
-    const st = saiyanSourceTimers.current[target] || { hash: 0, feed: 0 };
-    if (source === "H") st.hash = now; else st.feed = now;
-    saiyanSourceTimers.current[target] = st;
-    const hashActive = now - st.hash < 15000;
-    const feedActive = now - st.feed < 15000;
-    const label = hashActive && feedActive ? "HF" : hashActive ? "H" : "F";
-    setSaiyanSources(prev => prev[target] === label ? prev : { ...prev, [target]: label });
-    markBusy([{ target, name: agentName, session }]);
-  }, [markBusy]);
-
-  const SAIYAN_STOP_EVENTS = new Set<FeedEventType>(["Stop", "SessionEnd", "TaskCompleted"]);
-
-  const dropSaiyan = useCallback((target: string) => {
-    clearTimeout(saiyanTimers.current[target]);
-    setSaiyanTargets(prev => {
-      if (!prev.has(target)) return prev;
-      const n = new Set(prev); n.delete(target); return n;
-    });
-    setSaiyanSources(prev => { const n = { ...prev }; delete n[target]; return n; });
-    delete saiyanSourceTimers.current[target];
-  }, []);
 
   // --- Feed-based status tracking ---
   // target → last feed timestamp, target → last event type
@@ -160,20 +116,6 @@ export function useSessions() {
     return () => clearInterval(interval);
   }, []);
 
-  const triggerFeedSaiyan = useCallback((event: FeedEvent) => {
-    const agent = resolveAgentFromFeed(event);
-    if (!agent) return;
-
-    if (SAIYAN_STOP_EVENTS.has(event.event)) {
-      dropSaiyan(agent.target);
-      return;
-    }
-    if (SAIYAN_FEED_EVENTS.has(event.event)) {
-      console.debug(`[feed] saiyan: ${event.oracle} event=${event.event}`);
-      extendSaiyan(agent.target, agent.name, agent.session, "F");
-    }
-  }, [extendSaiyan, dropSaiyan, resolveAgentFromFeed]);
-
   // --- Ask detection from feed events ---
   const ASK_RESUME_EVENTS = new Set<FeedEventType>(["PreToolUse", "SubagentStart", "UserPromptSubmit"]);
   // Store last Stop message per oracle — Stop fires before Notification, carries the real question
@@ -235,7 +177,6 @@ export function useSessions() {
         const next = [...prev, feedEvent];
         return next.length > MAX_FEED ? next.slice(-MAX_FEED) : next;
       });
-      triggerFeedSaiyan(feedEvent);
       updateStatusFromFeed(feedEvent);
       detectAsk(feedEvent);
     } else if (data.type === "feed-history") {
@@ -307,5 +248,5 @@ export function useSessions() {
     return map;
   }, [feedEvents]);
 
-  return { sessions, agents, saiyanTargets, saiyanSources, eventLog, addEvent, handleMessage, feedEvents, feedActive, agentFeedLog };
+  return { sessions, agents, eventLog, addEvent, handleMessage, feedEvents, feedActive, agentFeedLog };
 }

@@ -103,7 +103,7 @@ export function App() {
     return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
-  const { sessions, agents, saiyanTargets, saiyanSources, eventLog, addEvent, handleMessage, feedActive, agentFeedLog } = useSessions();
+  const { sessions, agents, eventLog, addEvent, handleMessage, feedActive, agentFeedLog } = useSessions();
 
   // Ask count for inbox badge
   const askCount = useFleetStore((s) => s.asks.filter((a) => !a.dismissed).length);
@@ -165,7 +165,6 @@ export function App() {
         <OverviewGrid
           sessions={sessions}
           agents={agents}
-          saiyanTargets={saiyanTargets}
           connected={connected}
           send={send}
           onSelectAgent={onSelectAgent}
@@ -190,8 +189,6 @@ export function App() {
         <FleetGrid
           sessions={sessions}
           agents={agents}
-          saiyanTargets={saiyanTargets}
-          saiyanSources={saiyanSources}
           connected={connected}
           send={send}
           onSelectAgent={onSelectAgent}
@@ -218,7 +215,6 @@ export function App() {
         <MissionControl
           sessions={sessions}
           agents={agents}
-          saiyanTargets={saiyanTargets}
           connected={connected}
           send={send}
           onSelectAgent={onSelectAgent}
@@ -268,7 +264,7 @@ export function App() {
       <UniverseBg />
       <div className="relative z-10">
         <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="office" onJump={() => setShowJump(true)} askCount={askCount} onInbox={() => setShowInbox(true)} muted={muted} onToggleMute={toggleMuted} />
-        <RoomGrid sessions={sessions} agents={agents} saiyanTargets={saiyanTargets} onSelectAgent={onSelectAgent} />
+        <RoomGrid sessions={sessions} agents={agents} onSelectAgent={onSelectAgent} />
       </div>
       {terminalModal}
       {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}

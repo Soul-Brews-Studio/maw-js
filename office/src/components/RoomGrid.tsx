@@ -6,11 +6,10 @@ import type { AgentState, Session } from "../lib/types";
 interface RoomGridProps {
   sessions: Session[];
   agents: AgentState[];
-  saiyanTargets: Set<string>;
   onSelectAgent: (agent: AgentState) => void;
 }
 
-export const RoomGrid = memo(function RoomGrid({ sessions, agents, saiyanTargets, onSelectAgent }: RoomGridProps) {
+export const RoomGrid = memo(function RoomGrid({ sessions, agents, onSelectAgent }: RoomGridProps) {
   const sessionAgents = useMemo(() => {
     const map = new Map<string, AgentState[]>();
     for (const a of agents) {
@@ -88,7 +87,6 @@ export const RoomGrid = memo(function RoomGrid({ sessions, agents, saiyanTargets
                     key={agent.target}
                     agent={agent}
                     accent={style.accent}
-                    saiyan={saiyanTargets.has(agent.target)}
                     onClick={() => onSelectAgent(agent)}
                   />
                 ))}

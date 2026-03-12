@@ -14,12 +14,11 @@ interface AgentAvatarProps {
   status: PaneStatus;
   preview: string;
   accent: string;
-  saiyan?: boolean;
   activity?: string;
   onClick: () => void;
 }
 
-export const AgentAvatar = memo(function AgentAvatar({ name, target, status, preview, accent, saiyan, activity, onClick }: AgentAvatarProps) {
+export const AgentAvatar = memo(function AgentAvatar({ name, target, status, preview, accent, activity, onClick }: AgentAvatarProps) {
   const color = agentColor(name);
   const fx = STATUS_FX[status];
   const filterId = `glow-${target.replace(/[^a-z0-9]/gi, "-")}`;
@@ -52,7 +51,7 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
         </radialGradient>
       </defs>
 
-      {/* === LEVEL 2 AURA (busy — super saiyan) === */}
+      {/* === LEVEL 2 AURA (busy) === */}
       {fx.aura >= 2 && (
         <>
           <circle cx={0} cy={-6} r={42} fill="none" stroke={fx.color} strokeWidth={2}
@@ -63,43 +62,6 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
             style={{ animation: "agent-pulse 0.6s ease-in-out infinite" }} />
           <ellipse cx={0} cy={24} rx={24} ry={6} fill="none" stroke={fx.color} strokeWidth={2}
             opacity={0.35} style={{ animation: "agent-pulse 0.8s ease-in-out infinite" }} />
-        </>
-      )}
-
-      {/* === SAIYAN BURST (10s power-up) === */}
-      {saiyan && (
-        <>
-          {/* Energy pillar — tall beam shooting upward */}
-          <rect x={-8} y={-120} width={16} height={150} rx={8}
-            fill={fx.color} opacity={0.12}
-            style={{ animation: "saiyan-pillar 1.5s ease-out forwards" }} />
-          <rect x={-3} y={-100} width={6} height={120} rx={3}
-            fill="#fff" opacity={0.08}
-            style={{ animation: "saiyan-pillar 1.5s ease-out 0.2s forwards" }} />
-
-          {/* Expanding shockwave rings */}
-          {[0, 0.6, 1.2, 3, 5, 7].map((delay, i) => (
-            <circle key={`ring-${i}`} cx={0} cy={-6} r={20}
-              fill="none" stroke={fx.color} strokeWidth={1.5}
-              opacity={0}
-              style={{ animation: `saiyan-ring 2s ease-out ${delay}s forwards` }} />
-          ))}
-
-          {/* Intense core glow */}
-          <circle cx={0} cy={-6} r={50}
-            fill={fx.color} opacity={0.06}
-            style={{ animation: "saiyan-glow 10s ease-out forwards" }} />
-
-          {/* Rising energy particles */}
-          {[
-            { x: -20, d: 0 }, { x: -10, d: 0.5 }, { x: 0, d: 1 },
-            { x: 10, d: 1.5 }, { x: 20, d: 2 }, { x: -15, d: 3 },
-            { x: 5, d: 4 }, { x: 15, d: 5 }, { x: -5, d: 6 },
-          ].map((p, i) => (
-            <circle key={`particle-${i}`} cx={p.x} cy={30} r={2}
-              fill={fx.color} opacity={0}
-              style={{ animation: `saiyan-particle 2s ease-out ${p.d}s forwards` }} />
-          ))}
         </>
       )}
 

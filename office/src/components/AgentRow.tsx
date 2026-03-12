@@ -74,9 +74,9 @@ function AgentControls({ agent, displayName, accent, inputOpen, send, onMic }: {
   );
 }
 
-function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, saiyan, saiyanSource, feedLog }: {
+function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, feedLog }: {
   agent: AgentState; isBusy: boolean; displayName: string; accent: string;
-  agoLabel?: string; saiyan: boolean; saiyanSource?: string; feedLog?: FeedLogEntry[] | null;
+  agoLabel?: string; feedLog?: FeedLogEntry[] | null;
 }) {
   return (
     <div className="flex flex-col gap-1 flex-1 min-w-0">
@@ -113,15 +113,6 @@ function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, saiyan, saiya
         {!isBusy && feedLog && feedLog.length > 0 && (
           <span className="text-[10px] font-mono truncate max-w-[200px] flex-shrink" style={{ color: "#64748B" }}>
             {feedLog[0].text}
-          </span>
-        )}
-        {saiyan && <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-amber-400/20 text-amber-400 flex-shrink-0">SAIYAN</span>}
-        {saiyan && saiyanSource && (
-          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded flex-shrink-0" style={{
-            background: saiyanSource === "HF" ? "rgba(139,92,246,0.2)" : saiyanSource === "F" ? "rgba(34,211,238,0.15)" : "rgba(251,191,36,0.12)",
-            color: saiyanSource === "HF" ? "#a78bfa" : saiyanSource === "F" ? "#22d3ee" : "#fbbf24",
-          }}>
-            {saiyanSource === "HF" ? "H+F" : saiyanSource === "F" ? "FEED" : "HASH"}
           </span>
         )}
       </div>
@@ -203,8 +194,6 @@ interface AgentRowProps {
   agent: AgentState;
   accent: string;
   roomLabel: string;
-  saiyan: boolean;
-  saiyanSource?: string;
   isLast: boolean;
   agoLabel?: string;
   featured?: boolean;
@@ -220,7 +209,7 @@ interface AgentRowProps {
 }
 
 export const AgentRow = memo(function AgentRow({
-  agent, accent, roomLabel, saiyan, saiyanSource, isLast, agoLabel, featured,
+  agent, accent, roomLabel, isLast, agoLabel, featured,
   feedLog, slept, alignWidth, observe, showPreview, hidePreview, onAgentClick, send, onSendDone,
 }: AgentRowProps) {
   const isBusy = agent.status === "busy";
@@ -264,7 +253,7 @@ export const AgentRow = memo(function AgentRow({
         >
           <div className="flex-shrink-0" style={{ width: 28, height: 28 }}>
             <svg viewBox="-40 -50 80 80" width={28} height={28} overflow="visible" style={{ filter: "grayscale(1)" }}>
-              <AgentAvatar name={agent.name} target={agent.target} status="idle" preview="" accent="#666" saiyan={false} onClick={() => {}} />
+              <AgentAvatar name={agent.name} target={agent.target} status="idle" preview="" accent="#666" onClick={() => {}} />
             </svg>
           </div>
           <span className="text-[13px] font-medium text-white/40 truncate flex-1">{displayName}</span>
@@ -303,13 +292,12 @@ export const AgentRow = memo(function AgentRow({
             overflow: "visible",
             width: alignWidth || (featured ? 96 : 56), height: featured ? 96 : 56,
             transition: "width 0.3s, height 0.3s",
-            animation: saiyan ? "saiyanPulse 1.5s ease-in-out infinite" : "none",
           }}
           onMouseEnter={isTouch ? undefined : (e) => showPreview(agent, accent, roomLabel, e)}
           onMouseLeave={isTouch ? undefined : () => hidePreview()}
         >
           <svg viewBox="-40 -50 80 80" width={featured ? 96 : 56} height={featured ? 96 : 56} overflow="visible">
-            <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview={agent.preview} accent={accent} saiyan={saiyan} activity={feedLog?.[0]?.text} onClick={() => {}} />
+            <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview={agent.preview} accent={accent} activity={feedLog?.[0]?.text} onClick={() => {}} />
           </svg>
         </div>
 
@@ -323,7 +311,7 @@ export const AgentRow = memo(function AgentRow({
         )}
 
         <AgentInfo agent={agent} isBusy={isBusy} displayName={displayName} accent={accent}
-          agoLabel={agoLabel} saiyan={saiyan} saiyanSource={saiyanSource} feedLog={feedLog} />
+          agoLabel={agoLabel} feedLog={feedLog} />
 
         {send && <AgentControls agent={agent} displayName={displayName} accent={accent}
           inputOpen={inputOpen} send={send} onMic={handleMic} />}

@@ -26,26 +26,6 @@ button, [role="button"], a[href], summary { cursor: pointer; }
 @keyframes sparkle { 0% { opacity: 0; transform: scale(0); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0); } }
 @keyframes room-pulse { 0%, 100% { stroke-opacity: 0.2; } 50% { stroke-opacity: 0.5; } }
 
-/* Saiyan burst (10s power-up) */
-@keyframes saiyan-pillar {
-  0% { opacity: 0.5; transform: scaleY(0); transform-origin: bottom; }
-  30% { opacity: 0.25; transform: scaleY(1); }
-  100% { opacity: 0; transform: scaleY(1); }
-}
-@keyframes saiyan-ring {
-  0% { r: 20; opacity: 0.7; stroke-width: 3; }
-  100% { r: 90; opacity: 0; stroke-width: 0.5; }
-}
-@keyframes saiyan-glow {
-  0% { r: 55; opacity: 0.25; }
-  20% { r: 65; opacity: 0.12; }
-  100% { r: 40; opacity: 0; }
-}
-@keyframes saiyan-particle {
-  0% { cy: 30; opacity: 1; r: 2.5; }
-  100% { cy: -90; opacity: 0; r: 0.5; }
-}
-
 /* Chibi spin (busy avatars) */
 @keyframes chibi-spin {
   0% { transform: scaleX(1); }
@@ -57,12 +37,6 @@ button, [role="button"], a[href], summary { cursor: pointer; }
 
 /* Hover preview card */
 @keyframes fadeSlideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-
-/* Saiyan avatar pulse — fast magnifier in/out */
-@keyframes saiyanPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
 
 /* Terminal modal slide up */
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }

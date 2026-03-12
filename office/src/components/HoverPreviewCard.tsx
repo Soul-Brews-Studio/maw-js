@@ -364,7 +364,6 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
         const STATUS_BADGE: Record<string, { bg: string; text: string }> = {
           "status": { bg: "rgba(255,255,255,0.06)", text: "#aaa" },
           "command": { bg: "rgba(34,211,238,0.15)", text: "#22d3ee" },
-          "saiyan": { bg: "rgba(253,216,53,0.15)", text: "#fdd835" },
         };
         return (
           <div className="flex flex-wrap gap-1 px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.04] overflow-hidden max-h-[52px]">

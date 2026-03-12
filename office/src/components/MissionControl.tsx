@@ -3,17 +3,13 @@ import { AgentAvatar } from "./AgentAvatar";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { Joystick } from "./Joystick";
 import { OracleSearch } from "./OracleSearch";
-import { SaiyanToasts } from "./SaiyanToasts";
 import { BottomStats } from "./BottomStats";
 import { FpsCounter } from "./FpsCounter";
 import { roomStyle, PREVIEW_CARD } from "../lib/constants";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
-import type { SaiyanCard } from "./SaiyanToasts";
-
 interface MissionControlProps {
   sessions: Session[];
   agents: AgentState[];
-  saiyanTargets: Set<string>;
   connected: boolean;
   send: (msg: object) => void;
   onSelectAgent: (agent: AgentState) => void;
@@ -24,7 +20,6 @@ interface MissionControlProps {
 export const MissionControl = memo(function MissionControl({
   sessions,
   agents,
-  saiyanTargets,
   connected,
   send,
   onSelectAgent,
@@ -35,7 +30,7 @@ export const MissionControl = memo(function MissionControl({
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
   const [pinnedPreview, setPinnedPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number }; svgX: number; svgY: number } | null>(null);
-  const pinnedByUser = useRef(false); // true = user clicked, false = auto-pinned by saiyan
+  const pinnedByUser = useRef(false);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   const [showSearch, setShowSearch] = useState(false);
@@ -278,44 +273,6 @@ export const MissionControl = memo(function MissionControl({
     return map;
   }, [layout]);
 
-  // Auto-pin saiyan agents: cycle through busy agents every 6s, skip if user-pinned
-  const saiyanCycleIndex = useRef(0);
-  useEffect(() => {
-    const pinNext = () => {
-      if (saiyanTargets.size === 0 || agentPositions.size === 0) return;
-      if (pinnedByUser.current) return;
-      const targets = [...saiyanTargets];
-      saiyanCycleIndex.current = saiyanCycleIndex.current % targets.length;
-      const nextTarget = targets[saiyanCycleIndex.current];
-      saiyanCycleIndex.current = (saiyanCycleIndex.current + 1) % targets.length;
-      const agent = agents.find(a => a.target === nextTarget);
-      const pos = agentPositions.get(nextTarget);
-      if (agent && pos) {
-        const cardPos = calcCardPos(pos.svgX, pos.svgY);
-        pinnedByUser.current = false;
-        setPinnedPreview({ agent, room: { label: pos.style.label, accent: pos.style.accent }, pos: cardPos, svgX: pos.svgX, svgY: pos.svgY });
-        setHoverPreview(null);
-        send({ type: "subscribe", target: nextTarget });
-      }
-    };
-    // Pin immediately on change
-    pinNext();
-    // Cycle every 6s if multiple targets
-    if (saiyanTargets.size > 1) {
-      const interval = setInterval(pinNext, 6000);
-      return () => clearInterval(interval);
-    }
-  }, [saiyanTargets, agentPositions, agents]);
-
-  // Handle Saiyan toast click -> pin that agent (user-initiated)
-  const onSaiyanToastClick = useCallback((card: SaiyanCard) => {
-    const pos = calcCardPos(card.svgX, card.svgY);
-    pinnedByUser.current = true; // user clicked toast = user pin, don't auto-override
-    setPinnedPreview({ agent: card.agent, room: card.room, pos, svgX: card.svgX, svgY: card.svgY });
-    setHoverPreview(null);
-    send({ type: "subscribe", target: card.agent.target });
-  }, [calcCardPos, send]);
-
   // Compute viewBox based on zoom and pan
   const vbW = 1200 / zoom;
   const vbH = 1000 / zoom;
@@ -463,7 +420,6 @@ export const MissionControl = memo(function MissionControl({
                         status={agent.status}
                         preview={agent.preview}
                         accent={s.style.accent}
-                        saiyan={saiyanTargets.has(agent.target)}
                         onClick={() => onAgentClick(agent, ax, ay, { label: s.style.label, accent: s.style.accent })}
                       />
                     </g>
@@ -527,14 +483,6 @@ export const MissionControl = memo(function MissionControl({
         <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.05))}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
       </div>
-
-      {/* Saiyan toast notifications */}
-      <SaiyanToasts
-        saiyanTargets={saiyanTargets}
-        agents={agents}
-        agentPositions={agentPositions}
-        onToastClick={onSaiyanToastClick}
-      />
 
       {/* Hover Preview Card — manual hover (hidden when pinned) */}
       {hoverPreview && !pinnedPreview && (
