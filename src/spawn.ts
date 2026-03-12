@@ -24,7 +24,7 @@ export async function cmdSpawn(oracle: string, opts: { name?: string; continue?:
   // Add worktree windows
   for (const wt of worktrees) {
     const winName = `${oracle}-${wt.name}`;
-    await ssh(`tmux new-window -t '${sessionName}' -n '${winName}' -c '${wt.path}'`);
+    await ssh(`tmux new-window -a -t '${sessionName}' -n '${winName}' -c '${wt.path}'`);
     console.log(`\x1b[32m+\x1b[0m ${winName} → ${wt.path}`);
   }
 
@@ -37,7 +37,7 @@ export async function cmdSpawn(oracle: string, opts: { name?: string; continue?:
     console.log(`\x1b[36mall waking with --continue\x1b[0m`);
   }
 
-  await ssh(`tmux select-window -t '${sessionName}:1'`);
+  await ssh(`tmux select-window -t '${sessionName}:{start}'`);
   console.log(`\n\x1b[36mspawned:\x1b[0m ${sessionName} (${1 + worktrees.length} windows)`);
   console.log(`  attach: tmux attach -t ${sessionName}`);
 }
