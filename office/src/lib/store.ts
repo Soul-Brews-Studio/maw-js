@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, type StateStorage } from "zustand/middleware";
 
 export interface RecentEntry {
   name: string;
@@ -28,9 +28,60 @@ interface FleetStore {
   toggleCollapsed: (key: string) => void;
   muted: boolean;
   toggleMuted: () => void;
+
+  // Route persistence
+  lastView: string;
+  setLastView: (view: string) => void;
 }
 
 const RECENT_TTL = 30 * 60 * 1000; // 30 minutes
+
+// --- Server-side storage adapter (cross-device persistence) ---
+
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingWrite: string | null = null;
+
+function flushWrite() {
+  if (pendingWrite === null) return;
+  const body = pendingWrite;
+  pendingWrite = null;
+  fetch("/api/ui-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  }).catch(() => {}); // fire-and-forget
+}
+
+const serverStorage: StateStorage = {
+  getItem: async (_name) => {
+    try {
+      const res = await fetch("/api/ui-state");
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || Object.keys(data).length === 0) return null;
+      return JSON.stringify({ state: data, version: 2 });
+    } catch {
+      return null;
+    }
+  },
+  setItem: async (_name, value) => {
+    try {
+      const { state } = JSON.parse(value);
+      pendingWrite = JSON.stringify(state);
+      if (writeTimer) clearTimeout(writeTimer);
+      writeTimer = setTimeout(flushWrite, 1000);
+    } catch {}
+  },
+  removeItem: async (_name) => {
+    try {
+      await fetch("/api/ui-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch {}
+  },
+};
 
 export const useFleetStore = create<FleetStore>()(
   persist(
@@ -80,10 +131,14 @@ export const useFleetStore = create<FleetStore>()(
       })),
       muted: false,
       toggleMuted: () => set((s) => ({ muted: !s.muted })),
+
+      lastView: "office",
+      setLastView: (view) => set({ lastView: view }),
     }),
     {
       name: "maw.fleet",
       version: 2,
+      storage: serverStorage,
       partialize: (s) => ({
         recentMap: s.recentMap,
         sortMode: s.sortMode,
@@ -91,6 +146,7 @@ export const useFleetStore = create<FleetStore>()(
         collapsed: s.collapsed,
         muted: s.muted,
         sleptTargets: s.sleptTargets,
+        lastView: s.lastView,
       }),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>;

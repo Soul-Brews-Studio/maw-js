@@ -17,12 +17,30 @@ import { useFleetStore } from "./lib/store";
 import type { AgentState } from "./lib/types";
 
 function useHashRoute() {
-  const [hash, setHash] = useState(window.location.hash.slice(1) || "office");
+  const lastView = useFleetStore((s) => s.lastView);
+  const setLastView = useFleetStore((s) => s.setLastView);
+
+  const [hash, setHash] = useState(() => {
+    // If URL already has a hash, use it; otherwise restore from server state
+    const urlHash = window.location.hash.slice(1);
+    if (urlHash) return urlHash;
+    if (lastView && lastView !== "office") {
+      window.location.hash = lastView;
+      return lastView;
+    }
+    return "office";
+  });
+
   useEffect(() => {
-    const onHash = () => setHash(window.location.hash.slice(1) || "office");
+    const onHash = () => {
+      const h = window.location.hash.slice(1) || "office";
+      setHash(h);
+      setLastView(h);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [setLastView]);
+
   return hash;
 }
 

@@ -1,10 +1,13 @@
-import { ssh } from "./ssh";
+import { tmux } from "./tmux";
 import { loadConfig } from "./config";
 import type { ServerWebSocket } from "bun";
+
+let nextPtyId = 0;
 
 interface PtySession {
   proc: ReturnType<typeof Bun.spawn>;
   target: string;
+  ptySessionName: string;
   viewers: Set<ServerWebSocket<any>>;
   cleanupTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -67,20 +70,30 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
   }
 
   const sessionName = safe.split(":")[0];
+  const windowPart = safe.includes(":") ? safe.split(":").slice(1).join(":") : "";
   const c = Math.max(1, Math.min(500, Math.floor(cols)));
   const r = Math.max(1, Math.min(200, Math.floor(rows)));
 
-  // Select the target window before attaching
-  try { await ssh(`tmux select-window -t '${safe}' 2>/dev/null`); } catch {}
+  // Create a grouped session — shares windows but has independent client sizing.
+  // This prevents the web terminal from shrinking the real terminal.
+  const ptySessionName = `maw-pty-${++nextPtyId}`;
+  try {
+    await tmux.newGroupedSession(sessionName, ptySessionName, {
+      cols: c, rows: r, window: windowPart || undefined,
+    });
+  } catch {
+    ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
+    return;
+  }
 
-  // Spawn PTY via script(1) — creates a real pseudo-terminal
+  // Spawn PTY via script(1) — attach to our grouped session (not the original)
   let args: string[];
   if (isLocalHost()) {
-    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color tmux attach-session -t '${sessionName}'`;
+    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color tmux attach-session -t '${ptySessionName}'`;
     args = ["script", "-qfc", cmd, "/dev/null"];
   } else {
     const host = process.env.MAW_HOST || loadConfig().host || "white.local";
-    args = ["ssh", "-tt", host, `TERM=xterm-256color tmux attach-session -t '${sessionName}'`];
+    args = ["ssh", "-tt", host, `TERM=xterm-256color tmux attach-session -t '${ptySessionName}'`];
   }
 
   const proc = Bun.spawn(args, {
@@ -90,13 +103,12 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
     env: { ...process.env, TERM: "xterm-256color" },
   });
 
-  session = { proc, target: safe, viewers: new Set([ws]), cleanupTimer: null };
+  session = { proc, target: safe, ptySessionName, viewers: new Set([ws]), cleanupTimer: null };
   sessions.set(safe, session);
 
   ws.send(JSON.stringify({ type: "attached", target: safe }));
 
-  // Resize tmux pane to match viewer dimensions
-  resizeTarget(safe, c, r);
+  // No resize here — grouped session has its own size from stty
 
   // Stream PTY stdout → all viewers as binary frames
   const s = session;
@@ -111,23 +123,19 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
         }
       }
     } catch {}
-    // PTY process ended
+    // PTY process ended — clean up grouped session
     sessions.delete(safe);
+    tmux.killSession(s.ptySessionName);
     for (const v of s.viewers) {
       try { v.send(JSON.stringify({ type: "detached", target: safe })); } catch {}
     }
   })();
 }
 
-function resize(ws: ServerWebSocket<any>, cols: number, rows: number) {
-  const session = findSession(ws);
-  if (session) resizeTarget(session.target, cols, rows);
-}
-
-function resizeTarget(target: string, cols: number, rows: number) {
-  const c = Math.max(1, Math.min(500, Math.floor(cols)));
-  const r = Math.max(1, Math.min(200, Math.floor(rows)));
-  ssh(`tmux resize-pane -t '${target}' -x ${c} -y ${r} 2>/dev/null`).catch(() => {});
+function resize(_ws: ServerWebSocket<any>, _cols: number, _rows: number) {
+  // No-op: with grouped sessions, resize-pane would affect the shared pane
+  // (shrinking the real terminal). The web terminal works at its initial size.
+  // TODO: proper PTY resize via node-pty or ioctl
 }
 
 function detach(ws: ServerWebSocket<any>) {
@@ -138,6 +146,7 @@ function detach(ws: ServerWebSocket<any>) {
       // Grace period before killing PTY
       session.cleanupTimer = setTimeout(() => {
         try { session.proc.kill(); } catch {}
+        tmux.killSession(session.ptySessionName);
         sessions.delete(target);
       }, 5000);
     }

@@ -124,9 +124,32 @@ app.get("/api/oracle/stats", async (c) => {
   }
 });
 
-// --- Fleet Config ---
+// --- UI State persistence (cross-device) ---
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
+
+const uiStatePath = join(import.meta.dir, "../ui-state.json");
+
+app.get("/api/ui-state", (c) => {
+  try {
+    if (!existsSync(uiStatePath)) return c.json({});
+    return c.json(JSON.parse(readFileSync(uiStatePath, "utf-8")));
+  } catch {
+    return c.json({});
+  }
+});
+
+app.post("/api/ui-state", async (c) => {
+  try {
+    const body = await c.req.json();
+    writeFileSync(uiStatePath, JSON.stringify(body, null, 2), "utf-8");
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400);
+  }
+});
+
+// --- Fleet Config ---
 
 const fleetDir = join(import.meta.dir, "../fleet");
 
