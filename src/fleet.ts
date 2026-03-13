@@ -207,9 +207,10 @@ export async function cmdFleetValidate() {
   }
 
   // 4. Running sessions without config
+  let runningSessions: string[] = [];
   try {
     const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
-    const runningSessions = out.trim().split("\n").filter(Boolean);
+    runningSessions = out.trim().split("\n").filter(Boolean);
     const configNames = new Set(entries.map(e => e.session.name));
     for (const s of runningSessions) {
       if (!configNames.has(s)) {
@@ -217,6 +218,20 @@ export async function cmdFleetValidate() {
       }
     }
   } catch { /* tmux not running */ }
+
+  // 5. Running windows not in fleet config (won't survive reboot)
+  for (const e of entries) {
+    if (!runningSessions.includes(e.session.name)) continue;
+    try {
+      const winOut = await ssh(`tmux list-windows -t '${e.session.name}' -F '#{window_name}' 2>/dev/null`);
+      const runningWindows = winOut.trim().split("\n").filter(Boolean);
+      const registeredWindows = new Set(e.session.windows.map(w => w.name));
+      const unregistered = runningWindows.filter(w => !registeredWindows.has(w));
+      for (const w of unregistered) {
+        issues.push(`\x1b[33mUnregistered window\x1b[0m: '${w}' in ${e.session.name} — won't survive reboot`);
+      }
+    } catch {}
+  }
 
   // Report
   console.log(`\n  \x1b[36mFleet Validation\x1b[0m (${entries.length} configs)\n`);
@@ -228,6 +243,57 @@ export async function cmdFleetValidate() {
       console.log(`  ⚠ ${issue}`);
     }
     console.log(`\n  \x1b[31m${issues.length} issue(s) found.\x1b[0m\n`);
+  }
+}
+
+export async function cmdFleetSync() {
+  const entries = loadFleetEntries();
+  let added = 0;
+
+  // Get running sessions
+  let runningSessions: string[] = [];
+  try {
+    const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
+    runningSessions = out.trim().split("\n").filter(Boolean);
+  } catch { return; }
+
+  const ghqRoot = loadConfig().ghqRoot;
+
+  for (const e of entries) {
+    if (!runningSessions.includes(e.session.name)) continue;
+
+    try {
+      const winOut = await ssh(`tmux list-windows -t '${e.session.name}' -F '#{window_name}:#{pane_current_path}' 2>/dev/null`);
+      const runningWindows = winOut.trim().split("\n").filter(Boolean);
+      const registeredNames = new Set(e.session.windows.map(w => w.name));
+
+      for (const line of runningWindows) {
+        const [winName, cwdPath] = line.split(":");
+        if (!winName || registeredNames.has(winName)) continue;
+
+        // Derive repo from cwd (strip ghqRoot prefix)
+        let repo = "";
+        if (cwdPath?.startsWith(ghqRoot + "/")) {
+          repo = cwdPath.slice(ghqRoot.length + 1);
+        }
+
+        e.session.windows.push({ name: winName, repo });
+        console.log(`  \x1b[32m+\x1b[0m ${winName} → ${e.file}${repo ? ` (${repo})` : ""}`);
+        added++;
+      }
+    } catch {}
+
+    // Write updated config
+    if (added > 0) {
+      const filePath = join(FLEET_DIR, e.file);
+      await Bun.write(filePath, JSON.stringify(e.session, null, 2) + "\n");
+    }
+  }
+
+  if (added === 0) {
+    console.log("\n  \x1b[32m✓ Fleet in sync.\x1b[0m No unregistered windows.\n");
+  } else {
+    console.log(`\n  \x1b[32m${added} window(s) added to fleet configs.\x1b[0m\n`);
   }
 }
 
@@ -248,8 +314,16 @@ export async function cmdSleep() {
   console.log(`\n  ${killed} sessions put to sleep.\n`);
 }
 
-export async function cmdWakeAll(opts: { kill?: boolean } = {}) {
-  const sessions = loadFleet();
+export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean } = {}) {
+  const allSessions = loadFleet();
+  // Skip dormant (20+) unless --all flag is passed
+  const sessions = opts.all
+    ? allSessions
+    : allSessions.filter(s => {
+        const num = parseInt(s.name.split("-")[0], 10);
+        return isNaN(num) || num < 20 || num >= 99;
+      });
+  const skipped = allSessions.length - sessions.length;
 
   if (opts.kill) {
     console.log(`\n  \x1b[33mKilling existing sessions...\x1b[0m\n`);
@@ -257,7 +331,8 @@ export async function cmdWakeAll(opts: { kill?: boolean } = {}) {
   }
 
   const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
-  console.log(`\n  \x1b[36mWaking fleet...\x1b[0m  (${sessions.length} sessions${disabled ? `, ${disabled} disabled` : ""})\n`);
+  const skipMsg = skipped > 0 ? `, ${skipped} dormant skipped` : "";
+  console.log(`\n  \x1b[36mWaking fleet...\x1b[0m  (${sessions.length} sessions${disabled ? `, ${disabled} disabled` : ""}${skipMsg})\n`);
 
   let sessCount = 0;
   let winCount = 0;
