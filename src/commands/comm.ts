@@ -90,7 +90,8 @@ export async function cmdSend(query: string, message: string, force = false) {
   const logFile = join(logDir, "maw-log.jsonl");
   const host = (await import("os")).hostname();
   const from = process.env.CLAUDE_AGENT_NAME || "cli";
-  const line = JSON.stringify({ ts: new Date().toISOString(), from, to: query, target, msg: message, host }) + "\n";
+  const sid = process.env.CLAUDE_SESSION_ID || null;
+  const line = JSON.stringify({ ts: new Date().toISOString(), from, to: query, target, msg: message, host, sid }) + "\n";
   try { await mkdir(logDir, { recursive: true }); await appendFile(logFile, line); } catch {}
 
   console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
