@@ -150,32 +150,58 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
+                const avatarSize = isBusy ? 88 : 42;
+                const glowSize = isBusy ? 100 : 0;
+
                 return (
                   <div
                     key={oracle}
-                    className="flex flex-col items-center cursor-pointer transition-all duration-300"
+                    className="relative flex flex-col items-center cursor-pointer transition-all duration-500"
                     style={{
-                      opacity: isIdle ? 0.4 : isBusy ? 1 : 0.7,
-                      filter: isIdle ? "grayscale(0.6)" : "none",
-                      transform: isBusy ? "scale(1.1)" : "scale(1)",
+                      opacity: isIdle ? 0.35 : isBusy ? 1 : 0.6,
+                      filter: isIdle ? "grayscale(0.7)" : "none",
+                      zIndex: isBusy ? 10 : 1,
                     }}
                     onMouseEnter={(e) => showPreview(agent, rs.accent, rs.label, e)}
                     onMouseLeave={() => hidePreview()}
                     onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)}
                   >
-                    {/* Glow ring for busy */}
+                    {/* Super Saiyan aura for busy */}
                     {isBusy && (
-                      <div
-                        className="absolute rounded-full pointer-events-none"
-                        style={{
-                          width: 52,
-                          height: 52,
-                          background: `radial-gradient(circle, ${rs.accent}30 0%, transparent 70%)`,
-                          animation: "pulse 2s infinite",
-                        }}
-                      />
+                      <>
+                        <div
+                          className="absolute rounded-full pointer-events-none"
+                          style={{
+                            width: glowSize,
+                            height: glowSize,
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -55%)",
+                            background: `radial-gradient(circle, ${rs.accent}40 0%, ${rs.accent}15 40%, transparent 70%)`,
+                            animation: "pulse 1.5s infinite",
+                          }}
+                        />
+                        <div
+                          className="absolute rounded-full pointer-events-none"
+                          style={{
+                            width: glowSize * 1.4,
+                            height: glowSize * 1.4,
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -55%)",
+                            background: `radial-gradient(circle, ${rs.accent}10 0%, transparent 60%)`,
+                            animation: "pulse 2.5s infinite 0.5s",
+                          }}
+                        />
+                      </>
                     )}
-                    <svg viewBox="-40 -50 80 80" width={48} height={48} overflow="visible">
+                    <svg
+                      viewBox="-40 -50 80 80"
+                      width={avatarSize}
+                      height={avatarSize}
+                      overflow="visible"
+                      style={{ transition: "width 0.5s ease, height 0.5s ease" }}
+                    >
                       <AgentAvatar
                         name={agent.name}
                         target={agent.target}
@@ -186,11 +212,13 @@ export const FootballPitch = memo(function FootballPitch({
                       />
                     </svg>
                     <span
-                      className="text-[9px] font-bold font-mono mt-0.5 truncate text-center"
+                      className="font-bold font-mono mt-0.5 truncate text-center"
                       style={{
+                        fontSize: isBusy ? 11 : 9,
                         color: isBusy ? rs.accent : isIdle ? "#555" : "#888",
-                        maxWidth: 64,
-                        textShadow: isBusy ? `0 0 8px ${rs.accent}50` : "none",
+                        maxWidth: isBusy ? 90 : 64,
+                        textShadow: isBusy ? `0 0 12px ${rs.accent}80` : "none",
+                        transition: "all 0.5s ease",
                       }}
                     >
                       {displayName}
