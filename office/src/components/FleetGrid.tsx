@@ -308,15 +308,26 @@ export const FleetGrid = memo(function FleetGrid({
           onToggleView={toggleStageMode}
         />
       ) : (
-        <StageSection
-          busyAgents={busyAgents}
-          recentlyActive={recentlyActive}
-          recentMap={recentMap}
-          getAgentFeedLog={getAgentFeedLog}
-          showPreview={showPreview}
-          hidePreview={hidePreview}
-          onAgentClick={onAgentClick}
-        />
+        <>
+          <div className="max-w-5xl mx-auto px-6 lg:px-8 flex justify-end pt-4">
+            <button
+              onClick={toggleStageMode}
+              className="px-3 py-1 rounded-lg text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity"
+              style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              Switch to Pitch
+            </button>
+          </div>
+          <StageSection
+            busyAgents={busyAgents}
+            recentlyActive={recentlyActive}
+            recentMap={recentMap}
+            getAgentFeedLog={getAgentFeedLog}
+            showPreview={showPreview}
+            hidePreview={hidePreview}
+            onAgentClick={onAgentClick}
+          />
+        </>
       )}
 
       {/* Rooms */}
