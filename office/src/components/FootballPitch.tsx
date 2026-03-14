@@ -4,30 +4,31 @@ import { roomStyle } from "../lib/constants";
 import type { AgentState } from "../lib/types";
 import type { RecentEntry } from "../lib/store";
 
-/** 4-3-3 formation: GK(1) → DEF(4) → MID(3) → FWD(3) = 11 starters + 4 subs on bench */
+/** 4-4-2 formation: DEF(5) → MID(5) → FWD(5) — all 15 on pitch, balanced columns
+ *  GK embedded in DEF column. True 4-4-2 shape with even distribution. */
 const FORMATION: Record<string, { col: number; row: number }> = {
-  // GK (col 0) — the keeper
-  "overview":      { col: 0, row: 1.5 },
-  // DEF (col 1) — back four
-  "odin":          { col: 1, row: 0 },
-  "mother":        { col: 1, row: 1 },
-  "calliope":      { col: 1, row: 2 },
-  "nexus":         { col: 1, row: 3 },
-  // MID (col 2) — midfield three
-  "homekeeper":    { col: 2, row: 0.5 },
-  "volt":          { col: 2, row: 1.5 },
-  "fireman":       { col: 2, row: 2.5 },
-  // FWD (col 3) — front three
-  "pulse":         { col: 3, row: 0.5 },
-  "neo":           { col: 3, row: 1.5 },
-  "hermes":        { col: 3, row: 2.5 },
+  // DEF (col 0) — GK + back four
+  "overview":      { col: 0, row: 0 },
+  "odin":          { col: 0, row: 1 },
+  "mother":        { col: 0, row: 2 },
+  "calliope":      { col: 0, row: 3 },
+  "nexus":         { col: 0, row: 4 },
+  // MID (col 1) — midfield four + DMF
+  "homekeeper":    { col: 1, row: 0 },
+  "volt":          { col: 1, row: 1 },
+  "fireman":       { col: 1, row: 2 },
+  "xiaoer":        { col: 1, row: 3 },
+  "dustboy":       { col: 1, row: 4 },
+  // FWD (col 2) — strikers + wingers
+  "pulse":         { col: 2, row: 0 },
+  "neo":           { col: 2, row: 1 },
+  "hermes":        { col: 2, row: 2 },
+  "arthur":        { col: 2, row: 3 },
+  "floodboy":      { col: 2, row: 4 },
 };
 
-/** Bench players — shown smaller below the pitch */
-const BENCH: string[] = ["xiaoer", "dustboy", "floodboy", "arthur", "dustboychain"];
-
-const COL_LABELS = ["GK", "DEF", "MID", "FWD"];
-const COL_COUNT = 4;
+const COL_LABELS = ["DEF", "MID", "FWD"];
+const COL_COUNT = 3;
 
 /** Extract oracle name from agent name (strip -oracle, -N-suffix, etc) */
 function oracleName(name: string): string {
@@ -267,38 +268,6 @@ export const FootballPitch = memo(function FootballPitch({
           ))}
         </div>
 
-        {/* Bench */}
-        {(() => {
-          const benchAgents = BENCH
-            .map(name => {
-              const agent = agents.find(a => oracleName(a.name) === name);
-              return agent ? { oracle: name, agent } : null;
-            })
-            .filter(Boolean) as { oracle: string; agent: AgentState }[];
-          if (benchAgents.length === 0) return null;
-          return (
-            <div className="relative flex items-center gap-4 px-6 py-2 z-10" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-              <span className="text-[9px] tracking-[3px] uppercase font-mono" style={{ color: "rgba(255,255,255,0.25)" }}>Bench</span>
-              {benchAgents.map(({ oracle, agent }) => {
-                const rs = roomStyle(agent.session);
-                const isBusy = agent.status === "busy";
-                return (
-                  <div
-                    key={oracle}
-                    className="flex flex-col items-center cursor-pointer"
-                    style={{ opacity: isBusy ? 0.9 : 0.35, filter: isBusy ? "none" : "grayscale(0.7)" }}
-                    onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)}
-                  >
-                    <svg viewBox="-40 -50 80 80" width={36} height={36} overflow="visible">
-                      <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview={agent.preview} accent={rs.accent} onClick={() => {}} />
-                    </svg>
-                    <span className="text-[8px] font-mono" style={{ color: "#666" }}>{oracle.slice(0, 6)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
       </div>
     </div>
   );
