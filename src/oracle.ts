@@ -103,7 +103,7 @@ export async function cmdOracleAbout(oracle: string) {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       const hasOracle = (config.windows || []).some(
-        (w: any) => w.name === `${name}-oracle` || w.name === name
+        (w: any) => w.name.toLowerCase() === `${name}-oracle` || w.name.toLowerCase() === name
       );
       if (hasOracle) {
         fleetFile = file;

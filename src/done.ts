@@ -13,16 +13,18 @@ const FLEET_DIR = join(import.meta.dir, "../fleet");
  * 2. Remove git worktree (if it is one)
  * 3. Remove from fleet config JSON
  */
-export async function cmdDone(windowName: string) {
+export async function cmdDone(windowName_: string) {
+  let windowName = windowName_;
   const sessions = await listSessions();
   const ghqRoot = loadConfig().ghqRoot;
 
-  // Find the window in running sessions
+  // Find the window in running sessions (case-insensitive)
+  const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
   let windowIndex: number | null = null;
   for (const s of sessions) {
-    const w = s.windows.find(w => w.name === windowName);
-    if (w) { sessionName = s.name; windowIndex = w.index; break; }
+    const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
+    if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
   }
 
   // 1. Kill tmux window
@@ -42,7 +44,7 @@ export async function cmdDone(windowName: string) {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-      const win = (config.windows || []).find((w: any) => w.name === windowName);
+      const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
       if (!win?.repo) continue;
 
       const fullPath = join(ghqRoot, win.repo);
@@ -109,7 +111,7 @@ export async function cmdDone(windowName: string) {
       const filePath = join(FLEET_DIR, file);
       const config = JSON.parse(readFileSync(filePath, "utf-8"));
       const before = config.windows?.length || 0;
-      config.windows = (config.windows || []).filter((w: any) => w.name !== windowName);
+      config.windows = (config.windows || []).filter((w: any) => w.name.toLowerCase() !== windowNameLower);
       if (config.windows.length < before) {
         writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n");
         console.log(`  \x1b[32m✓\x1b[0m removed from ${file}`);
