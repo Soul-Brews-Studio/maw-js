@@ -7,11 +7,13 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
 
-  // Resolve agent → session
+  // Resolve agent → session (case-insensitive)
+  const agentLower = agent.toLowerCase();
   let sessionName: string | null = null;
   for (const s of sessions) {
-    if (s.name.endsWith(`-${agent}`) || s.name === agent) { sessionName = s.name; break; }
-    if (s.windows.some(w => w.name.toLowerCase().includes(agent.toLowerCase()))) { sessionName = s.name; break; }
+    const sLower = s.name.toLowerCase();
+    if (sLower.endsWith(`-${agentLower}`) || sLower === agentLower) { sessionName = s.name; break; }
+    if (s.windows.some(w => w.name.toLowerCase().includes(agentLower))) { sessionName = s.name; break; }
   }
   if (!sessionName) { console.error(`session not found for: ${agent}`); process.exit(1); }
 

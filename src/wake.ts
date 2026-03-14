@@ -153,7 +153,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
   let targetPath = repoPath;
   let windowName = `${oracle}-oracle`;
-  let freshWorktree = false;
 
   if (opts.newWt || opts.task) {
     const name = opts.newWt || opts.task!;
@@ -180,7 +179,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
       targetPath = wtPath;
       windowName = `${oracle}-${name}`;
-      freshWorktree = true;
     }
   }
 
@@ -211,11 +209,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   // Create window + start command (or with prompt)
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  let cmd = buildCommand(windowName);
-  // Fresh worktree has no conversation — drop --continue to avoid error
-  if (freshWorktree) {
-    cmd = cmd.replace(/\s*--continue\b/, "");
-  }
+  const cmd = buildCommand(windowName);
   if (opts.prompt) {
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);

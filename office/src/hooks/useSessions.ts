@@ -47,19 +47,20 @@ export function useSessions() {
   const FEED_BUSY_EVENTS = new Set<FeedEventType>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "SubagentStart", "PostToolUseFailure"]);
   const FEED_STOP_EVENTS = new Set<FeedEventType>(["Stop", "SessionEnd", "TaskCompleted", "Notification"]);
 
-  /** Resolve feed event → agent. Uses project field for worktree-aware matching. */
+  /** Resolve feed event → agent. Uses project field for worktree-aware matching (case-insensitive). */
   const resolveAgentFromFeed = useCallback((event: FeedEvent): AgentState | undefined => {
     // project like "hermes-oracle.wt-1-bitkub" or "homelab-wt-statusline" → window name "hermes-bitkub" / "homekeeper-statusline"
     const project = event.project;
     // Match both formats: ".wt-N-name" (old) and "-wt-name" (new, no digit)
     const wtMatch = project.match(/[.-]wt-(?:\d+-)?(.+)$/);
     if (wtMatch) {
-      const windowName = `${event.oracle}-${wtMatch[1]}`;
-      const agent = agentsRef.current.find(a => a.name === windowName);
+      const windowName = `${event.oracle}-${wtMatch[1]}`.toLowerCase();
+      const agent = agentsRef.current.find(a => a.name.toLowerCase() === windowName);
       if (agent) return agent;
     }
     // Fallback: match by oracle name (main window)
-    return agentsRef.current.find(a => a.name === `${event.oracle}-oracle`);
+    const oracleMain = `${event.oracle}-oracle`.toLowerCase();
+    return agentsRef.current.find(a => a.name.toLowerCase() === oracleMain);
   }, []);
 
   const updateStatusFromFeed = useCallback((event: FeedEvent) => {
