@@ -1,7 +1,8 @@
 import { join } from "path";
 import { readdirSync, renameSync, existsSync } from "fs";
-import { ssh } from "./ssh";
-import { loadConfig, buildCommand, getEnvVars } from "./config";
+import { ssh } from "../ssh";
+import { tmux } from "../tmux";
+import { loadConfig, buildCommand, getEnvVars } from "../config";
 
 interface FleetWindow {
   name: string;
@@ -14,7 +15,7 @@ interface FleetSession {
   skip_command?: boolean;
 }
 
-const FLEET_DIR = join(import.meta.dir, "../fleet");
+const FLEET_DIR = join(import.meta.dir, "../../fleet");
 
 function loadFleet(): FleetSession[] {
   const files = readdirSync(FLEET_DIR)
@@ -314,7 +315,62 @@ export async function cmdSleep() {
   console.log(`\n  ${killed} sessions put to sleep.\n`);
 }
 
-export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean } = {}) {
+/** After fleet spawn, send /recap to oracles with active Pulse board items */
+async function resumeActiveItems() {
+  const repo = "laris-co/pulse-oracle";
+  try {
+    const issuesJson = await ssh(
+      `gh issue list --repo ${repo} --state open --json number,title,labels --limit 50`
+    );
+    const issues: { number: number; title: string; labels: { name: string }[] }[] = JSON.parse(issuesJson || "[]");
+
+    // Find issues assigned to oracles (label: oracle:<name>)
+    const oracleItems = issues
+      .filter(i => !i.labels.some(l => l.name === "daily-thread"))
+      .map(i => ({
+        ...i,
+        oracle: i.labels.find(l => l.name.startsWith("oracle:"))?.name.replace("oracle:", ""),
+      }))
+      .filter(i => i.oracle);
+
+    if (!oracleItems.length) {
+      console.log("  \x1b[90mNo active board items to resume.\x1b[0m");
+      return;
+    }
+
+    // Group by oracle, send /recap once per oracle
+    const byOracle = new Map<string, typeof oracleItems>();
+    for (const item of oracleItems) {
+      const list = byOracle.get(item.oracle!) || [];
+      list.push(item);
+      byOracle.set(item.oracle!, list);
+    }
+
+    for (const [oracle, items] of byOracle) {
+      const windowName = `${oracle}-oracle`;
+      // Find which session has this window
+      const sessions = await tmux.listSessions();
+      for (const sess of sessions) {
+        try {
+          const windows = await tmux.listWindows(sess.name);
+          const win = windows.find(w => w.name.toLowerCase() === windowName.toLowerCase());
+          if (win) {
+            const titles = items.map(i => `#${i.number}`).join(", ");
+            // Wait for Claude to be ready (give it time to start)
+            await new Promise(r => setTimeout(r, 2000));
+            await tmux.sendText(`${sess.name}:${win.name}`, `/recap --deep — Resume after reboot. Active items: ${titles}`);
+            console.log(`  \x1b[32m↻\x1b[0m ${oracle}: /recap sent (${titles})`);
+            break;
+          }
+        } catch { /* window not found in this session */ }
+      }
+    }
+  } catch (e) {
+    console.log(`  \x1b[33mresume skipped:\x1b[0m ${e}`);
+  }
+}
+
+export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?: boolean } = {}) {
   const allSessions = loadFleet();
   // Skip dormant (20+) unless --all flag is passed
   const sessions = opts.all
@@ -383,4 +439,9 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean } = {}) {
   }
 
   console.log(`\n  \x1b[32m${sessCount} sessions, ${winCount} windows woke up.\x1b[0m\n`);
+
+  if (opts.resume) {
+    console.log("  \x1b[36mResuming active board items...\x1b[0m\n");
+    await resumeActiveItems();
+  }
 }

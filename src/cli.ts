@@ -4,13 +4,13 @@ process.env.MAW_CLI = "1";
 import { cmdList, cmdPeek, cmdSend } from "./commands/comm";
 import { cmdView } from "./commands/view";
 import { cmdCompletions } from "./commands/completions";
-import { cmdOverview } from "./overview";
-import { cmdWake, fetchIssuePrompt } from "./wake";
-import { cmdPulseAdd, cmdPulseLs } from "./pulse";
-import { cmdOracleList, cmdOracleAbout } from "./oracle";
-import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync } from "./fleet";
-import { cmdFleetInit } from "./fleet-init";
-import { cmdDone } from "./done";
+import { cmdOverview } from "./commands/overview";
+import { cmdWake, fetchIssuePrompt } from "./commands/wake";
+import { cmdPulseAdd, cmdPulseLs } from "./commands/pulse";
+import { cmdOracleList, cmdOracleAbout } from "./commands/oracle";
+import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync } from "./commands/fleet";
+import { cmdFleetInit } from "./commands/fleet-init";
+import { cmdDone } from "./commands/done";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -31,6 +31,7 @@ function usage() {
   maw fleet sync              Add unregistered windows to fleet configs
   maw wake all [--kill]       Wake fleet (01-15 + 99, skips dormant 20+)
   maw wake all --all          Wake ALL including dormant
+  maw wake all --resume       Wake fleet + send /recap to active board items
   maw stop                    Stop all fleet sessions
   maw about <oracle>           Oracle profile — session, worktrees, fleet
   maw oracle ls               Fleet status (awake/sleeping/worktrees)
@@ -103,7 +104,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 } else if (cmd === "wake") {
   if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>]\n       maw wake all [--kill]"); process.exit(1); }
   if (args[1].toLowerCase() === "all") {
-    await cmdWakeAll({ kill: args.includes("--kill"), all: args.includes("--all") });
+    await cmdWakeAll({ kill: args.includes("--kill"), all: args.includes("--all"), resume: args.includes("--resume") });
   } else {
     const wakeOpts: { task?: string; newWt?: string; prompt?: string } = {};
     let issueNum: number | null = null;

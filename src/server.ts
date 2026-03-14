@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { listSessions, capture, sendKeys, selectWindow } from "./ssh";
-import { processMirror } from "./overview";
+import { processMirror } from "./commands/overview";
 import { FeedTailer } from "./feed-tail";
 import { MawEngine } from "./engine";
 import type { WSData } from "./types";

@@ -1,6 +1,6 @@
-import { ssh } from "./ssh";
-import { tmux } from "./tmux";
-import { loadConfig, buildCommand, getEnvVars } from "./config";
+import { ssh } from "../ssh";
+import { tmux } from "../tmux";
+import { loadConfig, buildCommand, getEnvVars } from "../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -40,7 +40,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   }
 
   // 2. Fallback: check fleet configs for repo mapping
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = join(import.meta.dir, "../../fleet");
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
@@ -77,7 +77,7 @@ export function getSessionMap(): Record<string, string> {
 
 /** Scan fleet/*.json for a config containing a window matching the oracle name */
 export function resolveFleetSession(oracle: string): string | null {
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = join(import.meta.dir, "../../fleet");
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));

@@ -13,6 +13,16 @@ module.exports = {
       },
     },
     {
+      name: 'maw-boot',
+      script: 'src/cli.ts',
+      args: 'wake all --resume',
+      interpreter: '/home/nat/.bun/bin/bun',
+      // One-shot: spawn fleet after server starts, don't restart
+      autorestart: false,
+      // Give maw server time to come up
+      restart_delay: 5000,
+    },
+    {
       name: 'maw-dev',
       script: 'node_modules/.bin/vite',
       args: '--host',
