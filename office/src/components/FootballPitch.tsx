@@ -173,7 +173,7 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const baseSize = isBusy ? 88 : 56;
+                const baseSize = isBusy ? 88 : 68;
                 const glowSize = isBusy ? 100 : 0;
 
                 // macOS Dock magnification
