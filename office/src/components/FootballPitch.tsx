@@ -196,8 +196,8 @@ export const FootballPitch = memo(function FootballPitch({
                 const recentEntry = recentMap[agent.target];
                 const recentRank = recentEntry ? recentSorted.indexOf(agent.target) : -1;
                 const isTop5 = recentRank >= 0 && recentRank < 5;
-                const baseSize = isBusy ? 76 : isTop5 ? 64 : 52;
-                const glowSize = isBusy ? 90 : 0;
+                const baseSize = isBusy ? 104 : isTop5 ? 64 : 52;
+                const glowSize = isBusy ? 120 : 0;
 
                 // macOS Dock magnification
                 let magnify = 1;
