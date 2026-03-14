@@ -183,10 +183,8 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                // Recently active agents get bigger on the pitch
-                const isRecent = !!recentMap[agent.target] && (Date.now() - recentMap[agent.target].lastBusy < 30 * 60_000);
-                const baseSize = isBusy ? 80 : isRecent ? 72 : 56;
-                const glowSize = isBusy ? 100 : isRecent ? 80 : 0;
+                const baseSize = isBusy ? 80 : 56;
+                const glowSize = isBusy ? 100 : 0;
 
                 // macOS Dock magnification
                 let magnify = 1;
@@ -210,7 +208,7 @@ export const FootballPitch = memo(function FootballPitch({
                     ref={(node) => { if (node) agentRefs.current.set(oracle, node); }}
                     className="relative flex flex-col items-center cursor-pointer"
                     style={{
-                      opacity: isBusy ? 1 : isRecent ? 0.5 : magnify > 1.05 ? 0.7 : 0.35,
+                      opacity: isBusy ? 1 : magnify > 1.05 ? 0.7 : 0.4,
                       filter: isBusy ? "none" : "grayscale(0.6)",
                       zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
                       transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
