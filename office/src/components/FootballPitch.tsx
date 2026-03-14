@@ -203,9 +203,7 @@ export const FootballPitch = memo(function FootballPitch({
                       zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
                       transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
                     }}
-                    onMouseEnter={(e) => showPreview(agent, rs.accent, rs.label, e)}
-                    onMouseLeave={() => hidePreview()}
-                    onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)}
+                    onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)
                   >
                     {/* Super Saiyan aura for busy */}
                     {isBusy && (
