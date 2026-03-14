@@ -83,8 +83,8 @@ export const AVATAR = {
 
 // Preview card dimensions
 export const PREVIEW_CARD = {
-  width: 540,
-  maxHeight: 760,
+  width: 700,
+  maxHeight: 860,
 } as const;
 
 /** Client-side fallback — server resolves the real command from maw.config.json via buildCommand().
