@@ -59,8 +59,11 @@ export function useSessions() {
       if (agent) return agent;
     }
     // Fallback: match by oracle name (main window)
-    const oracleMain = `${event.oracle}-oracle`.toLowerCase();
-    return agentsRef.current.find(a => a.name.toLowerCase() === oracleMain);
+    // Handle both formats: oracle="neo" → "neo-oracle", oracle="calliope-oracle" → "calliope-oracle"
+    const oracleLower = event.oracle.toLowerCase();
+    const oracleMain = oracleLower.endsWith("-oracle") ? oracleLower : `${oracleLower}-oracle`;
+    return agentsRef.current.find(a => a.name.toLowerCase() === oracleMain)
+      || agentsRef.current.find(a => a.name.toLowerCase() === oracleLower);
   }, []);
 
   const updateStatusFromFeed = useCallback((event: FeedEvent) => {
