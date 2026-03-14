@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useCallback, useRef } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 import { roomStyle } from "../lib/constants";
 import type { AgentState } from "../lib/types";
@@ -44,6 +44,10 @@ interface FootballPitchProps {
   onAgentClick: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
 }
 
+/** macOS Dock magnification: distance-based scaling */
+const MAGNIFY_RADIUS = 120; // px — how far the effect reaches
+const MAGNIFY_SCALE = 1.6;  // max scale boost on hover
+
 export const FootballPitch = memo(function FootballPitch({
   agents,
   recentMap,
@@ -51,6 +55,19 @@ export const FootballPitch = memo(function FootballPitch({
   hidePreview,
   onAgentClick,
 }: FootballPitchProps) {
+  const pitchRef = useRef<HTMLDivElement>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const agentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!pitchRef.current) return;
+    const rect = pitchRef.current.getBoundingClientRect();
+    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setMousePos(null);
+  }, []);
   // Deduplicate: one agent per oracle (prefer main -oracle window)
   const oracleAgents = useMemo(() => {
     const byOracle = new Map<string, AgentState>();
@@ -137,7 +154,13 @@ export const FootballPitch = memo(function FootballPitch({
         </div>
 
         {/* Players grid — 4 columns left to right */}
-        <div className="relative flex justify-between px-8 py-4 z-10" style={{ minHeight: 280 }}>
+        <div
+          ref={pitchRef}
+          className="relative flex justify-between px-8 py-4 z-10"
+          style={{ minHeight: 280 }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
           {columns.map((col, colIdx) => (
             <div
               key={colIdx}
@@ -150,17 +173,35 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const avatarSize = isBusy ? 88 : 56;
+                const baseSize = isBusy ? 88 : 56;
                 const glowSize = isBusy ? 100 : 0;
+
+                // macOS Dock magnification
+                let magnify = 1;
+                const el = agentRefs.current.get(oracle);
+                if (mousePos && el && pitchRef.current) {
+                  const rect = el.getBoundingClientRect();
+                  const pitchRect = pitchRef.current.getBoundingClientRect();
+                  const cx = rect.left + rect.width / 2 - pitchRect.left;
+                  const cy = rect.top + rect.height / 2 - pitchRect.top;
+                  const dist = Math.sqrt((mousePos.x - cx) ** 2 + (mousePos.y - cy) ** 2);
+                  if (dist < MAGNIFY_RADIUS) {
+                    const t = 1 - dist / MAGNIFY_RADIUS;
+                    magnify = 1 + (MAGNIFY_SCALE - 1) * Math.cos((1 - t) * Math.PI / 2);
+                  }
+                }
+                const avatarSize = Math.round(baseSize * magnify);
 
                 return (
                   <div
                     key={oracle}
-                    className="relative flex flex-col items-center cursor-pointer transition-all duration-500"
+                    ref={(node) => { if (node) agentRefs.current.set(oracle, node); }}
+                    className="relative flex flex-col items-center cursor-pointer"
                     style={{
-                      opacity: isIdle ? 0.35 : isBusy ? 1 : 0.6,
-                      filter: isIdle ? "grayscale(0.7)" : "none",
-                      zIndex: isBusy ? 10 : 1,
+                      opacity: isIdle ? (magnify > 1.05 ? 0.7 : 0.35) : isBusy ? 1 : 0.6,
+                      filter: isIdle && magnify <= 1.05 ? "grayscale(0.7)" : "none",
+                      zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
+                      transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
                     }}
                     onMouseEnter={(e) => showPreview(agent, rs.accent, rs.label, e)}
                     onMouseLeave={() => hidePreview()}
@@ -200,7 +241,7 @@ export const FootballPitch = memo(function FootballPitch({
                       width={avatarSize}
                       height={avatarSize}
                       overflow="visible"
-                      style={{ transition: "width 0.5s ease, height 0.5s ease" }}
+                      style={{ transition: mousePos ? "none" : "width 0.4s ease, height 0.4s ease" }}
                     >
                       <AgentAvatar
                         name={agent.name}
