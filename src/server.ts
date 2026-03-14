@@ -314,6 +314,28 @@ app.post("/api/config", async (c) => {
   }
 });
 
+// --- Worktree Hygiene ---
+import { scanWorktrees, cleanupWorktree } from "./worktrees";
+
+app.get("/api/worktrees", async (c) => {
+  try {
+    return c.json(await scanWorktrees());
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/api/worktrees/cleanup", async (c) => {
+  const { path } = await c.req.json();
+  if (!path) return c.json({ error: "path required" }, 400);
+  try {
+    const log = await cleanupWorktree(path);
+    return c.json({ ok: true, log });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // --- Oracle Feed ---
 const feedTailer = new FeedTailer();
 

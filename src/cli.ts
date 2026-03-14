@@ -39,6 +39,7 @@ function usage() {
   maw overview --kill       Tear down overview
   maw done <window>            Clean up finished worktree window
   maw pulse add "task" [opts] Create issue + wake oracle
+  maw pulse cleanup [--dry-run] Clean stale/orphan worktrees
   maw view <agent> [window]   Grouped tmux session (interactive attach)
   maw create-view <agent> [w] Alias for view
   maw view <agent> --clean    Hide status bar (full screen)
@@ -136,8 +137,25 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   } else if (subcmd === "ls" || subcmd === "list") {
     const sync = args.includes("--sync");
     await cmdPulseLs({ sync });
+  } else if (subcmd === "cleanup" || subcmd === "clean") {
+    const { scanWorktrees, cleanupWorktree } = await import("./worktrees");
+    const worktrees = await scanWorktrees();
+    const stale = worktrees.filter(wt => wt.status !== "active");
+    if (!stale.length) { console.log("\x1b[32m✓\x1b[0m All worktrees are active. Nothing to clean."); process.exit(0); }
+    console.log(`\n\x1b[36mWorktree Cleanup\x1b[0m\n`);
+    console.log(`  \x1b[32m${worktrees.filter(w => w.status === "active").length} active\x1b[0m | \x1b[33m${worktrees.filter(w => w.status === "stale").length} stale\x1b[0m | \x1b[31m${worktrees.filter(w => w.status === "orphan").length} orphan\x1b[0m\n`);
+    for (const wt of stale) {
+      const color = wt.status === "orphan" ? "\x1b[31m" : "\x1b[33m";
+      console.log(`${color}${wt.status}\x1b[0m  ${wt.name} (${wt.mainRepo}) [${wt.branch}]`);
+      if (!args.includes("--dry-run")) {
+        const log = await cleanupWorktree(wt.path);
+        for (const line of log) console.log(`  \x1b[32m✓\x1b[0m ${line}`);
+      }
+    }
+    if (args.includes("--dry-run")) console.log(`\n\x1b[90m(dry run — use without --dry-run to clean)\x1b[0m`);
+    console.log();
   } else {
-    console.error("usage: maw pulse <add|ls> [opts]");
+    console.error("usage: maw pulse <add|ls|cleanup> [opts]");
     process.exit(1);
   }
 } else if (cmd === "overview" || cmd === "warroom" || cmd === "ov") {

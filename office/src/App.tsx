@@ -13,6 +13,7 @@ import { ConfigView } from "./components/ConfigView";
 import { TerminalView } from "./components/TerminalView";
 import { OrbitalView } from "./components/OrbitalView";
 import { InboxOverlay } from "./components/InboxView";
+import { WorktreeView } from "./components/WorktreeView";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
@@ -275,6 +276,14 @@ export function App() {
     return (
       <Layout activeView="overview" {...layoutProps}>
         <OverviewGrid sessions={sessions} agents={agents} connected={connected} send={send} onSelectAgent={onSelectAgent} />
+      </Layout>
+    );
+  }
+
+  if (route === "worktrees") {
+    return (
+      <Layout activeView="worktrees" {...layoutProps}>
+        <WorktreeView />
       </Layout>
     );
   }
