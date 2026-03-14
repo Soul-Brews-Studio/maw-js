@@ -30,6 +30,8 @@ interface FleetStore {
   toggleCollapsed: (key: string) => void;
   muted: boolean;
   toggleMuted: () => void;
+  stageMode: "stage" | "pitch";
+  toggleStageMode: () => void;
 
   // Route persistence
   lastView: string;
@@ -165,6 +167,8 @@ export const useFleetStore = create<FleetStore>()(
       })),
       muted: false,
       toggleMuted: () => set((s) => ({ muted: !s.muted })),
+      stageMode: "pitch",
+      toggleStageMode: () => set((s) => ({ stageMode: s.stageMode === "pitch" ? "stage" : "pitch" })),
 
       lastView: "office",
       setLastView: (view) => set({ lastView: view }),
@@ -210,6 +214,7 @@ export const useFleetStore = create<FleetStore>()(
         grouped: s.grouped,
         collapsed: s.collapsed,
         muted: s.muted,
+        stageMode: s.stageMode,
         sleptTargets: s.sleptTargets,
         lastView: s.lastView,
       }),

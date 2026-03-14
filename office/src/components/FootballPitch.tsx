@@ -41,6 +41,7 @@ interface FootballPitchProps {
   showPreview: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
   hidePreview: () => void;
   onAgentClick: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
+  onToggleView?: () => void;
 }
 
 /** macOS Dock magnification: distance-based scaling */
@@ -53,6 +54,7 @@ export const FootballPitch = memo(function FootballPitch({
   showPreview,
   hidePreview,
   onAgentClick,
+  onToggleView,
 }: FootballPitchProps) {
   const pitchRef = useRef<HTMLDivElement>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
@@ -149,6 +151,15 @@ export const FootballPitch = memo(function FootballPitch({
             {COL_LABELS.map((label, i) => (
               <span key={label} style={{ opacity: 0.4 + (i * 0.2) }}>{label}</span>
             ))}
+            {onToggleView && (
+              <button
+                onClick={onToggleView}
+                className="ml-2 px-2 py-0.5 rounded text-[9px] cursor-pointer hover:opacity-80"
+                style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Stage
+              </button>
+            )}
           </div>
         </div>
 
@@ -172,8 +183,10 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const baseSize = 64;
-                const glowSize = isBusy ? 90 : 0;
+                // Recently active agents get bigger on the pitch
+                const isRecent = !!recentMap[agent.target] && (Date.now() - recentMap[agent.target].lastBusy < 30 * 60_000);
+                const baseSize = isBusy ? 80 : isRecent ? 72 : 56;
+                const glowSize = isBusy ? 100 : isRecent ? 80 : 0;
 
                 // macOS Dock magnification
                 let magnify = 1;
@@ -197,8 +210,8 @@ export const FootballPitch = memo(function FootballPitch({
                     ref={(node) => { if (node) agentRefs.current.set(oracle, node); }}
                     className="relative flex flex-col items-center cursor-pointer"
                     style={{
-                      opacity: isIdle ? (magnify > 1.05 ? 0.7 : 0.35) : isBusy ? 1 : 0.6,
-                      filter: isIdle && magnify <= 1.05 ? "grayscale(0.7)" : "none",
+                      opacity: isIdle && !isRecent ? (magnify > 1.05 ? 0.7 : 0.35) : isBusy ? 1 : isRecent ? 0.85 : 0.6,
+                      filter: isIdle && !isRecent && magnify <= 1.05 ? "grayscale(0.7)" : "none",
                       zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
                       transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
                     }}

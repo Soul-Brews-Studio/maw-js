@@ -148,7 +148,7 @@ export const FleetGrid = memo(function FleetGrid({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // --- Zustand store ---
-  const { recentMap, markBusy, pruneRecent, sortMode, setSortMode, collapsed, toggleCollapsed, sleptTargets } = useFleetStore();
+  const { recentMap, markBusy, pruneRecent, sortMode, setSortMode, collapsed, toggleCollapsed, sleptTargets, stageMode, toggleStageMode } = useFleetStore();
   const isCollapsed = useCallback((key: string) => collapsed.includes(key), [collapsed]);
 
   // Sync busy agents to store
@@ -297,14 +297,27 @@ export const FleetGrid = memo(function FleetGrid({
 
   return (
     <div ref={containerRef} className="relative w-full min-h-screen" style={{ background: "#0a0a12" }}>
-      {/* Football Pitch */}
-      <FootballPitch
-        agents={agents}
-        recentMap={recentMap}
-        showPreview={showPreview}
-        hidePreview={hidePreview}
-        onAgentClick={onAgentClick}
-      />
+      {/* Toggle: Stage vs Pitch */}
+      {stageMode === "pitch" ? (
+        <FootballPitch
+          agents={agents}
+          recentMap={recentMap}
+          showPreview={showPreview}
+          hidePreview={hidePreview}
+          onAgentClick={onAgentClick}
+          onToggleView={toggleStageMode}
+        />
+      ) : (
+        <StageSection
+          busyAgents={busyAgents}
+          recentlyActive={recentlyActive}
+          recentMap={recentMap}
+          getAgentFeedLog={getAgentFeedLog}
+          showPreview={showPreview}
+          hidePreview={hidePreview}
+          onAgentClick={onAgentClick}
+        />
+      )}
 
       {/* Rooms */}
       <div className="max-w-5xl mx-auto flex flex-col px-6 lg:px-8 py-6 gap-4">
