@@ -174,6 +174,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
       const wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
       const branch = `agents/${wtName}`;
 
+      // Delete stale branch if it exists but has no worktree (#62)
+      try { await ssh(`git -C '${repoPath}' branch -D '${branch}' 2>/dev/null`); } catch { /* branch doesn't exist — fine */ }
       await ssh(`git -C '${repoPath}' worktree add '${wtPath}' -b '${branch}'`);
       console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
 
