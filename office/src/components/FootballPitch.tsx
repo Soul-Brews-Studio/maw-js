@@ -277,7 +277,7 @@ export const FootballPitch = memo(function FootballPitch({
                       className="font-bold font-mono mt-0.5 truncate text-center"
                       style={{
                         fontSize: isBusy ? 12 : 10,
-                        color: isBusy ? rs.accent : isIdle ? "#555" : "#888",
+                        color: rs.accent,
                         maxWidth: isBusy ? 90 : 64,
                         textShadow: isBusy ? `0 0 12px ${rs.accent}80` : "none",
                         transition: "all 0.5s ease",
