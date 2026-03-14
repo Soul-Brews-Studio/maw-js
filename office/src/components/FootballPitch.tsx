@@ -213,7 +213,8 @@ export const FootballPitch = memo(function FootballPitch({
                     magnify = 1 + (MAGNIFY_SCALE - 1) * Math.cos((1 - t) * Math.PI / 2);
                   }
                 }
-                const avatarSize = Math.round(baseSize * magnify);
+                // Use transform scale for magnification (doesn't affect layout)
+                const scale = magnify;
 
                 return (
                   <div
@@ -221,9 +222,10 @@ export const FootballPitch = memo(function FootballPitch({
                     ref={(node) => { if (node) agentRefs.current.set(oracle, node); }}
                     className="relative flex flex-col items-center cursor-pointer"
                     style={{
-                      opacity: isBusy ? 1 : isTop5 ? 0.75 : magnify > 1.05 ? 0.7 : 0.4,
+                      opacity: isBusy ? 1 : isTop5 ? 0.75 : scale > 1.05 ? 0.7 : 0.4,
                       filter: isBusy || isTop5 ? "none" : "grayscale(0.6)",
-                      zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
+                      zIndex: scale > 1.1 ? 20 : isBusy ? 10 : 1,
+                      transform: `scale(${scale})`,
                       transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
                     }}
                     onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)}
@@ -259,10 +261,9 @@ export const FootballPitch = memo(function FootballPitch({
                     )}
                     <svg
                       viewBox="-40 -50 80 80"
-                      width={avatarSize}
-                      height={avatarSize}
+                      width={baseSize}
+                      height={baseSize}
                       overflow="visible"
-                      style={{ transition: mousePos ? "none" : "width 0.4s ease, height 0.4s ease" }}
                     >
                       <AgentAvatar
                         name={agent.name}
