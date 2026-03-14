@@ -97,7 +97,7 @@ export const FootballPitch = memo(function FootballPitch({
   }, [oracleAgents]);
 
   return (
-    <div className="mx-auto px-4 lg:px-6 pt-6 pb-2" style={{ maxWidth: "1400px" }}>
+    <div className="mx-auto px-4 lg:px-6 pt-6 pb-2" style={{ maxWidth: "900px" }}>
       <div
         className="relative rounded-2xl overflow-hidden"
         style={{
