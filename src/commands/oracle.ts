@@ -1,4 +1,4 @@
-import { listSessions, ssh, capture } from "./ssh";
+import { listSessions, ssh, capture } from "../ssh";
 import { findWorktrees, detectSession, resolveFleetSession } from "./wake";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -27,7 +27,7 @@ async function discoverOracles(): Promise<string[]> {
   const names = new Set<string>();
 
   // 1. Fleet configs (registered — includes sleeping)
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = join(import.meta.dir, "../../fleet");
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
@@ -96,7 +96,7 @@ export async function cmdOracleAbout(oracle: string) {
   }
 
   // Fleet config
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = join(import.meta.dir, "../../fleet");
   let fleetFile: string | null = null;
   let fleetWindowCount = 0;
   try {

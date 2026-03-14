@@ -1,9 +1,9 @@
-import { listSessions, ssh } from "./ssh";
-import { loadConfig } from "./config";
+import { listSessions, ssh } from "../ssh";
+import { loadConfig } from "../config";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-const FLEET_DIR = join(import.meta.dir, "../fleet");
+const FLEET_DIR = join(import.meta.dir, "../../fleet");
 
 /**
  * maw done <window-name>

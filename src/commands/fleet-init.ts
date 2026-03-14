@@ -1,6 +1,6 @@
 import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
-import { ssh } from "./ssh";
+import { ssh } from "../ssh";
 
 interface FleetWindow {
   name: string;
@@ -49,7 +49,7 @@ const GROUPS: Record<string, { session: string; order: number }> = {
 };
 
 export async function cmdFleetInit() {
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = join(import.meta.dir, "../../fleet");
   if (!existsSync(fleetDir)) mkdirSync(fleetDir, { recursive: true });
 
   // Scan ghq for oracle repos

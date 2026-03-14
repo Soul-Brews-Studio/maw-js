@@ -1,5 +1,5 @@
-import { listSessions, ssh } from "./ssh";
-import type { Session } from "./ssh";
+import { listSessions, ssh } from "../ssh";
+import type { Session } from "../ssh";
 
 export interface OverviewTarget {
   session: string;
