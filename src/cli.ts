@@ -11,6 +11,7 @@ import { cmdOracleList, cmdOracleAbout } from "./commands/oracle";
 import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync } from "./commands/fleet";
 import { cmdFleetInit } from "./commands/fleet-init";
 import { cmdDone } from "./commands/done";
+import { cmdLogLs, cmdLogExport } from "./commands/log";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -101,6 +102,26 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdFleetSync();
 } else if (cmd === "fleet" && !args[1]) {
   await cmdFleetLs();
+} else if (cmd === "log") {
+  const sub = args[1]?.toLowerCase();
+  if (sub === "export") {
+    const logOpts: { date?: string; from?: string; to?: string; format?: string } = {};
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--date" && args[i + 1]) logOpts.date = args[++i];
+      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
+      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
+      else if (args[i] === "--format" && args[i + 1]) logOpts.format = args[++i];
+    }
+    cmdLogExport(logOpts);
+  } else {
+    const logOpts: { limit?: number; from?: string; to?: string } = {};
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
+      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
+      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
+    }
+    cmdLogLs(logOpts);
+  }
 } else if (cmd === "done" || cmd === "finish") {
   if (!args[1]) { console.error("usage: maw done <window-name>\n       e.g. maw done neo-freelance"); process.exit(1); }
   await cmdDone(args[1]);
