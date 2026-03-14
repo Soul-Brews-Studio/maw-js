@@ -98,6 +98,13 @@ export const FootballPitch = memo(function FootballPitch({
     return cols;
   }, [oracleAgents]);
 
+  // Top 5 most recently active targets (sorted by lastBusy desc)
+  const recentSorted = useMemo(() =>
+    Object.entries(recentMap)
+      .sort(([, a], [, b]) => b.lastBusy - a.lastBusy)
+      .map(([target]) => target)
+  , [recentMap]);
+
   return (
     <div className="mx-auto px-4 lg:px-6 pt-6 pb-2" style={{ maxWidth: "900px" }}>
       <div
@@ -183,7 +190,11 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const baseSize = isBusy ? 80 : 56;
+                // Top 5 most recent get bigger (but still grey unless busy)
+                const recentEntry = recentMap[agent.target];
+                const recentRank = recentEntry ? recentSorted.indexOf(agent.target) : -1;
+                const isTop5 = recentRank >= 0 && recentRank < 5;
+                const baseSize = isBusy ? 80 : isTop5 ? 72 : 56;
                 const glowSize = isBusy ? 100 : 0;
 
                 // macOS Dock magnification
