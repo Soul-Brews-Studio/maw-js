@@ -79,10 +79,19 @@ export async function cmdDone(windowName_: string) {
 
   if (!removedWorktree) {
     // Try to find worktree by scanning ghq for .wt- dirs matching the window name
+    // EXACT match only — substring matching killed unrelated worktrees (#60)
     try {
-      const ghqOut = await ssh(`find ${ghqRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null | grep -i '${windowName.replace(/^[^-]+-/, "")}'`);
-      for (const wtPath of ghqOut.trim().split("\n").filter(Boolean)) {
-        const base = wtPath.split("/").pop()!;
+      const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
+      const ghqOut = await ssh(`find ${ghqRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+      const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
+      // Exact match: worktree dir must end with .wt-N-<suffix> or .wt-<suffix>
+      const exactMatch = allWtPaths.filter(p => {
+        const base = p.split("/").pop()!;
+        const wtSuffix = base.replace(/^.*\.wt-(?:\d+-)?/, "");
+        return wtSuffix.toLowerCase() === suffix.toLowerCase();
+      });
+      for (const wtPath of exactMatch) {
+        const base = wtPath.split("/").pop()!
         const mainRepo = base.split(".wt-")[0];
         const mainPath = wtPath.replace(base, mainRepo);
         try {
