@@ -226,6 +226,8 @@ export class Tmux {
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
+      // Claude Code needs time to process literal text before Enter
+      await new Promise(r => setTimeout(r, 150));
       await this.sendKeys(target, "Enter");
     }
   }
