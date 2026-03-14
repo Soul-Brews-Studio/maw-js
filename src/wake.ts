@@ -44,7 +44,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
-      const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === `${oracle.toLowerCase()}-oracle`);
+      const win = (config.windows || []).find((w: any) => w.name === `${oracle}-oracle`);
       if (win?.repo) {
         const fullPath = await ssh(`ghq list --full-path | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
         if (fullPath?.trim()) {
@@ -78,12 +78,11 @@ export function getSessionMap(): Record<string, string> {
 /** Scan fleet/*.json for a config containing a window matching the oracle name */
 export function resolveFleetSession(oracle: string): string | null {
   const fleetDir = join(import.meta.dir, "../fleet");
-  const oracleLower = oracle.toLowerCase();
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       const hasOracleWindow = (config.windows || []).some(
-        (w: any) => w.name.toLowerCase() === `${oracleLower}-oracle` || w.name.toLowerCase() === oracleLower
+        (w: any) => w.name === `${oracle}-oracle` || w.name === oracle
       );
       if (hasOracleWindow) return config.name;
     }
@@ -93,25 +92,24 @@ export function resolveFleetSession(oracle: string): string | null {
 
 export async function detectSession(oracle: string): Promise<string | null> {
   const sessions = await tmux.listSessions();
-  const oracleLower = oracle.toLowerCase();
 
   // 1. Check manual session map
-  const mapped = getSessionMap()[oracle] || getSessionMap()[oracleLower];
+  const mapped = getSessionMap()[oracle];
   if (mapped) {
-    const exists = sessions.find(s => s.name.toLowerCase() === mapped.toLowerCase());
-    if (exists) return exists.name;
+    const exists = sessions.find(s => s.name === mapped);
+    if (exists) return mapped;
   }
 
   // 2. Pattern match running sessions (e.g., "08-neo" for oracle "neo")
-  const patternMatch = sessions.find(s => /^\d+-/.test(s.name) && s.name.toLowerCase().endsWith(`-${oracleLower}`))?.name
-    || sessions.find(s => s.name.toLowerCase() === oracleLower)?.name;
+  const patternMatch = sessions.find(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`))?.name
+    || sessions.find(s => s.name === oracle)?.name;
   if (patternMatch) return patternMatch;
 
   // 3. Scan fleet configs for oracle → session name mapping
   const fleetSession = resolveFleetSession(oracle);
   if (fleetSession) {
-    const exists = sessions.find(s => s.name.toLowerCase() === fleetSession.toLowerCase());
-    if (exists) return exists.name;
+    const exists = sessions.find(s => s.name === fleetSession);
+    if (exists) return fleetSession;
   }
 
   return null;
@@ -155,7 +153,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
   let targetPath = repoPath;
   let windowName = `${oracle}-oracle`;
-  let freshWorktree = false;
 
   if (opts.newWt || opts.task) {
     const name = opts.newWt || opts.task!;
@@ -182,7 +179,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
       targetPath = wtPath;
       windowName = `${oracle}-${name}`;
-      freshWorktree = true;
     }
   }
 
@@ -213,11 +209,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   // Create window + start command (or with prompt)
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  let cmd = buildCommand(windowName);
-  // Fresh worktree has no conversation — drop --continue to avoid error
-  if (freshWorktree) {
-    cmd = cmd.replace(/\s*--continue\b/, "");
-  }
+  const cmd = buildCommand(windowName);
   if (opts.prompt) {
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);

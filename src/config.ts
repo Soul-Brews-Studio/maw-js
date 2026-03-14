@@ -83,10 +83,21 @@ export function buildCommand(agentName: string): string {
     if (matchGlob(pattern, agentName)) { cmd = command; break; }
   }
 
-  // Always clear stale CLAUDECODE env var before launching Claude.
-  // When Claude exits/crashes in tmux, CLAUDECODE persists in the shell
-  // and blocks new sessions with "cannot be launched inside another" error.
-  return `unset CLAUDECODE 2>/dev/null; ${cmd}`;
+  // Prefix: load direnv (if present) + clear stale CLAUDECODE.
+  // direnv allow + export ensures .envrc env vars load before Claude starts,
+  // since tmux send-keys can race with the shell's direnv hook.
+  // unset CLAUDECODE prevents "cannot be launched inside another" from crashed sessions.
+  const prefix = "command -v direnv >/dev/null && direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE 2>/dev/null;";
+
+  // If command uses --continue, add shell fallback without it.
+  // --continue errors when no prior conversation exists (e.g. fresh worktree,
+  // wiped session). The fallback retries the same command minus --continue.
+  if (cmd.includes("--continue")) {
+    const fallback = cmd.replace(/\s*--continue\b/, "");
+    return `${prefix} ${cmd} || ${prefix} ${fallback}`;
+  }
+
+  return `${prefix} ${cmd}`;
 }
 
 /** Get env vars from config (for tmux set-environment) */
