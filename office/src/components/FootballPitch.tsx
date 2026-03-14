@@ -1,0 +1,207 @@
+import { memo, useMemo } from "react";
+import { AgentAvatar } from "./AgentAvatar";
+import { roomStyle } from "../lib/constants";
+import type { AgentState } from "../lib/types";
+import type { RecentEntry } from "../lib/store";
+
+/** Map oracle name → formation position. Left-to-right: GK → DEF → MID → FWD */
+const FORMATION: Record<string, { col: number; row: number }> = {
+  // GK (col 0)
+  "overview":      { col: 0, row: 2 },
+  // DEF (col 1) — knowledge layer
+  "odin":          { col: 1, row: 0 },
+  "mother":        { col: 1, row: 1 },
+  "nexus":         { col: 1, row: 2 },
+  "calliope":      { col: 1, row: 3 },
+  "xiaoer":        { col: 1, row: 4 },
+  // MID (col 2) — project/infra layer
+  "homekeeper":    { col: 2, row: 0 },
+  "volt":          { col: 2, row: 1 },
+  "fireman":       { col: 2, row: 2 },
+  "dustboy":       { col: 2, row: 3 },
+  "arthur":        { col: 2, row: 4 },
+  "dustboychain":  { col: 2, row: 5 },
+  "floodboy":      { col: 2, row: 6 },
+  // FWD (col 3) — command layer
+  "pulse":         { col: 3, row: 1 },
+  "hermes":        { col: 3, row: 2 },
+  "neo":           { col: 3, row: 3 },
+};
+
+const COL_LABELS = ["GK", "DEF", "MID", "FWD"];
+const COL_COUNT = 4;
+
+/** Extract oracle name from agent name (strip -oracle, -N-suffix, etc) */
+function oracleName(name: string): string {
+  return name.replace(/-oracle$/, "").replace(/-\d+-.*$/, "").replace(/-.*$/, "");
+}
+
+interface FootballPitchProps {
+  agents: AgentState[];
+  recentMap: Record<string, RecentEntry>;
+  showPreview: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
+  hidePreview: () => void;
+  onAgentClick: (agent: AgentState, accent: string, label: string, e: React.MouseEvent) => void;
+}
+
+export const FootballPitch = memo(function FootballPitch({
+  agents,
+  recentMap,
+  showPreview,
+  hidePreview,
+  onAgentClick,
+}: FootballPitchProps) {
+  // Deduplicate: one agent per oracle (prefer main -oracle window)
+  const oracleAgents = useMemo(() => {
+    const byOracle = new Map<string, AgentState>();
+    for (const a of agents) {
+      const oracle = oracleName(a.name);
+      const pos = FORMATION[oracle];
+      if (!pos) continue;
+      const existing = byOracle.get(oracle);
+      // Prefer busy > ready > idle, then prefer -oracle suffix
+      if (!existing ||
+          (a.status === "busy" && existing.status !== "busy") ||
+          a.name.endsWith("-oracle")) {
+        byOracle.set(oracle, a);
+      }
+    }
+    return byOracle;
+  }, [agents]);
+
+  // Group by column
+  const columns = useMemo(() => {
+    const cols: { oracle: string; agent: AgentState; row: number }[][] = Array.from({ length: COL_COUNT }, () => []);
+    for (const [oracle, agent] of oracleAgents) {
+      const pos = FORMATION[oracle];
+      if (pos) cols[pos.col].push({ oracle, agent, row: pos.row });
+    }
+    for (const col of cols) col.sort((a, b) => a.row - b.row);
+    return cols;
+  }, [oracleAgents]);
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 lg:px-8 pt-6 pb-2">
+      <div
+        className="relative rounded-2xl overflow-hidden"
+        style={{
+          background: "linear-gradient(135deg, #0d3d0d 0%, #1a5c1a 25%, #0d3d0d 50%, #1a5c1a 75%, #0d3d0d 100%)",
+          border: "2px solid rgba(255,255,255,0.15)",
+          boxShadow: "0 0 40px rgba(34,139,34,0.15), inset 0 0 60px rgba(0,0,0,0.3)",
+        }}
+      >
+        {/* Pitch markings */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          viewBox="0 0 1000 500"
+          preserveAspectRatio="none"
+        >
+          {/* Outline */}
+          <rect x="20" y="20" width="960" height="460" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+          {/* Center line */}
+          <line x1="500" y1="20" x2="500" y2="480" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
+          {/* Center circle */}
+          <circle cx="500" cy="250" r="70" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
+          <circle cx="500" cy="250" r="3" fill="rgba(255,255,255,0.2)" />
+          {/* Left penalty box */}
+          <rect x="20" y="130" width="120" height="240" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
+          <rect x="20" y="180" width="45" height="140" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          {/* Right penalty box */}
+          <rect x="860" y="130" width="120" height="240" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
+          <rect x="935" y="180" width="45" height="140" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          {/* Corner arcs */}
+          <path d="M 20 35 A 15 15 0 0 1 35 20" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          <path d="M 965 20 A 15 15 0 0 1 980 35" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          <path d="M 20 465 A 15 15 0 0 0 35 480" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          <path d="M 965 480 A 15 15 0 0 0 980 465" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+          {/* Grass stripes */}
+          {[...Array(10)].map((_, i) => (
+            <rect key={i} x={20 + i * 96} y="20" width="96" height="460" fill={i % 2 === 0 ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.02)"} />
+          ))}
+        </svg>
+
+        {/* Header */}
+        <div className="relative flex items-center gap-3 px-6 pt-4 pb-1 z-10">
+          <span className="text-lg">⚽</span>
+          <span className="text-[11px] tracking-[6px] uppercase font-mono" style={{ color: "rgba(255,255,255,0.4)" }}>
+            Formation
+          </span>
+          <span className="text-[12px] font-mono font-bold px-2.5 py-0.5 rounded-md" style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>
+            {oracleAgents.size}
+          </span>
+          <div className="ml-auto flex items-center gap-3 text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>
+            {COL_LABELS.map((label, i) => (
+              <span key={label} style={{ opacity: 0.4 + (i * 0.2) }}>{label}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Players grid — 4 columns left to right */}
+        <div className="relative flex justify-between px-8 py-4 z-10" style={{ minHeight: 280 }}>
+          {columns.map((col, colIdx) => (
+            <div
+              key={colIdx}
+              className="flex flex-col items-center justify-center gap-1"
+              style={{ flex: 1 }}
+            >
+              {col.map(({ oracle, agent }) => {
+                const rs = roomStyle(agent.session);
+                const isBusy = agent.status === "busy";
+                const isIdle = agent.status === "idle";
+                const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
+
+                return (
+                  <div
+                    key={oracle}
+                    className="flex flex-col items-center cursor-pointer transition-all duration-300"
+                    style={{
+                      opacity: isIdle ? 0.4 : isBusy ? 1 : 0.7,
+                      filter: isIdle ? "grayscale(0.6)" : "none",
+                      transform: isBusy ? "scale(1.1)" : "scale(1)",
+                    }}
+                    onMouseEnter={(e) => showPreview(agent, rs.accent, rs.label, e)}
+                    onMouseLeave={() => hidePreview()}
+                    onClick={(e) => onAgentClick(agent, rs.accent, rs.label, e)}
+                  >
+                    {/* Glow ring for busy */}
+                    {isBusy && (
+                      <div
+                        className="absolute rounded-full pointer-events-none"
+                        style={{
+                          width: 52,
+                          height: 52,
+                          background: `radial-gradient(circle, ${rs.accent}30 0%, transparent 70%)`,
+                          animation: "pulse 2s infinite",
+                        }}
+                      />
+                    )}
+                    <svg viewBox="-40 -50 80 80" width={48} height={48} overflow="visible">
+                      <AgentAvatar
+                        name={agent.name}
+                        target={agent.target}
+                        status={agent.status}
+                        preview={agent.preview}
+                        accent={rs.accent}
+                        onClick={() => {}}
+                      />
+                    </svg>
+                    <span
+                      className="text-[9px] font-bold font-mono mt-0.5 truncate text-center"
+                      style={{
+                        color: isBusy ? rs.accent : isIdle ? "#555" : "#888",
+                        maxWidth: 64,
+                        textShadow: isBusy ? `0 0 8px ${rs.accent}50` : "none",
+                      }}
+                    >
+                      {displayName}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+});

@@ -2,6 +2,7 @@ import { memo, useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { MiniPreview } from "./MiniPreview";
 import { StageSection } from "./StageSection";
+import { FootballPitch } from "./FootballPitch";
 import { AgentRow } from "./AgentRow";
 import { roomStyle, PREVIEW_CARD, guessCommand } from "../lib/constants";
 import { BottomStats } from "./BottomStats";
@@ -296,12 +297,10 @@ export const FleetGrid = memo(function FleetGrid({
 
   return (
     <div ref={containerRef} className="relative w-full min-h-screen" style={{ background: "#0a0a12" }}>
-      {/* Stage */}
-      <StageSection
-        busyAgents={busyAgents}
-        recentlyActive={recentlyActive}
+      {/* Football Pitch */}
+      <FootballPitch
+        agents={agents}
         recentMap={recentMap}
-        getAgentFeedLog={getAgentFeedLog}
         showPreview={showPreview}
         hidePreview={hidePreview}
         onAgentClick={onAgentClick}
