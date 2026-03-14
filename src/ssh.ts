@@ -84,6 +84,13 @@ export async function getPaneCommands(targets: string[], host?: string): Promise
   return t.getPaneCommands(targets);
 }
 
+/** Batch-check command + cwd for all panes. */
+export async function getPaneInfos(targets: string[], host?: string): Promise<Record<string, { command: string; cwd: string }>> {
+  const { Tmux } = await import("./tmux");
+  const t = new Tmux(host);
+  return t.getPaneInfos(targets);
+}
+
 export async function sendKeys(target: string, text: string, host?: string): Promise<void> {
   const { Tmux } = await import("./tmux");
   const t = new Tmux(host);

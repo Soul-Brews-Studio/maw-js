@@ -143,6 +143,22 @@ export class Tmux {
     return result;
   }
 
+  /** Get command + cwd for a pane. */
+  async getPaneInfo(target: string): Promise<{ command: string; cwd: string }> {
+    const raw = await this.run("list-panes", "-t", target, "-F", "#{pane_current_command}\t#{pane_current_path}");
+    const [command = "", cwd = ""] = raw.split("\n")[0].split("\t");
+    return { command, cwd };
+  }
+
+  /** Batch-check command + cwd for all panes. */
+  async getPaneInfos(targets: string[]): Promise<Record<string, { command: string; cwd: string }>> {
+    const result: Record<string, { command: string; cwd: string }> = {};
+    await Promise.allSettled(targets.map(async (t) => {
+      try { result[t] = await this.getPaneInfo(t); } catch {}
+    }));
+    return result;
+  }
+
   async capture(target: string, lines = 80): Promise<string> {
     if (lines > 50) {
       return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -lines);

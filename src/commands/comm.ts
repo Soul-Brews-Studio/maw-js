@@ -1,31 +1,35 @@
-import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands } from "../ssh";
+import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos } from "../ssh";
 
 export async function cmdList() {
   const sessions = await listSessions();
 
-  // Batch-check what process each pane is running
+  // Batch-check process + cwd for each pane
   const targets: string[] = [];
   for (const s of sessions) {
     for (const w of s.windows) targets.push(`${s.name}:${w.index}`);
   }
-  const cmds = await getPaneCommands(targets);
+  const infos = await getPaneInfos(targets);
 
   for (const s of sessions) {
     console.log(`\x1b[36m${s.name}\x1b[0m`);
     for (const w of s.windows) {
       const target = `${s.name}:${w.index}`;
-      const proc = cmds[target] || "";
-      const isAgent = /claude|codex|node/i.test(proc);
+      const info = infos[target] || { command: "", cwd: "" };
+      const isAgent = /claude|codex|node/i.test(info.command);
+      const cwdBroken = info.cwd.includes("(deleted)") || info.cwd.includes("(dead)");
 
       let dot: string;
       let suffix = "";
-      if (w.active && isAgent) {
+      if (cwdBroken) {
+        dot = "\x1b[31m●\x1b[0m"; // red — working dir deleted
+        suffix = "  \x1b[31m(path deleted)\x1b[0m";
+      } else if (w.active && isAgent) {
         dot = "\x1b[32m●\x1b[0m"; // green — active + agent running
       } else if (isAgent) {
         dot = "\x1b[34m●\x1b[0m"; // blue — agent running
       } else {
         dot = "\x1b[31m●\x1b[0m"; // red — dead (shell only)
-        suffix = `  \x1b[90m(${proc || "?"})\x1b[0m`;
+        suffix = `  \x1b[90m(${info.command || "?"})\x1b[0m`;
       }
       console.log(`  ${dot} ${w.index}: ${w.name}${suffix}`);
     }
