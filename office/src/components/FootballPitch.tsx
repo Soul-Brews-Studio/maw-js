@@ -4,28 +4,28 @@ import { roomStyle } from "../lib/constants";
 import type { AgentState } from "../lib/types";
 import type { RecentEntry } from "../lib/store";
 
-/** Map oracle name → formation position. Left-to-right: GK → DEF → MID → FWD */
+/** Map oracle name → formation position. Left-to-right: GK → DEF → MID → FWD (1-4-5-5) */
 const FORMATION: Record<string, { col: number; row: number }> = {
-  // GK (col 0)
+  // GK (col 0) — overview
   "overview":      { col: 0, row: 2 },
-  // DEF (col 1) — knowledge layer
+  // DEF (col 1) — knowledge layer (4)
   "odin":          { col: 1, row: 0 },
   "mother":        { col: 1, row: 1 },
   "nexus":         { col: 1, row: 2 },
   "calliope":      { col: 1, row: 3 },
-  "xiaoer":        { col: 1, row: 4 },
-  // MID (col 2) — project/infra layer
+  // MID (col 2) — infra + project layer (5)
   "homekeeper":    { col: 2, row: 0 },
   "volt":          { col: 2, row: 1 },
   "fireman":       { col: 2, row: 2 },
-  "dustboy":       { col: 2, row: 3 },
-  "arthur":        { col: 2, row: 4 },
-  "dustboychain":  { col: 2, row: 5 },
-  "floodboy":      { col: 2, row: 6 },
-  // FWD (col 3) — command layer
-  "pulse":         { col: 3, row: 1 },
-  "hermes":        { col: 3, row: 2 },
-  "neo":           { col: 3, row: 3 },
+  "xiaoer":        { col: 2, row: 3 },
+  "dustboy":       { col: 2, row: 4 },
+  // FWD (col 3) — command + attack layer (5)
+  "pulse":         { col: 3, row: 0 },
+  "hermes":        { col: 3, row: 1 },
+  "neo":           { col: 3, row: 2 },
+  "arthur":        { col: 3, row: 3 },
+  "floodboy":      { col: 3, row: 4 },
+  // Subs — not on pitch (dustboychain mapped to bench)
 };
 
 const COL_LABELS = ["GK", "DEF", "MID", "FWD"];
@@ -150,7 +150,7 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const avatarSize = isBusy ? 88 : 42;
+                const avatarSize = isBusy ? 88 : 56;
                 const glowSize = isBusy ? 100 : 0;
 
                 return (
