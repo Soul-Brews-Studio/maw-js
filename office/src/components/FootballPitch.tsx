@@ -97,7 +97,7 @@ export const FootballPitch = memo(function FootballPitch({
   }, [oracleAgents]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 lg:px-8 pt-6 pb-2">
+    <div className="mx-auto px-4 lg:px-6 pt-6 pb-2" style={{ maxWidth: "1400px" }}>
       <div
         className="relative rounded-2xl overflow-hidden"
         style={{
@@ -156,7 +156,7 @@ export const FootballPitch = memo(function FootballPitch({
         <div
           ref={pitchRef}
           className="relative flex justify-between px-8 py-4 z-10"
-          style={{ height: 360 }}
+          style={{ height: 420 }}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -172,8 +172,8 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const baseSize = isBusy ? 104 : 80;
-                const glowSize = isBusy ? 120 : 0;
+                const baseSize = isBusy ? 80 : 60;
+                const glowSize = isBusy ? 90 : 0;
 
                 // macOS Dock magnification
                 let magnify = 1;
