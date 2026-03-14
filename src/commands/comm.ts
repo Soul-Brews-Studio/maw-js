@@ -1,4 +1,8 @@
 import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos } from "../ssh";
+import { runHook } from "../hooks";
+import { appendFile, mkdir } from "fs/promises";
+import { homedir } from "os";
+import { join } from "path";
 
 export async function cmdList() {
   const sessions = await listSessions();
@@ -79,5 +83,15 @@ export async function cmdSend(query: string, message: string, force = false) {
   }
 
   await sendKeys(target, message);
+  await runHook("after_send", { to: query, message });
+
+  // Built-in log — every maw hey is recorded (for 'AI คุยกัน' blog)
+  const logDir = join(homedir(), ".oracle");
+  const logFile = join(logDir, "maw-log.jsonl");
+  const host = (await import("os")).hostname();
+  const from = process.env.CLAUDE_AGENT_NAME || "cli";
+  const line = JSON.stringify({ ts: new Date().toISOString(), from, to: query, target, msg: message, host }) + "\n";
+  try { await mkdir(logDir, { recursive: true }); await appendFile(logFile, line); } catch {}
+
   console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
 }
