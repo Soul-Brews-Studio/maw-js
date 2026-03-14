@@ -229,8 +229,8 @@ export class Tmux {
       // Claude Code needs time to process literal text before Enter
       await new Promise(r => setTimeout(r, 150));
       await this.sendKeys(target, "Enter");
-      // Second Enter after delay — first may get swallowed by Claude Code input processing
-      await new Promise(r => setTimeout(r, 150));
+      // Second Enter after 1s — first may get swallowed by Claude Code input processing
+      await new Promise(r => setTimeout(r, 1000));
       await this.sendKeys(target, "Enter");
     }
   }
