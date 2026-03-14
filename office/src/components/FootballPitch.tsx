@@ -107,6 +107,17 @@ export const FootballPitch = memo(function FootballPitch({
 
   return (
     <div className="mx-auto px-4 lg:px-6 pt-6 pb-2" style={{ maxWidth: "900px" }}>
+      {onToggleView && (
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={onToggleView}
+            className="px-3 py-1 rounded-lg text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}
+          >
+            Switch to Stage
+          </button>
+        </div>
+      )}
       <div
         className="relative rounded-2xl overflow-hidden"
         style={{
@@ -158,15 +169,6 @@ export const FootballPitch = memo(function FootballPitch({
             {COL_LABELS.map((label, i) => (
               <span key={label} style={{ opacity: 0.4 + (i * 0.2) }}>{label}</span>
             ))}
-            {onToggleView && (
-              <button
-                onClick={onToggleView}
-                className="ml-2 px-2 py-0.5 rounded text-[9px] cursor-pointer hover:opacity-80"
-                style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                Stage
-              </button>
-            )}
           </div>
         </div>
 
