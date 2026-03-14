@@ -221,8 +221,8 @@ export const FootballPitch = memo(function FootballPitch({
                     ref={(node) => { if (node) agentRefs.current.set(oracle, node); }}
                     className="relative flex flex-col items-center cursor-pointer"
                     style={{
-                      opacity: isBusy ? 1 : magnify > 1.05 ? 0.7 : 0.4,
-                      filter: isBusy ? "none" : "grayscale(0.6)",
+                      opacity: isBusy ? 1 : isTop5 ? 0.75 : magnify > 1.05 ? 0.7 : 0.4,
+                      filter: isBusy || isTop5 ? "none" : "grayscale(0.6)",
                       zIndex: magnify > 1.1 ? 20 : isBusy ? 10 : 1,
                       transition: mousePos ? "opacity 0.1s, filter 0.1s" : "all 0.4s ease-out",
                     }}
