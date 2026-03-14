@@ -77,6 +77,13 @@ export async function getPaneCommand(target: string, host?: string): Promise<str
   return t.getPaneCommand(target);
 }
 
+/** Batch-check which panes are running what command. */
+export async function getPaneCommands(targets: string[], host?: string): Promise<Record<string, string>> {
+  const { Tmux } = await import("./tmux");
+  const t = new Tmux(host);
+  return t.getPaneCommands(targets);
+}
+
 export async function sendKeys(target: string, text: string, host?: string): Promise<void> {
   const { Tmux } = await import("./tmux");
   const t = new Tmux(host);

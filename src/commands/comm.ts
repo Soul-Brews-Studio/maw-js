@@ -1,12 +1,33 @@
-import { listSessions, findWindow, capture, sendKeys, getPaneCommand } from "../ssh";
+import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands } from "../ssh";
 
 export async function cmdList() {
   const sessions = await listSessions();
+
+  // Batch-check what process each pane is running
+  const targets: string[] = [];
+  for (const s of sessions) {
+    for (const w of s.windows) targets.push(`${s.name}:${w.index}`);
+  }
+  const cmds = await getPaneCommands(targets);
+
   for (const s of sessions) {
     console.log(`\x1b[36m${s.name}\x1b[0m`);
     for (const w of s.windows) {
-      const dot = w.active ? "\x1b[32m*\x1b[0m" : " ";
-      console.log(`  ${dot} ${w.index}: ${w.name}`);
+      const target = `${s.name}:${w.index}`;
+      const proc = cmds[target] || "";
+      const isAgent = /claude|codex|node/i.test(proc);
+
+      let dot: string;
+      let suffix = "";
+      if (w.active && isAgent) {
+        dot = "\x1b[32m●\x1b[0m"; // green — active + agent running
+      } else if (isAgent) {
+        dot = "\x1b[34m●\x1b[0m"; // blue — agent running
+      } else {
+        dot = "\x1b[31m●\x1b[0m"; // red — dead (shell only)
+        suffix = `  \x1b[90m(${proc || "?"})\x1b[0m`;
+      }
+      console.log(`  ${dot} ${w.index}: ${w.name}${suffix}`);
     }
   }
 }
