@@ -224,8 +224,9 @@ export class Tmux {
       await new Promise(r => setTimeout(r, 150));
       await this.sendKeys(target, "Enter");
     } else {
-      // Direct send-keys — let q() in run() handle all escaping
-      await this.run("send-keys", "-t", target, "--", text, "Enter");
+      // Literal send — -l prevents tmux from interpreting special chars like |
+      await this.sendKeysLiteral(target, text);
+      await this.sendKeys(target, "Enter");
     }
   }
 
