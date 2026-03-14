@@ -4,32 +4,33 @@ import { roomStyle } from "../lib/constants";
 import type { AgentState } from "../lib/types";
 import type { RecentEntry } from "../lib/store";
 
-/** Map oracle name → formation position. Left-to-right: GK → DEF → MID → FWD (1-4-5-5) */
+/** Map oracle name → formation position. 3 columns: DEF(5) → MID(5) → FWD(5). Overview = GK overlay. */
 const FORMATION: Record<string, { col: number; row: number }> = {
-  // GK (col 0) — overview
-  "overview":      { col: 0, row: 2 },
-  // DEF (col 1) — knowledge layer (4)
-  "odin":          { col: 1, row: 0 },
-  "mother":        { col: 1, row: 1 },
-  "nexus":         { col: 1, row: 2 },
-  "calliope":      { col: 1, row: 3 },
-  // MID (col 2) — infra + project layer (5)
-  "homekeeper":    { col: 2, row: 0 },
-  "volt":          { col: 2, row: 1 },
-  "fireman":       { col: 2, row: 2 },
-  "xiaoer":        { col: 2, row: 3 },
-  "dustboy":       { col: 2, row: 4 },
-  // FWD (col 3) — command + attack layer (5)
-  "pulse":         { col: 3, row: 0 },
-  "hermes":        { col: 3, row: 1 },
-  "neo":           { col: 3, row: 2 },
-  "arthur":        { col: 3, row: 3 },
-  "floodboy":      { col: 3, row: 4 },
-  // Subs — not on pitch (dustboychain mapped to bench)
+  // DEF (col 0) — knowledge layer (5)
+  "odin":          { col: 0, row: 0 },
+  "mother":        { col: 0, row: 1 },
+  "nexus":         { col: 0, row: 2 },
+  "calliope":      { col: 0, row: 3 },
+  "xiaoer":        { col: 0, row: 4 },
+  // MID (col 1) — infra + project layer (5)
+  "homekeeper":    { col: 1, row: 0 },
+  "volt":          { col: 1, row: 1 },
+  "fireman":       { col: 1, row: 2 },
+  "dustboy":       { col: 1, row: 3 },
+  "floodboy":      { col: 1, row: 4 },
+  // FWD (col 2) — command + attack layer (5)
+  "pulse":         { col: 2, row: 0 },
+  "hermes":        { col: 2, row: 1 },
+  "neo":           { col: 2, row: 2 },
+  "arthur":        { col: 2, row: 3 },
+  "dustboychain":  { col: 2, row: 4 },
 };
 
-const COL_LABELS = ["GK", "DEF", "MID", "FWD"];
-const COL_COUNT = 4;
+/** Overview is the GK — rendered separately on the goal line */
+const GK_ORACLE = "overview";
+
+const COL_LABELS = ["DEF", "MID", "FWD"];
+const COL_COUNT = 3;
 
 /** Extract oracle name from agent name (strip -oracle, -N-suffix, etc) */
 function oracleName(name: string): string {
@@ -153,14 +154,32 @@ export const FootballPitch = memo(function FootballPitch({
           </div>
         </div>
 
-        {/* Players grid — 4 columns left to right */}
+        {/* Players grid — 3 columns with GK on goal line */}
         <div
           ref={pitchRef}
           className="relative flex justify-between px-8 py-4 z-10"
-          style={{ minHeight: 280 }}
+          style={{ minHeight: 320 }}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
+          {/* GK — overview on the left goal line */}
+          {(() => {
+            const gkAgent = agents.find(a => oracleName(a.name) === GK_ORACLE);
+            if (!gkAgent) return null;
+            const rs = roomStyle(gkAgent.session);
+            return (
+              <div
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col items-center z-10 cursor-pointer"
+                style={{ opacity: 0.5 }}
+                onClick={(e) => onAgentClick(gkAgent, rs.accent, rs.label, e)}
+              >
+                <svg viewBox="-40 -50 80 80" width={44} height={44} overflow="visible">
+                  <AgentAvatar name={gkAgent.name} target={gkAgent.target} status={gkAgent.status} preview={gkAgent.preview} accent={rs.accent} onClick={() => {}} />
+                </svg>
+                <span className="text-[8px] font-mono" style={{ color: "#78909c" }}>GK</span>
+              </div>
+            );
+          })()}
           {columns.map((col, colIdx) => (
             <div
               key={colIdx}
@@ -173,8 +192,8 @@ export const FootballPitch = memo(function FootballPitch({
                 const isIdle = agent.status === "idle";
                 const displayName = oracle.length > 8 ? oracle.slice(0, 7) + ".." : oracle;
 
-                const baseSize = isBusy ? 88 : 68;
-                const glowSize = isBusy ? 100 : 0;
+                const baseSize = isBusy ? 104 : 80;
+                const glowSize = isBusy ? 120 : 0;
 
                 // macOS Dock magnification
                 let magnify = 1;
@@ -253,7 +272,7 @@ export const FootballPitch = memo(function FootballPitch({
                     <span
                       className="font-bold font-mono mt-0.5 truncate text-center"
                       style={{
-                        fontSize: isBusy ? 11 : 9,
+                        fontSize: isBusy ? 12 : 10,
                         color: isBusy ? rs.accent : isIdle ? "#555" : "#888",
                         maxWidth: isBusy ? 90 : 64,
                         textShadow: isBusy ? `0 0 12px ${rs.accent}80` : "none",
