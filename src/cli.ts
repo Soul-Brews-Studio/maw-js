@@ -160,8 +160,8 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdSleep();
 } else if (cmd === "sleep") {
   if (!args[1]) {
-    // No args: fleet-wide sleep (same as maw stop)
-    await cmdSleep();
+    console.error("usage: maw sleep <oracle> [window]\n       maw sleep neo          # sleep neo-oracle\n       maw sleep neo mawjs    # sleep neo-mawjs worktree\n       maw stop               # stop ALL fleet sessions");
+    process.exit(1);
   } else if (args[1] === "--all-done") {
     console.log("\x1b[90m(placeholder) maw sleep --all-done — sleep ALL agents. Not yet implemented.\x1b[0m");
   } else {
