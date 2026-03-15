@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { wsUrl } from "../lib/api";
 
 type MessageHandler = (data: any) => void;
 
@@ -14,8 +15,7 @@ export function useWebSocket(onMessage: MessageHandler) {
 
     function connect() {
       if (!alive) return;
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${proto}//${location.host}/ws`);
+      const ws = new WebSocket(wsUrl("/ws"));
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);

@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useMemo } from "react";
 import { ansiToHtml, processCapture } from "../lib/ansi";
 import { roomStyle, agentColor } from "../lib/constants";
+import { apiUrl } from "../lib/api";
 import { useFps } from "./FpsCounter";
 import { useFleetStore } from "../lib/store";
 import type { AgentState, Session } from "../lib/types";
@@ -61,7 +62,7 @@ const OverviewTile = memo(function OverviewTile({
     async function poll() {
       if (!activeRef.current) return;
       try {
-        const res = await fetch(`/api/capture?target=${encodeURIComponent(agent.target)}`);
+        const res = await fetch(apiUrl(`/api/capture?target=${encodeURIComponent(agent.target)}`));
         const data = await res.json();
         if (activeRef.current) setContent(data.content || "");
       } catch {}

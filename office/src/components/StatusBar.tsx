@@ -1,4 +1,5 @@
-import { memo, type ReactNode } from "react";
+import { memo, useState, useEffect, type ReactNode } from "react";
+import { apiUrl } from "../lib/api";
 
 interface StatusBarProps {
   connected: boolean;
@@ -14,24 +15,45 @@ interface StatusBarProps {
 }
 
 const NAV_ITEMS = [
-  { href: "#office", label: "Office", id: "office" },
   { href: "#fleet", label: "Fleet", id: "fleet" },
-  { href: "#mission", label: "Mission", id: "mission" },
-  { href: "#vs", label: "VS", id: "vs" },
-  { href: "#overview", label: "Overview", id: "overview" },
-  { href: "#config", label: "Config", id: "config" },
-  { href: "#terminal", label: "Terminal", id: "terminal" },
+  { href: "#office", label: "Office", id: "office" },
   { href: "#orbital", label: "Orbital", id: "orbital" },
+  { href: "#terminal", label: "Terminal", id: "terminal" },
+  { href: "#chat", label: "Chat", id: "chat" },
+  { href: "#config", label: "Config", id: "config" },
 ];
 
 const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${n}`;
+}
+
+interface RateData { inputTokens: number; outputTokens: number; totalTokens: number; totalPerMin: number; inputPerMin: number; outputPerMin: number; turns: number }
+
+function useTokenRate() {
+  const [lastHourRate, setLastHourRate] = useState<RateData | null>(null);
+  useEffect(() => {
+    const fetch_ = () => {
+      fetch(apiUrl("/api/tokens/rate?mode=window&window=3600")).then(r => r.json()).then(d => setLastHourRate(d)).catch(() => {});
+    };
+    fetch_();
+    const iv = setInterval(fetch_, 30000);
+    return () => clearInterval(iv);
+  }, []);
+  return { lastHourRate };
+}
+
 export const StatusBar = memo(function StatusBar({ connected, agentCount, sessionCount, activeView = "office", askCount = 0, onInbox, onJump, muted, onToggleMute, children }: StatusBarProps) {
+  const { lastHourRate } = useTokenRate();
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 mx-4 sm:mx-6 mt-3 px-4 sm:px-6 py-2.5 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/[0.06] shadow-[0_4px_30px_rgba(0,0,0,0.4)]">
-      <h1 className="text-base sm:text-lg font-bold tracking-[4px] sm:tracking-[6px] text-cyan-400 uppercase whitespace-nowrap">
-        {activeView === "fleet" ? "Oracle Fleet" : activeView === "mission" ? "Oracle Mission" : activeView === "overview" ? "Oracle Overview" : activeView === "vs" ? "Oracle VS" : activeView === "config" ? "Oracle Config" : "Oracle Office"}
-      </h1>
+      <a href="#office" className="text-base sm:text-lg font-bold tracking-[4px] sm:tracking-[6px] text-cyan-400 uppercase whitespace-nowrap hover:text-cyan-300 transition-colors">
+        Oracle Office
+      </a>
 
       <span className="flex items-center gap-1.5 text-sm text-white/70">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? "bg-emerald-400 shadow-[0_0_6px_#4caf50]" : "bg-red-400 animate-pulse"}`} />
@@ -47,6 +69,13 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
       <span className="text-[10px] text-white/20 font-mono whitespace-nowrap">
         v{__MAW_VERSION__} · {__MAW_BUILD__}
       </span>
+
+      {lastHourRate && lastHourRate.totalTokens > 0 && (
+        <span className="text-[10px] font-mono whitespace-nowrap flex items-center gap-1" title={`Last 60min — ${formatTokens(lastHourRate.inputTokens)} in · ${formatTokens(lastHourRate.outputTokens)} out · ${lastHourRate.turns} turns`}>
+          <span className="text-amber-400/70">{formatTokens(lastHourRate.totalPerMin)}</span>
+          <span className="text-white/15">tok/min</span>
+        </span>
+      )}
 
       {/* View-specific controls injected by parent */}
       {children}

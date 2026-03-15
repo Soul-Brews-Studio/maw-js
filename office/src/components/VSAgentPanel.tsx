@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 import { agentColor } from "../lib/constants";
 import { ansiToHtml, processCapture } from "../lib/ansi";
+import { apiUrl } from "../lib/api";
 import type { AgentState } from "../lib/types";
 
 interface VSAgentPanelProps {
@@ -25,7 +26,7 @@ export const VSAgentPanel = memo(function VSAgentPanel({ agent, send, onPickAgen
     send({ type: "subscribe", target: agent.target });
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`/api/capture?target=${encodeURIComponent(agent.target)}`);
+        const res = await fetch(apiUrl(`/api/capture?target=${encodeURIComponent(agent.target)}`));
         const data = await res.json();
         setContent(data.content || "");
       } catch {}

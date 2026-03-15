@@ -14,6 +14,7 @@ import { TerminalView } from "./components/TerminalView";
 import { OrbitalView } from "./components/OrbitalView";
 import { InboxOverlay } from "./components/InboxView";
 import { WorktreeView } from "./components/WorktreeView";
+import { ChatView } from "./components/ChatView";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
@@ -35,11 +36,11 @@ function useHashRoute() {
     // If URL already has a hash, use it; otherwise restore from server state
     const urlHash = window.location.hash.slice(1);
     if (urlHash) return urlHash;
-    if (lastView && lastView !== "office") {
+    if (lastView) {
       window.location.hash = lastView;
       return lastView;
     }
-    return "office";
+    return "fleet";
   });
 
   useEffect(() => {
@@ -308,6 +309,14 @@ export function App() {
     return (
       <Layout activeView="orbital" {...layoutProps}>
         <OrbitalView sessions={sessions} agents={agents} connected={connected} onSelectAgent={onSelectAgent} />
+      </Layout>
+    );
+  }
+
+  if (route === "chat") {
+    return (
+      <Layout activeView="chat" {...layoutProps}>
+        <ChatView />
       </Layout>
     );
   }

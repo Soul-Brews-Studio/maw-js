@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef } from "react";
 import { ansiToHtml, processCapture } from "../lib/ansi";
+import { apiUrl } from "../lib/api";
 
 interface MiniMonitorProps {
   target: string;
@@ -59,7 +60,7 @@ export const MiniMonitor = memo(function MiniMonitor({
     let active = true;
     async function poll() {
       try {
-        const res = await fetch(`/api/capture?target=${encodeURIComponent(target)}`);
+        const res = await fetch(apiUrl(`/api/capture?target=${encodeURIComponent(target)}`));
         const data = await res.json();
         const text = data.content || "";
         if (!active) return;
@@ -91,7 +92,7 @@ export const MiniMonitor = memo(function MiniMonitor({
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
-    fetch(`/api/capture?target=${encodeURIComponent(target)}`)
+    fetch(apiUrl(`/api/capture?target=${encodeURIComponent(target)}`))
       .then(r => r.json())
       .then(data => {
         const text = data.content || "";

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, type StateStorage } from "zustand/middleware";
+import { apiUrl } from "./api";
 
 export interface RecentEntry {
   name: string;
@@ -55,7 +56,7 @@ function flushWrite() {
   if (pendingWrite === null) return;
   const body = pendingWrite;
   pendingWrite = null;
-  fetch("/api/ui-state", {
+  fetch(apiUrl(`/api/ui-state`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
@@ -64,7 +65,7 @@ function flushWrite() {
 
 /** Sync server state into localStorage, then rehydrate Zustand. */
 function syncFromServer(name: string) {
-  fetch("/api/ui-state").then(async (res) => {
+  fetch(apiUrl("/api/ui-state")).then(async (res) => {
     if (!res.ok) return;
     const data = await res.json();
     if (!data || Object.keys(data).length === 0) return;
@@ -97,7 +98,7 @@ const hybridStorage: StateStorage = {
   },
   removeItem: (name) => {
     localStorage.removeItem(name);
-    fetch("/api/ui-state", {
+    fetch(apiUrl(`/api/ui-state`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -110,7 +111,7 @@ let askSaveTimer: ReturnType<typeof setTimeout> | null = null;
 function persistAsks(asks: AskItem[]) {
   if (askSaveTimer) clearTimeout(askSaveTimer);
   askSaveTimer = setTimeout(() => {
-    fetch("/api/asks", {
+    fetch(apiUrl(`/api/asks`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(asks),
@@ -243,7 +244,7 @@ export const useFleetStore = create<FleetStore>()(
 
 // Load asks from server on startup
 setTimeout(() => {
-  fetch("/api/asks")
+  fetch(apiUrl("/api/asks"))
     .then((r) => r.json())
     .then((data: AskItem[]) => {
       if (Array.isArray(data) && data.length > 0) {

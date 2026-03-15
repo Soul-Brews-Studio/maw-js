@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { apiUrl } from "../lib/api";
 
 interface WorktreeInfo {
   path: string;
@@ -28,7 +29,7 @@ export function WorktreeView() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/worktrees");
+      const res = await fetch(apiUrl("/api/worktrees"));
       const data = await res.json();
       if (Array.isArray(data)) {
         setWorktrees(data);
@@ -46,7 +47,7 @@ export function WorktreeView() {
   const cleanup = useCallback(async (wt: WorktreeInfo) => {
     setCleaning((prev) => new Set(prev).add(wt.path));
     try {
-      const res = await fetch("/api/worktrees/cleanup", {
+      const res = await fetch(apiUrl(`/api/worktrees/cleanup`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: wt.path }),

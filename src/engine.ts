@@ -3,6 +3,8 @@ import { tmux } from "./tmux";
 import { registerBuiltinHandlers } from "./handlers";
 import type { FeedTailer } from "./feed-tail";
 import type { MawWS, Handler } from "./types";
+import { statSync, readFileSync } from "fs";
+import { MAW_LOG_PATH, type LogEntry } from "./maw-log";
 
 export class MawEngine {
   private clients = new Set<MawWS>();
@@ -16,6 +18,8 @@ export class MawEngine {
   private previewInterval: ReturnType<typeof setInterval> | null = null;
   private feedUnsub: (() => void) | null = null;
   private feedTailer: FeedTailer;
+  private mawLogInterval: ReturnType<typeof setInterval> | null = null;
+  private mawLogOffset = 0;
 
   constructor({ feedTailer }: { feedTailer: FeedTailer }) {
     this.feedTailer = feedTailer;
@@ -153,6 +157,34 @@ export class MawEngine {
       const msg = JSON.stringify({ type: "feed", event });
       for (const ws of this.clients) ws.send(msg);
     });
+
+    // Watch maw-log for new entries → broadcast to clients
+    try { this.mawLogOffset = statSync(MAW_LOG_PATH).size; } catch { this.mawLogOffset = 0; }
+    this.mawLogInterval = setInterval(() => this.checkMawLog(), 2000);
+  }
+
+  private checkMawLog() {
+    if (this.clients.size === 0) return;
+    try {
+      const size = statSync(MAW_LOG_PATH).size;
+      if (size <= this.mawLogOffset) return;
+      // Read new bytes
+      const buf = Buffer.alloc(size - this.mawLogOffset);
+      const fd = require("fs").openSync(MAW_LOG_PATH, "r");
+      require("fs").readSync(fd, buf, 0, buf.length, this.mawLogOffset);
+      require("fs").closeSync(fd);
+      this.mawLogOffset = size;
+
+      const lines = buf.toString("utf-8").split("\n").filter(Boolean);
+      const entries: LogEntry[] = [];
+      for (const line of lines) {
+        try { entries.push(JSON.parse(line)); } catch {}
+      }
+      if (entries.length > 0) {
+        const msg = JSON.stringify({ type: "maw-log", entries });
+        for (const ws of this.clients) ws.send(msg);
+      }
+    } catch {}
   }
 
   private stopIntervals() {
@@ -160,6 +192,7 @@ export class MawEngine {
     if (this.captureInterval) { clearInterval(this.captureInterval); this.captureInterval = null; }
     if (this.sessionInterval) { clearInterval(this.sessionInterval); this.sessionInterval = null; }
     if (this.previewInterval) { clearInterval(this.previewInterval); this.previewInterval = null; }
+    if (this.mawLogInterval) { clearInterval(this.mawLogInterval); this.mawLogInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
     this.feedTailer.stop();
   }

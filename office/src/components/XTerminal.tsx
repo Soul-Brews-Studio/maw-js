@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { wsUrl } from "../lib/api";
 import type { AgentState } from "../lib/types";
 
 interface XTerminalProps {
@@ -70,8 +71,7 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
     term.focus();
 
     // Connect to PTY WebSocket
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/pty`);
+    const ws = new WebSocket(wsUrl("/ws/pty"));
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {

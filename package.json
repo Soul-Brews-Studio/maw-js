@@ -7,6 +7,8 @@
   },
   "scripts": {
     "build:office": "cd office && bunx vite build",
+    "build:cf": "cd office && bunx vite build --base / --outDir ../dist-cf",
+    "deploy:cf": "bun run build:cf && bunx wrangler deploy",
     "dev": "pm2 start ecosystem.config.cjs && echo '→ maw backend (watch src/) on :3456\n→ maw-dev vite HMR on :5173\n→ pm2 logs to follow'",
     "dev:office": "cd office && bunx vite",
     "dev:stop": "pm2 delete maw maw-dev 2>/dev/null; echo '→ dev stopped'",

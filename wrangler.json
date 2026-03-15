@@ -1,0 +1,14 @@
+{
+  "name": "maw-office",
+  "account_id": "a5eabdc2b11aae9bd5af46bd6a88179e",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist-cf"
+  },
+  "routes": [
+    {
+      "pattern": "local.buildwithoracle.com",
+      "custom_domain": true
+    }
+  ]
+}

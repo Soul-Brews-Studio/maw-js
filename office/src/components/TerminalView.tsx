@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { ansiToHtml } from "../lib/ansi";
 import { roomStyle } from "../lib/constants";
+import { wsUrl } from "../lib/api";
 import type { Session, AgentState } from "../lib/types";
 
 interface TerminalViewProps {
@@ -22,8 +23,7 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
 
   // Own WebSocket for capture stream (separate from main fleet WS)
   useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    const ws = new WebSocket(wsUrl("/ws"));
     wsRef.current = ws;
 
     ws.onmessage = (e) => {

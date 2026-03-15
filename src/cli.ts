@@ -11,7 +11,8 @@ import { cmdOracleList, cmdOracleAbout } from "./commands/oracle";
 import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync } from "./commands/fleet";
 import { cmdFleetInit } from "./commands/fleet-init";
 import { cmdDone } from "./commands/done";
-import { cmdLogLs, cmdLogExport } from "./commands/log";
+import { cmdLogLs, cmdLogExport, cmdLogChat } from "./commands/log";
+import { cmdTokens } from "./commands/tokens";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -45,6 +46,10 @@ function usage() {
   maw view <agent> [window]   Grouped tmux session (interactive attach)
   maw create-view <agent> [w] Alias for view
   maw view <agent> --clean    Hide status bar (full screen)
+  maw tokens [--rebuild]      Token usage stats (from Claude sessions)
+  maw tokens --json           JSON output for API consumption
+  maw log chat [oracle]       Chat view — grouped conversation bubbles
+  maw chat [oracle]           Shorthand for log chat
   maw <agent> <msg...>        Shorthand for hey
   maw <agent>                 Shorthand for peek
   maw serve [port]            Start web UI (default: 3456)
@@ -113,6 +118,16 @@ if (cmd === "--version" || cmd === "-v") {
       else if (args[i] === "--format" && args[i + 1]) logOpts.format = args[++i];
     }
     cmdLogExport(logOpts);
+  } else if (sub === "chat") {
+    const logOpts: { limit?: number; from?: string; to?: string; pair?: string } = {};
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
+      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
+      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
+      else if (args[i] === "--pair" && args[i + 1]) logOpts.pair = args[++i];
+      else if (!args[i].startsWith("--")) logOpts.pair = args[i]; // shorthand: maw log chat neo
+    }
+    cmdLogChat(logOpts);
   } else {
     const logOpts: { limit?: number; from?: string; to?: string } = {};
     for (let i = 1; i < args.length; i++) {
@@ -122,6 +137,20 @@ if (cmd === "--version" || cmd === "-v") {
     }
     cmdLogLs(logOpts);
   }
+} else if (cmd === "chat") {
+  // Shorthand: maw chat [oracle] = maw log chat [oracle]
+  const logOpts: { limit?: number; pair?: string } = {};
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
+    else if (!args[i].startsWith("--")) logOpts.pair = args[i];
+  }
+  cmdLogChat(logOpts);
+} else if (cmd === "tokens" || cmd === "usage") {
+  const rebuild = args.includes("--rebuild") || args.includes("--reindex");
+  const json = args.includes("--json");
+  const topIdx = args.indexOf("--top");
+  const top = topIdx >= 0 ? +args[topIdx + 1] : undefined;
+  cmdTokens({ rebuild, json, top });
 } else if (cmd === "done" || cmd === "finish") {
   if (!args[1]) { console.error("usage: maw done <window-name>\n       e.g. maw done neo-freelance"); process.exit(1); }
   await cmdDone(args[1]);

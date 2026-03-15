@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-25 -38 50 50" width="32" height="32">
+  <!-- Head -->
+  <circle cx="0" cy="-10" r="20" fill="#64b5f6" stroke="#fff" stroke-width="1.5"/>
+  <!-- Hair tuft -->
+  <ellipse cx="-4" cy="-28" rx="6" ry="4" fill="#64b5f6" stroke="#fff" stroke-width="0.8"/>
+  <ellipse cx="4" cy="-29" rx="5" ry="3" fill="#64b5f6" stroke="#fff" stroke-width="0.8"/>
+  <!-- Cat ears -->
+  <polygon points="-14,-24 -18,-36 -6,-28" fill="#64b5f6" stroke="#fff" stroke-width="1.2"/>
+  <polygon points="14,-24 18,-36 6,-28" fill="#64b5f6" stroke="#fff" stroke-width="1.2"/>
+  <polygon points="-13,-25 -16,-33 -8,-27" fill="#ffb4b4" opacity="0.4"/>
+  <polygon points="13,-25 16,-33 8,-27" fill="#ffb4b4" opacity="0.4"/>
+  <!-- Eyes -->
+  <circle cx="-7" cy="-12" r="4.5" fill="#fff"/>
+  <circle cx="7" cy="-12" r="4.5" fill="#fff"/>
+  <circle cx="-6" cy="-12" r="2.5" fill="#222"/>
+  <circle cx="8" cy="-12" r="2.5" fill="#222"/>
+  <circle cx="-5" cy="-13.5" r="1" fill="#fff"/>
+  <circle cx="9" cy="-13.5" r="1" fill="#fff"/>
+  <!-- Blush -->
+  <ellipse cx="-12" cy="-7" rx="3" ry="2" fill="#ff9999" opacity="0.3"/>
+  <ellipse cx="12" cy="-7" rx="3" ry="2" fill="#ff9999" opacity="0.3"/>
+  <!-- Mouth -->
+  <path d="M -3 -5 Q 0 -2 3 -5" fill="none" stroke="#333" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Headphones -->
+  <path d="M -17 -14 Q -18 -28 0 -30 Q 18 -28 17 -14" fill="none" stroke="#555" stroke-width="2"/>
+  <rect x="-20" y="-18" width="6" height="10" rx="3" fill="#444" stroke="#555" stroke-width="0.8"/>
+  <rect x="14" y="-18" width="6" height="10" rx="3" fill="#444" stroke="#555" stroke-width="0.8"/>
+</svg>

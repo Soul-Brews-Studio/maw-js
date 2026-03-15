@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, memo } from "react";
+import { apiUrl } from "../lib/api";
 
 interface SearchResult {
   id: number;
@@ -49,7 +50,7 @@ export const OracleSearch = memo(function OracleSearch({ onClose }: OracleSearch
   // Load recent traces on mount
   useEffect(() => {
     inputRef.current?.focus();
-    fetch("/api/oracle/traces?limit=8")
+    fetch(apiUrl("/api/oracle/traces?limit=8"))
       .then((r) => r.json())
       .then((data) => setTraces(data.traces || []))
       .catch(() => {});
@@ -64,7 +65,7 @@ export const OracleSearch = memo(function OracleSearch({ onClose }: OracleSearch
     setError(null);
     try {
       const params = new URLSearchParams({ q: q.trim(), mode: m, limit: "20" });
-      const res = await fetch(`/api/oracle/search?${params}`, { signal: ac.signal });
+      const res = await fetch(apiUrl(`/api/oracle/search?${params}`), { signal: ac.signal });
       const data: SearchResponse = await res.json();
       if (data.error) throw new Error(data.error);
       setResults(data.results || []);

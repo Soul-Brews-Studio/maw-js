@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useCallback, useRef } from "react";
 import Editor from "@monaco-editor/react";
+import { apiUrl } from "../lib/api";
 
 interface ConfigFile {
   name: string;
@@ -19,7 +20,7 @@ export const ConfigView = memo(function ConfigView() {
   const originalRef = useRef("");
 
   const loadFiles = useCallback(() => {
-    fetch("/api/config-files")
+    fetch(apiUrl("/api/config-files"))
       .then((r) => r.json())
       .then((data) => setFiles(data.files || []))
       .catch(() => {});
@@ -33,7 +34,7 @@ export const ConfigView = memo(function ConfigView() {
     setValue(null);
     setDirty(false);
     setStatus(null);
-    fetch(`/api/config-file?path=${encodeURIComponent(path)}`)
+    fetch(apiUrl(`/api/config-file?path=${encodeURIComponent(path)}`))
       .then((r) => r.json())
       .then((data) => {
         if (data.error) { setStatus({ type: "error", msg: data.error }); return; }
@@ -61,7 +62,7 @@ export const ConfigView = memo(function ConfigView() {
     setSaving(true);
     setStatus(null);
     try {
-      const res = await fetch(`/api/config-file?path=${encodeURIComponent(selected)}`, {
+      const res = await fetch(apiUrl(`/api/config-file?path=${encodeURIComponent(selected)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: value }),
@@ -82,7 +83,7 @@ export const ConfigView = memo(function ConfigView() {
   }, [value, selected]);
 
   const handleToggle = useCallback(async (path: string) => {
-    const res = await fetch(`/api/config-file/toggle?path=${encodeURIComponent(path)}`, { method: "POST" });
+    const res = await fetch(apiUrl(`/api/config-file/toggle?path=${encodeURIComponent(path)}`), { method: "POST" });
     const data = await res.json();
     if (data.ok) {
       loadFiles();
@@ -92,7 +93,7 @@ export const ConfigView = memo(function ConfigView() {
 
   const handleDelete = useCallback(async (path: string) => {
     if (!confirm(`Delete ${path}?`)) return;
-    const res = await fetch(`/api/config-file?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+    const res = await fetch(apiUrl(`/api/config-file?path=${encodeURIComponent(path)}`), { method: "DELETE" });
     const data = await res.json();
     if (data.ok) {
       loadFiles();
@@ -104,7 +105,7 @@ export const ConfigView = memo(function ConfigView() {
     if (!newName.trim()) return;
     const name = newName.endsWith(".json") ? newName : newName + ".json";
     const template = JSON.stringify({ name: name.replace(/\.json$/, ""), windows: [] }, null, 2);
-    const res = await fetch("/api/config-file", {
+    const res = await fetch(apiUrl(`/api/config-file`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, content: template }),

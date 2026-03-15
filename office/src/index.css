@@ -3,7 +3,7 @@
 body {
   background: #020208;
   color: #e0e0e0;
-  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans Thai', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   overflow-x: hidden;
 }
 

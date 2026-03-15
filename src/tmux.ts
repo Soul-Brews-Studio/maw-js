@@ -220,16 +220,19 @@ export class Tmux {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
       await this.pasteBuffer(target);
-      // Claude Code needs time to process paste event before Enter (#16)
-      await new Promise(r => setTimeout(r, 150));
+      // Staggered Enter — submit immediately + 2 fallbacks
+      await this.sendKeys(target, "Enter");
+      await new Promise(r => setTimeout(r, 500));
+      await this.sendKeys(target, "Enter");
+      await new Promise(r => setTimeout(r, 1000));
       await this.sendKeys(target, "Enter");
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
-      // Claude Code needs time to process literal text before Enter
-      await new Promise(r => setTimeout(r, 150));
+      // Staggered Enter — submit immediately + 2 fallbacks
       await this.sendKeys(target, "Enter");
-      // Second Enter after 1s — first may get swallowed by Claude Code input processing
+      await new Promise(r => setTimeout(r, 500));
+      await this.sendKeys(target, "Enter");
       await new Promise(r => setTimeout(r, 1000));
       await this.sendKeys(target, "Enter");
     }
