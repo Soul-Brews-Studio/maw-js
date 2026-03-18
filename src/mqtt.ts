@@ -48,6 +48,8 @@ export function startMqttClient(): Client | null {
     const topicsToSubscribe = [
       topics.hey,
       topics.select,
+      // Subscribe to worktree completion notifications (wildcard)
+      'oracle/maw/worktree/+/done',
       // ack and status are publish-only (we don't subscribe)
     ];
 
@@ -72,6 +74,9 @@ export function startMqttClient(): Client | null {
         await handleHeyMessage(client, data, mqttConfig);
       } else if (topic === topics.select) {
         await handleSelectMessage(data, mqttConfig);
+      } else if (topic.match(/^oracle\/maw\/worktree\/.+\/done$/)) {
+        // Worktree completion notification
+        handleWorktreeDone(data);
       }
 
     } catch (e) {
@@ -156,6 +161,36 @@ async function handleSelectMessage(data: { target?: string }, mqttConfig: any) {
   } catch (e) {
     console.error('❌ MQTT: select error:', e);
   }
+}
+
+/**
+ * Handle worktree completion notification
+ */
+function handleWorktreeDone(data: {
+  worktree?: string;
+  status?: string;
+  duration?: number;
+  agent?: string;
+  ts?: string;
+}) {
+  const { worktree, status, duration, agent } = data;
+
+  if (!worktree || !status) {
+    console.warn('⚠️  MQTT: invalid worktree notification, missing fields', data);
+    return;
+  }
+
+  // Format duration as minutes:seconds if > 60 seconds
+  const durationSec = duration || 0;
+  const durationText = durationSec >= 60
+    ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+    : `${durationSec}s`;
+
+  // Display notification with appropriate emoji
+  const emoji = status === 'done' ? '✅' : status === 'error' ? '❌' : '⚠️';
+  console.log(`${emoji} MQTT: Worktree ${worktree} ${status} (${durationText})`);
+
+  // TODO: Could trigger desktop notification, sound, or UI alert here
 }
 
 /**
