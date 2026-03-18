@@ -44,5 +44,5 @@ export function useWebSocket(onMessage: MessageHandler) {
     }
   }, []);
 
-  return { connected, send };
+  return { connected, send, ws: wsRef };
 }

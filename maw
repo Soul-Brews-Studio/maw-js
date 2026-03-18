@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# maw wrapper script
+
+export MAW_HOST=${MAW_HOST:-localhost}
+cd /Users/jodunk/ghq/github.com/Soul-Brews-Studio/maw-js
+exec /Users/jodunk/.bun/bin/bun run /Users/jodunk/ghq/github.com/Soul-Brews-Studio/maw-js/src/cli.ts "$@"

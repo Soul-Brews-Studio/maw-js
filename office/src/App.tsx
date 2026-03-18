@@ -15,6 +15,8 @@ import { JumpOverlay } from "./components/JumpOverlay";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
 import { useFleetStore } from "./lib/store";
 import type { AgentState } from "./lib/types";
+import { EnhancedFleetView } from "./components/EnhancedFleetView";
+import { ChatView } from "./components/ChatView";
 
 function useHashRoute() {
   const lastView = useFleetStore((s) => s.lastView);
@@ -104,7 +106,7 @@ export function App() {
   const muted = useFleetStore((s) => s.muted);
   const toggleMuted = useFleetStore((s) => s.toggleMuted);
   useEffect(() => { setSoundMuted(muted); }, [muted]);
-  const { connected, send } = useWebSocket(handleMessage);
+  const { connected, send, ws } = useWebSocket(handleMessage);
 
   const onSelectAgent = useCallback((agent: AgentState) => {
     setSelectedAgent(agent);
@@ -240,6 +242,39 @@ export function App() {
           <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="config" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
         </div>
         <ConfigView />
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "chat") {
+    return (
+      <div className="relative h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="chat" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <ChatView agents={agents} send={send} connected={connected} />
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "enhanced") {
+    return (
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="enhanced" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <EnhancedFleetView
+          ws={ws.current}
+          sessions={sessions}
+          agents={agents}
+          send={send}
+          onSelectAgent={onSelectAgent}
+        />
+        {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
         {jumpOverlay}
       </div>

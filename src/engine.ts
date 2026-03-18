@@ -1,8 +1,13 @@
 import { capture } from "./ssh";
 import { tmux } from "./tmux";
 import { registerBuiltinHandlers } from "./handlers";
+import { registerEnhancedHandlers } from "./handlers-enhanced";
+import { registerOrchestrationHandlers } from "./handlers-orchestration";
 import type { FeedTailer } from "./feed-tail";
 import type { MawWS, Handler } from "./types";
+import { globalContextStore } from "./context-store";
+import { globalLaneOrganization } from "./lane-organization";
+import { globalStateManager, initializeStateManager } from "./state-manager";
 
 export class MawEngine {
   private clients = new Set<MawWS>();
@@ -17,9 +22,32 @@ export class MawEngine {
   private feedUnsub: (() => void) | null = null;
   private feedTailer: FeedTailer;
 
+  // Phase 1: Context store and lane organization
+  private lastContextStatsJson = "";
+  private lastLaneStatsJson = "";
+  private statsInterval: ReturnType<typeof setInterval> | null = null;
+
   constructor({ feedTailer }: { feedTailer: FeedTailer }) {
     this.feedTailer = feedTailer;
     registerBuiltinHandlers(this);
+    registerEnhancedHandlers(this); // Phase 1: Register enhanced handlers
+    registerOrchestrationHandlers(this); // Phase 2 & 3: Register orchestration handlers
+
+    // Phase 2: Initialize state manager with auto-save
+    initializeStateManager(globalStateManager);
+
+    // Phase 2: Load state on startup (async, non-blocking)
+    this.initializeState();
+  }
+
+  // Phase 2: Initialize state from file
+  private async initializeState() {
+    try {
+      await globalStateManager.restore();
+      console.log("✓ State loaded from file");
+    } catch (e: any) {
+      console.log("✗ Failed to load state (fresh install):", e.message);
+    }
   }
 
   /** Register a WebSocket message handler */
@@ -42,6 +70,10 @@ export class MawEngine {
       }).catch(() => {});
     }
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedTailer.getRecent(50) }));
+
+    // Phase 1: Send context and lane data
+    this.sendContextStats(ws);
+    this.sendLaneStats(ws);
   }
 
   handleMessage(ws: MawWS, msg: string | Buffer) {
@@ -116,6 +148,46 @@ export class MawEngine {
     } catch {}
   }
 
+  // Phase 1: Broadcast context stats
+  private broadcastContextStats() {
+    if (this.clients.size === 0) return;
+    try {
+      const stats = globalContextStore.getStats();
+      const json = JSON.stringify(stats);
+
+      if (json === this.lastContextStatsJson) return;
+      this.lastContextStatsJson = json;
+      const msg = JSON.stringify({ type: "context-stats", stats });
+      for (const ws of this.clients) ws.send(msg);
+    } catch {}
+  }
+
+  // Phase 1: Broadcast lane stats
+  private broadcastLaneStats() {
+    if (this.clients.size === 0) return;
+    try {
+      const stats = globalLaneOrganization.getStats();
+      const json = JSON.stringify(stats);
+
+      if (json === this.lastLaneStatsJson) return;
+      this.lastLaneStatsJson = json;
+      const msg = JSON.stringify({ type: "lane-stats", stats });
+      for (const ws of this.clients) ws.send(msg);
+    } catch {}
+  }
+
+  // Phase 1: Send context stats to specific client
+  sendContextStats(ws: MawWS) {
+    const stats = globalContextStore.getStats();
+    ws.send(JSON.stringify({ type: "context-stats", stats }));
+  }
+
+  // Phase 1: Send lane stats to specific client
+  sendLaneStats(ws: MawWS) {
+    const stats = globalLaneOrganization.getStats();
+    ws.send(JSON.stringify({ type: "lane-stats", stats }));
+  }
+
   // --- Interval lifecycle ---
 
   private startIntervals() {
@@ -127,6 +199,11 @@ export class MawEngine {
     this.previewInterval = setInterval(() => {
       for (const ws of this.clients) this.pushPreviews(ws);
     }, 2000);
+    // Phase 1: Broadcast stats every 10 seconds
+    this.statsInterval = setInterval(() => {
+      this.broadcastContextStats();
+      this.broadcastLaneStats();
+    }, 10000);
     this.feedTailer.start();
     this.feedUnsub = this.feedTailer.onEvent((event) => {
       const msg = JSON.stringify({ type: "feed", event });
@@ -139,7 +216,23 @@ export class MawEngine {
     if (this.captureInterval) { clearInterval(this.captureInterval); this.captureInterval = null; }
     if (this.sessionInterval) { clearInterval(this.sessionInterval); this.sessionInterval = null; }
     if (this.previewInterval) { clearInterval(this.previewInterval); this.previewInterval = null; }
+    if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
     this.feedTailer.stop();
+  }
+
+  // Phase 1: Public getters for context store and lane organization
+  getContextStore() {
+    return globalContextStore;
+  }
+
+  getLaneOrganization() {
+    return globalLaneOrganization;
+  }
+
+  // Phase 1: Broadcast helper for custom messages
+  broadcast(message: object) {
+    const msg = JSON.stringify(message);
+    for (const ws of this.clients) ws.send(msg);
   }
 }

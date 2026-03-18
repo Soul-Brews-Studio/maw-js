@@ -1,6 +1,18 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
+export interface MqttConfig {
+  enabled: boolean;
+  broker: string;
+  topics: {
+    hey: string;
+    select: string;
+    ack: string;
+    status: string;
+  };
+  publishStatus?: boolean;
+}
+
 export interface MawConfig {
   host: string;
   port: number;
@@ -9,6 +21,7 @@ export interface MawConfig {
   env: Record<string, string>;
   commands: Record<string, string>;
   sessions: Record<string, string>;
+  mqtt?: MqttConfig;
 }
 
 const DEFAULTS: MawConfig = {
@@ -19,6 +32,17 @@ const DEFAULTS: MawConfig = {
   env: {},
   commands: { default: "claude" },
   sessions: {},
+  mqtt: {
+    enabled: false,
+    broker: "mqtt://localhost:1883",
+    topics: {
+      hey: "oracle/maw/hey",
+      select: "oracle/maw/select",
+      ack: "oracle/maw/ack",
+      status: "oracle/maw/status",
+    },
+    publishStatus: true,
+  },
 };
 
 let cached: MawConfig | null = null;
