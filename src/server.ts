@@ -6,6 +6,7 @@ import { processMirror } from "./commands/overview";
 import { FeedTailer } from "./feed-tail";
 import { MawEngine } from "./engine";
 import type { WSData } from "./types";
+import { startMqttClient } from "./mqtt";
 
 const app = new Hono();
 app.use("/api/*", async (c, next) => {
@@ -204,6 +205,27 @@ app.get("/api/config-files", (c) => {
     }
   } catch {}
   return c.json({ files });
+});
+
+// --- Virtual Office Plan-Mgr Status ---
+const voTasksPath = "/Users/jodunk/Documents/Project/volt-oracle/ψ/active/virtual-office/memory/tasks";
+
+app.get("/api/vo-status", (c) => {
+  try {
+    const files = readdirSync(voTasksPath)
+      .filter(f => f.startsWith("status-") && f.endsWith(".json"))
+      .sort()
+      .reverse();
+
+    if (files.length === 0) {
+      return c.json({ error: "No status reports found" }, 404);
+    }
+
+    const latestStatus = JSON.parse(readFileSync(join(voTasksPath, files[0]), "utf-8"));
+    return c.json(latestStatus);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // Read a single config file
@@ -442,6 +464,18 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     const tls = { cert: readFileSync(certPath), key: readFileSync(keyPath) };
     Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
+  }
+
+  // Start MQTT client if enabled
+  try {
+    const mqttClient = startMqttClient();
+    if (mqttClient) {
+      console.log(`✅ MQTT: native client started`);
+    } else {
+      console.log(`ℹ️  MQTT: disabled in config`);
+    }
+  } catch (e) {
+    console.error(`❌ MQTT: failed to start:`, e);
   }
 
   return server;

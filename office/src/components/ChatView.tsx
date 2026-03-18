@@ -1,125 +1,112 @@
-import { memo, useState } from "react";
-import { agentColor } from "../lib/constants";
-import { displayName } from "./chat/types";
-import { ChatGroup, DateSeparator } from "./chat/ChatBubble";
-import { ThreadCard } from "./chat/ThreadCard";
-import { useChatLog, useOracleNames, useFilteredEntries, useTimelineGroups, useLiveGroups, useThreads } from "./chat/useChatLog";
+import { useState } from "react";
+import type { AgentState } from "../lib/types";
 
-type Mode = "live" | "timeline" | "threads";
+interface ChatViewProps {
+  agents: AgentState[];
+  send: (msg: any) => void;
+  connected: boolean;
+}
 
-export const ChatView = memo(function ChatView() {
-  const [filter, setFilter] = useState<string>("all");
-  const [viewAs, setViewAs] = useState<string>("neo-oracle");
-  const [mode, setMode] = useState<Mode>("timeline");
-  const [highlighted, setHighlighted] = useState<string | null>(null);
+export function ChatView({ agents, send, connected }: ChatViewProps) {
+  const [selectedAgent, setSelectedAgent] = useState<AgentState | null>(null);
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<Array<{ from: string; text: string; time: string }>>([
+    { from: "System", text: "Welcome to Agent Chat. Select an agent to send a message.", time: new Date().toLocaleTimeString() }
+  ]);
 
-  const { entries, total, loading, scrollRef } = useChatLog(mode);
-  const oracleNames = useOracleNames(entries);
-  const filtered = useFilteredEntries(entries, filter);
-  const grouped = useTimelineGroups(filtered);
-  const liveGrouped = useLiveGroups(filtered);
-  const threads = useThreads(filtered);
+  const handleSend = () => {
+    if (!selectedAgent || !message.trim()) return;
 
-  const toggleHighlight = (id: string) => setHighlighted(highlighted === id ? null : id);
+    const userMessage = {
+      type: "chat",
+      target: selectedAgent.target,
+      text: message,
+    };
+
+    send(userMessage);
+
+    setMessages(prev => [...prev, {
+      from: "You",
+      text: message,
+      time: new Date().toLocaleTimeString()
+    }]);
+
+    setMessage("");
+  };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)]" style={{ background: "#0a0a0f" }}>
-      {/* Header */}
-      <div
-        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0 flex-wrap"
-        style={{ borderColor: "rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.015)" }}
-      >
-        <h2 className="text-sm font-bold tracking-wider" style={{ color: "#64b5f6" }}>
-          191 AI คุยกันเอง | Build with Oracle
-        </h2>
-        <span className="text-[10px] font-mono text-white/20">{filtered.length} msgs</span>
-        {mode === "live" && (
-          <span className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: "agent-pulse 1.5s ease-in-out infinite" }} />
-            <span className="text-[10px] font-mono text-emerald-400/60">LIVE</span>
-          </span>
-        )}
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
-            {(["live", "timeline", "threads"] as const).map((m) => (
-              <button
-                key={m}
-                className="px-2.5 py-1 text-[11px] font-mono capitalize transition-colors"
-                style={{
-                  background: mode === m ? "rgba(100,181,246,0.12)" : "transparent",
-                  color: mode === m ? "#64b5f6" : "rgba(255,255,255,0.25)",
-                }}
-                onClick={() => setMode(m)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-
-          <select
-            value={viewAs}
-            onChange={(e) => setViewAs(e.target.value)}
-            className="text-[11px] font-mono rounded-lg px-2 py-1 outline-none cursor-pointer"
-            style={{ background: "rgba(255,255,255,0.05)", color: agentColor(viewAs), border: "1px solid rgba(255,255,255,0.08)" }}
-          >
-            {oracleNames.map((n) => (
-              <option key={n} value={n}>{displayName(n)}</option>
-            ))}
-          </select>
-
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="text-[11px] font-mono rounded-lg px-2 py-1 outline-none cursor-pointer"
-            style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.08)" }}
-          >
-            <option value="all">All</option>
-            {oracleNames.map((n) => (
-              <option key={n} value={n}>{displayName(n)}</option>
-            ))}
-          </select>
+    <div className="flex h-full">
+      {/* Agent List */}
+      <div className="w-64 border-r border-gray-800 p-4 overflow-y-auto">
+        <h2 className="text-lg font-bold text-white mb-4">Agents</h2>
+        <div className="space-y-2">
+          {agents.map(agent => (
+            <button
+              key={agent.target}
+              onClick={() => setSelectedAgent(agent)}
+              className={`w-full text-left p-3 rounded-lg transition-colors ${
+                selectedAgent?.target === agent.target
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              <div className="font-medium">{agent.target}</div>
+              <div className="text-sm opacity-70 capitalize">{agent.status}</div>
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Chat area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <span className="text-white/20 text-sm font-mono">Loading...</span>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-white/25 text-sm">No messages yet</p>
-          </div>
-        ) : mode === "live" ? (
-          <div className="max-w-2xl mx-auto flex flex-col gap-3">
-            {liveGrouped.map(({ entries: g }, i) => (
-              <ChatGroup key={`lv-${i}`} entries={g} isRight={false} highlighted={highlighted} onToggleHighlight={toggleHighlight} idPrefix={`lv-${i}`} />
-            ))}
-          </div>
-        ) : mode === "threads" ? (
-          <div className="max-w-2xl mx-auto flex flex-col gap-3">
-            {threads.map(([pair, msgs], i) => (
-              <ThreadCard key={pair} pair={pair} entries={msgs} viewAs={viewAs} defaultExpanded={i === 0} highlighted={highlighted} onToggleHighlight={toggleHighlight} />
-            ))}
-          </div>
-        ) : (
-          <div className="max-w-2xl mx-auto flex flex-col gap-4">
-            {grouped.map(({ date, entries: g }, i) => (
-              <div key={`tl-${i}`}>
-                {date && <DateSeparator date={date} />}
-                <ChatGroup entries={g} isRight={g[0].from === viewAs} highlighted={highlighted} onToggleHighlight={toggleHighlight} idPrefix={`tl-${i}`} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Chat Area */}
+      <div className="flex-1 flex flex-col">
+        <div className="p-4 border-b border-gray-800">
+          <h1 className="text-xl font-bold text-white">
+            {selectedAgent ? `Chat with ${selectedAgent.target}` : "Agent Chat"}
+          </h1>
+          {!connected && (
+            <div className="mt-2 text-sm text-red-400">⚠️ Disconnected from server</div>
+          )}
+        </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-center px-4 py-1.5 border-t flex-shrink-0" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-        <span className="text-[9px] font-mono text-white/10">AI คุยกันเอง | Build with Oracle</span>
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex ${msg.from === "You" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[70%] rounded-lg p-3 ${
+                msg.from === "You"
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-200"
+              }`}>
+                <div className="text-sm font-medium mb-1">{msg.from}</div>
+                <div>{msg.text}</div>
+                <div className="text-xs opacity-60 mt-1">{msg.time}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-gray-800">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleSend()}
+              placeholder={selectedAgent ? `Message ${selectedAgent.target}...` : "Select an agent first..."}
+              disabled={!selectedAgent || !connected}
+              className="flex-1 px-4 py-2 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!selectedAgent || !connected || !message.trim()}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Send
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
-});
+}
