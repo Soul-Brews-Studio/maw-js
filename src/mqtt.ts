@@ -33,7 +33,7 @@ export function startMqttClient(): Client | null {
   }
 
   const mqttConfig = config.mqtt;
-  const { broker, topics, publishStatus } = mqttConfig;
+  const { broker, topics, publishStatus: shouldPublishStatus } = mqttConfig;
 
   console.log(`MQTT: connecting to ${broker}...`);
 
@@ -88,7 +88,7 @@ export function startMqttClient(): Client | null {
   });
 
   // Start heartbeat if enabled
-  if (publishStatus) {
+  if (shouldPublishStatus) {
     startHeartbeat(client, mqttConfig);
   }
 
