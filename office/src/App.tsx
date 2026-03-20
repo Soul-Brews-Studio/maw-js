@@ -28,16 +28,16 @@ function useHashRoute() {
     // If URL already has a hash, use it; otherwise restore from server state
     const urlHash = window.location.hash.slice(1);
     if (urlHash) return urlHash;
-    if (lastView && lastView !== "office") {
+    if (lastView && lastView !== "dashboard") {
       window.location.hash = lastView;
       return lastView;
     }
-    return "office";
+    return "dashboard";
   });
 
   useEffect(() => {
     const onHash = () => {
-      const h = window.location.hash.slice(1) || "office";
+      const h = window.location.hash.slice(1) || "dashboard";
       setHash(h);
       setLastView(h);
     };
@@ -566,6 +566,25 @@ export function App() {
           sessions={sessions}
           connected={connected}
           send={send}
+        />
+        {terminalModal}
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "dashboard") {
+    return (
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <OrbitalView
+          sessions={sessions}
+          agents={agents}
+          connected={connected}
+          onSelectAgent={onSelectAgent}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
