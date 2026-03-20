@@ -4,6 +4,36 @@ import { loadConfig, buildCommand, getEnvVars } from "../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
+/**
+ * Verify all windows in a session are running Claude (not empty zsh).
+ * Retries buildCommand for any that are still on a shell prompt.
+ */
+export async function ensureSessionRunning(session: string): Promise<number> {
+  let retried = 0;
+  let windows: { index: number; name: string; active: boolean }[];
+  try {
+    windows = await tmux.listWindows(session);
+  } catch { return 0; }
+
+  const targets = windows.map(w => `${session}:${w.name}`);
+  const cmds = await tmux.getPaneCommands(targets);
+
+  for (const win of windows) {
+    const target = `${session}:${win.name}`;
+    const paneCmd = (cmds[target] || "").trim().toLowerCase();
+
+    if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
+      try {
+        await new Promise(r => setTimeout(r, 500));
+        await tmux.sendText(target, buildCommand(win.name));
+        console.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
+        retried++;
+      } catch { /* window may have been killed */ }
+    }
+  }
+  return retried;
+}
+
 /** Fetch a GitHub issue and build a prompt for claude -p */
 export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise<string> {
   // Detect repo from git remote if not specified
@@ -137,10 +167,14 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommand(mainWindowName));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
-    // Spawn all existing worktree windows
+    // Spawn all existing worktree windows (strip number prefix from name)
     const allWt = await findWorktrees(parentDir, repoName);
+    const usedNames = new Set<string>();
     for (const wt of allWt) {
-      const wtWindowName = `${oracle}-${wt.name}`;
+      const taskPart = wt.name.replace(/^\d+-/, "");
+      let wtWindowName = `${oracle}-${taskPart}`;
+      if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`; // collision fallback
+      usedNames.add(wtWindowName);
       await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
       await new Promise(r => setTimeout(r, 300));
       await tmux.sendText(`${session}:${wtWindowName}`, buildCommand(wtWindowName));
@@ -149,6 +183,39 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   } else {
     // Ensure env vars are set on existing session (may predate this fix)
     await setSessionEnv(session);
+
+    // Respawn missing worktree windows (e.g. after reboot)
+    if (!opts.task && !opts.newWt) {
+      const allWt = await findWorktrees(parentDir, repoName);
+      if (allWt.length > 0) {
+        let existingWindows: string[] = [];
+        try {
+          const windows = await tmux.listWindows(session);
+          existingWindows = windows.map(w => w.name);
+        } catch { /* ok */ }
+
+        const usedNames = new Set(existingWindows);
+        for (const wt of allWt) {
+          const taskPart = wt.name.replace(/^\d+-/, "");
+          let wtWindowName = `${oracle}-${taskPart}`;
+          if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`; // collision fallback
+          // Also check old-style name with number
+          const altName = `${oracle}-${wt.name}`;
+          if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
+
+          usedNames.add(wtWindowName);
+          await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
+          await new Promise(r => setTimeout(r, 300));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommand(wtWindowName));
+          console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
+        }
+      }
+    }
+
+    // Verify all windows started Claude (not stuck on zsh)
+    await new Promise(r => setTimeout(r, 3000));
+    const retried = await ensureSessionRunning(session);
+    if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }
 
   let targetPath = repoPath;

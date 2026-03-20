@@ -179,7 +179,8 @@ export function useSessions() {
 
   const handleMessage = useCallback((data: any) => {
     if (data.type === "sessions") {
-      setSessions(data.sessions);
+      // Filter out PTY helper sessions (maw-pty-*) — they're internal
+      setSessions((data.sessions as Session[]).filter(s => !s.name.startsWith("maw-pty-")));
     } else if (data.type === "recent") {
       const agents: { target: string; name: string; session: string }[] = data.agents || [];
       if (agents.length > 0) markBusy(agents);
@@ -262,11 +263,14 @@ export function useSessions() {
     const map = new Map<string, FeedEvent[]>();
     for (let i = feedEvents.length - 1; i >= 0; i--) {
       const e = feedEvents[i];
-      const arr = map.get(e.oracle) || [];
-      if (arr.length < 5) { arr.push(e); map.set(e.oracle, arr); }
+      // Resolve to specific agent (worktree-aware) instead of raw oracle name
+      const agent = agentsRef.current.length > 0 ? resolveAgentFromFeed(e) : undefined;
+      const key = agent ? agent.name.replace(/-oracle$/, "") : e.oracle;
+      const arr = map.get(key) || [];
+      if (arr.length < 5) { arr.push(e); map.set(key, arr); }
     }
     return map;
-  }, [feedEvents]);
+  }, [feedEvents, resolveAgentFromFeed]);
 
   return { sessions, agents, eventLog, addEvent, handleMessage, feedEvents, feedActive, agentFeedLog };
 }

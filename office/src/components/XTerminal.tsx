@@ -66,95 +66,107 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(container);
-    fit.fit();
-    term.focus();
 
-    // Connect to PTY WebSocket
-    const ws = new WebSocket(wsUrl("/ws/pty"));
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: "attach",
-        target,
-        cols: term.cols,
-        rows: term.rows,
-      }));
-    };
-
-    ws.onmessage = (e) => {
-      if (typeof e.data === "string") {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type === "detached") {
-            term.write("\r\n\x1b[33m[session detached]\x1b[0m\r\n");
-          }
-        } catch {}
-      } else {
-        // Binary PTY data → render in xterm.js
-        term.write(new Uint8Array(e.data));
-      }
-    };
-
-    ws.onclose = () => {
-      term.write("\r\n\x1b[31m[connection closed]\x1b[0m\r\n");
-    };
-
-    // Keystrokes → binary to PTY stdin
-    const encoder = new TextEncoder();
-    const dataSub = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(encoder.encode(data));
-      }
-    });
-
-    const binSub = term.onBinary((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        const bytes = new Uint8Array(data.length);
-        for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
-        ws.send(bytes);
-      }
-    });
-
-    // Modal navigation shortcuts (intercept before xterm processes them)
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== "keydown") return true;
-      if (e.key === "Escape" && !e.altKey && !e.ctrlKey && !e.shiftKey) {
-        onCloseRef.current();
-        return false;
-      }
-      if (e.altKey && e.key === "ArrowLeft") { onNavigateRef.current(-1); return false; }
-      if (e.altKey && e.key === "ArrowRight") { onNavigateRef.current(1); return false; }
-      if (e.altKey && e.key >= "1" && e.key <= "9") {
-        const idx = parseInt(e.key) - 1;
-        if (idx < siblingsRef.current.length) onSelectSiblingRef.current(siblingsRef.current[idx]);
-        return false;
-      }
-      return true;
-    });
-
-    // Auto-resize with debounce
+    let ws: WebSocket | null = null;
+    let dataSub: { dispose: () => void } | null = null;
+    let binSub: { dispose: () => void } | null = null;
     let resizeTimer: ReturnType<typeof setTimeout>;
-    const resizeObserver = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        try {
-          fit.fit();
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-          }
-        } catch {}
-      }, 200);
-    });
-    resizeObserver.observe(container);
+    let resizeObserver: ResizeObserver | null = null;
+
+    // Defer open until container has dimensions (avoids "dimensions" crash on first render)
+    const openTimer = setTimeout(() => {
+      try {
+        term.open(container);
+        fit.fit();
+        term.focus();
+      } catch { return; }
+
+      // Connect to PTY WebSocket
+      ws = new WebSocket(wsUrl("/ws/pty"));
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        ws!.send(JSON.stringify({
+          type: "attach",
+          target,
+          cols: term.cols,
+          rows: term.rows,
+        }));
+      };
+
+      ws.onmessage = (e) => {
+        if (typeof e.data === "string") {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === "detached") {
+              term.write("\r\n\x1b[33m[session detached]\x1b[0m\r\n");
+            }
+          } catch {}
+        } else {
+          // Binary PTY data → render in xterm.js
+          term.write(new Uint8Array(e.data));
+        }
+      };
+
+      ws.onclose = () => {
+        term.write("\r\n\x1b[31m[connection closed]\x1b[0m\r\n");
+      };
+
+      // Keystrokes → binary to PTY stdin
+      const encoder = new TextEncoder();
+      dataSub = term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(encoder.encode(data));
+        }
+      });
+
+      binSub = term.onBinary((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const bytes = new Uint8Array(data.length);
+          for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
+          ws.send(bytes);
+        }
+      });
+
+      // Modal navigation shortcuts (intercept before xterm processes them)
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== "keydown") return true;
+        if (e.key === "Escape" && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+          onCloseRef.current();
+          return false;
+        }
+        if (e.altKey && e.key === "ArrowLeft") { onNavigateRef.current(-1); return false; }
+        if (e.altKey && e.key === "ArrowRight") { onNavigateRef.current(1); return false; }
+        if (e.altKey && e.key >= "1" && e.key <= "9") {
+          const idx = parseInt(e.key) - 1;
+          if (idx < siblingsRef.current.length) onSelectSiblingRef.current(siblingsRef.current[idx]);
+          return false;
+        }
+        return true;
+      });
+
+      // Auto-resize with debounce
+      resizeObserver = new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          try {
+            fit.fit();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+            }
+          } catch {}
+        }, 200);
+      });
+      resizeObserver.observe(container);
+    }, 50);
 
     return () => {
+      clearTimeout(openTimer);
       clearTimeout(resizeTimer);
-      resizeObserver.disconnect();
-      dataSub.dispose();
-      binSub.dispose();
-      ws.close();
+      resizeObserver?.disconnect();
+      dataSub?.dispose();
+      binSub?.dispose();
+      ws?.close();
       term.dispose();
     };
   }, [target]);

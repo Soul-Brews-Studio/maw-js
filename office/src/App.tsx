@@ -10,6 +10,11 @@ import { FleetGrid, FleetControls } from "./components/FleetGrid";
 import { OverviewGrid } from "./components/OverviewGrid";
 import { VSView } from "./components/VSView";
 import { ConfigView } from "./components/ConfigView";
+import { TerminalView } from "./components/TerminalView";
+import { InboxOverlay } from "./components/InboxView";
+import { WorktreeView } from "./components/WorktreeView";
+import { ChatView } from "./components/ChatView";
+import { DashboardView } from "./components/DashboardView";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
@@ -33,7 +38,7 @@ function useHashRoute() {
       window.location.hash = lastView;
       return lastView;
     }
-    return "dashboard";
+    return "office";
   });
 
   useEffect(() => {
@@ -59,13 +64,12 @@ function useAudioUnlock() {
         setReady(true);
       }
     };
-    window.addEventListener("click", handler, { once: true });
-    window.addEventListener("keydown", handler, { once: true });
-    window.addEventListener("touchstart", handler, { once: true });
+    // Use capture phase so it doesn't interfere with click handlers
+    window.addEventListener("pointerdown", handler, { once: true, capture: true });
+    window.addEventListener("keydown", handler, { once: true, capture: true });
     return () => {
-      window.removeEventListener("click", handler);
-      window.removeEventListener("keydown", handler);
-      window.removeEventListener("touchstart", handler);
+      window.removeEventListener("pointerdown", handler, { capture: true });
+      window.removeEventListener("keydown", handler, { capture: true });
     };
   }, []);
   return ready;
@@ -108,7 +112,7 @@ export function App() {
     return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
-  const { sessions, agents, eventLog, addEvent, handleMessage, feedActive, agentFeedLog } = useSessions();
+  const { sessions, agents, eventLog, addEvent, handleMessage, feedEvents, feedActive, agentFeedLog } = useSessions();
 
   // Sync muted state to sound module
   const muted = useFleetStore((s) => s.muted);
@@ -263,9 +267,23 @@ export function App() {
           <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="config" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
         </div>
         <ConfigView />
-        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
-        {jumpOverlay}
-      </div>
+      </Layout>
+    );
+  }
+
+  if (route === "terminal") {
+    return (
+      <Layout activeView="terminal" {...layoutProps} fullHeight>
+        <TerminalView sessions={sessions} agents={agents} connected={connected} onSelectAgent={onSelectAgent} />
+      </Layout>
+    );
+  }
+
+  if (route === "dashboard") {
+    return (
+      <Layout activeView="dashboard" {...layoutProps}>
+        <DashboardView sessions={sessions} agents={agents} connected={connected} send={send} onSelectAgent={onSelectAgent} eventLog={eventLog} feedEvents={feedEvents} feedActive={feedActive} agentFeedLog={agentFeedLog} />
+      </Layout>
     );
   }
 

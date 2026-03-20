@@ -121,7 +121,7 @@ export const VSAgentPanel = memo(function VSAgentPanel({ agent, send, onPickAgen
       {/* Terminal output */}
       <div
         ref={termRef}
-        className="flex-1 px-3 py-2 overflow-y-auto font-mono text-[12px] leading-[1.35] text-[#cdd6f4] whitespace-pre-wrap break-all"
+        className="flex-1 px-3 py-2 overflow-y-auto overflow-x-auto font-mono text-[12px] leading-[1.35] text-[#cdd6f4] whitespace-pre break-normal"
         style={{ background: "#08080e" }}
         dangerouslySetInnerHTML={{ __html: ansiToHtml(processCapture(content)) }}
       />

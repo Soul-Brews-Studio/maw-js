@@ -168,7 +168,7 @@ export const useFleetStore = create<FleetStore>()(
       })),
       muted: false,
       toggleMuted: () => set((s) => ({ muted: !s.muted })),
-      stageMode: "pitch",
+      stageMode: "stage",
       toggleStageMode: () => set((s) => ({ stageMode: s.stageMode === "pitch" ? "stage" : "pitch" })),
 
       lastView: "office",
@@ -207,7 +207,7 @@ export const useFleetStore = create<FleetStore>()(
     }),
     {
       name: "maw.fleet",
-      version: 2,
+      version: 3,
       storage: hybridStorage,
       partialize: (s) => ({
         recentMap: s.recentMap,
@@ -235,6 +235,10 @@ export const useFleetStore = create<FleetStore>()(
           // v1→v2: recentMap keys used session:windowName, now use session:windowIndex
           // Drop stale entries — they'll repopulate with correct format
           state.recentMap = {};
+        }
+        if (version < 3) {
+          // v2→v3: default stageMode to "stage" (was "pitch")
+          state.stageMode = "stage";
         }
         return state;
       },

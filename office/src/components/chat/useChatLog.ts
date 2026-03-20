@@ -14,7 +14,7 @@ export function useChatLog(mode: string) {
     fetch(apiUrl("/api/maw-log?limit=500"))
       .then((r) => r.json())
       .then((data) => {
-        setEntries(data.entries || []);
+        setEntries((data.entries || []).filter((e: MawLogEntry) => e.from && e.to));
         setTotal(data.total || 0);
         setLoading(false);
       })

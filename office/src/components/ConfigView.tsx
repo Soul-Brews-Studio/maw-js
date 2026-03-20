@@ -2,6 +2,55 @@ import { memo, useState, useEffect, useCallback, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import { apiUrl } from "../lib/api";
 
+function PinSettings() {
+  const [pin, setPin] = useState("");
+  const [info, setInfo] = useState<{ length: number; enabled: boolean } | null>(null);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    fetch(apiUrl("/api/pin-info")).then(r => r.json()).then(setInfo).catch(() => {});
+  }, []);
+
+  const handleSave = useCallback(() => {
+    fetch(apiUrl("/api/pin-set"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        setInfo({ length: data.length, enabled: data.enabled });
+        setMsg(data.enabled ? `PIN set (${data.length} digits)` : "PIN disabled");
+        setPin("");
+        setTimeout(() => setMsg(""), 3000);
+      })
+      .catch(() => setMsg("Error"));
+  }, [pin]);
+
+  return (
+    <div className="border-t border-white/[0.06] px-3 py-3">
+      <div className="text-[10px] font-mono text-white/30 tracking-[2px] uppercase mb-2">PIN Lock</div>
+      <div className="text-[10px] font-mono text-white/20 mb-2">
+        {info?.enabled ? `Active (${info.length} digits)` : "Disabled"}
+      </div>
+      <div className="flex gap-1">
+        <input
+          type="text" inputMode="numeric" pattern="[0-9]*"
+          value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
+          placeholder="New PIN"
+          className="flex-1 min-w-0 bg-transparent text-white/80 outline-none font-mono text-[11px] px-1.5 py-1 rounded border border-white/10 [&::-webkit-search-cancel-button]:hidden [&::-webkit-clear-button]:hidden [&::-ms-clear]:hidden"
+          style={{ WebkitAppearance: "none" as const }}
+        />
+        <button onClick={handleSave} className="text-[10px] font-mono px-2 py-1 rounded bg-cyan-400/10 text-cyan-400/70 hover:text-cyan-400 transition-colors">
+          {pin ? "Set" : "Clear"}
+        </button>
+      </div>
+      {msg && <div className="text-[10px] font-mono text-emerald-400/70 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
 interface ConfigFile {
   name: string;
   path: string;
@@ -253,6 +302,9 @@ export const ConfigView = memo(function ConfigView() {
             );
           })()}
         </div>
+
+        {/* PIN Settings */}
+        <PinSettings />
       </div>
 
       {/* Editor area */}

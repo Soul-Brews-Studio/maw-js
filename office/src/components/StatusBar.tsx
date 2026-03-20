@@ -12,22 +12,14 @@ interface StatusBarProps {
   children?: ReactNode;
 }
 
-interface NavItem {
-  href: string;
-  label: string;
-  id: string;
-  external?: boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: "/office/#office", label: "Office", id: "office" },
-  { href: "/office/#fleet", label: "Fleet", id: "fleet" },
-  { href: "/office/#mission", label: "Mission", id: "mission" },
-  { href: "/office/#vs", label: "VS", id: "vs" },
-  { href: "/office/#overview", label: "Overview", id: "overview" },
-  { href: "/office/#config", label: "Config", id: "config" },
-  { href: "http://localhost:3456/", label: "Terminal", id: "terminal", external: true },
-  { href: "/dashboard", label: "Orbital", id: "orbital" },
+const NAV_ITEMS = [
+  { href: "#dashboard", label: "Dashboard", id: "dashboard" },
+  { href: "#fleet", label: "Fleet", id: "fleet" },
+  { href: "#office", label: "Office", id: "office" },
+  { href: "#overview", label: "Overview", id: "overview" },
+  { href: "#terminal", label: "Terminal", id: "terminal" },
+  { href: "#chat", label: "Chat", id: "chat" },
+  { href: "#config", label: "Config", id: "config" },
 ];
 
 const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);

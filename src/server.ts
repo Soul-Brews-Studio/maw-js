@@ -499,6 +499,43 @@ app.put("/api/config-file", async (c) => {
 });
 
 // --- Config API ---
+// PIN verification — pin is stored in maw.config.json as "pin" field
+// Rate limit: max 5 attempts per IP per minute
+const pinAttempts = new Map<string, { count: number; resetAt: number }>();
+
+app.get("/api/pin-info", (c) => {
+  const config = loadConfig() as any;
+  const pin = config.pin || "";
+  return c.json({ length: pin.length, enabled: pin.length > 0 });
+});
+
+app.post("/api/pin-set", async (c) => {
+  const { pin } = await c.req.json();
+  const newPin = typeof pin === "string" ? pin.replace(/\D/g, "") : "";
+  saveConfig({ pin: newPin } as any);
+  return c.json({ ok: true, length: newPin.length, enabled: newPin.length > 0 });
+});
+
+app.post("/api/pin-verify", async (c) => {
+  const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "local";
+  const now = Date.now();
+  const entry = pinAttempts.get(ip) || { count: 0, resetAt: now + 60_000 };
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + 60_000; }
+  entry.count++;
+  pinAttempts.set(ip, entry);
+  if (entry.count > 5) {
+    return c.json({ ok: false, error: "Too many attempts. Wait 1 minute." }, 429);
+  }
+
+  const { pin } = await c.req.json();
+  const config = loadConfig() as any;
+  const correct = config.pin || "";
+  if (!correct) return c.json({ ok: true });
+  const ok = pin === correct;
+  if (ok) pinAttempts.delete(ip); // reset on success
+  return c.json({ ok });
+});
+
 app.get("/api/config", (c) => {
   if (c.req.query("raw") === "1") return c.json(loadConfig());
   return c.json(configForDisplay());

@@ -25,7 +25,7 @@ export function nameHash(name: string): number {
 }
 
 export function displayName(name: string): string {
-  return name.replace(/-oracle$/, "").replace(/-mawjs$/, "");
+  return (name || "unknown").replace(/-oracle$/, "").replace(/-mawjs$/, "");
 }
 
 export function isHuman(name: string): boolean {

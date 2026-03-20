@@ -221,11 +221,39 @@ export const AgentRow = memo(function AgentRow({
   const [sent, setSent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const recognitionRef = useRef<any>(null);
   const handleMic = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (inputOpen) { setInputOpen(false); return; }
+    // If already listening, stop
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      return;
+    }
+    if (inputOpen && !recognitionRef.current) { setInputOpen(false); return; }
     setInputOpen(true);
-    inputRef.current?.focus();
+
+    // Start speech recognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { inputRef.current?.focus(); return; }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "th-TH";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognitionRef.current = recognition;
+
+    recognition.onresult = (ev: any) => {
+      const transcript = Array.from(ev.results).map((r: any) => r[0].transcript).join("");
+      setText(transcript);
+    };
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      // Auto-send if we got text
+      setTimeout(() => inputRef.current?.focus(), 50);
+    };
+    recognition.onerror = () => { recognitionRef.current = null; };
+    recognition.start();
   }, [inputOpen]);
 
   const handleSend = useCallback(() => {

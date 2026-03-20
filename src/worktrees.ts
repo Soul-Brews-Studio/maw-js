@@ -1,4 +1,5 @@
 import { ssh, listSessions } from "./ssh";
+import { tmux } from "./tmux";
 import { loadConfig } from "./config";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
@@ -171,7 +172,7 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
     for (const w of s.windows) {
       if (w.name.endsWith(`-${taskPart}`) || w.name === taskPart) {
         try {
-          await ssh(`tmux kill-window -t '${s.name}:${w.name}'`);
+          await tmux.killWindow(`${s.name}:${w.name}`);
           log.push(`killed window ${s.name}:${w.name}`);
         } catch {
           log.push(`window already closed: ${w.name}`);
