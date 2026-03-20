@@ -8,6 +8,7 @@ interface StatusBarProps {
   onJump?: () => void;
   muted?: boolean;
   onToggleMute?: () => void;
+  onNotifications?: () => void;
   children?: ReactNode;
 }
 
@@ -31,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
-export const StatusBar = memo(function StatusBar({ connected, agentCount, sessionCount, activeView = "office", onJump, muted, onToggleMute, children }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ connected, agentCount, sessionCount, activeView = "office", onJump, muted, onToggleMute, onNotifications, children }: StatusBarProps) {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 mx-4 sm:mx-6 mt-3 px-4 sm:px-6 py-2.5 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/[0.06] shadow-[0_4px_30px_rgba(0,0,0,0.4)]">
       <h1 className="text-base sm:text-lg font-bold tracking-[4px] sm:tracking-[6px] text-cyan-400 uppercase whitespace-nowrap">
@@ -68,6 +69,21 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
           title={muted ? "Unmute sounds" : "Mute sounds"}
         >
           {muted ? "🔇" : "🔊"}
+        </button>
+      )}
+
+      {onNotifications && (
+        <button
+          onClick={onNotifications}
+          className="px-2.5 py-1.5 rounded-lg text-xs font-mono active:scale-95 transition-all whitespace-nowrap"
+          style={{
+            background: "rgba(59, 130, 246, 0.15)",
+            color: "#3b82f6",
+            border: "1px solid rgba(59, 130, 246, 0.25)",
+          }}
+          title="Notifications (⌘N)"
+        >
+          🔔
         </button>
       )}
 

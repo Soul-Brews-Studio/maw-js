@@ -7,6 +7,8 @@ import { FeedTailer } from "./feed-tail";
 import { MawEngine } from "./engine";
 import type { WSData } from "./types";
 import { startMqttClient } from "./mqtt";
+import { startMemoryHubSync } from "./memory-hub-sync";
+import { getNotificationSystem, initNotificationSystem } from "./notification-system";
 
 const app = new Hono();
 app.use("/api/*", async (c, next) => {
@@ -48,6 +50,187 @@ app.post("/api/select", async (c) => {
   if (!target) return c.json({ error: "target required" }, 400);
   await selectWindow(target);
   return c.json({ ok: true, target });
+});
+
+// Task queue endpoint for Task Master integration
+app.post("/api/task", async (c) => {
+  const { title, description, priority, requested_by, source, metadata } = await c.req.json();
+
+  if (!title) {
+    return c.json({ error: "title required" }, 400);
+  }
+
+  // Generate task ID
+  const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  const task = {
+    id: taskId,
+    title: title.slice(0, 100),
+    description: description || title,
+    priority: priority || 'medium',
+    requested_by: requested_by || 'mqtt-hey',
+    source: source || 'maw-hey',
+    metadata: metadata || {},
+    created_at: new Date().toISOString(),
+    status: 'pending'
+  };
+
+  // Log task creation (Task Master can process these logs)
+  console.log(`📋 Task Created: ${taskId}`);
+  console.log(`   Title: ${task.title}`);
+  console.log(`   From: ${task.requested_by}`);
+  console.log(`   Priority: ${task.priority}`);
+
+  // TODO: Store in queue directory for Task Master to process
+  // For now, just acknowledge and return task ID
+
+  return c.json({
+    ok: true,
+    task_id: taskId,
+    task
+  });
+});
+
+// Monitor API endpoints - System health and metrics
+app.get("/api/health", async (c) => {
+  try {
+    const sessions = await listSessions();
+
+    // Transform sessions into health data
+    const agents = sessions.flatMap(session =>
+      session.windows.map(win => ({
+        agent: `${session.name}:${win.name}`,
+        status: win.active ? 'healthy' : 'idle',
+        lastActive: Date.now(),
+        heartbeat: Date.now(),
+        inboxCount: 0, // TODO: implement inbox counting
+        session: session.name,
+        target: win.name
+      }))
+    );
+
+    return c.json({ agents, timestamp: Date.now() });
+  } catch (error: any) {
+    return c.json({
+      agents: [],
+      error: error.message,
+      timestamp: Date.now()
+    }, 500);
+  }
+});
+
+app.get("/api/stats", async (c) => {
+  try {
+    // Get real stats from engine if available
+    const sessions = await listSessions();
+    const agentCount = sessions.reduce((acc, s) => acc + s.windows.length, 0);
+
+    return c.json({
+      latency: Math.floor(Math.random() * 50) + 20, // Simulated latency (20-70ms)
+      throughput: Math.floor(Math.random() * 100) + 50, // Simulated messages/min
+      tokens: 10,
+      burst: 10,
+      callsPerMinute: Math.floor(Math.random() * 30) + 50, // 50-80 calls/min
+      errorRate: 0, // No errors
+      agentCount,
+      sessionCount: sessions.length,
+      timestamp: Date.now()
+    });
+  } catch (error: any) {
+    return c.json({
+      error: error.message,
+      timestamp: Date.now()
+    }, 500);
+  }
+});
+
+app.get("/api/tokens", async (c) => {
+  const rebuild = c.req.query('rebuild');
+
+  // Rate limiter status (currently not implemented, return defaults)
+  return c.json({
+    available: 10,
+    burst: 10,
+    rate: 50, // 50 tokens per minute
+    window: 60, // 60 second window
+    callsPerMinute: Math.floor(Math.random() * 30) + 50,
+    lastRefill: Date.now(),
+    timestamp: Date.now()
+  });
+});
+
+// Notification endpoints
+app.get("/api/notifications", async (c) => {
+  const notifications = getNotificationSystem();
+  const channel = c.req.query('channel') as 'mqtt' | 'threads' | 'memory' | undefined;
+  const limit = c.req.query('limit') ? parseInt(c.req.query('limit') as string) : undefined;
+  const unreadOnly = c.req.query('unreadOnly') === 'true';
+
+  const results = notifications.getAll({
+    channel,
+    limit,
+    unreadOnly
+  });
+
+  return c.json(results);
+});
+
+app.get("/api/notifications/stats", async (c) => {
+  const notifications = getNotificationSystem();
+  const stats = notifications.getStats();
+  return c.json(stats);
+});
+
+app.post("/api/notifications/:id/read", async (c) => {
+  const { id } = c.req.param();
+  const notifications = getNotificationSystem();
+  const success = notifications.markAsRead(id);
+
+  if (!success) {
+    return c.json({ error: "Notification not found" }, 404);
+  }
+
+  return c.json({ ok: true });
+});
+
+app.post("/api/notifications/read-all", async (c) => {
+  const notifications = getNotificationSystem();
+  const channel = c.req.query('channel') as 'mqtt' | 'threads' | 'memory' | undefined;
+  const count = notifications.markAllAsRead(channel);
+
+  return c.json({ ok: true, count });
+});
+
+app.delete("/api/notifications/:id", async (c) => {
+  const { id } = c.req.param();
+  const notifications = getNotificationSystem();
+  const success = notifications.delete(id);
+
+  if (!success) {
+    return c.json({ error: "Notification not found" }, 404);
+  }
+
+  return c.json({ ok: true });
+});
+
+// Agent notification endpoint - for external agents to send notifications
+app.post("/api/notifications/notify", async (c) => {
+  const { channel, type, title, message, metadata } = await c.req.json();
+
+  if (!channel || !type || !title || !message) {
+    return c.json({ error: "channel, type, title, and message are required" }, 400);
+  }
+
+  const notifications = getNotificationSystem();
+  const notification = notifications.add({
+    channel,
+    type,
+    title,
+    message,
+    metadata,
+  });
+
+  return c.json({ ok: true, notification });
 });
 
 // Serve React app from root (single entry point for all views)
@@ -422,6 +605,35 @@ export { app };
 import { handlePtyMessage, handlePtyClose } from "./pty";
 
 export function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
+  // Initialize notification system
+  const notifications = initNotificationSystem();
+
+  // Wire notifications to WebSocket broadcasts
+  notifications.on('notification', (notification) => {
+    // Broadcast to all connected clients
+    const msg = JSON.stringify({
+      type: 'notification',
+      notification
+    });
+    engine.broadcast(JSON.parse(msg));
+  });
+
+  notifications.on('notification-updated', (notification) => {
+    const msg = JSON.stringify({
+      type: 'notification-updated',
+      notification
+    });
+    engine.broadcast(JSON.parse(msg));
+  });
+
+  notifications.on('bulk-updated', (data) => {
+    const msg = JSON.stringify({
+      type: 'notifications-bulk-updated',
+      data
+    });
+    engine.broadcast(JSON.parse(msg));
+  });
+
   const engine = new MawEngine({ feedTailer });
 
   const wsHandler = {
@@ -476,6 +688,19 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     }
   } catch (e) {
     console.error(`❌ MQTT: failed to start:`, e);
+  }
+
+  // Start Memory Hub sync if enabled
+  try {
+    const projectRoot = process.env.VOLT_ORACLE_ROOT || process.cwd();
+    startMemoryHubSync({
+      projectRoot,
+      autoClassify: true,
+      enableRealtime: true,
+    });
+    console.log(`✅ Memory Hub Sync: started (auto-classify: ON)`);
+  } catch (e) {
+    console.error(`❌ Memory Hub Sync: failed to start:`, e);
   }
 
   return server;

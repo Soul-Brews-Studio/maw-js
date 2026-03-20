@@ -13,6 +13,8 @@ import mqtt, { type Client } from 'mqtt';
 import { sendKeys, selectWindow } from './ssh';
 import { loadConfig } from './config';
 import type { MawConfig } from './config';
+import { getNotificationSystem } from './notification-system';
+import { createOracleThread, classifyThreadForMemoryHub } from './oracle-threads';
 
 // Export the MQTT client type
 export type MqttClient = Client;
@@ -101,6 +103,90 @@ export function startMqttClient(): Client | null {
 }
 
 /**
+ * Handle Task Master command - create task via local API
+ */
+async function handleTaskMasterCommand(
+  client: Client,
+  data: { target?: string; text?: string; agent?: string },
+  mqttConfig: any,
+  taskDescription: string
+) {
+  // Use local maw.js API endpoint (not external Task Master)
+  const config = loadConfig() as MawConfig;
+  const taskUrl = `http://localhost:${config.port || 3456}/api/task`;
+
+  try {
+    console.log(`📋 Task Master: creating task "${taskDescription.slice(0, 50)}..."`);
+
+    const response = await fetch(taskUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: taskDescription.slice(0, 100),
+        description: taskDescription,
+        priority: 'medium',
+        requested_by: data.agent || 'mqtt-hey',
+        source: 'maw-hey',
+        metadata: {
+          timestamp: new Date().toISOString(),
+          original_message: data.text,
+          target: data.target,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Task API returned ${response.status}`);
+    }
+
+    const result = await response.json();
+    const taskId = result.task_id;
+
+    console.log(`✅ Task Master: task #${taskId} created`);
+
+    // Add notification
+    const notifications = getNotificationSystem();
+    notifications.add({
+      channel: 'mqtt',
+      type: 'task_created',
+      title: 'Task Created',
+      message: taskDescription.slice(0, 100),
+      metadata: {
+        task_id: taskId,
+        agent: data.agent || 'mqtt-hey',
+        target: data.target,
+      }
+    });
+
+    // Publish acknowledgment with task_id
+    client.publish(mqttConfig.topics.ack, JSON.stringify({
+      ok: true,
+      agent: data.agent || 'mqtt-hey',
+      type: 'task_created',
+      task_id: taskId,
+      text: taskDescription.slice(0, 80),
+      ts: new Date().toISOString(),
+    }));
+
+    return taskId;
+  } catch (e) {
+    console.error('❌ Task Master: error:', e);
+
+    // Publish error acknowledgment
+    client.publish(mqttConfig.topics.ack, JSON.stringify({
+      ok: false,
+      agent: data.agent || 'mqtt-hey',
+      type: 'task_error',
+      error: String(e),
+      text: taskDescription.slice(0, 80),
+      ts: new Date().toISOString(),
+    }));
+
+    throw e;
+  }
+}
+
+/**
  * Handle 'hey' command - send keys to tmux pane
  */
 async function handleHeyMessage(
@@ -118,6 +204,119 @@ async function handleHeyMessage(
   console.log(`📨 MQTT: hey → ${target}: "${text.slice(0, 50)}..."`);
 
   try {
+    // Context-aware routing:
+    // 1. @task: keywords → Task Master (save for later)
+    // 2. "discuss", "consult", "advice" → Oracle Threads (consultation)
+    // 3. urgent/immediate keywords → MQTT (direct to agent)
+    // 4. Default → MQTT (direct to agent)
+
+    // Task Master routing (save for later)
+    const taskPatterns = [
+      /^@task:\s*(.+)/i,
+      /^(create|add)\\s+task:\\s*(.+)/i,
+      /^todo:\\s*(.+)/i,
+      /^(create|add)\\s+(a\\s+)?task\\s+(to\\s+)?(.+)/i,
+    ];
+
+    for (const pattern of taskPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const taskDescription = match[1] || match[4] || text;
+        await handleTaskMasterCommand(client, data, mqttConfig, taskDescription.trim());
+        console.log(`📋 Routed to Task Master (save for later)`);
+        return;
+      }
+    }
+
+    // Oracle Threads routing (consultation)
+    const consultPatterns = [
+      /^(discuss|consult|opinion|advice|thoughts|feedback):\s*(.+)/i,
+      /^(what do you think|should i|how should i|your opinion)/i,
+      /^(help me decide|guidance on|recommend)/i,
+    ];
+
+    for (const pattern of consultPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const topic = match[2] || text;
+        console.log(`💬 Routed to Oracle Threads (consultation): "${topic.slice(0, 50)}..."`);
+
+        try {
+          // Create Oracle Thread
+          const thread = await createOracleThread(
+            `Consultation: ${topic.slice(0, 100)}`,
+            text,
+            {
+              agent: data.agent || 'mqtt-hey',
+              target: data.target,
+              source: 'mqtt',
+            }
+          );
+
+          // Classify for Memory Hub routing
+          const category = classifyThreadForMemoryHub(thread.title, []);
+
+          console.log(`📊 Thread #${thread.id} classified as: ${category}`);
+
+          // Publish acknowledgment with thread ID
+          client.publish(mqttConfig.topics.ack, JSON.stringify({
+            ok: true,
+            agent: data.agent || 'mqtt-hey',
+            type: 'thread_created',
+            thread_id: thread.id,
+            topic: topic.slice(0, 80),
+            memory_category: category,
+            message: `Oracle Thread #${thread.id} created`,
+            ts: new Date().toISOString(),
+          }));
+
+          return;
+        } catch (e) {
+          console.error('❌ Oracle Threads creation failed:', e);
+
+          // Publish error acknowledgment
+          client.publish(mqttConfig.topics.ack, JSON.stringify({
+            ok: false,
+            agent: data.agent || 'mqtt-hey',
+            type: 'thread_error',
+            error: String(e),
+            topic: topic.slice(0, 80),
+            ts: new Date().toISOString(),
+          }));
+
+          return;
+        }
+      }
+    }
+
+    // Urgent/immediate routing
+    const urgentPatterns = [
+      /^(urgent|asap|immediate|emergency|now):\s*(.+)/i,
+    ];
+
+    for (const pattern of urgentPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const urgentMessage = match[2] || text;
+        console.log(`🚨 Urgent message → sending directly to agent`);
+
+        // Add notification
+        const notifications = getNotificationSystem();
+        notifications.add({
+          channel: 'mqtt',
+          type: 'urgent_message',
+          title: '🚨 Urgent Message',
+          message: urgentMessage.slice(0, 100),
+          metadata: {
+            agent: data.agent || 'mqtt-hey',
+            target: data.target,
+            priority: 'urgent',
+          }
+        });
+      }
+    }
+
+    // Default: send keys to tmux pane
     await sendKeys(target, text);
 
     // Publish acknowledgment
