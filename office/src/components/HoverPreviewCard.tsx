@@ -422,7 +422,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
       <div className="relative flex-1" style={{ background: "#08080c" }}>
         <div
           ref={termRef}
-          className="absolute inset-0 px-3 py-2 overflow-y-auto overflow-x-hidden font-mono text-[10px] leading-[1.4] text-[#cdd6f4] whitespace-pre-wrap break-all"
+          className="absolute inset-0 px-3 py-2 overflow-y-auto overflow-x-auto font-mono text-[10px] leading-[1.4] text-[#cdd6f4] whitespace-pre break-normal"
           dangerouslySetInnerHTML={{ __html: ansiToHtml(processCapture(content)) }}
         />
         {pinned && send && (

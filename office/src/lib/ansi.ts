@@ -64,8 +64,8 @@ export function stripAnsi(s: string): string {
 
 /** Shorten long separator lines and trim trailing blanks (shared across all previews) */
 export function processCapture(raw: string): string {
-  // Shorten runs of box-drawing / dash chars to 3
-  const shortened = raw.replace(/[─━═—\-_▁▔]{6,}/g, "─".repeat(60));
+  // Shorten long runs of box-drawing / dash chars (but keep table lines intact)
+  const shortened = raw.replace(/[─━═—\-_▁▔]{80,}/g, (m) => m[0].repeat(60));
   const lines = shortened.split("\n");
   // Trim trailing blank lines
   while (lines.length > 0) {

@@ -201,7 +201,7 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
         <div
           ref={outputRef}
           className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[13px] leading-[1.35]"
-          style={{ background: "#0a0a0f", whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#aaa" }}
+          style={{ background: "#0a0a0f", whiteSpace: "pre", wordBreak: "normal", overflowX: "auto", color: "#aaa" }}
         >
           {captureHtml ? (
             <div dangerouslySetInnerHTML={{ __html: captureHtml }} />
