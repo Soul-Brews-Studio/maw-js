@@ -18,6 +18,7 @@ import type { AgentState } from "./lib/types";
 import { EnhancedFleetView } from "./components/EnhancedFleetView";
 import { ChatView } from "./components/ChatView";
 import { NotificationSidebar } from "./components/notifications";
+import { OrbitalView } from "./components/OrbitalView";
 
 function useHashRoute() {
   const lastView = useFleetStore((s) => s.lastView);
@@ -565,6 +566,25 @@ export function App() {
           sessions={sessions}
           connected={connected}
           send={send}
+        />
+        {terminalModal}
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "orbital") {
+    return (
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="orbital" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <OrbitalView
+          sessions={sessions}
+          agents={agents}
+          connected={connected}
+          onSelectAgent={onSelectAgent}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
