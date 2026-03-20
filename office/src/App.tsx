@@ -19,6 +19,7 @@ import { EnhancedFleetView } from "./components/EnhancedFleetView";
 import { ChatView } from "./components/ChatView";
 import { NotificationSidebar } from "./components/notifications";
 import { OrbitalView } from "./components/OrbitalView";
+import { DashboardView } from "./components/DashboardView";
 
 function useHashRoute() {
   const lastView = useFleetStore((s) => s.lastView);
@@ -580,11 +581,10 @@ export function App() {
         <div className="relative z-10">
           <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
         </div>
-        <OrbitalView
+        <DashboardView
           sessions={sessions}
           agents={agents}
           connected={connected}
-          onSelectAgent={onSelectAgent}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
