@@ -24,7 +24,7 @@ import type { AgentState } from "./lib/types";
 
 function parseHash(raw: string): { view: string; agentName: string | null } {
   const parts = raw.split("/");
-  const view = parts[0] || "office";
+  const view = parts[0] || "fleet";
   const agentName = parts[1] || null;
   return { view, agentName };
 }
@@ -46,7 +46,7 @@ function useHashRoute() {
 
   useEffect(() => {
     const onHash = () => {
-      const h = window.location.hash.slice(1) || "office";
+      const h = window.location.hash.slice(1) || "fleet";
       setHash(h);
       // Persist just the view part (not the agent)
       setLastView(parseHash(h).view);
