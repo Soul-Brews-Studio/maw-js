@@ -394,17 +394,20 @@ async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number
         runningWindows = windows.map(w => w.name);
       } catch { continue; }
 
+      const usedNames = new Set([...registeredNames, ...runningWindows]);
       for (const wtPath of wtPaths) {
         const wtBase = wtPath.split("/").pop()!;
         const suffix = wtBase.replace(`${repoName}.wt-`, "");
-        const windowName = `${oracleName}-${suffix}`;
         const taskPart = suffix.replace(/^\d+-/, "");
-        const altName = `${oracleName}-${taskPart}`;
+        let windowName = `${oracleName}-${taskPart}`;
+        if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
+        const altName = `${oracleName}-${suffix}`; // old-style name with number
 
         // Skip if already registered in fleet config or running
         if (registeredNames.has(windowName) || registeredNames.has(altName)) continue;
         if (runningWindows.includes(windowName) || runningWindows.includes(altName)) continue;
 
+        usedNames.add(windowName);
         try {
           await tmux.newWindow(sess.name, windowName, { cwd: wtPath });
           await new Promise(r => setTimeout(r, 300));

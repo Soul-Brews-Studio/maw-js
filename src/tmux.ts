@@ -83,6 +83,7 @@ export class Tmux {
     if (opts.window) args.push("-n", opts.window);
     if (opts.cwd) args.push("-c", opts.cwd);
     await this.run("new-session", ...args);
+    await this.setOption(name, "renumber-windows", "on");
   }
 
   /** Create a grouped session — shares windows with parent, independent sizing.
