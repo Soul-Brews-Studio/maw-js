@@ -1,5 +1,5 @@
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import { ssh } from "../ssh";
 
 interface FleetWindow {
@@ -50,7 +50,9 @@ const GROUPS: Record<string, { session: string; order: number }> = {
 
 export async function cmdFleetInit() {
   const fleetDir = join(import.meta.dir, "../../fleet");
-  if (!existsSync(fleetDir)) mkdirSync(fleetDir, { recursive: true });
+  // Clean old configs to prevent duplicate numbering (#82)
+  if (existsSync(fleetDir)) rmSync(fleetDir, { recursive: true });
+  mkdirSync(fleetDir, { recursive: true });
 
   // Scan ghq for oracle repos
   console.log(`\n  \x1b[36mScanning for oracle repos...\x1b[0m\n`);
@@ -79,15 +81,20 @@ export async function cmdFleetInit() {
     // Skip worktree dirs (they have .wt- in the name)
     if (repoName.includes(".wt-")) continue;
 
-    // Find worktrees
+    // Find worktrees (strip number prefix from window name)
     const worktrees: { name: string; path: string; repo: string }[] = [];
     try {
       const wtOut = await ssh(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
+      const usedNames = new Set<string>();
       for (const wtPath of wtOut.split("\n").filter(Boolean)) {
         const wtBase = wtPath.split("/").pop()!;
         const suffix = wtBase.replace(`${repoName}.wt-`, "");
+        const taskPart = suffix.replace(/^\d+-/, "");
+        let windowName = `${oracleName}-${taskPart}`;
+        if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
+        usedNames.add(windowName);
         worktrees.push({
-          name: `${oracleName}-${suffix}`,
+          name: windowName,
           path: wtPath,
           repo: `${org}/${wtBase}`,
         });
@@ -128,17 +135,15 @@ export async function cmdFleetInit() {
   console.log(`\n  \x1b[36mWriting fleet configs...\x1b[0m\n`);
 
   const sorted = [...sessionMap.entries()].sort((a, b) => a[1].order - b[1].order);
-  let num = 1;
 
   for (const [groupName, data] of sorted) {
-    const paddedNum = String(num).padStart(2, "0");
+    const paddedNum = String(data.order).padStart(2, "0");
     const sessionName = `${paddedNum}-${groupName}`;
     const config: FleetSession = { name: sessionName, windows: data.windows };
     const filePath = join(fleetDir, `${sessionName}.json`);
 
     await Bun.write(filePath, JSON.stringify(config, null, 2) + "\n");
     console.log(`  \x1b[32m✓\x1b[0m ${sessionName}.json — ${data.windows.length} windows`);
-    num++;
   }
 
   // Add overview session

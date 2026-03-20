@@ -1,4 +1,5 @@
 import { ssh } from "../ssh";
+import { tmux } from "../tmux";
 import { cmdPeek, cmdSend } from "./comm";
 import { cmdTalkTo } from "./talk-to";
 
@@ -8,7 +9,7 @@ import { cmdTalkTo } from "./talk-to";
  */
 async function currentSession(): Promise<string> {
   try {
-    return (await ssh("tmux display-message -p '#S'")).trim();
+    return (await tmux.run("display-message", "-p", "#S")).trim();
   } catch {
     console.error("\x1b[31merror\x1b[0m: not inside a tmux session");
     process.exit(1);

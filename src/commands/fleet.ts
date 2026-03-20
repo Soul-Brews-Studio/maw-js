@@ -52,16 +52,19 @@ function loadFleetEntries(): FleetEntry[] {
   });
 }
 
+/** Get session names without loading full window lists */
+async function getSessionNames(): Promise<string[]> {
+  try {
+    const out = await tmux.run("list-sessions", "-F", "#{session_name}");
+    return out.trim().split("\n").filter(Boolean);
+  } catch { return []; }
+}
+
 export async function cmdFleetLs() {
   const entries = loadFleetEntries();
   const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
 
-  // Detect running tmux sessions
-  let runningSessions: string[] = [];
-  try {
-    const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
-    runningSessions = out.trim().split("\n").filter(Boolean);
-  } catch { /* tmux not running */ }
+  const runningSessions = await getSessionNames();
 
   // Detect conflicts (duplicate numbers)
   const numCount = new Map<number, string[]>();
@@ -109,12 +112,7 @@ export async function cmdFleetRenumber() {
     return;
   }
 
-  // Detect running tmux sessions
-  let runningSessions: string[] = [];
-  try {
-    const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
-    runningSessions = out.trim().split("\n").filter(Boolean);
-  } catch { /* tmux not running */ }
+  const runningSessions = await getSessionNames();
 
   console.log("\n  \x1b[36mRenumbering fleet...\x1b[0m\n");
 
@@ -147,7 +145,7 @@ export async function cmdFleetRenumber() {
       // Rename running tmux session if it matches old name
       if (runningSessions.includes(oldName)) {
         try {
-          await ssh(`tmux rename-session -t '${oldName}' '${newName}'`);
+          await tmux.run("rename-session", "-t", oldName, newName);
           console.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux renamed)`);
         } catch {
           console.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux rename failed)`);
@@ -208,28 +206,23 @@ export async function cmdFleetValidate() {
   }
 
   // 4. Running sessions without config
-  let runningSessions: string[] = [];
-  try {
-    const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
-    runningSessions = out.trim().split("\n").filter(Boolean);
-    const configNames = new Set(entries.map(e => e.session.name));
-    for (const s of runningSessions) {
-      if (!configNames.has(s)) {
-        issues.push(`\x1b[90mOrphan session\x1b[0m: tmux '${s}' has no fleet config`);
-      }
+  const runningSessions = await getSessionNames();
+  const configNames = new Set(entries.map(e => e.session.name));
+  for (const s of runningSessions) {
+    if (!configNames.has(s)) {
+      issues.push(`\x1b[90mOrphan session\x1b[0m: tmux '${s}' has no fleet config`);
     }
-  } catch { /* tmux not running */ }
+  }
 
   // 5. Running windows not in fleet config (won't survive reboot)
   for (const e of entries) {
     if (!runningSessions.includes(e.session.name)) continue;
     try {
-      const winOut = await ssh(`tmux list-windows -t '${e.session.name}' -F '#{window_name}' 2>/dev/null`);
-      const runningWindows = winOut.trim().split("\n").filter(Boolean);
+      const windows = await tmux.listWindows(e.session.name);
       const registeredWindows = new Set(e.session.windows.map(w => w.name));
-      const unregistered = runningWindows.filter(w => !registeredWindows.has(w));
+      const unregistered = windows.filter(w => !registeredWindows.has(w.name));
       for (const w of unregistered) {
-        issues.push(`\x1b[33mUnregistered window\x1b[0m: '${w}' in ${e.session.name} — won't survive reboot`);
+        issues.push(`\x1b[33mUnregistered window\x1b[0m: '${w.name}' in ${e.session.name} — won't survive reboot`);
       }
     } catch {}
   }
@@ -251,20 +244,15 @@ export async function cmdFleetSync() {
   const entries = loadFleetEntries();
   let added = 0;
 
-  // Get running sessions
-  let runningSessions: string[] = [];
-  try {
-    const out = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null");
-    runningSessions = out.trim().split("\n").filter(Boolean);
-  } catch { return; }
-
+  const runningSessions = await getSessionNames();
   const ghqRoot = loadConfig().ghqRoot;
 
   for (const e of entries) {
     if (!runningSessions.includes(e.session.name)) continue;
 
     try {
-      const winOut = await ssh(`tmux list-windows -t '${e.session.name}' -F '#{window_name}:#{pane_current_path}' 2>/dev/null`);
+      // Use tmux.run for custom format (name:cwd) not available via listWindows
+      const winOut = await tmux.run("list-windows", "-t", e.session.name, "-F", "#{window_name}:#{pane_current_path}");
       const runningWindows = winOut.trim().split("\n").filter(Boolean);
       const registeredNames = new Set(e.session.windows.map(w => w.name));
 
@@ -304,7 +292,7 @@ export async function cmdSleep() {
 
   for (const sess of sessions) {
     try {
-      await ssh(`tmux kill-session -t '${sess.name}' 2>/dev/null`);
+      await tmux.killSession(sess.name);
       console.log(`  \x1b[90m●\x1b[0m ${sess.name} — sleep`);
       killed++;
     } catch {
@@ -406,17 +394,20 @@ async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number
         runningWindows = windows.map(w => w.name);
       } catch { continue; }
 
+      const usedNames = new Set([...registeredNames, ...runningWindows]);
       for (const wtPath of wtPaths) {
         const wtBase = wtPath.split("/").pop()!;
         const suffix = wtBase.replace(`${repoName}.wt-`, "");
-        const windowName = `${oracleName}-${suffix}`;
         const taskPart = suffix.replace(/^\d+-/, "");
-        const altName = `${oracleName}-${taskPart}`;
+        let windowName = `${oracleName}-${taskPart}`;
+        if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
+        const altName = `${oracleName}-${suffix}`; // old-style name with number
 
         // Skip if already registered in fleet config or running
         if (registeredNames.has(windowName) || registeredNames.has(altName)) continue;
         if (runningWindows.includes(windowName) || runningWindows.includes(altName)) continue;
 
+        usedNames.add(windowName);
         try {
           await tmux.newWindow(sess.name, windowName, { cwd: wtPath });
           await new Promise(r => setTimeout(r, 300));
@@ -456,25 +447,22 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
   for (const sess of sessions) {
     // Check if session already exists
-    try {
-      await ssh(`tmux has-session -t '${sess.name}' 2>/dev/null`);
+    if (await tmux.hasSession(sess.name)) {
       console.log(`  \x1b[33m●\x1b[0m ${sess.name} — already awake`);
       continue;
-    } catch {
-      // Good — doesn't exist yet
     }
 
     // Create session with first window
     const first = sess.windows[0];
     const firstPath = `${loadConfig().ghqRoot}/${first.repo}`;
-    await ssh(`tmux new-session -d -s '${sess.name}' -n '${first.name}' -c '${firstPath}'`);
+    await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
     // Set env vars on session (not visible in tmux output)
     for (const [key, val] of Object.entries(getEnvVars())) {
-      await ssh(`tmux set-environment -t '${sess.name}' '${key}' '${val}'`);
+      await tmux.setEnvironment(sess.name, key, val);
     }
 
     if (!sess.skip_command) {
-      try { await ssh(`tmux send-keys -t '${sess.name}:${first.name}' '${buildCommand(first.name)}' Enter`); } catch { /* ok */ }
+      try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
     }
     winCount++;
 
@@ -483,9 +471,10 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       const win = sess.windows[i];
       const winPath = `${loadConfig().ghqRoot}/${win.repo}`;
       try {
-        await ssh(`tmux new-window -t '${sess.name}' -n '${win.name}' -c '${winPath}'`);
+        await tmux.newWindow(sess.name, win.name, { cwd: winPath });
         if (!sess.skip_command) {
-          await ssh(`tmux send-keys -t '${sess.name}:${win.name}' '${buildCommand(win.name)}' Enter`);
+          await new Promise(r => setTimeout(r, 300));
+          await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
         }
         winCount++;
       } catch {
@@ -494,7 +483,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
     }
 
     // Select first window
-    try { await ssh(`tmux select-window -t '${sess.name}:1'`); } catch { /* ok */ }
+    await tmux.selectWindow(`${sess.name}:1`);
     sessCount++;
     console.log(`  \x1b[32m●\x1b[0m ${sess.name} — ${sess.windows.length} windows`);
   }

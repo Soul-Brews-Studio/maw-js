@@ -1,4 +1,5 @@
 import { listSessions, ssh } from "../ssh";
+import { tmux } from "../tmux";
 import { loadConfig } from "../config";
 import { readdirSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
@@ -45,7 +46,7 @@ export async function cmdDone(windowName_: string) {
   // 1. Kill tmux window
   if (sessionName !== null && windowIndex !== null) {
     try {
-      await ssh(`tmux kill-window -t '${sessionName}:${windowName}'`);
+      await tmux.killWindow(`${sessionName}:${windowName}`);
       console.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
     } catch {
       console.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);

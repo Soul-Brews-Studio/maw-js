@@ -137,10 +137,14 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommand(mainWindowName));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
-    // Spawn all existing worktree windows
+    // Spawn all existing worktree windows (strip number prefix from name)
     const allWt = await findWorktrees(parentDir, repoName);
+    const usedNames = new Set<string>();
     for (const wt of allWt) {
-      const wtWindowName = `${oracle}-${wt.name}`;
+      const taskPart = wt.name.replace(/^\d+-/, "");
+      let wtWindowName = `${oracle}-${taskPart}`;
+      if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`; // collision fallback
+      usedNames.add(wtWindowName);
       await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
       await new Promise(r => setTimeout(r, 300));
       await tmux.sendText(`${session}:${wtWindowName}`, buildCommand(wtWindowName));
@@ -160,13 +164,16 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
           existingWindows = windows.map(w => w.name);
         } catch { /* ok */ }
 
+        const usedNames = new Set(existingWindows);
         for (const wt of allWt) {
           const taskPart = wt.name.replace(/^\d+-/, "");
-          const wtWindowName = `${oracle}-${wt.name}`;
-          // Also check shorter name pattern (oracle-taskPart)
-          const altName = `${oracle}-${taskPart}`;
+          let wtWindowName = `${oracle}-${taskPart}`;
+          if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`; // collision fallback
+          // Also check old-style name with number
+          const altName = `${oracle}-${wt.name}`;
           if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
 
+          usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${session}:${wtWindowName}`, buildCommand(wtWindowName));
