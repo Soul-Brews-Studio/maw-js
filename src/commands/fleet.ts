@@ -3,6 +3,7 @@ import { readdirSync, renameSync, existsSync } from "fs";
 import { ssh } from "../ssh";
 import { tmux } from "../tmux";
 import { loadConfig, buildCommand, getEnvVars } from "../config";
+import { ensureSessionRunning } from "./wake";
 
 interface FleetWindow {
   name: string;
@@ -462,6 +463,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
     }
 
     if (!sess.skip_command) {
+      await new Promise(r => setTimeout(r, 300));
       try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
     }
     winCount++;
@@ -491,6 +493,22 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
   // Scan disk for worktrees not covered by fleet configs and spawn them
   const wtExtra = await respawnMissingWorktrees(sessions);
   winCount += wtExtra;
+
+  // Verify all windows actually started Claude (not stuck on zsh)
+  if (sessCount > 0) {
+    console.log("  \x1b[36mVerifying sessions...\x1b[0m");
+    await new Promise(r => setTimeout(r, 3000)); // let shells init
+    let totalRetried = 0;
+    for (const sess of sessions) {
+      if (sess.skip_command) continue;
+      totalRetried += await ensureSessionRunning(sess.name);
+    }
+    if (totalRetried > 0) {
+      console.log(`  \x1b[33m${totalRetried} window(s) retried.\x1b[0m`);
+    } else {
+      console.log("  \x1b[32m✓ All windows running.\x1b[0m");
+    }
+  }
 
   console.log(`\n  \x1b[32m${sessCount} sessions, ${winCount} windows woke up.\x1b[0m\n`);
 
