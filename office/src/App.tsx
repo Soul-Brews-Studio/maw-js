@@ -11,7 +11,6 @@ import { OverviewGrid } from "./components/OverviewGrid";
 import { VSView } from "./components/VSView";
 import { ConfigView } from "./components/ConfigView";
 import { TerminalView } from "./components/TerminalView";
-import { OrbitalView } from "./components/OrbitalView";
 import { InboxOverlay } from "./components/InboxView";
 import { WorktreeView } from "./components/WorktreeView";
 import { ChatView } from "./components/ChatView";
@@ -302,14 +301,6 @@ export function App() {
     return (
       <Layout activeView="terminal" {...layoutProps} fullHeight>
         <TerminalView sessions={sessions} agents={agents} connected={connected} onSelectAgent={onSelectAgent} />
-      </Layout>
-    );
-  }
-
-  if (route === "orbital") {
-    return (
-      <Layout activeView="orbital" {...layoutProps}>
-        <OrbitalView sessions={sessions} agents={agents} connected={connected} onSelectAgent={onSelectAgent} />
       </Layout>
     );
   }

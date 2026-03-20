@@ -442,7 +442,7 @@ export const FleetGrid = memo(function FleetGrid({
 
       {/* Pinned Preview */}
       {pinnedPreview && pinnedAnimPos && (
-        <div ref={pinnedRef} className="fixed pointer-events-auto overflow-y-auto overflow-x-hidden" style={{ zIndex: 40, left: pinnedAnimPos.left, top: pinnedAnimPos.top, maxWidth: PREVIEW_CARD.width, maxHeight: "calc(100vh - 24px)" }}>
+        <div ref={pinnedRef} className="fixed pointer-events-auto" style={{ zIndex: 40, left: pinnedAnimPos.left, top: pinnedAnimPos.top, maxWidth: PREVIEW_CARD.width }}>
           <HoverPreviewCard key={pinnedPreview.agent.target} agent={pinnedPreview.agent} roomLabel={pinnedPreview.label} accent={pinnedPreview.accent}
             pinned send={send} onFullscreen={onPinnedFullscreen} onClose={onPinnedClose}
             eventLog={eventLog} addEvent={addEvent}
