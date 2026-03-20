@@ -17,6 +17,8 @@ import { useFleetStore } from "./lib/store";
 import type { AgentState } from "./lib/types";
 import { EnhancedFleetView } from "./components/EnhancedFleetView";
 import { ChatView } from "./components/ChatView";
+import { NotificationSidebar } from "./components/notifications";
+import { MonitorView } from "./components/MonitorView";
 
 function useHashRoute() {
   const lastView = useFleetStore((s) => s.lastView);
@@ -74,6 +76,7 @@ export function App() {
   const [selectedAgent, setSelectedAgent] = useState<AgentState | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showJump, setShowJump] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // "?" key opens shortcut overlay, "j" or Ctrl+K opens jump overlay
   useEffect(() => {
@@ -91,6 +94,10 @@ export function App() {
         e.preventDefault();
         e.stopPropagation();
         setShowJump(true);
+      }
+      if (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setShowNotifications(prev => !prev);
       }
       if (e.key.toLowerCase() === "v" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         window.location.hash = "vs";
@@ -149,8 +156,25 @@ export function App() {
   if (route === "overview") {
     return (
       <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        {showNotifications && (
+          <div className="absolute z-50" style={{ right: 0, top: 0, height: '100vh' }}>
+            <NotificationSidebar
+              wsUrl={`ws://${window.location.hostname}:3456/ws`}
+              onClose={() => setShowNotifications(false)}
+            />
+          </div>
+        )}
         <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="overview" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+          <StatusBar
+            connected={connected}
+            agentCount={agents.length}
+            sessionCount={sessions.length}
+            activeView="overview"
+            onJump={() => setShowJump(true)}
+            muted={muted}
+            onToggleMute={toggleMuted}
+            onNotifications={() => setShowNotifications(true)}
+          />
         </div>
         <OverviewGrid
           sessions={sessions}
@@ -273,6 +297,25 @@ export function App() {
           agents={agents}
           send={send}
           onSelectAgent={onSelectAgent}
+        />
+        {terminalModal}
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
+    );
+  }
+
+  if (route === "monitor") {
+    return (
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="monitor" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
+        <MonitorView
+          agents={agents}
+          sessions={sessions}
+          connected={connected}
+          send={send}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
