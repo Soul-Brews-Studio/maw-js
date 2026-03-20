@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { wsUrl } from "../lib/api";
 import type { AgentState } from "../lib/types";
 
 interface HealthData {
@@ -40,6 +40,9 @@ export function MonitorView({
   connected: boolean;
   send: (msg: any) => void;
 }) {
+  // Force this component to be included in bundle
+  console.log('[MonitorView] Rendering with', agents.length, 'agents');
+
   const [healthData, setHealthData] = useState<HealthData[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [metrics, setMetrics] = useState<MetricsData>({
@@ -115,27 +118,34 @@ export function MonitorView({
     return () => clearInterval(interval);
   }, []);
 
-  const ws = useWebSocket((msg) => {
-    // Capture messages for live log
-    if (msg.type === "message" || msg.type === "notification" || msg.type === "status") {
+  // Simulate messages for demo (TODO: integrate with real WebSocket)
+  useEffect(() => {
+    const sampleMessages = [
+      { type: "status", from: "system", content: "System operational" },
+      { type: "notification", from: "trade-lead", content: "Market analysis complete" },
+      { type: "message", from: "plan-mgr", to: "asset-lead", content: "New task assigned" },
+      { type: "status", from: "scudd", content: "Research in progress" },
+    ];
+
+    const addSampleMessage = () => {
+      const randomMsg = sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
       setMessages(prev => {
         const newMsg: Message = {
           timestamp: Date.now(),
-          from: msg.from || "system",
-          to: msg.to,
-          type: msg.type,
-          content: msg.content || JSON.stringify(msg),
+          ...randomMsg,
         };
         const updated = [...prev, newMsg];
-        // Keep only last 100 messages
         if (updated.length > 100) updated.shift();
         return updated;
       });
-    }
-  });
+    };
+
+    const interval = setInterval(addSampleMessage, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Auto-scroll message log
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
