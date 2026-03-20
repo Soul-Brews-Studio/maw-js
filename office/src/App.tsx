@@ -81,6 +81,7 @@ export function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
 
   // "?" key opens shortcut overlay, "j" or Ctrl+K opens jump overlay
   useEffect(() => {
@@ -103,6 +104,10 @@ export function App() {
         e.preventDefault();
         setShowNotifications(prev => !prev);
       }
+      if (e.key.toLowerCase() === "i" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setShowInbox(prev => !prev);
+      }
       if (e.key.toLowerCase() === "v" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         window.location.hash = "vs";
       }
@@ -116,6 +121,7 @@ export function App() {
   // Sync muted state to sound module
   const muted = useFleetStore((s) => s.muted);
   const toggleMuted = useFleetStore((s) => s.toggleMuted);
+  const askCount = useFleetStore((s) => s.asks.filter((a) => !a.dismissed).length);
   useEffect(() => { setSoundMuted(muted); }, [muted]);
   const { connected, send, ws } = useWebSocket(handleMessage);
 
@@ -285,7 +291,7 @@ export function App() {
     return (
       <div className="relative min-h-screen" style={{ background: "#020208" }}>
         <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} onNotifications={() => setShowNotifications(true)} />
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" askCount={askCount} onInbox={() => setShowInbox(true)} onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} onNotifications={() => setShowNotifications(true)} />
         </div>
         {showNotifications && (
           <div className="absolute z-50" style={{ right: 0, top: 0, height: '100vh' }}>
@@ -294,6 +300,12 @@ export function App() {
               onClose={() => setShowNotifications(false)}
             />
           </div>
+        )}
+        {showInbox && (
+          <InboxOverlay
+            send={send}
+            onClose={() => setShowInbox(false)}
+          />
         )}
         <DashboardView
           sessions={sessions}
