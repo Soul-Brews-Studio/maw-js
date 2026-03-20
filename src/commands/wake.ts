@@ -4,6 +4,36 @@ import { loadConfig, buildCommand, getEnvVars } from "../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
+/**
+ * Verify all windows in a session are running Claude (not empty zsh).
+ * Retries buildCommand for any that are still on a shell prompt.
+ */
+export async function ensureSessionRunning(session: string): Promise<number> {
+  let retried = 0;
+  let windows: { index: number; name: string; active: boolean }[];
+  try {
+    windows = await tmux.listWindows(session);
+  } catch { return 0; }
+
+  const targets = windows.map(w => `${session}:${w.name}`);
+  const cmds = await tmux.getPaneCommands(targets);
+
+  for (const win of windows) {
+    const target = `${session}:${win.name}`;
+    const paneCmd = (cmds[target] || "").trim().toLowerCase();
+
+    if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
+      try {
+        await new Promise(r => setTimeout(r, 500));
+        await tmux.sendText(target, buildCommand(win.name));
+        console.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
+        retried++;
+      } catch { /* window may have been killed */ }
+    }
+  }
+  return retried;
+}
+
 /** Fetch a GitHub issue and build a prompt for claude -p */
 export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise<string> {
   // Detect repo from git remote if not specified
@@ -181,6 +211,11 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
         }
       }
     }
+
+    // Verify all windows started Claude (not stuck on zsh)
+    await new Promise(r => setTimeout(r, 3000));
+    const retried = await ensureSessionRunning(session);
+    if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }
 
   let targetPath = repoPath;
