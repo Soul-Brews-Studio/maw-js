@@ -67,13 +67,12 @@ function useAudioUnlock() {
         setReady(true);
       }
     };
-    window.addEventListener("click", handler, { once: true });
-    window.addEventListener("keydown", handler, { once: true });
-    window.addEventListener("touchstart", handler, { once: true });
+    // Use capture phase so it doesn't interfere with click handlers
+    window.addEventListener("pointerdown", handler, { once: true, capture: true });
+    window.addEventListener("keydown", handler, { once: true, capture: true });
     return () => {
-      window.removeEventListener("click", handler);
-      window.removeEventListener("keydown", handler);
-      window.removeEventListener("touchstart", handler);
+      window.removeEventListener("pointerdown", handler, { capture: true });
+      window.removeEventListener("keydown", handler, { capture: true });
     };
   }, []);
   return ready;

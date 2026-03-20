@@ -221,11 +221,39 @@ export const AgentRow = memo(function AgentRow({
   const [sent, setSent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const recognitionRef = useRef<any>(null);
   const handleMic = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (inputOpen) { setInputOpen(false); return; }
+    // If already listening, stop
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      return;
+    }
+    if (inputOpen && !recognitionRef.current) { setInputOpen(false); return; }
     setInputOpen(true);
-    inputRef.current?.focus();
+
+    // Start speech recognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { inputRef.current?.focus(); return; }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "th-TH";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognitionRef.current = recognition;
+
+    recognition.onresult = (ev: any) => {
+      const transcript = Array.from(ev.results).map((r: any) => r[0].transcript).join("");
+      setText(transcript);
+    };
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      // Auto-send if we got text
+      setTimeout(() => inputRef.current?.focus(), 50);
+    };
+    recognition.onerror = () => { recognitionRef.current = null; };
+    recognition.start();
   }, [inputOpen]);
 
   const handleSend = useCallback(() => {
@@ -287,20 +315,28 @@ export const AgentRow = memo(function AgentRow({
         role="button" tabIndex={0} aria-label={`${agent.name} - ${agent.status}`}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.preventDefault(); }}
       >
-        {/* Avatar */}
+        {/* Avatar — full chibi when active, compact circle when idle */}
         <div
           className="flex-shrink-0 cursor-pointer flex items-center justify-center"
           style={{
             overflow: "visible",
-            width: alignWidth || (featured ? 96 : 56), height: featured ? 96 : 56,
+            width: alignWidth || (featured ? 96 : (isBusy || agent.status === "ready") ? 56 : 36),
+            height: featured ? 96 : (isBusy || agent.status === "ready") ? 56 : 36,
             transition: "width 0.3s, height 0.3s",
           }}
           onMouseEnter={isTouch ? undefined : (e) => showPreview(agent, accent, roomLabel, e)}
           onMouseLeave={isTouch ? undefined : () => hidePreview()}
         >
-          <svg viewBox="-40 -50 80 80" width={featured ? 96 : 56} height={featured ? 96 : 56} overflow="visible">
-            <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview={agent.preview} accent={accent} activity={feedLog?.[0]?.text} onClick={() => {}} />
-          </svg>
+          {isBusy || agent.status === "ready" || featured ? (
+            <svg viewBox="-40 -50 80 80" width={featured ? 96 : 56} height={featured ? 96 : 56} overflow="visible">
+              <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview={agent.preview} accent={accent} activity={feedLog?.[0]?.text} onClick={() => {}} />
+            </svg>
+          ) : (
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold"
+              style={{ background: `${accent}20`, color: `${accent}80`, border: `1px solid ${accent}15` }}>
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+          )}
         </div>
 
         {!isTouch && (

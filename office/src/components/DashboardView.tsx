@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { apiUrl } from "../lib/api";
 import { agentColor, roomStyle, guessCommand } from "../lib/constants";
+import { AgentAvatar } from "./AgentAvatar";
 import { describeActivity, type FeedEvent } from "../lib/feed";
 import { useFleetStore } from "../lib/store";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
@@ -81,9 +82,15 @@ const AgentStatusCard = memo(function AgentStatusCard({ agent, feedEvent, onSele
       {/* Header */}
       <div className="flex items-center gap-2.5 px-3 pt-3 pb-1">
         <div className="relative flex-shrink-0">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${color}22`, color, border: `2px solid ${color}55` }}>
-            {agent.name.charAt(0).toUpperCase()}
-          </div>
+          {agent.status === "busy" || agent.status === "ready" ? (
+            <svg viewBox="-40 -50 80 80" width={36} height={36} overflow="visible">
+              <AgentAvatar name={agent.name} target={agent.target} status={agent.status} preview="" accent={color} onClick={() => {}} />
+            </svg>
+          ) : (
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${color}22`, color, border: `2px solid ${color}55` }}>
+              {agent.name.charAt(0).toUpperCase()}
+            </div>
+          )}
           <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a0a14] ${sc.dot}`} />
         </div>
         <div className="flex-1 min-w-0">
