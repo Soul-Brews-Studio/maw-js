@@ -21,10 +21,8 @@ import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
 import { useFleetStore } from "./lib/store";
 import type { AgentState } from "./lib/types";
 import { EnhancedFleetView } from "./components/EnhancedFleetView";
-import { ChatView } from "./components/ChatView";
 import { NotificationSidebar } from "./components/notifications";
 import { OrbitalView } from "./components/OrbitalView";
-import { DashboardView } from "./components/DashboardView";
 
 function useHashRoute() {
   const lastView = useFleetStore((s) => s.lastView);
@@ -34,18 +32,19 @@ function useHashRoute() {
     // If URL already has a hash, use it; otherwise restore from server state
     const urlHash = window.location.hash.slice(1);
     if (urlHash) return urlHash;
-    if (lastView && lastView !== "dashboard") {
+    if (lastView) {
       window.location.hash = lastView;
       return lastView;
     }
-    return "office";
+    return "dashboard";
   });
 
   useEffect(() => {
     const onHash = () => {
       const h = window.location.hash.slice(1) || "dashboard";
       setHash(h);
-      setLastView(h);
+      // Persist just the view part (not the agent)
+      setLastView(h.split('/')[0]);
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -267,23 +266,50 @@ export function App() {
           <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="config" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
         </div>
         <ConfigView />
-      </Layout>
+      </div>
     );
   }
 
   if (route === "terminal") {
     return (
-      <Layout activeView="terminal" {...layoutProps} fullHeight>
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="terminal" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
+        </div>
         <TerminalView sessions={sessions} agents={agents} connected={connected} onSelectAgent={onSelectAgent} />
-      </Layout>
+      </div>
     );
   }
 
   if (route === "dashboard") {
     return (
-      <Layout activeView="dashboard" {...layoutProps}>
-        <DashboardView sessions={sessions} agents={agents} connected={connected} send={send} onSelectAgent={onSelectAgent} eventLog={eventLog} feedEvents={feedEvents} feedActive={feedActive} agentFeedLog={agentFeedLog} />
-      </Layout>
+      <div className="relative min-h-screen" style={{ background: "#020208" }}>
+        <div className="relative z-10">
+          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} onNotifications={() => setShowNotifications(true)} />
+        </div>
+        {showNotifications && (
+          <div className="absolute z-50" style={{ right: 0, top: 0, height: '100vh' }}>
+            <NotificationSidebar
+              wsUrl={`ws://${window.location.hostname}:3456/ws`}
+              onClose={() => setShowNotifications(false)}
+            />
+          </div>
+        )}
+        <DashboardView
+          sessions={sessions}
+          agents={agents}
+          connected={connected}
+          send={send}
+          onSelectAgent={onSelectAgent}
+          eventLog={eventLog}
+          feedEvents={feedEvents}
+          feedActive={feedActive}
+          agentFeedLog={agentFeedLog}
+        />
+        {terminalModal}
+        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
+        {jumpOverlay}
+      </div>
     );
   }
 
@@ -585,24 +611,6 @@ export function App() {
           sessions={sessions}
           connected={connected}
           send={send}
-        />
-        {terminalModal}
-        {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
-        {jumpOverlay}
-      </div>
-    );
-  }
-
-  if (route === "dashboard") {
-    return (
-      <div className="relative min-h-screen" style={{ background: "#020208" }}>
-        <div className="relative z-10">
-          <StatusBar connected={connected} agentCount={agents.length} sessionCount={sessions.length} activeView="dashboard" onJump={() => setShowJump(true)} muted={muted} onToggleMute={toggleMuted} />
-        </div>
-        <DashboardView
-          sessions={sessions}
-          agents={agents}
-          connected={connected}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}
