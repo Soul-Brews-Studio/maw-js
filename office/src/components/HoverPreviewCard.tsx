@@ -411,7 +411,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
         {pinned && onClose && (
           <button
             onClick={onClose}
-            className="px-1.5 py-0.5 rounded text-[9px] text-white/30 hover:text-white/60 hover:bg-white/[0.06] cursor-pointer transition-colors"
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold text-white/30 hover:text-white/70 hover:bg-red-500/15 active:scale-90 cursor-pointer transition-all"
             title="Close (Esc)"
           >
             ✕

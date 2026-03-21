@@ -72,8 +72,8 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
             {siblings.length > 1 && (
               <span className="text-[9px] text-white/20 tracking-wider">Alt+1-{Math.min(9, siblings.length)}</span>
             )}
-            <button onClick={onClose} className="text-white/20 hover:text-white/50 text-lg cursor-pointer">
-              &times;
+            <button onClick={onClose} className="w-10 h-10 rounded-xl flex items-center justify-center text-2xl font-bold text-white/30 hover:text-white/70 hover:bg-red-500/15 active:scale-90 cursor-pointer transition-all" title="Close (Esc)">
+              ✕
             </button>
           </div>
         </div>

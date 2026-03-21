@@ -1,5 +1,57 @@
-import { memo, useState, useEffect, type ReactNode } from "react";
+import { memo, useState, useEffect, useRef, type ReactNode } from "react";
 import { apiUrl } from "../lib/api";
+import { SOUND_PROFILES, getSoundProfile, setSoundProfile, previewSound, type SoundProfile } from "../lib/sounds";
+
+function SoundButton({ muted, onToggleMute }: { muted: boolean; onToggleMute: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState(getSoundProfile());
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        onContextMenu={(e) => { e.preventDefault(); onToggleMute(); }}
+        className="px-2.5 py-1.5 rounded-lg text-xs font-mono active:scale-95 transition-all whitespace-nowrap"
+        style={{
+          background: muted ? "rgba(239,83,80,0.15)" : "rgba(76,175,80,0.15)",
+          color: muted ? "#ef5350" : "#4caf50",
+          border: `1px solid ${muted ? "rgba(239,83,80,0.25)" : "rgba(76,175,80,0.25)"}`,
+        }}
+        title="Click: sound picker · Right-click: mute"
+      >
+        {muted ? "🔇" : SOUND_PROFILES.find(p => p.id === current)?.emoji || "🔊"}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-2 rounded-xl overflow-hidden z-50" style={{ background: "rgba(13,13,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)", minWidth: 180 }}>
+          {/* Mute toggle */}
+          <button onClick={() => { onToggleMute(); }} className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.06]"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <span className="text-lg">{muted ? "🔇" : "🔊"}</span>
+            <span className="text-xs font-mono" style={{ color: muted ? "#ef5350" : "#4caf50" }}>{muted ? "Unmute" : "Mute"}</span>
+          </button>
+          {/* Sound profiles */}
+          {SOUND_PROFILES.map(p => (
+            <button key={p.id} onClick={() => { setSoundProfile(p.id); setCurrent(p.id); previewSound(p.id); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
+              style={{ background: current === p.id ? "rgba(34,211,238,0.08)" : "transparent" }}>
+              <span className="text-lg">{p.emoji}</span>
+              <span className="text-xs font-mono" style={{ color: current === p.id ? "#22d3ee" : "rgba(255,255,255,0.5)" }}>{p.label}</span>
+              {current === p.id && <span className="ml-auto text-xs text-cyan-400">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface StatusBarProps {
   connected: boolean;
@@ -82,20 +134,7 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
       {/* View-specific controls injected by parent */}
       {children}
 
-      {onToggleMute && (
-        <button
-          onClick={onToggleMute}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-mono active:scale-95 transition-all whitespace-nowrap"
-          style={{
-            background: muted ? "rgba(239,83,80,0.15)" : "rgba(76,175,80,0.15)",
-            color: muted ? "#ef5350" : "#4caf50",
-            border: `1px solid ${muted ? "rgba(239,83,80,0.25)" : "rgba(76,175,80,0.25)"}`,
-          }}
-          title={muted ? "Unmute sounds" : "Mute sounds"}
-        >
-          {muted ? "🔇" : "🔊"}
-        </button>
-      )}
+      {onToggleMute && <SoundButton muted={muted} onToggleMute={onToggleMute} />}
 
       {isTouch && onJump && (
         <button
