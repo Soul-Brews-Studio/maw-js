@@ -18,6 +18,7 @@ import { ChatView } from "./components/ChatView";
 import { DashboardView } from "./components/DashboardView";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
+import { OracleSearch } from "./components/OracleSearch";
 import { unlockAudio, isAudioUnlocked, setSoundMuted } from "./lib/sounds";
 import { useFleetStore } from "./lib/store";
 import type { AgentState } from "./lib/types";
@@ -117,6 +118,26 @@ function Layout({ activeView, connected, agentCount, sessionCount, askCount, mut
       {jumpOverlay}
       {inboxOverlay}
       {broadcastModal}
+
+      {/* Floating action buttons — top right */}
+      <div className="fixed top-20 right-6 flex flex-col gap-3 z-30">
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("search-open"))}
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl backdrop-blur-xl active:scale-90 cursor-pointer transition-all shadow-lg"
+          style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.25)", color: "#22d3ee" }}
+          title="Oracle Search (⌘K)"
+        >
+          🔍
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("broadcast-open"))}
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl backdrop-blur-xl active:scale-90 cursor-pointer transition-all shadow-lg"
+          style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}
+          title="Broadcast to all agents"
+        >
+          📢
+        </button>
+      </div>
     </div>
   );
 }
@@ -130,12 +151,15 @@ export function App() {
   const [showJump, setShowJump] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
+  const [showOracleSearch, setShowOracleSearch] = useState(false);
 
-  // Listen for broadcast-open event from StatusBar
+  // Listen for floating button events
   useEffect(() => {
-    const handler = () => setShowBroadcast(true);
-    window.addEventListener("broadcast-open", handler);
-    return () => window.removeEventListener("broadcast-open", handler);
+    const onBroadcast = () => setShowBroadcast(true);
+    const onSearch = () => setShowOracleSearch(true);
+    window.addEventListener("broadcast-open", onBroadcast);
+    window.addEventListener("search-open", onSearch);
+    return () => { window.removeEventListener("broadcast-open", onBroadcast); window.removeEventListener("search-open", onSearch); };
   }, []);
 
   // "?" key opens shortcut overlay, "j" or Ctrl+K opens jump overlay
@@ -246,7 +270,10 @@ export function App() {
     onCloseShortcuts: () => setShowShortcuts(false),
     jumpOverlay: showJump ? <JumpOverlay agents={agents} onSelect={onSelectAgent} onClose={() => setShowJump(false)} /> : null,
     inboxOverlay: showInbox ? <InboxOverlay send={send} onClose={() => setShowInbox(false)} /> : null,
-    broadcastModal: showBroadcast ? <BroadcastModal agents={agents} send={send} onClose={() => setShowBroadcast(false)} /> : null,
+    broadcastModal: (<>
+      {showBroadcast && <BroadcastModal agents={agents} send={send} onClose={() => setShowBroadcast(false)} />}
+      {showOracleSearch && <OracleSearch onClose={() => setShowOracleSearch(false)} />}
+    </>),
   };
 
   if (route === "office") {

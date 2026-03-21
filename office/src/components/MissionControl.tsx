@@ -376,8 +376,13 @@ export const MissionControl = memo(function MissionControl({
                     const ay = 500 + (row - (rows - 1) / 2) * spacing;
                     return (
                       <g key={a.target} transform={`translate(${ax},${ay})`} className="cursor-pointer"
-                        onClick={() => onSelectAgent(a)}>
-                        <AgentAvatar name={a.name} target={a.target} status={a.status} preview="" accent="#ffa726" onClick={() => onSelectAgent(a)} />
+                        onClick={() => {
+                          const room = roomStyle(a.session);
+                          const pos = { x: window.innerWidth / 2 + 50, y: 80 };
+                          pinnedByUser.current = true;
+                          setPinnedPreview({ agent: a, room: { label: room.label, accent: room.accent }, pos, svgX: ax, svgY: ay });
+                        }}>
+                        <AgentAvatar name={a.name} target={a.target} status={a.status} preview="" accent="#ffa726" onClick={() => {}} />
                       </g>
                     );
                   })}

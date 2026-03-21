@@ -136,13 +136,6 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
 
       {onToggleMute && <SoundButton muted={muted} onToggleMute={onToggleMute} />}
 
-      <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("broadcast-open")); }}
-        className="px-3 py-1.5 rounded-lg text-base font-mono active:scale-90 transition-all whitespace-nowrap cursor-pointer"
-        style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}
-        title="Broadcast to all agents">
-        📢
-      </a>
-
       {isTouch && onJump && (
         <button
           onClick={onJump}
