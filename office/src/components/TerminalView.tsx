@@ -80,7 +80,7 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
 
     sendingRef.current = true;
     const text = sendQueue[0];
-    ws.send(JSON.stringify({ type: "send", target: selectedTarget, text }));
+    ws.send(JSON.stringify({ type: "send", target: selectedTarget, text, force: true }));
     setTimeout(() => {
       setSendQueue(q => q.slice(1));
       sendingRef.current = false;

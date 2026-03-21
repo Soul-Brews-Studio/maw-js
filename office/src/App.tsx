@@ -127,10 +127,16 @@ export function App() {
   const [showJump, setShowJump] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
 
+  // Track current route for keyboard handler (avoid stale closure)
+  const routeRef = useRef(route);
+  useEffect(() => { routeRef.current = route; }, [route]);
+
   // "?" key opens shortcut overlay, "j" or Ctrl+K opens jump overlay
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Terminal view captures all keystrokes — don't fire global shortcuts
+      if (routeRef.current === "terminal") return;
       if (e.key === "?" ) {
         setShowShortcuts(true);
         return;
