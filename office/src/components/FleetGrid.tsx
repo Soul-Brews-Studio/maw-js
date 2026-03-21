@@ -42,7 +42,12 @@ export function BroadcastModal({ agents, send, onClose }: { agents: AgentState[]
     rec.onerror = () => setListening(false);
     rec.onend = () => setListening(false);
     recRef.current = rec;
-    setTimeout(() => { try { rec.start(); setListening(true); } catch {} inputRef.current?.focus(); }, 300);
+    setTimeout(() => {
+      try { rec.start(); setListening(true); } catch {}
+      // Double-focus for mobile keyboard
+      inputRef.current?.focus();
+      setTimeout(() => { inputRef.current?.click(); inputRef.current?.focus(); }, 100);
+    }, 300);
     return () => { try { rec.stop(); } catch {} };
   }, []);
 
@@ -80,6 +85,7 @@ export function BroadcastModal({ agents, send, onClose }: { agents: AgentState[]
         <textarea ref={inputRef} value={text + (interim ? " " + interim : "")} onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key === "Escape") onClose(); }}
           placeholder={listening ? "Speaking..." : "Message all agents..."}
+          autoFocus inputMode="text" enterKeyHint="send"
           rows={4} className="w-full px-5 py-4 rounded-2xl text-lg text-white/90 outline-none resize-none"
           style={{ background: listening ? "rgba(239,68,68,0.05)" : "rgba(255,255,255,0.04)", border: listening ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(255,255,255,0.08)" }} />
         <div className="flex items-center gap-3">
