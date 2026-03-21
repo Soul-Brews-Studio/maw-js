@@ -14,8 +14,90 @@ import { describeActivity, type FeedEvent } from "../lib/feed";
 export type FeedLogEntry = { text: string; ts: number; project?: string; eventType?: string };
 
 /** Fleet-specific controls for StatusBar — reads from Zustand, takes agents for counts */
+function BroadcastModal({ agents, send, onClose }: { agents: AgentState[]; send: (msg: object) => void; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [sent, setSent] = useState(false);
+  const recRef = useRef<any>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activeAgents = agents.filter(a => a.status === "busy" || a.status === "ready");
+
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { inputRef.current?.focus(); return; }
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "th-TH";
+    rec.onresult = (e: any) => {
+      let final = "", inter = "";
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript;
+        else inter += e.results[i][0].transcript;
+      }
+      if (final) setText(prev => (prev + " " + final).trim());
+      setInterim(inter);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    recRef.current = rec;
+    setTimeout(() => { try { rec.start(); setListening(true); } catch {} inputRef.current?.focus(); }, 300);
+    return () => { try { rec.stop(); } catch {} };
+  }, []);
+
+  const toggleMic = () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    if (listening) { rec.stop(); setListening(false); }
+    else { setInterim(""); rec.start(); setListening(true); }
+  };
+
+  const handleSend = () => {
+    if (!text.trim()) return;
+    if (recRef.current && listening) { recRef.current.stop(); setListening(false); }
+    for (const a of activeAgents) {
+      send({ type: "send", target: a.target, text: text.trim() });
+      setTimeout(() => send({ type: "send", target: a.target, text: "\r" }), 50);
+    }
+    setSent(true);
+    setTimeout(onClose, 600);
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={onClose}>
+      <div className="w-[90%] max-w-[560px] flex flex-col gap-4 rounded-3xl p-7" style={{ background: "rgba(13,13,24,0.9)", border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <span className="text-3xl">📢</span>
+          <span className="text-lg font-bold text-amber-400">Broadcast</span>
+          <span className="text-xs text-white/30 font-mono">{activeAgents.length} agents</span>
+          <button onClick={toggleMic} className="w-10 h-10 rounded-full flex items-center justify-center ml-2 cursor-pointer" style={{ background: listening ? "rgba(239,68,68,0.25)" : "rgba(74,222,128,0.15)" }}>
+            {listening ? "🔴" : "🎤"}
+          </button>
+          {listening && <span className="text-xs text-red-400/70">listening...</span>}
+          <span className="ml-auto text-white/30 cursor-pointer text-xl" onClick={onClose}>×</span>
+        </div>
+        <textarea ref={inputRef} value={text + (interim ? " " + interim : "")} onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key === "Escape") onClose(); }}
+          placeholder={listening ? "Speaking..." : "Message all agents..."}
+          rows={4} className="w-full px-5 py-4 rounded-2xl text-lg text-white/90 outline-none resize-none"
+          style={{ background: listening ? "rgba(239,68,68,0.05)" : "rgba(255,255,255,0.04)", border: listening ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(255,255,255,0.08)" }} />
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-white/20">Enter = send · Shift+Enter = newline · Esc = close</span>
+          <button onClick={handleSend} disabled={!text.trim() || sent}
+            className="ml-auto px-6 py-3 rounded-xl font-semibold cursor-pointer"
+            style={{ background: sent ? "rgba(74,222,128,0.15)" : text.trim() ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.03)", color: sent ? "#4ade80" : text.trim() ? "#fbbf24" : "rgba(255,255,255,0.15)", border: sent ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(251,191,36,0.2)" }}>
+            {sent ? "✓ Sent!" : "📢 Broadcast"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FleetControls({ agents, send }: { agents: AgentState[]; send: (msg: object) => void }) {
   const { sortMode, setSortMode } = useFleetStore();
+  const [showBroadcast, setShowBroadcast] = useState(false);
   const busyCount = agents.filter(a => a.status === "busy").length;
   const readyCount = agents.filter(a => a.status === "ready").length;
   const idleCount = agents.length - busyCount - readyCount;
@@ -60,6 +142,9 @@ export function FleetControls({ agents, send }: { agents: AgentState[]; send: (m
           style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
           onClick={sleepAll} title="Sleep all busy agents">Sleep</button>
       )}
+      <button className="px-2 py-1 text-[10px] font-mono font-bold rounded-md active:scale-95 transition-all whitespace-nowrap"
+        style={{ background: "rgba(251,191,36,0.08)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.15)" }}
+        onClick={() => setShowBroadcast(true)} title="Broadcast to all agents">📢</button>
       <div className="flex items-center rounded-md overflow-hidden border border-white/[0.08]">
         <button className="px-2 py-0.5 text-[10px] font-mono transition-colors whitespace-nowrap"
           style={{ background: sortMode === "active" ? "rgba(251,191,36,0.15)" : "transparent", color: sortMode === "active" ? "#fbbf24" : "#64748B" }}
@@ -68,6 +153,7 @@ export function FleetControls({ agents, send }: { agents: AgentState[]; send: (m
           style={{ background: sortMode === "name" ? "rgba(255,255,255,0.08)" : "transparent", color: sortMode === "name" ? "#E2E8F0" : "#64748B" }}
           onClick={() => setSortMode("name")}>Room</button>
       </div>
+      {showBroadcast && <BroadcastModal agents={agents} send={send} onClose={() => setShowBroadcast(false)} />}
     </>
   );
 }
