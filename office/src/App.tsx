@@ -42,7 +42,16 @@ function FloatingButtons() {
         title="Oracle Search (⌘K)"
       >🔍</button>
       <button
-        onClick={() => window.dispatchEvent(new CustomEvent("broadcast-open"))}
+        onClick={() => {
+          // Pre-focus a hidden input to unlock iOS keyboard in the user gesture
+          const proxy = document.createElement("input");
+          proxy.style.cssText = "position:fixed;top:-100px;opacity:0;";
+          document.body.appendChild(proxy);
+          proxy.focus();
+          window.dispatchEvent(new CustomEvent("broadcast-open"));
+          // Transfer focus to real textarea after modal renders
+          setTimeout(() => { document.body.removeChild(proxy); }, 500);
+        }}
         className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl backdrop-blur-xl active:scale-90 cursor-pointer transition-all shadow-lg"
         style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}
         title="Broadcast to all agents"
