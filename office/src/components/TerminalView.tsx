@@ -16,10 +16,12 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
   const [captureHtml, setCaptureHtml] = useState("");
   const [inputBuf, setInputBuf] = useState("");
   const [sendQueue, setSendQueue] = useState<string[]>([]);
+  const [listening, setListening] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
+  const recognitionRef = useRef<any>(null);
 
   // Own WebSocket for capture stream (separate from main fleet WS)
   useEffect(() => {
@@ -91,6 +93,57 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
     if (!text || !selectedTarget) return;
     setSendQueue(q => [...q, text]);
   }, [selectedTarget]);
+
+  // Voice input — Web Speech API
+  const toggleVoice = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = "th-TH";
+    rec.interimResults = true;
+    rec.continuous = false;
+    recognitionRef.current = rec;
+
+    let interimStart = 0;
+
+    rec.onstart = () => setListening(true);
+
+    rec.onresult = (e: any) => {
+      const results = Array.from(e.results as SpeechRecognitionResultList);
+      // Replace interim text: remove previous interim, append new
+      const interim = results
+        .filter((r: any) => !r.isFinal)
+        .map((r: any) => r[0].transcript)
+        .join("");
+      const finals = results
+        .filter((r: any) => r.isFinal)
+        .map((r: any) => r[0].transcript)
+        .join("");
+
+      setInputBuf(b => {
+        const base = b.slice(0, interimStart);
+        if (finals) {
+          interimStart = base.length + finals.length;
+          return base + finals + interim;
+        }
+        return base + interim;
+      });
+    };
+
+    rec.onerror = () => { setListening(false); recognitionRef.current = null; };
+    rec.onend = () => { setListening(false); recognitionRef.current = null; termRef.current?.focus(); };
+
+    rec.start();
+  }, [listening]);
+
+  // Cleanup on unmount
+  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
 
   // Paste handler — fires on right-click paste or Ctrl+Shift+V
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -246,14 +299,26 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
           {sendQueue.length > 0 && (
             <span className="text-white/30 text-[11px] ml-2">({sendQueue.length} queued)</span>
           )}
-          {(inputBuf || sendQueue.length > 0) && (
-            <span
-              className="ml-auto text-white/30 text-[11px] cursor-pointer hover:text-red-400 px-2 rounded"
-              onClick={() => { setInputBuf(""); setSendQueue([]); }}
-            >
-              esc
-            </span>
-          )}
+          <span className="ml-auto flex items-center gap-2 flex-shrink-0">
+            {(inputBuf || sendQueue.length > 0) && (
+              <span
+                className="text-white/30 text-[11px] cursor-pointer hover:text-red-400 px-1 rounded"
+                onClick={() => { setInputBuf(""); setSendQueue([]); }}
+              >
+                esc
+              </span>
+            )}
+            {((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && (
+              <span
+                title={listening ? "stop listening" : "voice input (th)"}
+                className="cursor-pointer px-1 rounded text-[15px] select-none transition-opacity"
+                style={{ opacity: selectedTarget ? 1 : 0.3 }}
+                onClick={selectedTarget ? toggleVoice : undefined}
+              >
+                {listening ? "🔴" : "🎙️"}
+              </span>
+            )}
+          </span>
         </div>
       </div>
     </div>
