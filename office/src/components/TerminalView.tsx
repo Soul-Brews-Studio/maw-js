@@ -80,7 +80,7 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
 
     sendingRef.current = true;
     const text = sendQueue[0];
-    ws.send(JSON.stringify({ type: "send", target: selectedTarget, text }));
+    ws.send(JSON.stringify({ type: "send", target: selectedTarget, text, force: true }));
     setTimeout(() => {
       setSendQueue(q => q.slice(1));
       sendingRef.current = false;
@@ -91,6 +91,13 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
     if (!text || !selectedTarget) return;
     setSendQueue(q => [...q, text]);
   }, [selectedTarget]);
+
+  // Paste handler — fires on right-click paste or Ctrl+Shift+V
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text");
+    if (text) setInputBuf(b => b + text);
+  }, []);
 
   // Keyboard handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -111,7 +118,13 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
 
     if (e.key === "Enter") {
       e.preventDefault();
-      if (inputBuf) { queueSend(inputBuf); setInputBuf(""); }
+      if (e.shiftKey) {
+        // Shift+Enter → newline in buffer
+        setInputBuf(b => b + "\n");
+      } else {
+        // Enter → send
+        if (inputBuf) { queueSend(inputBuf); setInputBuf(""); }
+      }
     } else if (e.key === "Backspace") {
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) setInputBuf("");
@@ -122,6 +135,12 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
     } else if (e.key === "c" && e.ctrlKey) {
       e.preventDefault();
       setInputBuf(""); setSendQueue([]);
+    } else if ((e.key === "v" && e.ctrlKey) || (e.key === "v" && e.metaKey)) {
+      // Ctrl+V / Cmd+V → paste from clipboard
+      e.preventDefault();
+      navigator.clipboard.readText().then(text => {
+        if (text) setInputBuf(b => b + text);
+      }).catch(() => {});
     } else if (e.key === "Tab") {
       e.preventDefault();
       queueSend(inputBuf + "\t");
@@ -186,6 +205,7 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
         className="flex-1 flex flex-col min-w-0 outline-none"
         tabIndex={0}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         onClick={() => termRef.current?.focus()}
       >
         {/* Header */}
@@ -214,14 +234,14 @@ export const TerminalView = memo(function TerminalView({ sessions, agents, conne
 
         {/* Input line */}
         <div
-          className="flex items-center px-3 py-1.5 border-t border-white/[0.06] font-mono text-[13px] min-h-[32px]"
+          className="flex items-start px-3 py-1.5 border-t border-white/[0.06] font-mono text-[13px] min-h-[32px]"
           style={{ background: "#0d0d14" }}
         >
-          <span className="text-white/30 mr-2">&gt;</span>
-          <span className="text-white/90 whitespace-pre">{inputBuf}</span>
+          <span className="text-white/30 mr-2 mt-[1px] flex-shrink-0">&gt;</span>
+          <span className="text-white/90 whitespace-pre flex-1">{inputBuf}</span>
           <span
-            className="inline-block w-[7px] h-[15px] ml-[1px] align-middle"
-            style={{ background: selectedTarget ? "#89b4fa" : "#333", animation: "blink 1s step-end infinite" }}
+            className="inline-block w-[7px] h-[15px] ml-[1px] flex-shrink-0"
+            style={{ background: selectedTarget ? "#89b4fa" : "#333", animation: "blink 1s step-end infinite", marginTop: "2px" }}
           />
           {sendQueue.length > 0 && (
             <span className="text-white/30 text-[11px] ml-2">({sendQueue.length} queued)</span>
