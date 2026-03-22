@@ -614,9 +614,8 @@ export const MissionControl = memo(function MissionControl({
             const agent = agents.find(a => a.target === target);
             if (!agent) return null;
             const room = roomStyle(agent.session);
-            const cardWidth = multiCards.size === 1 ? 700 : multiCards.size === 2 ? 500 : 360;
             return (
-              <div key={target} style={{ width: cardWidth, minWidth: 300, flexShrink: 0 }}>
+              <div key={target} style={{ flex: 1, minWidth: 280 }}>
                 <HoverPreviewCard
                   agent={agent}
                   roomLabel={room.label}
