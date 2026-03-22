@@ -1,0 +1,10 @@
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/wasm32-unknown-unknown/release/deps/bevy_image-34761de56e5252fe.d: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_loader.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_texture_conversion.rs
+
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/wasm32-unknown-unknown/release/deps/libbevy_image-34761de56e5252fe.rlib: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_loader.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_texture_conversion.rs
+
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/wasm32-unknown-unknown/release/deps/libbevy_image-34761de56e5252fe.rmeta: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_loader.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_texture_conversion.rs
+
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/lib.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_loader.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_image-0.15.3/src/image_texture_conversion.rs:

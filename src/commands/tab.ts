@@ -1,5 +1,5 @@
 import { ssh } from "../ssh";
-import { tmux } from "../tmux";
+import { tmux, tmuxCmd } from "../tmux";
 import { cmdPeek, cmdSend } from "./comm";
 import { cmdTalkTo } from "./talk-to";
 
@@ -21,7 +21,7 @@ async function currentSession(): Promise<string> {
  */
 async function listTabs(session: string): Promise<{ index: number; name: string; active: boolean }[]> {
   const raw = await ssh(
-    `tmux list-windows -t '${session}' -F '#{window_index}:#{window_name}:#{window_active}'`
+    `${tmuxCmd()} list-windows -t '${session}' -F '#{window_index}:#{window_name}:#{window_active}'`
   );
   return raw.split("\n").filter(Boolean).map(line => {
     const [idx, name, active] = line.split(":");

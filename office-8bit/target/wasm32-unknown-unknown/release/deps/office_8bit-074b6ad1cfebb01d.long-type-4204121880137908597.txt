@@ -1,0 +1,1 @@
+(bevy::prelude::Sprite, bevy::prelude::TextureAtlas, bevy::prelude::Handle<bevy::prelude::Image>, bevy::prelude::Transform, AgentSprite, AnimationState)

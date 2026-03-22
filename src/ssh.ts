@@ -1,4 +1,5 @@
 import { loadConfig } from "./config";
+import { tmuxCmd } from "./tmux";
 
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "white.local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
@@ -29,12 +30,12 @@ export interface Session {
 
 export async function listSessions(host?: string): Promise<Session[]> {
   let raw: string;
-  try { raw = await ssh("tmux list-sessions -F '#{session_name}' 2>/dev/null", host); }
+  try { raw = await ssh(`${tmuxCmd()} list-sessions -F '#{session_name}' 2>/dev/null`, host); }
   catch { return []; }
   const sessions: Session[] = [];
   for (const s of raw.split("\n").filter(Boolean)) {
     const winRaw = await ssh(
-      `tmux list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
+      `${tmuxCmd()} list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
       host,
     );
     const windows = winRaw.split("\n").filter(Boolean).map(w => {
@@ -61,13 +62,13 @@ export async function capture(target: string, lines = 80, host?: string): Promis
   // -e preserves ANSI escape sequences (colors), -S captures scroll-back
   if (lines > 50) {
     // Grab full visible pane + some scrollback
-    return ssh(`tmux capture-pane -t '${target}' -e -p -S -${lines} 2>/dev/null`, host);
+    return ssh(`${tmuxCmd()} capture-pane -t '${target}' -e -p -S -${lines} 2>/dev/null`, host);
   }
-  return ssh(`tmux capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
+  return ssh(`${tmuxCmd()} capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
 }
 
 export async function selectWindow(target: string, host?: string): Promise<void> {
-  await ssh(`tmux select-window -t '${target}' 2>/dev/null`, host);
+  await ssh(`${tmuxCmd()} select-window -t '${target}' 2>/dev/null`, host);
 }
 
 /** Get the command running in a tmux pane (e.g. "claude", "zsh") */

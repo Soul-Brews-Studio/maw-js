@@ -4,6 +4,7 @@ import { ssh } from "../ssh";
 import { tmux } from "../tmux";
 import { loadConfig, buildCommand, getEnvVars } from "../config";
 import { ensureSessionRunning } from "./wake";
+import { FLEET_DIR } from "../paths";
 
 interface FleetWindow {
   name: string;
@@ -15,8 +16,6 @@ interface FleetSession {
   windows: FleetWindow[];
   skip_command?: boolean;
 }
-
-const FLEET_DIR = join(import.meta.dir, "../../fleet");
 
 function loadFleet(): FleetSession[] {
   const files = readdirSync(FLEET_DIR)

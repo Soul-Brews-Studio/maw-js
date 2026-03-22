@@ -1,0 +1,3 @@
+cargo:rustc-cfg=send_sync
+cargo:rustc-cfg=gles
+cargo:rustc-cfg=vulkan

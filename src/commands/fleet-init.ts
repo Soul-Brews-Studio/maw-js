@@ -1,6 +1,7 @@
 import { join } from "path";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { ssh } from "../ssh";
+import { FLEET_DIR } from "../paths";
 
 interface FleetWindow {
   name: string;
@@ -49,7 +50,7 @@ const GROUPS: Record<string, { session: string; order: number }> = {
 };
 
 export async function cmdFleetInit() {
-  const fleetDir = join(import.meta.dir, "../../fleet");
+  const fleetDir = FLEET_DIR;
   // Clean old configs to prevent duplicate numbering (#82)
   if (existsSync(fleetDir)) rmSync(fleetDir, { recursive: true });
   mkdirSync(fleetDir, { recursive: true });

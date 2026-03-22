@@ -1,4 +1,4 @@
-import { tmux } from "./tmux";
+import { tmux, tmuxCmd } from "./tmux";
 import { loadConfig } from "./config";
 import type { ServerWebSocket } from "bun";
 
@@ -89,11 +89,11 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
   // Spawn PTY via script(1) — attach to our grouped session (not the original)
   let args: string[];
   if (isLocalHost()) {
-    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color tmux attach-session -t '${ptySessionName}'`;
+    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
     args = ["script", "-qfc", cmd, "/dev/null"];
   } else {
     const host = process.env.MAW_HOST || loadConfig().host || "white.local";
-    args = ["ssh", "-tt", host, `TERM=xterm-256color tmux attach-session -t '${ptySessionName}'`];
+    args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
   }
 
   const proc = Bun.spawn(args, {

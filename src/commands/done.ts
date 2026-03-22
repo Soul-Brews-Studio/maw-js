@@ -4,8 +4,7 @@ import { loadConfig } from "../config";
 import { readdirSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-
-const FLEET_DIR = join(import.meta.dir, "../../fleet");
+import { FLEET_DIR } from "../paths";
 
 /**
  * maw done <window-name>

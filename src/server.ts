@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
+import { dirname, resolve } from "path";
+
+const MAW_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 import { listSessions, capture, sendKeys, selectWindow } from "./ssh";
 import { processMirror } from "./commands/overview";
 import { FeedTailer } from "./feed-tail";
@@ -50,46 +53,46 @@ app.post("/api/select", async (c) => {
 });
 
 // Serve React app from root (single entry point for all views)
-app.get("/", serveStatic({ root: "./dist-office", path: "/index.html" }));
+app.get("/", serveStatic({ root: `${MAW_ROOT}/dist-office`, path: "/index.html" }));
 
 // Legacy redirects — old paths → hash routes in the React app
 app.get("/dashboard", (c) => c.redirect("/#orbital"));
 app.get("/office", (c) => c.redirect("/#office"));
 
 // Serve React app assets
-app.get("/assets/*", serveStatic({ root: "./dist-office" }));
+app.get("/assets/*", serveStatic({ root: `${MAW_ROOT}/dist-office` }));
 
 // Keep /office/* for backward compat (deep-links, bookmarks)
 app.get("/office/*", serveStatic({
-  root: "./",
+  root: MAW_ROOT,
   rewriteRequestPath: (p) => p.replace(/^\/office/, "/dist-office"),
 }));
 
 // Serve 8-bit office (Bevy WASM)
-app.get("/office-8bit", serveStatic({ root: "./dist-8bit-office", path: "/index.html" }));
+app.get("/office-8bit", serveStatic({ root: `${MAW_ROOT}/dist-8bit-office`, path: "/index.html" }));
 app.get("/office-8bit/*", serveStatic({
-  root: "./",
+  root: MAW_ROOT,
   rewriteRequestPath: (p) => p.replace(/^\/office-8bit/, "/dist-8bit-office"),
 }));
 
 // Serve War Room (Bevy WASM)
-app.get("/war-room", serveStatic({ root: "./dist-war-room", path: "/index.html" }));
+app.get("/war-room", serveStatic({ root: `${MAW_ROOT}/dist-war-room`, path: "/index.html" }));
 app.get("/war-room/*", serveStatic({
-  root: "./",
+  root: MAW_ROOT,
   rewriteRequestPath: (p) => p.replace(/^\/war-room/, "/dist-war-room"),
 }));
 
 // Serve Race Track (Bevy WASM)
-app.get("/race-track", serveStatic({ root: "./dist-race-track", path: "/index.html" }));
+app.get("/race-track", serveStatic({ root: `${MAW_ROOT}/dist-race-track`, path: "/index.html" }));
 app.get("/race-track/*", serveStatic({
-  root: "./",
+  root: MAW_ROOT,
   rewriteRequestPath: (p) => p.replace(/^\/race-track/, "/dist-race-track"),
 }));
 
 // Serve Superman Universe (Bevy WASM)
-app.get("/superman", serveStatic({ root: "./dist-superman", path: "/index.html" }));
+app.get("/superman", serveStatic({ root: `${MAW_ROOT}/dist-superman`, path: "/index.html" }));
 app.get("/superman/*", serveStatic({
-  root: "./",
+  root: MAW_ROOT,
   rewriteRequestPath: (p) => p.replace(/^\/superman/, "/dist-superman"),
 }));
 
@@ -179,7 +182,7 @@ app.post("/api/asks", async (c) => {
 
 // --- Fleet Config ---
 
-const fleetDir = join(import.meta.dir, "../fleet");
+import { FLEET_DIR as fleetDir } from "./paths";
 
 app.get("/api/fleet-config", (c) => {
   try {

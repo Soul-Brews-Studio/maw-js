@@ -1,0 +1,11 @@
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/debug/deps/bevy_window-6344a0b24f1ed7c0.d: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/event.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/monitor.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/raw_handle.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system_cursor.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/window.rs
+
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/debug/deps/libbevy_window-6344a0b24f1ed7c0.rmeta: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/event.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/monitor.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/raw_handle.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system_cursor.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/window.rs
+
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/lib.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/event.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/monitor.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/raw_handle.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/system_cursor.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_window-0.15.3/src/window.rs:

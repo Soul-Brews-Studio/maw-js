@@ -1,0 +1,10 @@
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/debug/deps/bevy_ecs_macros-a9b6dc30165e179c.d: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/component.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_data.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_filter.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/states.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/world_query.rs
+
+/home/nat/Code/github.com/Soul-Brews-Studio/maw-js/office-8bit/target/debug/deps/libbevy_ecs_macros-a9b6dc30165e179c.so: /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/lib.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/component.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_data.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_filter.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/states.rs /home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/world_query.rs
+
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/lib.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/component.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_data.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/query_filter.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/states.rs:
+/home/nat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs_macros-0.15.3/src/world_query.rs:

@@ -5,6 +5,12 @@ import { Tmux } from "../src/tmux";
 let commands: string[] = [];
 let sshResult = "";
 
+// Mock config to return no socket (tests expect plain "tmux" commands)
+mock.module("../src/config", () => ({
+  loadConfig: () => ({ host: "white.local" }),
+  resetConfig: () => {},
+}));
+
 // Mock ssh module — intercept the command string
 mock.module("../src/ssh", () => ({
   ssh: async (cmd: string, _host?: string) => {
@@ -12,6 +18,9 @@ mock.module("../src/ssh", () => ({
     return sshResult;
   },
 }));
+
+// Ensure no socket env var leaks into tests
+delete process.env.MAW_TMUX_SOCKET;
 
 describe("Tmux", () => {
   let t: Tmux;

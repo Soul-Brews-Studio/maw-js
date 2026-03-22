@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { FLEET_DIR } from "../paths";
 
 export async function cmdCompletions(sub: string) {
   if (sub === "commands") {
     console.log("ls peek hey wake fleet stop done overview about oracle pulse view create-view tab talk-to serve");
   } else if (sub === "oracles" || sub === "windows") {
-    const fleetDir = join(import.meta.dir, "../../fleet");
+    const fleetDir = FLEET_DIR;
     const names = new Set<string>();
     try {
       for (const f of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {

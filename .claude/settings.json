@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-file-size.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

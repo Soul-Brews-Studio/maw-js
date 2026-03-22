@@ -1,4 +1,16 @@
 import { ssh } from "./ssh";
+import { loadConfig } from "./config";
+
+/** Resolve tmux socket path from env or config. */
+export function resolveSocket(): string | undefined {
+  return process.env.MAW_TMUX_SOCKET || loadConfig().tmuxSocket || undefined;
+}
+
+/** Build the `tmux` (or `tmux -S <socket>`) prefix for raw commands. */
+export function tmuxCmd(): string {
+  const socket = resolveSocket();
+  return socket ? `tmux -S '${socket}'` : "tmux";
+}
 
 export interface TmuxWindow {
   index: number;
@@ -26,11 +38,15 @@ function q(s: string | number): string {
  * All methods build arg arrays and delegate to `run()`.
  */
 export class Tmux {
-  constructor(private host?: string) {}
+  private socket?: string;
+  constructor(private host?: string, socket?: string) {
+    this.socket = socket !== undefined ? socket : resolveSocket();
+  }
 
-  /** Base runner — executes `tmux <subcommand> [args...]` via ssh. */
+  /** Base runner — executes `tmux [-S socket] <subcommand> [args...]` via ssh. */
   async run(subcommand: string, ...args: (string | number)[]): Promise<string> {
-    const cmd = `tmux ${subcommand} ${args.map(q).join(" ")} 2>/dev/null`;
+    const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
+    const cmd = `tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")} 2>/dev/null`;
     return ssh(cmd, this.host);
   }
 
@@ -165,7 +181,8 @@ export class Tmux {
       return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -lines);
     }
     // For shorter captures, pipe through tail (needs raw ssh)
-    const cmd = `tmux capture-pane -t ${q(target)} -e -p 2>/dev/null | tail -${lines}`;
+    const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
+    const cmd = `tmux ${socketFlag}capture-pane -t ${q(target)} -e -p 2>/dev/null | tail -${lines}`;
     return ssh(cmd, this.host);
   }
 
@@ -203,7 +220,8 @@ export class Tmux {
 
   async loadBuffer(text: string): Promise<void> {
     const escaped = text.replace(/'/g, "'\\''");
-    const cmd = `printf '%s' '${escaped}' | tmux load-buffer -`;
+    const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
+    const cmd = `printf '%s' '${escaped}' | tmux ${socketFlag}load-buffer -`;
     await ssh(cmd, this.host);
   }
 

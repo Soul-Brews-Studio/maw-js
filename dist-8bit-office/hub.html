@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oracle WASM Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100vh; background: #020617; color: #f8fafc; }
+
+    /* CRT scanline overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #hub { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* Header */
+    header {
+      padding: 32px 32px 24px;
+      text-align: center;
+      position: relative;
+    }
+    header h1 {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: #22c55e;
+      text-shadow:
+        0 0 10px rgba(34, 197, 94, 0.5),
+        0 0 30px rgba(34, 197, 94, 0.2),
+        0 0 60px rgba(34, 197, 94, 0.1);
+      margin-bottom: 12px;
+    }
+    header .subtitle {
+      font-family: 'VT323', monospace;
+      font-size: 18px;
+      color: #64748b;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+    header .badge {
+      display: inline-block;
+      margin-top: 12px;
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #22c55e;
+      padding: 4px 16px;
+      border-radius: 2px;
+    }
+    .divider {
+      margin: 0 32px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.3), transparent);
+    }
+
+    /* App grid */
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+      padding: 32px;
+      flex: 1;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .app-card {
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.6));
+      border: 1px solid rgba(100, 116, 139, 0.15);
+      border-radius: 4px;
+      padding: 0;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .app-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--card-accent, #22c55e), transparent);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .app-card:hover {
+      border-color: var(--card-accent, #22c55e);
+      box-shadow:
+        0 0 20px rgba(34, 197, 94, 0.1),
+        0 4px 30px rgba(0, 0, 0, 0.4);
+      transform: translateY(-3px);
+    }
+    .app-card:hover::before { opacity: 1; }
+
+    .app-card.running {
+      border-color: #22c55e;
+      box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+    }
+
+    .card-preview {
+      height: 120px;
+      background: var(--card-bg, #0f172a);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-preview .icon {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 28px;
+      opacity: 0.6;
+      text-shadow: 0 0 20px var(--card-accent, #22c55e);
+      transition: all 0.3s ease;
+    }
+    .app-card:hover .card-preview .icon {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+    /* Animated grid lines in preview */
+    .card-preview::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(34, 197, 94, 0.03) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(34, 197, 94, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    .card-body { padding: 16px 20px 20px; }
+
+    .card-body .app-name {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      color: #f8fafc;
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+    .card-body .app-desc {
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      color: #94a3b8;
+      line-height: 1.4;
+      margin-bottom: 16px;
+    }
+    .card-body .app-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .card-body .tag {
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 2px 8px;
+      border-radius: 2px;
+      color: #64748b;
+    }
+
+    .status-dot {
+      position: absolute;
+      top: 12px; right: 12px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      z-index: 2;
+    }
+    .app-card.running .status-dot {
+      background: #22c55e;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+    }
+
+    /* Per-app accent colors */
+    .app-card[data-app="office-8bit"] { --card-accent: #64b5f6; --card-bg: #0a0a1a; }
+    .app-card[data-app="war-room"] { --card-accent: #e57373; --card-bg: #1a0808; }
+    .app-card[data-app="race-track"] { --card-accent: #66bb6a; --card-bg: #081a08; }
+    .app-card[data-app="superman"] { --card-accent: #6090ff; --card-bg: #060820; }
+
+    /* Upload card */
+    .upload-card {
+      border: 2px dashed rgba(100, 116, 139, 0.15);
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      min-height: 240px;
+      transition: all 0.25s ease;
+    }
+    .upload-card:hover {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.02);
+      transform: translateY(-3px);
+    }
+    .upload-card.dragover { border-color: #22c55e; background: rgba(34, 197, 94, 0.05); }
+    .upload-card .upload-icon {
+      font-family: 'VT323', monospace;
+      font-size: 36px;
+      color: #334155;
+      transition: color 0.25s;
+    }
+    .upload-card:hover .upload-icon { color: #22c55e; }
+    .upload-card .label {
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      color: #475569;
+    }
+    .upload-card .label-sub {
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      color: #334155;
+    }
+
+    /* App runner (fullscreen overlay) */
+    #runner {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #020617;
+      z-index: 500;
+      display: none;
+    }
+    #runner.active { display: block; }
+
+    #runner-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 40px;
+      background: rgba(2, 6, 23, 0.95);
+      border-bottom: 1px solid rgba(34, 197, 94, 0.15);
+      display: flex; align-items: center;
+      padding: 0 16px; gap: 12px;
+      z-index: 600;
+      backdrop-filter: blur(8px);
+    }
+    #runner-nav .back-btn {
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      color: #22c55e;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #runner-nav .back-btn:hover { background: rgba(34, 197, 94, 0.1); border-color: #22c55e; }
+    #runner-nav .app-title {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px;
+      color: #f8fafc;
+    }
+    #runner-nav .app-info {
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      color: #475569;
+      margin-left: auto;
+    }
+
+    #runner-frame { width: 100%; height: 100%; border: none; }
+
+    /* Delete button */
+    .delete-btn {
+      position: absolute;
+      bottom: 12px; right: 12px;
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.15);
+      border-radius: 2px;
+      color: #ef4444;
+      padding: 2px 10px;
+      cursor: pointer;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 2;
+    }
+    .app-card:hover .delete-btn { opacity: 1; }
+    .delete-btn:hover { background: rgba(239, 68, 68, 0.15); }
+
+    #file-input { display: none; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      header h1 { font-size: 14px; }
+      .app-grid { padding: 16px; gap: 16px; grid-template-columns: 1fr; }
+      .card-body .app-name { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="hub">
+    <header>
+      <h1>ORACLE WASM HUB</h1>
+      <div class="subtitle">Bevy Pixel Worlds</div>
+      <div class="badge" id="app-count">0 APPS LOADED</div>
+    </header>
+    <div class="divider"></div>
+
+    <div class="app-grid" id="app-grid">
+      <!-- Apps injected by JS -->
+    </div>
+  </div>
+
+  <div id="runner">
+    <nav id="runner-nav">
+      <button class="back-btn" id="back-btn">&lt; HUB</button>
+      <span class="app-title" id="runner-title"></span>
+      <span class="app-info" id="runner-info"></span>
+    </nav>
+    <iframe id="runner-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+  </div>
+
+  <input type="file" id="file-input" accept=".zip,.wasm" multiple />
+
+  <script type="module">
+    const DB_NAME = 'oracle-wasm-hub';
+    const STORE_NAME = 'apps';
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function getAllApps() {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve([]);
+      });
+    }
+
+    async function saveApp(app) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(app);
+        tx.oncomplete = () => resolve();
+      });
+    }
+
+    async function deleteApp(id) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete(id);
+        tx.oncomplete = () => resolve();
+      });
+    }
+
+    const BUILTIN_APPS = [
+      {
+        id: 'office-8bit',
+        name: 'Oracle Office',
+        description: 'Pixel art office with live agents, A* pathfinding, saiyan flames, and dynamic rooms',
+        version: 'v5',
+        size: '20MB',
+        builtin: true,
+        url: '/office-8bit/index.html',
+        tags: ['bevy', 'pixel-art', 'agents'],
+        icon: '///',
+      },
+      {
+        id: 'war-room',
+        name: 'War Room',
+        description: 'One room. One team. 24 seats around the command table.',
+        version: 'v7',
+        size: '20MB',
+        builtin: true,
+        url: '/war-room/index.html',
+        tags: ['bevy', 'war-room', 'command'],
+        icon: '+++',
+      },
+      {
+        id: 'race-track',
+        name: 'Grand Prix',
+        description: 'Agents race the oval track. Speed = activity level. Saiyan = turbo boost.',
+        version: 'v7',
+        size: '20MB',
+        builtin: true,
+        url: '/race-track/index.html',
+        tags: ['bevy', 'racing', 'leaderboard'],
+        icon: '>>>',
+      },
+      {
+        id: 'superman',
+        name: 'Universe',
+        description: 'Superman agents orbit the Fortress of Solitude through deep space.',
+        version: 'v7',
+        size: '21MB',
+        builtin: true,
+        url: '/superman/index.html',
+        tags: ['bevy', 'superman', 'space'],
+        icon: '***',
+      }
+    ];
+
+    let currentApp = null;
+
+    async function render() {
+      const grid = document.getElementById('app-grid');
+      const userApps = await getAllApps();
+      const allApps = [...BUILTIN_APPS, ...userApps];
+
+      document.getElementById('app-count').textContent = `${allApps.length} APP${allApps.length !== 1 ? 'S' : ''} LOADED`;
+
+      grid.innerHTML = '';
+
+      for (const app of allApps) {
+        const card = document.createElement('div');
+        card.className = `app-card${currentApp === app.id ? ' running' : ''}`;
+        if (app.id) card.dataset.app = app.id;
+        card.innerHTML = `
+          <div class="status-dot"></div>
+          <div class="card-preview">
+            <span class="icon">${esc(app.icon || '???')}</span>
+          </div>
+          <div class="card-body">
+            <div class="app-name">${esc(app.name)}</div>
+            <div class="app-desc">${esc(app.description || '')}</div>
+            <div class="app-meta">
+              ${app.version ? `<span class="tag">${esc(app.version)}</span>` : ''}
+              ${app.size ? `<span class="tag">${esc(app.size)}</span>` : ''}
+              ${(app.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+            </div>
+          </div>
+          ${!app.builtin ? `<button class="delete-btn" data-id="${esc(app.id)}">DELETE</button>` : ''}
+        `;
+        card.addEventListener('click', (e) => {
+          if (e.target.classList.contains('delete-btn')) return;
+          launchApp(app);
+        });
+        grid.appendChild(card);
+      }
+
+      grid.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.id;
+          if (confirm(`Delete ${id}?`)) {
+            await deleteApp(id);
+            render();
+          }
+        });
+      });
+
+      const upload = document.createElement('div');
+      upload.className = 'app-card upload-card';
+      upload.innerHTML = `
+        <div class="upload-icon">+</div>
+        <div class="label">DROP WASM APP HERE</div>
+        <div class="label-sub">.zip with index.html + .wasm + .js</div>
+      `;
+      upload.addEventListener('click', () => document.getElementById('file-input').click());
+      upload.addEventListener('dragover', (e) => { e.preventDefault(); upload.classList.add('dragover'); });
+      upload.addEventListener('dragleave', () => upload.classList.remove('dragover'));
+      upload.addEventListener('drop', (e) => {
+        e.preventDefault();
+        upload.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+      });
+      grid.appendChild(upload);
+    }
+
+    function launchApp(app) {
+      currentApp = app.id;
+      const runner = document.getElementById('runner');
+      const frame = document.getElementById('runner-frame');
+      document.getElementById('runner-title').textContent = app.name;
+      document.getElementById('runner-info').textContent = `${app.version || ''} | ${app.size || ''}`;
+      if (app.builtin) {
+        frame.src = app.url;
+      } else {
+        launchUserApp(app, frame);
+      }
+      runner.classList.add('active');
+      render();
+    }
+
+    async function launchUserApp(app, frame) {
+      const html = app.files['index.html'];
+      if (!html) { alert('No index.html found in app'); return; }
+      let htmlText = new TextDecoder().decode(html);
+      const blobUrls = {};
+      for (const [name, data] of Object.entries(app.files)) {
+        if (name === 'index.html') continue;
+        const mime = name.endsWith('.wasm') ? 'application/wasm'
+          : name.endsWith('.js') ? 'application/javascript'
+          : 'application/octet-stream';
+        const blob = new Blob([data], { type: mime });
+        blobUrls[name] = URL.createObjectURL(blob);
+        htmlText = htmlText.replaceAll(name, blobUrls[name]);
+        htmlText = htmlText.replaceAll(`./${name}`, blobUrls[name]);
+      }
+      for (const [name, data] of Object.entries(app.files)) {
+        if (!name.endsWith('.js')) continue;
+        let jsText = new TextDecoder().decode(data);
+        for (const [fname, url] of Object.entries(blobUrls)) {
+          if (fname.endsWith('.wasm')) jsText = jsText.replaceAll(fname, url);
+        }
+        const blob = new Blob([jsText], { type: 'application/javascript' });
+        const newUrl = URL.createObjectURL(blob);
+        htmlText = htmlText.replaceAll(blobUrls[name], newUrl);
+        blobUrls[name] = newUrl;
+      }
+      const htmlBlob = new Blob([htmlText], { type: 'text/html' });
+      frame.src = URL.createObjectURL(htmlBlob);
+    }
+
+    function closeRunner() {
+      const runner = document.getElementById('runner');
+      const frame = document.getElementById('runner-frame');
+      frame.src = 'about:blank';
+      runner.classList.remove('active');
+      currentApp = null;
+      render();
+    }
+
+    document.getElementById('back-btn').addEventListener('click', closeRunner);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('runner').classList.contains('active')) {
+        closeRunner();
+      }
+    });
+
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    async function handleFiles(fileList) {
+      for (const file of fileList) {
+        if (file.name.endsWith('.zip')) await handleZip(file);
+        else if (file.name.endsWith('.wasm')) alert('Please upload a .zip containing index.html + .wasm + .js');
+      }
+    }
+
+    async function handleZip(file) {
+      const buffer = await file.arrayBuffer();
+      const files = await unzip(buffer);
+      if (!files['index.html']) { alert('Zip must contain index.html'); return; }
+      const name = file.name.replace('.zip', '');
+      const id = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      let totalSize = 0;
+      for (const data of Object.values(files)) totalSize += data.byteLength;
+      const sizeStr = totalSize > 1024 * 1024
+        ? `${(totalSize / 1024 / 1024).toFixed(1)}MB`
+        : `${(totalSize / 1024).toFixed(0)}KB`;
+      await saveApp({
+        id, name,
+        description: `Uploaded WASM app (${Object.keys(files).length} files)`,
+        version: 'uploaded', size: sizeStr, builtin: false,
+        tags: ['uploaded'], icon: '???', files, uploadedAt: Date.now(),
+      });
+      render();
+    }
+
+    async function unzip(buffer) {
+      const view = new DataView(buffer);
+      const files = {};
+      let offset = 0;
+      while (offset < buffer.byteLength - 4) {
+        const sig = view.getUint32(offset, true);
+        if (sig !== 0x04034b50) break;
+        const method = view.getUint16(offset + 8, true);
+        const compSize = view.getUint32(offset + 18, true);
+        const nameLen = view.getUint16(offset + 26, true);
+        const extraLen = view.getUint16(offset + 28, true);
+        const nameBytes = new Uint8Array(buffer, offset + 30, nameLen);
+        const name = new TextDecoder().decode(nameBytes);
+        const dataStart = offset + 30 + nameLen + extraLen;
+        const rawData = new Uint8Array(buffer, dataStart, compSize);
+        if (method === 0) {
+          files[stripPrefix(name)] = rawData.slice();
+        } else if (method === 8) {
+          try {
+            const ds = new DecompressionStream('raw-deflate');
+            const writer = ds.writable.getWriter();
+            const reader = ds.readable.getReader();
+            writer.write(rawData); writer.close();
+            const chunks = [];
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+            }
+            const total = chunks.reduce((s, c) => s + c.byteLength, 0);
+            const result = new Uint8Array(total);
+            let pos = 0;
+            for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.byteLength; }
+            files[stripPrefix(name)] = result;
+          } catch (e) { console.warn(`Failed to decompress ${name}:`, e); }
+        }
+        offset = dataStart + compSize;
+      }
+      return files;
+    }
+
+    function stripPrefix(name) {
+      const parts = name.split('/');
+      if (parts.length > 1 && parts[0] !== '') return parts.slice(1).join('/');
+      return name;
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    render();
+  </script>
+</body>
+</html>

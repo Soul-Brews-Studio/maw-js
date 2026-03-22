@@ -3,6 +3,7 @@ import { tmux } from "./tmux";
 import { loadConfig } from "./config";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { FLEET_DIR } from "./paths";
 
 export interface WorktreeInfo {
   path: string;
@@ -25,7 +26,7 @@ export interface WorktreeInfo {
 export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   const config = loadConfig();
   const ghqRoot = config.ghqRoot;
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = FLEET_DIR;
 
   // 1. Find all .wt- directories
   let wtPaths: string[] = [];
@@ -145,7 +146,7 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
 export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   const config = loadConfig();
   const ghqRoot = config.ghqRoot;
-  const fleetDir = join(import.meta.dir, "../fleet");
+  const fleetDir = FLEET_DIR;
   const log: string[] = [];
 
   const dirName = wtPath.split("/").pop()!;

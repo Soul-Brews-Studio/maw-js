@@ -1,0 +1,1 @@
+bevy::prelude::Query<'_, '_, (&mut AnimationState, &mut bevy::prelude::TextureAtlas), bevy::prelude::With<AgentSprite>>

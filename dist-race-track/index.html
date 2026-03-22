@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Oracle Race Track</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #060c06; }
+
+    #navbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 40px;
+      background: rgba(8, 14, 8, 0.95);
+      border-bottom: 1px solid rgba(80, 200, 80, 0.2);
+      display: flex; align-items: center;
+      padding: 0 16px; gap: 16px;
+      z-index: 200;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: #cdd6f4;
+      backdrop-filter: blur(8px);
+    }
+    #navbar .logo { color: #66bb6a; font-weight: bold; font-size: 14px; letter-spacing: 2px; }
+    #navbar .sep { width: 1px; height: 20px; background: rgba(255,255,255,0.08); }
+    #navbar .agents-count { color: #66bb6a; }
+    .fps { color: rgba(255,255,255,0.35); font-size: 10px; }
+    #navbar a { color: #66bb6a; text-decoration: none; opacity: 0.7; }
+    #navbar a:hover { opacity: 1; }
+
+    .zoom-controls { display: flex; align-items: center; gap: 6px; }
+    .zoom-controls button {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(80,200,80,0.2);
+      border-radius: 4px;
+      color: #cdd6f4;
+      font-family: inherit;
+      font-size: 14px;
+      width: 28px; height: 24px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .zoom-controls button:hover { background: rgba(80,200,80,0.15); }
+    #zoom-level { font-size: 10px; color: rgba(255,255,255,0.5); min-width: 32px; text-align: center; }
+
+    #navbar .controls { margin-left: auto; display: flex; gap: 12px; color: rgba(255,255,255,0.35); font-size: 10px; }
+    #navbar .controls kbd {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: inherit;
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    #bg-layer { display: none; }
+
+    #office-canvas {
+      position: fixed;
+      top: 40px; left: 0;
+      width: 100vw; height: calc(100vh - 40px);
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      z-index: 1;
+    }
+
+    #popup-layer {
+      position: fixed;
+      top: 40px; left: 0;
+      width: 100%; height: calc(100% - 40px);
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .agent-popup {
+      position: absolute;
+      pointer-events: auto;
+      background: rgba(8, 14, 8, 0.96);
+      border: 1px solid rgba(80, 200, 80, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      width: 700px; height: 65vh;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      color: #cdd6f4;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 1px rgba(80,200,80,0.3);
+    }
+    .agent-popup .header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px; padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .agent-popup .name { font-weight: bold; font-size: 13px; }
+    .agent-popup .status { font-size: 10px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+    .agent-popup .terminal {
+      white-space: pre-wrap; word-break: break-all; line-height: 1.4;
+      height: calc(65vh - 80px); overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(80,200,80,0.3) transparent;
+    }
+    .agent-popup .terminal::-webkit-scrollbar { width: 6px; }
+    .agent-popup .terminal::-webkit-scrollbar-track { background: transparent; }
+    .agent-popup .terminal::-webkit-scrollbar-thumb { background: rgba(80,200,80,0.3); border-radius: 3px; }
+
+    .agent-popup .input-bar {
+      display: none; margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      gap: 6px; align-items: center;
+    }
+    .agent-popup.pinned .input-bar { display: flex; }
+    .agent-popup .input-bar input {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(80,200,80,0.15);
+      border-radius: 4px;
+      padding: 6px 10px;
+      color: #cdd6f4;
+      font-family: inherit; font-size: 12px;
+      outline: none;
+    }
+    .agent-popup .input-bar input:focus { border-color: rgba(80,200,80,0.4); }
+    .agent-popup .input-bar input::-webkit-search-cancel-button,
+    .agent-popup .input-bar input::-webkit-clear-button,
+    .agent-popup .input-bar input::-ms-clear { display: none; }
+    .agent-popup .input-bar button {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(80,200,80,0.15);
+      border-radius: 4px;
+      color: #cdd6f4;
+      font-family: inherit; font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .agent-popup .input-bar button:hover { background: rgba(80,200,80,0.15); }
+    .agent-popup.pinned {
+      border-color: rgba(80,200,80,0.5);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 8px rgba(80,200,80,0.2);
+    }
+
+    .status-busy { background: rgba(253, 216, 53, 0.2); color: #fdd835; }
+    .status-ready { background: rgba(76, 175, 80, 0.2); color: #4caf50; }
+    .status-idle { background: rgba(255, 255, 255, 0.1); color: #90a4ae; }
+    .status-saiyan { background: rgba(255, 215, 0, 0.3); color: #ffd700; }
+
+    #loading {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+      background: #060c06;
+      color: #66bb6a;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      z-index: 1000;
+    }
+    #loading .dots::after { content: ''; animation: dots 1.5s infinite; }
+    @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60%, 100% { content: '...'; } }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div style="font-size:18px;letter-spacing:3px">ORACLE GRAND PRIX</div>
+    <div class="dots">Loading WASM</div>
+  </div>
+
+  <nav id="navbar">
+    <span class="logo">ORACLE GP</span>
+    <div class="sep"></div>
+    <span class="agents-count" id="agent-count">0 racers</span>
+    <div class="sep"></div>
+    <a href="/office-8bit/hub.html">Hub</a>
+    <a href="/office-8bit/">Office</a>
+    <a href="/war-room/">War Room</a>
+    <span class="fps" id="fps">0 fps</span>
+    <div class="sep"></div>
+    <div class="zoom-controls">
+      <button id="zoom-in">+</button>
+      <span id="zoom-level">1.0x</span>
+      <button id="zoom-out">−</button>
+    </div>
+    <div class="controls">
+      <span><kbd>WASD</kbd> move</span>
+      <span><kbd>Space</kbd>+drag pan</span>
+    </div>
+  </nav>
+
+  <div id="bg-layer"></div>
+  <canvas id="office-canvas"></canvas>
+
+  <div id="popup-layer">
+    <div class="agent-popup" id="agent-popup">
+      <div class="header">
+        <span class="name" id="popup-name"></span>
+        <span class="status" id="popup-status"></span>
+      </div>
+      <div class="terminal" id="popup-terminal"></div>
+      <div class="input-bar" id="popup-input-bar">
+        <input type="text" id="popup-input" placeholder="Type command..."
+          inputmode="text" enterkeyhint="send" autocomplete="off"
+          style="-webkit-appearance:none"
+        />
+        <button id="popup-send">Send</button>
+        <button id="popup-close">&#x2715;</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/race-track/bridge.js"></script>
+  <script type="module">
+    import init from '/race-track/race-track.js';
+
+    async function start() {
+      try {
+        await init();
+      } catch (err) {
+        if (err.message && err.message.includes('Using exceptions for control flow')) {
+          console.log('[Bevy] Event loop started');
+        } else {
+          console.error('WASM init failed:', err);
+          document.querySelector('#loading .dots').textContent = 'Error: ' + err.message;
+          return;
+        }
+      }
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    window.addEventListener('keydown', (e) => { if (e.code === 'Space') e.preventDefault(); });
+
+    document.getElementById('zoom-in').addEventListener('click', () => {
+      if (window.__oracle_zoom) window.__oracle_zoom(-1);
+    });
+    document.getElementById('zoom-out').addEventListener('click', () => {
+      if (window.__oracle_zoom) window.__oracle_zoom(1);
+    });
+
+    start();
+  </script>
+</body>
+</html>

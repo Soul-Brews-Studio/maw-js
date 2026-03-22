@@ -4,10 +4,11 @@ import { loadConfig, buildCommand, getEnvVars } from "../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
+import { FLEET_DIR } from "../paths";
 
 /** Fix socket ACL so other users in the group can access it */
 function fixSocketPermissions(): void {
-  const socket = process.env.MAW_TMUX_SOCKET || (loadConfig() as any).tmuxSocket;
+  const socket = process.env.MAW_TMUX_SOCKET || loadConfig().tmuxSocket;
   if (!socket) return;
   try {
     execSync(`setfacl -m g:oracle:rwx '${socket}' 2>/dev/null; setfacl -m g:oracle:rx "$(dirname '${socket}')" 2>/dev/null`, { stdio: "ignore" });
@@ -81,7 +82,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   }
 
   // 2. Fallback: check fleet configs for repo mapping
-  const fleetDir = join(import.meta.dir, "../../fleet");
+  const fleetDir = FLEET_DIR;
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
@@ -118,7 +119,7 @@ export function getSessionMap(): Record<string, string> {
 
 /** Scan fleet/*.json for a config containing a window matching the oracle name */
 export function resolveFleetSession(oracle: string): string | null {
-  const fleetDir = join(import.meta.dir, "../../fleet");
+  const fleetDir = FLEET_DIR;
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));

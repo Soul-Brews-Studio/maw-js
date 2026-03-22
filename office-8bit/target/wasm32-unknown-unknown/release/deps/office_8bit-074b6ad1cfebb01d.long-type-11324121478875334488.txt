@@ -1,0 +1,13 @@
+(for<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h> fn(bevy::prelude::Commands<'a, 'b>, bevy::prelude::ResMut<'c, AgentRegistry>, bevy::prelude::Res<'d, OfficeMap>, std::option::Option<bevy::prelude::Res<'e, SpriteAssets>>, bevy::prelude::Query<'f, 'g, (bevy::prelude::Entity, &'h Agent)>) {sync_agents}, for<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i> fn(bevy::prelude::Res<'a, bevy::prelude::Time>, bevy::prelude::Query<'b, 'c, (&'d Agent, &'e bevy::prelude::Children)>, bevy::prelude::Query<'f, 'g, (&'h mut AnimationState, &'i mut bevy::prelude::TextureAtlas), bevy::prelude::With<AgentSprite>>) {animate_sprite_frames}, for<'a, 'b, 'c, 'd> fn(bevy::prelude::Res<'a, bevy::prelude::Time>, bevy::prelude::Query<'b, 'c, &'d mut bevy::prelude::Sprite, bevy::prelude::With<SaiyanGlow>>) {animate_status_indicators}, for<'a, 'b, 'c, 'd, 'e> fn(bevy::prelude::Res<'a, bevy::prelude::Time>, bevy::prelude::Query<'b, 'c, (&'d mut bevy::prelude::Transform, &'e agents::MoveTo), (bevy::prelude::With<Agent>, bevy::prelude::Without<AgentSprite>)>) {agent_movement})
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17, P18)>
+bevy::prelude::IntoSystemConfigs<(SystemConfigTupleMarker, P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17, P18, P19)>

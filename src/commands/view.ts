@@ -1,5 +1,5 @@
 import { listSessions } from "../ssh";
-import { Tmux } from "../tmux";
+import { Tmux, tmuxCmd, resolveSocket } from "../tmux";
 import { loadConfig } from "../config";
 
 export async function cmdView(agent: string, windowHint?: string, clean = false) {
@@ -53,9 +53,11 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   // Attach interactively
   const host = process.env.MAW_HOST || loadConfig().host || "white.local";
   const isLocal = host === "local" || host === "localhost";
+  const socket = resolveSocket();
   const attachArgs = isLocal
-    ? ["tmux", "attach-session", "-t", viewName]
-    : ["ssh", "-tt", host, `tmux attach-session -t '${viewName}'`];
+    ? (socket ? ["tmux", "-S", socket, "attach-session", "-t", viewName]
+              : ["tmux", "attach-session", "-t", viewName])
+    : ["ssh", "-tt", host, `${tmuxCmd()} attach-session -t '${viewName}'`];
   console.log(`\x1b[36mattach\x1b[0m  → ${viewName}${clean ? " (clean)" : ""}`);
   const proc = Bun.spawn(attachArgs, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
   const exitCode = await proc.exited;
