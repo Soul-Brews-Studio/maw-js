@@ -42,23 +42,25 @@ export const MissionControl = memo(function MissionControl({
     if (pinnedPreview) setShowSearch(false);
   }, [pinnedPreview]);
 
-  // Auto-pin preview for the first busy agent (when none is pinned by user)
-  const lastAutoPinned = useRef<string | null>(null);
+  // Auto-pin preview when a NEW agent becomes busy (don't replace existing, don't auto-hide)
+  const seenBusy = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (pinnedByUser.current) return; // user pinned something manually, don't override
-    const busyAgent = agents.find(a => a.status === "busy");
-    if (busyAgent && busyAgent.target !== lastAutoPinned.current) {
-      lastAutoPinned.current = busyAgent.target;
-      const room = roomStyle(busyAgent.session);
-      // Position at center-right of the viewport
+    if (pinnedPreview) return; // already showing a popup — don't replace
+    const busyAgents = agents.filter(a => a.status === "busy");
+    // Find a newly busy agent we haven't shown yet
+    const newBusy = busyAgents.find(a => !seenBusy.current.has(a.target));
+    if (newBusy) {
+      seenBusy.current.add(newBusy.target);
+      const room = roomStyle(newBusy.session);
       const pos = { x: window.innerWidth / 2 + 50, y: 80 };
-      setPinnedPreview({ agent: busyAgent, room: { label: room.label, accent: room.accent }, pos, svgX: 600, svgY: 500 });
-    } else if (!busyAgent && lastAutoPinned.current && !pinnedByUser.current) {
-      // No busy agents — clear auto-pin
-      lastAutoPinned.current = null;
-      setPinnedPreview(null);
+      pinnedByUser.current = true; // treat as user-pinned so it stays until manually closed
+      setPinnedPreview({ agent: newBusy, room: { label: room.label, accent: room.accent }, pos, svgX: 600, svgY: 500 });
     }
-  }, [agents]);
+    // Clean up seen set when agents go idle (so they can trigger again next time)
+    for (const target of seenBusy.current) {
+      if (!busyAgents.find(a => a.target === target)) seenBusy.current.delete(target);
+    }
+  }, [agents, pinnedPreview]);
 
   // Cmd+K or Ctrl+K to toggle search
   useEffect(() => {
