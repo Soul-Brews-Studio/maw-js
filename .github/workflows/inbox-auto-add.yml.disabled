@@ -2,7 +2,7 @@ name: Auto-add to Pulse Inbox
 
 on:
   issues:
-    types: [opened, closed]
+    types: [opened]
   pull_request:
     types: [opened, closed]
 
