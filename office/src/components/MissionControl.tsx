@@ -43,23 +43,38 @@ export const MissionControl = memo(function MissionControl({
   }, [pinnedPreview]);
 
   // Multi-card: track all busy agents, user can dismiss individually
+  const [multiMode, setMultiMode] = useState(() => localStorage.getItem("office-multiview") !== "0");
   const [multiCards, setMultiCards] = useState<Set<string>>(new Set());
   const seenBusy = useRef<Set<string>>(new Set());
+
+  // Listen for toggle from FloatingButtons
+  useEffect(() => {
+    const handler = (e: Event) => setMultiMode((e as CustomEvent).detail);
+    window.addEventListener("multiview-change", handler);
+    return () => window.removeEventListener("multiview-change", handler);
+  }, []);
   useEffect(() => {
     const busyAgents = agents.filter(a => a.status === "busy");
-    let changed = false;
     for (const a of busyAgents) {
       if (!seenBusy.current.has(a.target)) {
         seenBusy.current.add(a.target);
-        setMultiCards(prev => new Set([...prev, a.target]));
-        changed = true;
+        if (multiMode) {
+          // Multi: add to card set
+          setMultiCards(prev => new Set([...prev, a.target]));
+        } else {
+          // Single: replace pinned preview with newest
+          const room = roomStyle(a.session);
+          const pos = { x: window.innerWidth / 2 + 50, y: 80 };
+          pinnedByUser.current = true;
+          setPinnedPreview({ agent: a, room: { label: room.label, accent: room.accent }, pos, svgX: 600, svgY: 500 });
+        }
       }
     }
     // Clean up seen set when agents go idle
     for (const target of seenBusy.current) {
       if (!busyAgents.find(a => a.target === target)) seenBusy.current.delete(target);
     }
-  }, [agents]);
+  }, [agents, multiMode]);
   const dismissCard = useCallback((target: string) => {
     setMultiCards(prev => { const next = new Set(prev); next.delete(target); return next; });
   }, []);

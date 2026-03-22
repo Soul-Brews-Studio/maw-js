@@ -24,6 +24,7 @@ import { unlockAudio, isAudioUnlocked, setSoundMuted, SOUND_PROFILES, getSoundPr
 function FloatingButtons() {
   const [showSounds, setShowSounds] = useState(false);
   const [current, setCurrent] = useState(getSoundProfile());
+  const [multiView, setMultiView] = useState(() => localStorage.getItem("office-multiview") !== "0");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,6 +54,18 @@ function FloatingButtons() {
         style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.25)", color: "#a855f7" }}
         title="Change notification sound"
       >{SOUND_PROFILES.find(p => p.id === current)?.emoji || "🔔"}</button>
+
+      <button
+        onClick={() => {
+          const next = !multiView;
+          setMultiView(next);
+          localStorage.setItem("office-multiview", next ? "1" : "0");
+          window.dispatchEvent(new CustomEvent("multiview-change", { detail: next }));
+        }}
+        className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl backdrop-blur-xl active:scale-90 cursor-pointer transition-all shadow-lg"
+        style={{ background: multiView ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)", border: `1px solid ${multiView ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.1)"}`, color: multiView ? "#22c55e" : "#666" }}
+        title={multiView ? "Multi-card view (click for single)" : "Single card view (click for multi)"}
+      >{multiView ? "📺" : "1️⃣"}</button>
 
       {showSounds && (
         <div className="absolute right-16 top-[8.5rem] rounded-2xl overflow-hidden" style={{ background: "rgba(13,13,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)", minWidth: 200 }}>
