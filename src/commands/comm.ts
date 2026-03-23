@@ -2,9 +2,6 @@ import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCom
 import { loadConfig } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
-import { appendFile, mkdir } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
 
 /** Resolve which sessions to search for an oracle query (#86). */
 function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
@@ -107,25 +104,5 @@ export async function cmdSend(query: string, message: string, force = false) {
 
   await sendKeys(target, message);
   await runHook("after_send", { to: query, message });
-
-  // Built-in log — every maw hey is recorded (for 'AI คุยกัน' blog)
-  const logDir = join(homedir(), ".oracle");
-  const logFile = join(logDir, "maw-log.jsonl");
-  const host = (await import("os")).hostname();
-  const cwdName = (await import("path")).basename(process.cwd());
-  const oracleMatch = cwdName.match(/^([^/]+)-oracle$/);
-  const from = process.env.CLAUDE_AGENT_NAME || (oracleMatch ? oracleMatch[1] : (cwdName === "mr-zero" ? "mr-zero" : "inwpong"));
-  const sid = process.env.CLAUDE_SESSION_ID || null;
-  const line = JSON.stringify({ ts: new Date().toISOString(), from, to: query, target, msg: message, host, sid }) + "\n";
-  try { await mkdir(logDir, { recursive: true }); await appendFile(logFile, line); } catch {}
-
-  // Signal inbox — write to target's inbox so parent hook can read (#81)
-  const inboxDir = join(homedir(), ".oracle", "inbox");
-  const inboxTarget = query.replace(/[^a-zA-Z0-9_-]/g, "");
-  if (inboxTarget) {
-    const signal = JSON.stringify({ ts: new Date().toISOString(), from, type: "msg", msg: message, thread: null }) + "\n";
-    try { await mkdir(inboxDir, { recursive: true }); await appendFile(join(inboxDir, `${inboxTarget}.jsonl`), signal); } catch {}
-  }
-
   console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
 }

@@ -380,44 +380,10 @@ app.post("/api/worktrees/cleanup", async (c) => {
   }
 });
 
-// --- Token Usage ---
-import { loadIndex, buildIndex, summarize, realtimeRate } from "./token-index";
-
-app.get("/api/tokens", (c) => {
-  const rebuild = c.req.query("rebuild") === "1";
-  const index = rebuild ? buildIndex() : loadIndex();
-  if (index.sessions.length === 0) return c.json({ error: "No index. GET /api/tokens?rebuild=1" }, 404);
-  return c.json({ ...summarize(index), updatedAt: index.updatedAt });
-});
-
-app.get("/api/tokens/rate", (c) => {
-  const mode = c.req.query("mode") || "hour"; // "hour" = current clock hour, "window" = sliding window
-  if (mode === "window") {
-    const window = Math.min(7200, Math.max(60, +(c.req.query("window") || "300")));
-    return c.json(realtimeRate(window));
-  }
-  // Current clock hour: from XX:00:00 to now
-  const now = new Date();
-  const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0);
-  const elapsed = Math.max(1, Math.round((now.getTime() - hourStart.getTime()) / 1000));
-  const result = realtimeRate(elapsed);
-  return c.json({ ...result, hour: now.getHours(), elapsed });
-});
-
-// --- Maw Log (Oracle chat history) ---
-import { readLog } from "./maw-log";
-
-app.get("/api/maw-log", (c) => {
-  const from = c.req.query("from");
-  const to = c.req.query("to");
-  const limit = Math.min(500, +(c.req.query("limit") || "200"));
-  let entries = readLog();
-  if (from) entries = entries.filter(e => e.from === from || e.to === from);
-  if (to) entries = entries.filter(e => e.to === to || e.from === to);
-  const total = entries.length;
-  entries = entries.slice(-limit);
-  return c.json({ entries, total });
-});
+// Token + maw-log APIs removed — use POST /api/feed for all events
+app.get("/api/tokens", (c) => c.json({ error: "removed — use /api/feed" }, 410));
+app.get("/api/tokens/rate", (c) => c.json({ totalTokens: 0, totalPerMin: 0, inputPerMin: 0, outputPerMin: 0, inputTokens: 0, outputTokens: 0, turns: 0 }));
+app.get("/api/maw-log", (c) => c.json({ entries: [], total: 0 }));
 
 // --- Oracle Feed (in-memory, HTTP push) ---
 const feedBuffer: FeedEvent[] = [];
@@ -513,67 +479,7 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   return server;
 }
 
-// --- Auto Status Heartbeat (every 15 min) ---
-import { appendFileSync } from "fs";
-import { MAW_LOG_PATH } from "./maw-log";
-
-import { describeActivity } from "./lib/feed";
-
-function statusHeartbeat() {
-  try {
-    const cutoff = Date.now() - 15 * 60_000;
-    const events = feedBuffer.filter(e => e.ts >= cutoff);
-    if (events.length === 0) return;
-
-    // Only count real work events (tool uses, prompts)
-    const workEvents = events.filter(e =>
-      e.event === "PreToolUse" || e.event === "PostToolUse" ||
-      e.event === "UserPromptSubmit" || e.event === "SubagentStart"
-    );
-    if (workEvents.length === 0) return;
-
-    // Group by parent oracle (neo-mawjs → neo, hermes-bitkub → hermes)
-    const byParent = new Map<string, { tools: number; projects: Set<string>; lastActivity: string }>();
-    for (const e of workEvents) {
-      // Extract parent: "neo-oracle" → "neo", "hermes-bitkub" → "hermes", "neo-mawjs" → "neo"
-      const parent = e.oracle.split("-")[0];
-      const prev = byParent.get(parent) || { tools: 0, projects: new Set(), lastActivity: "" };
-      prev.tools++;
-      const proj = e.project.split("/").pop() || "";
-      if (proj) prev.projects.add(proj);
-      prev.lastActivity = describeActivity(e);
-      byParent.set(parent, prev);
-    }
-
-    // Token rate for the same window
-    const rate = realtimeRate(15 * 60);
-    const fmt = (n: number) => n >= 1e9 ? `${(n/1e9).toFixed(1)}B` : n >= 1e6 ? `${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : `${n}`;
-
-    // Build readable multiline
-    const lines = [...byParent.entries()]
-      .sort((a, b) => b[1].tools - a[1].tools)
-      .map(([name, data]) => `${name}: ${data.tools} actions`);
-
-    const msg = `${byParent.size} oracles, ${workEvents.length} actions\n${lines.join("\n")}\n${fmt(rate.totalPerMin)} tok/min (${fmt(rate.inputPerMin)} in, ${fmt(rate.outputPerMin)} out)`;
-
-    const entry = JSON.stringify({
-      ts: new Date().toISOString(),
-      from: "system",
-      to: "all",
-      msg,
-      ch: "heartbeat",
-    }) + "\n";
-
-    appendFileSync(MAW_LOG_PATH, entry);
-  } catch {}
-}
-
 // Auto-start unless imported by CLI (CLI sets MAW_CLI=1)
 if (!process.env.MAW_CLI) {
-  const server = startServer();
-  // Start heartbeat after 1 min, then every 15 min
-  setTimeout(() => {
-    statusHeartbeat();
-    setInterval(statusHeartbeat, 15 * 60 * 1000);
-  }, 60_000);
+  startServer();
 }

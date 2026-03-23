@@ -12,8 +12,6 @@ import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, c
 import { cmdFleetInit } from "./commands/fleet-init";
 import { cmdDone } from "./commands/done";
 import { cmdSleepOne } from "./commands/sleep";
-import { cmdLogLs, cmdLogExport, cmdLogChat } from "./commands/log";
-import { cmdTokens } from "./commands/tokens";
 import { cmdTab } from "./commands/tab";
 import { cmdTalkTo } from "./commands/talk-to";
 
@@ -120,50 +118,6 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdFleetSync();
 } else if (cmd === "fleet" && !args[1]) {
   await cmdFleetLs();
-} else if (cmd === "log") {
-  const sub = args[1]?.toLowerCase();
-  if (sub === "export") {
-    const logOpts: { date?: string; from?: string; to?: string; format?: string } = {};
-    for (let i = 2; i < args.length; i++) {
-      if (args[i] === "--date" && args[i + 1]) logOpts.date = args[++i];
-      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
-      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
-      else if (args[i] === "--format" && args[i + 1]) logOpts.format = args[++i];
-    }
-    cmdLogExport(logOpts);
-  } else if (sub === "chat") {
-    const logOpts: { limit?: number; from?: string; to?: string; pair?: string } = {};
-    for (let i = 2; i < args.length; i++) {
-      if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
-      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
-      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
-      else if (args[i] === "--pair" && args[i + 1]) logOpts.pair = args[++i];
-      else if (!args[i].startsWith("--")) logOpts.pair = args[i]; // shorthand: maw log chat neo
-    }
-    cmdLogChat(logOpts);
-  } else {
-    const logOpts: { limit?: number; from?: string; to?: string } = {};
-    for (let i = 1; i < args.length; i++) {
-      if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
-      else if (args[i] === "--from" && args[i + 1]) logOpts.from = args[++i];
-      else if (args[i] === "--to" && args[i + 1]) logOpts.to = args[++i];
-    }
-    cmdLogLs(logOpts);
-  }
-} else if (cmd === "chat") {
-  // Shorthand: maw chat [oracle] = maw log chat [oracle]
-  const logOpts: { limit?: number; pair?: string } = {};
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === "--limit" && args[i + 1]) logOpts.limit = +args[++i];
-    else if (!args[i].startsWith("--")) logOpts.pair = args[i];
-  }
-  cmdLogChat(logOpts);
-} else if (cmd === "tokens" || cmd === "usage") {
-  const rebuild = args.includes("--rebuild") || args.includes("--reindex");
-  const json = args.includes("--json");
-  const topIdx = args.indexOf("--top");
-  const top = topIdx >= 0 ? +args[topIdx + 1] : undefined;
-  cmdTokens({ rebuild, json, top });
 } else if (cmd === "done" || cmd === "finish") {
   if (!args[1]) { console.error("usage: maw done <window-name>\n       e.g. maw done neo-freelance"); process.exit(1); }
   await cmdDone(args[1]);
