@@ -81,6 +81,8 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
     await tmux.newGroupedSession(sessionName, ptySessionName, {
       cols: c, rows: r, window: windowPart || undefined,
     });
+    // Hide status bar in PTY sessions so it doesn't appear in terminal output
+    await tmux.setOption(ptySessionName, "status", "off").catch(() => {});
   } catch {
     ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
     return;
