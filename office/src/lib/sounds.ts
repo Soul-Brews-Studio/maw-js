@@ -133,7 +133,7 @@ function playBell() {
 }
 
 /** Play notification sound based on current profile */
-export function playSaiyanSound() {
+export function playNotificationSound() {
   if (!unlocked || _muted) return;
   switch (_soundProfile) {
     case "saiyan": playSaiyanInternal(); break;
@@ -151,7 +151,7 @@ export function previewSound(profile: SoundProfile) {
   _muted = false;
   const prevProfile = _soundProfile;
   _soundProfile = profile;
-  playSaiyanSound();
+  playNotificationSound();
   _soundProfile = prevProfile;
   _muted = prev;
 }

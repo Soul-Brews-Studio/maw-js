@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Session, AgentState, PaneStatus, AgentEvent } from "../lib/types";
 import { stripAnsi } from "../lib/ansi";
 import { agentSortKey } from "../lib/constants";
-import { playSaiyanSound } from "../lib/sounds";
+import { playNotificationSound } from "../lib/sounds";
 import { useFleetStore } from "../lib/store";
 import { activeOracles, describeActivity, type FeedEvent, type FeedEventType } from "../lib/feed";
 import type { AskType } from "../lib/types";
@@ -83,7 +83,7 @@ export function useSessions() {
         const now = Date.now();
         if (now - lastSoundTime.current > 10_000) {
           lastSoundTime.current = now;
-          playSaiyanSound();
+          playNotificationSound();
         }
         if (existing && existing.status !== "busy") addEvent(target, "status", `${existing.status} → busy`);
         clearSlept(target);
