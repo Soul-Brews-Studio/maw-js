@@ -11,6 +11,7 @@ import { OverviewGrid } from "./components/OverviewGrid";
 import { OrbitalView } from "./components/OrbitalView";
 import { VSView } from "./components/VSView";
 import { ConfigView } from "./components/ConfigView";
+import { TeamPanel } from "./components/TeamPanel";
 import { TerminalView } from "./components/TerminalView";
 import { InboxOverlay } from "./components/InboxView";
 import { WorktreeView } from "./components/WorktreeView";
@@ -371,6 +372,14 @@ export function App() {
     return (
       <Layout activeView="worktrees" {...layoutProps}>
         <WorktreeView />
+      </Layout>
+    );
+  }
+
+  if (route === "teams") {
+    return (
+      <Layout activeView="teams" {...layoutProps}>
+        <TeamPanel />
       </Layout>
     );
   }
