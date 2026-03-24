@@ -11,6 +11,7 @@ interface XTerminalProps {
   onNavigate: (dir: -1 | 1) => void;
   siblings: AgentState[];
   onSelectSibling: (agent: AgentState) => void;
+  readOnly?: boolean;
 }
 
 // Catppuccin Mocha palette (matches AC array in ansi.ts)
@@ -38,7 +39,7 @@ const THEME = {
   brightWhite: "#ffffff",
 };
 
-export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibling }: XTerminalProps) {
+export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibling, readOnly = false }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Keep callbacks in refs so terminal effect doesn't re-run on every render
@@ -60,8 +61,9 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
       fontFamily: "Monaco, 'Cascadia Code', 'Fira Code', monospace",
       fontSize: 13,
       lineHeight: 1.35,
-      cursorBlink: true,
-      cursorStyle: "bar",
+      cursorBlink: !readOnly,
+      cursorStyle: readOnly ? "underline" : "bar",
+      disableStdin: readOnly,
     });
 
     const fit = new FitAddon();
@@ -135,25 +137,28 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
         term.write("\r\n\x1b[31m[connection closed]\x1b[0m\r\n");
       };
 
-      // Keystrokes → binary to PTY stdin
-      const encoder = new TextEncoder();
-      dataSub = term.onData((data) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(encoder.encode(data));
-        }
-      });
+      if (!readOnly) {
+        // Keystrokes → binary to PTY stdin
+        const encoder = new TextEncoder();
+        dataSub = term.onData((data) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(encoder.encode(data));
+          }
+        });
 
-      binSub = term.onBinary((data) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const bytes = new Uint8Array(data.length);
-          for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
-          ws.send(bytes);
-        }
-      });
+        binSub = term.onBinary((data) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            const bytes = new Uint8Array(data.length);
+            for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
+            ws.send(bytes);
+          }
+        });
+      }
 
-      // Esc always goes to tmux — close modal via X button only
+      // Navigation shortcuts (work in both read-only and interactive)
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
+        if (readOnly) return false; // Block all keys in read-only
         if (e.altKey && e.key === "ArrowLeft") { onNavigateRef.current(-1); return false; }
         if (e.altKey && e.key === "ArrowRight") { onNavigateRef.current(1); return false; }
         if (e.altKey && e.key >= "1" && e.key <= "9") {
