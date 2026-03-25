@@ -19,6 +19,7 @@ import { cmdWorkon } from "./commands/workon";
 import { cmdPark, cmdParkLs, cmdResume } from "./commands/park";
 import { cmdContactsLs, cmdContactsAdd, cmdContactsRm } from "./commands/contacts";
 import { cmdInboxLs, cmdInboxRead, cmdInboxWrite } from "./commands/inbox";
+import { cmdMegaStatus, cmdMegaStop } from "./commands/mega";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -71,6 +72,9 @@ function usage() {
   maw contacts                List Oracle contacts
   maw contacts add <name>     Add/update contact (--maw, --thread, --notes)
   maw contacts rm <name>      Retire a contact (soft delete)
+  maw mega                    Show MegaAgent team hierarchy tree
+  maw mega status             Same — all teams with members + tasks
+  maw mega stop               Kill all active team panes
   maw talk-to <agent> <msg>    Thread + hey (persistent + real-time)
   maw <agent> <msg...>        Shorthand for hey
   maw <agent>                 Shorthand for peek
@@ -250,6 +254,21 @@ if (cmd === "--version" || cmd === "-v") {
   if (sub === "add" && args[2]) await cmdContactsAdd(args[2], args.slice(3));
   else if ((sub === "rm" || sub === "remove") && args[2]) await cmdContactsRm(args[2]);
   else await cmdContactsLs();
+} else if (cmd === "mega") {
+  const sub = args[1]?.toLowerCase();
+  if (sub === "status" || sub === "ls" || sub === "tree") {
+    await cmdMegaStatus();
+  } else if (sub === "stop" || sub === "kill") {
+    await cmdMegaStop();
+  } else if (!sub) {
+    await cmdMegaStatus();
+  } else {
+    console.log(`\x1b[36mmaw mega\x1b[0m — MegaAgent hierarchical multi-agent system\n`);
+    console.log(`  maw mega              Show all teams (hierarchy tree)`);
+    console.log(`  maw mega status       Same as above`);
+    console.log(`  maw mega stop         Kill all active team panes\n`);
+    console.log(`\x1b[90mTo start a MegaAgent run, use /mega-agent in Claude Code\x1b[0m`);
+  }
 } else if (cmd === "workon" || cmd === "work") {
   if (!args[1]) { console.error("usage: maw workon <repo> [task]"); process.exit(1); }
   await cmdWorkon(args[1], args[2]);
