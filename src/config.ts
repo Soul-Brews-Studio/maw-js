@@ -18,6 +18,8 @@ export interface MawConfig {
   sessions: Record<string, string>;
   tmuxSocket?: string;
   peers?: string[];
+  idleTimeoutMinutes?: number;
+  federationToken?: string;
 }
 
 const DEFAULTS: MawConfig = {
@@ -36,6 +38,10 @@ export function loadConfig(): MawConfig {
   if (cached) return cached;
   try {
     const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+    const errors = validateConfig(raw);
+    if (errors.length) {
+      console.error(`\x1b[33m⚠ maw config warnings:\x1b[0m ${errors.join("; ")}`);
+    }
     cached = { ...DEFAULTS, ...raw };
   } catch {
     cached = { ...DEFAULTS };
@@ -55,6 +61,66 @@ export function saveConfig(update: Partial<MawConfig>) {
   writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   resetConfig(); // clear cache so next loadConfig() reads fresh
   return loadConfig();
+}
+
+/** Validate config shape with native TS checks (no Zod).
+ *  Returns array of error strings — empty means valid. */
+export function validateConfig(config: unknown): string[] {
+  const errors: string[] = [];
+  if (!config || typeof config !== "object") return ["Config must be an object"];
+  const c = config as Record<string, unknown>;
+
+  if (c.host !== undefined && typeof c.host !== "string") errors.push("host must be a string");
+  if (c.port !== undefined) {
+    if (typeof c.port !== "number" || !Number.isInteger(c.port) || c.port < 1 || c.port > 65535)
+      errors.push("port must be an integer 1-65535");
+  }
+  if (c.ghqRoot !== undefined && typeof c.ghqRoot !== "string") errors.push("ghqRoot must be a string");
+  if (c.oracleUrl !== undefined && typeof c.oracleUrl !== "string") errors.push("oracleUrl must be a string");
+  if (c.tmuxSocket !== undefined && typeof c.tmuxSocket !== "string") errors.push("tmuxSocket must be a string");
+  if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
+
+  if (c.env !== undefined) {
+    if (!c.env || typeof c.env !== "object" || Array.isArray(c.env)) {
+      errors.push("env must be a Record<string, string>");
+    } else {
+      for (const [k, v] of Object.entries(c.env as Record<string, unknown>)) {
+        if (typeof v !== "string") errors.push(`env.${k} must be a string`);
+      }
+    }
+  }
+
+  if (c.commands !== undefined) {
+    if (!c.commands || typeof c.commands !== "object" || Array.isArray(c.commands)) {
+      errors.push("commands must be a Record<string, string>");
+    } else {
+      for (const [k, v] of Object.entries(c.commands as Record<string, unknown>)) {
+        if (typeof v !== "string") errors.push(`commands.${k} must be a string`);
+      }
+    }
+  }
+
+  if (c.sessions !== undefined) {
+    if (!c.sessions || typeof c.sessions !== "object" || Array.isArray(c.sessions)) {
+      errors.push("sessions must be a Record<string, string>");
+    } else {
+      for (const [k, v] of Object.entries(c.sessions as Record<string, unknown>)) {
+        if (typeof v !== "string") errors.push(`sessions.${k} must be a string`);
+      }
+    }
+  }
+
+  if (c.peers !== undefined) {
+    if (!Array.isArray(c.peers)) {
+      errors.push("peers must be a string[]");
+    } else {
+      for (let i = 0; i < c.peers.length; i++) {
+        if (typeof c.peers[i] !== "string") errors.push(`peers[${i}] must be a string`);
+      }
+    }
+  }
+
+  return errors;
 }
 
 /** Return config with env values masked for display */

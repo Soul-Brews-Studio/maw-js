@@ -24,9 +24,13 @@ import { cmdFederationStatus } from "./commands/federation";
 import { cmdReunion } from "./commands/reunion";
 import { cmdAssign } from "./commands/assign";
 import { cmdPr } from "./commands/pr";
+import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
+
+// Audit every CLI invocation
+logAudit(cmd || "", args);
 
 function usage() {
   console.log(`\x1b[36mmaw\x1b[0m — Multi-Agent Workflow
