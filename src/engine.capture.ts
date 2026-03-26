@@ -22,7 +22,7 @@ export async function pushCapture(
   }
 }
 
-/** Push 3-line preview captures for subscribed targets. */
+/** Push preview captures for subscribed targets (15 lines to catch status text like "Compacting"). */
 export async function pushPreviews(
   ws: MawWS,
   lastPreviews: Map<MawWS, Map<string, string>>,
@@ -35,7 +35,7 @@ export async function pushPreviews(
 
   await Promise.allSettled([...targets].map(async (target) => {
     try {
-      const content = await capture(target, 3);
+      const content = await capture(target, 15);
       const prev = prevMap.get(target);
       if (content !== prev) {
         prevMap.set(target, content);

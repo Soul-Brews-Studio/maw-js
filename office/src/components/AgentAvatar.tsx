@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { agentColor } from "../lib/constants";
+import { agentColor, agentIcon } from "../lib/constants";
 import type { PaneStatus } from "../lib/types";
 
 const STATUS_FX: Record<PaneStatus, { color: string; aura: number; sparkle: boolean; typing: boolean }> = {
@@ -26,6 +26,7 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
 
   const displayName = name.replace(/-oracle$/, "").replace(/-/g, " ");
   const shortName = displayName.length > 10 ? displayName.slice(0, 10) + ".." : displayName;
+  const icon = agentIcon(name);
   const isCompacting = preview.toLowerCase().includes("compacting");
 
   // Deterministic features from name hash
@@ -102,6 +103,12 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
         fill={color} stroke="#fff" strokeWidth={1.5} opacity={0.9} />
       {/* Hoodie pocket */}
       <rect x={-6} y={14} width={12} height={5} rx={2} fill="#000" opacity={0.12} />
+      {/* Oracle icon badge on hoodie */}
+      {icon && (
+        <text x={0} y={13} textAnchor="middle" fontSize={8} style={{ pointerEvents: "none" }}>
+          {icon}
+        </text>
+      )}
 
       {/* === HEAD (big round) === */}
       <circle cx={0} cy={-10} r={20} fill={color} stroke="#fff" strokeWidth={2} />
@@ -229,7 +236,7 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
         const bubbleH = 11;
         const bubbleY = featureTop - bubbleGap - bubbleH;
         const tailY = featureTop - bubbleGap;
-        const bubbleW = Math.min(80, shortName.length * 6 + 16);
+        const bubbleW = Math.min(90, (icon ? shortName.length + 2 : shortName.length) * 6 + 16);
         return (
           <g style={{ pointerEvents: "none" }}>
             <rect x={-bubbleW / 2} y={bubbleY} width={bubbleW} height={bubbleH}
@@ -241,7 +248,7 @@ export const AgentAvatar = memo(function AgentAvatar({ name, target, status, pre
             <rect x={-4} y={tailY - 1} width={8} height={2} fill="rgba(0,0,0,0.65)" />
             <text x={0} y={bubbleY + bubbleH / 2 + 2.5} textAnchor="middle"
               fill={accent} fontSize={7} fontFamily="'SF Mono', monospace" opacity={0.9}>
-              {shortName}
+              {icon ? `${icon} ${shortName}` : shortName}
             </text>
           </g>
         );

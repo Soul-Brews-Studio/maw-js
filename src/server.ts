@@ -5,6 +5,7 @@ import { dirname, resolve } from "path";
 
 const MAW_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 import { listSessions, capture, sendKeys, selectWindow } from "./ssh";
+import { getAggregatedSessions, getFederationStatus, findPeerForTarget, sendKeysToPeer } from "./peers";
 import { processMirror } from "./commands/overview";
 import { MawEngine } from "./engine";
 import { scanTeams } from "./engine.teams";
@@ -19,7 +20,11 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", cors());
 
 // API routes (keep for CLI compatibility)
-app.get("/api/sessions", async (c) => c.json(await listSessions()));
+app.get("/api/sessions", async (c) => {
+  const local = await listSessions();
+  const aggregated = await getAggregatedSessions(local);
+  return c.json(aggregated);
+});
 
 app.get("/api/capture", async (c) => {
   const target = c.req.query("target");
@@ -42,8 +47,21 @@ app.get("/api/mirror", async (c) => {
 app.post("/api/send", async (c) => {
   const { target, text } = await c.req.json();
   if (!target || !text) return c.json({ error: "target and text required" }, 400);
+
+  // Check if target is on a peer
+  const local = await listSessions();
+  const peerUrl = await findPeerForTarget(target, local);
+
+  if (peerUrl) {
+    // Route to peer
+    const ok = await sendKeysToPeer(peerUrl, target, text);
+    if (ok) return c.json({ ok: true, target, text, source: peerUrl });
+    return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+  }
+
+  // Send locally
   await sendKeys(target, text);
-  return c.json({ ok: true, target, text });
+  return c.json({ ok: true, target, text, source: "local" });
 });
 
 app.post("/api/select", async (c) => {
@@ -51,6 +69,12 @@ app.post("/api/select", async (c) => {
   if (!target) return c.json({ error: "target required" }, 400);
   await selectWindow(target);
   return c.json({ ok: true, target });
+});
+
+// Federation status — check peer connectivity
+app.get("/api/federation/status", async (c) => {
+  const status = await getFederationStatus();
+  return c.json(status);
 });
 
 // Serve React app from root (single entry point for all views)

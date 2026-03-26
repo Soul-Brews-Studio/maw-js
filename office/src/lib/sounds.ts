@@ -144,6 +144,216 @@ export function playNotificationSound() {
   }
 }
 
+// --- Per-Oracle Wake Sounds (Web Audio API) ---
+
+/** Bell ding — crisp metallic tone with harmonic overtone */
+function playWakeBell() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // Main tone: 1200Hz → 800Hz sine
+  const osc1 = audioCtx.createOscillator();
+  const gain1 = audioCtx.createGain();
+  osc1.connect(gain1);
+  gain1.connect(audioCtx.destination);
+  osc1.frequency.setValueAtTime(1200, t);
+  osc1.frequency.exponentialRampToValueAtTime(800, t + 0.15);
+  osc1.type = "sine";
+  gain1.gain.setValueAtTime(0.15, t);
+  gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  osc1.start(t);
+  osc1.stop(t + 0.5);
+  // Overtone: 2400Hz → 1600Hz sine (quieter)
+  const osc2 = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.connect(gain2);
+  gain2.connect(audioCtx.destination);
+  osc2.frequency.setValueAtTime(2400, t);
+  osc2.frequency.exponentialRampToValueAtTime(1600, t + 0.1);
+  osc2.type = "sine";
+  gain2.gain.setValueAtTime(0.08, t);
+  gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  osc2.start(t);
+  osc2.stop(t + 0.3);
+}
+
+/** Wave splash — filtered noise burst with warm undertone */
+function playWakeSplash() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // White noise burst with envelope
+  const bufferSize = audioCtx.sampleRate * 0.6;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  // Bandpass filter sweeping 2000Hz → 400Hz
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.Q.value = 2;
+  filter.frequency.setValueAtTime(2000, t);
+  filter.frequency.exponentialRampToValueAtTime(400, t + 0.5);
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.12, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+  noise.connect(filter);
+  filter.connect(noiseGain);
+  noiseGain.connect(audioCtx.destination);
+  noise.start(t);
+  noise.stop(t + 0.6);
+  // Warm sine undertone: 500Hz → 250Hz
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.frequency.setValueAtTime(500, t);
+  osc.frequency.exponentialRampToValueAtTime(250, t + 0.4);
+  osc.type = "sine";
+  gain.gain.setValueAtTime(0.1, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  osc.start(t);
+  osc.stop(t + 0.5);
+}
+
+/** Digital hum — low-frequency pulse with harmonic shimmer (Neo's signature) */
+function playWakeDigital() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // Low pulse: 220Hz square wave, fast decay
+  const osc1 = audioCtx.createOscillator();
+  const gain1 = audioCtx.createGain();
+  osc1.connect(gain1);
+  gain1.connect(audioCtx.destination);
+  osc1.frequency.setValueAtTime(220, t);
+  osc1.frequency.exponentialRampToValueAtTime(330, t + 0.2);
+  osc1.type = "square";
+  gain1.gain.setValueAtTime(0.06, t);
+  gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  osc1.start(t);
+  osc1.stop(t + 0.4);
+  // High shimmer: 1760Hz sine
+  const osc2 = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.connect(gain2);
+  gain2.connect(audioCtx.destination);
+  osc2.frequency.setValueAtTime(1760, t + 0.05);
+  osc2.frequency.exponentialRampToValueAtTime(1320, t + 0.3);
+  osc2.type = "sine";
+  gain2.gain.setValueAtTime(0.0, t);
+  gain2.gain.linearRampToValueAtTime(0.1, t + 0.05);
+  gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  osc2.start(t);
+  osc2.stop(t + 0.35);
+}
+
+/** Heartbeat pulse — warm thump-thump (Pulse's signature) */
+function playWakeHeartbeat() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const offset = i * 0.2;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.setValueAtTime(80, t + offset);
+    osc.frequency.exponentialRampToValueAtTime(40, t + offset + 0.15);
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0.2, t + offset);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.2);
+    osc.start(t + offset);
+    osc.stop(t + offset + 0.2);
+  }
+}
+
+/** Whisper whoosh — breathy filtered noise (Hermes's signature) */
+function playWakeWhisper() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const bufferSize = audioCtx.sampleRate * 0.4;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    // Smooth envelope: sine-shaped rise and fall
+    const env = Math.sin((i / bufferSize) * Math.PI);
+    data[i] = (Math.random() * 2 - 1) * env;
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.setValueAtTime(800, t);
+  filter.frequency.exponentialRampToValueAtTime(3000, t + 0.3);
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.1, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioCtx.destination);
+  noise.start(t);
+  noise.stop(t + 0.4);
+}
+
+/** Two-tone ascending chime — generic wake sound for unknown oracles */
+function playWakeGeneric() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [660, 880].forEach((freq, i) => {
+    const osc = audioCtx!.createOscillator();
+    const gain = audioCtx!.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx!.destination);
+    osc.frequency.value = freq;
+    osc.type = "sine";
+    const start = t + i * 0.15;
+    gain.gain.setValueAtTime(0.12, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
+}
+
+/** Map oracle names to wake sound functions */
+const ORACLE_WAKE_SOUNDS: Record<string, () => void> = {
+  "neo": playWakeDigital,
+  "pulse": playWakeHeartbeat,
+  "hermes": playWakeWhisper,
+  "nexus": playWakeBell,
+  "odin": playWakeSplash,
+};
+
+/** Resolve oracle name from agent window name (e.g. "neo-oracle" → "neo", "hermes-bitkub" → "hermes") */
+function resolveOracleName(agentName: string): string {
+  const lower = agentName.toLowerCase();
+  // Try exact match first, then prefix match (for worktree agents like "neo-freelance")
+  for (const name of Object.keys(ORACLE_WAKE_SOUNDS)) {
+    if (lower === name || lower === `${name}-oracle` || lower.startsWith(`${name}-`)) {
+      return name;
+    }
+  }
+  return "";
+}
+
+/** Play per-oracle wake sound when transitioning from idle/ready → busy.
+ *  Falls back to generic two-tone chime for unknown oracles. */
+export function playWakeSound(agentName: string) {
+  if (!unlocked || _muted || _soundProfile === "none") return;
+  const oracle = resolveOracleName(agentName);
+  const fn = ORACLE_WAKE_SOUNDS[oracle] || playWakeGeneric;
+  fn();
+}
+
+/** Preview a specific oracle's wake sound */
+export function previewWakeSound(agentName: string) {
+  if (!unlocked) return;
+  const prev = _muted;
+  _muted = false;
+  playWakeSound(agentName);
+  _muted = prev;
+}
+
 /** Preview a sound profile */
 export function previewSound(profile: SoundProfile) {
   if (!unlocked) return;

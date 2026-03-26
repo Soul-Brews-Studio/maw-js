@@ -17,6 +17,7 @@ export interface MawConfig {
   commands: Record<string, string>;
   sessions: Record<string, string>;
   tmuxSocket?: string;
+  peers?: string[];
 }
 
 const DEFAULTS: MawConfig = {

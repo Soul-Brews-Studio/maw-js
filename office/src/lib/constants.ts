@@ -50,6 +50,36 @@ export function agentSortKey(name: string): number {
   return AGENT_ORDER[name] ?? 999;
 }
 
+// Oracle-specific icons (unique emoji per oracle)
+export const ORACLE_ICONS: Record<string, string> = {
+  neo: "🟢",
+  pulse: "💓",
+  hermes: "📡",
+  mother: "🔮",
+  odin: "👁️",
+  pigment: "🎨",
+  calliope: "📖",
+  volt: "⚡",
+  homekeeper: "🏠",
+  floodboy: "🌊",
+  fireman: "🔥",
+  dustboychain: "💨",
+  dustboy: "💨",
+  arthur: "🗡️",
+  phukhao: "⛰️",
+  athena: "🦉",
+  thor: "⚡",
+  mycelium: "🍄",
+  apollo: "☀️",
+  nexus: "🔍",
+  xiaoer: "🍵",
+};
+
+export function agentIcon(name: string): string | undefined {
+  const key = name.replace(/-oracle$/, "").replace(/-/g, "").toLowerCase();
+  return ORACLE_ICONS[key];
+}
+
 // Agent capsule colors (deterministic by name hash)
 export const AGENT_COLORS = [
   "#ff6b6b", "#4ecdc4", "#45b7d1", "#96ceb4", "#ffa07a",

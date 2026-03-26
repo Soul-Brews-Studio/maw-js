@@ -3,7 +3,7 @@ import type { Session, AgentState, PaneStatus, AgentEvent } from "../lib/types";
 import type { Team } from "../components/TeamPanel";
 import { stripAnsi } from "../lib/ansi";
 import { agentSortKey } from "../lib/constants";
-import { playNotificationSound } from "../lib/sounds";
+import { playWakeSound } from "../lib/sounds";
 import { useFleetStore } from "../lib/store";
 import { activeOracles, describeActivity, type FeedEvent, type FeedEventType } from "../lib/feed";
 import type { AskType } from "../lib/types";
@@ -83,11 +83,11 @@ export function useSessions() {
       setCaptureData(prev => {
         const existing = prev[target];
         if (existing?.status === "busy") return prev;
-        // Play notification sound on transition to busy (10s cooldown)
+        // Play per-oracle wake sound on transition to busy (10s cooldown)
         const now = Date.now();
         if (now - lastSoundTime.current > 10_000) {
           lastSoundTime.current = now;
-          playNotificationSound();
+          playWakeSound(agent.name);
         }
         if (existing && existing.status !== "busy") addEvent(target, "status", `${existing.status} → busy`);
         clearSlept(target);
