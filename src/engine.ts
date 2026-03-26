@@ -3,8 +3,10 @@ import { registerBuiltinHandlers } from "./handlers";
 import { pushCapture, pushPreviews, broadcastSessions, sendBusyAgents } from "./engine.capture";
 import { StatusDetector } from "./engine.status";
 import { broadcastTeams } from "./engine.teams";
+import { getAggregatedSessions, getPeers } from "./peers";
 import type { FeedEvent } from "./lib/feed";
 import type { MawWS, Handler } from "./types";
+import type { Session } from "./ssh";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
@@ -16,11 +18,14 @@ export class MawEngine {
   private sessionCache = { sessions: [] as SessionInfo[], json: "" };
   private status = new StatusDetector();
 
+  private peerSessionsCache: (Session & { source?: string })[] = [];
+
   private captureInterval: ReturnType<typeof setInterval> | null = null;
   private sessionInterval: ReturnType<typeof setInterval> | null = null;
   private previewInterval: ReturnType<typeof setInterval> | null = null;
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private teamsInterval: ReturnType<typeof setInterval> | null = null;
+  private peerInterval: ReturnType<typeof setInterval> | null = null;
   private lastTeamsJson = { value: "" };
   private feedUnsub: (() => void) | null = null;
 
@@ -81,8 +86,14 @@ export class MawEngine {
       for (const ws of this.clients) this.pushCapture(ws);
     }, 50);
     this.sessionInterval = setInterval(async () => {
-      this.sessionCache.sessions = await broadcastSessions(this.clients, this.sessionCache);
+      this.sessionCache.sessions = await broadcastSessions(this.clients, this.sessionCache, this.peerSessionsCache);
     }, 5000);
+    // Fetch peer sessions every 10s for federation
+    this.peerInterval = setInterval(async () => {
+      if (getPeers().length === 0) { this.peerSessionsCache = []; return; }
+      const all = await getAggregatedSessions([]);
+      this.peerSessionsCache = all;
+    }, 10000);
     this.previewInterval = setInterval(() => {
       for (const ws of this.clients) this.pushPreviews(ws);
     }, 2000);
@@ -109,6 +120,7 @@ export class MawEngine {
     if (this.previewInterval) { clearInterval(this.previewInterval); this.previewInterval = null; }
     if (this.statusInterval) { clearInterval(this.statusInterval); this.statusInterval = null; }
     if (this.teamsInterval) { clearInterval(this.teamsInterval); this.teamsInterval = null; }
+    if (this.peerInterval) { clearInterval(this.peerInterval); this.peerInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
   }
 }

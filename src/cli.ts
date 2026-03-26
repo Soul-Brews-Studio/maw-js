@@ -20,6 +20,10 @@ import { cmdPark, cmdParkLs, cmdResume } from "./commands/park";
 import { cmdContactsLs, cmdContactsAdd, cmdContactsRm } from "./commands/contacts";
 import { cmdInboxLs, cmdInboxRead, cmdInboxWrite } from "./commands/inbox";
 import { cmdMegaStatus, cmdMegaStop } from "./commands/mega";
+import { cmdFederationStatus } from "./commands/federation";
+import { cmdReunion } from "./commands/reunion";
+import { cmdAssign } from "./commands/assign";
+import { cmdPr } from "./commands/pr";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -53,6 +57,7 @@ function usage() {
   maw done <window>            Auto-save (/rrr + commit + push) then clean up
   maw done <window> --force   Skip auto-save, kill immediately
   maw done <window> --dry-run Show what would happen
+  maw reunion [window]         Sync ψ/memory/ from worktree → main oracle repo
   maw pulse add "task" [opts] Create issue + wake oracle
   maw pulse cleanup [--dry-run] Clean stale/orphan worktrees
   maw view <agent> [window]   Grouped tmux session (interactive attach)
@@ -79,9 +84,13 @@ function usage() {
   maw mega                    Show MegaAgent team hierarchy tree
   maw mega status             Same — all teams with members + tasks
   maw mega stop               Kill all active team panes
+  maw federation status       Peer connectivity + agent counts
   maw talk-to <agent> <msg>    Thread + hey (persistent + real-time)
   maw <agent> <msg...>        Shorthand for hey
   maw <agent>                 Shorthand for peek
+  maw assign <issue-url>      Clone repo + wake oracle with issue as prompt
+  maw assign <issue-url> --oracle <name>  Explicit oracle
+  maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
   maw serve [port]            Start web UI (default: 3456)
 
 \x1b[33mWake modes:\x1b[0m
@@ -283,9 +292,28 @@ if (cmd === "--version" || cmd === "-v") {
     console.log(`  maw mega stop         Kill all active team panes\n`);
     console.log(`\x1b[90mTo start a MegaAgent run, use /mega-agent in Claude Code\x1b[0m`);
   }
+} else if (cmd === "federation" || cmd === "fed") {
+  const sub = args[1]?.toLowerCase();
+  if (!sub || sub === "status" || sub === "ls") {
+    await cmdFederationStatus();
+  } else {
+    console.error("usage: maw federation status");
+    process.exit(1);
+  }
+} else if (cmd === "reunion") {
+  await cmdReunion(args[1]);
 } else if (cmd === "workon" || cmd === "work") {
   if (!args[1]) { console.error("usage: maw workon <repo> [task]"); process.exit(1); }
   await cmdWorkon(args[1], args[2]);
+} else if (cmd === "assign") {
+  if (!args[1]) { console.error("usage: maw assign <issue-url> [--oracle <name>]"); process.exit(1); }
+  let oracle: string | undefined;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === "--oracle" && args[i + 1]) { oracle = args[++i]; }
+  }
+  await cmdAssign(args[1], { oracle });
+} else if (cmd === "pr") {
+  await cmdPr(args[1]);
 } else if (cmd === "serve") {
   const { startServer } = await import("./server");
   startServer(args[1] ? +args[1] : 3456);

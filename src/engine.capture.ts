@@ -51,21 +51,26 @@ export async function pushPreviews(
   }
 }
 
-/** Broadcast session list to all clients (only if changed). */
+/** Broadcast session list to all clients (only if changed).
+ *  peerSessions — optional extra sessions from federated peers (tagged with source).
+ *  cache.sessions always holds local-only sessions for status detection / busy-agent scanning.
+ */
 export async function broadcastSessions(
   clients: Set<MawWS>,
   cache: { sessions: SessionInfo[]; json: string },
+  peerSessions: SessionInfo[] = [],
 ): Promise<SessionInfo[]> {
   if (clients.size === 0) return cache.sessions;
   try {
-    const sessions = await tmux.listAll();
-    const json = JSON.stringify(sessions);
-    if (json === cache.json) return cache.sessions;
-    cache.sessions = sessions;
+    const local = await tmux.listAll();
+    const all = peerSessions.length > 0 ? [...local, ...peerSessions] : local;
+    const json = JSON.stringify(all);
+    if (json === cache.json) return local;
+    cache.sessions = local;
     cache.json = json;
-    const msg = JSON.stringify({ type: "sessions", sessions });
+    const msg = JSON.stringify({ type: "sessions", sessions: all });
     for (const ws of clients) ws.send(msg);
-    return sessions;
+    return local;
   } catch {
     return cache.sessions;
   }

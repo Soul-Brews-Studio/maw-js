@@ -256,6 +256,7 @@ export function useSessions() {
           status: cd?.status || "idle",
           project,
           cwd: w.cwd,
+          source: s.source && s.source !== "local" ? s.source : undefined,
         };
       })
     );

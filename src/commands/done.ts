@@ -5,6 +5,7 @@ import { readdirSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } f
 import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
+import { cmdReunion } from "./reunion";
 
 export interface DoneOpts {
   force?: boolean;
@@ -100,6 +101,13 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
       } catch (e: any) {
         console.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
       }
+    }
+
+    // Reunion: sync ψ/memory/ from worktree back to main oracle repo
+    if (!opts.dryRun) {
+      await cmdReunion(windowName);
+    } else {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would run reunion (sync ψ/memory/ to main oracle)`);
     }
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);

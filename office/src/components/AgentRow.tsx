@@ -129,6 +129,20 @@ function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, feedLog, team
             {agentTeam.name}
           </span>
         )}
+        {agent.source && (() => {
+          let peerLabel: string;
+          try {
+            const u = new URL(agent.source);
+            peerLabel = `via ${u.hostname === "localhost" || u.hostname === "127.0.0.1" ? `:${u.port}` : u.hostname}`;
+          } catch { peerLabel = `via ${agent.source}`; }
+          return (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded flex-shrink-0 flex items-center gap-1"
+              style={{ background: "rgba(168,85,247,0.15)", color: "#c084fc" }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#c084fc" }} />
+              {peerLabel}
+            </span>
+          );
+        })()}
         {agoLabel && <span className="text-[10px] font-mono text-white/25 flex-shrink-0">{agoLabel}</span>}
         {/* Last activity reason — shows what triggered busy status */}
         {!isBusy && feedLog && feedLog.length > 0 && (

@@ -8,6 +8,7 @@ export interface Window {
 export interface Session {
   name: string;
   windows: Window[];
+  source?: string;  // peer URL or "local"
 }
 
 export type PaneStatus = "ready" | "busy" | "idle";
@@ -22,6 +23,7 @@ export interface AgentState {
   status: PaneStatus;
   project?: string;
   cwd?: string;
+  source?: string;  // peer URL for federated agents, undefined = local
 }
 
 export interface AgentEvent {
