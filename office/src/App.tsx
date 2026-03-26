@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useSessions } from "./hooks/useSessions";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UniverseBg } from "./components/UniverseBg";
 import { StatusBar } from "./components/StatusBar";
 import { RoomGrid } from "./components/RoomGrid";
@@ -17,6 +18,7 @@ import { InboxOverlay } from "./components/InboxView";
 import { WorktreeView } from "./components/WorktreeView";
 import { ChatView } from "./components/ChatView";
 import { DashboardView } from "./components/DashboardView";
+import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { JumpOverlay } from "./components/JumpOverlay";
 import { OracleSearch } from "./components/OracleSearch";
@@ -145,9 +147,10 @@ function useAudioUnlock() {
 }
 
 /** Shared layout — StatusBar + overlays rendered once for all views */
-function Layout({ activeView, connected, agentCount, sessionCount, tabCount, askCount, muted, onToggleMute, onJump, onInbox, statusBarChildren, terminalModal, showShortcuts, onCloseShortcuts, jumpOverlay, inboxOverlay, broadcastModal, fullHeight, children }: {
+function Layout({ activeView, connected, reconnecting, agentCount, sessionCount, tabCount, askCount, muted, onToggleMute, onJump, onInbox, statusBarChildren, terminalModal, showShortcuts, onCloseShortcuts, jumpOverlay, inboxOverlay, broadcastModal, fullHeight, children }: {
   activeView: string;
   connected: boolean;
+  reconnecting?: boolean;
   agentCount: number;
   sessionCount: number;
   tabCount?: number;
@@ -186,6 +189,17 @@ function Layout({ activeView, connected, agentCount, sessionCount, tabCount, ask
 
       {/* Floating action buttons — top right */}
       <FloatingButtons />
+
+      {/* Connection lost overlay */}
+      {reconnecting && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto text-center px-8 py-6 rounded-2xl backdrop-blur-xl" style={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(239,68,68,0.3)" }}>
+            <div className="text-3xl mb-3 animate-pulse">📡</div>
+            <p className="font-mono text-sm" style={{ color: "#ef4444" }}>Connection lost</p>
+            <p className="font-mono text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>Reconnecting...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -274,7 +288,7 @@ export function App() {
   const muted = useFleetStore((s) => s.muted);
   const toggleMuted = useFleetStore((s) => s.toggleMuted);
   useEffect(() => { setSoundMuted(muted); }, [muted]);
-  const { connected, send } = useWebSocket(handleMessage);
+  const { connected, reconnecting, send } = useWebSocket(handleMessage);
 
   const onSelectAgent = useCallback((agent: AgentState) => {
     setSelectedAgent(agent);
@@ -310,6 +324,7 @@ export function App() {
   // Shared props for Layout
   const layoutProps = {
     connected,
+    reconnecting,
     agentCount: agents.length,
     sessionCount: sessions.length,
     tabCount: sessions.reduce((sum, s) => sum + s.windows.length, 0),
@@ -330,6 +345,17 @@ export function App() {
       {showOracleSearch && <OracleSearch onClose={() => setShowOracleSearch(false)} />}
     </>),
   };
+
+  // Show loading skeleton while WebSocket is connecting (before first sessions message)
+  const loading = !connected && agents.length === 0;
+
+  if (loading) {
+    return (
+      <Layout activeView={route} {...layoutProps}>
+        <LoadingSkeleton />
+      </Layout>
+    );
+  }
 
   if (route === "office") {
     return (
