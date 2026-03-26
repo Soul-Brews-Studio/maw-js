@@ -24,6 +24,8 @@ import { cmdFederationStatus } from "./commands/federation";
 import { cmdReunion } from "./commands/reunion";
 import { cmdAssign } from "./commands/assign";
 import { cmdPr } from "./commands/pr";
+import { cmdAudit } from "./commands/audit";
+import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -91,6 +93,7 @@ function usage() {
   maw assign <issue-url>      Clone repo + wake oracle with issue as prompt
   maw assign <issue-url> --oracle <name>  Explicit oracle
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
+  maw audit [N]               Show last N audit trail entries (default: 20)
   maw serve [port]            Start web UI (default: 3456)
 
 \x1b[33mWake modes:\x1b[0m
@@ -116,6 +119,12 @@ function usage() {
   maw pulse add "Fix IME" --oracle neo --priority P1
   maw hey neo what is your status
   maw serve 8080`);
+}
+
+// --- Audit Trail ---
+const SKIP_AUDIT = new Set(["completions", "--help", "-h", undefined]);
+if (!SKIP_AUDIT.has(cmd)) {
+  logAudit(cmd!, args.slice(1));
 }
 
 // --- Main Router ---
@@ -314,6 +323,9 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdAssign(args[1], { oracle });
 } else if (cmd === "pr") {
   await cmdPr(args[1]);
+} else if (cmd === "audit" || cmd === "log") {
+  const n = args[1] ? +args[1] : 20;
+  await cmdAudit(n);
 } else if (cmd === "serve") {
   const { startServer } = await import("./server");
   startServer(args[1] ? +args[1] : 3456);
