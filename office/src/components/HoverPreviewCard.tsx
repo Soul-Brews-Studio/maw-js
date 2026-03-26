@@ -23,12 +23,14 @@ const STATUS_COLORS: Record<string, string> = {
   busy: "#fdd835",
   ready: "#4caf50",
   idle: "#666",
+  crashed: "#ef4444",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   busy: "BUSY",
   ready: "READY",
   idle: "IDLE",
+  crashed: "CRASHED",
 };
 
 // trimCapture replaced by shared processCapture from ansi.ts

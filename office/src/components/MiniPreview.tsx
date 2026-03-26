@@ -12,6 +12,7 @@ const STATUS_COLORS: Record<string, string> = {
   busy: "#fdd835",
   ready: "#4caf50",
   idle: "#666",
+  crashed: "#ef4444",
 };
 
 export const MiniPreview = memo(function MiniPreview({ agent, accent, roomLabel }: MiniPreviewProps) {

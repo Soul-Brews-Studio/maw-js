@@ -37,9 +37,10 @@ function AgentControls({ agent, displayName, accent, inputOpen, send, onMic }: {
 }) {
   const isBusy = agent.status === "busy";
   const isIdle = agent.status === "idle";
+  const isCrashed = agent.status === "crashed";
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">
-      {/* Busy → pause (interrupt), Idle → play (wake), Ready → nothing */}
+      {/* Busy → pause, Idle/Crashed → play (wake/restart), Ready → nothing */}
       {isBusy && (
         <button
           className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
@@ -52,14 +53,14 @@ function AgentControls({ agent, displayName, accent, inputOpen, send, onMic }: {
           </svg>
         </button>
       )}
-      {isIdle && (
+      {(isIdle || isCrashed) && (
         <button
           className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90"
-          style={{ background: "rgba(34,197,94,0.12)" }}
+          style={{ background: isCrashed ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.12)" }}
           onClick={(e) => { e.stopPropagation(); send({ type: "wake", target: agent.target, command: guessCommand(agent.name) }); }}
-          title="Wake (restart)" aria-label={`Wake ${displayName}`}
+          title={isCrashed ? "Restart (crashed)" : "Wake (restart)"} aria-label={`Wake ${displayName}`}
         >
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="#22c55e"><polygon points="8,5 19,12 8,19" /></svg>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill={isCrashed ? "#ef4444" : "#22c55e"}><polygon points="8,5 19,12 8,19" /></svg>
         </button>
       )}
       <button
@@ -97,8 +98,8 @@ function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, feedLog, team
           {displayName}
         </span>
         <span className="text-[11px] font-mono px-2.5 py-1 rounded-md flex-shrink-0" style={{
-          background: isBusy ? "#ffa72620" : agent.status === "ready" ? "#22C55E18" : "rgba(255,255,255,0.06)",
-          color: isBusy ? "#ffa726" : agent.status === "ready" ? "#22C55E" : "#94A3B8",
+          background: isBusy ? "#ffa72620" : agent.status === "ready" ? "#22C55E18" : agent.status === "crashed" ? "#ef444420" : "rgba(255,255,255,0.06)",
+          color: isBusy ? "#ffa726" : agent.status === "ready" ? "#22C55E" : agent.status === "crashed" ? "#ef4444" : "#94A3B8",
         }}>
           {agent.status}
         </span>

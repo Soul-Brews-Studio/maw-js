@@ -7,6 +7,14 @@ interface AgentState {
   hash: string;
   changedAt: number;
   status: string;
+  /** Track if agent was previously running (busy/ready) — for crash detection */
+  wasRunning: boolean;
+}
+
+export interface CrashedAgent {
+  target: string;
+  name: string;
+  session: string;
 }
 
 interface SessionInfo {
@@ -33,7 +41,8 @@ function stripStatusBar(content: string): string {
 
 /**
  * Hybrid status detection: pane command + screen hash.
- * - Not running claude → idle
+ * - Shell running + was previously busy/ready → crashed
+ * - Not running claude (and wasn't running before) → idle
  * - Running claude + screen changing → busy
  * - Running claude + stable 15s → ready
  */
@@ -65,12 +74,15 @@ export class StatusDetector {
     for (const { target, name, session } of agents) {
       const cmd = (cmds[target] || "").toLowerCase();
       const isAgent = /claude|codex|node/i.test(cmd);
+      const isShell = /^(zsh|bash|sh|fish)$/.test(cmd.trim());
       const content = contentMap.get(target) || "";
       const hash = Bun.hash(stripStatusBar(content)).toString(36);
       const prev = this.state.get(target);
 
       let status: string;
-      if (!isAgent) {
+      if (!isAgent && isShell && prev?.wasRunning) {
+        status = "crashed";
+      } else if (!isAgent) {
         status = "idle";
       } else if (!prev || hash !== prev.hash) {
         status = "busy";
@@ -81,17 +93,18 @@ export class StatusDetector {
       }
 
       const changedAt = (!prev || hash !== prev.hash) ? now : prev.changedAt;
-      this.state.set(target, { hash, changedAt, status });
+      const wasRunning = isAgent ? true : (prev?.wasRunning ?? false);
+      this.state.set(target, { hash, changedAt, status, wasRunning });
 
       if (prev && status !== prev.status) {
         const event: FeedEvent = {
           timestamp: new Date().toISOString(),
           oracle: name.replace(/-oracle$/, ""),
           host: "local",
-          event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : "SessionEnd",
+          event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : status === "crashed" ? "Error" : "SessionEnd",
           project: session,
           sessionId: "",
-          message: status === "busy" ? "working" : status === "ready" ? "waiting" : "idle",
+          message: status === "busy" ? "working" : status === "ready" ? "waiting" : status === "crashed" ? "crashed" : "idle",
           ts: now,
         };
         const msg = JSON.stringify({ type: "feed", event });
@@ -99,5 +112,26 @@ export class StatusDetector {
         for (const fn of feedListeners) fn(event);
       }
     }
+  }
+
+  /** Return agents currently in "crashed" state. */
+  getCrashedAgents(sessions: SessionInfo[]): CrashedAgent[] {
+    const result: CrashedAgent[] = [];
+    for (const s of sessions) {
+      for (const w of s.windows) {
+        const target = `${s.name}:${w.index}`;
+        const state = this.state.get(target);
+        if (state?.status === "crashed") {
+          result.push({ target, name: w.name, session: s.name });
+        }
+      }
+    }
+    return result;
+  }
+
+  /** Clear crashed state for a target (after restart). */
+  clearCrashed(target: string) {
+    const s = this.state.get(target);
+    if (s) { s.wasRunning = false; s.status = "idle"; }
   }
 }

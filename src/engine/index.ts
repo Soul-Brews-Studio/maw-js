@@ -27,7 +27,6 @@ export class MawEngine {
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private teamsInterval: ReturnType<typeof setInterval> | null = null;
   private peerInterval: ReturnType<typeof setInterval> | null = null;
-  private idleCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private crashCheckInterval: ReturnType<typeof setInterval> | null = null;
   private lastTeamsJson = { value: "" };
   private feedUnsub: (() => void) | null = null;
@@ -56,7 +55,7 @@ export class MawEngine {
         this.sessionCache.sessions = sessions;
         ws.send(JSON.stringify({ type: "sessions", sessions }));
         sendBusyAgents(ws, sessions);
-      }).catch(() => { /* expected: tmux may not be available yet */ });
+      }).catch(() => {});
     }
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-50) }));
   }
@@ -66,7 +65,7 @@ export class MawEngine {
       const data = JSON.parse(msg as string);
       const handler = this.handlers.get(data.type);
       if (handler) handler(ws, data, this);
-    } catch (e) { console.error("WS message error:", e); }
+    } catch {}
   }
 
   handleClose(ws: MawWS) {
@@ -107,9 +106,6 @@ export class MawEngine {
     this.teamsInterval = setInterval(() => {
       broadcastTeams(this.clients, this.lastTeamsJson);
     }, 3000);
-
-    // Auto-cleanup idle agents every 60s
-    this.idleCleanupInterval = setInterval(() => this.cleanupIdleAgents(), 60_000);
     // Crash detection + auto-restart every 30s
     this.crashCheckInterval = setInterval(() => this.handleCrashedAgents(), 30_000);
 
@@ -129,7 +125,6 @@ export class MawEngine {
     if (this.statusInterval) { clearInterval(this.statusInterval); this.statusInterval = null; }
     if (this.teamsInterval) { clearInterval(this.teamsInterval); this.teamsInterval = null; }
     if (this.peerInterval) { clearInterval(this.peerInterval); this.peerInterval = null; }
-    if (this.idleCleanupInterval) { clearInterval(this.idleCleanupInterval); this.idleCleanupInterval = null; }
     if (this.crashCheckInterval) { clearInterval(this.crashCheckInterval); this.crashCheckInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
   }
@@ -162,29 +157,6 @@ export class MawEngine {
         for (const fn of this.feedListeners) fn(event);
       } catch {
         // Window may have been killed
-      }
-    }
-  }
-
-  /** Send /exit to agents that have been idle longer than the configured timeout. */
-  private async cleanupIdleAgents() {
-    const config = loadConfig();
-    const timeoutMin = config.idleTimeoutMinutes || 0;
-    if (timeoutMin <= 0) return;
-
-    const targets = this.status.getIdleTimedOut(timeoutMin * 60_000);
-    for (const target of targets) {
-      try {
-        // Send /exit for graceful shutdown (same pattern as maw sleep)
-        for (const ch of "/exit") {
-          await tmux.sendKeysLiteral(target, ch);
-        }
-        await tmux.sendKeys(target, "Enter");
-        this.status.clearIdle(target);
-        console.log(`\x1b[33midle-cleanup\x1b[0m sent /exit to ${target} (idle >${timeoutMin}m)`);
-      } catch {
-        // Window may already be gone
-        this.status.clearIdle(target);
       }
     }
   }

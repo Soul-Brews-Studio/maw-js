@@ -20,6 +20,7 @@ export interface MawConfig {
   peers?: string[];
   idleTimeoutMinutes?: number;
   federationToken?: string;
+  autoRestart?: boolean;
 }
 
 const DEFAULTS: MawConfig = {
@@ -34,15 +35,124 @@ const DEFAULTS: MawConfig = {
 
 let cached: MawConfig | null = null;
 
+/** Validate config values, warn on invalid fields, return sanitized config */
+function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
+  const result: Record<string, unknown> = {};
+  const warn = (field: string, msg: string) =>
+    console.warn(`[maw] config warning: ${field} ${msg}, using default`);
+
+  // host: string, non-empty
+  if ("host" in raw) {
+    if (typeof raw.host === "string" && raw.host.trim().length > 0) {
+      result.host = raw.host.trim();
+    } else {
+      warn("host", "must be a non-empty string");
+    }
+  }
+
+  // port: number, 1-65535
+  if ("port" in raw) {
+    const p = Number(raw.port);
+    if (Number.isInteger(p) && p >= 1 && p <= 65535) {
+      result.port = p;
+    } else {
+      warn("port", "must be an integer 1-65535");
+    }
+  }
+
+  // ghqRoot: string
+  if ("ghqRoot" in raw) {
+    if (typeof raw.ghqRoot === "string" && raw.ghqRoot.length > 0) {
+      result.ghqRoot = raw.ghqRoot;
+    } else {
+      warn("ghqRoot", "must be a non-empty string");
+    }
+  }
+
+  // oracleUrl: string
+  if ("oracleUrl" in raw) {
+    if (typeof raw.oracleUrl === "string" && raw.oracleUrl.length > 0) {
+      result.oracleUrl = raw.oracleUrl;
+    } else {
+      warn("oracleUrl", "must be a non-empty string");
+    }
+  }
+
+  // env: Record<string, string>
+  if ("env" in raw) {
+    if (raw.env && typeof raw.env === "object" && !Array.isArray(raw.env)) {
+      result.env = raw.env;
+    } else {
+      warn("env", "must be an object");
+    }
+  }
+
+  // commands: Record<string, string>, must have "default" if present
+  if ("commands" in raw) {
+    if (raw.commands && typeof raw.commands === "object" && !Array.isArray(raw.commands)) {
+      const cmds = raw.commands as Record<string, unknown>;
+      if (!("default" in cmds) || typeof cmds.default !== "string") {
+        warn("commands", "must include a 'default' string entry");
+      } else {
+        result.commands = cmds as Record<string, string>;
+      }
+    } else {
+      warn("commands", "must be an object");
+    }
+  }
+
+  // sessions: Record<string, string>
+  if ("sessions" in raw) {
+    if (raw.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
+      result.sessions = raw.sessions;
+    } else {
+      warn("sessions", "must be an object");
+    }
+  }
+
+  // tmuxSocket: string if present
+  if ("tmuxSocket" in raw) {
+    if (typeof raw.tmuxSocket === "string") {
+      result.tmuxSocket = raw.tmuxSocket;
+    } else {
+      warn("tmuxSocket", "must be a string");
+    }
+  }
+
+  // pin: string if present
+  if ("pin" in raw) {
+    if (typeof raw.pin === "string") {
+      result.pin = raw.pin;
+    } else {
+      warn("pin", "must be a string");
+    }
+  }
+
+  // peers: array of valid URLs if present
+  if ("peers" in raw) {
+    if (Array.isArray(raw.peers)) {
+      const valid = raw.peers.filter((p) => {
+        if (typeof p !== "string") return false;
+        try { new URL(p); return true; } catch { return false; }
+      });
+      if (valid.length !== raw.peers.length) {
+        warn("peers", `has ${raw.peers.length - valid.length} invalid URL(s), keeping valid ones`);
+      }
+      result.peers = valid;
+    } else {
+      warn("peers", "must be an array of URLs");
+    }
+  }
+
+  return result as Partial<MawConfig>;
+}
+
 export function loadConfig(): MawConfig {
   if (cached) return cached;
   try {
     const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    const errors = validateConfig(raw);
-    if (errors.length) {
-      console.error(`\x1b[33m⚠ maw config warnings:\x1b[0m ${errors.join("; ")}`);
-    }
-    cached = { ...DEFAULTS, ...raw };
+    const validated = validateConfig(raw);
+    cached = { ...DEFAULTS, ...validated };
   } catch {
     cached = { ...DEFAULTS };
   }
