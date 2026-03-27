@@ -4,280 +4,448 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Talk — ARRA Oracle</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
   body {
-    font-family: 'Noto Sans Thai', -apple-system, sans-serif;
-    background: #0a0a0f; color: #fff;
-    min-height: 100vh; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    background: #0a0a0f; color: #cdd6f4;
+    display: flex; flex-direction: column;
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Grid background */
-  .grid-bg {
-    position: fixed; inset: 0; pointer-events: none;
-    background-image: linear-gradient(rgba(100,181,246,0.02) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(100,181,246,0.02) 1px, transparent 1px);
-    background-size: 60px 60px;
-    animation: gridMove 30s linear infinite;
+  /* TOP BAR */
+  .top-bar {
+    height: 60px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: rgba(10,10,15,0.95);
   }
-  @keyframes gridMove { 100% { transform: translate(60px, 60px); } }
-
-  /* Oracle name */
+  .oracle-icon { font-size: 1.4rem; }
   .oracle-name {
-    position: fixed; top: 40px; text-align: center; z-index: 10;
+    font-size: 1.1rem; font-weight: 700;
+    letter-spacing: 3px; text-transform: uppercase;
   }
-  .oracle-name .icon { font-size: 2rem; }
-  .oracle-name .name {
-    font-size: 1.8rem; font-weight: 600; letter-spacing: 6px;
-    text-transform: uppercase; margin-top: 4px;
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #585b70; flex-shrink: 0;
   }
-  .oracle-name .sub { color: rgba(255,255,255,0.3); font-size: 0.85rem; margin-top: 4px; }
+  .status-dot.connected { background: #a6e3a1; box-shadow: 0 0 6px #a6e3a1; }
+  .status-dot.error { background: #f38ba8; }
+  .oracle-sub {
+    font-size: 0.7rem; color: rgba(255,255,255,0.3);
+    margin-left: -4px;
+  }
+  .spacer { flex: 1; }
+  .top-btn {
+    background: none; border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.4); padding: 6px 12px;
+    border-radius: 6px; font-size: 0.75rem; cursor: pointer;
+    font-family: inherit; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .top-btn:hover { color: #cdd6f4; border-color: rgba(255,255,255,0.25); }
 
-  /* The Orb — tap to awaken */
-  .orb-container {
-    position: relative; width: 220px; height: 220px;
-    cursor: pointer; -webkit-user-select: none; user-select: none;
-    z-index: 5;
+  /* TERMINAL */
+  /* BIG MIC ORB */
+  .mic-orb-wrap {
+    flex-shrink: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 20px 0 12px; gap: 8px;
+    background: rgba(10,10,15,0.6);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
   }
-  .orb {
+  .mic-orb {
+    position: relative; width: 100px; height: 100px;
+    cursor: pointer; -webkit-user-select: none;
+  }
+  .mic-orb-inner {
     width: 100%; height: 100%; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, rgba(100,181,246,0.3), rgba(100,181,246,0.05) 60%, transparent 80%);
-    border: 2px solid rgba(100,181,246,0.15);
+    background: radial-gradient(circle at 40% 35%, rgba(100,181,246,0.15), transparent 70%);
+    border: 2px solid rgba(100,181,246,0.2);
     display: flex; align-items: center; justify-content: center;
-    transition: all 0.5s ease;
-    box-shadow: 0 0 60px rgba(100,181,246,0.1), inset 0 0 40px rgba(100,181,246,0.05);
+    font-size: 2.2rem; transition: all 0.3s;
+    box-shadow: 0 0 30px rgba(100,181,246,0.08);
   }
-  .orb:active { transform: scale(0.95); }
-
-  /* Orb states */
-  .orb.idle { border-color: rgba(100,181,246,0.15); }
-  .orb.listening {
+  .mic-orb-inner:active { transform: scale(0.92); }
+  .mic-orb.listening .mic-orb-inner {
     border-color: rgba(34,197,94,0.5);
-    box-shadow: 0 0 80px rgba(34,197,94,0.2), inset 0 0 40px rgba(34,197,94,0.1);
-    animation: orbPulse 1.5s ease-in-out infinite;
+    box-shadow: 0 0 50px rgba(34,197,94,0.2);
+    animation: orbPulse 1.2s ease-in-out infinite;
   }
-  .orb.thinking {
-    border-color: rgba(251,191,36,0.5);
-    box-shadow: 0 0 80px rgba(251,191,36,0.2), inset 0 0 40px rgba(251,191,36,0.1);
-    animation: orbSpin 2s linear infinite;
-  }
-  .orb.speaking {
-    border-color: rgba(100,181,246,0.6);
-    box-shadow: 0 0 100px rgba(100,181,246,0.3), inset 0 0 50px rgba(100,181,246,0.15);
-    animation: orbSpeak 0.8s ease-in-out infinite;
-  }
-
-  @keyframes orbPulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.05); opacity: 0.9; }
-  }
-  @keyframes orbSpin {
-    0% { border-color: rgba(251,191,36,0.5); }
-    33% { border-color: rgba(251,191,36,0.2); }
-    66% { border-color: rgba(251,191,36,0.6); }
-    100% { border-color: rgba(251,191,36,0.5); }
-  }
-  @keyframes orbSpeak {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.03); }
-  }
-
-  /* Rings around orb */
-  .ring {
-    position: absolute; border-radius: 50%; border: 1px solid;
+  .mic-ring {
+    position: absolute; border-radius: 50%; border: 1px solid rgba(100,181,246,0.06);
     pointer-events: none;
   }
-  .ring-1 { inset: -15px; border-color: rgba(100,181,246,0.08); animation: ringRotate 20s linear infinite; }
-  .ring-2 { inset: -35px; border-color: rgba(100,181,246,0.04); animation: ringRotate 30s linear infinite reverse; }
-  .ring-3 { inset: -55px; border-color: rgba(100,181,246,0.02); animation: ringRotate 40s linear infinite; }
+  .mic-ring-1 { inset: -12px; animation: ringRotate 15s linear infinite; }
+  .mic-ring-2 { inset: -24px; animation: ringRotate 25s linear infinite reverse; }
+  @keyframes orbPulse {
+    0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); }
+  }
   @keyframes ringRotate { 100% { transform: rotate(360deg); } }
+  .mic-label {
+    font-size: 0.7rem; color: rgba(255,255,255,0.2);
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  .mic-label.active { color: rgba(34,197,94,0.7); }
+  .fullscreen .mic-orb-wrap { display: none; }
 
-  /* Orb inner icon */
-  .orb-icon { font-size: 3.5rem; opacity: 0.6; transition: opacity 0.3s; }
-  .orb.listening .orb-icon { opacity: 1; }
-  .orb.speaking .orb-icon { opacity: 1; }
+  .terminal-wrap {
+    flex: 1; overflow: hidden;
+    position: relative;
+  }
+  .terminal-wrap .xterm { height: 100%; }
+  .terminal-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.2); font-size: 0.85rem;
+    pointer-events: none;
+  }
+  .terminal-overlay.hidden { display: none; }
 
-  /* Status text */
-  .status {
-    margin-top: 30px; font-size: 0.9rem; color: rgba(255,255,255,0.3);
-    font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;
-    text-align: center; z-index: 5; min-height: 24px;
+  /* INPUT BAR */
+  .input-bar {
+    height: 80px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 16px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(10,10,15,0.95);
   }
-  .status.active { color: rgba(34,197,94,0.8); }
-
-  /* Chat messages */
-  .messages {
-    position: fixed; bottom: 100px; left: 20px; right: 20px;
-    max-height: 35vh; overflow-y: auto; z-index: 10;
-    display: flex; flex-direction: column; gap: 10px;
-    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  .mic-btn {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.5); font-size: 1.2rem;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.2s;
   }
-  .messages::-webkit-scrollbar { display: none; }
-  .msg {
-    padding: 12px 16px; border-radius: 16px; font-size: 0.95rem;
-    line-height: 1.5; max-width: 85%; animation: msgIn 0.3s ease-out;
-    word-break: break-word;
+  .mic-btn:hover { border-color: rgba(255,255,255,0.25); color: #cdd6f4; }
+  .mic-btn.listening {
+    border-color: #a6e3a1; color: #a6e3a1;
+    box-shadow: 0 0 12px rgba(166,227,161,0.2);
+    animation: micPulse 1.5s ease-in-out infinite;
   }
-  @keyframes msgIn { from { opacity: 0; transform: translateY(10px); } }
-  .msg.user {
-    align-self: flex-end; background: rgba(100,181,246,0.15);
-    border: 1px solid rgba(100,181,246,0.2); color: #e2e8f0;
+  @keyframes micPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
   }
-  .msg.ai {
-    align-self: flex-start; background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0;
-  }
-
-  /* Text input */
-  .input-area {
-    position: fixed; bottom: 20px; left: 20px; right: 20px;
-    display: flex; gap: 10px; z-index: 10;
-  }
-  .input-area input {
-    flex: 1; padding: 14px 18px; border-radius: 14px;
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-    color: #fff; font-size: 1rem; font-family: inherit; outline: none;
+  .input-bar input {
+    flex: 1; height: 44px; padding: 0 16px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    color: #cdd6f4; font-size: 0.9rem; font-family: inherit; outline: none;
     -webkit-appearance: none;
   }
-  .input-area input:focus { border-color: rgba(100,181,246,0.4); }
-  .input-area input::-webkit-search-cancel-button,
-  .input-area input::-webkit-clear-button,
-  .input-area input::-ms-clear { display: none; }
-  .input-area button {
-    padding: 14px 20px; border-radius: 14px; border: none;
-    background: rgba(100,181,246,0.2); color: #64b5f6;
-    font-size: 1rem; font-weight: 600; cursor: pointer;
+  .input-bar input:focus { border-color: rgba(100,181,246,0.4); }
+  .input-bar input::-webkit-search-cancel-button,
+  .input-bar input::-webkit-clear-button,
+  .input-bar input::-ms-clear { display: none; }
+  .input-bar input::placeholder { color: rgba(255,255,255,0.2); }
+  .send-btn {
+    height: 44px; padding: 0 20px; border-radius: 10px;
+    border: none; background: rgba(100,181,246,0.15);
+    color: #64b5f6; font-size: 0.85rem; font-weight: 700;
+    font-family: inherit; cursor: pointer; flex-shrink: 0;
+    letter-spacing: 1px;
   }
-  .input-area button:active { transform: scale(0.95); }
+  .send-btn:hover { background: rgba(100,181,246,0.25); }
+  .send-btn:active { transform: scale(0.96); }
+  .send-btn:disabled { opacity: 0.3; cursor: default; }
 
-  /* Hint */
-  .hint {
-    position: fixed; bottom: 75px; text-align: center;
-    width: 100%; font-size: 0.7rem; color: rgba(255,255,255,0.15);
-    font-family: 'JetBrains Mono', monospace; z-index: 5;
-  }
-
-  /* Back link */
-  .back {
-    position: fixed; top: 16px; left: 16px; z-index: 20;
-    color: rgba(255,255,255,0.3); text-decoration: none; font-size: 0.85rem;
-  }
-  .back:hover { color: #64b5f6; }
+  /* Fullscreen */
+  .fullscreen .top-bar,
+  .fullscreen .input-bar { display: none; }
+  .fullscreen .terminal-wrap { flex: 1; }
 </style>
 </head>
 <body>
 
-<div class="grid-bg"></div>
-<a class="back" href="/">← Office</a>
-
-<div class="oracle-name">
-  <div class="icon" id="oracle-icon">🟢</div>
-  <div class="name" id="oracle-title" style="color: #64b5f6;">ORACLE</div>
-  <div class="sub" id="oracle-sub">tap the orb to awaken</div>
+<!-- TOP BAR -->
+<div class="top-bar">
+  <span class="oracle-icon" id="oracleIcon">🟢</span>
+  <span class="oracle-name" id="oracleName">NEO</span>
+  <span class="status-dot" id="statusDot"></span>
+  <span class="oracle-sub" id="oracleSub">The Builder</span>
+  <div class="spacer"></div>
+  <button class="top-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+  <a class="top-btn" href="/">← Office</a>
 </div>
 
-<div class="orb-container" id="orb-container" onclick="toggleListening()">
-  <div class="ring ring-1"></div>
-  <div class="ring ring-2"></div>
-  <div class="ring ring-3"></div>
-  <div class="orb idle" id="orb">
-    <span class="orb-icon">🎙️</span>
+<!-- BIG MIC ORB -->
+<div class="mic-orb-wrap" id="micOrbWrap">
+  <div class="mic-orb" id="micOrb" onclick="toggleMic()">
+    <div class="mic-ring mic-ring-1"></div>
+    <div class="mic-ring mic-ring-2"></div>
+    <div class="mic-orb-inner" id="micOrbInner">🎙️</div>
   </div>
+  <div class="mic-label" id="micLabel">tap to talk to the oracle</div>
 </div>
 
-<div class="status" id="status">tap to speak</div>
-
-<div class="messages" id="messages"></div>
-
-<div class="hint">tap orb or type below · voice works in Thai & English</div>
-
-<div class="input-area">
-  <input type="text" id="textInput" placeholder="Type a message..."
-    inputMode="text" enterKeyHint="send" autocomplete="off" autocorrect="off">
-  <button onclick="sendText()">Send</button>
+<!-- TERMINAL -->
+<div class="terminal-wrap" id="terminalWrap">
+  <div class="terminal-overlay" id="terminalOverlay">Connecting to oracle...</div>
+  <div id="terminal" style="width:100%;height:100%;"></div>
 </div>
 
+<!-- INPUT BAR -->
+<div class="input-bar">
+  <button class="mic-btn" id="micBtn" onclick="toggleMic()">🎙️</button>
+  <input type="text" id="msgInput" placeholder="Talk to oracle..."
+    inputMode="text" enterKeyHint="send" autocomplete="off" autocorrect="off"
+    style="-webkit-appearance:none;">
+  <button class="send-btn" id="sendBtn" onclick="sendMessage()">SEND</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 <script>
-// ===== CONFIG =====
+// ===== ORACLE THEMES =====
 const ORACLE_THEMES = {
-  neo: { icon: '🟢', color: '#64b5f6', title: 'NEO', sub: 'The Builder' },
-  pulse: { icon: '💓', color: '#ef4444', title: 'PULSE', sub: 'The Manager' },
-  hermes: { icon: '📡', color: '#fbbf24', title: 'HERMES', sub: 'The Messenger' },
-  mother: { icon: '🔮', color: '#c084fc', title: 'MOTHER', sub: 'The Awakener' },
-  calliope: { icon: '📖', color: '#fb923c', title: 'CALLIOPE', sub: 'The Storyteller' },
-  pigment: { icon: '🎨', color: '#f472b6', title: 'PIGMENT', sub: 'The Designer' },
+  neo:        { icon: '🟢', color: '#64b5f6', title: 'NEO',        sub: 'The Builder' },
+  pulse:      { icon: '💓', color: '#ef4444', title: 'PULSE',      sub: 'The Manager' },
+  hermes:     { icon: '📡', color: '#fbbf24', title: 'HERMES',     sub: 'The Messenger' },
+  mother:     { icon: '🔮', color: '#c084fc', title: 'MOTHER',     sub: 'The Awakener' },
+  calliope:   { icon: '📖', color: '#fb923c', title: 'CALLIOPE',   sub: 'The Storyteller' },
+  pigment:    { icon: '🎨', color: '#f472b6', title: 'PIGMENT',    sub: 'The Designer' },
   homekeeper: { icon: '🏠', color: '#22d3ee', title: 'HOMEKEEPER', sub: 'The Guardian' },
-  odin: { icon: '👁️', color: '#a78bfa', title: 'ODIN', sub: 'The Seer' },
-  volt: { icon: '⚡', color: '#facc15', title: 'VOLT', sub: 'The Spark' },
-  arthur: { icon: '🗡️', color: '#60a5fa', title: 'ARTHUR', sub: 'The Knight' },
-  floodboy: { icon: '🌊', color: '#38bdf8', title: 'FLOODBOY', sub: 'The Watcher' },
-  fireman: { icon: '🔥', color: '#f87171', title: 'FIREMAN', sub: 'The Protector' },
-  nexus: { icon: '🔍', color: '#4ade80', title: 'NEXUS', sub: 'The Researcher' },
+  odin:       { icon: '👁️', color: '#a78bfa', title: 'ODIN',       sub: 'The Seer' },
+  volt:       { icon: '⚡', color: '#facc15', title: 'VOLT',       sub: 'The Spark' },
+  arthur:     { icon: '🗡️', color: '#60a5fa', title: 'ARTHUR',     sub: 'The Knight' },
+  floodboy:   { icon: '🌊', color: '#38bdf8', title: 'FLOODBOY',   sub: 'The Watcher' },
+  fireman:    { icon: '🔥', color: '#f87171', title: 'FIREMAN',    sub: 'The Protector' },
+  nexus:      { icon: '🔍', color: '#4ade80', title: 'NEXUS',      sub: 'The Researcher' },
 };
 
-// Detect oracle from URL: /talk/neo or default
+// ===== CONFIG =====
 const pathOracle = location.pathname.split('/').pop();
 const oracle = ORACLE_THEMES[pathOracle] ? pathOracle : 'neo';
-const theme = ORACLE_THEMES[oracle] || ORACLE_THEMES.neo;
+const theme = ORACLE_THEMES[oracle];
+
+// Host: ?host= param or current host
+const params = new URLSearchParams(location.search);
+const apiHost = params.get('host') || location.host;
+const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const httpProto = location.protocol;
 
 // Apply theme
-document.getElementById('oracle-icon').textContent = theme.icon;
-document.getElementById('oracle-title').textContent = theme.title;
-document.getElementById('oracle-title').style.color = theme.color;
-document.getElementById('oracle-sub').textContent = theme.sub;
-document.title = `${theme.title} — ARRA Oracle`;
+document.getElementById('oracleIcon').textContent = theme.icon;
+document.getElementById('oracleName').textContent = theme.title;
+document.getElementById('oracleName').style.color = theme.color;
+document.getElementById('oracleSub').textContent = theme.sub;
+document.title = `${theme.title} — Talk`;
 
-// Recolor orb
-document.querySelectorAll('.ring').forEach(r => r.style.borderColor = theme.color + '15');
-const orbEl = document.getElementById('orb');
-orbEl.style.borderColor = theme.color + '30';
-orbEl.style.background = `radial-gradient(circle at 40% 35%, ${theme.color}30, ${theme.color}08 60%, transparent 80%)`;
-orbEl.style.boxShadow = `0 0 60px ${theme.color}15, inset 0 0 40px ${theme.color}08`;
+// ===== XTERM SETUP =====
+const XTERM_THEME = {
+  background:          '#0a0a0f',
+  foreground:          '#cdd6f4',
+  cursor:              '#22d3ee',
+  cursorAccent:        '#0a0a0f',
+  selectionBackground: '#585b7066',
+  black:        '#0a0a0f',
+  red:          '#f38ba8',
+  green:        '#a6e3a1',
+  yellow:       '#f9e2af',
+  blue:         '#89b4fa',
+  magenta:      '#cba6f7',
+  cyan:         '#94e2d5',
+  white:        '#cdd6f4',
+  brightBlack:  '#585b70',
+  brightRed:    '#f38ba8',
+  brightGreen:  '#a6e3a1',
+  brightYellow: '#f9e2af',
+  brightBlue:   '#89b4fa',
+  brightMagenta:'#cba6f7',
+  brightCyan:   '#94e2d5',
+  brightWhite:  '#ffffff',
+};
 
-// ===== HOST PARAM =====
-const _hostParam = new URLSearchParams(location.search).get('host');
-const _host = _hostParam || location.host;
-function apiUrl(path) { return _hostParam ? `https://${_host}${path}` : path; }
-function wsUrl(path) { return _hostParam ? `wss://${_host}${path}` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`; }
+const term = new Terminal({
+  theme: XTERM_THEME,
+  fontFamily: "Monaco, 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace",
+  fontSize: 13,
+  lineHeight: 1.35,
+  cursorBlink: false,
+  cursorStyle: 'underline',
+  disableStdin: true,
+  scrollback: 5000,
+});
 
-// ===== STATE =====
-let state = 'idle'; // idle, listening, thinking, speaking
-let recognition = null;
-let history = [];
-let oracleTarget = ''; // tmux target e.g. "03-neo:1"
-const messagesEl = document.getElementById('messages');
-const statusEl = document.getElementById('status');
-const textInput = document.getElementById('textInput');
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+
+const termEl = document.getElementById('terminal');
+const overlayEl = document.getElementById('terminalOverlay');
+const statusDot = document.getElementById('statusDot');
+
+// Open terminal
+term.open(termEl);
+requestAnimationFrame(() => fitAddon.fit());
+
+// ===== CONNECT TO ORACLE =====
+let oracleTarget = null;
+let ws = null;
+
+async function findTarget() {
+  try {
+    const res = await fetch(`${httpProto}//${apiHost}/api/sessions`);
+    const data = await res.json();
+    const sessions = data.sessions || data;
+    for (const s of sessions) {
+      for (const w of (s.windows || [])) {
+        if (w.name === oracle || w.name === `${oracle}-oracle`) {
+          return `${s.name}:${w.index}`;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch sessions:', e);
+  }
+  return null;
+}
+
+async function connect() {
+  overlayEl.classList.remove('hidden');
+  overlayEl.textContent = 'Finding oracle session...';
+
+  oracleTarget = await findTarget();
+  if (!oracleTarget) {
+    overlayEl.textContent = `Oracle "${oracle}" not found. Retrying...`;
+    statusDot.className = 'status-dot error';
+    setTimeout(connect, 5000);
+    return;
+  }
+
+  overlayEl.textContent = `Connecting to ${oracleTarget}...`;
+
+  ws = new WebSocket(`${wsProto}//${apiHost}/ws/pty`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type: 'attach',
+      target: oracleTarget,
+      cols: term.cols,
+      rows: term.rows,
+    }));
+  };
+
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'attached') {
+          overlayEl.classList.add('hidden');
+          statusDot.className = 'status-dot connected';
+          fitAddon.fit();
+        }
+        if (msg.type === 'detached') {
+          term.write('\r\n\x1b[33m[session detached]\x1b[0m\r\n');
+          statusDot.className = 'status-dot error';
+        }
+      } catch {}
+    } else {
+      // Binary PTY data → render
+      term.write(new Uint8Array(e.data));
+    }
+  };
+
+  ws.onclose = () => {
+    statusDot.className = 'status-dot error';
+    term.write('\r\n\x1b[31m[connection closed — reconnecting...]\x1b[0m\r\n');
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {
+    statusDot.className = 'status-dot error';
+  };
+}
+
+connect();
+
+// ===== RESIZE =====
+const resizeObserver = new ResizeObserver(() => {
+  requestAnimationFrame(() => {
+    try {
+      fitAddon.fit();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    } catch {}
+  });
+});
+resizeObserver.observe(termEl);
+
+// ===== FULLSCREEN =====
+let isFullscreen = false;
+function toggleFullscreen() {
+  isFullscreen = !isFullscreen;
+  document.body.classList.toggle('fullscreen', isFullscreen);
+  document.getElementById('fullscreenBtn').textContent = isFullscreen ? '⛶ Exit' : '⛶ Fullscreen';
+  requestAnimationFrame(() => fitAddon.fit());
+}
+
+// ESC exits fullscreen
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isFullscreen) toggleFullscreen();
+});
+
+// ===== SEND MESSAGE =====
+const msgInput = document.getElementById('msgInput');
+const sendBtn = document.getElementById('sendBtn');
+
+async function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text) return;
+  msgInput.value = '';
+  sendBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${httpProto}//${apiHost}/api/talk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oracle, message: text }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      term.write(`\r\n\x1b[31m[Error: ${data.error || 'send failed'}]\x1b[0m\r\n`);
+    }
+  } catch (err) {
+    term.write(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`);
+  }
+
+  sendBtn.disabled = false;
+  msgInput.focus();
+}
+
+msgInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+// Auto-focus input
+msgInput.focus();
+setTimeout(() => { msgInput.focus(); msgInput.click(); }, 50);
 
 // ===== VOICE INPUT =====
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('micBtn');
+let recognition = null;
+let isListening = false;
 
-function setState(s) {
-  state = s;
-  orbEl.className = `orb ${s}`;
-  const labels = { idle: 'tap to speak', listening: 'listening...', thinking: 'thinking...', speaking: 'speaking...' };
-  statusEl.textContent = labels[s] || '';
-  statusEl.className = s === 'idle' ? 'status' : 'status active';
-}
-
-function toggleListening() {
-  if (state === 'listening') {
-    recognition?.stop();
-    setState('idle');
-    return;
-  }
-  if (state === 'speaking') {
-    speechSynthesis.cancel();
-    setState('idle');
-    return;
-  }
-  if (state === 'thinking') return;
-
+function toggleMic() {
   if (!SpeechRecognition) {
-    textInput.focus();
+    msgInput.focus();
+    return;
+  }
+
+  if (isListening) {
+    recognition?.stop();
+    isListening = false;
+    micBtn.classList.remove('listening');
+    document.getElementById('micOrb').classList.remove('listening');
+    document.getElementById('micLabel').textContent = 'tap to talk to the oracle';
+    document.getElementById('micLabel').classList.remove('active');
     return;
   }
 
@@ -286,264 +454,35 @@ function toggleListening() {
   recognition.interimResults = true;
   recognition.continuous = false;
 
-  recognition.onstart = () => setState('listening');
+  recognition.onstart = () => {
+    isListening = true;
+    micBtn.classList.add('listening');
+    document.getElementById('micOrb').classList.add('listening');
+    document.getElementById('micLabel').textContent = 'listening...';
+    document.getElementById('micLabel').classList.add('active');
+  };
+
   recognition.onresult = (e) => {
     const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-    statusEl.textContent = transcript || 'listening...';
-    if (e.results[0].isFinal) {
+    msgInput.value = transcript;
+    if (e.results[0].isFinal && transcript.trim()) {
       recognition.stop();
-      if (transcript.trim()) sendMessage(transcript.trim());
+      sendMessage();
     }
   };
-  recognition.onerror = () => setState('idle');
-  recognition.onend = () => { if (state === 'listening') setState('idle'); };
+
+  recognition.onend = () => {
+    isListening = false;
+    micBtn.classList.remove('listening');
+  };
+
+  recognition.onerror = () => {
+    isListening = false;
+    micBtn.classList.remove('listening');
+  };
+
   recognition.start();
 }
-
-// ===== WEBSOCKET FEED — watch oracle's output =====
-let feedWs = null;
-let currentResponseDiv = null;
-let responseTimeout = null;
-let lastFeedText = '';
-
-function connectFeed() {
-  feedWs = new WebSocket(wsUrl('/ws'));
-
-  feedWs.onopen = () => {
-    // Subscribe to oracle's terminal capture
-    feedWs.send(JSON.stringify({ type: 'subscribe', target: oracleTarget }));
-  };
-
-  feedWs.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-
-      // Session data — find our oracle's target
-      if (msg.type === 'sessions') {
-        for (const s of msg.sessions || []) {
-          for (const w of s.windows || []) {
-            if (w.name === `${oracle}-oracle`) {
-              oracleTarget = `${s.name}:${w.index}`;
-              // Subscribe to this target's capture
-              feedWs.send(JSON.stringify({ type: 'subscribe', target: oracleTarget }));
-            }
-          }
-        }
-      }
-
-      // Terminal content — this is the live stream from the oracle
-      if (msg.type === 'content' && state === 'thinking') {
-        const text = (msg.data || '').toString().trim();
-        if (text && text.length > 5) {
-          // Extract meaningful lines (skip status bars, prompts)
-          const lines = text.split('\n').filter(l => {
-            const t = l.trim();
-            if (!t) return false;
-            if (t.startsWith('❯') || t.startsWith('📁') || t.startsWith('📡') || t.startsWith('⏵⏵')) return false;
-            if (t.includes('tokens') && t.includes('context')) return false;
-            if (t.includes('bypass permissions')) return false;
-            if (t.includes('shift+tab to cycle')) return false;
-            return true;
-          });
-
-          const cleanText = lines.join('\n').trim();
-          if (cleanText && cleanText !== lastFeedText && cleanText.length > 3) {
-            lastFeedText = cleanText;
-            if (!currentResponseDiv) {
-              currentResponseDiv = document.createElement('div');
-              currentResponseDiv.className = 'msg ai';
-              messagesEl.appendChild(currentResponseDiv);
-            }
-            currentResponseDiv.textContent = cleanText;
-            currentResponseDiv.style.whiteSpace = 'pre-wrap';
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-
-            clearTimeout(responseTimeout);
-            responseTimeout = setTimeout(finishResponse, 4000);
-          }
-        }
-      }
-
-      // Also capture preview updates
-      if (msg.type === 'capture' && msg.statuses && state === 'thinking') {
-        for (const [target, info] of Object.entries(msg.statuses || {})) {
-          if (!target.includes(oracle)) continue;
-          const preview = (info && typeof info === 'object') ? (info.preview || '') : '';
-          if (preview && preview.length > 10 && preview !== lastFeedText) {
-            lastFeedText = preview;
-            if (!currentResponseDiv) {
-              currentResponseDiv = document.createElement('div');
-              currentResponseDiv.className = 'msg ai';
-              messagesEl.appendChild(currentResponseDiv);
-            }
-            currentResponseDiv.textContent = preview;
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-
-            clearTimeout(responseTimeout);
-            responseTimeout = setTimeout(finishResponse, 4000);
-          }
-        }
-      }
-    } catch {}
-  };
-  feedWs.onclose = () => setTimeout(connectFeed, 3000);
-}
-
-function finishResponse() {
-  if (currentResponseDiv) {
-    const finalText = currentResponseDiv.textContent;
-    currentResponseDiv = null;
-    lastFeedText = '';
-    speak(finalText);
-  } else {
-    setState('idle');
-  }
-}
-
-connectFeed();
-
-// ===== SEND =====
-function sendText() {
-  const text = textInput.value.trim();
-  if (!text || state === 'thinking') return;
-  textInput.value = '';
-  sendMessage(text);
-}
-
-textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendText();
-});
-
-async function sendMessage(text) {
-  addMessage(text, 'user');
-  setState('thinking');
-  currentResponseDiv = null;
-  lastFeedText = '';
-
-  try {
-    const res = await fetch(apiUrl('/api/talk'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oracle, message: text }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      addMessage(data.error || 'Oracle not found', 'ai');
-      setState('idle');
-      return;
-    }
-    oracleTarget = data.target;
-
-    // Poll terminal capture every 500ms to stream the response
-    let pollCount = 0;
-    const maxPolls = 30; // 15 seconds max
-    const pollInterval = setInterval(async () => {
-      pollCount++;
-      if (state !== 'thinking' || pollCount > maxPolls) {
-        clearInterval(pollInterval);
-        if (state === 'thinking') finishResponse();
-        return;
-      }
-      try {
-        const capRes = await fetch(apiUrl(`/api/capture?target=${encodeURIComponent(oracleTarget)}`));
-        if (!capRes.ok) return;
-        const capJson = await capRes.json();
-        // Strip ANSI escape codes
-        const capText = (capJson.content || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\[\d+m/g, '');
-
-        // Detect rate limit
-        if (capText.includes("hit your limit") || capText.includes("rate limit")) {
-          clearInterval(pollInterval);
-          addMessage("⚠️ Oracle is rate limited. Try another oracle or wait for reset.", 'ai');
-          setState('idle');
-          return;
-        }
-
-        // Find Claude's response — look for ● marker after our message
-        const allLines = capText.split('\n');
-        let responseLines = [];
-        let foundOurMsg = false;
-        let foundResponse = false;
-        for (let i = allLines.length - 1; i >= 0; i--) {
-          const t = allLines[i].trim();
-          // Find our sent message (❯ marker)
-          if (t.includes(text.slice(0, 20))) { foundOurMsg = true; break; }
-          // Skip noise
-          if (t.startsWith('❯') || !t) continue;
-          if (t.startsWith('📁') || t.startsWith('📡') || t.startsWith('⏵⏵')) continue;
-          if (t.includes('bypass permissions') || t.includes('shift+tab')) continue;
-          if (t.includes('current:') && t.includes('latest:')) continue;
-          if (t.includes('tokens') && !t.includes('●')) continue;
-          // This is response content
-          if (t.startsWith('●') || foundResponse) {
-            foundResponse = true;
-            responseLines.unshift(t.replace(/^● ?/, ''));
-          }
-        }
-
-        const cleanText = responseLines.join('\n').trim();
-        if (cleanText && cleanText.length > 3 && cleanText !== lastFeedText) {
-          lastFeedText = cleanText;
-          if (!currentResponseDiv) {
-            currentResponseDiv = document.createElement('div');
-            currentResponseDiv.className = 'msg ai';
-            messagesEl.appendChild(currentResponseDiv);
-          }
-          currentResponseDiv.textContent = cleanText;
-          currentResponseDiv.style.whiteSpace = 'pre-wrap';
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-
-          clearTimeout(responseTimeout);
-          responseTimeout = setTimeout(() => {
-            clearInterval(pollInterval);
-            finishResponse();
-          }, 4000);
-        }
-      } catch {}
-    }, 500);
-  } catch (err) {
-    addMessage(`Error: ${err.message}`, 'ai');
-    setState('idle');
-  }
-}
-
-function addMessage(text, type) {
-  const div = document.createElement('div');
-  div.className = `msg ${type}`;
-  div.textContent = text;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-// ===== SPEECH OUTPUT =====
-function speak(text) {
-  if (!speechSynthesis) { setState('idle'); return; }
-
-  // Truncate for speech (long text is annoying)
-  const shortText = text.length > 300 ? text.slice(0, 300) + '...' : text;
-
-  const utter = new SpeechSynthesisUtterance(shortText);
-  utter.lang = /[ก-๙]/.test(text) ? 'th-TH' : 'en-US';
-  utter.rate = 1.0;
-  utter.pitch = 1.0;
-
-  utter.onstart = () => setState('speaking');
-  utter.onend = () => setState('idle');
-  utter.onerror = () => setState('idle');
-
-  speechSynthesis.speak(utter);
-}
-
-// ===== KEYBOARD SHORTCUT =====
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && document.activeElement !== textInput) {
-    e.preventDefault();
-    toggleListening();
-  }
-});
-
-// ===== INIT =====
-setState('idle');
 </script>
 </body>
 </html>

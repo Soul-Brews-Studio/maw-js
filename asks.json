@@ -1,5 +1,101 @@
 [
   {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
+    "message": "## Pipeline Complete  | Step | Result | |------|--------| | **Auto-label (YOLO-World)** | 0 detections — CCTV night imagery too hard for zero-shot | | **Fallback** | Manual annotation of **7 ice bag",
+    "id": "neo-oracle-1774572286564",
+    "ts": 1774572286564
+  },
+  {
+    "oracle": "neo-maw-js",
+    "target": "03-neo:4",
+    "type": "input",
+    "message": "All clean — everything committed and pushed.   **This marathon session total:**  | Metric | Count | |--------|-------| | Issues closed | 25+ | | Issues created | 20+ | | Agent teams spawned | 12 | |",
+    "id": "neo-maw-js-1774571368057",
+    "ts": 1774571368057,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-oracle-1774571115143",
+    "ts": 1774571115143,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-oracle-1774570966655",
+    "ts": 1774570966655,
+    "dismissed": true
+  },
+  {
+    "oracle": "phukhao-oracle",
+    "target": "22-phukhao:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "phukhao-oracle-1774570480905",
+    "ts": 1774570480905
+  },
+  {
+    "oracle": "phukhao-oracle",
+    "target": "22-phukhao:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "phukhao-oracle-1774570204508",
+    "ts": 1774570204508,
+    "dismissed": true
+  },
+  {
+    "oracle": "landing",
+    "target": "",
+    "type": "input",
+    "message": "📍 **Currently at: Home (Doi Saket)**  Workshop at depa starts at 09:00 — you're still at home. Need to head out soon? How far is depa สาขาภาคเหนือตอนบน from Doi",
+    "id": "landing-1774569696884",
+    "ts": 1774569696885,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-maw-js",
+    "target": "03-neo:4",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-maw-js-1774569623109",
+    "ts": 1774569623109,
+    "dismissed": true
+  },
+  {
+    "oracle": "nat",
+    "target": "",
+    "type": "input",
+    "message": "**Zero unwelcomed. All 408 Oracles welcomed.** Nothing to do.",
+    "id": "nat-1774569350837",
+    "ts": 1774569350837
+  },
+  {
+    "oracle": "neo-maw-js",
+    "target": "03-neo:4",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-maw-js-1774568714677",
+    "ts": 1774568714677,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-oracle-1774568061388",
+    "ts": 1774568061388,
+    "dismissed": true
+  },
+  {
     "oracle": "neo-maw-js",
     "target": "03-neo:4",
     "type": "input",
@@ -23,7 +119,8 @@
     "type": "input",
     "message": "Claude is waiting for your input  ",
     "id": "neo-oracle-skills-cli-1774542837681",
-    "ts": 1774542837681
+    "ts": 1774542837681,
+    "dismissed": true
   },
   {
     "oracle": "nat",
@@ -345,105 +442,6 @@
     "message": "สรุปวิเคราะห์:  ## ปัญหา R1  **R1 ใกล้กว่า R2 ถึง 10 km แต่สัญญาณแย่กว่า:** - R1→GW: 14.3 km, RSSI **-100**,",
     "id": "fireman-oracle-1774517771253",
     "ts": 1774517771253,
-    "dismissed": true
-  },
-  {
-    "oracle": "pigment-oracle",
-    "target": "50-pigment:1",
-    "type": "input",
-    "message": "Claude is waiting for your input  ",
-    "id": "pigment-oracle-1774517650992",
-    "ts": 1774517650992,
-    "dismissed": true
-  },
-  {
-    "oracle": "mother-oracle",
-    "target": "13-mother:1",
-    "type": "input",
-    "message": "Replied to Pigment on thread #41. Key feedback:  1. **Expand 3 sections** — font มีหัว story (add the *feeling* of admitting failure), Gemini cover story (what did the bad cover look like?",
-    "id": "mother-oracle-1774517581318",
-    "ts": 1774517581318,
-    "dismissed": true
-  },
-  {
-    "oracle": "glyph-oracle",
-    "target": "",
-    "type": "input",
-    "message": "**Task 1 complete.** All 4 issues closed (#1, #2, #3, #4). Here's what you can show Dr.Do at 5:  ### Live demo (run `npx wrangler dev`)  **1. Registry** — 378 products seeded from spec ``` GET /api/",
-    "id": "glyph-oracle-1774517516995",
-    "ts": 1774517516995,
-    "dismissed": true
-  },
-  {
-    "oracle": "fireman-oracle",
-    "target": "07-fireman:1",
-    "type": "input",
-    "message": "แก้แล้ว — ระบุชัดว่าไม่มี router/mesh อื่นในพื้นที่ และเป็นข้อจำกัดของ Meshtastic MQTT ท�",
-    "id": "fireman-oracle-1774517441478",
-    "ts": 1774517441478,
-    "dismissed": true
-  },
-  {
-    "oracle": "fireman-oracle",
-    "target": "07-fireman:1",
-    "type": "input",
-    "message": "เขียนใหม่ทั้งหมด — ทุกตัวเลขมาจาก raw data ใน `fmt7-range-test-2026-03-25.md` คำนวณจากพิกัดจริง ไ�",
-    "id": "fireman-oracle-1774516970487",
-    "ts": 1774516970487,
-    "dismissed": true
-  },
-  {
-    "oracle": "glyph-oracle",
-    "target": "",
-    "type": "plan",
-    "message": "Claude Code needs your approval for the plan  ",
-    "id": "glyph-oracle-1774516447129",
-    "ts": 1774516447129,
-    "dismissed": true
-  },
-  {
-    "oracle": "neo-oracle",
-    "target": "03-neo:1",
-    "type": "plan",
-    "message": "Claude Code needs your approval for the plan  ",
-    "id": "neo-oracle-1774516418318",
-    "ts": 1774516418318,
-    "dismissed": true
-  },
-  {
-    "oracle": "pigment-oracle",
-    "target": "50-pigment:1",
-    "type": "input",
-    "message": "Claude is waiting for your input  ",
-    "id": "pigment-oracle-1774516366642",
-    "ts": 1774516366642,
-    "dismissed": true
-  },
-  {
-    "oracle": "glyph-oracle",
-    "target": "",
-    "type": "input",
-    "message": "Task 1, sequential order. Next issues:  1. **#1** — P2-1: Registry Database (3 layers + mapping tables) 2. **#2** — P2-2: Code Pattern Engine 3. **#3** — P2-3: JERA Encoder (now simplified to nu",
-    "id": "glyph-oracle-1774516033026",
-    "ts": 1774516033026,
-    "dismissed": true
-  },
-  {
-    "oracle": "glyph-oracle",
-    "target": "",
-    "type": "input",
-    "message": "Locked in. `C-0001`, min 4 digits, grows naturally. What's next?",
-    "id": "glyph-oracle-1774514883339",
-    "ts": 1774514883339,
-    "dismissed": true
-  },
-  {
-    "oracle": "neo-oracle",
-    "target": "03-neo:1",
-    "type": "input",
-    "message": "Claude is waiting for your input  ",
-    "id": "neo-oracle-1774514768635",
-    "ts": 1774514768635,
     "dismissed": true
   }
 ]
