@@ -2,12 +2,23 @@ import { tmux } from "../tmux";
 
 /**
  * maw broadcast <message> — send to ALL Claude windows across ALL sessions
+ * Always prefixes with sender identity so receivers know who broadcasted.
  */
 export async function cmdBroadcast(message: string) {
   if (!message) {
     console.error("usage: maw broadcast <message>");
     process.exit(1);
   }
+
+  // Detect sender from current tmux window
+  let sender = "unknown";
+  try {
+    sender = await tmux.run("display-message", "-p", "#{window_name}");
+    sender = sender.trim() || "unknown";
+  } catch { /* expected: may not be in tmux */ }
+
+  // Prefix message with sender
+  message = `[broadcast from ${sender}] ${message}`;
 
   const sessions = await tmux.listAll();
   let sent = 0;
