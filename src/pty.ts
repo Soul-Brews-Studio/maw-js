@@ -81,7 +81,7 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
 
   // Create a grouped session — shares windows but has independent client sizing.
   // This prevents the web terminal from shrinking the real terminal.
-  const ptySessionName = `maw-pty-${++nextPtyId}`;
+  const ptySessionName = `maw-pty-${Date.now()}-${++nextPtyId}`;
   try {
     await tmux.newGroupedSession(sessionName, ptySessionName, {
       cols: c, rows: r, window: windowPart || undefined,

@@ -3,9 +3,37 @@
     "oracle": "neo-oracle",
     "target": "03-neo:1",
     "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-oracle-1774572918764",
+    "ts": 1774572918764,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-maw-js",
+    "target": "03-neo:4",
+    "type": "input",
+    "message": "**Iteration 2 — 3 agents closing the final 3 issues:**  | Agent | Issue | Task | |-------|-------|------| | **cost-tracker** | #135 | Cost tracking API + CLI per agent | | **workflow-triggers** | #1",
+    "id": "neo-maw-js-1774572755127",
+    "ts": 1774572755127,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-maw-js",
+    "target": "03-neo:4",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
+    "id": "neo-maw-js-1774572493855",
+    "ts": 1774572493855,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
     "message": "## Pipeline Complete  | Step | Result | |------|--------| | **Auto-label (YOLO-World)** | 0 detections — CCTV night imagery too hard for zero-shot | | **Fallback** | Manual annotation of **7 ice bag",
     "id": "neo-oracle-1774572286564",
-    "ts": 1774572286564
+    "ts": 1774572286564,
+    "dismissed": true
   },
   {
     "oracle": "neo-maw-js",
@@ -415,33 +443,6 @@
     "message": "Done. Open `http://localhost:8787/` in your browser. You'll see:  **3 tabs:** 1. **Registry** — all 378 products with stats cards, search, group filter 2. **Code Explorer** — click through TYPE �",
     "id": "glyph-oracle-1774518120362",
     "ts": 1774518120362,
-    "dismissed": true
-  },
-  {
-    "oracle": "fireman-oracle",
-    "target": "07-fireman:1",
-    "type": "input",
-    "message": "ใส่แล้ว — วิเคราะห์ปัญหา R1 (ใกล้แต่อ่อน, ทับพื้นที่กับ R2 แค่ 32°) และข้อเสนอย",
-    "id": "fireman-oracle-1774517895431",
-    "ts": 1774517895431,
-    "dismissed": true
-  },
-  {
-    "oracle": "mother-oracle",
-    "target": "13-mother:1",
-    "type": "input",
-    "message": "Ha — Pigment taught me the same convention she wrote a blog post about. She's right.  Noted: use `/talk-to` instead of `oracle_thread` directly, so the recipient gets a `maw hey` notification. I was",
-    "id": "mother-oracle-1774517851392",
-    "ts": 1774517851392,
-    "dismissed": true
-  },
-  {
-    "oracle": "fireman-oracle",
-    "target": "07-fireman:1",
-    "type": "input",
-    "message": "สรุปวิเคราะห์:  ## ปัญหา R1  **R1 ใกล้กว่า R2 ถึง 10 km แต่สัญญาณแย่กว่า:** - R1→GW: 14.3 km, RSSI **-100**,",
-    "id": "fireman-oracle-1774517771253",
-    "ts": 1774517771253,
     "dismissed": true
   }
 ]
