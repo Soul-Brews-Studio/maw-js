@@ -101,27 +101,8 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
           try {
             const msg = JSON.parse(e.data);
             if (msg.type === "attached") {
-              // Force redraw: resize triggers tmux to repaint the full screen
-              setTimeout(() => {
-                try {
-                  fit.fit();
-                  if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-                  }
-                } catch {}
-              }, 500);
-              // Second redraw for slow connections
-              setTimeout(() => {
-                try {
-                  fit.fit();
-                  if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "resize", cols: term.cols + 1, rows: term.rows }));
-                    setTimeout(() => {
-                      ws?.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-                    }, 100);
-                  }
-                } catch {}
-              }, 1000);
+              // Fit terminal to container — server ignores resize for grouped sessions
+              try { fit.fit(); } catch {}
             }
             if (msg.type === "detached") {
               term.write("\r\n\x1b[33m[session detached]\x1b[0m\r\n");
