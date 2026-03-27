@@ -58,7 +58,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // ===== CONFIG =====
-const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+const _hostParam = new URLSearchParams(location.search).get('host');
+const _host = _hostParam || location.host;
+const WS_URL = _hostParam ? `wss://${_host}/ws` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${_host}/ws`;
+function apiUrl(path) { return _hostParam ? `https://${_host}${path}` : path; }
 const FLOOR_SIZE = 30;
 const MODEL_URL = 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
 const STATUS_COLORS = {

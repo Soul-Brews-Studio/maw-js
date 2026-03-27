@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { type MawLogEntry, formatDate, pairKey } from "./types";
-import { apiUrl } from "../../lib/api";
+import { apiUrl, wsUrl } from "../../lib/api";
 
 export function useChatLog(mode: string) {
   const [entries, setEntries] = useState<MawLogEntry[]>([]);
@@ -23,11 +23,10 @@ export function useChatLog(mode: string) {
 
   // Real-time: listen for WebSocket push of new maw-log entries
   useEffect(() => {
-    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${window.location.host}/ws`;
+    const url = wsUrl("/ws");
     let ws: WebSocket | null = null;
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(url);
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);

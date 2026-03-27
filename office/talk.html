@@ -237,6 +237,12 @@ orbEl.style.borderColor = theme.color + '30';
 orbEl.style.background = `radial-gradient(circle at 40% 35%, ${theme.color}30, ${theme.color}08 60%, transparent 80%)`;
 orbEl.style.boxShadow = `0 0 60px ${theme.color}15, inset 0 0 40px ${theme.color}08`;
 
+// ===== HOST PARAM =====
+const _hostParam = new URLSearchParams(location.search).get('host');
+const _host = _hostParam || location.host;
+function apiUrl(path) { return _hostParam ? `https://${_host}${path}` : path; }
+function wsUrl(path) { return _hostParam ? `wss://${_host}${path}` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`; }
+
 // ===== STATE =====
 let state = 'idle'; // idle, listening, thinking, speaking
 let recognition = null;
@@ -301,8 +307,7 @@ let responseTimeout = null;
 let lastFeedText = '';
 
 function connectFeed() {
-  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  feedWs = new WebSocket(`${wsProto}//${location.host}/ws`);
+  feedWs = new WebSocket(wsUrl('/ws'));
 
   feedWs.onopen = () => {
     // Subscribe to oracle's terminal capture
@@ -416,7 +421,7 @@ async function sendMessage(text) {
   lastFeedText = '';
 
   try {
-    const res = await fetch('/api/talk', {
+    const res = await fetch(apiUrl('/api/talk'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ oracle, message: text }),
@@ -440,7 +445,7 @@ async function sendMessage(text) {
         return;
       }
       try {
-        const capRes = await fetch(`/api/capture?target=${encodeURIComponent(oracleTarget)}`);
+        const capRes = await fetch(apiUrl(`/api/capture?target=${encodeURIComponent(oracleTarget)}`));
         if (!capRes.ok) return;
         const capJson = await capRes.json();
         // Strip ANSI escape codes

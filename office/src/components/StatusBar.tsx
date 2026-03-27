@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef, type ReactNode } from "react";
-import { apiUrl } from "../lib/api";
+import { apiUrl, isRemote } from "../lib/api";
 import { SOUND_PROFILES, getSoundProfile, setSoundProfile, previewSound, type SoundProfile } from "../lib/sounds";
 
 function SoundButton({ muted, onToggleMute }: { muted: boolean; onToggleMute: () => void }) {
@@ -115,6 +115,12 @@ export const StatusBar = memo(function StatusBar({ connected, agentCount, sessio
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? "bg-emerald-400 shadow-[0_0_6px_#4caf50]" : "bg-red-400 animate-pulse"}`} />
         {connected ? "LIVE" : "..."}
       </span>
+
+      {isRemote && (
+        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md whitespace-nowrap" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
+          {new URLSearchParams(window.location.search).get("host")}
+        </span>
+      )}
 
       <span className="text-sm text-white/70 whitespace-nowrap">
         <strong className="text-cyan-400">{agentCount}</strong> agents
