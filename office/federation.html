@@ -149,8 +149,10 @@ async function load() {
       </div>
     `).join('');
 
-    // Config for agents + peers
-    const sessions = await fetch(`${API}/api/sessions`).then(r => r.json());
+    // Load config for agents + peers
+    const config = await fetch(`${API}/api/config`).then(r => r.json()).catch(() => ({}));
+    const node = config.node || config.host || 'local';
+    document.getElementById('node-name').textContent = `node: ${node}`;
 
     // Show peers from config (no health check — avoids blocking on unreachable peers)
     try {
@@ -181,10 +183,7 @@ async function load() {
 
     // Agents from config
     try {
-      const config = await fetch(`${API}/api/config`).then(r => r.json()).catch(() => ({}));
       const agentsEl = document.getElementById('agents');
-      const node = config.node || config.host || 'local';
-      document.getElementById('node-name').textContent = `node: ${node}`;
 
       if (config.agents && Object.keys(config.agents).length > 0) {
         agentsEl.innerHTML = Object.entries(config.agents).map(([name, agentNode]) => {
