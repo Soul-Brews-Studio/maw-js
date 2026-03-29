@@ -22,7 +22,7 @@ export function createTransportRouter(): TransportRouter {
 
   // 1. Always register tmux (local fast path) — auto-connected
   const tmux = new TmuxTransport();
-  tmux.connect(); // tmux is always available locally
+  tmux.connect().catch(() => {}); // tmux is always available locally
   router.register(tmux);
 
   // 2. MQTT if configured

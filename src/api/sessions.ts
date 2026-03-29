@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listSessions, capture, sendKeys, selectWindow } from "../ssh";
+import { listSessions, capture, sendKeys, selectWindow, findWindow } from "../ssh";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../curl-fetch";
@@ -66,10 +66,11 @@ sessionsApi.post("/send", async (c) => {
     }
   }
 
-  // Send locally (target found in local tmux)
+  // Send locally — try exact target first, then fuzzy match
+  const resolved = findWindow(local, target) || target;
   try {
-    await sendKeys(target, text);
-    return c.json({ ok: true, target, text, source: "local" });
+    await sendKeys(resolved, text);
+    return c.json({ ok: true, target: resolved, text, source: "local" });
   } catch {
     return c.json({ error: `target not found: ${target}`, target }, 404);
   }
