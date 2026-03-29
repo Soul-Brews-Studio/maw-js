@@ -95,7 +95,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
     const peers = (config as any).peers || [];
     for (const peer of peers) {
       try {
-        const res = await fetch(`${peer}/api/sessions`, { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${peer}/api/sessions`, { signal: AbortSignal.timeout(10000) });
         if (!res.ok) continue;
         const sessions = await res.json();
         const list = Array.isArray(sessions) ? sessions : sessions.sessions || [];
