@@ -89,7 +89,35 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
     }
   } catch { /* fleet dir may not exist */ }
 
-  console.error(`oracle repo not found: ${oracle} (tried ${oracle}-oracle pattern and fleet configs)`);
+  // 3. Federation fallback: check peers for the oracle
+  try {
+    const config = loadConfig();
+    const peers = (config as any).peers || [];
+    for (const peer of peers) {
+      try {
+        const res = await fetch(`${peer}/api/sessions`, { signal: AbortSignal.timeout(3000) });
+        if (!res.ok) continue;
+        const sessions = await res.json();
+        const list = Array.isArray(sessions) ? sessions : sessions.sessions || [];
+        for (const s of list) {
+          const found = (s.windows || []).find((w: any) => w.name === `${oracle}-oracle` || w.name === oracle);
+          if (found) {
+            console.log(`\x1b[36m⚡\x1b[0m ${oracle} found on peer ${peer} — waking remotely`);
+            // Send wake command to peer
+            await fetch(`${peer}/api/send`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ target: `${s.name}:${found.index}`, text: "" }),
+            });
+            console.log(`\x1b[32m✓\x1b[0m ${oracle} is running on ${peer} (session ${s.name}:${found.name})`);
+            process.exit(0);
+          }
+        }
+      } catch { /* peer unreachable */ }
+    }
+  } catch { /* no peers configured */ }
+
+  console.error(`oracle repo not found: ${oracle} (tried local repos, fleet configs, and ${((loadConfig() as any).peers || []).length} peers)`);
   process.exit(1);
 }
 
