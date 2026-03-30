@@ -75,6 +75,25 @@ export async function cmdList() {
 }
 
 export async function cmdPeek(query?: string) {
+  const config = loadConfig();
+
+  // Node prefix: "white:neo-maw-js" → peek remote agent via federation
+  if (query && query.includes(":") && !query.includes("/")) {
+    const [nodeName, agentName] = query.split(":", 2);
+    const peer = config.namedPeers?.find(p => p.name === nodeName);
+    const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
+    if (peerUrl) {
+      const res = await curlFetch(`${peerUrl}/api/capture?target=${encodeURIComponent(agentName)}`);
+      if (res.ok && res.data?.content) {
+        console.log(`\x1b[36m--- ${query} (${nodeName}) ---\x1b[0m`);
+        console.log(res.data.content);
+        return;
+      }
+      console.error(`\x1b[31merror\x1b[0m: capture failed for ${agentName} on ${nodeName}${res.data?.error ? `: ${res.data.error}` : ""}`);
+      process.exit(1);
+    }
+  }
+
   const sessions = await listSessions();
   if (!query) {
     // Peek all — one line per agent
@@ -115,11 +134,12 @@ export async function cmdSend(query: string, message: string, force = false) {
         body: JSON.stringify({ target: agentName, text: message }),
       });
       if (res.ok && res.data?.ok) {
-        console.log(`\x1b[36mrouted\x1b[0m ⚡ ${nodeName} → ${res.data.target || agentName}: ${message}`);
+        console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${nodeName} → ${res.data.target || agentName}: ${message}`);
+        if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
         await runHook("after_send", { to: query, message });
         return;
       }
-      console.error(`\x1b[31merror\x1b[0m: failed to reach ${agentName} on node ${nodeName} (${peerUrl})`);
+      console.error(`\x1b[31mfailed\x1b[0m ⚡ ${nodeName} → ${agentName}: ${res.data?.error || "send failed"}`);
       process.exit(1);
     }
   }
@@ -143,7 +163,15 @@ export async function cmdSend(query: string, message: string, force = false) {
 
     await sendKeys(target, message);
     await runHook("after_send", { to: query, message });
-    console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
+    // Delivery confirmation: capture last line after brief delay
+    await Bun.sleep(150);
+    let lastLine = "";
+    try {
+      const content = await capture(target, 3);
+      lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
+    } catch {}
+    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
+    if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, 100)}\x1b[0m`);
     return;
   }
 
@@ -158,11 +186,12 @@ export async function cmdSend(query: string, message: string, force = false) {
     });
     if (res.ok && res.data?.ok) {
       const source = res.data.source === "local" ? "local" : `⚡ ${res.data.source}`;
-      console.log(`\x1b[36mrouted\x1b[0m ${source} → ${res.data.target}: ${message}`);
+      console.log(`\x1b[32mdelivered\x1b[0m ${source} → ${res.data.target}: ${message}`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
       await runHook("after_send", { to: query, message });
       return;
     }
-    console.error(`\x1b[31merror\x1b[0m: agent ${query} mapped to node "${agentNode}" but send failed`);
+    console.error(`\x1b[31mfailed\x1b[0m: agent ${query} → node "${agentNode}" — ${res.data?.error || "send failed"}`);
     process.exit(1);
   }
 

@@ -44,7 +44,14 @@ sessionsApi.post("/send", async (c) => {
 
     if (resolved) {
       await sendKeys(resolved, text);
-      return c.json({ ok: true, target: resolved, text, source: "local" });
+      // Brief delay for tmux to process, then capture last line as delivery proof
+      await Bun.sleep(150);
+      let lastLine = "";
+      try {
+        const content = await capture(resolved, 3);
+        lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
+      } catch {}
+      return c.json({ ok: true, target: resolved, text, source: "local", lastLine });
     }
 
     // Step 2: Check agent registry for remote routing
@@ -61,7 +68,7 @@ sessionsApi.post("/send", async (c) => {
           timeout: 10000,
         });
         if (res.ok && res.data?.ok) {
-          return c.json({ ok: true, target: res.data.target || target, text, source: peerUrl });
+          return c.json({ ok: true, target: res.data.target || target, text, source: peerUrl, lastLine: res.data.lastLine || "" });
         }
         return c.json({ error: `Agent ${targetName} → ${agentNode} send failed`, target, source: peerUrl }, 502);
       }
