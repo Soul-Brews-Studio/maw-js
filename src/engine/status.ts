@@ -72,8 +72,16 @@ export class StatusDetector {
 
     const cmds = await tmux.getPaneCommands(agents.map(a => a.target));
 
+    // Only capture agents without recent real feed events (avoid infinite loop:
+    // capture → hash change → synthetic event → UI update → screen change → capture)
+    const now0 = Date.now();
+    const needsCapture = agents.filter(a => {
+      const oName = a.name.replace(/-oracle$/, "");
+      const lastReal = realFeedLastSeen.get(oName) || 0;
+      return now0 - lastReal >= REAL_FEED_TTL;
+    });
     const captures = await Promise.allSettled(
-      agents.map(async a => ({ target: a.target, content: await capture(a.target, 20) }))
+      needsCapture.map(async a => ({ target: a.target, content: await capture(a.target, 20) }))
     );
     const contentMap = new Map<string, string>();
     for (const r of captures) {
@@ -85,6 +93,19 @@ export class StatusDetector {
       const cmd = (cmds[target] || "").toLowerCase();
       const isAgent = /claude|codex|node/i.test(cmd);
       const isShell = /^(zsh|bash|sh|fish)$/.test(cmd.trim());
+
+      // Skip capture + hash for agents with real feed events.
+      // Real Claude hooks are authoritative — StatusDetector only needed
+      // for agents without hooks (crashed detection, idle shells).
+      const oracleName = name.replace(/-oracle$/, "");
+      const lastReal = realFeedLastSeen.get(oracleName) || 0;
+      if (isAgent && now - lastReal < REAL_FEED_TTL) {
+        // Still update wasRunning for crash detection
+        const prev = this.state.get(target);
+        this.state.set(target, { hash: prev?.hash || "", changedAt: prev?.changedAt || now, status: prev?.status || "busy", wasRunning: true });
+        continue; // Skip capture entirely — no hash, no synthetic events
+      }
+
       const content = contentMap.get(target) || "";
       const hash = Bun.hash(stripStatusBar(content)).toString(36);
       const prev = this.state.get(target);
