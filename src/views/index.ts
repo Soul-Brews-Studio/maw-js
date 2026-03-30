@@ -8,8 +8,10 @@ import { arenaView } from "./arena";
 import { talkView } from "./talk";
 import { shrineView } from "./shrine";
 import { federationView } from "./federation";
+import { timemachineView } from "./timemachine";
 
 export function mountViews(app: Hono) {
+  app.route("/timemachine", timemachineView);
   app.route("/federation", federationView);
   app.route("/shrine", shrineView);
   app.route("/talk", talkView);

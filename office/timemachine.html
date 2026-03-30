@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet Time Machine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e0e0e0; font-family: 'JetBrains Mono', 'SF Mono', monospace; padding: 24px; max-width: 900px; margin: 0 auto; }
+  h1 { color: #64b5f6; font-size: 1.4em; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 0.85em; margin-bottom: 24px; }
+  .snapshots { display: flex; flex-direction: column; gap: 8px; }
+  .snap { background: #111118; border: 1px solid #222; border-radius: 8px; padding: 12px 16px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 16px; }
+  .snap:hover { border-color: #64b5f6; background: #12121f; }
+  .snap.active { border-color: #64b5f6; background: #0d1a2e; }
+  .snap-time { color: #64b5f6; font-size: 0.9em; white-space: nowrap; min-width: 160px; }
+  .snap-trigger { background: #1a1a2e; color: #888; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; min-width: 50px; text-align: center; }
+  .snap-trigger.wake { color: #4caf50; background: #0d1a0d; }
+  .snap-trigger.sleep { color: #ff9800; background: #1a150d; }
+  .snap-trigger.done { color: #f44336; background: #1a0d0d; }
+  .snap-trigger.manual { color: #64b5f6; background: #0d1a2e; }
+  .snap-stats { color: #666; font-size: 0.8em; }
+  .detail { margin-top: 24px; }
+  .detail h2 { color: #64b5f6; font-size: 1.1em; margin-bottom: 12px; }
+  .session-card { background: #111118; border: 1px solid #222; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; }
+  .session-name { color: #ffd54f; font-size: 0.9em; margin-bottom: 6px; }
+  .window-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .window-tag { background: #1a1a2e; color: #aaa; padding: 3px 8px; border-radius: 4px; font-size: 0.75em; }
+  .empty { color: #444; text-align: center; padding: 48px; }
+  .timeline { position: relative; margin-left: 12px; padding-left: 20px; border-left: 2px solid #222; }
+  .timeline .snap { position: relative; }
+  .timeline .snap::before { content: ''; position: absolute; left: -26px; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: #333; transform: translateY(-50%); }
+  .timeline .snap.active::before { background: #64b5f6; }
+  .back { color: #64b5f6; text-decoration: none; font-size: 0.85em; display: inline-block; margin-bottom: 16px; }
+  .back:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<a class="back" href="/#office">← back to office</a>
+<h1>Fleet Time Machine</h1>
+<div class="subtitle">Snapshots taken on every wake / sleep / done — <span id="count">loading...</span></div>
+
+<div class="snapshots timeline" id="snapshots">
+  <div class="empty">loading snapshots...</div>
+</div>
+
+<div class="detail" id="detail" style="display:none">
+  <h2 id="detail-title"></h2>
+  <div id="detail-sessions"></div>
+</div>
+
+<script>
+const API = location.origin;
+
+async function load() {
+  const snaps = await fetch(`${API}/api/snapshots`).then(r => r.json());
+  const el = document.getElementById('snapshots');
+  document.getElementById('count').textContent = `${snaps.length} snapshots`;
+
+  if (snaps.length === 0) {
+    el.innerHTML = '<div class="empty">no snapshots yet — run maw wake/sleep/done to create one</div>';
+    return;
+  }
+
+  el.innerHTML = snaps.map((s, i) => {
+    const d = new Date(s.timestamp);
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const time = `${s.file.replace('.json','')} ${days[d.getDay()]}`;
+    return `<div class="snap" data-file="${s.file}" onclick="showSnap('${s.file}', this)">
+      <div class="snap-time">${time}</div>
+      <div class="snap-trigger ${s.trigger}">${s.trigger}</div>
+      <div class="snap-stats">${s.sessionCount} sessions, ${s.windowCount} windows</div>
+    </div>`;
+  }).join('');
+
+  // Auto-show latest
+  const first = el.querySelector('.snap');
+  if (first) first.click();
+}
+
+async function showSnap(file, el) {
+  // Highlight active
+  document.querySelectorAll('.snap').forEach(s => s.classList.remove('active'));
+  if (el) el.classList.add('active');
+
+  const snap = await fetch(`${API}/api/snapshots/${file}`).then(r => r.json());
+  const detail = document.getElementById('detail');
+  const title = document.getElementById('detail-title');
+  const sessions = document.getElementById('detail-sessions');
+
+  const d = new Date(snap.timestamp);
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  title.textContent = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]} ${d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})} — ${snap.trigger}`;
+
+  sessions.innerHTML = snap.sessions.map(s => `
+    <div class="session-card">
+      <div class="session-name">${s.name} <span style="color:#666; font-size:0.8em">(${s.windows.length})</span></div>
+      <div class="window-list">
+        ${s.windows.map(w => `<span class="window-tag">${w.name}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  detail.style.display = 'block';
+}
+
+load();
+</script>
+</body>
+</html>
