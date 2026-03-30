@@ -57,6 +57,39 @@ export class MawEngine {
 
   on(type: string, handler: Handler) { this.handlers.set(type, handler); }
 
+  /** Event-driven preview: resolve feed event → tmux target → capture → push to clients */
+  private async pushPreviewForFeedEvent(event: FeedEvent) {
+    if (this.clients.size === 0) return;
+    // Resolve oracle+project to window name
+    const project = event.project || "";
+    const wtMatch = project.match(/[.-]wt-(?:\d+-)?(.+)$/);
+    const windowName = wtMatch
+      ? `${event.oracle}-${wtMatch[1]}`.toLowerCase()
+      : `${event.oracle}-oracle`.toLowerCase();
+    // Find matching tmux target from session cache
+    const sessions = this.sessionCache.sessions;
+    let target: string | null = null;
+    for (const s of sessions) {
+      for (const w of s.windows) {
+        if (w.name.toLowerCase() === windowName || w.name.toLowerCase() === event.oracle.toLowerCase()) {
+          target = `${s.name}:${w.index}`;
+          break;
+        }
+      }
+      if (target) break;
+    }
+    if (!target) return;
+    // Capture and push to all clients that subscribe to this target
+    try {
+      const { capture } = await import("../ssh");
+      const content = await capture(target, 15);
+      const msg = JSON.stringify({ type: "previews", data: { [target]: content } });
+      for (const ws of this.clients) {
+        if (ws.data.previewTargets?.has(target)) ws.send(msg);
+      }
+    } catch {}
+  }
+
   /** Set transport router — route incoming remote messages to local tmux */
   setTransportRouter(router: TransportRouter) {
     this.transportRouter = router;
@@ -105,6 +138,8 @@ export class MawEngine {
     };
     sendInitialSessions().catch(() => {});
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-50) }));
+    // Initial preview snapshot on connect (one-time, not polled)
+    setTimeout(() => this.pushPreviews(ws), 1000);
   }
 
   handleMessage(ws: MawWS, msg: string | Buffer) {
@@ -143,9 +178,8 @@ export class MawEngine {
       const all = await getAggregatedSessions([]);
       this.peerSessionsCache = all;
     }, 10000);
-    this.previewInterval = setInterval(() => {
-      for (const ws of this.clients) this.pushPreviews(ws);
-    }, 2000);
+    // Previews are now event-driven (pushed on feed events), not polled.
+    // Initial preview sent on client connect (handleOpen). No interval needed.
     this.statusInterval = setInterval(async () => {
       await this.status.detect(this.sessionCache.sessions, this.clients, this.feedListeners);
       // Publish presence to transport router (feeds MQTT/HTTP peers)
@@ -178,6 +212,8 @@ export class MawEngine {
     const listener = (event: FeedEvent) => {
       const msg = JSON.stringify({ type: "feed", event });
       for (const ws of this.clients) ws.send(msg);
+      // Event-driven preview: capture the specific agent that just fired
+      this.pushPreviewForFeedEvent(event);
     };
     this.feedListeners.add(listener);
     this.feedUnsub = () => this.feedListeners.delete(listener);
