@@ -94,12 +94,6 @@ export function useSessions() {
         return { ...prev, [target]: { preview: existing?.preview || "", status: "busy" } };
       });
     } else if (FEED_STOP_EVENTS.has(event.event)) {
-      // Don't flap: if agent was busy less than 3s ago, let decay timer handle it
-      const lastBusy = feedLastSeen.current[target] || 0;
-      if (lastBusy > 0 && Date.now() - lastBusy < 3000) {
-        feedLastSeen.current[target] = 0; // mark stopped, decay will transition
-        return;
-      }
       feedLastSeen.current[target] = 0; // mark stopped
       setCaptureData(prev => {
         const existing = prev[target];

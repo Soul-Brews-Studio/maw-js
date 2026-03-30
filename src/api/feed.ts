@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { FeedEvent } from "../lib/feed";
+import { markRealFeedEvent } from "../engine/status";
 
 export const feedBuffer: FeedEvent[] = [];
 export const FEED_MAX = 500;
@@ -37,5 +38,6 @@ feedApi.post("/feed", async (c) => {
     ts: body.ts || Date.now(),
   };
   pushFeedEvent(event);
+  markRealFeedEvent(event.oracle);
   return c.json({ ok: true });
 });

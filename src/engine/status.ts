@@ -11,6 +11,16 @@ interface AgentState {
   wasRunning: boolean;
 }
 
+/** Track agents with recent real feed events (from Claude Code hooks).
+ *  StatusDetector skips synthetic events for these — real events are authoritative. */
+const realFeedLastSeen = new Map<string, number>();
+const REAL_FEED_TTL = 60_000; // 60s — if real feed seen within this, skip synthetic
+
+/** Call this when a real feed event arrives (from POST /api/feed). */
+export function markRealFeedEvent(oracleName: string) {
+  realFeedLastSeen.set(oracleName, Date.now());
+}
+
 export interface CrashedAgent {
   target: string;
   name: string;
@@ -97,19 +107,28 @@ export class StatusDetector {
       this.state.set(target, { hash, changedAt, status, wasRunning });
 
       if (prev && status !== prev.status) {
-        const event: FeedEvent = {
-          timestamp: new Date().toISOString(),
-          oracle: name.replace(/-oracle$/, ""),
-          host: "local",
-          event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : status === "crashed" ? "Error" : "SessionEnd",
-          project: session,
-          sessionId: "",
-          message: status === "busy" ? "working" : status === "ready" ? "waiting" : status === "crashed" ? "crashed" : "idle",
-          ts: now,
-        };
-        const msg = JSON.stringify({ type: "feed", event });
-        for (const ws of clients) ws.send(msg);
-        for (const fn of feedListeners) fn(event);
+        // Skip synthetic events for agents with recent real feed events —
+        // real Claude Code hooks are more accurate than screen-hash polling.
+        // Still update internal state (for crash detection), just don't emit.
+        const oracleName = name.replace(/-oracle$/, "");
+        const lastReal = realFeedLastSeen.get(oracleName) || 0;
+        const hasRealFeed = now - lastReal < REAL_FEED_TTL;
+
+        if (!hasRealFeed) {
+          const event: FeedEvent = {
+            timestamp: new Date().toISOString(),
+            oracle: oracleName,
+            host: "local",
+            event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : status === "crashed" ? "Error" : "SessionEnd",
+            project: session,
+            sessionId: "",
+            message: status === "busy" ? "working" : status === "ready" ? "waiting" : status === "crashed" ? "crashed" : "idle",
+            ts: now,
+          };
+          const msg = JSON.stringify({ type: "feed", event });
+          for (const ws of clients) ws.send(msg);
+          for (const fn of feedListeners) fn(event);
+        }
       }
     }
   }
