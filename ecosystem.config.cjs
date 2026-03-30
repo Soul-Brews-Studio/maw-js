@@ -23,5 +23,15 @@ module.exports = {
       restart_delay: 5000,
     },
     // maw-dev moved to Soul-Brews-Studio/maw-ui (bun run dev)
+    {
+      name: 'maw-broker',
+      script: 'src/broker.ts',
+      interpreter: '/home/nat/.bun/bin/bun',
+      autorestart: true,
+      watch: false,
+      env: {
+        MAW_BROKER: '1',
+      },
+    },
   ],
 };

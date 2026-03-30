@@ -111,9 +111,29 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     await cmdAvengers(sub || "status");
     return true;
   }
+  if (cmd === "broker") {
+    const { cmdBrokerStart, cmdBrokerStop, cmdBrokerStatus } = await import("../commands/broker");
+    const sub = args[1]?.toLowerCase();
+    if (sub === "start") await cmdBrokerStart();
+    else if (sub === "stop") await cmdBrokerStop();
+    else if (sub === "status" || !sub) await cmdBrokerStatus();
+    else {
+      console.log(`\x1b[36mmaw broker\x1b[0m — MQTT broker management\n`);
+      console.log(`  maw broker start    Start local MQTT broker (prefers mosquitto, fallback aedes)`);
+      console.log(`  maw broker stop     Stop the broker`);
+      console.log(`  maw broker status   Check broker status + connections\n`);
+    }
+    return true;
+  }
   if (cmd === "serve") {
+    const hasMqtt = args.includes("--mqtt");
+    const portArg = args.find(a => a !== "--mqtt" && a !== "serve" && /^\d+$/.test(a));
+    if (hasMqtt) {
+      const { cmdBrokerStart } = await import("../commands/broker");
+      await cmdBrokerStart();
+    }
     const { startServer } = await import("../server");
-    startServer(args[1] ? +args[1] : 3456);
+    startServer(portArg ? +portArg : 3456);
     return true;
   }
   return false;
