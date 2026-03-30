@@ -21,6 +21,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 
 import { join } from "path";
 import { CONFIG_DIR } from "./paths";
 import { listSessions } from "./ssh";
+import { loadConfig } from "./config";
 
 export const SNAPSHOT_DIR = join(CONFIG_DIR, "snapshots");
 mkdirSync(SNAPSHOT_DIR, { recursive: true });
@@ -48,9 +49,11 @@ export interface Snapshot {
 export async function takeSnapshot(trigger: string): Promise<string> {
   const sessions = await listSessions();
 
+  const config = loadConfig();
   const snapshot: Snapshot = {
     timestamp: new Date().toISOString(),
     trigger,
+    node: config.node || "local",
     sessions: sessions.map(s => ({
       name: s.name,
       windows: s.windows.map(w => ({

@@ -39,7 +39,7 @@
 
 <a class="back" href="/#office">← back to office</a>
 <h1>Fleet Time Machine</h1>
-<div class="subtitle">Snapshots taken on every wake / sleep / done — <span id="count">loading...</span></div>
+<div class="subtitle"><span id="node-name">...</span> — snapshots on every wake / sleep / done — <span id="count">loading...</span></div>
 
 <div class="snapshots timeline" id="snapshots">
   <div class="empty">loading snapshots...</div>
@@ -52,6 +52,11 @@
 
 <script>
 const API = location.origin;
+
+// Load node identity
+fetch(`${API}/api/auth/status`).then(r => r.json()).then(d => {
+  document.getElementById('node-name').textContent = d.node || location.hostname;
+}).catch(() => { document.getElementById('node-name').textContent = location.hostname; });
 
 async function load() {
   const snaps = await fetch(`${API}/api/snapshots`).then(r => r.json());
