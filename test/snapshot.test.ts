@@ -2,9 +2,13 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import type { Snapshot, SnapshotSession, SnapshotWindow } from "../src/snapshot";
 
 // Use temp dir for tests
 const TEST_DIR = join(tmpdir(), `maw-snapshot-test-${Date.now()}`);
+
+interface MockWindow { name: string; index: number; }
+interface MockSession { name: string; windows: MockWindow[]; }
 
 // Mock CONFIG_DIR before importing snapshot
 import { mock } from "bun:test";
@@ -20,14 +24,14 @@ mock.module("../src/config", () => ({
 }));
 
 // Mock listSessions to return predictable data
-let mockSessions = [
+let mockSessions: MockSession[] = [
   { name: "03-neo", windows: [{ name: "neo-oracle", index: 1 }, { name: "neo-maw-js", index: 2 }] },
   { name: "04-homekeeper", windows: [{ name: "homekeeper-oracle", index: 1 }] },
 ];
 
 mock.module("../src/ssh", () => ({
-  listSessions: async () => mockSessions,
-  ssh: async () => "",
+  listSessions: async (): Promise<MockSession[]> => mockSessions,
+  ssh: async (): Promise<string> => "",
 }));
 
 const { takeSnapshot, listSnapshots, loadSnapshot, latestSnapshot, SNAPSHOT_DIR } = await import("../src/snapshot");
@@ -45,7 +49,7 @@ describe("snapshot", () => {
     const path = await takeSnapshot("test");
     expect(path).toContain(".json");
 
-    const data = JSON.parse(readFileSync(path, "utf-8"));
+    const data: Snapshot = JSON.parse(readFileSync(path, "utf-8"));
     expect(data.trigger).toBe("test");
     expect(data.node).toBe("test-node");
     expect(data.sessions).toHaveLength(2);
@@ -140,17 +144,17 @@ describe("snapshot", () => {
     ];
 
     const path = await takeSnapshot("wake");
-    const data = JSON.parse(readFileSync(path, "utf-8"));
+    const data: Snapshot = JSON.parse(readFileSync(path, "utf-8"));
 
     expect(data.sessions).toHaveLength(1);
     expect(data.sessions[0].windows).toHaveLength(3);
-    expect(data.sessions[0].windows.map((w: any) => w.name)).toEqual(["pulse-oracle", "pulse-scheduler", "pulse-cli"]);
+    expect(data.sessions[0].windows.map((w: SnapshotWindow) => w.name)).toEqual(["pulse-oracle", "pulse-scheduler", "pulse-cli"]);
   });
 
   test("snapshot trigger types are preserved", async () => {
     for (const trigger of ["wake", "sleep", "done", "manual"]) {
       const path = await takeSnapshot(trigger);
-      const data = JSON.parse(readFileSync(path, "utf-8"));
+      const data: Snapshot = JSON.parse(readFileSync(path, "utf-8"));
       expect(data.trigger).toBe(trigger);
     }
   });
