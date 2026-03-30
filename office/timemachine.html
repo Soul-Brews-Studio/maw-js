@@ -68,7 +68,6 @@
     backdrop-filter: blur(8px);
     transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     cursor: pointer;
-    animation: cardFadeIn 0.4s ease-out;
     overflow: hidden;
     box-shadow: 0 4px 32px rgba(0,0,0,0.5);
   }
@@ -165,9 +164,16 @@
   .sel-btn:hover { border-color: rgba(100,181,246,0.4); color: #aaa; }
   .sel-btn.active { background: rgba(100,181,246,0.15); border-color: #64b5f6; color: #64b5f6; }
 
-  @keyframes cardFadeIn {
-    from { opacity: 0; transform: translateY(30px) scale(0.95); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+  .card-stack.navigating-up .card { animation: flyFromPast 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+  .card-stack.navigating-down .card { animation: flyFromFuture 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  @keyframes flyFromPast {
+    from { opacity: 0; transform: translateY(-120px) scale(0.8) perspective(800px) rotateX(8deg); }
+    to { opacity: 1; }
+  }
+  @keyframes flyFromFuture {
+    from { opacity: 0; transform: translateY(80px) scale(1.05); }
+    to { opacity: 1; }
   }
 </style>
 </head>
@@ -281,10 +287,10 @@ function showIndex(idx) {
     const dateStr = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     const isActive = offset === 0;
 
-    const scale = 1 - offset * 0.04;
-    const translateY = -offset * 28;
-    const opacity = 1 - offset * 0.18;
-    const blur = offset > 0 ? `filter: blur(${offset * 0.5}px);` : '';
+    const scale = 1 - offset * 0.05;
+    const translateY = -offset * 35;
+    const opacity = 1 - offset * 0.2;
+    const blur = offset > 0 ? `filter: blur(${offset}px);` : '';
 
     html += `<div class="card${isActive ? ' active' : ''}" style="
       transform: translateY(${translateY}px) scale(${scale});
@@ -310,6 +316,10 @@ function showIndex(idx) {
 }
 
 function navigate(dir) {
+  const stack = document.getElementById('card-stack');
+  stack.classList.remove('navigating-up', 'navigating-down');
+  void stack.offsetWidth; // force reflow
+  stack.classList.add(dir < 0 ? 'navigating-up' : 'navigating-down');
   showIndex(currentIndex + dir);
 }
 
