@@ -15,22 +15,23 @@ import { loadConfig } from "../config";
 
 const WINDOW_SEC = 300; // ±5 minutes
 
-/** Protected paths — require auth from non-loopback clients */
+/** Protected paths — write/control operations, require auth from non-loopback clients */
 const PROTECTED = new Set([
   "/api/send",
-  "/api/sessions",
-  "/api/capture",
-  "/api/mirror",
   "/api/talk",
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
 ]);
 
-/** POST-only protected (GET is public, POST needs auth) */
+/** POST-only protected (GET is public for UI, POST needs auth) */
 const PROTECTED_POST = new Set([
   "/api/feed",
 ]);
+
+// Note: GET-only read endpoints (/api/sessions, /api/capture, /api/mirror)
+// are intentionally public — the Office UI on LAN needs them.
+// HMAC protects write operations from unauthenticated remote peers.
 
 // --- Core crypto ---
 
