@@ -72,12 +72,12 @@ export async function scanTeams(): Promise<TeamData[]> {
 }
 
 /** Broadcast teams to all clients if changed */
-export function broadcastTeams(
+export async function broadcastTeams(
   clients: Set<MawWS>,
   lastJson: { value: string },
-): void {
+): Promise<void> {
   if (clients.size === 0) return;
-  const teams = scanTeams();
+  const teams = await scanTeams();
   const json = JSON.stringify(teams);
   if (json === lastJson.value) return;
   lastJson.value = json;

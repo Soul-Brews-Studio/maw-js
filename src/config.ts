@@ -369,17 +369,34 @@ export function buildCommand(agentName: string): string {
     if (matchGlob(pattern, agentName)) { cmd = command; break; }
   }
 
+  // Inject --session-id if configured for this agent
+  const sessionIds: Record<string, string> = (config as any).sessionIds || {};
+  const sessionId = sessionIds[agentName]
+    || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
+  if (sessionId) {
+    // Use --resume with fixed session ID (--session-id locks, --resume doesn't)
+    // Replace --continue with --resume <uuid> if present, otherwise append
+    if (cmd.includes("--continue")) {
+      cmd = cmd.replace(/\s*--continue\b/, ` --resume "${sessionId}"`);
+    } else {
+      cmd += ` --resume "${sessionId}"`;
+    }
+  }
+
   // Prefix: load direnv (if present) + clear stale CLAUDECODE.
   // direnv allow + export ensures .envrc env vars load before Claude starts,
   // since tmux send-keys can race with the shell's direnv hook.
   // unset CLAUDECODE prevents "cannot be launched inside another" from crashed sessions.
   const prefix = "command -v direnv >/dev/null && direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE 2>/dev/null;";
 
-  // If command uses --continue, add shell fallback without it.
+  // If command uses --continue or --resume, add shell fallback without it.
   // --continue errors when no prior conversation exists (e.g. fresh worktree,
-  // wiped session). The fallback retries the same command minus --continue.
-  if (cmd.includes("--continue")) {
-    const fallback = cmd.replace(/\s*--continue\b/, "");
+  // wiped session). --resume errors when session ID doesn't exist yet.
+  // The fallback retries the same command minus --continue/--resume,
+  // but keeps --session-id if present so the first run creates the session with that ID.
+  if (cmd.includes("--continue") || cmd.includes("--resume")) {
+    let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
+    if (sessionId) fallback += ` --session-id "${sessionId}"`;
     return `${prefix} ${cmd} || ${prefix} ${fallback}`;
   }
 

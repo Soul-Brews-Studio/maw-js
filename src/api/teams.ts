@@ -6,8 +6,8 @@ import { scanTeams } from "../engine/teams";
 
 export const teamsApi = new Hono();
 
-teamsApi.get("/teams", (c) => {
-  const teams = scanTeams();
+teamsApi.get("/teams", async (c) => {
+  const teams = await scanTeams();
   return c.json({ teams, total: teams.length });
 });
 
