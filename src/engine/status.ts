@@ -146,6 +146,8 @@ export class StatusDetector {
         }
       }
     }
+
+    this.pruneState(sessions);
   }
 
   /** Get status for a target */
@@ -172,5 +174,26 @@ export class StatusDetector {
   clearCrashed(target: string) {
     const s = this.state.get(target);
     if (s) { s.wasRunning = false; s.status = "idle"; }
+  }
+
+  /** Remove entries for targets no longer in active sessions (#145). */
+  pruneState(sessions: SessionInfo[]) {
+    const activeTargets = new Set<string>();
+    const activeOracles = new Set<string>();
+    for (const s of sessions) {
+      for (const w of s.windows) {
+        activeTargets.add(`${s.name}:${w.index}`);
+        activeOracles.add(w.name.replace(/-oracle$/, ""));
+      }
+    }
+    for (const key of this.state.keys()) {
+      if (!activeTargets.has(key)) this.state.delete(key);
+    }
+    const now = Date.now();
+    for (const [oracle, ts] of realFeedLastSeen) {
+      if (!activeOracles.has(oracle) || now - ts > 3_600_000) {
+        realFeedLastSeen.delete(oracle);
+      }
+    }
   }
 }

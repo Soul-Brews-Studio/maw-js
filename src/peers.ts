@@ -2,6 +2,10 @@ import { loadConfig } from "./config";
 import type { Session } from "./ssh";
 import { curlFetch } from "./curl-fetch";
 
+/** Simple TTL cache for aggregated sessions (#145) */
+let aggregatedCache: { peers: (Session & { source?: string })[]; ts: number } | null = null;
+const CACHE_TTL = 30_000;
+
 export interface PeerStatus {
   url: string;
   reachable: boolean;
@@ -52,7 +56,12 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
     return localSessions;
   }
 
-  const result: (Session & { source?: string })[] = localSessions.map(s => ({ ...s, source: "local" }));
+  const local: (Session & { source?: string })[] = localSessions.map(s => ({ ...s, source: "local" }));
+
+  // Return cached peer sessions if fresh (#145)
+  if (aggregatedCache && Date.now() - aggregatedCache.ts < CACHE_TTL) {
+    return [...local, ...aggregatedCache.peers];
+  }
 
   // Fetch sessions from all peers in parallel
   const peerResults = await Promise.all(peers.map(async (url) => {
@@ -60,8 +69,10 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
     return sessions.map(s => ({ ...s, source: url }));
   }));
 
-  // Flatten and return all sessions
-  return result.concat(...peerResults);
+  const peerSessions = peerResults.flat();
+  aggregatedCache = { peers: peerSessions, ts: Date.now() };
+
+  return [...local, ...peerSessions];
 }
 
 /**

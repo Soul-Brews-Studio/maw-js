@@ -112,7 +112,9 @@ export class MawEngine {
       const data = JSON.parse(msg as string);
       const handler = this.handlers.get(data.type);
       if (handler) handler(ws, data, this);
-    } catch {}
+    } catch (err) {
+      console.error("[engine] handleMessage error:", err);
+    }
   }
 
   handleClose(ws: MawWS) {

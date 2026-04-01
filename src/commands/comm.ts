@@ -4,6 +4,7 @@ import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
 import { scanWorktrees } from "../worktrees";
 import { curlFetch } from "../curl-fetch";
+import { findPeerForTarget } from "../peers";
 
 /** Resolve which sessions to search for an oracle query (#86). */
 function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
@@ -175,7 +176,22 @@ export async function cmdSend(query: string, message: string, force = false) {
     return;
   }
 
-  // Not found locally → check agent registry for remote routing
+  // Not found locally → auto-check federated peers (#150)
+  const peerUrl = await findPeerForTarget(query, sessions);
+  if (peerUrl) {
+    const res = await curlFetch(`${peerUrl}/api/send`, {
+      method: "POST",
+      body: JSON.stringify({ target: query, text: message }),
+    });
+    if (res.ok && res.data?.ok) {
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+      await runHook("after_send", { to: query, message });
+      return;
+    }
+  }
+
+  // Not found on peers either → check agent registry for remote routing
   const agentNode = config.agents?.[query] || config.agents?.[query.replace(/-oracle$/, "")];
   if (agentNode && agentNode !== (config.node || "local")) {
     // Route via federation (same as maw wire but auto-detected)

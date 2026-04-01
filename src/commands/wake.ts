@@ -12,7 +12,7 @@ import { takeSnapshot } from "../snapshot";
  * Verify all windows in a session are running Claude (not empty zsh).
  * Retries buildCommand for any that are still on a shell prompt.
  */
-export async function ensureSessionRunning(session: string): Promise<number> {
+export async function ensureSessionRunning(session: string, excludeNames?: Set<string>): Promise<number> {
   let retried = 0;
   let windows: { index: number; name: string; active: boolean }[];
   try {
@@ -23,6 +23,7 @@ export async function ensureSessionRunning(session: string): Promise<number> {
   const cmds = await tmux.getPaneCommands(targets);
 
   for (const win of windows) {
+    if (excludeNames?.has(win.name)) continue; // Skip pre-existing windows (#147)
     const target = `${session}:${win.name}`;
     const paneCmd = (cmds[target] || "").trim().toLowerCase();
 
@@ -258,15 +259,18 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     // Ensure env vars are set on existing session (may predate this fix)
     await setSessionEnv(session);
 
+    // Capture windows that existed BEFORE we respawn anything (#147)
+    let preExistingWindows = new Set<string>();
+    try {
+      const existingWins = await tmux.listWindows(session);
+      preExistingWindows = new Set(existingWins.map(w => w.name));
+    } catch { /* ok */ }
+
     // Respawn missing worktree windows (e.g. after reboot)
     if (!opts.task && !opts.newWt) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
-        let existingWindows: string[] = [];
-        try {
-          const windows = await tmux.listWindows(session);
-          existingWindows = windows.map(w => w.name);
-        } catch { /* ok */ }
+        const existingWindows = [...preExistingWindows];
 
         const usedNames = new Set(existingWindows);
         for (const wt of allWt) {
@@ -286,9 +290,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
       }
     }
 
-    // Verify all windows started Claude (not stuck on zsh)
+    // Verify newly-created windows started Claude (not stuck on zsh)
+    // Skip pre-existing windows to avoid injecting into active sessions (#147)
     await new Promise(r => setTimeout(r, 3000));
-    const retried = await ensureSessionRunning(session);
+    const retried = await ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }
 
