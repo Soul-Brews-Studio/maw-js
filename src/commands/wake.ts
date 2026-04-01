@@ -204,7 +204,7 @@ function sanitizeBranchName(name: string): string {
     .slice(0, 50);
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string; incubate?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; noAttach?: boolean; listWt?: boolean }): Promise<string> {
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
   if (opts.incubate) {
@@ -306,21 +306,40 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   let targetPath = repoPath;
   let windowName = `${oracle}-oracle`;
 
+  // --list: show available worktrees and exit
+  if (opts.listWt) {
+    const worktrees = await findWorktrees(parentDir, repoName);
+    if (!worktrees.length) {
+      console.log(`\x1b[90mNo worktrees for ${oracle}.\x1b[0m`);
+    } else {
+      console.log(`\n\x1b[36mWorktrees for ${oracle}\x1b[0m (${worktrees.length})\n`);
+      for (const wt of worktrees) {
+        console.log(`  \x1b[32m●\x1b[0m ${wt.name}  \x1b[90m${wt.path}\x1b[0m`);
+      }
+      console.log(`\n\x1b[90mUsage: maw wake ${oracle} <name>          — attach (or create)\x1b[0m`);
+      console.log(`\x1b[90m       maw wake ${oracle} <name> --fresh   — force create new\x1b[0m`);
+      console.log(`\x1b[90m       maw wake ${oracle} <name> --no-attach — create but don't select\x1b[0m`);
+    }
+    return `${session}:${windowName}`;
+  }
+
   if (opts.newWt || opts.task) {
     const rawName = opts.newWt || opts.task!;
     const name = sanitizeBranchName(rawName);
     const worktrees = await findWorktrees(parentDir, repoName);
 
-    // Try to find existing worktree matching this name
-    const match = worktrees.find(w => w.name.endsWith(`-${name}`) || w.name === name);
+    // Try to find existing worktree matching this name (default: auto-attach)
+    const match = !opts.fresh
+      ? worktrees.find(w => w.name.endsWith(`-${name}`) || w.name === name)
+      : null;
 
     if (match) {
-      // Reuse existing worktree
+      // Reuse existing worktree (default behavior)
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {
-      // Create new worktree
+      // Create new worktree (default when no match, or --fresh)
       const nums = worktrees.map(w => parseInt(w.name) || 0);
       const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
       const wtName = `${nextNum}-${name}`;
@@ -366,7 +385,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
         return `${session}:${existingWindow}`;
       }
       console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' already running in ${session}`);
-      await tmux.selectWindow(`${session}:${existingWindow}`);
+      if (!opts.noAttach) await tmux.selectWindow(`${session}:${existingWindow}`);
       return `${session}:${existingWindow}`;
     }
   } catch { /* session might be fresh */ }

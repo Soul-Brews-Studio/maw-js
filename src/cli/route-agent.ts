@@ -6,11 +6,11 @@ import { cmdOracleList, cmdOracleAbout } from "../commands/oracle";
 
 export async function routeAgent(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "wake") {
-    if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>]\n       maw wake all [--kill]"); process.exit(1); }
+    if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>] [--fresh] [--no-attach] [--list]\n       maw wake all [--kill]"); process.exit(1); }
     if (args[1].toLowerCase() === "all") {
       await cmdWakeAll({ kill: args.includes("--kill"), all: args.includes("--all"), resume: args.includes("--resume") });
     } else {
-      const wakeOpts: { task?: string; newWt?: string; prompt?: string; incubate?: string } = {};
+      const wakeOpts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; noAttach?: boolean; listWt?: boolean } = {};
       let issueNum: number | null = null;
       let repo: string | undefined;
       for (let i = 2; i < args.length; i++) {
@@ -18,6 +18,9 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
         else if (args[i] === "--incubate" && args[i + 1]) { wakeOpts.incubate = args[++i]; }
         else if (args[i] === "--issue" && args[i + 1]) { issueNum = +args[++i]; }
         else if (args[i] === "--repo" && args[i + 1]) { repo = args[++i]; }
+        else if (args[i] === "--fresh") { wakeOpts.fresh = true; }
+        else if (args[i] === "--no-attach") { wakeOpts.noAttach = true; }
+        else if (args[i] === "--list" || args[i] === "--ls") { wakeOpts.listWt = true; }
         else if (!wakeOpts.task) { wakeOpts.task = args[i]; }
         else if (!wakeOpts.prompt) { wakeOpts.prompt = args.slice(i).join(" "); break; }
       }
