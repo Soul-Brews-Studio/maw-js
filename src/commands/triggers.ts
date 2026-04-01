@@ -31,7 +31,7 @@ export async function cmdTriggers(): Promise<void> {
     const t = triggers[i];
     const last = history.find(h => h.index === i);
 
-    const event = colorEvent(t.on);
+    const event = colorEvent(t.on) + (t.once ? " \x1b[33m[once]\x1b[0m" : "");
     const filter = t.repo || (t.timeout ? `timeout: ${t.timeout}s` : "—");
     const action = t.action.length > 38 ? t.action.slice(0, 35) + "..." : t.action;
 

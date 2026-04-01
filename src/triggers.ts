@@ -6,7 +6,7 @@
  */
 
 // No execSync — use async Bun.spawn to avoid blocking event loop
-import { loadConfig, type TriggerConfig, type TriggerEvent } from "./config";
+import { loadConfig, saveConfig, type TriggerConfig, type TriggerEvent } from "./config";
 import { logAudit } from "./audit";
 
 export interface TriggerContext {
@@ -30,6 +30,9 @@ const lastFired = new Map<number, TriggerFireResult>();
 
 /** Idle tracking: agent → last activity timestamp (ms) */
 const idleTimers = new Map<string, number>();
+
+/** Track busy→idle transition: only fire agent-idle when agent WAS busy (#149) */
+const agentPrevState = new Map<string, "busy" | "idle">();
 
 /**
  * Expand template variables in an action string.
@@ -106,6 +109,14 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
 
     // Audit log
     logAudit("trigger:fire", [event, t.action, result.ok ? "ok" : "error"], result.ok ? "ok" : result.error);
+
+    // One-time triggers: remove after successful fire (#149)
+    if (t.once && result.ok) {
+      const config = loadConfig();
+      const updated = (config.triggers || []).filter((_: TriggerConfig, idx: number) => idx !== i);
+      saveConfig({ triggers: updated });
+      console.log(`\x1b[33m[trigger]\x1b[0m one-time trigger fired and removed: ${t.name || t.action.slice(0, 40)}`);
+    }
   }
 
   return results;
@@ -117,25 +128,30 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
  */
 export function markAgentActive(agent: string): void {
   idleTimers.set(agent, Date.now());
+  agentPrevState.set(agent, "busy"); // Track transition for busy→idle detection (#149)
 }
 
 /**
  * Check all agents for idle timeout and fire triggers.
  * Returns agents that triggered.
  */
-export function checkIdleTriggers(): string[] {
+export async function checkIdleTriggers(): Promise<string[]> {
   const triggers = getTriggers().filter(t => t.on === "agent-idle");
   if (!triggers.length) return [];
 
   const fired: string[] = [];
   for (const [agent, lastActive] of idleTimers) {
+    // Only fire if agent transitioned from busy→idle (#149)
+    const prevState = agentPrevState.get(agent);
+    if (prevState !== "busy") continue;
+
     const idleSec = (Date.now() - lastActive) / 1000;
     for (const t of triggers) {
       if (t.timeout && idleSec >= t.timeout) {
-        const results = fire("agent-idle", { agent });
+        const results = await fire("agent-idle", { agent });
         if (results.some(r => r.ok)) {
           fired.push(agent);
-          // Remove from idle tracking after firing to prevent re-firing
+          agentPrevState.set(agent, "idle");
           idleTimers.delete(agent);
         }
       }

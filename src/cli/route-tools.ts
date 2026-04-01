@@ -125,6 +125,34 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     }
     return true;
   }
+  // maw on <oracle> <event> --once "<action>" — create one-time trigger (#149)
+  if (cmd === "on") {
+    const oracle = args[1];
+    const event = args[2] as "agent-idle" | "agent-wake" | "agent-crash";
+    const isOnce = args.includes("--once");
+    const actionIdx = args.indexOf("--once") !== -1 ? args.indexOf("--once") + 1 : 3;
+    const action = args.slice(actionIdx).filter(a => a !== "--once").join(" ");
+    const timeoutIdx = args.indexOf("--timeout");
+    const timeout = timeoutIdx !== -1 ? parseInt(args[timeoutIdx + 1]) : 30;
+
+    if (!oracle || !event || !action) {
+      console.log(`\x1b[36mUsage:\x1b[0m maw on <oracle> <event> [--once] [--timeout N] "<action>"`);
+      console.log(`\n\x1b[33mEvents:\x1b[0m agent-idle, agent-wake, agent-crash`);
+      console.log(`\n\x1b[33mExamples:\x1b[0m`);
+      console.log(`  maw on neo idle --once "maw hey homekeeper 'neo done'"`);
+      console.log(`  maw on neo crash "maw wake neo"`);
+      return true;
+    }
+
+    const { loadConfig, saveConfig } = await import("../config");
+    const config = loadConfig();
+    const trigger = { on: `agent-${event}` as any, repo: oracle, timeout, action, name: `on-${oracle}-${event}`, once: isOnce || undefined };
+    const triggers = [...(config.triggers || []), trigger];
+    saveConfig({ triggers });
+    const badge = isOnce ? " \x1b[33m[once]\x1b[0m" : "";
+    console.log(`\x1b[32m✓\x1b[0m trigger added: on ${oracle} ${event}${badge} → ${action}`);
+    return true;
+  }
   if (cmd === "serve") {
     const hasMqtt = args.includes("--mqtt");
     const portArg = args.find(a => a !== "--mqtt" && a !== "serve" && /^\d+$/.test(a));

@@ -16,6 +16,7 @@ export interface TriggerConfig {
   timeout?: number;     // seconds (for agent-idle)
   action: string;       // shell command to execute — supports {agent}, {repo}, {issue} templates
   name?: string;        // optional human label
+  once?: boolean;       // fire once then self-destruct (#149)
 }
 
 /** Named peer with URL */
