@@ -91,9 +91,10 @@ export async function cmdWorkspaceCreate(name: string, hubUrl?: string) {
 
   console.log(`\x1b[36mcreating\x1b[0m workspace "${name}" on ${hub}...`);
 
+  const config = loadConfig();
   const res = await curlFetch(`${hub}/api/workspace/create`, {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, nodeId: config.node || config.host || "local" }),
   });
 
   if (!res.ok || !res.data?.id) {
