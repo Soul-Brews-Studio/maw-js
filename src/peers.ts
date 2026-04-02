@@ -39,7 +39,7 @@ export function getPeers(): string[] {
  */
 async function fetchPeerSessions(url: string): Promise<Session[]> {
   try {
-    const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
+    const res = await curlFetch(`${url}/api/sessions?local=true`, { timeout: cfgTimeout("http") });
     if (!res.ok) return [];
     return res.data || [];
   } catch {

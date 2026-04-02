@@ -9,6 +9,9 @@ export const sessionsApi = new Hono();
 
 sessionsApi.get("/sessions", async (c) => {
   const local = await listSessions();
+  if (c.req.query("local") === "true") {
+    return c.json(local.map(s => ({ ...s, source: "local" })));
+  }
   const aggregated = await getAggregatedSessions(local);
   return c.json(aggregated);
 });
