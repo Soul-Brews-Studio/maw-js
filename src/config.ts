@@ -73,6 +73,8 @@ export interface MawConfig {
   federationToken?: string;
   autoRestart?: boolean;
   triggers?: TriggerConfig[];
+  /** Scheduled loops (cron-based prompt delivery) */
+  loops?: import("./loops").LoopConfig[];
   /** Node identity (e.g. "white", "mba") */
   node?: string;
   /** Named peers with URLs */
@@ -239,6 +241,26 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
       result.triggers = valid;
     } else {
       warn("triggers", "must be an array");
+    }
+  }
+
+  // loops: LoopConfig[]
+  if ("loops" in raw) {
+    if (Array.isArray(raw.loops)) {
+      const valid = raw.loops.filter((l: any) => {
+        if (!l || typeof l !== "object") return false;
+        if (!l.id || typeof l.id !== "string") return false;
+        if (!l.oracle || typeof l.oracle !== "string") return false;
+        if (!l.schedule || typeof l.schedule !== "string") return false;
+        if (!l.prompt || typeof l.prompt !== "string") return false;
+        return true;
+      });
+      if (valid.length !== raw.loops.length) {
+        warn("loops", `has ${raw.loops.length - valid.length} invalid entries, keeping valid ones`);
+      }
+      result.loops = valid;
+    } else {
+      warn("loops", "must be an array");
     }
   }
 

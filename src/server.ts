@@ -9,6 +9,7 @@ import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
 import { setupTriggerListener } from "./trigger-listener";
 import { createTransportRouter } from "./transports";
+import { startAllLoops } from "./loops";
 import { handlePtyMessage, handlePtyClose } from "./pty";
 
 // --- Version info (computed once at startup) ---
@@ -66,6 +67,9 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
+
+  // Start scheduled loops (cron-based prompt delivery)
+  startAllLoops();
 
   // MQTT bridge — publish feed events to MQTT topics (if broker configured)
   try {

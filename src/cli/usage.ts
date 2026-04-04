@@ -63,6 +63,12 @@ export function usage() {
   maw assign <issue-url> --oracle <name>  Explicit oracle
   maw costs                   Token usage + estimated cost per agent
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
+  maw loop                    List scheduled loops (cron prompts)
+  maw loop add '{...}'        Add scheduled loop (JSON config)
+  maw loop trigger <id>       Fire a loop immediately
+  maw loop enable/disable <id> Toggle loop
+  maw loop remove <id>        Remove a loop
+  maw loop history [id]       Show loop run history
   maw triggers                List configured workflow triggers
   maw ping [node]             Check peer connectivity (all or specific)
   maw transport status        Transport layer connectivity (tmux/MQTT/HTTP)
