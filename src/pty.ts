@@ -94,22 +94,38 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
     return;
   }
 
-  // Spawn PTY via script(1) — attach to our grouped session (not the original)
+  // Spawn PTY — attach to our grouped session (not the original)
+  // Use script(1) on Unix, fall back to bash -c for WSL/Windows where script is unavailable
   let args: string[];
   if (isLocalHost()) {
     const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
-    args = ["script", "-qfc", cmd, "/dev/null"];
+    // Try script first, fall back to bash for Windows/WSL
+    const hasScript = (() => { try { return Bun.spawnSync(["which", "script"]).exitCode === 0; } catch { return false; } })();
+    if (hasScript) {
+      args = ["script", "-qfc", cmd, "/dev/null"];
+    } else {
+      args = ["bash", "-c", cmd];
+    }
   } else {
     const host = process.env.MAW_HOST || loadConfig().host || "local";
     args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
   }
 
-  const proc = Bun.spawn(args, {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "ignore",
-    env: { ...process.env, TERM: "xterm-256color" },
-  });
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(args, {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "ignore",
+      env: { ...process.env, TERM: "xterm-256color" },
+    });
+  } catch (err) {
+    attaching.delete(safe);
+    tmux.killSession(ptySessionName).catch(() => {});
+    const msg = err instanceof Error ? err.message : "Failed to spawn PTY process";
+    ws.send(JSON.stringify({ type: "error", message: msg }));
+    return;
+  }
 
   session = { proc, target: safe, ptySessionName, viewers: new Set([ws]), cleanupTimer: null };
   sessions.set(safe, session);

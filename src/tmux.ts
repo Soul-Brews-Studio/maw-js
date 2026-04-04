@@ -149,22 +149,53 @@ export class Tmux {
 
   // --- Panes ---
 
-  /** Get the command running in a pane (e.g. "claude", "zsh") */
+  /** Get the command running in a pane (e.g. "claude", "zsh").
+   *  On WSL, resolves "init" wrapper to actual child command. */
   async getPaneCommand(target: string): Promise<string> {
-    const raw = await this.run("list-panes", "-t", target, "-F", "#{pane_current_command}");
-    return raw.split("\n")[0] || "";
+    const raw = await this.run("list-panes", "-t", target, "-F", "#{pane_current_command}|||#{pane_pid}");
+    const [cmd = "", pid = ""] = (raw.split("\n")[0] || "").split("|||");
+    if (cmd === "init" && pid) {
+      try {
+        const proc = Bun.spawn(["wsl", "bash", "-c", `pgrep -laP ${pid} 2>/dev/null || cat /proc/${pid}/cmdline 2>/dev/null | tr '\\0' ' '`], {
+          stdout: "pipe", stderr: "ignore",
+        });
+        const text = await new Response(proc.stdout).text();
+        if (/claude|codex/i.test(text)) return "claude";
+        if (/node/i.test(text)) return "node";
+      } catch { /* expected: process may have exited */ }
+    }
+    return cmd;
   }
 
-  /** Batch-check which panes are running what command — single tmux call. */
+  /** Batch-check which panes are running what command — single tmux call.
+   *  On WSL, Windows executables appear as "init" — resolve via child process cmdline. */
   async getPaneCommands(targets: string[]): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
     try {
-      // Single call: list ALL panes with session:window_index + command
-      const raw = await this.run("list-panes", "-a", "-F", "#{session_name}:#{window_index}|||#{pane_current_command}");
+      // Single call: list ALL panes with session:window_index + command + pid
+      const raw = await this.run("list-panes", "-a", "-F", "#{session_name}:#{window_index}|||#{pane_current_command}|||#{pane_pid}");
       const targetSet = new Set(targets);
+      const initPanes: { target: string; pid: string }[] = [];
       for (const line of raw.split("\n").filter(Boolean)) {
-        const [target, cmd] = line.split("|||");
-        if (targetSet.has(target)) result[target] = cmd || "";
+        const [target, cmd, pid] = line.split("|||");
+        if (targetSet.has(target)) {
+          result[target] = cmd || "";
+          // WSL wraps Windows .exe in /init — need to check child processes
+          if (cmd === "init" && pid) initPanes.push({ target, pid });
+        }
+      }
+      // Resolve "init" panes by checking child process cmdline
+      if (initPanes.length > 0) {
+        await Promise.allSettled(initPanes.map(async ({ target, pid }) => {
+          try {
+            const proc = Bun.spawn(["wsl", "bash", "-c", `pgrep -laP ${pid} 2>/dev/null || cat /proc/${pid}/cmdline 2>/dev/null | tr '\\0' ' '`], {
+              stdout: "pipe", stderr: "ignore",
+            });
+            const text = await new Response(proc.stdout).text();
+            if (/claude|codex/i.test(text)) result[target] = "claude";
+            else if (/node/i.test(text)) result[target] = "node";
+          } catch { /* expected: process may have exited */ }
+        }));
       }
     } catch { /* expected: tmux may not be running */ }
     return result;

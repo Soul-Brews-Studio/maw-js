@@ -96,7 +96,25 @@ export class StatusDetector {
       // StatusDetector only needed for: crash detection (was Claude, now shell) + idle shells.
       if (isAgent) {
         const prev = this.state.get(target);
-        this.state.set(target, { hash: prev?.hash || "", changedAt: prev?.changedAt || now, status: prev?.status || "ready", wasRunning: true });
+        const newStatus = prev?.status || "ready";
+        this.state.set(target, { hash: prev?.hash || "", changedAt: prev?.changedAt || now, status: newStatus, wasRunning: true });
+        // Emit initial "ready" event when Claude first detected (no previous state)
+        if (!prev) {
+          const oracleName = name.replace(/-oracle$/, "");
+          const event: FeedEvent = {
+            timestamp: new Date().toISOString(),
+            oracle: oracleName,
+            host: "local",
+            event: "Stop",
+            project: session,
+            sessionId: "",
+            message: "ready",
+            ts: now,
+          };
+          const msg = JSON.stringify({ type: "feed", event });
+          for (const ws of clients) ws.send(msg);
+          for (const fn of feedListeners) fn(event);
+        }
         continue;
       }
 
