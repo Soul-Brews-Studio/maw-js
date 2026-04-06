@@ -134,7 +134,10 @@ export class Tmux {
   }
 
   async newWindow(session: string, name: string, opts: { cwd?: string } = {}): Promise<void> {
-    const args: (string | number)[] = ["-t", session, "-n", name];
+    // Trailing colon on -t forces "next free index" semantics.
+    // Without it, `-t session` is interpreted as `-t session:<current_window>`,
+    // and tmux tries to create AT that index → "index 1 in use" error.
+    const args: (string | number)[] = ["-t", `${session}:`, "-n", name];
     if (opts.cwd) args.push("-c", opts.cwd);
     await this.run("new-window", ...args);
   }

@@ -108,14 +108,24 @@ describe("Tmux", () => {
   // --- Windows ---
 
   describe("newWindow", () => {
-    test("basic", async () => {
+    test("basic uses trailing colon on -t (next-free-index semantics)", async () => {
       await t.newWindow("oracles", "pulse-oracle");
-      expect(commands[0]).toBe("tmux new-window -t oracles -n pulse-oracle");
+      expect(commands[0]).toBe("tmux new-window -t oracles: -n pulse-oracle");
     });
 
     test("with cwd", async () => {
       await t.newWindow("oracles", "pulse", { cwd: "/home/nat/pulse" });
-      expect(commands[0]).toBe("tmux new-window -t oracles -n pulse -c /home/nat/pulse");
+      expect(commands[0]).toBe("tmux new-window -t oracles: -n pulse -c /home/nat/pulse");
+    });
+
+    test("regression: never emits bare `-t <session>` (collides on base-index≠0)", async () => {
+      // Without the trailing colon, tmux parses `-t neo` as
+      // `-t neo:<current_window>` and errors with
+      // "create window failed: index 1 in use" when the current
+      // window sits at the base-index and is occupied.
+      await t.newWindow("neo", "neo-mqtt-feed", { cwd: "/tmp/wt" });
+      expect(commands[0]).toBe("tmux new-window -t neo: -n neo-mqtt-feed -c /tmp/wt");
+      expect(commands[0]).not.toMatch(/-t neo\s/);
     });
   });
 
