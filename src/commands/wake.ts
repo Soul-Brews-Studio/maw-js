@@ -66,7 +66,7 @@ export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise
 
 export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // 1. Try standard pattern: <oracle>-oracle
-  const ghqOut = await ssh(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`);
+  const ghqOut = await ssh(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${oracle}-oracle$' | head -1`);
   if (ghqOut?.trim()) {
     const repoPath = ghqOut.trim();
     const repoName = repoPath.split("/").pop()!;
@@ -81,7 +81,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       const win = (config.windows || []).find((w: any) => w.name === `${oracle}-oracle`);
       if (win?.repo) {
-        const fullPath = await ssh(`ghq list --full-path | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
+        const fullPath = await ssh(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
         if (fullPath?.trim()) {
           const repoPath = fullPath.trim();
           const repoName = repoPath.split("/").pop()!;
@@ -213,7 +213,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);
     await ssh(`ghq get -u -p ${repoSlug}`);
-    const fullPath = await ssh(`ghq list --full-path | grep -i '${repoSlug}$' | head -1`);
+    const fullPath = await ssh(`ghq list --full-path | tr '\\\\' '/' | grep -i '${repoSlug}$' | head -1`);
     if (!fullPath?.trim()) throw new Error(`ghq could not find ${slug} after clone`);
     const repoPath = fullPath.trim();
     const repoName = repoPath.split("/").pop()!;

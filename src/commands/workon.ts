@@ -6,7 +6,7 @@ import { findWorktrees } from "./wake";
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
   const searchTerm = repo.includes("/") ? repo.split("/").pop()! : repo;
-  const ghqOut = await ssh(`ghq list --full-path | grep -i '/${searchTerm}$' | head -1`);
+  const ghqOut = await ssh(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${searchTerm}$' | head -1`);
   if (!ghqOut?.trim()) {
     console.error(`repo not found: ${repo}`);
     process.exit(1);

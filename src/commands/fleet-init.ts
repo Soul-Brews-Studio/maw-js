@@ -58,7 +58,7 @@ export async function cmdFleetInit() {
   // Scan ghq for oracle repos
   console.log(`\n  \x1b[36mScanning for oracle repos...\x1b[0m\n`);
 
-  const ghqOut = await ssh("ghq list --full-path");
+  const ghqOut = await ssh("ghq list --full-path | tr '\\\\' '/'");
   const allRepos = ghqOut.trim().split("\n").filter(Boolean);
 
   // Find oracle repos
