@@ -21,3 +21,4 @@ fleet/*.json
 ψ/
 .claude/skills/
 *.pem
+.claude/scheduled_tasks.lock
