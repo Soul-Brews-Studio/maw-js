@@ -2,6 +2,8 @@ import { listSessions, ssh } from "../ssh";
 import { loadFleetEntries } from "./fleet-load";
 import { join } from "path";
 import { loadConfig } from "../config";
+import { FLEET_DIR } from "../paths";
+import { readdirSync as readDir } from "fs";
 
 /**
  * maw fleet health — Cell cycle checkpoint.
@@ -80,8 +82,19 @@ export async function cmdFleetHealth() {
   const islands = rows.filter(r => r.flag.includes("island")).length;
   const zombies = rows.filter(r => r.flag.includes("zombie")).length;
 
+  // Show disabled oracles
+  const disabledFiles = readDir(FLEET_DIR).filter((f: string) => f.endsWith(".disabled"));
+  if (disabledFiles.length > 0) {
+    console.log();
+    console.log(`  \x1b[90m── Disabled (${disabledFiles.length}) ──\x1b[0m`);
+    for (const f of disabledFiles) {
+      const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");
+      console.log(`  \x1b[90m  ✕ ${dName}\x1b[0m`);
+    }
+  }
+
   console.log();
-  console.log(`  \x1b[90m${rows.length} oracles | ${awake} awake | ${dormant} dormant | ${islands} islands | ${zombies} zombies\x1b[0m`);
+  console.log(`  \x1b[90m${rows.length} active | ${awake} awake | ${disabledFiles.length} disabled | ${dormant} dormant | ${islands} islands | ${zombies} zombies\x1b[0m`);
   if (dormant > 0) console.log(`  \x1b[33m⚠\x1b[0m ${dormant} inactive >90d — consider: maw archive <name>`);
   if (islands > 0) console.log(`  \x1b[33m⚠\x1b[0m ${islands} have zero sync_peers — knowledge trapped`);
   if (zombies > 0) console.log(`  \x1b[33m⚠\x1b[0m ${zombies} awake but inactive >14d — zombie?`);
