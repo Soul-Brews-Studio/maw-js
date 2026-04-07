@@ -58,4 +58,69 @@ describe("findWindow", () => {
     // "oracle" matches all in 1-oracles session
     expect(findWindow(MOCK_SESSIONS, "oracle")).toBe("1-oracles:neo-oracle");
   });
+
+  describe("session:window syntax (#186)", () => {
+    const MAW_SESSIONS: Session[] = [
+      { name: "08-mawjs", windows: [
+        { index: 1, name: "mawjs-oracle", active: true },
+        { index: 2, name: "mawjs-dev", active: false },
+      ]},
+      { name: "13-mother", windows: [
+        { index: 1, name: "mother-oracle", active: true },
+      ]},
+      { name: "mawjs-view", windows: [
+        { index: 1, name: "mawjs-oracle", active: false },
+      ]},
+    ];
+
+    test("full session name + full window name", () => {
+      expect(findWindow(MAW_SESSIONS, "08-mawjs:mawjs-oracle"))
+        .toBe("08-mawjs:mawjs-oracle");
+    });
+
+    test("oracle short name resolves to NN-prefixed session, not substring collision", () => {
+      // 'mawjs' must NOT route to 'mawjs-view' — it should hit '08-mawjs'
+      // because 'mawjs' is the oracle-name match (08-mawjs strip → mawjs).
+      expect(findWindow(MAW_SESSIONS, "mawjs:mawjs-oracle"))
+        .toBe("08-mawjs:mawjs-oracle");
+    });
+
+    test("oracle short name + window short name", () => {
+      // 'mawjs:dev' → 08-mawjs:mawjs-dev (substring on window)
+      expect(findWindow(MAW_SESSIONS, "mawjs:dev"))
+        .toBe("08-mawjs:mawjs-dev");
+    });
+
+    test("short name targets 13-mother not other sessions", () => {
+      expect(findWindow(MAW_SESSIONS, "mother:mother-oracle"))
+        .toBe("13-mother:mother-oracle");
+    });
+
+    test("empty window part returns session's first window", () => {
+      expect(findWindow(MAW_SESSIONS, "08-mawjs:"))
+        .toBe("08-mawjs:mawjs-oracle");
+    });
+
+    test("exact session name beats oracle-name match", () => {
+      // 'mawjs-view' is an exact session name; should match it directly,
+      // not 08-mawjs (which would be the oracle-name match for 'mawjs').
+      expect(findWindow(MAW_SESSIONS, "mawjs-view:mawjs-oracle"))
+        .toBe("mawjs-view:mawjs-oracle");
+    });
+
+    test("falls through to legacy logic when session part doesn't match", () => {
+      // 'nosession:foo' → matchSession returns null → fall through →
+      // legacy step 3 returns query as-is (preserves old behavior).
+      expect(findWindow(MAW_SESSIONS, "nosession:foo"))
+        .toBe("nosession:foo");
+    });
+
+    test("falls through when session matches but window part doesn't", () => {
+      // 'mawjs:nowindow' → matches 08-mawjs but no window matches.
+      // Falls through to legacy substring match (which won't find it),
+      // ending at the colon-fallback.
+      expect(findWindow(MAW_SESSIONS, "mawjs:nowindow"))
+        .toBe("mawjs:nowindow");
+    });
+  });
 });

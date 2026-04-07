@@ -5,6 +5,7 @@ export function usage() {
   maw ls                      List sessions + windows
   maw peek [agent]            Peek agent screen (or all)
   maw hey <agent> <msg...>    Send message to agent (alias: tell)
+  maw hey <oracle>:<win> <m>  Target a specific tab (e.g. mawjs:mawjs-dev)
   maw wire <agent> <msg...>   Send via federation (curl over WireGuard)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
   maw wake <oracle> --issue N Wake oracle with GitHub issue as prompt
