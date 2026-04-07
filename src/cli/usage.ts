@@ -40,6 +40,7 @@ export function usage() {
   maw soul-sync                Sync current oracle ψ/ → all configured peers
   maw soul-sync <peer>         Sync current oracle ψ/ → specific peer
   maw soul-sync --from <peer>  Pull ψ/ from peer → current oracle
+  maw soul-sync --project      Absorb project ψ/ → owning oracle (cell membrane)
   maw pulse add "task" [opts] Create issue + wake oracle
   maw pulse cleanup [--dry-run] Clean stale/orphan worktrees
   maw view <agent> [window]   Grouped tmux session (interactive attach)

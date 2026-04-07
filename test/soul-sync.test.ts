@@ -92,6 +92,60 @@ describe("soul-sync", () => {
     });
   });
 
+  describe("project_repos lookup (cell membrane)", () => {
+    test("findProjectsForOracle returns configured project_repos", () => {
+      const { findProjectsForOracleForTest } = require("./soul-sync-helpers");
+      const fleet = [
+        { name: "08-mawjs", windows: [], project_repos: ["Soul-Brews-Studio/maw-js"] },
+        { name: "01-pulse", windows: [] },
+      ];
+      expect(findProjectsForOracleForTest("mawjs", fleet)).toEqual(["Soul-Brews-Studio/maw-js"]);
+      expect(findProjectsForOracleForTest("pulse", fleet)).toEqual([]);
+      expect(findProjectsForOracleForTest("missing", fleet)).toEqual([]);
+    });
+
+    test("findOracleForProject returns owning oracle name", () => {
+      const { findOracleForProjectForTest } = require("./soul-sync-helpers");
+      const fleet = [
+        { name: "08-mawjs", windows: [], project_repos: ["Soul-Brews-Studio/maw-js"] },
+        { name: "01-pulse", windows: [], project_repos: ["laris-co/floodboy", "laris-co/dustboy"] },
+      ];
+      expect(findOracleForProjectForTest("Soul-Brews-Studio/maw-js", fleet)).toBe("mawjs");
+      expect(findOracleForProjectForTest("laris-co/dustboy", fleet)).toBe("pulse");
+      expect(findOracleForProjectForTest("nobody/orphan", fleet)).toBeNull();
+    });
+
+    test("project ψ/ syncs into oracle ψ/ across all SYNC_DIRS, new files only", () => {
+      // Build a fake project + oracle pair
+      const PROJECT_PSI = join(TEST_DIR, "project-repo", "ψ");
+      const ORACLE_PSI = join(TEST_DIR, "owner-oracle", "ψ");
+
+      mkdirSync(join(PROJECT_PSI, "memory/learnings"), { recursive: true });
+      mkdirSync(join(PROJECT_PSI, "memory/retrospectives/2026-04/07"), { recursive: true });
+      mkdirSync(join(PROJECT_PSI, "memory/traces/2026-04-07"), { recursive: true });
+      writeFileSync(join(PROJECT_PSI, "memory/learnings/git-is-transport.md"), "# git is the transport");
+      writeFileSync(join(PROJECT_PSI, "memory/retrospectives/2026-04/07/17.26_yeast.md"), "# yeast");
+      writeFileSync(join(PROJECT_PSI, "memory/traces/2026-04-07/1802_maw-wire.md"), "# trace");
+
+      mkdirSync(join(ORACLE_PSI, "memory/learnings"), { recursive: true });
+      // Pre-existing file in oracle that must NOT be overwritten
+      writeFileSync(join(ORACLE_PSI, "memory/learnings/git-is-transport.md"), "# ORACLE VERSION");
+
+      const { syncDirForTest } = require("./soul-sync-helpers");
+      const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces"];
+      let total = 0;
+      for (const d of SYNC_DIRS) {
+        total += syncDirForTest(join(PROJECT_PSI, d), join(ORACLE_PSI, d));
+      }
+
+      // 2 new files copied (retro + trace); learning was pre-existing → skipped
+      expect(total).toBe(2);
+      expect(existsSync(join(ORACLE_PSI, "memory/retrospectives/2026-04/07/17.26_yeast.md"))).toBe(true);
+      expect(existsSync(join(ORACLE_PSI, "memory/traces/2026-04-07/1802_maw-wire.md"))).toBe(true);
+      expect(readFileSync(join(ORACLE_PSI, "memory/learnings/git-is-transport.md"), "utf-8")).toBe("# ORACLE VERSION");
+    });
+  });
+
   describe("findPeers (flat peer lookup)", () => {
     test("returns empty for oracle without sync_peers", () => {
       const { findPeersForTest } = require("./soul-sync-helpers");

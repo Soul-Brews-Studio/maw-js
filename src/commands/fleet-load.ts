@@ -14,6 +14,8 @@ export interface FleetSession {
   skip_command?: boolean;
   /** Peer oracle names for soul-sync (flat, no hierarchy). */
   sync_peers?: string[];
+  /** Project repos (org/repo) this oracle absorbs ψ/ from via `maw soul-sync --project`. */
+  project_repos?: string[];
 }
 
 export interface FleetEntry {

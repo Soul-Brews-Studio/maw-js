@@ -135,6 +135,11 @@ export async function routeFleet(cmd: string, args: string[]): Promise<boolean> 
     return true;
   }
   if (cmd === "soul-sync" || cmd === "soulsync" || cmd === "ss") {
+    if (args.includes("--project")) {
+      const { cmdSoulSyncProject } = await import("../commands/soul-sync");
+      await cmdSoulSyncProject();
+      return true;
+    }
     const fromIdx = args.indexOf("--from");
     if (fromIdx !== -1) {
       await cmdSoulSync(args[fromIdx + 1], { from: true });

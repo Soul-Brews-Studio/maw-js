@@ -36,7 +36,31 @@ interface FleetEntry {
   name: string;
   windows: { name: string; repo: string }[];
   sync_peers?: string[];
+  project_repos?: string[];
   skip_command?: boolean;
+}
+
+/**
+ * Pure logic — findProjectsForOracle without loadFleet() dependency.
+ */
+export function findProjectsForOracleForTest(oracleName: string, fleet: FleetEntry[]): string[] {
+  for (const sess of fleet) {
+    const name = sess.name.replace(/^\d+-/, "");
+    if (name === oracleName) return sess.project_repos || [];
+  }
+  return [];
+}
+
+/**
+ * Pure logic — findOracleForProject without loadFleet() dependency.
+ */
+export function findOracleForProjectForTest(projectRepo: string, fleet: FleetEntry[]): string | null {
+  for (const sess of fleet) {
+    if (sess.project_repos?.includes(projectRepo)) {
+      return sess.name.replace(/^\d+-/, "");
+    }
+  }
+  return null;
 }
 
 /**
