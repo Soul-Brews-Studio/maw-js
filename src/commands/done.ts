@@ -6,11 +6,13 @@ import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
 import { cmdReunion } from "./reunion";
+import { cmdSoulSync, findParent } from "./soul-sync";
 import { takeSnapshot } from "../snapshot";
 
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  archive?: boolean;
 }
 
 /**
@@ -109,6 +111,28 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
       await cmdReunion(windowName);
     } else {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would run reunion (sync ψ/memory/ to main oracle)`);
+    }
+
+    // Auto soul-sync: push ψ/ to parent oracle (yeast budding model)
+    const oracleName = windowName.replace(/-oracle$/, "");
+    const parent = findParent(oracleName);
+    if (parent) {
+      if (!opts.dryRun) {
+        console.log(`  \x1b[36m⏳\x1b[0m soul-sync → ${parent}...`);
+        try {
+          const results = await cmdSoulSync(parent);
+          const total = results.reduce((a, r) => a + r.total, 0);
+          if (total > 0) {
+            console.log(`  \x1b[32m✓\x1b[0m soul-synced ${total} file(s) → ${parent}`);
+          } else {
+            console.log(`  \x1b[90m○\x1b[0m soul-sync: nothing new`);
+          }
+        } catch {
+          console.log(`  \x1b[33m⚠\x1b[0m soul-sync failed (non-fatal)`);
+        }
+      } else {
+        console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync → ${parent}`);
+      }
     }
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
@@ -218,6 +242,66 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
 
   if (!removedFromConfig) {
     console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
+  }
+
+  // Archive lifecycle (apoptosis): disable fleet config + archive repo
+  if (opts.archive) {
+    const archiveOracle = windowName.replace(/-oracle$/, "");
+    console.log(`  \x1b[36m⏳\x1b[0m archiving oracle '${archiveOracle}'...`);
+
+    // Disable fleet config (rename .json → .json.disabled)
+    try {
+      for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+        const filePath = join(FLEET_DIR, file);
+        const config = JSON.parse(readFileSync(filePath, "utf-8"));
+        const configName = config.name?.replace(/^\d+-/, "");
+        if (configName === archiveOracle) {
+          const disabledPath = filePath + ".disabled";
+          const { renameSync } = require("fs");
+          renameSync(filePath, disabledPath);
+          console.log(`  \x1b[32m✓\x1b[0m fleet config disabled: ${file}.disabled`);
+          break;
+        }
+      }
+    } catch (e: any) {
+      console.log(`  \x1b[33m⚠\x1b[0m fleet disable failed: ${e.message || e}`);
+    }
+
+    // Archive GitHub repo (if it exists on remote)
+    const ghqRoot = loadConfig().ghqRoot;
+    const archiveRepoPath = join(ghqRoot, `${archiveOracle}-oracle`);
+    try {
+      const remote = await ssh(`git -C '${archiveRepoPath}' remote get-url origin 2>/dev/null`);
+      if (remote?.includes("github.com")) {
+        const m = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+        if (m) {
+          await ssh(`gh repo archive '${m[1]}' --yes 2>/dev/null`);
+          console.log(`  \x1b[32m✓\x1b[0m GitHub repo archived: ${m[1]}`);
+        }
+      }
+    } catch {
+      console.log(`  \x1b[90m○\x1b[0m no remote repo to archive`);
+    }
+
+    // Remove from parent's children[]
+    const parentOracle = findParent(archiveOracle);
+    if (parentOracle) {
+      try {
+        for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+          const filePath = join(FLEET_DIR, file);
+          const config = JSON.parse(readFileSync(filePath, "utf-8"));
+          const configName = config.name?.replace(/^\d+-/, "");
+          if (configName === parentOracle && config.children) {
+            config.children = config.children.filter((c: string) => c !== archiveOracle);
+            writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n");
+            console.log(`  \x1b[32m✓\x1b[0m removed from ${parentOracle}'s children[]`);
+            break;
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    console.log(`  \x1b[32m🗄️\x1b[0m oracle '${archiveOracle}' archived`);
   }
 
   // Snapshot after done

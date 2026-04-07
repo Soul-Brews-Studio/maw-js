@@ -25,9 +25,24 @@ export function usage() {
   maw overview              War-room: all oracles in split panes
   maw overview neo hermes   Only specific oracles
   maw overview --kill       Tear down overview
-  maw done <window>            Auto-save (/rrr + commit + push) then clean up
+  maw think                     Run 1 consciousness cycle (all 7 phases)
+  maw think --phase reflect    Run specific phase only
+  maw think --fleet            All oracles think in parallel
+  maw think --loop             Continuous loop (default: every 60m)
+  maw think --loop --interval 30  Custom interval (minutes)
+  maw think --oracle neo       Think as specific oracle
+  maw think --dry-run          Preview phases without running
+  maw bud <name>               Spawn new child oracle (yeast budding model)
+  maw bud <name> --from <o>   Explicit parent oracle
+  maw bud <name> --repo o/r   Incubate external repo into bud
+  maw bud <name> --issue N    Seed bud with GitHub issue
+  maw bud <name> --fast       Skip /awaken ritual
+  maw bud <name> --dry-run    Preview only
+  maw take <oracle>:<window>  Move window ownership between oracles
+  maw done <window>            Auto-save (/rrr + commit + push + soul-sync) then clean up
   maw done <window> --force   Skip auto-save, kill immediately
   maw done <window> --dry-run Show what would happen
+  maw done <window> --archive Full lifecycle: done + disable fleet + archive repo
   maw reunion [window]         Sync ψ/memory/ from worktree → main oracle repo
   maw soul-sync                Sync current oracle ψ/ → parent oracle
   maw soul-sync <parent>       Pull ψ/ from all children → parent oracle
