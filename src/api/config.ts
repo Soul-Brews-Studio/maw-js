@@ -4,6 +4,9 @@ import { join, basename } from "path";
 import { loadConfig, saveConfig, configForDisplay } from "../config";
 import { FLEET_DIR as fleetDir } from "../paths";
 import { createToken } from "../lib/auth";
+import { z } from "zod/v4";
+
+const PinBody = z.object({ pin: z.string().regex(/^\d{0,8}$/) });
 
 export const configApi = new Hono();
 
@@ -120,8 +123,10 @@ configApi.get("/pin-info", (c) => {
 });
 
 configApi.post("/pin-set", async (c) => {
-  const { pin } = await c.req.json();
-  const newPin = typeof pin === "string" ? pin.replace(/\D/g, "") : "";
+  const body = await c.req.json();
+  const parsed = PinBody.safeParse(body);
+  if (!parsed.success) return c.json({ ok: false, error: "Invalid PIN format" }, 400);
+  const newPin = parsed.data.pin;
   saveConfig({ pin: newPin } as any);
   return c.json({ ok: true, length: newPin.length, enabled: newPin.length > 0 });
 });
@@ -137,7 +142,10 @@ configApi.post("/pin-verify", async (c) => {
     return c.json({ ok: false, error: "Too many attempts. Wait 1 minute." }, 429);
   }
 
-  const { pin } = await c.req.json();
+  const body = await c.req.json();
+  const parsed = PinBody.safeParse(body);
+  if (!parsed.success) return c.json({ ok: false, error: "Invalid PIN format" }, 400);
+  const pin = parsed.data.pin;
   const config = loadConfig() as any;
   const correct = config.pin || "";
   if (!correct) return c.json({ ok: true });

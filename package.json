@@ -16,11 +16,14 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "aedes": "^1.0.2",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.5",
     "mqtt": "^5.15.1",
+    "puppeteer-core": "^24.40.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "three": "^0.183.2",
+    "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
@@ -31,6 +34,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^4.3.0",
+    "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.2.1",
     "vite": "^6.0.0"
   }

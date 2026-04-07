@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR as fleetDir } from "../paths";
+import { z } from "zod/v4";
 
 export const fleetApi = new Hono();
 
@@ -63,11 +64,18 @@ fleetApi.get("/fleet/soul-sync-status", (c) => {
   }
 });
 
+const SoulSyncBody = z.object({
+  fields: z.array(z.string()).optional(),
+  targets: z.array(z.string()).optional(),
+});
+
 /** Soul-sync trigger — sync specific fields from parent to children */
 fleetApi.post("/fleet/soul-sync", async (c) => {
   try {
     const body = await c.req.json();
-    const { fields, targets } = body as { fields?: string[]; targets?: string[] };
+    const parsed = SoulSyncBody.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const { fields, targets } = parsed.data;
 
     const files = readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"));
     const configs: Record<string, { data: any; file: string }> = {};
