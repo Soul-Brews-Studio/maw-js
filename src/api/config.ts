@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, exist
 import { join, basename } from "path";
 import { loadConfig, saveConfig, configForDisplay } from "../config";
 import { FLEET_DIR as fleetDir } from "../paths";
+import { createToken } from "../lib/auth";
 
 export const configApi = new Hono();
 
@@ -141,7 +142,11 @@ configApi.post("/pin-verify", async (c) => {
   const correct = config.pin || "";
   if (!correct) return c.json({ ok: true });
   const ok = pin === correct;
-  if (ok) pinAttempts.delete(ip); // reset on success
+  if (ok) {
+    pinAttempts.delete(ip);
+    const token = createToken();
+    return c.json({ ok, token });
+  }
   return c.json({ ok });
 });
 

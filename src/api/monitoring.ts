@@ -53,8 +53,12 @@ monitoringApi.get("/monitoring/health", (c) => {
 
     const latest = latestSnapshot();
 
+    // Filter out non-oracle entries (system commands, "all" target, etc.)
+    const SKIP_NAMES = new Set(["system", "all", "ls", "--help", "status"]);
+    const filteredOracles = Array.from(oracles.values()).filter(o => !SKIP_NAMES.has(o.name));
+
     return c.json({
-      oracles: Array.from(oracles.values()),
+      oracles: filteredOracles,
       latestSnapshot: latest ? {
         timestamp: latest.timestamp,
         trigger: latest.trigger,
