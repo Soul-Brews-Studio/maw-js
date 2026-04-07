@@ -24,11 +24,17 @@ monitoringApi.get("/monitoring/health", (c) => {
     }>();
 
     for (const entry of entries) {
-      const name = entry.oracle || entry.session || "unknown";
+      // Audit log format: { ts, cmd, args: ["wake", "labubu"], user }
+      // Extract oracle name from args (e.g. args[1] = "labubu" or "echo")
+      const name = entry.oracle || entry.session
+        || (entry.args?.[1] && !entry.args[1].startsWith("-") ? entry.args[1] : null)
+        || "system";
+      const timestamp = entry.timestamp || entry.ts || "";
+
       if (!oracles.has(name)) {
         oracles.set(name, {
           name,
-          lastSeen: entry.timestamp || entry.ts || "",
+          lastSeen: timestamp,
           totalSessions: 0,
           crashes: 0,
           lastCrash: null,
@@ -37,11 +43,11 @@ monitoringApi.get("/monitoring/health", (c) => {
       }
       const o = oracles.get(name)!;
       o.events++;
-      if (entry.timestamp > o.lastSeen) o.lastSeen = entry.timestamp;
-      if (entry.event === "SessionStart" || entry.action === "wake") o.totalSessions++;
-      if (entry.event === "Error" || entry.action === "crash" || entry.status === "crashed") {
+      if (timestamp > o.lastSeen) o.lastSeen = timestamp;
+      if (entry.event === "SessionStart" || entry.cmd === "wake") o.totalSessions++;
+      if (entry.event === "Error" || entry.cmd === "crash" || entry.status === "crashed") {
         o.crashes++;
-        if (!o.lastCrash || entry.timestamp > o.lastCrash) o.lastCrash = entry.timestamp;
+        if (!o.lastCrash || timestamp > o.lastCrash) o.lastCrash = timestamp;
       }
     }
 
