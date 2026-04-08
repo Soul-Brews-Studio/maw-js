@@ -119,10 +119,9 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   } catch {}
 
   // Discord bot — bidirectional Oracle↔Discord communication
-  try {
-    const { startDiscordBot } = require("./engine/discord-bot");
-    startDiscordBot(mawLogListeners, feedListeners);
-  } catch {}
+  import("./engine/discord-bot")
+    .then(({ startDiscordBot }) => startDiscordBot(mawLogListeners, feedListeners))
+    .catch((e) => console.error("[discord-bot] load failed:", e));
 
 
   const wsHandler = {

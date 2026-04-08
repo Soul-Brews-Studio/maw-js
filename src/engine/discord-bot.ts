@@ -11,7 +11,7 @@
  */
 
 import { Client, GatewayIntentBits, type Message, type TextChannel } from "discord.js";
-import { listSessions, findWindow, sendKeys, capture } from "../ssh";
+import { listSessions, findWindow, sendKeys } from "../ssh";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir, hostname } from "os";
@@ -62,51 +62,19 @@ async function handleCommand(message: Message) {
   // Log inbound
   logToMawLog("nat-discord", oracleName + "-oracle", msg);
 
-  // Capture "before" state
-  const beforeCapture = await capture(window).catch(() => "");
-
   // Send to oracle
   const notification = `💬 from Discord (Boss): "${msg}"`;
   await sendKeys(window, notification);
 
-  // React to show dispatch
-  await message.react("📨").catch(() => {});
-
-  // Wait and capture response (poll for 15 seconds)
-  let response = "";
-  for (let i = 0; i < 5; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    const afterCapture = await capture(window).catch(() => "");
-    if (afterCapture && afterCapture !== beforeCapture) {
-      // Extract new content (last 20 lines that weren't in before)
-      const beforeLines = new Set(beforeCapture.split("\n"));
-      const newLines = afterCapture.split("\n").filter(l => !beforeLines.has(l) && l.trim());
-      if (newLines.length > 0) {
-        response = newLines.slice(-20).join("\n");
-        break;
-      }
-    }
-  }
-
-  if (response) {
-    // Truncate for Discord (max 2000 chars)
-    const truncated = response.length > 1800 ? response.slice(0, 1797) + "..." : response;
-    const color = COLORS[oracleName] || 0x666666;
-
-    await message.reply({
-      embeds: [{
-        color,
-        author: { name: `${oracleName} responded` },
-        description: "```\n" + truncated + "\n```",
-        footer: { text: "OracleNet via MAW" },
-      }],
-    });
-
-    // Log response
-    logToMawLog(oracleName + "-oracle", "nat-discord", response.slice(0, 500));
-  } else {
-    await message.reply(`Dispatched to **${oracleName}**. No response captured yet — Oracle may still be processing.`);
-  }
+  const color = COLORS[oracleName] || 0x666666;
+  await message.reply({
+    embeds: [{
+      color,
+      author: { name: `📨 → ${oracleName}` },
+      description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
+      footer: { text: "Dispatched — Oracle will respond in chat" },
+    }],
+  });
 }
 
 /**
