@@ -95,15 +95,26 @@ function checkAlerts(metrics: ReturnType<typeof collectMetrics>): string | null 
   return reasons.length > 0 ? reasons.join(",") : null;
 }
 
-/** Fire webhook if configured */
+/** Fire webhook if configured (Discord format) */
 async function fireWebhook(metrics: ReturnType<typeof collectMetrics>, alertReason: string) {
   const webhookUrl = process.env.PULSE_WEBHOOK_URL;
   if (!webhookUrl) return;
 
   const payload = {
-    text: `🫀 Pulse Alert: ${alertReason}`,
-    ...metrics,
-    timestamp: new Date().toISOString(),
+    content: `🫀 **Pulse Alert** — ${alertReason}`,
+    embeds: [{
+      color: 0xff4444,
+      title: "Server Health Alert",
+      fields: [
+        { name: "Memory", value: `${metrics.memAvailMb}MB / ${metrics.memTotalMb}MB (${metrics.memUsedPct}%)`, inline: true },
+        { name: "Disk", value: `${metrics.diskUsedPct}% used (${metrics.diskAvailGb}GB free)`, inline: true },
+        { name: "Load", value: metrics.loadAvg, inline: true },
+        { name: "PM2", value: `${metrics.pm2Online}/${metrics.pm2Total} online`, inline: true },
+        { name: "Docker", value: `${metrics.dockerRunning}/${metrics.dockerTotal} running`, inline: true },
+      ],
+      timestamp: new Date().toISOString(),
+      footer: { text: "srv1439136.local — Pulse Oracle" },
+    }],
   };
 
   try {

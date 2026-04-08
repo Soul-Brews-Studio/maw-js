@@ -10,6 +10,7 @@ module.exports = {
       env: {
         MAW_HOST: 'local',
         MAW_PORT: '3456',
+        PULSE_WEBHOOK_URL: 'https://discord.com/api/webhooks/1491281870980382780/vxXAelnKQlX1CFivdRqN2ETLuD1J9XeMxfqr5AbbXhuxnZszBdudFjbaUPmD1zEeFrTE',
       },
     },
     {
