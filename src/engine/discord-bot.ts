@@ -12,6 +12,7 @@
 
 import { Client, GatewayIntentBits, type Message, type TextChannel } from "discord.js";
 import { listSessions, findWindow, sendKeys } from "../ssh";
+import { setBridgeBotChannel } from "./discord-bridge";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir, hostname } from "os";
@@ -111,11 +112,14 @@ export function startDiscordBot(
 
   client.on("ready", async () => {
     console.log(`[discord-bot] logged in as ${client!.user?.tag}`);
-    // Cache the response channel
+    // Cache the response channel + wire bridge to use bot
     if (channelId) {
       try {
         const ch = await client!.channels.fetch(channelId);
-        if (ch && "send" in ch) responseChannel = ch as TextChannel;
+        if (ch && "send" in ch) {
+          responseChannel = ch as TextChannel;
+          setBridgeBotChannel(responseChannel);
+        }
       } catch {}
     }
   });

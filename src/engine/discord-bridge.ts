@@ -13,6 +13,15 @@ const WEBHOOK_URL = () => process.env.DISCORD_CHAT_WEBHOOK_URL || process.env.PU
 const RATE_LIMIT_MS = 3000;
 const MAX_QUEUE = 20;
 
+// Bot channel for sending via discord.js instead of webhook
+let botChannel: { send: (opts: any) => Promise<any> } | null = null;
+
+/** Set bot channel — called by discord-bot after login */
+export function setBridgeBotChannel(channel: { send: (opts: any) => Promise<any> } | null) {
+  botChannel = channel;
+  if (channel) console.log("[discord] bridge using bot channel");
+}
+
 // Agent color mapping for Discord embeds
 const AGENT_COLORS: Record<string, number> = {
   "labubu-oracle": 0xe8b86d,  // gold
@@ -40,11 +49,16 @@ async function flush() {
 
   const item = queue.shift()!;
   try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(item.payload),
-    });
+    // Prefer bot channel (same identity as MAW Oracle bot)
+    if (botChannel) {
+      await botChannel.send(item.payload);
+    } else {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(item.payload),
+      });
+    }
   } catch (e) {
     console.error("[discord] send failed:", e);
   }
@@ -58,7 +72,7 @@ async function flush() {
 }
 
 function enqueue(payload: Record<string, unknown>) {
-  if (!WEBHOOK_URL()) return;
+  if (!WEBHOOK_URL() && !botChannel) return;
   if (queue.length >= MAX_QUEUE) queue.shift(); // drop oldest
   queue.push({ payload, ts: Date.now() });
   if (!sending && !timer) {
