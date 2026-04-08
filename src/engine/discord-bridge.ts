@@ -44,15 +44,15 @@ async function flush() {
   if (sending || queue.length === 0) return;
   sending = true;
 
-  const url = WEBHOOK_URL();
-  if (!url) { queue = []; sending = false; return; }
-
   const item = queue.shift()!;
   try {
-    // Prefer bot channel (same identity as MAW Oracle bot)
     if (botChannel) {
+      // Send via Bot — shows as "MAW Oracle"
       await botChannel.send(item.payload);
     } else {
+      // Fallback to webhook only if bot not available
+      const url = WEBHOOK_URL();
+      if (!url) { sending = false; return; }
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -159,8 +159,8 @@ export function startDiscordBridge(
   mawLogListeners: Set<(entry: any) => void>,
   feedListeners: Set<(event: FeedEvent) => void>,
 ) {
-  if (!WEBHOOK_URL()) {
-    console.log("[discord] no PULSE_WEBHOOK_URL — bridge disabled");
+  if (!WEBHOOK_URL() && !process.env.DISCORD_BOT_TOKEN) {
+    console.log("[discord] no webhook or bot token — bridge disabled");
     return;
   }
 
