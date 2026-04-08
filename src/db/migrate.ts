@@ -115,6 +115,21 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_health_snapshots_ts ON health_snapshots(ts);
     `,
   },
+  {
+    version: 6,
+    name: "create_trials",
+    sql: `
+      CREATE TABLE IF NOT EXISTS trials (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        tier TEXT NOT NULL DEFAULT 'solo',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_trials_email ON trials(email);
+    `,
+  },
 ];
 
 /**

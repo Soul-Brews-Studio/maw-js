@@ -79,6 +79,18 @@ export const healthSnapshots = sqliteTable("health_snapshots", {
 });
 
 /**
+ * Trials — SaaS onboarding sign-ups.
+ */
+export const trials = sqliteTable("trials", {
+  id: text("id").primaryKey(),                       // UUID
+  email: text("email").notNull().unique(),
+  tier: text("tier").notNull().default("solo"),       // solo, team, fleet
+  status: text("status").notNull().default("active"), // active, expired, cancelled
+  createdAt: integer("created_at").notNull(),         // epoch ms
+  expiresAt: integer("expires_at").notNull(),         // epoch ms
+});
+
+/**
  * Oracle health — latest known state per oracle.
  * Updated on every relevant feed event or audit entry.
  */

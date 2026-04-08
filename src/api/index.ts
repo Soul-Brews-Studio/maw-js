@@ -19,6 +19,7 @@ import { workspaceApi } from "./workspace";
 import { monitoringApi } from "./monitoring";
 import { healthApi } from "./health";
 import { consciousnessApi } from "./consciousness";
+import { onboardingApi } from "./onboarding";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
@@ -46,3 +47,4 @@ api.route("/", workspaceApi);
 api.route("/", monitoringApi);
 api.route("/", healthApi);
 api.route("/", consciousnessApi);
+api.route("/", onboardingApi);
