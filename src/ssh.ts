@@ -21,16 +21,13 @@ export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string
 /** @deprecated Use hostExec */
 export const ssh = hostExec;
 
-export interface Window {
-  index: number;
-  name: string;
-  active: boolean;
-}
-
-export interface Session {
-  name: string;
-  windows: Window[];
-}
+// Window, Session, and findWindow live in ./find-window so tests can
+// import them without being broken by mock.module("../src/ssh") calls
+// that pollute the global module cache. Re-exported here for backward
+// compatibility with existing importers.
+export type { Window, Session } from "./find-window";
+export { findWindow } from "./find-window";
+import type { Session } from "./find-window";
 
 export async function listSessions(host?: string): Promise<Session[]> {
   let raw: string;
@@ -49,61 +46,6 @@ export async function listSessions(host?: string): Promise<Session[]> {
     sessions.push({ name: s, windows });
   }
   return sessions;
-}
-
-/**
- * Match a session by name part. Tries (in order):
- *   1. Exact match
- *   2. Oracle-name match (strip leading `\d+-` from session name)
- *   3. Substring match
- * Returns the first session that matches, or null.
- */
-function matchSession(sessions: Session[], part: string): Session | null {
-  const p = part.toLowerCase();
-  if (!p) return null;
-  // 1. Exact
-  for (const s of sessions) if (s.name.toLowerCase() === p) return s;
-  // 2. Oracle-name (strip "NN-" prefix)
-  for (const s of sessions) if (s.name.toLowerCase().replace(/^\d+-/, "") === p) return s;
-  // 3. Substring
-  for (const s of sessions) if (s.name.toLowerCase().includes(p)) return s;
-  return null;
-}
-
-export function findWindow(sessions: Session[], query: string): string | null {
-  const q = query.toLowerCase();
-
-  // session:window syntax — substring-match each half semantically (#186)
-  if (query.includes(":")) {
-    const [sessPart, winPart] = q.split(":", 2);
-    const sess = matchSession(sessions, sessPart);
-    if (sess) {
-      // Empty window part → return session's first window
-      if (!winPart) {
-        if (sess.windows.length > 0) return `${sess.name}:${sess.windows[0].name}`;
-      } else {
-        for (const w of sess.windows) {
-          if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.name}`;
-        }
-      }
-    }
-    // Fall through if no semantic match
-  }
-
-  // Match window names first (most specific)
-  for (const s of sessions) {
-    for (const w of s.windows) {
-      if (w.name.toLowerCase().includes(q)) return `${s.name}:${w.name}`;
-    }
-  }
-  // Match session names — return first window of matching session
-  for (const s of sessions) {
-    if (s.name.toLowerCase().includes(q) && s.windows.length > 0) {
-      return `${s.name}:${s.windows[0].name}`;
-    }
-  }
-  if (query.includes(":")) return query;
-  return null;
 }
 
 export async function capture(target: string, lines = 80, host?: string): Promise<string> {
