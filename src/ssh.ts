@@ -21,12 +21,11 @@ export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string
 /** @deprecated Use hostExec */
 export const ssh = hostExec;
 
-// Window, Session, and findWindow live in ./find-window so tests can
-// import them without being broken by mock.module("../src/ssh") calls
-// that pollute the global module cache. Re-exported here for backward
-// compatibility with existing importers.
-export type { Window, Session } from "./find-window";
-export { findWindow } from "./find-window";
+// Window/Session types and findWindow live in ./find-window.
+// They are NOT re-exported here — callers must import them directly
+// from "./find-window". This breaks the module dependency chain that
+// Bun's mock.module("../src/ssh") was using to clobber findWindow
+// in tests (see #198). Direct imports bypass the mock entirely.
 import type { Session } from "./find-window";
 
 export async function listSessions(host?: string): Promise<Session[]> {

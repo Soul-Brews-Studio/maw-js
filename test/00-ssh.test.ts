@@ -32,14 +32,6 @@ const MOCK_SESSIONS: Session[] = [
   },
 ];
 
-// DEBUG: dump what findWindow actually is in CI (remove after diagnosing #198)
-console.log("[DEBUG-198] typeof findWindow =", typeof findWindow);
-console.log("[DEBUG-198] findWindow.name =", findWindow?.name);
-console.log("[DEBUG-198] findWindow source (first 400 chars):");
-console.log(findWindow?.toString?.()?.slice(0, 400) || "<no toString>");
-console.log("[DEBUG-198] MOCK_SESSIONS length =", MOCK_SESSIONS.length);
-console.log("[DEBUG-198] findWindow(MOCK_SESSIONS, 'neo') =", JSON.stringify(findWindow(MOCK_SESSIONS, "neo")));
-
 describe("findWindow", () => {
   test("finds by window name substring", () => {
     expect(findWindow(MOCK_SESSIONS, "neo")).toBe("1-oracles:neo-oracle");

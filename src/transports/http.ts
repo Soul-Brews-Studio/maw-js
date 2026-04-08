@@ -7,7 +7,8 @@
 
 import { sendKeysToPeer, getAggregatedSessions } from "../peers";
 import { cfgTimeout } from "../config";
-import { listSessions, findWindow } from "../ssh";
+import { listSessions } from "../ssh";
+import { findWindow } from "../find-window";
 import { curlFetch } from "../curl-fetch";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../transport";
 import type { FeedEvent } from "../lib/feed";

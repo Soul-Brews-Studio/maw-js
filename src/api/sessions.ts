@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { listSessions, capture, sendKeys, selectWindow, findWindow } from "../ssh";
+import { listSessions, capture, sendKeys, selectWindow } from "../ssh";
+import { findWindow } from "../find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../curl-fetch";

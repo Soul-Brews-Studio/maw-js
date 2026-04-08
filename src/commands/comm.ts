@@ -1,4 +1,5 @@
-import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { findWindow } from "../find-window";
 import { loadConfig, cfgLimit } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
