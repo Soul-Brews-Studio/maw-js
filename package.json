@@ -16,6 +16,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "aedes": "^1.0.2",
+    "discord.js": "^14.26.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.5",
     "mqtt": "^5.15.1",
