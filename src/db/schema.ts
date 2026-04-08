@@ -56,6 +56,29 @@ export const snapshots = sqliteTable("snapshots", {
 });
 
 /**
+ * Server health snapshots — VPS metrics over time.
+ * Collected by Pulse heartbeat every 5 minutes.
+ */
+export const healthSnapshots = sqliteTable("health_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ts: integer("ts").notNull(),                          // epoch ms
+  timestamp: text("timestamp").notNull(),               // ISO 8601
+  memAvailMb: integer("mem_avail_mb").notNull(),        // available memory in MB
+  memTotalMb: integer("mem_total_mb").notNull(),        // total memory in MB
+  memUsedPct: integer("mem_used_pct").notNull(),        // % used
+  diskUsedPct: integer("disk_used_pct").notNull(),      // % disk used on /
+  diskAvailGb: integer("disk_avail_gb").notNull(),      // GB available
+  loadAvg: text("load_avg").notNull(),                  // "0.96 0.62 0.32"
+  cpuCount: integer("cpu_count").notNull(),             // number of CPUs
+  pm2Online: integer("pm2_online").notNull(),           // PM2 processes online
+  pm2Total: integer("pm2_total").notNull(),             // PM2 processes total
+  dockerRunning: integer("docker_running").notNull(),   // Docker containers running
+  dockerTotal: integer("docker_total").notNull(),       // Docker containers total
+  alertFired: integer("alert_fired").notNull().default(0), // 1 if alert was triggered
+  alertReason: text("alert_reason"),                    // why alert fired
+});
+
+/**
  * Oracle health — latest known state per oracle.
  * Updated on every relevant feed event or audit entry.
  */
