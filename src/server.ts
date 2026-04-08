@@ -81,6 +81,37 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     startMqttBridge(feedListeners, feedBuffer);
   } catch {}
 
+  // Health escalation chain — multi-level alerts (Discord → LINE → repeat)
+  try {
+    const { initEscalation } = require("./engine/escalation");
+    const chain = initEscalation({
+      lineToken: process.env.LINE_NOTIFY_TOKEN,
+      repeatMinutes: 10,
+    });
+    // Wire Discord as L1 handler (reuse webhook format)
+    const webhookUrl = process.env.PULSE_WEBHOOK_URL;
+    if (webhookUrl) {
+      chain.setDiscordHandler(async (_metrics: any, reason: string) => {
+        await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: `🚨 **Health Alert**`,
+            embeds: [{
+              color: 0xff4444,
+              title: "Escalation Alert",
+              description: reason,
+              timestamp: new Date().toISOString(),
+              footer: { text: "MAW Escalation Chain" },
+            }],
+          }),
+        }).catch(() => {});
+      });
+    }
+  } catch (e) {
+    console.error("[escalation] init failed:", e);
+  }
+
   // Discord bridge — forward chat + deploy events to Discord webhook
   try {
     const { startDiscordBridge } = require("./engine/discord-bridge");

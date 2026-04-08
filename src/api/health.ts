@@ -145,9 +145,11 @@ healthApi.post("/health/collect", async (c) => {
       alertReason,
     });
 
-    // Fire webhook on alert
+    // Escalation chain (replaces direct webhook)
     if (alertReason) {
-      await fireWebhook(metrics, alertReason);
+      const { getEscalation } = require("../engine/escalation");
+      const alertId = `health-${now}`;
+      getEscalation().escalate(alertId, metrics, alertReason);
     }
 
     // Prune old entries (keep 7 days = 2016 entries at 5min intervals)
