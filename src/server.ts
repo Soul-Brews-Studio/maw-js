@@ -6,10 +6,13 @@ import { loadConfig } from "./config";
 import { existsSync, readFileSync } from "fs";
 import { api } from "./api";
 import { feedBuffer, feedListeners } from "./api/feed";
+import { mawLogListeners } from "./api/maw-log";
 import { mountViews } from "./views/index";
 import { setupTriggerListener } from "./trigger-listener";
 import { createTransportRouter } from "./transports";
 import { handlePtyMessage, handlePtyClose } from "./pty";
+import { initDb } from "./db";
+import { attachSink } from "./db/sink";
 
 // --- Version info (computed once at startup) ---
 
@@ -50,7 +53,12 @@ export { app };
 // --- Server ---
 
 export function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
-  const engine = new MawEngine({ feedBuffer, feedListeners });
+  const engine = new MawEngine({ feedBuffer, feedListeners, mawLogListeners });
+
+  // Initialize SQLite persistence (non-blocking — server starts even if DB fails)
+  initDb()
+    .then(() => attachSink(feedListeners))
+    .catch((err) => console.error("[db] init failed (continuing without persistence):", err));
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;

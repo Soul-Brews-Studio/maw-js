@@ -35,10 +35,12 @@ export class MawEngine {
 
   private feedBuffer: FeedEvent[];
   private feedListeners: Set<(event: FeedEvent) => void>;
+  private mawLogListeners: Set<(entry: any) => void>;
 
-  constructor({ feedBuffer, feedListeners }: { feedBuffer: FeedEvent[]; feedListeners: Set<(event: FeedEvent) => void> }) {
+  constructor({ feedBuffer, feedListeners, mawLogListeners }: { feedBuffer: FeedEvent[]; feedListeners: Set<(event: FeedEvent) => void>; mawLogListeners: Set<(entry: any) => void> }) {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
+    this.mawLogListeners = mawLogListeners;
     registerBuiltinHandlers(this);
     // Eagerly load sessions on startup — don't wait for first WS client.
     // Fixes: MQTT/API messages dropped when no browser is connected.
@@ -182,7 +184,18 @@ export class MawEngine {
       for (const ws of this.clients) ws.send(msg);
     };
     this.feedListeners.add(listener);
-    this.feedUnsub = () => this.feedListeners.delete(listener);
+
+    // Broadcast new maw-log entries to all WS clients (real-time chat)
+    const mawLogListener = (entry: any) => {
+      const msg = JSON.stringify({ type: "maw-log", entries: [entry] });
+      for (const ws of this.clients) ws.send(msg);
+    };
+    this.mawLogListeners.add(mawLogListener);
+
+    this.feedUnsub = () => {
+      this.feedListeners.delete(listener);
+      this.mawLogListeners.delete(mawLogListener);
+    };
   }
 
   private stopIntervals() {

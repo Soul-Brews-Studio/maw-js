@@ -16,6 +16,9 @@ import { CONFIG_DIR } from "../paths";
 
 export const mawLogApi = new Hono();
 
+/** Listeners for real-time maw-log broadcast (engine subscribes to push via WS) */
+export const mawLogListeners = new Set<(entry: MawLogEntry) => void>();
+
 interface MawLogEntry {
   ts: string;
   from: string;
@@ -139,6 +142,9 @@ mawLogApi.post("/maw-log", async (c) => {
     const dir = join(homedir(), ".oracle");
     mkdirSync(dir, { recursive: true });
     appendFileSync(MAW_LOG_FILE, JSON.stringify({ ...entry, host: hostname() }) + "\n");
+
+    // Broadcast to all connected WebSocket clients
+    for (const fn of mawLogListeners) fn(entry);
 
     return c.json({ ok: true, entry });
   } catch (e: any) {
