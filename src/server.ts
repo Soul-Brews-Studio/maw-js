@@ -81,6 +81,12 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     startMqttBridge(feedListeners, feedBuffer);
   } catch {}
 
+  // Discord bridge — forward chat + deploy events to Discord webhook
+  try {
+    const { startDiscordBridge } = require("./engine/discord-bridge");
+    startDiscordBridge(mawLogListeners, feedListeners);
+  } catch {}
+
 
   const wsHandler = {
     open: (ws: any) => {

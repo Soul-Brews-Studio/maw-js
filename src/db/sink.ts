@@ -12,6 +12,7 @@ import type { FeedEvent } from "../lib/feed";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir, hostname } from "os";
+import { mawLogListeners } from "../api/maw-log";
 
 const FLUSH_INTERVAL = 2000;
 const FLUSH_BATCH_SIZE = 50;
@@ -190,8 +191,10 @@ function writeChatEntry(ts: string, from: string, to: string, msg: string) {
 
   try {
     mkdirSync(MAW_LOG_DIR, { recursive: true });
-    const line = JSON.stringify({ ts, from: normFrom, to: normTo, msg, host: hostname() }) + "\n";
-    appendFileSync(MAW_LOG_FILE, line);
+    const entry = { ts, from: normFrom, to: normTo, msg, host: hostname() };
+    appendFileSync(MAW_LOG_FILE, JSON.stringify(entry) + "\n");
+    // Broadcast to WebSocket clients for real-time ChatView
+    for (const fn of mawLogListeners) fn(entry);
     console.log(`[db:sink] chat: ${normFrom} → ${normTo}`);
   } catch (e) {
     console.error("[db:sink] chat write error:", e);

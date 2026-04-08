@@ -13,6 +13,7 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir, hostname } from "os";
 import { CONFIG_DIR } from "../paths";
+import { listSessions, findWindow, sendKeys } from "../ssh";
 
 export const mawLogApi = new Hono();
 
@@ -146,7 +147,23 @@ mawLogApi.post("/maw-log", async (c) => {
     // Broadcast to all connected WebSocket clients
     for (const fn of mawLogListeners) fn(entry);
 
-    return c.json({ ok: true, entry });
+    // Dispatch to Oracle tmux if target is an oracle agent
+    let dispatched = false;
+    if (body.from === "nat" || !body.from.includes("-oracle")) {
+      try {
+        const sessions = await listSessions();
+        const target = findWindow(sessions, body.to) || findWindow(sessions, body.to.replace(/-oracle$/, ""));
+        if (target) {
+          const notification = `💬 from ${body.from}: "${body.msg}"`;
+          await sendKeys(target, notification);
+          dispatched = true;
+        }
+      } catch (e) {
+        console.error("[maw-log] dispatch failed:", e);
+      }
+    }
+
+    return c.json({ ok: true, entry, dispatched });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
