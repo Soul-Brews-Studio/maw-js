@@ -22,6 +22,3 @@ jobs:
 
       - name: Build CLI
         run: bun build --target=bun src/cli.ts
-
-      - name: Build Office UI
-        run: bun run build:office
