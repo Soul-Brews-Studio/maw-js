@@ -1,7 +1,4 @@
 import { Hono } from "hono";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
-import { CONFIG_DIR } from "../paths";
 import { listSnapshots, loadSnapshot, latestSnapshot } from "../snapshot";
 import { getDb } from "../db";
 import { oracleHealth, auditLog } from "../db/schema";
@@ -9,33 +6,24 @@ import { desc, eq, sql } from "drizzle-orm";
 
 export const monitoringApi = new Hono();
 
-const AUDIT_FILE = join(CONFIG_DIR, "audit.jsonl");
-
-/** Health overview — from SQLite oracleHealth table (fallback: audit.jsonl) */
+/** Health overview — from SQLite oracleHealth table */
 monitoringApi.get("/monitoring/health", (c) => {
   try {
-    let filteredOracles: any[];
-
-    try {
-      const db = getDb();
-      const rows = db.select().from(oracleHealth).all();
-      const SKIP_NAMES = new Set(["system", "all", "ls", "--help", "status", "unknown"]);
-      filteredOracles = rows
-        .filter(r => !SKIP_NAMES.has(r.oracle))
-        .map(r => ({
-          name: r.oracle,
-          lastSeen: r.lastSeen ? new Date(r.lastSeen).toISOString() : "",
-          totalSessions: r.totalSessions,
-          crashes: r.crashes,
-          lastCrash: r.lastCrash ? new Date(r.lastCrash).toISOString() : null,
-          events: r.totalEvents,
-          lastEvent: r.lastEvent,
-          host: r.host,
-        }));
-    } catch {
-      // DB not ready — fallback to audit.jsonl
-      filteredOracles = healthFromAuditLog();
-    }
+    const db = getDb();
+    const rows = db.select().from(oracleHealth).all();
+    const SKIP_NAMES = new Set(["system", "all", "ls", "--help", "status", "unknown"]);
+    const filteredOracles = rows
+      .filter(r => !SKIP_NAMES.has(r.oracle))
+      .map(r => ({
+        name: r.oracle,
+        lastSeen: r.lastSeen ? new Date(r.lastSeen).toISOString() : "",
+        totalSessions: r.totalSessions,
+        crashes: r.crashes,
+        lastCrash: r.lastCrash ? new Date(r.lastCrash).toISOString() : null,
+        events: r.totalEvents,
+        lastEvent: r.lastEvent,
+        host: r.host,
+      }));
 
     const latest = latestSnapshot();
 
@@ -52,49 +40,30 @@ monitoringApi.get("/monitoring/health", (c) => {
   }
 });
 
-/** Audit log — paginated, from SQLite (fallback: audit.jsonl) */
+/** Audit log — paginated, from SQLite */
 monitoringApi.get("/monitoring/audit", (c) => {
   try {
+    const db = getDb();
     const oracle = c.req.query("oracle");
     const limit = parseInt(c.req.query("limit") || "50", 10);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
-    // Try SQLite first, fallback to audit.jsonl if DB empty or not ready
-    let dbEntries: any[] | null = null;
-    let dbTotal = 0;
-    try {
-      const db = getDb();
-      const countResult = oracle
-        ? db.select({ count: sql<number>`count(*)` }).from(auditLog).where(eq(auditLog.oracle, oracle)).get()
-        : db.select({ count: sql<number>`count(*)` }).from(auditLog).get();
-      dbTotal = countResult?.count ?? 0;
+    const countResult = oracle
+      ? db.select({ count: sql<number>`count(*)` }).from(auditLog).where(eq(auditLog.oracle, oracle)).get()
+      : db.select({ count: sql<number>`count(*)` }).from(auditLog).get();
+    const total = countResult?.count ?? 0;
 
-      if (dbTotal > 0) {
-        let query = db.select().from(auditLog).orderBy(desc(auditLog.ts)).limit(limit).offset(offset);
-        if (oracle) {
-          query = db.select().from(auditLog).where(eq(auditLog.oracle, oracle)).orderBy(desc(auditLog.ts)).limit(limit).offset(offset);
-        }
-        dbEntries = query.all().map(r => ({
-          ...r,
-          args: r.args ? JSON.parse(r.args) : [],
-        }));
-      }
-    } catch {}
-
-    if (dbEntries && dbEntries.length > 0) {
-      return c.json({ entries: dbEntries, total: dbTotal, limit, offset });
-    }
-
-    // Fallback to audit.jsonl
-    let entries = readAuditLog(500);
+    let query = db.select().from(auditLog).orderBy(desc(auditLog.ts)).limit(limit).offset(offset);
     if (oracle) {
-      entries = entries.filter(e =>
-        e.oracle === oracle || e.session === oracle || e.name === oracle
-      );
+      query = db.select().from(auditLog).where(eq(auditLog.oracle, oracle)).orderBy(desc(auditLog.ts)).limit(limit).offset(offset);
     }
-    const total = entries.length;
-    const page = entries.slice(offset, offset + limit);
-    return c.json({ entries: page, total, limit, offset });
+    const entries = query.all().map(r => ({
+      ...r,
+      action: r.cmd,       // frontend expects "action" for display
+      args: r.args ? JSON.parse(r.args) : [],
+    }));
+
+    return c.json({ entries, total, limit, offset });
   } catch (e: any) {
     return c.json({ entries: [], total: 0, error: e.message });
   }
@@ -122,45 +91,3 @@ monitoringApi.get("/snapshots/:id", (c) => {
   }
 });
 
-/** Fallback: build health from audit.jsonl when DB not available */
-function healthFromAuditLog(): any[] {
-  const entries = readAuditLog(200);
-  const oracles = new Map<string, any>();
-  for (const entry of entries) {
-    const name = entry.oracle || entry.session
-      || (entry.args?.[1] && !entry.args[1].startsWith("-") ? entry.args[1] : null)
-      || "system";
-    const timestamp = entry.timestamp || entry.ts || "";
-    if (!oracles.has(name)) {
-      oracles.set(name, { name, lastSeen: timestamp, totalSessions: 0, crashes: 0, lastCrash: null, events: 0 });
-    }
-    const o = oracles.get(name)!;
-    o.events++;
-    if (timestamp > o.lastSeen) o.lastSeen = timestamp;
-    if (entry.event === "SessionStart" || entry.cmd === "wake") o.totalSessions++;
-    if (entry.event === "Error" || entry.cmd === "crash" || entry.status === "crashed") {
-      o.crashes++;
-      if (!o.lastCrash || timestamp > o.lastCrash) o.lastCrash = timestamp;
-    }
-  }
-  const SKIP_NAMES = new Set(["system", "all", "ls", "--help", "status"]);
-  return Array.from(oracles.values()).filter(o => !SKIP_NAMES.has(o.name));
-}
-
-/** Read audit log — returns newest first */
-function readAuditLog(maxLines: number): any[] {
-  if (!existsSync(AUDIT_FILE)) return [];
-  try {
-    const content = readFileSync(AUDIT_FILE, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    return lines
-      .slice(-maxLines)
-      .reverse()
-      .map(line => {
-        try { return JSON.parse(line); } catch { return null; }
-      })
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
