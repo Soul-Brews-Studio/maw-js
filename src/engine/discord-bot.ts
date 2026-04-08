@@ -76,14 +76,20 @@ async function handleCommand(message: Message) {
   await sendKeys(window, notification);
 
   const color = COLORS[oracleName] || 0x666666;
-  await message.reply({
+  const embed = {
     embeds: [{
       color,
       author: { name: `📨 → ${oracleName}` },
       description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
       footer: { text: "Waiting for Oracle response..." },
     }],
-  });
+  };
+  // Always send to the configured channel
+  if (responseChannel) {
+    await responseChannel.send(embed);
+  } else {
+    await message.reply(embed);
+  }
 }
 
 /**
@@ -151,8 +157,6 @@ export function startDiscordBot(
   client.on("messageCreate", async (message) => {
     // Ignore bot messages
     if (message.author.bot) return;
-    // Only respond in configured channel (if set)
-    if (channelId && message.channelId !== channelId) return;
     // Only respond to !maw commands
     if (!message.content.startsWith("!maw")) return;
 
