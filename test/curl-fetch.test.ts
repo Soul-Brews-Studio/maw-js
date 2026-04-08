@@ -15,6 +15,20 @@ mock.module("../src/config", () => ({
 
 const { curlFetch } = await import("../src/curl-fetch");
 
+// Probe for a live local maw server at `white.local:3456`. Tests that
+// require a running daemon are skipped in environments where it's not
+// reachable (CI, other machines, localhost without the service).
+// This keeps the integration tests useful locally without breaking CI.
+let hasLocalMawServer = false;
+try {
+  const probe = await fetch("http://white.local:3456/api/auth/status", {
+    signal: AbortSignal.timeout(1000),
+  });
+  hasLocalMawServer = probe.ok;
+} catch { /* unreachable — skip integration tests */ }
+
+const liveTest = hasLocalMawServer ? test : test.skip;
+
 describe("curlFetch", () => {
   test("uses native fetch on Linux", async () => {
     // On Linux (this test runs on white.local), curlFetch should use native fetch
@@ -27,14 +41,14 @@ describe("curlFetch", () => {
     expect(res.ok).toBe(false);
   });
 
-  test("sends HMAC headers when token configured", async () => {
+  liveTest("sends HMAC headers when token configured", async () => {
     // Test against local maw server — auth/status is public so it won't reject
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     expect(res.data?.enabled).toBe(true);
   });
 
-  test("sends POST with body and auth headers", async () => {
+  liveTest("sends POST with body and auth headers", async () => {
     // POST to auth/status (public endpoint, accepts any method)
     const res = await curlFetch("http://white.local:3456/api/auth/status", {
       method: "POST",
@@ -45,14 +59,14 @@ describe("curlFetch", () => {
     expect(res.status).toBeDefined();
   });
 
-  test("works without federation token", async () => {
+  liveTest("works without federation token", async () => {
     mockToken = undefined;
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     mockToken = "test-token-16chars!";
   });
 
-  test("parses JSON response", async () => {
+  liveTest("parses JSON response", async () => {
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     expect(typeof res.data).toBe("object");
@@ -61,7 +75,7 @@ describe("curlFetch", () => {
 });
 
 describe("curlFetch federation auth", () => {
-  test("protected endpoint with wrong token gets rejected", async () => {
+  liveTest("protected endpoint with wrong token gets rejected", async () => {
     // Wrong token → signature mismatch → 401 from remote, but from white.local
     // the server sees non-loopback IP so it checks HMAC
     mockToken = "wrong-token-that-wont-match";
@@ -76,7 +90,7 @@ describe("curlFetch federation auth", () => {
     mockToken = "test-token-16chars!";
   });
 
-  test("POST with body does not hang", async () => {
+  liveTest("POST with body does not hang", async () => {
     // This specifically tests the bug where POST + headers caused Bun.spawn curl to hang
     const start = Date.now();
     const res = await curlFetch("http://white.local:3456/api/send", {
