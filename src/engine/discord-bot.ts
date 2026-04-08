@@ -27,6 +27,10 @@ const COLORS: Record<string, number> = {
 };
 
 let client: Client | null = null;
+let responseChannel: TextChannel | null = null;
+
+// Track pending dispatches — oracle → timestamp
+const pendingDispatches = new Map<string, number>();
 
 function logToMawLog(from: string, to: string, msg: string) {
   try {
@@ -62,8 +66,13 @@ async function handleCommand(message: Message) {
   // Log inbound
   logToMawLog("nat-discord", oracleName + "-oracle", msg);
 
-  // Send to oracle
-  const notification = `💬 from Discord (Boss): "${msg}"`;
+  // Track this dispatch so we can forward the response
+  pendingDispatches.set(oracleName + "-oracle", Date.now());
+  // Auto-expire after 5 minutes
+  setTimeout(() => pendingDispatches.delete(oracleName + "-oracle"), 5 * 60 * 1000);
+
+  // Send to oracle — include instruction to reply via maw talk-to
+  const notification = `💬 from Discord (Boss): "${msg}"\n→ ตอบกลับด้วย: maw talk-to nat-discord "${msg.length > 50 ? "คำตอบ" : "reply"}"`;
   await sendKeys(window, notification);
 
   const color = COLORS[oracleName] || 0x666666;
@@ -72,7 +81,7 @@ async function handleCommand(message: Message) {
       color,
       author: { name: `📨 → ${oracleName}` },
       description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
-      footer: { text: "Dispatched — Oracle will respond in chat" },
+      footer: { text: "Waiting for Oracle response..." },
     }],
   });
 }
@@ -100,8 +109,43 @@ export function startDiscordBot(
     ],
   });
 
-  client.on("ready", () => {
+  client.on("ready", async () => {
     console.log(`[discord-bot] logged in as ${client!.user?.tag}`);
+    // Cache the response channel
+    if (channelId) {
+      try {
+        const ch = await client!.channels.fetch(channelId);
+        if (ch && "send" in ch) responseChannel = ch as TextChannel;
+      } catch {}
+    }
+  });
+
+  // Listen for Oracle responses via maw-log and forward to Discord
+  mawLogListeners.add((entry: any) => {
+    if (!responseChannel) return;
+    if (!entry.from || !entry.to || !entry.msg) return;
+    // Only forward messages FROM oracles (not from nat/cli/system)
+    if (!entry.from.includes("-oracle")) return;
+    // Skip messages we sent ourselves (from discord bot)
+    if (entry.ch === "discord") return;
+    // Only forward if this oracle had a pending dispatch
+    if (!pendingDispatches.has(entry.from)) return;
+
+    const oracleName = entry.from.replace(/-oracle$/, "");
+    const color = COLORS[oracleName] || 0x666666;
+    const msgPreview = entry.msg.length > 1800 ? entry.msg.slice(0, 1797) + "..." : entry.msg;
+
+    responseChannel.send({
+      embeds: [{
+        color,
+        author: { name: `${oracleName} responded` },
+        description: msgPreview,
+        footer: { text: "OracleNet" },
+      }],
+    }).catch(() => {});
+
+    // Clear pending
+    pendingDispatches.delete(entry.from);
   });
 
   client.on("messageCreate", async (message) => {
