@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { tmux } from "../tmux";
+import type { TmuxPane } from "../tmux";
 
 // Exported for testing — override with setTeamsDir/setTasksDir
 let TEAMS_DIR = join(homedir(), ".claude/teams");
@@ -35,13 +36,6 @@ export function loadTeam(name: string): TeamConfig | null {
   if (!existsSync(configPath)) return null;
   try { return JSON.parse(readFileSync(configPath, "utf-8")); }
   catch { return null; }
-}
-
-function livePaneIds(): Set<string> {
-  try {
-    const raw = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf-8", timeout: 2000 });
-    return new Set(raw.split("\n").filter(Boolean));
-  } catch { return new Set(); }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -85,7 +79,7 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean } = 
     return;
   }
 
-  const panes = livePaneIds();
+  const panes = await tmux.listPaneIds();
   const alive = teammates.filter(m =>
     m.tmuxPaneId && m.tmuxPaneId !== "in-process" && m.tmuxPaneId !== "" && panes.has(m.tmuxPaneId)
   );
@@ -113,25 +107,21 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean } = 
   let remaining = alive.length;
   while (Date.now() < deadline && remaining > 0) {
     await sleep(1000);
-    const current = livePaneIds();
+    const current = await tmux.listPaneIds();
     remaining = alive.filter(m => current.has(m.tmuxPaneId!)).length;
     if (remaining > 0 && Date.now() + 5000 > deadline) break;
   }
 
   // Step 3: Force-kill stragglers
-  const finalPanes = livePaneIds();
+  const finalPanes = await tmux.listPaneIds();
   for (const m of alive) {
     if (!finalPanes.has(m.tmuxPaneId!)) {
       console.log(`  \x1b[32m✓\x1b[0m ${m.name} shut down gracefully`);
       continue;
     }
     if (opts.force) {
-      try {
-        execSync(`tmux kill-pane -t ${m.tmuxPaneId}`, { timeout: 2000 });
-        console.log(`  \x1b[33m⚠\x1b[0m force-killed ${m.name} (${m.tmuxPaneId})`);
-      } catch {
-        console.error(`  \x1b[31m✗\x1b[0m failed to kill ${m.name} (${m.tmuxPaneId})`);
-      }
+      await tmux.killPane(m.tmuxPaneId!);
+      console.log(`  \x1b[33m⚠\x1b[0m force-killed ${m.name} (${m.tmuxPaneId})`);
     } else {
       console.error(`  \x1b[31m✗\x1b[0m ${m.name} did not respond to shutdown_request (use --force to kill)`);
     }
@@ -163,7 +153,7 @@ export async function cmdTeamList() {
     return;
   }
 
-  const panes = livePaneIds();
+  const panes = await tmux.listPaneIds();
 
   console.log();
   console.log(`  \x1b[36;1mTEAM${" ".repeat(26)}MEMBERS  STATUS          ZOMBIES\x1b[0m`);
@@ -180,10 +170,6 @@ export async function cmdTeamList() {
       m.tmuxPaneId && m.tmuxPaneId !== "in-process" && m.tmuxPaneId !== "" && !panes.has(m.tmuxPaneId)
     );
 
-    // Check for zombie panes — panes alive but team config references them as teammates
-    // that should have been cleaned up
-    const zombieCount = findZombiePanes(panes).length;
-
     const name = dir.padEnd(30);
     const memberCount = String(teammates.length).padEnd(9);
     const idle = aliveMembers.filter(m => m.agentType !== "team-lead").length;
@@ -195,7 +181,8 @@ export async function cmdTeamList() {
   }
 
   // Check for orphan zombie panes (panes running claude with no matching team)
-  const zombies = findZombiePanes(panes);
+  const allPanes = await tmux.listPanes();
+  const zombies = findZombiePanes(allPanes);
   if (zombies.length > 0) {
     console.log(`\n  \x1b[33m⚠ ${zombies.length} orphan zombie pane(s) detected\x1b[0m — run \x1b[36mmaw cleanup --zombie-agents\x1b[0m`);
   }
@@ -208,8 +195,8 @@ export async function cmdTeamList() {
 export async function cmdCleanupZombies(opts: { yes?: boolean } = {}) {
   console.log("\x1b[36mScanning tmux panes...\x1b[0m");
 
-  const panes = livePaneIds();
-  const zombies = findZombiePanes(panes);
+  const allPanes = await tmux.listPanes();
+  const zombies = findZombiePanes(allPanes);
 
   if (!zombies.length) {
     console.log("\x1b[32m✓\x1b[0m No zombie agent panes found.");
@@ -222,18 +209,13 @@ export async function cmdCleanupZombies(opts: { yes?: boolean } = {}) {
   }
 
   if (!opts.yes) {
-    // Non-interactive: just report
     console.log(`\nRun with \x1b[36m--yes\x1b[0m to kill them.`);
     return;
   }
 
   for (const z of zombies) {
-    try {
-      execSync(`tmux kill-pane -t ${z.paneId}`, { timeout: 2000 });
-      console.log(`\x1b[32m✓\x1b[0m killed ${z.paneId}`);
-    } catch {
-      console.error(`\x1b[31m✗\x1b[0m failed to kill ${z.paneId}`);
-    }
+    await tmux.killPane(z.paneId);
+    console.log(`\x1b[32m✓\x1b[0m killed ${z.paneId}`);
   }
 }
 
@@ -247,7 +229,7 @@ interface ZombiePane {
  * Find zombie panes: tmux panes running `claude` that reference a team
  * which no longer exists in ~/.claude/teams/.
  */
-function findZombiePanes(knownPanes: Set<string>): ZombiePane[] {
+function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
   // Get all known team pane IDs from existing team configs
   const knownTeamPaneIds = new Set<string>();
   let teamDirs: string[] = [];
@@ -267,27 +249,12 @@ function findZombiePanes(knownPanes: Set<string>): ZombiePane[] {
     }
   }
 
-  // Get all panes running claude
-  const zombies: ZombiePane[] = [];
-  try {
-    const raw = execSync(
-      "tmux list-panes -a -F '#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}'",
-      { encoding: "utf-8", timeout: 2000 }
-    );
-    for (const line of raw.split("\n").filter(Boolean)) {
-      const [paneId, cmd, target, title] = line.split("|||");
-      // Only claude processes
-      if (!cmd?.includes("claude")) continue;
-      // If this pane belongs to a known team, it's not a zombie
-      if (knownTeamPaneIds.has(paneId)) continue;
-      // It's running claude but doesn't belong to any current team → zombie
-      zombies.push({
-        paneId,
-        info: `${target}  "${(title || "").slice(0, 50)}"`,
-        teamName: "unknown",
-      });
-    }
-  } catch { /* tmux not running */ }
-
-  return zombies;
+  // Find panes running claude that aren't in any team config
+  return allPanes
+    .filter(p => p.command?.includes("claude") && !knownTeamPaneIds.has(p.id))
+    .map(p => ({
+      paneId: p.id,
+      info: `${p.target}  "${(p.title || "").slice(0, 50)}"`,
+      teamName: "unknown",
+    }));
 }

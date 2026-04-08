@@ -12,6 +12,15 @@ export function tmuxCmd(): string {
   return socket ? `tmux -S '${socket}'` : "tmux";
 }
 
+export interface TmuxPane {
+  id: string;
+  command: string;
+  target: string;
+  title: string;
+  pid?: number;
+  cwd?: string;
+}
+
 export interface TmuxWindow {
   index: number;
   name: string;
@@ -151,6 +160,31 @@ export class Tmux {
   }
 
   // --- Panes ---
+
+  /** Get all pane IDs across all sessions — single tmux call. */
+  async listPaneIds(): Promise<Set<string>> {
+    try {
+      const raw = await this.run("list-panes", "-a", "-F", "#{pane_id}");
+      return new Set(raw.split("\n").filter(Boolean));
+    } catch { return new Set(); }
+  }
+
+  /** Get structured info for all panes across all sessions. */
+  async listPanes(): Promise<TmuxPane[]> {
+    try {
+      const raw = await this.run("list-panes", "-a", "-F",
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}");
+      return raw.split("\n").filter(Boolean).map(line => {
+        const [id, command, target, title, pid, cwd] = line.split("|||");
+        return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined };
+      });
+    } catch { return []; }
+  }
+
+  /** Kill a single pane (best-effort — swallows errors). */
+  async killPane(target: string): Promise<void> {
+    await this.tryRun("kill-pane", "-t", target);
+  }
 
   /** Get the command running in a pane (e.g. "claude", "zsh") */
   async getPaneCommand(target: string): Promise<string> {
