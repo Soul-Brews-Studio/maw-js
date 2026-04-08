@@ -8,7 +8,7 @@ module.exports = {
       watch_delay: 500,
       ignore_watch: ['node_modules', 'ui'],
       env: {
-        MAW_HOST: 'vps',
+        MAW_HOST: 'local',
         MAW_PORT: '3456',
       },
     },

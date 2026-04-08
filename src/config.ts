@@ -140,6 +140,41 @@ export function cfg<K extends keyof MawConfig>(key: K): MawConfig[K] {
 
 let cached: MawConfig | null = null;
 
+/**
+ * Environment variable overrides for MawConfig fields.
+ * MAW_* env vars take precedence over maw.config.json values.
+ * Only non-empty env vars are applied.
+ */
+function envOverrides(): Partial<MawConfig> {
+  const o: Partial<MawConfig> = {};
+  const e = process.env;
+
+  if (e.MAW_HOST)              o.host = e.MAW_HOST;
+  if (e.MAW_PORT)              o.port = parseInt(e.MAW_PORT, 10) || undefined;
+  if (e.MAW_GHQ_ROOT)          o.ghqRoot = e.MAW_GHQ_ROOT;
+  if (e.MAW_ORACLE_URL)        o.oracleUrl = e.MAW_ORACLE_URL;
+  if (e.MAW_TMUX_SOCKET)       o.tmuxSocket = e.MAW_TMUX_SOCKET;
+  if (e.MAW_NODE)              o.node = e.MAW_NODE;
+  if (e.MAW_FEDERATION_TOKEN)  o.federationToken = e.MAW_FEDERATION_TOKEN;
+  if (e.MAW_PIN)               o.pin = e.MAW_PIN;
+  if (e.MAW_API_KEY)           o.pin = e.MAW_API_KEY; // alias: API_KEY → pin for Pro
+  if (e.MAW_PSI_PATH)          o.psiPath = e.MAW_PSI_PATH;
+  if (e.MAW_AUTO_RESTART)      o.autoRestart = e.MAW_AUTO_RESTART === "true" || e.MAW_AUTO_RESTART === "1";
+  if (e.MAW_IDLE_TIMEOUT)      o.idleTimeoutMinutes = parseInt(e.MAW_IDLE_TIMEOUT, 10) || undefined;
+
+  // TLS via env
+  if (e.MAW_TLS_CERT && e.MAW_TLS_KEY) o.tls = { cert: e.MAW_TLS_CERT, key: e.MAW_TLS_KEY };
+
+  // Peers as comma-separated URLs
+  if (e.MAW_PEERS) o.peers = e.MAW_PEERS.split(",").map(s => s.trim()).filter(Boolean);
+
+  // MQTT broker shorthand
+  if (e.MAW_MQTT_BROKER) o.mqtt = { ...(o.mqtt || {}), broker: e.MAW_MQTT_BROKER } as any;
+
+  // Filter out undefined values
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<MawConfig>;
+}
+
 /** Validate config values, warn on invalid fields, return sanitized config */
 function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
   const result: Record<string, unknown> = {};
@@ -330,9 +365,9 @@ export function loadConfig(): MawConfig {
   try {
     const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
     const validated = validateConfig(raw);
-    cached = { ...DEFAULTS, ...validated };
+    cached = { ...DEFAULTS, ...validated, ...envOverrides() };
   } catch {
-    cached = { ...DEFAULTS };
+    cached = { ...DEFAULTS, ...envOverrides() };
   }
   return cached;
 }

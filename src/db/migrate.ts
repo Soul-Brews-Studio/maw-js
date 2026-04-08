@@ -90,6 +90,31 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    name: "create_health_snapshots",
+    sql: `
+      CREATE TABLE IF NOT EXISTS health_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,
+        mem_avail_mb INTEGER NOT NULL,
+        mem_total_mb INTEGER NOT NULL,
+        mem_used_pct INTEGER NOT NULL,
+        disk_used_pct INTEGER NOT NULL,
+        disk_avail_gb INTEGER NOT NULL,
+        load_avg TEXT NOT NULL,
+        cpu_count INTEGER NOT NULL,
+        pm2_online INTEGER NOT NULL,
+        pm2_total INTEGER NOT NULL,
+        docker_running INTEGER NOT NULL,
+        docker_total INTEGER NOT NULL,
+        alert_fired INTEGER NOT NULL DEFAULT 0,
+        alert_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_health_snapshots_ts ON health_snapshots(ts);
+    `,
+  },
 ];
 
 /**
