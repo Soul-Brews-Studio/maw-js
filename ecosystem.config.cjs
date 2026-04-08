@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 module.exports = {
   apps: [
     {
@@ -10,7 +12,10 @@ module.exports = {
       env: {
         MAW_HOST: 'local',
         MAW_PORT: '3456',
-        PULSE_WEBHOOK_URL: 'https://discord.com/api/webhooks/1491281870980382780/vxXAelnKQlX1CFivdRqN2ETLuD1J9XeMxfqr5AbbXhuxnZszBdudFjbaUPmD1zEeFrTE',
+        PULSE_WEBHOOK_URL: process.env.PULSE_WEBHOOK_URL,
+        DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
+        DISCORD_CHANNEL_ID: process.env.DISCORD_CHANNEL_ID,
+        DISCORD_CHAT_WEBHOOK_URL: process.env.DISCORD_CHAT_WEBHOOK_URL,
       },
     },
     {

@@ -20,3 +20,4 @@ fleet/*.json
 !fleet/*.example.json
 ψ/
 *.pem
+.env

@@ -9,7 +9,7 @@
 
 import type { FeedEvent } from "../lib/feed";
 
-const WEBHOOK_URL = () => process.env.PULSE_WEBHOOK_URL;
+const WEBHOOK_URL = () => process.env.DISCORD_CHAT_WEBHOOK_URL || process.env.PULSE_WEBHOOK_URL;
 const RATE_LIMIT_MS = 3000;
 const MAX_QUEUE = 20;
 
