@@ -3,6 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { tmux } from "../tmux";
 import type { TmuxPane } from "../tmux";
+import { loadFleetEntries } from "./fleet-load";
 
 // Exported for testing — override with setTeamsDir/setTasksDir
 let TEAMS_DIR = join(homedir(), ".claude/teams");
@@ -226,8 +227,9 @@ interface ZombiePane {
 }
 
 /**
- * Find zombie panes: tmux panes running `claude` that reference a team
- * which no longer exists in ~/.claude/teams/.
+ * Find zombie panes: tmux panes running `claude` that are NOT part of any
+ * live team config AND NOT part of the fleet. Fleet-exclusion is critical
+ * — without it, every live fleet oracle would be flagged as a zombie.
  */
 function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
   // Get all known team pane IDs from existing team configs
@@ -249,9 +251,30 @@ function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
     }
   }
 
-  // Find panes running claude that aren't in any team config
+  // Compute the set of fleet session names (e.g. "01-pulse", "08-mawjs").
+  // Any pane whose target starts with "<fleet-session>:" is a live fleet
+  // oracle and must NEVER be flagged as a zombie.
+  const fleetSessions = new Set<string>();
+  try {
+    for (const entry of loadFleetEntries()) {
+      fleetSessions.add(entry.file.replace(/\.json$/, ""));
+    }
+  } catch { /* no fleet dir */ }
+  // Also allow the meta-view session `maw-view` which mirrors fleet panes.
+  fleetSessions.add("maw-view");
+
+  const isFleetPane = (target: string): boolean => {
+    const session = target.split(":")[0];
+    return fleetSessions.has(session);
+  };
+
+  // Find claude panes that are (a) not in any team config AND (b) not in the fleet
   return allPanes
-    .filter(p => p.command?.includes("claude") && !knownTeamPaneIds.has(p.id))
+    .filter(p =>
+      p.command?.includes("claude") &&
+      !knownTeamPaneIds.has(p.id) &&
+      !isFleetPane(p.target)
+    )
     .map(p => ({
       paneId: p.id,
       info: `${p.target}  "${(p.title || "").slice(0, 50)}"`,
