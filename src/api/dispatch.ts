@@ -10,6 +10,8 @@ import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir, hostname } from "os";
 import { mawLogListeners } from "./maw-log";
+import { getDb } from "../db";
+import { chats } from "../db/schema";
 
 export const dispatchApi = new Hono();
 
@@ -46,10 +48,18 @@ dispatchApi.post("/dispatch", async (c) => {
     const { from, to, msg } = await c.req.json<{ from: string; to: string; msg: string }>();
     if (!from || !to || !msg) return c.json({ error: "from, to, msg required" }, 400);
 
-    // Write to maw-log
+    // Write to maw-log (jsonl — backwards compat)
     const entry = { ts: new Date().toISOString(), from, to, msg, host: hostname(), ch: "dispatch" };
     mkdirSync(MAW_LOG_DIR, { recursive: true });
     appendFileSync(MAW_LOG_FILE, JSON.stringify(entry) + "\n");
+
+    // Persist to chats DB
+    try {
+      const db = getDb();
+      db.insert(chats).values({ from, to, msg, ts: entry.ts }).run();
+    } catch (e) {
+      console.error("[dispatch] chats DB write failed:", e);
+    }
 
     // Broadcast to WS
     for (const fn of mawLogListeners) fn(entry);

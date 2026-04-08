@@ -94,6 +94,40 @@ export const trials = sqliteTable("trials", {
  * Oracle health — latest known state per oracle.
  * Updated on every relevant feed event or audit entry.
  */
+/**
+ * Chats — persistent OracleNet message history.
+ * Replaces jsonl-based chat storage with queryable SQLite persistence.
+ */
+export const chats = sqliteTable("chats", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  threadId: text("thread_id"),                          // group conversations
+  from: text("from").notNull(),                         // sender oracle name
+  to: text("to").notNull(),                             // recipient
+  msg: text("msg").notNull(),                           // message content
+  ts: text("ts").notNull(),                             // ISO 8601 timestamp
+  archived: integer("archived").notNull().default(0),   // soft delete flag
+});
+
+/**
+ * Schedule events — calendar/agenda items for oracles and boss.
+ * Powers the Schedule view in the dashboard.
+ */
+export const events = sqliteTable("events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description"),
+  oracle: text("oracle"),                              // which oracle this relates to
+  startTime: text("start_time").notNull(),             // ISO 8601 datetime
+  endTime: text("end_time"),                           // ISO 8601 datetime
+  recurrence: text("recurrence"),                      // daily, weekly, etc.
+  status: text("status").notNull().default("upcoming"),// upcoming/active/done/cancelled
+  createdAt: text("created_at").notNull(),             // ISO 8601 datetime
+});
+
+/**
+ * Oracle health — latest known state per oracle.
+ * Updated on every relevant feed event or audit entry.
+ */
 export const oracleHealth = sqliteTable("oracle_health", {
   oracle: text("oracle").primaryKey(),
   host: text("host"),

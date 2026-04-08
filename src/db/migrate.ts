@@ -130,6 +130,45 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_trials_email ON trials(email);
     `,
   },
+  {
+    version: 7,
+    name: "create_chats",
+    sql: `
+      CREATE TABLE IF NOT EXISTS chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id TEXT,
+        "from" TEXT NOT NULL,
+        "to" TEXT NOT NULL,
+        msg TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_chats_ts ON chats(ts);
+      CREATE INDEX IF NOT EXISTS idx_chats_from ON chats("from");
+      CREATE INDEX IF NOT EXISTS idx_chats_to ON chats("to");
+      CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id);
+    `,
+  },
+  {
+    version: 8,
+    name: "create_events",
+    sql: `
+      CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        oracle TEXT,
+        start_time TEXT NOT NULL,
+        end_time TEXT,
+        recurrence TEXT,
+        status TEXT NOT NULL DEFAULT 'upcoming',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_events_start_time ON events(start_time);
+      CREATE INDEX IF NOT EXISTS idx_events_oracle ON events(oracle);
+      CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
+    `,
+  },
 ];
 
 /**

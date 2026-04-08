@@ -21,7 +21,9 @@ import { healthApi } from "./health";
 import { consciousnessApi } from "./consciousness";
 import { onboardingApi } from "./onboarding";
 import { dispatchApi } from "./dispatch";
+import { chatsApi } from "./chats";
 import { alertsApi } from "./alerts";
+import { scheduleApi } from "./schedule";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
@@ -51,4 +53,6 @@ api.route("/", healthApi);
 api.route("/", consciousnessApi);
 api.route("/", onboardingApi);
 api.route("/", dispatchApi);
+api.route("/", chatsApi);
 api.route("/", alertsApi);
+api.route("/", scheduleApi);
