@@ -468,11 +468,13 @@ export function buildCommand(agentName: string): string {
     }
   }
 
-  // Prefix: load direnv (if present) + clear stale CLAUDECODE.
+  // Prefix: load direnv + clear stale CLAUDECODE.
   // direnv allow + export ensures .envrc env vars load before Claude starts,
   // since tmux send-keys can race with the shell's direnv hook.
+  // If direnv is not installed, `direnv allow` fails visibly (diagnostic),
+  // && short-circuits, and the rest of the block runs normally.
   // unset CLAUDECODE prevents "cannot be launched inside another" from crashed sessions.
-  const prefix = "command -v direnv >/dev/null && direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE 2>/dev/null;";
+  const prefix = "direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE;";
 
   // If command uses --continue or --resume, add shell fallback without it.
   // --continue errors when no prior conversation exists (e.g. fresh worktree,

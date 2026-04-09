@@ -1,5 +1,6 @@
 import { loadConfig } from "../config";
-import { listSessions, findWindow, sendKeys, getPaneCommand } from "../ssh";
+import { listSessions, sendKeys, getPaneCommand } from "../ssh";
+import { findWindow } from "../find-window";
 import { runHook } from "../hooks";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir, hostname } from "os";

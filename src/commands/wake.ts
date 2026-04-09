@@ -11,6 +11,25 @@ import {
 // Re-export for external consumers
 export { fetchIssuePrompt, findWorktrees, detectSession, resolveFleetSession };
 
+/**
+ * Check whether a tmux pane's shell is idle (no child processes).
+ * Returns true when the shell has no children → safe to retry.
+ * Returns true on error as a fail-safe (preserves existing retry behavior).
+ */
+export async function isPaneIdle(paneTarget: string): Promise<boolean> {
+  try {
+    const panePid = (await hostExec(
+      `tmux display-message -t '${paneTarget}' -p '#{pane_pid}'`
+    )).trim();
+    if (!panePid) return true;
+    // pgrep -P shows direct children — if any, the shell is busy
+    const children = (await hostExec(`pgrep -P ${panePid} 2>/dev/null || true`)).trim();
+    return children.length === 0;
+  } catch {
+    return true; // fail-safe to current behavior
+  }
+}
+
 export async function ensureSessionRunning(session: string, excludeNames?: Set<string>, cwdMap?: Record<string, string>): Promise<number> {
   let retried = 0;
   let windows: { index: number; name: string; active: boolean }[];
@@ -24,6 +43,7 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
     const target = `${session}:${win.name}`;
     const paneCmd = (cmds[target] || "").trim().toLowerCase();
     if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
+      if (!(await isPaneIdle(target))) continue; // shell has children → mid-startup, skip
       try {
         await new Promise(r => setTimeout(r, cfgTimeout("wakeRetry")));
         const cwd = cwdMap?.[win.name];

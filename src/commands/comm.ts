@@ -1,4 +1,5 @@
-import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { findWindow } from "../find-window";
 import { loadConfig, cfgLimit } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
@@ -124,8 +125,16 @@ export async function cmdPeek(query?: string) {
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
 
-  // Node prefix syntax: "mba:homekeeper" → force route to mba node
-  if (query.includes(":") && !query.includes("/")) {
+  // Try local resolution FIRST (#186) — only fall through to federation if no
+  // local session:window match. Federation is for cross-machine routing; local
+  // session:window targeting must take precedence so a peer name can't hijack
+  // a local match.
+  const sessions = await listSessions();
+  const searchIn = resolveSearchSessions(query, sessions);
+  const target = findWindow(searchIn, query);
+
+  // Node prefix syntax: "mba:homekeeper" → route to mba node IF no local match
+  if (!target && query.includes(":") && !query.includes("/")) {
     const [nodeName, agentName] = query.split(":", 2);
     const peer = config.namedPeers?.find(p => p.name === nodeName);
     const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
@@ -144,10 +153,6 @@ export async function cmdSend(query: string, message: string, force = false) {
       process.exit(1);
     }
   }
-
-  const sessions = await listSessions();
-  const searchIn = resolveSearchSessions(query, sessions);
-  const target = findWindow(searchIn, query);
 
   // Local target found → send via tmux
   if (target) {

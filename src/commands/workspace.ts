@@ -28,11 +28,58 @@ function configPath(id: string): string {
   return join(WORKSPACES_DIR, `${id}.json`);
 }
 
+/**
+ * Normalize a parsed workspace file into the current `WorkspaceConfig` shape.
+ *
+ * Returns null for entries without a usable `id`. Missing optional fields get
+ * safe defaults so downstream code can trust the shape:
+ *
+ * - `hubUrl` defaults to `""` (rendered as "(unknown hub)" in ls output)
+ * - `sharedAgents` defaults to `[]`
+ * - `joinedAt` falls back to `createdAt` (preserves info from legacy files)
+ * - `lastStatus` is whitelisted to the two valid values
+ *
+ * Early versions of `maw workspace create` (around commit 15830d2,
+ * 2026-03-30) wrote server-side-shaped files into ~/.config/maw/workspaces/
+ * that are missing `hubUrl`, `sharedAgents`, and `joinedAt`. See #194.
+ */
+export function normalizeWorkspace(raw: unknown): WorkspaceConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || !r.id) return null;
+
+  const sharedAgents = Array.isArray(r.sharedAgents)
+    ? r.sharedAgents.filter((a): a is string => typeof a === "string")
+    : [];
+
+  const joinedAt =
+    typeof r.joinedAt === "string"
+      ? r.joinedAt
+      : typeof r.createdAt === "string"
+      ? r.createdAt
+      : "";
+
+  const lastStatus =
+    r.lastStatus === "connected" || r.lastStatus === "disconnected"
+      ? (r.lastStatus as "connected" | "disconnected")
+      : undefined;
+
+  return {
+    id: r.id,
+    name: typeof r.name === "string" ? r.name : "(unnamed)",
+    hubUrl: typeof r.hubUrl === "string" ? r.hubUrl : "",
+    joinCode: typeof r.joinCode === "string" ? r.joinCode : undefined,
+    sharedAgents,
+    joinedAt,
+    lastStatus,
+  };
+}
+
 function loadWorkspace(id: string): WorkspaceConfig | null {
   const p = configPath(id);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf-8"));
+    return normalizeWorkspace(JSON.parse(readFileSync(p, "utf-8")));
   } catch {
     return null;
   }
@@ -48,14 +95,29 @@ function loadAllWorkspaces(): WorkspaceConfig[] {
     return files
       .map(f => {
         try {
-          return JSON.parse(readFileSync(join(WORKSPACES_DIR, f), "utf-8")) as WorkspaceConfig;
+          return normalizeWorkspace(JSON.parse(readFileSync(join(WORKSPACES_DIR, f), "utf-8")));
         } catch {
           return null;
         }
       })
-      .filter(Boolean) as WorkspaceConfig[];
+      .filter((ws): ws is WorkspaceConfig => ws !== null);
   } catch {
     return [];
+  }
+}
+
+/** Print "no workspace ID" error with the list of joined workspaces if any */
+function reportNoWorkspaceId(): void {
+  const all = loadAllWorkspaces();
+  if (all.length === 0) {
+    console.error("\x1b[31m\u274c\x1b[0m no workspaces joined");
+    console.error("\x1b[90m  maw workspace create <name>   Create a new workspace\x1b[0m");
+    console.error("\x1b[90m  maw workspace join <code>     Join with invite code\x1b[0m");
+    return;
+  }
+  console.error(`\x1b[31m\u274c\x1b[0m multiple workspaces joined (${all.length}) — pass one with --workspace <id>:`);
+  for (const ws of all) {
+    console.error(`  \x1b[90m${ws.id}\x1b[0m  ${ws.name}`);
   }
 }
 
@@ -171,7 +233,7 @@ export async function cmdWorkspaceJoin(code: string, hubUrl?: string) {
 export async function cmdWorkspaceShare(agents: string[], workspaceId?: string) {
   const id = resolveWorkspaceId(workspaceId);
   if (!id) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspace ID — pass --workspace <id> or join a workspace first");
+    reportNoWorkspaceId();
     process.exit(1);
   }
 
@@ -210,7 +272,7 @@ export async function cmdWorkspaceShare(agents: string[], workspaceId?: string) 
 export async function cmdWorkspaceUnshare(agents: string[], workspaceId?: string) {
   const id = resolveWorkspaceId(workspaceId);
   if (!id) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspace ID — pass --workspace <id> or join a workspace first");
+    reportNoWorkspaceId();
     process.exit(1);
   }
 
@@ -282,7 +344,7 @@ export async function cmdWorkspaceLs() {
 export async function cmdWorkspaceAgents(workspaceId?: string) {
   const id = resolveWorkspaceId(workspaceId);
   if (!id) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspace ID — pass workspace ID or join a workspace first");
+    reportNoWorkspaceId();
     process.exit(1);
   }
 
@@ -329,7 +391,7 @@ export async function cmdWorkspaceAgents(workspaceId?: string) {
 export async function cmdWorkspaceInvite(workspaceId?: string) {
   const id = resolveWorkspaceId(workspaceId);
   if (!id) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspace ID — pass workspace ID or join a workspace first");
+    reportNoWorkspaceId();
     process.exit(1);
   }
 
@@ -365,7 +427,7 @@ export async function cmdWorkspaceInvite(workspaceId?: string) {
 export async function cmdWorkspaceLeave(workspaceId?: string) {
   const id = resolveWorkspaceId(workspaceId);
   if (!id) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspace ID — pass workspace ID or join a workspace first");
+    reportNoWorkspaceId();
     process.exit(1);
   }
 

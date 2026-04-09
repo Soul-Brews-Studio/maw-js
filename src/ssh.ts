@@ -21,16 +21,12 @@ export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string
 /** @deprecated Use hostExec */
 export const ssh = hostExec;
 
-export interface Window {
-  index: number;
-  name: string;
-  active: boolean;
-}
-
-export interface Session {
-  name: string;
-  windows: Window[];
-}
+// Window/Session types and findWindow live in ./find-window.
+// They are NOT re-exported here — callers must import them directly
+// from "./find-window". This breaks the module dependency chain that
+// Bun's mock.module("../src/ssh") was using to clobber findWindow
+// in tests (see #198). Direct imports bypass the mock entirely.
+import type { Session } from "./find-window";
 
 export async function listSessions(host?: string): Promise<Session[]> {
   let raw: string;
@@ -49,24 +45,6 @@ export async function listSessions(host?: string): Promise<Session[]> {
     sessions.push({ name: s, windows });
   }
   return sessions;
-}
-
-export function findWindow(sessions: Session[], query: string): string | null {
-  const q = query.toLowerCase();
-  // Match window names first (most specific)
-  for (const s of sessions) {
-    for (const w of s.windows) {
-      if (w.name.toLowerCase().includes(q)) return `${s.name}:${w.name}`;
-    }
-  }
-  // Match session names — return first window of matching session
-  for (const s of sessions) {
-    if (s.name.toLowerCase().includes(q) && s.windows.length > 0) {
-      return `${s.name}:${s.windows[0].name}`;
-    }
-  }
-  if (query.includes(":")) return query;
-  return null;
 }
 
 export async function capture(target: string, lines = 80, host?: string): Promise<string> {

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { tmux } from "../tmux";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 const TASKS_DIR = join(homedir(), ".claude/tasks");
@@ -29,11 +29,8 @@ interface TaskItem {
   owner?: string;
 }
 
-function livePaneIds(): Set<string> {
-  try {
-    const raw = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf-8", timeout: 2000 });
-    return new Set(raw.split("\n").filter(Boolean));
-  } catch { return new Set(); }
+async function livePaneIds(): Promise<Set<string>> {
+  return tmux.listPaneIds();
 }
 
 function loadTeam(name: string): TeamConfig | null {
@@ -74,7 +71,7 @@ function modelShort(model?: string): string {
 
 /** maw mega status — show hierarchy tree */
 export async function cmdMegaStatus() {
-  const panes = livePaneIds();
+  const panes = await livePaneIds();
 
   // Find all mega-* teams
   let teamDirs: string[] = [];
@@ -180,13 +177,11 @@ export async function cmdMegaStop() {
     console.log(`  \x1b[31m■\x1b[0m ${team.name} (${team.members.length} members)`);
 
     // Kill tmux panes
-    const panes = livePaneIds();
+    const panes = await livePaneIds();
     for (const m of team.members) {
       if (m.tmuxPaneId && m.tmuxPaneId !== "in-process" && m.tmuxPaneId !== "" && panes.has(m.tmuxPaneId)) {
-        try {
-          execSync(`tmux kill-pane -t ${m.tmuxPaneId}`, { timeout: 2000 });
-          console.log(`    \x1b[90mkilled pane ${m.tmuxPaneId} (${m.name})\x1b[0m`);
-        } catch { /* expected: pane may already be dead */ }
+        await tmux.killPane(m.tmuxPaneId);
+        console.log(`    \x1b[90mkilled pane ${m.tmuxPaneId} (${m.name})\x1b[0m`);
       }
     }
   }
