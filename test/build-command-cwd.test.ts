@@ -1,9 +1,13 @@
 import { describe, test, expect, mock } from "bun:test";
 
-// Mock only the dependencies that config.ts needs
+// Mock only the dependencies that config.ts needs.
+// Include findWindow stub to prevent module-import crash in CI when
+// mock.module pollution carries over to 00-ssh.test.ts (the real
+// findWindow is tested there, which loads first alphabetically).
 mock.module("../src/ssh", () => ({
   hostExec: async () => "",
   ssh: async () => "",
+  findWindow: () => null,
 }));
 
 // Import the real functions (they use loadConfig internally which reads from disk)

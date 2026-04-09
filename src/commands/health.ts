@@ -1,13 +1,14 @@
 import { execSync } from "child_process";
 import { loadConfig, cfgTimeout } from "../config";
 import { curlFetch } from "../curl-fetch";
+import { tmux } from "../tmux";
 
 export async function cmdHealth() {
   const checks: { name: string; status: string; detail: string }[] = [];
 
   // 1. tmux
   try {
-    const sessions = execSync("tmux list-sessions -F '#{session_name}'", { encoding: "utf-8", timeout: cfgTimeout("health") }).trim().split("\n").filter(Boolean);
+    const sessions = await tmux.listSessions();
     checks.push({ name: "tmux server", status: "ok", detail: `running (${sessions.length} sessions)` });
   } catch {
     checks.push({ name: "tmux server", status: "fail", detail: "not running" });

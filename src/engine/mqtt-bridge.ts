@@ -14,7 +14,8 @@
 import mqtt from "mqtt";
 import type { FeedEvent } from "../lib/feed";
 import { loadConfig, cfgLimit } from "../config";
-import { listSessions, sendKeys, findWindow } from "../ssh";
+import { listSessions, sendKeys } from "../ssh";
+import { findWindow } from "../find-window";
 
 const BUSY_EVENTS = new Set(["PreToolUse", "PostToolUse", "UserPromptSubmit", "SubagentStart"]);
 const STOP_EVENTS = new Set(["Stop", "SessionEnd"]);
