@@ -29,27 +29,12 @@ if (cmd === "--version" || cmd === "-v") {
   } catch {}
   console.log(`maw v${pkg.version}${hash ? ` (${hash})` : ""}${buildDate ? ` built ${buildDate}` : ""}`);
 } else if (cmd === "update" || cmd === "upgrade") {
-  const pkg = require("../package.json");
   const { execSync } = require("child_process");
+  const { repository } = require("../package.json");
   const ref = args[1] || "alpha";
-  // Derive repo from git remote — works for any fork, not hardcoded
-  let repo = "";
-  try {
-    const remote = execSync("git remote get-url origin", { cwd: import.meta.dir, encoding: "utf-8" }).trim();
-    const m = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
-    repo = m?.[1] || "";
-  } catch {}
-  if (!repo) repo = pkg.repository?.url?.match(/github\.com\/(.+?)(?:\.git)?$/)?.[1] || "Soul-Brews-Studio/maw-js";
-  console.log(`\n  🍺 Updating maw from github:${repo}#${ref}...\n`);
-  try {
-    execSync(`bun add -g github:${repo}#${ref}`, { stdio: "inherit" });
-    let newHash = "";
-    try { newHash = execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
-    console.log(`\n  ✅ maw v${pkg.version} (${newHash}) — updated from ${ref}\n`);
-  } catch (e: any) {
-    console.error(`  ❌ Update failed: ${e.message}`);
-    process.exit(1);
-  }
+  console.log(`\n  🍺 maw update ${ref}\n`);
+  execSync(`bun add -g github:${repository}#${ref}`, { stdio: "inherit" });
+  console.log(`\n  ✅ done\n`);
 } else if (!cmd || cmd === "--help" || cmd === "-h") {
   usage();
 } else {

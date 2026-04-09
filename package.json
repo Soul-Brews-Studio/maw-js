@@ -1,6 +1,7 @@
 {
   "name": "maw",
   "version": "1.7.2",
+  "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
   "bin": {
     "maw": "./src/cli.ts"
