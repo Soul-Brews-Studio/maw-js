@@ -1,0 +1,809 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MAW API",
+    "description": "Multi-Agent Workspace — fleet orchestration, monitoring, and communication API.\n\nAuthentication: Federation HMAC (X-Maw-Signature + X-Maw-Timestamp) on protected endpoints. PIN/JWT for web UI. Loopback requests bypass auth.",
+    "version": "1.0.0",
+    "contact": { "name": "MAW Team" }
+  },
+  "servers": [
+    { "url": "/api", "description": "Local MAW instance" }
+  ],
+  "tags": [
+    { "name": "Sessions", "description": "Tmux session management" },
+    { "name": "Feed", "description": "Oracle activity feed" },
+    { "name": "Teams", "description": "Claude team configs" },
+    { "name": "Config", "description": "Configuration & PIN auth" },
+    { "name": "Fleet", "description": "Fleet management & soul-sync" },
+    { "name": "Asks", "description": "Pending asks/questions" },
+    { "name": "Oracle", "description": "Oracle search & stats" },
+    { "name": "Federation", "description": "Peer federation status" },
+    { "name": "Worktrees", "description": "Git worktree management" },
+    { "name": "UI State", "description": "Dashboard UI persistence" },
+    { "name": "MAW Log", "description": "OracleNet chat log" },
+    { "name": "Costs", "description": "Token cost analysis" },
+    { "name": "Triggers", "description": "Event triggers" },
+    { "name": "Avengers", "description": "Rate limit monitor" },
+    { "name": "Transport", "description": "Multi-transport messaging" },
+    { "name": "Workspace", "description": "Multi-node workspace hub" },
+    { "name": "Monitoring", "description": "Health & audit monitoring" },
+    { "name": "Health", "description": "Server health metrics" },
+    { "name": "Consciousness", "description": "Oracle consciousness state" },
+    { "name": "Onboarding", "description": "Trial sign-up" },
+    { "name": "Dispatch", "description": "Oracle command dispatch" },
+    { "name": "Chats", "description": "OracleNet chat (DB-backed)" },
+    { "name": "Alerts", "description": "Alert management" },
+    { "name": "Schedule", "description": "Calendar & events" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "federationHmac": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Maw-Signature",
+        "description": "HMAC-SHA256 signature: sign(token, method, path, timestamp). Also requires X-Maw-Timestamp header."
+      },
+      "pinJwt": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT token from /api/pin-verify"
+      }
+    },
+    "schemas": {
+      "FeedEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "timestamp": { "type": "string" },
+          "ts": { "type": "integer", "description": "Epoch ms" },
+          "oracle": { "type": "string" },
+          "host": { "type": "string" },
+          "event": { "type": "string" },
+          "project": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "ts": { "type": "integer" },
+          "timestamp": { "type": "string" },
+          "cmd": { "type": "string" },
+          "args": { "type": "string" },
+          "oracle": { "type": "string" },
+          "session": { "type": "string" },
+          "event": { "type": "string" },
+          "status": { "type": "string" },
+          "user": { "type": "string" }
+        }
+      },
+      "HealthSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "ts": { "type": "integer" },
+          "timestamp": { "type": "string" },
+          "memAvailMb": { "type": "number" },
+          "memTotalMb": { "type": "number" },
+          "memUsedPct": { "type": "number" },
+          "diskUsedPct": { "type": "number" },
+          "diskAvailGb": { "type": "number" },
+          "loadAvg": { "type": "number" },
+          "cpuCount": { "type": "integer" },
+          "pm2Online": { "type": "integer" },
+          "pm2Total": { "type": "integer" },
+          "dockerRunning": { "type": "integer" },
+          "dockerTotal": { "type": "integer" },
+          "alertFired": { "type": "integer" },
+          "alertReason": { "type": "string" }
+        }
+      },
+      "Trial": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "tier": { "type": "string", "enum": ["solo", "team", "fleet"] },
+          "status": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "expiresAt": { "type": "string" }
+        }
+      },
+      "ChatEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "threadId": { "type": "string" },
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "msg": { "type": "string" },
+          "ts": { "type": "integer" },
+          "archived": { "type": "integer" }
+        }
+      },
+      "ScheduleEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "oracle": { "type": "string" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" },
+          "recurrence": { "type": "string" },
+          "status": { "type": "string" },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "OracleHealth": {
+        "type": "object",
+        "properties": {
+          "oracle": { "type": "string" },
+          "host": { "type": "string" },
+          "lastSeen": { "type": "string" },
+          "lastEvent": { "type": "string" },
+          "lastProject": { "type": "string" },
+          "lastSessionId": { "type": "string" },
+          "totalEvents": { "type": "integer" },
+          "totalSessions": { "type": "integer" },
+          "crashes": { "type": "integer" },
+          "lastCrash": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        }
+      },
+      "Ok": {
+        "type": "object",
+        "properties": { "ok": { "type": "boolean", "const": true } }
+      }
+    }
+  },
+  "paths": {
+    "/sessions": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "List tmux sessions",
+        "parameters": [
+          { "name": "local", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] }, "description": "If true, only local sessions (skip peer aggregation)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session list",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" }, "active_oracles": { "type": "array", "items": { "type": "string" } } } } } }
+          }
+        }
+      }
+    },
+    "/capture": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "Capture terminal output",
+        "parameters": [
+          { "name": "target", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Tmux target (session:window)" }
+        ],
+        "responses": {
+          "200": { "description": "Captured content", "content": { "application/json": { "schema": { "type": "object", "properties": { "content": { "type": "string" }, "error": { "type": "string" } } } } } }
+        }
+      }
+    },
+    "/mirror": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "Mirror terminal output (plain text)",
+        "parameters": [
+          { "name": "target", "in": "query", "schema": { "type": "string" } },
+          { "name": "lines", "in": "query", "schema": { "type": "integer", "default": 40 } }
+        ],
+        "responses": {
+          "200": { "description": "Plain text terminal output", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/send": {
+      "post": {
+        "tags": ["Sessions"],
+        "summary": "Send keys to tmux window",
+        "security": [{ "federationHmac": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["target", "text"], "properties": { "target": { "type": "string" }, "text": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Send result", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "target": { "type": "string" }, "text": { "type": "string" }, "source": { "type": "string" }, "lastLine": { "type": "string" } } } } } }
+        }
+      }
+    },
+    "/select": {
+      "post": {
+        "tags": ["Sessions"],
+        "summary": "Select/focus tmux window",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["target"], "properties": { "target": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Selection result", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "target": { "type": "string" } } } } } }
+        }
+      }
+    },
+    "/feed": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get recent feed events",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "maximum": 200 } },
+          { "name": "oracle", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Feed events", "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/FeedEvent" } }, "total": { "type": "integer" }, "active_oracles": { "type": "array", "items": { "type": "string" } } } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Feed"],
+        "summary": "Push new feed event",
+        "security": [{ "federationHmac": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["oracle", "host", "event"], "properties": { "timestamp": { "type": "string" }, "oracle": { "type": "string" }, "host": { "type": "string" }, "event": { "type": "string" }, "project": { "type": "string" }, "sessionId": { "type": "string" }, "message": { "type": "string" }, "ts": { "type": "integer" } } } } }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } }
+        }
+      }
+    },
+    "/teams": {
+      "get": {
+        "tags": ["Teams"],
+        "summary": "List Claude teams",
+        "responses": {
+          "200": { "description": "Team list", "content": { "application/json": { "schema": { "type": "object", "properties": { "teams": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } }
+        }
+      }
+    },
+    "/teams/{name}": {
+      "get": {
+        "tags": ["Teams"],
+        "summary": "Get team config",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Team config JSON" } }
+      }
+    },
+    "/teams/{name}/tasks": {
+      "get": {
+        "tags": ["Teams"],
+        "summary": "List team tasks",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Task list", "content": { "application/json": { "schema": { "type": "object", "properties": { "tasks": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } }
+        }
+      }
+    },
+    "/config-files": {
+      "get": {
+        "tags": ["Config"],
+        "summary": "List config files",
+        "responses": {
+          "200": { "description": "Config file list", "content": { "application/json": { "schema": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "object" } } } } } } }
+        }
+      }
+    },
+    "/config-file": {
+      "get": {
+        "tags": ["Config"],
+        "summary": "Read config file",
+        "parameters": [{ "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "File content", "content": { "application/json": { "schema": { "type": "object", "properties": { "content": { "type": "string" } } } } } } }
+      },
+      "post": {
+        "tags": ["Config"],
+        "summary": "Save config file",
+        "parameters": [{ "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      },
+      "put": {
+        "tags": ["Config"],
+        "summary": "Create new fleet file",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "content"], "properties": { "name": { "type": "string" }, "content": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "path": { "type": "string" } } } } } } }
+      },
+      "delete": {
+        "tags": ["Config"],
+        "summary": "Delete fleet file",
+        "parameters": [{ "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/config-file/toggle": {
+      "post": {
+        "tags": ["Config"],
+        "summary": "Toggle fleet file enabled/disabled",
+        "parameters": [{ "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Toggled", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "newPath": { "type": "string" } } } } } } }
+      }
+    },
+    "/pin-info": {
+      "get": {
+        "tags": ["Config"],
+        "summary": "Check PIN auth status",
+        "responses": { "200": { "description": "PIN info", "content": { "application/json": { "schema": { "type": "object", "properties": { "length": { "type": "integer" }, "enabled": { "type": "boolean" } } } } } } }
+      }
+    },
+    "/pin-set": {
+      "post": {
+        "tags": ["Config"],
+        "summary": "Set PIN (0-8 digits)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["pin"], "properties": { "pin": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "PIN set", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "length": { "type": "integer" }, "enabled": { "type": "boolean" } } } } } } }
+      }
+    },
+    "/pin-verify": {
+      "post": {
+        "tags": ["Config"],
+        "summary": "Verify PIN (rate limited 5/min/IP)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["pin"], "properties": { "pin": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Verified", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "token": { "type": "string" } } } } } } }
+      }
+    },
+    "/config": {
+      "get": {
+        "tags": ["Config"],
+        "summary": "Get current config",
+        "parameters": [{ "name": "raw", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "1 = unmasked values" }],
+        "responses": { "200": { "description": "Config object" } }
+      },
+      "post": {
+        "tags": ["Config"],
+        "summary": "Update config",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/fleet-config": {
+      "get": {
+        "tags": ["Fleet"],
+        "summary": "Load all enabled fleet configs",
+        "responses": { "200": { "description": "Fleet configs", "content": { "application/json": { "schema": { "type": "object", "properties": { "configs": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/fleet/soul-sync-status": {
+      "get": {
+        "tags": ["Fleet"],
+        "summary": "Get parent/child tree with config diffs",
+        "responses": { "200": { "description": "Soul sync tree", "content": { "application/json": { "schema": { "type": "object", "properties": { "tree": { "type": "object" } } } } } } }
+      }
+    },
+    "/fleet/soul-sync": {
+      "post": {
+        "tags": ["Fleet"],
+        "summary": "Sync fields from parent to children",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "fields": { "type": "array", "items": { "type": "string" } }, "targets": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Sync result", "content": { "application/json": { "schema": { "type": "object", "properties": { "synced": { "type": "array", "items": { "type": "string" } }, "fields": { "type": "array", "items": { "type": "string" } } } } } } } }
+      }
+    },
+    "/asks": {
+      "get": {
+        "tags": ["Asks"],
+        "summary": "Read pending asks",
+        "responses": { "200": { "description": "Asks array" } }
+      },
+      "post": {
+        "tags": ["Asks"],
+        "summary": "Write asks",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/oracle/search": {
+      "get": {
+        "tags": ["Oracle"],
+        "summary": "Search Oracle knowledge base",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "mode", "in": "query", "schema": { "type": "string", "default": "hybrid" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } },
+          { "name": "model", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Search results" } }
+      }
+    },
+    "/oracle/traces": {
+      "get": {
+        "tags": ["Oracle"],
+        "summary": "Get Oracle traces",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } }],
+        "responses": { "200": { "description": "Traces" } }
+      }
+    },
+    "/oracle/stats": {
+      "get": {
+        "tags": ["Oracle"],
+        "summary": "Get Oracle stats",
+        "responses": { "200": { "description": "Stats object" } }
+      }
+    },
+    "/federation/status": {
+      "get": {
+        "tags": ["Federation"],
+        "summary": "Get peer connectivity status",
+        "responses": { "200": { "description": "Federation status" } }
+      }
+    },
+    "/snapshots": {
+      "get": {
+        "tags": ["Federation"],
+        "summary": "List fleet snapshots",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }],
+        "responses": { "200": { "description": "Snapshot list", "content": { "application/json": { "schema": { "type": "object", "properties": { "snapshots": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/snapshots/{id}": {
+      "get": {
+        "tags": ["Federation"],
+        "summary": "Get specific snapshot",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Snapshot JSON" } }
+      }
+    },
+    "/auth/status": {
+      "get": {
+        "tags": ["Federation"],
+        "summary": "Auth diagnostic (public)",
+        "responses": { "200": { "description": "Auth info", "content": { "application/json": { "schema": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "tokenPreview": { "type": "string" }, "method": { "type": "string" }, "clockUtc": { "type": "string" }, "node": { "type": "string" } } } } } } }
+      }
+    },
+    "/worktrees": {
+      "get": {
+        "tags": ["Worktrees"],
+        "summary": "List git worktrees",
+        "responses": { "200": { "description": "Worktree list" } }
+      }
+    },
+    "/worktrees/cleanup": {
+      "post": {
+        "tags": ["Worktrees"],
+        "summary": "Cleanup worktree",
+        "security": [{ "federationHmac": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Cleanup result", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "log": { "type": "string" } } } } } } }
+      }
+    },
+    "/ui-state": {
+      "get": {
+        "tags": ["UI State"],
+        "summary": "Read UI state",
+        "responses": { "200": { "description": "UI state object" } }
+      },
+      "post": {
+        "tags": ["UI State"],
+        "summary": "Save UI state",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/maw-log": {
+      "get": {
+        "tags": ["MAW Log"],
+        "summary": "Read chat log (audit.jsonl + maw-log.jsonl)",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 500 } },
+          { "name": "oracle", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Log entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "entries": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } } }
+      },
+      "post": {
+        "tags": ["MAW Log"],
+        "summary": "Write chat message",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from", "to", "msg"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "msg": { "type": "string" }, "ch": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Written", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "entry": { "type": "object" }, "dispatched": { "type": "boolean" } } } } } } }
+      }
+    },
+    "/costs": {
+      "get": {
+        "tags": ["Costs"],
+        "summary": "Token cost analysis per agent",
+        "responses": { "200": { "description": "Cost breakdown", "content": { "application/json": { "schema": { "type": "object", "properties": { "agents": { "type": "array", "items": { "type": "object" } }, "total": { "type": "number" } } } } } } }
+      }
+    },
+    "/triggers": {
+      "get": {
+        "tags": ["Triggers"],
+        "summary": "List configured triggers",
+        "responses": { "200": { "description": "Trigger list", "content": { "application/json": { "schema": { "type": "object", "properties": { "triggers": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } } }
+      }
+    },
+    "/triggers/fire": {
+      "post": {
+        "tags": ["Triggers"],
+        "summary": "Manually fire trigger",
+        "security": [{ "federationHmac": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["event"], "properties": { "event": { "type": "string" }, "context": { "type": "object" } } } } } },
+        "responses": { "200": { "description": "Fire result", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "event": { "type": "string" }, "fired": { "type": "integer" }, "results": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/avengers/status": {
+      "get": {
+        "tags": ["Avengers"],
+        "summary": "Rate limit monitor status",
+        "responses": { "200": { "description": "Account status", "content": { "application/json": { "schema": { "type": "object", "properties": { "accounts": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" }, "source": { "type": "string" }, "timestamp": { "type": "string" } } } } } } }
+      }
+    },
+    "/avengers/best": {
+      "get": {
+        "tags": ["Avengers"],
+        "summary": "Get best available account",
+        "responses": { "200": { "description": "Best account" } }
+      }
+    },
+    "/avengers/traffic": {
+      "get": {
+        "tags": ["Avengers"],
+        "summary": "Traffic stats per account",
+        "responses": { "200": { "description": "Traffic data", "content": { "application/json": { "schema": { "type": "object", "properties": { "traffic": { "type": "object" }, "speed": { "type": "number" }, "timestamp": { "type": "string" } } } } } } }
+      }
+    },
+    "/avengers/health": {
+      "get": {
+        "tags": ["Avengers"],
+        "summary": "Avengers health check",
+        "responses": { "200": { "description": "Health", "content": { "application/json": { "schema": { "type": "object", "properties": { "configured": { "type": "boolean" }, "reachable": { "type": "boolean" }, "latency": { "type": "number" }, "accounts": { "type": "integer" }, "url": { "type": "string" } } } } } } }
+      }
+    },
+    "/transport/status": {
+      "get": {
+        "tags": ["Transport"],
+        "summary": "All transports and connectivity",
+        "responses": { "200": { "description": "Transport status", "content": { "application/json": { "schema": { "type": "object", "properties": { "transports": { "type": "object" }, "timestamp": { "type": "string" } } } } } } }
+      }
+    },
+    "/transport/send": {
+      "post": {
+        "tags": ["Transport"],
+        "summary": "Send via transport router",
+        "security": [{ "federationHmac": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["oracle", "message"], "properties": { "oracle": { "type": "string" }, "host": { "type": "string" }, "message": { "type": "string" }, "from": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Send result" } }
+      }
+    },
+    "/workspace/create": {
+      "post": {
+        "tags": ["Workspace"],
+        "summary": "Create new workspace",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "nodeId"], "properties": { "name": { "type": "string" }, "nodeId": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Workspace created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" }, "token": { "type": "string" }, "joinCode": { "type": "string" }, "joinCodeExpiresAt": { "type": "string" } } } } } } }
+      }
+    },
+    "/workspace/join": {
+      "post": {
+        "tags": ["Workspace"],
+        "summary": "Join workspace via code",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code", "nodeId"], "properties": { "code": { "type": "string" }, "nodeId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Joined", "content": { "application/json": { "schema": { "type": "object", "properties": { "workspaceId": { "type": "string" }, "token": { "type": "string" }, "name": { "type": "string" } } } } } } }
+      }
+    },
+    "/workspace/{id}/agents": {
+      "post": {
+        "tags": ["Workspace"],
+        "summary": "Register/update agent",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "nodeId"], "properties": { "name": { "type": "string" }, "nodeId": { "type": "string" }, "status": { "type": "string" }, "capabilities": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Registered", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "agents": { "type": "integer" } } } } } } }
+      },
+      "get": {
+        "tags": ["Workspace"],
+        "summary": "List agents in workspace",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Agent list", "content": { "application/json": { "schema": { "type": "object", "properties": { "agents": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } } }
+      }
+    },
+    "/workspace/{id}/status": {
+      "get": {
+        "tags": ["Workspace"],
+        "summary": "Workspace health status",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Status object" } }
+      }
+    },
+    "/workspace/{id}/feed": {
+      "get": {
+        "tags": ["Workspace"],
+        "summary": "Recent workspace feed",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } }
+        ],
+        "responses": { "200": { "description": "Feed events", "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } } }
+      }
+    },
+    "/workspace/{id}/message": {
+      "post": {
+        "tags": ["Workspace"],
+        "summary": "Send message in workspace",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from", "text"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "text": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/monitoring/health": {
+      "get": {
+        "tags": ["Monitoring"],
+        "summary": "Oracle health overview",
+        "responses": { "200": { "description": "Health data", "content": { "application/json": { "schema": { "type": "object", "properties": { "oracles": { "type": "array", "items": { "$ref": "#/components/schemas/OracleHealth" } }, "latestSnapshot": { "type": "object" } } } } } } }
+      }
+    },
+    "/monitoring/audit": {
+      "get": {
+        "tags": ["Monitoring"],
+        "summary": "Paginated audit log",
+        "parameters": [
+          { "name": "oracle", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": { "200": { "description": "Audit entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "entries": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEntry" } }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } } } } }
+      }
+    },
+    "/health/collect": {
+      "post": {
+        "tags": ["Health"],
+        "summary": "Collect fresh server metrics",
+        "responses": { "200": { "description": "Collected metrics", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "alertFired": { "type": "boolean" }, "alertReason": { "type": "string" } } } } } } }
+      }
+    },
+    "/health/history": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health timeline",
+        "parameters": [{ "name": "hours", "in": "query", "schema": { "type": "integer", "default": 24, "maximum": 168 } }],
+        "responses": { "200": { "description": "Health history", "content": { "application/json": { "schema": { "type": "object", "properties": { "snapshots": { "type": "array", "items": { "$ref": "#/components/schemas/HealthSnapshot" } }, "hours": { "type": "integer" } } } } } } }
+      }
+    },
+    "/health/latest": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Current server metrics",
+        "responses": { "200": { "description": "Latest health snapshot" } }
+      }
+    },
+    "/consciousness": {
+      "get": {
+        "tags": ["Consciousness"],
+        "summary": "All oracles consciousness status",
+        "responses": { "200": { "description": "Consciousness list", "content": { "application/json": { "schema": { "type": "object", "properties": { "oracles": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/consciousness/{oracle}": {
+      "get": {
+        "tags": ["Consciousness"],
+        "summary": "Single oracle consciousness",
+        "parameters": [{ "name": "oracle", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Consciousness detail" } }
+      }
+    },
+    "/onboarding/signup": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Create trial sign-up",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "format": "email" }, "tier": { "type": "string", "enum": ["solo", "team", "fleet"], "default": "solo" } } } } } },
+        "responses": { "201": { "description": "Trial created", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "trial": { "$ref": "#/components/schemas/Trial" }, "existing": { "type": "boolean" } } } } } } }
+      }
+    },
+    "/onboarding/status/{id}": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Check trial status",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Trial status", "content": { "application/json": { "schema": { "type": "object", "properties": { "trial": { "$ref": "#/components/schemas/Trial" }, "daysLeft": { "type": "integer" } } } } } } }
+      }
+    },
+    "/dispatch/status/{oracle}": {
+      "get": {
+        "tags": ["Dispatch"],
+        "summary": "Check oracle dispatch status",
+        "parameters": [{ "name": "oracle", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Status", "content": { "application/json": { "schema": { "type": "object", "properties": { "oracle": { "type": "string" }, "status": { "type": "string", "enum": ["busy", "ready", "idle", "offline"] }, "target": { "type": "string" } } } } } } }
+      }
+    },
+    "/dispatch": {
+      "post": {
+        "tags": ["Dispatch"],
+        "summary": "Send command to oracle",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from", "to", "msg"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "msg": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Dispatch result", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "entry": { "type": "object" }, "dispatched": { "type": "boolean" }, "status": { "type": "string" }, "target": { "type": "string" } } } } } } }
+      }
+    },
+    "/dispatch/capture/{oracle}": {
+      "get": {
+        "tags": ["Dispatch"],
+        "summary": "Capture oracle recent output",
+        "parameters": [{ "name": "oracle", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Captured output", "content": { "application/json": { "schema": { "type": "object", "properties": { "oracle": { "type": "string" }, "target": { "type": "string" }, "lines": { "type": "array", "items": { "type": "string" } } } } } } } }
+      }
+    },
+    "/chats": {
+      "get": {
+        "tags": ["Chats"],
+        "summary": "Paginated chat history",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } },
+          { "name": "from", "in": "query", "schema": { "type": "string" } },
+          { "name": "to", "in": "query", "schema": { "type": "string" } },
+          { "name": "threadId", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Chat entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "entries": { "type": "array", "items": { "$ref": "#/components/schemas/ChatEntry" } }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } } } } }
+      },
+      "post": {
+        "tags": ["Chats"],
+        "summary": "Save chat message",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from", "to", "msg"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "msg": { "type": "string" }, "threadId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Saved", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "entry": { "$ref": "#/components/schemas/ChatEntry" } } } } } } }
+      }
+    },
+    "/alerts/active": {
+      "get": {
+        "tags": ["Alerts"],
+        "summary": "Unacknowledged alerts",
+        "responses": { "200": { "description": "Active alerts", "content": { "application/json": { "schema": { "type": "object", "properties": { "alerts": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/alerts/acknowledge/{id}": {
+      "post": {
+        "tags": ["Alerts"],
+        "summary": "Acknowledge alert",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Acknowledged", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "alertId": { "type": "string" } } } } } } }
+      }
+    },
+    "/alerts/test": {
+      "post": {
+        "tags": ["Alerts"],
+        "summary": "Trigger test alert",
+        "responses": { "200": { "description": "Test alert", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "alertId": { "type": "string" }, "message": { "type": "string" } } } } } } }
+      }
+    },
+    "/schedule": {
+      "get": {
+        "tags": ["Schedule"],
+        "summary": "List events with filters",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" }, "description": "YYYY-MM-DD" },
+          { "name": "from", "in": "query", "schema": { "type": "string" } },
+          { "name": "to", "in": "query", "schema": { "type": "string" } },
+          { "name": "oracle", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Events", "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } } }
+      },
+      "post": {
+        "tags": ["Schedule"],
+        "summary": "Create event",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["title", "startTime"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "oracle": { "type": "string" }, "startTime": { "type": "string" }, "endTime": { "type": "string" }, "recurrence": { "type": "string" }, "status": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "event": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } }
+      }
+    },
+    "/schedule/{id}": {
+      "get": {
+        "tags": ["Schedule"],
+        "summary": "Get single event",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Event", "content": { "application/json": { "schema": { "type": "object", "properties": { "event": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } }
+      },
+      "put": {
+        "tags": ["Schedule"],
+        "summary": "Update event",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "oracle": { "type": "string" }, "startTime": { "type": "string" }, "endTime": { "type": "string" }, "recurrence": { "type": "string" }, "status": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "event": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } }
+      },
+      "delete": {
+        "tags": ["Schedule"],
+        "summary": "Cancel event (soft delete)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Cancelled", "content": { "application/json": { "schema": { "type": "object", "properties": { "event": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } }
+      }
+    }
+  }
+}

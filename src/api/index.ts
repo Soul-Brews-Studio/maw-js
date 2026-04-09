@@ -24,9 +24,13 @@ import { dispatchApi } from "./dispatch";
 import { chatsApi } from "./chats";
 import { alertsApi } from "./alerts";
 import { scheduleApi } from "./schedule";
+import { docsApi } from "./docs";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
+
+// Docs — public, before auth middleware
+api.route("/", docsApi);
 
 // Federation auth — enforces HMAC on protected endpoints from remote peers
 api.use("*", federationAuth());
