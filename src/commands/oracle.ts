@@ -3,6 +3,7 @@ import { findWorktrees, detectSession, resolveFleetSession } from "./wake";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
+import { scanAndCache, readCache, isCacheStale, type OracleEntry } from "../oracle-registry";
 
 /** Like resolveOracle but returns null instead of process.exit */
 async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
@@ -203,4 +204,85 @@ export async function cmdOracleList() {
   }
 
   console.log();
+}
+
+// --- Fleet-wide scan + cache (#208) ---
+
+export async function cmdOracleScan(opts: { force?: boolean; json?: boolean } = {}) {
+  const start = Date.now();
+  const cache = scanAndCache();
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+  if (opts.json) {
+    console.log(JSON.stringify(cache, null, 2));
+    return;
+  }
+
+  console.log(`\n  \x1b[32m✓\x1b[0m Scanned ${cache.oracles.length} oracles locally (${elapsed}s)\n`);
+  console.log(`  Cache written to \x1b[90m~/.config/maw/oracles.json\x1b[0m`);
+  console.log(`  Scanned at: ${cache.local_scanned_at}\n`);
+}
+
+export async function cmdOracleFleet(opts: { org?: string; stale?: boolean; json?: boolean } = {}) {
+  let cache = readCache();
+
+  // Auto-bootstrap or refresh if stale
+  if (!cache || isCacheStale(cache)) {
+    if (!cache) {
+      console.log(`\n  \x1b[33m📡\x1b[0m No oracle cache found. Running first local scan...\n`);
+    }
+    cache = scanAndCache();
+  }
+
+  if (opts.json) {
+    const filtered = opts.org
+      ? { ...cache, oracles: cache.oracles.filter(o => o.org === opts.org) }
+      : cache;
+    console.log(JSON.stringify(filtered, null, 2));
+    return;
+  }
+
+  // Group by org
+  const byOrg = new Map<string, OracleEntry[]>();
+  for (const o of cache.oracles) {
+    if (opts.org && o.org !== opts.org) continue;
+    const list = byOrg.get(o.org) || [];
+    list.push(o);
+    byOrg.set(o.org, list);
+  }
+
+  const total = [...byOrg.values()].reduce((s, l) => s + l.length, 0);
+  const age = timeSince(cache.local_scanned_at);
+  const fresh = !isCacheStale(cache);
+
+  console.log(`\n  \x1b[36mOracle Fleet\x1b[0m  (${total} oracles)    local: ${age} ago ${fresh ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⚠\x1b[0m"}\n`);
+
+  for (const [org, oracles] of byOrg) {
+    console.log(`  \x1b[90m${org}\x1b[0m (${oracles.length}):`);
+    for (const o of oracles) {
+      const icon = o.has_psi ? "\x1b[32m●\x1b[0m" : (o.has_fleet_config ? "\x1b[33m○\x1b[0m" : "\x1b[90m·\x1b[0m");
+      const psiTag = o.has_psi ? "ψ/" : (o.local_path ? "  " : "\x1b[90m?\x1b[0m ");
+      const lineage = o.budded_from ? `budded from ${o.budded_from}` : "root";
+      const node = o.federation_node ? `· ${o.federation_node}` : "";
+      const missing = !o.local_path ? " \x1b[33m(not cloned)\x1b[0m" : "";
+
+      console.log(`    ${icon} ${psiTag} ${o.name.padEnd(20)} ${lineage.padEnd(24)} ${node}${missing}`);
+    }
+    console.log();
+  }
+
+  if (total === 0) {
+    console.log("  No oracles found. Run \x1b[90mmaw oracle scan\x1b[0m to refresh.\n");
+  }
+}
+
+function timeSince(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
