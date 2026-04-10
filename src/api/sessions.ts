@@ -7,19 +7,20 @@ import { processMirror } from "../commands/overview";
 
 export const sessionsApi = new Hono();
 
-// Whitelist of valid Oracle targets for POST /api/send.
-// Matches src/api/dispatch.ts ORACLE_TARGETS exactly — "sofia" is intentionally
-// excluded so that /api/send is never a path to the commander's pane.
-// Sofia-bound messages must use the MCP thread channel, not this HTTP endpoint.
-const ORACLE_SEND_TARGETS = new Set([
-  "blade", "lens", "edge", "clip", "deck", "scope",
-  "quill", "link", "bastion", "warden", "prism", "sage",
-]);
-
-function extractOracleName(target: string): string | null {
+/**
+ * Normalize an Oracle target name: strip numeric prefix, "-oracle" suffix,
+ * and the tmux "session:window" suffix if present. The result feeds
+ * findWindow() for fuzzy pane resolution.
+ *
+ * No whitelist. listSessions() + findWindow() are the security boundary —
+ * if the normalized name does not resolve to a live tmux pane, the handler
+ * falls through to 404. Matches the Soul-Brews-Studio/maw-js upstream
+ * pattern; the prior ORACLE_SEND_TARGETS whitelist broke the reply-ping
+ * protocol by rejecting `target=00-sofia` from every peer Oracle.
+ */
+function normalizeOracleName(target: string): string {
   const base = target.toLowerCase().trim().split(":")[0];
-  const name = base.replace(/^\d+-/, "").replace(/-oracle$/, "");
-  return ORACLE_SEND_TARGETS.has(name) ? name : null;
+  return base.replace(/^\d+-/, "").replace(/-oracle$/, "");
 }
 
 sessionsApi.get("/sessions", async (c) => {
@@ -55,21 +56,24 @@ sessionsApi.post("/send", async (c) => {
     if (!target || !text) return c.json({ error: "target and text required" }, 400);
     if (typeof target !== "string") return c.json({ error: "target must be a string" }, 400);
 
-    // Whitelist + normalize the target. From here on, the rest of the handler
-    // must use `normalized` (a bare Oracle name) and never the raw client-
-    // supplied `target`. The raw form can smuggle a "session:window" colon
-    // address past the whitelist and reach arbitrary tmux panes
-    // (Warden re-audit §3.1 bypass B).
-    const normalized = extractOracleName(target);
+    // Normalize the raw client-supplied target into a bare Oracle name. From
+    // here on, the rest of the handler must use `normalized` and never the
+    // raw `target` — that is what keeps Warden §3.1 bypass B (colon smuggle)
+    // closed, since findWindow is invoked without `allowRaw` and the raw
+    // "session:window" form never reaches tmux.
+    const normalized = normalizeOracleName(target);
     if (!normalized) {
-      return c.json({ error: `target not allowed: ${target}` }, 403);
+      // Defensive empty check after stripping prefix/suffix — not a whitelist.
+      return c.json({ error: "target name empty after normalization" }, 400);
     }
 
     const local = await listSessions();
 
-    // Step 1: Fuzzy resolve locally using the normalized Oracle name only —
-    // never the raw client input. findWindow is called without allowRaw so
-    // its colon-passthrough fallback is disabled for this code path.
+    // Step 1: Fuzzy resolve locally using the normalized Oracle name against
+    // the live session list. findWindow is called without allowRaw so its
+    // colon-passthrough fallback is disabled. If nothing matches, the
+    // handler falls through to the peer paths and eventually to 404 —
+    // listSessions() is the security boundary, matching Nat upstream.
     const resolved = findWindow(local, normalized);
 
     if (resolved) {
