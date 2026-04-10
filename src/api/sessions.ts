@@ -7,6 +7,20 @@ import { processMirror } from "../commands/overview";
 
 export const sessionsApi = new Hono();
 
+// Whitelist of valid Oracle targets for POST /api/send.
+// Mirrors src/api/dispatch.ts ORACLE_TARGETS and adds "sofia" (commander is a valid send target).
+// Any target resolving outside this set is rejected to prevent arbitrary tmux keystroke injection.
+const ORACLE_SEND_TARGETS = new Set([
+  "sofia", "blade", "lens", "edge", "clip", "deck", "scope",
+  "quill", "link", "bastion", "warden", "prism", "sage",
+]);
+
+function extractOracleName(target: string): string | null {
+  const base = target.toLowerCase().trim().split(":")[0];
+  const name = base.replace(/^\d+-/, "").replace(/-oracle$/, "");
+  return ORACLE_SEND_TARGETS.has(name) ? name : null;
+}
+
 sessionsApi.get("/sessions", async (c) => {
   const local = await listSessions();
   if (c.req.query("local") === "true") {
@@ -38,6 +52,12 @@ sessionsApi.post("/send", async (c) => {
   try {
     const { target, text } = await c.req.json();
     if (!target || !text) return c.json({ error: "target and text required" }, 400);
+    if (typeof target !== "string") return c.json({ error: "target must be a string" }, 400);
+
+    // Whitelist: only allow sending to known Oracle targets. Closes arbitrary tmux injection.
+    if (!extractOracleName(target)) {
+      return c.json({ error: `target not allowed: ${target}` }, 403);
+    }
 
     const local = await listSessions();
 
