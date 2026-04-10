@@ -76,6 +76,16 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
 
+  // MQTT publish — broadcast feed events to configurable broker (subscribe via CF Worker bridge)
+  try {
+    const { mqttPublish } = require("./mqtt-publish");
+    const node = loadConfig().node ?? "local";
+    feedListeners.add((event: any) => {
+      const oracle = event.oracle || "unknown";
+      mqttPublish(`maw/v1/oracle/${oracle}/feed`, event);
+      mqttPublish(`maw/v1/node/${node}/feed`, event);
+    });
+  } catch {}
 
   const wsHandler = {
     open: (ws: any) => {
