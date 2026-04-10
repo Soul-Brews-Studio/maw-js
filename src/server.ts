@@ -87,6 +87,35 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     });
   } catch {}
 
+  // Shell hooks — fire configured ~/.oracle/maw.hooks.json scripts on feed events
+  try {
+    const { runHook } = require("./hooks");
+    feedListeners.add((event: any) => {
+      runHook(event.event, {
+        from: event.oracle,
+        to: event.oracle,
+        message: event.message,
+        channel: "feed",
+      }).catch((err: Error) => {
+        console.error("[hooks]", event.event, err.message);
+      });
+    });
+  } catch (err) {
+    console.error("[hooks] failed to load:", err);
+  }
+
+  // Plugin system — load user plugins from ~/.oracle/plugins/
+  try {
+    const { PluginSystem, loadPlugins } = require("./plugins");
+    const { homedir } = require("os");
+    const { join } = require("path");
+    const plugins = new PluginSystem();
+    loadPlugins(plugins, join(homedir(), ".oracle", "plugins"));
+    feedListeners.add((event: any) => plugins.emit(event));
+  } catch (err) {
+    console.error("[plugins] failed to init:", err);
+  }
+
   const wsHandler = {
     open: (ws: any) => {
       if (ws.data.mode === "pty") return;
