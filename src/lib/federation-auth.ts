@@ -19,15 +19,35 @@ const WINDOW_SEC = 300; // ±5 minutes
 const PROTECTED = new Set([
   "/api/send",
   "/api/talk",
+  "/api/dispatch",
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
+  // /api/config-file is sensitive on every method: GET reveals config,
+  // POST overwrites it, PUT creates fleet entries, DELETE removes them.
+  // Warden re-audit NEW-2 caught that PUT and DELETE bypassed the old
+  // POST-only gating. Promoted to fully PROTECTED.
+  "/api/config-file",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
 const PROTECTED_POST = new Set([
   "/api/feed",
+  "/api/config",
+  "/api/pin-set",
 ]);
+
+/**
+ * Method-agnostic protected path patterns. Used for routes with dynamic path
+ * segments (e.g. /api/services/:name/restart) that an exact-match Set cannot
+ * express. Everything matching one of these patterns is treated the same as
+ * an entry in PROTECTED.
+ */
+const PROTECTED_PATTERNS: RegExp[] = [
+  // Warden re-audit NEW-1: PM2 control plane must require auth on every
+  // method. Previously unauthenticated, reachable via loopback CSRF.
+  /^\/api\/services\/[^/]+\/(restart|stop|start)$/,
+];
 
 // Note: GET-only read endpoints (/api/sessions, /api/capture, /api/mirror)
 // are intentionally public — the Office UI on LAN needs them.
@@ -80,6 +100,9 @@ export function signHeaders(token: string, method: string, path: string): Record
 function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
+  for (const pat of PROTECTED_PATTERNS) {
+    if (pat.test(path)) return true;
+  }
   return false;
 }
 
@@ -89,21 +112,26 @@ export function federationAuth(): MiddlewareHandler {
     const config = loadConfig();
     const token = config.federationToken;
 
-    // No token configured → auth disabled (backwards compat)
-    if (!token) return next();
-
     const url = new URL(c.req.url);
     const path = url.pathname.replace(/^\/api/, "/api"); // normalize
 
     // Not a protected path → pass
     if (!isProtected(path, c.req.method)) return next();
 
-    // Check if loopback (local CLI / browser on same machine)
-    const clientIp = c.req.header("x-forwarded-for")?.split(",")[0].trim()
-      || c.req.header("x-real-ip")
-      || (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
+    // Determine client IP from the raw socket only. X-Forwarded-For / X-Real-IP
+    // are attacker-controlled when no trusted proxy is in front of us, and there
+    // is currently no trusted-proxy config, so we never honor them here.
+    const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
 
+    // Loopback (local CLI / browser on same machine) always passes.
     if (isLoopback(clientIp)) return next();
+
+    // Non-loopback + no token configured → fail closed instead of silently
+    // letting every protected route through. Remote callers must configure
+    // federationToken to use this server.
+    if (!token) {
+      return c.json({ error: "federation auth not configured", reason: "no_token" }, 503);
+    }
 
     // Check for HMAC signature
     const sig = c.req.header("x-maw-signature");

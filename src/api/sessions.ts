@@ -7,6 +7,22 @@ import { processMirror } from "../commands/overview";
 
 export const sessionsApi = new Hono();
 
+/**
+ * Normalize an Oracle target name: strip numeric prefix, "-oracle" suffix,
+ * and the tmux "session:window" suffix if present. The result feeds
+ * findWindow() for fuzzy pane resolution.
+ *
+ * No whitelist. listSessions() + findWindow() are the security boundary —
+ * if the normalized name does not resolve to a live tmux pane, the handler
+ * falls through to 404. Matches the Soul-Brews-Studio/maw-js upstream
+ * pattern; the prior ORACLE_SEND_TARGETS whitelist broke the reply-ping
+ * protocol by rejecting `target=00-sofia` from every peer Oracle.
+ */
+function normalizeOracleName(target: string): string {
+  const base = target.toLowerCase().trim().split(":")[0];
+  return base.replace(/^\d+-/, "").replace(/-oracle$/, "");
+}
+
 sessionsApi.get("/sessions", async (c) => {
   const local = await listSessions();
   if (c.req.query("local") === "true") {
@@ -38,12 +54,27 @@ sessionsApi.post("/send", async (c) => {
   try {
     const { target, text } = await c.req.json();
     if (!target || !text) return c.json({ error: "target and text required" }, 400);
+    if (typeof target !== "string") return c.json({ error: "target must be a string" }, 400);
+
+    // Normalize the raw client-supplied target into a bare Oracle name. From
+    // here on, the rest of the handler must use `normalized` and never the
+    // raw `target` — that is what keeps Warden §3.1 bypass B (colon smuggle)
+    // closed, since findWindow is invoked without `allowRaw` and the raw
+    // "session:window" form never reaches tmux.
+    const normalized = normalizeOracleName(target);
+    if (!normalized) {
+      // Defensive empty check after stripping prefix/suffix — not a whitelist.
+      return c.json({ error: "target name empty after normalization" }, 400);
+    }
 
     const local = await listSessions();
 
-    // Step 1: Fuzzy resolve locally first
-    const baseName = target.replace(/-oracle$/, "");
-    const resolved = findWindow(local, target) || findWindow(local, baseName);
+    // Step 1: Fuzzy resolve locally using the normalized Oracle name against
+    // the live session list. findWindow is called without allowRaw so its
+    // colon-passthrough fallback is disabled. If nothing matches, the
+    // handler falls through to the peer paths and eventually to 404 —
+    // listSessions() is the security boundary, matching Nat upstream.
+    const resolved = findWindow(local, normalized);
 
     if (resolved) {
       await sendKeys(resolved, text);
@@ -57,32 +88,31 @@ sessionsApi.post("/send", async (c) => {
       return c.json({ ok: true, target: resolved, text, source: "local", lastLine });
     }
 
-    // Step 2: Check agent registry for remote routing
+    // Step 2: Check agent registry for remote routing — keyed by normalized name.
     const config = loadConfig();
-    const targetName = baseName.split(":").pop() || baseName;
-    const agentNode = config.agents?.[targetName] || config.agents?.[target];
+    const agentNode = config.agents?.[normalized];
     if (agentNode && agentNode !== (config.node ?? "local")) {
       const peer = config.namedPeers?.find(p => p.name === agentNode);
       const peerUrl = peer?.url || config.peers?.find(p => p.includes(agentNode));
       if (peerUrl) {
         const res = await curlFetch(`${peerUrl}/api/send`, {
           method: "POST",
-          body: JSON.stringify({ target, text }),
+          body: JSON.stringify({ target: normalized, text }),
           timeout: 10000,
         });
         if (res.ok && res.data?.ok) {
-          return c.json({ ok: true, target: res.data.target || target, text, source: peerUrl, lastLine: res.data.lastLine || "" });
+          return c.json({ ok: true, target: res.data.target || normalized, text, source: peerUrl, lastLine: res.data.lastLine || "" });
         }
-        return c.json({ error: `Agent ${targetName} → ${agentNode} send failed`, target, source: peerUrl }, 502);
+        return c.json({ error: `Agent ${normalized} → ${agentNode} send failed`, target: normalized, source: peerUrl }, 502);
       }
     }
 
-    // Step 3: Check peers via aggregated sessions
-    const peerUrl = await findPeerForTarget(target, local);
+    // Step 3: Check peers via aggregated sessions — also keyed by normalized name.
+    const peerUrl = await findPeerForTarget(normalized, local);
     if (peerUrl) {
-      const ok = await sendKeysToPeer(peerUrl, target, text);
-      if (ok) return c.json({ ok: true, target, text, source: peerUrl });
-      return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+      const ok = await sendKeysToPeer(peerUrl, normalized, text);
+      if (ok) return c.json({ ok: true, target: normalized, text, source: peerUrl });
+      return c.json({ error: "Failed to send to peer", target: normalized, source: peerUrl }, 502);
     }
 
     return c.json({ error: `target not found: ${target}`, target }, 404);

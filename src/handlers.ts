@@ -42,10 +42,16 @@ const send: Handler = async (ws, data, engine) => {
   }
   sendKeys(data.target, data.text)
     .then(() => {
-      ws.send(JSON.stringify({ type: "sent", ok: true, target: data.target, text: data.text }));
+      const ack: Record<string, unknown> = { type: "sent", ok: true, target: data.target, text: data.text };
+      if (data.id) ack.id = data.id;
+      ws.send(JSON.stringify(ack));
       setTimeout(() => engine.pushCapture(ws), 300);
     })
-    .catch(e => ws.send(JSON.stringify({ type: "error", error: e.message })));
+    .catch(e => {
+      const err: Record<string, unknown> = { type: "error", error: e.message };
+      if (data.id) err.id = data.id;
+      ws.send(JSON.stringify(err));
+    });
 };
 
 const sleep: Handler = (ws, data) => {
@@ -56,9 +62,16 @@ const stop: Handler = (ws, data) => {
   runAction(ws, "stop", data.target, () => tmux.killWindow(data.target));
 };
 
-const wake: Handler = (ws, data) => {
-  // Use client command if provided, otherwise resolve from config
+const wake: Handler = async (ws, data) => {
   const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
+  // Check if Claude is already running — skip wake to avoid polluting active session
+  try {
+    const paneCmd = await getPaneCommand(data.target);
+    if (/claude|codex|node/i.test(paneCmd)) {
+      ws.send(JSON.stringify({ type: "action-ok", action: "wake", target: data.target, note: "already running" }));
+      return;
+    }
+  } catch { /* pane check failed, proceed with wake */ }
   runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
 };
 
@@ -73,6 +86,21 @@ const restart: Handler = (ws, data) => {
   });
 };
 
+const kill: Handler = (ws, data) => {
+  runAction(ws, "kill", data.target, () => tmux.killWindow(data.target));
+};
+
+const signal: Handler = async (ws, data) => {
+  const sig = data.signal || "SIGTERM";
+  runAction(ws, "signal", data.target, async () => {
+    // Get pane PID then send signal
+    const pid = await tmux.run("display-message", "-t", data.target, "-p", "#{pane_pid}");
+    const trimmedPid = pid.trim();
+    if (!trimmedPid || isNaN(Number(trimmedPid))) throw new Error("Could not get pane PID");
+    await ssh(`kill -${sig} ${trimmedPid}`);
+  });
+};
+
 /** Register all built-in WebSocket handlers on the engine */
 export function registerBuiltinHandlers(engine: MawEngine) {
   engine.on("subscribe", subscribe);
@@ -83,4 +111,6 @@ export function registerBuiltinHandlers(engine: MawEngine) {
   engine.on("stop", stop);
   engine.on("wake", wake);
   engine.on("restart", restart);
+  engine.on("kill", kill);
+  engine.on("signal", signal);
 }

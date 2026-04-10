@@ -47,7 +47,24 @@ export async function listSessions(host?: string): Promise<Session[]> {
   return sessions;
 }
 
-export function findWindow(sessions: Session[], query: string): string | null {
+export interface FindWindowOptions {
+  /**
+   * If the fuzzy match fails AND the query contains ":", return the raw query
+   * as-is (a tmux "session:window" address). Historically this was the default
+   * behavior, but it lets any caller smuggle a free-form tmux address straight
+   * to `sendKeys`, which is a network-accessible command injection when the
+   * caller is `/api/send`. It is therefore OFF by default. Only pass
+   * `allowRaw: true` from call sites that are not exposed over a network
+   * boundary and legitimately need tmux-address passthrough (local CLI tools).
+   */
+  allowRaw?: boolean;
+}
+
+export function findWindow(
+  sessions: Session[],
+  query: string,
+  opts: FindWindowOptions = {},
+): string | null {
   const q = query.toLowerCase();
   // Match window names first (most specific)
   for (const s of sessions) {
@@ -61,7 +78,8 @@ export function findWindow(sessions: Session[], query: string): string | null {
       return `${s.name}:${s.windows[0].name}`;
     }
   }
-  if (query.includes(":")) return query;
+  // Raw colon passthrough: gated behind explicit opt-in (see FindWindowOptions).
+  if (opts.allowRaw && query.includes(":")) return query;
   return null;
 }
 

@@ -209,7 +209,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
   if (opts.incubate) {
     // Clone/update repo via ghq, then use it as the target
-    const slug = opts.incubate; // e.g. "Soul-Brews-Studio/maw-js"
+    const slug = opts.incubate; // e.g. "evilelfza/maw-js"
     const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);
     await ssh(`ghq get -u -p ${repoSlug}`);
