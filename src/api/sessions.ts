@@ -8,10 +8,11 @@ import { processMirror } from "../commands/overview";
 export const sessionsApi = new Hono();
 
 // Whitelist of valid Oracle targets for POST /api/send.
-// Mirrors src/api/dispatch.ts ORACLE_TARGETS and adds "sofia" (commander is a valid send target).
-// Any target resolving outside this set is rejected to prevent arbitrary tmux keystroke injection.
+// Matches src/api/dispatch.ts ORACLE_TARGETS exactly — "sofia" is intentionally
+// excluded so that /api/send is never a path to the commander's pane.
+// Sofia-bound messages must use the MCP thread channel, not this HTTP endpoint.
 const ORACLE_SEND_TARGETS = new Set([
-  "sofia", "blade", "lens", "edge", "clip", "deck", "scope",
+  "blade", "lens", "edge", "clip", "deck", "scope",
   "quill", "link", "bastion", "warden", "prism", "sage",
 ]);
 
@@ -54,16 +55,22 @@ sessionsApi.post("/send", async (c) => {
     if (!target || !text) return c.json({ error: "target and text required" }, 400);
     if (typeof target !== "string") return c.json({ error: "target must be a string" }, 400);
 
-    // Whitelist: only allow sending to known Oracle targets. Closes arbitrary tmux injection.
-    if (!extractOracleName(target)) {
+    // Whitelist + normalize the target. From here on, the rest of the handler
+    // must use `normalized` (a bare Oracle name) and never the raw client-
+    // supplied `target`. The raw form can smuggle a "session:window" colon
+    // address past the whitelist and reach arbitrary tmux panes
+    // (Warden re-audit §3.1 bypass B).
+    const normalized = extractOracleName(target);
+    if (!normalized) {
       return c.json({ error: `target not allowed: ${target}` }, 403);
     }
 
     const local = await listSessions();
 
-    // Step 1: Fuzzy resolve locally first
-    const baseName = target.replace(/-oracle$/, "");
-    const resolved = findWindow(local, target) || findWindow(local, baseName);
+    // Step 1: Fuzzy resolve locally using the normalized Oracle name only —
+    // never the raw client input. findWindow is called without allowRaw so
+    // its colon-passthrough fallback is disabled for this code path.
+    const resolved = findWindow(local, normalized);
 
     if (resolved) {
       await sendKeys(resolved, text);
@@ -77,32 +84,31 @@ sessionsApi.post("/send", async (c) => {
       return c.json({ ok: true, target: resolved, text, source: "local", lastLine });
     }
 
-    // Step 2: Check agent registry for remote routing
+    // Step 2: Check agent registry for remote routing — keyed by normalized name.
     const config = loadConfig();
-    const targetName = baseName.split(":").pop() || baseName;
-    const agentNode = config.agents?.[targetName] || config.agents?.[target];
+    const agentNode = config.agents?.[normalized];
     if (agentNode && agentNode !== (config.node ?? "local")) {
       const peer = config.namedPeers?.find(p => p.name === agentNode);
       const peerUrl = peer?.url || config.peers?.find(p => p.includes(agentNode));
       if (peerUrl) {
         const res = await curlFetch(`${peerUrl}/api/send`, {
           method: "POST",
-          body: JSON.stringify({ target, text }),
+          body: JSON.stringify({ target: normalized, text }),
           timeout: 10000,
         });
         if (res.ok && res.data?.ok) {
-          return c.json({ ok: true, target: res.data.target || target, text, source: peerUrl, lastLine: res.data.lastLine || "" });
+          return c.json({ ok: true, target: res.data.target || normalized, text, source: peerUrl, lastLine: res.data.lastLine || "" });
         }
-        return c.json({ error: `Agent ${targetName} → ${agentNode} send failed`, target, source: peerUrl }, 502);
+        return c.json({ error: `Agent ${normalized} → ${agentNode} send failed`, target: normalized, source: peerUrl }, 502);
       }
     }
 
-    // Step 3: Check peers via aggregated sessions
-    const peerUrl = await findPeerForTarget(target, local);
+    // Step 3: Check peers via aggregated sessions — also keyed by normalized name.
+    const peerUrl = await findPeerForTarget(normalized, local);
     if (peerUrl) {
-      const ok = await sendKeysToPeer(peerUrl, target, text);
-      if (ok) return c.json({ ok: true, target, text, source: peerUrl });
-      return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+      const ok = await sendKeysToPeer(peerUrl, normalized, text);
+      if (ok) return c.json({ ok: true, target: normalized, text, source: peerUrl });
+      return c.json({ error: "Failed to send to peer", target: normalized, source: peerUrl }, 502);
     }
 
     return c.json({ error: `target not found: ${target}`, target }, 404);
