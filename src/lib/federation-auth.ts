@@ -19,6 +19,7 @@ const WINDOW_SEC = 300; // ±5 minutes
 const PROTECTED = new Set([
   "/api/send",
   "/api/talk",
+  "/api/dispatch",
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
@@ -92,21 +93,26 @@ export function federationAuth(): MiddlewareHandler {
     const config = loadConfig();
     const token = config.federationToken;
 
-    // No token configured → auth disabled (backwards compat)
-    if (!token) return next();
-
     const url = new URL(c.req.url);
     const path = url.pathname.replace(/^\/api/, "/api"); // normalize
 
     // Not a protected path → pass
     if (!isProtected(path, c.req.method)) return next();
 
-    // Check if loopback (local CLI / browser on same machine)
-    const clientIp = c.req.header("x-forwarded-for")?.split(",")[0].trim()
-      || c.req.header("x-real-ip")
-      || (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
+    // Determine client IP from the raw socket only. X-Forwarded-For / X-Real-IP
+    // are attacker-controlled when no trusted proxy is in front of us, and there
+    // is currently no trusted-proxy config, so we never honor them here.
+    const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
 
+    // Loopback (local CLI / browser on same machine) always passes.
     if (isLoopback(clientIp)) return next();
+
+    // Non-loopback + no token configured → fail closed instead of silently
+    // letting every protected route through. Remote callers must configure
+    // federationToken to use this server.
+    if (!token) {
+      return c.json({ error: "federation auth not configured", reason: "no_token" }, 503);
+    }
 
     // Check for HMAC signature
     const sig = c.req.header("x-maw-signature");
