@@ -32,12 +32,69 @@ export const VERSION = getVersionString();
 
 // --- Hono app ---
 
+// Origin allowlist for /api/*. This is a justified divergence from the
+// Soul-Brews-Studio/maw-js upstream, which still ships with `cors()` default-*.
+// The evilelfza fork runs on a single-user dev machine with sensitive tokens
+// (~/.claude.json, GitHub auth, etc.), so a browser-CSRF vector is materially
+// more dangerous than in Nat's multi-agent open-source threat model. After
+// e5007e3 removed the ORACLE_SEND_TARGETS whitelist, any tmux window —
+// including bash/zsh/vim/tailers — is a valid /api/send target, which turned
+// CSRF into a plausible path to RCE (Warden Round 4 NEW-8 HIGH).
+//
+// Requests without an Origin header (curl, Oracle reply-ping, local shell)
+// are allowed through unchanged — that is what keeps the reply-ping protocol
+// working. Browser requests from unknown origins are rejected both at the
+// CORS layer (no `Access-Control-Allow-Origin` returned) and server-side
+// via an explicit 403 (belt-and-suspenders, closes simple-request bypass).
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:3456",
+  "http://127.0.0.1:3456",
+  "http://localhost:3457",   // maw-ui vite dev server
+  "http://127.0.0.1:3457",
+  "http://localhost:4177",   // maw-ui vite preview
+  "http://127.0.0.1:4177",
+]);
+
 const app = new Hono();
+
 app.use("/api/*", async (c, next) => {
   await next();
   c.header("Access-Control-Allow-Private-Network", "true");
 });
-app.use("/api/*", cors());
+
+app.use("/api/*", cors({
+  origin: (origin) => {
+    // No Origin header → curl / Oracle reply-ping / local shell. Allow.
+    // Returning empty string omits Access-Control-Allow-Origin from the
+    // response, which is correct for non-browser callers that don't need it.
+    if (!origin) return "";
+    // Known-good browser origin from the developer's own maw-ui
+    if (ALLOWED_ORIGINS.has(origin)) return origin;
+    // Everything else: deny at the CORS layer (no ACAO header emitted).
+    return null;
+  },
+  credentials: false,
+  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowHeaders: ["Content-Type", "Authorization", "X-Maw-Signature", "X-Maw-Timestamp"],
+}));
+
+// Server-side Origin enforcement — belt-and-suspenders layer. The CORS
+// middleware above only controls browser-visible response headers, which a
+// non-CORS "simple request" (e.g. form POST with text/plain) can bypass
+// client-side. For state-changing methods we additionally reject the request
+// server-side with 403 whenever the Origin header is present but not in
+// ALLOWED_ORIGINS. Requests without an Origin header still pass — curl and
+// every intra-Oracle reply-ping fall into that bucket.
+app.use("/api/*", async (c, next) => {
+  const method = c.req.method;
+  if (method === "POST" || method === "PUT" || method === "DELETE") {
+    const origin = c.req.header("Origin");
+    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+      return c.json({ error: "cross-origin request blocked", origin }, 403);
+    }
+  }
+  await next();
+});
 
 app.route("/api", api);
 
