@@ -27,6 +27,9 @@ const PROTECTED = new Set([
 /** POST-only protected (GET is public for UI, POST needs auth) */
 const PROTECTED_POST = new Set([
   "/api/feed",
+  "/api/config",
+  "/api/config-file",
+  "/api/pin-set",
 ]);
 
 // Note: GET-only read endpoints (/api/sessions, /api/capture, /api/mirror)

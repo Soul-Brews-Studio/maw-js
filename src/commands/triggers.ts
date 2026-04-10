@@ -8,8 +8,8 @@ export async function cmdTriggers(): Promise<void> {
     console.log("\x1b[90mNo triggers configured. Add a 'triggers' array to maw.config.json.\x1b[0m");
     console.log(`\n\x1b[90mExample:\x1b[0m
   "triggers": [
-    { "on": "issue-close", "repo": "Soul-Brews-Studio/maw-js", "action": "maw hey pulse-oracle 'issue closed'" },
-    { "on": "pr-merge", "repo": "Soul-Brews-Studio/maw-js", "action": "maw done neo-mawjs" },
+    { "on": "issue-close", "repo": "evilelfza/maw-js", "action": "maw hey pulse-oracle 'issue closed'" },
+    { "on": "pr-merge", "repo": "evilelfza/maw-js", "action": "maw done neo-mawjs" },
     { "on": "agent-idle", "timeout": 30, "action": "maw sleep {agent}" }
   ]`);
     return;

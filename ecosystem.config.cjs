@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'maw',
       script: 'src/server.ts',
-      interpreter: '/home/nat/.bun/bin/bun',
+      interpreter: '/home/lfz/.bun/bin/bun',
       watch: ['src'],
       watch_delay: 500,
       ignore_watch: ['node_modules', 'ui'],
@@ -16,7 +16,7 @@ module.exports = {
       name: 'maw-boot',
       script: 'src/cli.ts',
       args: 'wake all --resume',
-      interpreter: '/home/nat/.bun/bin/bun',
+      interpreter: '/home/lfz/.bun/bin/bun',
       // One-shot: spawn fleet after server starts, don't restart
       autorestart: false,
       // Give maw server time to come up
@@ -26,7 +26,7 @@ module.exports = {
     {
       name: 'maw-broker',
       script: 'src/broker.ts',
-      interpreter: '/home/nat/.bun/bin/bun',
+      interpreter: '/home/lfz/.bun/bin/bun',
       autorestart: true,
       watch: false,
       env: {

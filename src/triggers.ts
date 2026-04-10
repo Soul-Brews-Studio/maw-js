@@ -35,15 +35,24 @@ const idleTimers = new Map<string, number>();
 const agentPrevState = new Map<string, "busy" | "idle">();
 
 /**
+ * Escape a value for safe single-quoted shell interpolation.
+ * Turns: foo'bar  ->  'foo'\''bar'
+ */
+function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\\\'") + "'";
+}
+
+/**
  * Expand template variables in an action string.
  * Supports {agent}, {repo}, {issue}, {event}, and any key in context.
+ * All substituted values are single-quote escaped to prevent shell injection.
  */
 function expandAction(action: string, event: TriggerEvent, ctx: TriggerContext): string {
   let result = action;
-  result = result.replace(/\{event\}/g, event);
+  result = result.replace(/\{event\}/g, shellQuote(event));
   for (const [key, value] of Object.entries(ctx)) {
     if (value !== undefined) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+      result = result.replace(new RegExp(`\\{${key}\\}`, "g"), shellQuote(value));
     }
   }
   return result;

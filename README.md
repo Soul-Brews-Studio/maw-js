@@ -5,7 +5,7 @@
 ## Architecture
 
 ```
-Soul-Brews-Studio/maw-js          Soul-Brews-Studio/maw-ui
+evilelfza/maw-js          evilelfza/maw-ui
 ├── src/          (backend)        ├── src/          (React app)
 │   ├── api/      (Hono routes)    │   ├── components/
 │   ├── commands/ (CLI)            │   ├── hooks/
@@ -25,16 +25,16 @@ Soul-Brews-Studio/maw-js          Soul-Brews-Studio/maw-ui
 ## Quick Start
 
 ```bash
-bunx --bun github:Soul-Brews-Studio/maw-js ls
-bunx --bun github:Soul-Brews-Studio/maw-js peek neo
-bunx --bun github:Soul-Brews-Studio/maw-js hey neo "how are you"
+bunx --bun github:evilelfza/maw-js ls
+bunx --bun github:evilelfza/maw-js peek neo
+bunx --bun github:evilelfza/maw-js hey neo "how are you"
 ```
 
 ## Install
 
 ```bash
-ghq get Soul-Brews-Studio/maw-js
-cd $(ghq root)/github.com/Soul-Brews-Studio/maw-js
+ghq get evilelfza/maw-js
+cd $(ghq root)/github.com/evilelfza/maw-js
 bun install && bun link
 maw ls
 ```
@@ -85,7 +85,7 @@ maw ping                           # → ✅ mba — 42ms, auth: ok
 
 ## Deploy (frontend)
 
-Frontend lives in [maw-ui](https://github.com/Soul-Brews-Studio/maw-ui). Deploy:
+Frontend lives in [maw-ui](https://github.com/evilelfza/maw-ui). Deploy:
 
 ```bash
 cd /path/to/maw-ui
