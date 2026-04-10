@@ -7,6 +7,26 @@ import { scanWorktrees } from "../worktrees";
 import { curlFetch } from "../curl-fetch";
 import { findPeerForTarget } from "../peers";
 import { resolveTarget } from "../routing";
+import { appendFile, mkdir } from "fs/promises";
+import { homedir, hostname } from "os";
+import { join } from "path";
+
+/** Log message to ~/.oracle/maw-log.jsonl with normalized from/to */
+async function logMessage(from: string, to: string, msg: string, route: string) {
+  const config = loadConfig();
+  const node = config.node ?? "local";
+  const normalizedFrom = from.includes(":") ? from : `${node}:${from}`;
+  const logDir = join(homedir(), ".oracle");
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    from: normalizedFrom,
+    to,
+    msg: msg.slice(0, 500),
+    host: hostname(),
+    route,
+  }) + "\n";
+  try { await mkdir(logDir, { recursive: true }); await appendFile(join(logDir, "maw-log.jsonl"), line); } catch {}
+}
 
 /** Resolve which sessions to search for an oracle query (#86). */
 function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
@@ -144,6 +164,8 @@ export async function cmdSend(query: string, message: string, force = false) {
     }
     await sendKeys(target, message);
     await runHook("after_send", { to: query, message });
+    const agentName = process.env.CLAUDE_AGENT_NAME || query.split(":").pop() || "cli";
+    logMessage(agentName, query, message, "local");
     await Bun.sleep(150);
     let lastLine = "";
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
@@ -159,6 +181,8 @@ export async function cmdSend(query: string, message: string, force = false) {
       body: JSON.stringify({ target: result.target, text: message }),
     });
     if (res.ok && res.data?.ok) {
+      const agentName = process.env.CLAUDE_AGENT_NAME || "cli";
+      logMessage(agentName, query, message, `peer:${result.node}`);
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message });
