@@ -49,9 +49,10 @@ federationApi.get("/messages", (c) => {
   const logFile = join(homedir(), ".oracle", "maw-log.jsonl");
   try {
     const lines = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
-    let messages = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-    if (from) messages = messages.filter((m: any) => m.from?.includes(from));
-    if (to) messages = messages.filter((m: any) => m.to?.includes(to));
+    interface MawMessage { ts: string; from: string; to: string; msg: string; host?: string; route?: string }
+    let messages: MawMessage[] = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    if (from) messages = messages.filter(m => m.from?.includes(from));
+    if (to) messages = messages.filter(m => m.to?.includes(to));
     return c.json({ messages: messages.slice(-limit), total: messages.length });
   } catch {
     return c.json({ messages: [], total: 0 });
