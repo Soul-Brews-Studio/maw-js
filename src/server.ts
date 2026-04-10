@@ -102,8 +102,9 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     return app.fetch(req, { server });
   };
 
-  // HTTP server (always)
-  const server = Bun.serve({ port, fetch: fetchHandler, websocket: wsHandler });
+  // HTTP server (always) — bind to loopback so the entire LAN attack surface is gone.
+  // Cross-device access must be added deliberately via SSH tunnel or reverse proxy.
+  const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: fetchHandler, websocket: wsHandler });
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL})`);
 
   // HTTPS server (if TLS configured)
@@ -111,7 +112,7 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
-    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
+    Bun.serve({ hostname: "127.0.0.1", port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 
