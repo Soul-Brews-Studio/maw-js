@@ -23,15 +23,31 @@ const PROTECTED = new Set([
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
+  // /api/config-file is sensitive on every method: GET reveals config,
+  // POST overwrites it, PUT creates fleet entries, DELETE removes them.
+  // Warden re-audit NEW-2 caught that PUT and DELETE bypassed the old
+  // POST-only gating. Promoted to fully PROTECTED.
+  "/api/config-file",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
 const PROTECTED_POST = new Set([
   "/api/feed",
   "/api/config",
-  "/api/config-file",
   "/api/pin-set",
 ]);
+
+/**
+ * Method-agnostic protected path patterns. Used for routes with dynamic path
+ * segments (e.g. /api/services/:name/restart) that an exact-match Set cannot
+ * express. Everything matching one of these patterns is treated the same as
+ * an entry in PROTECTED.
+ */
+const PROTECTED_PATTERNS: RegExp[] = [
+  // Warden re-audit NEW-1: PM2 control plane must require auth on every
+  // method. Previously unauthenticated, reachable via loopback CSRF.
+  /^\/api\/services\/[^/]+\/(restart|stop|start)$/,
+];
 
 // Note: GET-only read endpoints (/api/sessions, /api/capture, /api/mirror)
 // are intentionally public — the Office UI on LAN needs them.
@@ -84,6 +100,9 @@ export function signHeaders(token: string, method: string, path: string): Record
 function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
+  for (const pat of PROTECTED_PATTERNS) {
+    if (pat.test(path)) return true;
+  }
   return false;
 }
 
