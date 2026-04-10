@@ -50,9 +50,49 @@ export function handlePtyClose(ws: ServerWebSocket<any>) {
   detach(ws);
 }
 
+/** Strict format: <session-name>:<window-index>, e.g. "sofia:0", "01-oracles:2" */
+const TARGET_RE = /^[a-zA-Z0-9_.-]+:[0-9]+$/;
+const TARGET_MAX_LEN = 128;
+
+/**
+ * Validate a PTY attach target and reject it with a WS error if invalid.
+ * Returns the (untouched) target string on success, or null on rejection.
+ * Logs the rejected target + caller identity for debugging without leaking sensitive data.
+ */
+function validateTarget(ws: ServerWebSocket<any>, raw: unknown): string | null {
+  if (typeof raw !== "string") {
+    ws.send(JSON.stringify({ type: "error", message: "Invalid target: must be a string" }));
+    return null;
+  }
+
+  // Length cap — fail before regex to avoid catastrophic backtracking on huge input
+  if (raw.length > TARGET_MAX_LEN) {
+    console.warn(`[pty] rejected oversized target (${raw.length} chars)`);
+    ws.send(JSON.stringify({ type: "error", message: "Invalid target: too long" }));
+    return null;
+  }
+
+  // Format: <name>:<window> — anchored, no backtracking risk
+  if (!TARGET_RE.test(raw)) {
+    console.warn(`[pty] rejected malformed target: ${JSON.stringify(raw)}`);
+    ws.send(JSON.stringify({ type: "error", message: "Invalid target: must match <name>:<window>" }));
+    return null;
+  }
+
+  // Guard: internal maw-pty-* sessions must never be reachable by clients
+  // (case-insensitive — regex allows uppercase, so "MAW-PTY-X:0" would bypass otherwise)
+  if (raw.toLowerCase().startsWith("maw-pty-")) {
+    console.warn(`[pty] rejected internal target: ${JSON.stringify(raw)}`);
+    ws.send(JSON.stringify({ type: "error", message: "Invalid target: reserved prefix" }));
+    return null;
+  }
+
+  return raw;
+}
+
 async function attach(ws: ServerWebSocket<any>, target: string, cols: number, rows: number) {
-  // Sanitize target: only allow safe characters
-  const safe = target.replace(/[^a-zA-Z0-9\-_:.]/g, "");
+  // Validate target format — fail-closed before any tmux interaction
+  const safe = validateTarget(ws, target);
   if (!safe) return;
 
   // Detach from any existing session
