@@ -1,8 +1,7 @@
 import { Hono } from "hono";
 import { join } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync } from "fs";
-import { execSync } from "child_process";
+import { existsSync, mkdirSync, renameSync } from "fs";
 
 // --- Types ---
 
@@ -42,9 +41,12 @@ export async function readTasks(): Promise<KanbanTask[]> {
 
 async function writeTasks(tasks: KanbanTask[]): Promise<void> {
   ensureDir();
-  // Atomic: write to tmp, then rename
+  // Atomic: write to tmp, then rename. fs.renameSync is atomic on the same
+  // filesystem and avoids the shell-out that execSync + mv needed. Both
+  // paths are internal constants (not user input), so this is a NEW-6
+  // family defense-in-depth cleanup, not a vulnerability fix.
   await Bun.write(TASKS_TMP, JSON.stringify(tasks, null, 2));
-  execSync(`mv "${TASKS_TMP}" "${TASKS_FILE}"`);
+  renameSync(TASKS_TMP, TASKS_FILE);
 }
 
 // --- Broadcast ---
