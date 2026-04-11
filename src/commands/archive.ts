@@ -28,7 +28,7 @@ export async function cmdArchive(oracleName: string, opts: { dryRun?: boolean } 
 
   const mainWindow = entry.session.windows[0];
   const repoSlug = mainWindow?.repo || "";
-  const repoPath = repoSlug ? join(ghqRoot, "github.com", repoSlug) : "";
+  const repoPath = repoSlug ? join(ghqRoot, repoSlug) : "";
 
   console.log(`\n  \x1b[36m⚰️  Archiving\x1b[0m — ${oracleName}\n`);
 

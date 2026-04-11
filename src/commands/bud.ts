@@ -60,7 +60,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
 
   const budRepoName = `${name}-oracle`;
   const budRepoSlug = `${org}/${budRepoName}`;
-  const budRepoPath = join(ghqRoot, "github.com", org, budRepoName);
+  const budRepoPath = join(ghqRoot, org, budRepoName);
 
   console.log(`\n  \x1b[36m🧬 Budding\x1b[0m — ${parentName} → ${name}\n`);
 
@@ -268,7 +268,7 @@ Run \`/awaken\` for the full identity setup ceremony.
 
   // 8.5. Copy local project ψ/ if --repo was used and it exists
   if (opts.repo) {
-    const localPsi = join(ghqRoot, "github.com", opts.repo, "ψ", "memory");
+    const localPsi = join(ghqRoot, opts.repo, "ψ", "memory");
     if (existsSync(localPsi)) {
       const { syncDir } = await import("./soul-sync");
       for (const sub of ["learnings", "retrospectives", "traces"]) {
