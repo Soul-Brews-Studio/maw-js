@@ -3,6 +3,7 @@ import { tmux } from "./tmux";
 import { loadConfig } from "./config";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { execFileSync } from "child_process";
 import { FLEET_DIR } from "./paths";
 
 export interface WorktreeInfo {
@@ -182,22 +183,40 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
     }
   }
 
-  // 2. Get branch, remove worktree
+  // 2. Get branch, remove worktree — argv form, no shell interpretation.
+  // Every string that used to be interpolated into a single-quoted shell
+  // command (wtPath, mainPath, branch) is now a discrete argv element.
+  // The API handler validates wtPath against an allowlist of roots before
+  // calling this function; mainPath is derived from the validated wtPath.
   let branch = "";
-  try { branch = (await ssh(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
+  try {
+    branch = execFileSync("git", ["-C", wtPath, "rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim();
+  } catch { /* expected: worktree may be corrupt */ }
 
   try {
-    await ssh(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
-    await ssh(`git -C '${mainPath}' worktree prune`);
+    execFileSync("git", ["-C", mainPath, "worktree", "remove", wtPath, "--force"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+    execFileSync("git", ["-C", mainPath, "worktree", "prune"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
     log.push(`removed worktree ${dirName}`);
   } catch (e: any) {
     log.push(`worktree remove failed: ${e.message || e}`);
   }
 
-  // 3. Delete branch
+  // 3. Delete branch — argv form.
   if (branch && branch !== "main" && branch !== "HEAD" && branch !== "unknown") {
     try {
-      await ssh(`git -C '${mainPath}' branch -d '${branch}'`);
+      execFileSync("git", ["-C", mainPath, "branch", "-d", branch], {
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
       log.push(`deleted branch ${branch}`);
     } catch {
       log.push(`branch ${branch} not deleted (may have unmerged changes)`);

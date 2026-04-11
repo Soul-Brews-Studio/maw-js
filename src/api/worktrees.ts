@@ -75,12 +75,41 @@ worktreesApi.post("/worktrees/create", async (c) => {
 });
 
 worktreesApi.post("/worktrees/cleanup", async (c) => {
-  const { path } = await c.req.json();
-  if (!path) return c.json({ error: "path required" }, 400);
+  let body: { path?: unknown };
   try {
-    const log = await cleanupWorktree(path);
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (typeof body.path !== "string" || body.path.length === 0) {
+    return c.json({ error: "path required" }, 400);
+  }
+
+  // Validate cleanup path: canonicalize and confirm it lives under one of
+  // the two legitimate roots — the ghq tree (for ghq-managed worktrees
+  // scanned by GET /worktrees) or ~/.maw/worktrees (for task worktrees
+  // created by POST /worktrees/create). The trailing "/" in the startsWith
+  // check prevents sibling-prefix attacks (e.g. "<ghqRoot>-evil").
+  const resolvedPath = resolve(body.path);
+  const ghqRoot = resolve(loadConfig().ghqRoot);
+  const maWtRoot = resolve(join(homedir(), ".maw/worktrees"));
+  const allowed =
+    resolvedPath === ghqRoot || resolvedPath.startsWith(ghqRoot + "/") ||
+    resolvedPath === maWtRoot || resolvedPath.startsWith(maWtRoot + "/");
+  if (!allowed) {
+    return c.json({ error: "path not allowed" }, 400);
+  }
+  if (!existsSync(resolvedPath)) {
+    return c.json({ error: "path does not exist" }, 400);
+  }
+
+  try {
+    const log = await cleanupWorktree(resolvedPath);
     return c.json({ ok: true, log });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+  } catch {
+    // Do not echo e.message — git errors may contain user-supplied
+    // substrings from the path, and the server log still has the detail.
+    return c.json({ error: "Failed to clean up worktree" }, 500);
   }
 });
