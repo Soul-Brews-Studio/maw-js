@@ -32,6 +32,9 @@ export function usage() {
   maw archive <oracle>         Graceful oracle death (soul-sync → disable → archive)
   maw find <keyword>           Search ψ/memory/ across all oracles
   maw fleet health             Fleet health: dormancy, zombies, islands
+  maw fleet doctor             Federation config doctor: collisions, orphan routes, stale peers
+  maw fleet doctor --fix       Apply safe auto-fixes (dedupe/remove self-peer/add agents)
+  maw fleet doctor --json      JSON output for CI (exit 2=error, 1=warn, 0=clean)
   maw fleet consolidate        Merge branches + push disabled oracles
   maw fleet consolidate --remove  Also delete .disabled configs after push
   maw done <window>            Auto-save (/rrr + commit + push) then clean up
