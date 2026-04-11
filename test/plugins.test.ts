@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { PluginSystem, loadPlugins } from "../src/plugins";
+import { PluginSystem, loadPlugins, reloadUserPlugins } from "../src/plugins";
 import type { FeedEvent } from "../src/lib/feed";
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const mockEvent: FeedEvent = {
   timestamp: "2026-04-10 16:00",
@@ -294,5 +297,217 @@ describe("PluginSystem", () => {
     expect(s.filters).toEqual({ "*": 1 });
     expect(s.handlers).toEqual({ "*": 1 });
     expect(s.lates).toEqual({ "*": 1 });
+  });
+
+  // ─── Scoped unload + hot-reload (issue #230) ───
+
+  test("unloadScope('user') removes user hooks but keeps builtin hooks", async () => {
+    const sys = new PluginSystem();
+    const log: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.on("SessionStart", () => log.push("builtin"));
+    }, "builtin");
+    sys.load((hooks) => {
+      hooks.on("SessionStart", () => log.push("user"));
+    }, "user");
+
+    await sys.emit(mockEvent);
+    expect(log).toEqual(["builtin", "user"]);
+
+    sys.unloadScope("user");
+    log.length = 0;
+    await sys.emit(mockEvent);
+    expect(log).toEqual(["builtin"]);
+  });
+
+  test("unloadScope('user') runs user teardowns but not builtin teardowns", () => {
+    const sys = new PluginSystem();
+    let userTorn = false;
+    let builtinTorn = false;
+
+    sys.load(() => () => { builtinTorn = true; }, "builtin");
+    sys.load(() => () => { userTorn = true; }, "user");
+
+    sys.unloadScope("user");
+    expect(userTorn).toBe(true);
+    expect(builtinTorn).toBe(false);
+  });
+
+  test("unloadScope drops PluginInfo entries for that scope only", () => {
+    const sys = new PluginSystem();
+    sys.register("core.ts", "ts", "builtin");
+    sys.register("mqtt.ts", "ts", "user");
+    sys.register("debug.ts", "ts", "user");
+
+    sys.unloadScope("user");
+    const infos = sys.stats().plugins;
+    expect(infos.map((p) => p.name)).toEqual(["core.ts"]);
+  });
+
+  test("unloadScope clears all 4 hook phases", async () => {
+    const sys = new PluginSystem();
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => true);
+      hooks.filter("*", (e) => e);
+      hooks.on("*", () => {});
+      hooks.late("*", () => {});
+    }, "user");
+
+    sys.unloadScope("user");
+    const s = sys.stats();
+    expect(s.gates).toEqual({});
+    expect(s.filters).toEqual({});
+    expect(s.handlers).toEqual({});
+    expect(s.lates).toEqual({});
+  });
+
+  test("unloadScope is idempotent (safe to call twice)", () => {
+    const sys = new PluginSystem();
+    sys.load((hooks) => { hooks.on("*", () => {}); }, "user");
+
+    sys.unloadScope("user");
+    expect(() => sys.unloadScope("user")).not.toThrow();
+  });
+
+  test("reloadUserPlugins picks up edits to plugin files on disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-plugins-"));
+    try {
+      const file = join(dir, "tap.ts");
+
+      // v1: pushes "v1"
+      writeFileSync(
+        file,
+        `export default function(hooks) { hooks.on("*", (e) => (globalThis as any).__tapLog.push("v1:" + e.event)); }`,
+      );
+      (globalThis as any).__tapLog = [];
+
+      const sys = new PluginSystem();
+      await loadPlugins(sys, dir, "user");
+      await sys.emit(mockEvent);
+      expect((globalThis as any).__tapLog).toEqual(["v1:SessionStart"]);
+
+      // Edit file to push "v2" instead
+      writeFileSync(
+        file,
+        `export default function(hooks) { hooks.on("*", (e) => (globalThis as any).__tapLog.push("v2:" + e.event)); }`,
+      );
+      (globalThis as any).__tapLog = [];
+
+      await reloadUserPlugins(sys, dir);
+      await sys.emit(mockEvent);
+      expect((globalThis as any).__tapLog).toEqual(["v2:SessionStart"]);
+
+      // Handler count stays at 1 — no double-registration
+      expect(sys.stats().handlers["*"]).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      delete (globalThis as any).__tapLog;
+    }
+  });
+
+  test("reloadUserPlugins does not double-register on successive reloads", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-plugins-"));
+    try {
+      const file = join(dir, "double.ts");
+      writeFileSync(
+        file,
+        `export default function(hooks) { hooks.on("SessionStart", () => {}); }`,
+      );
+
+      const sys = new PluginSystem();
+      await loadPlugins(sys, dir, "user");
+      expect(sys.stats().handlers.SessionStart).toBe(1);
+
+      await reloadUserPlugins(sys, dir);
+      await reloadUserPlugins(sys, dir);
+      await reloadUserPlugins(sys, dir);
+
+      expect(sys.stats().handlers.SessionStart).toBe(1);
+      expect(sys.stats().plugins.length).toBe(1);
+      expect(sys.stats().reloads).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reloadUserPlugins preserves builtin plugins across reloads", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-plugins-"));
+    try {
+      const file = join(dir, "u.ts");
+      writeFileSync(
+        file,
+        `export default function(hooks) { hooks.on("*", () => (globalThis as any).__uCalls++); }`,
+      );
+      (globalThis as any).__uCalls = 0;
+      (globalThis as any).__bCalls = 0;
+
+      const sys = new PluginSystem();
+      sys.load((hooks) => {
+        hooks.on("*", () => (globalThis as any).__bCalls++);
+      }, "builtin");
+
+      await loadPlugins(sys, dir, "user");
+      await sys.emit(mockEvent);
+      expect((globalThis as any).__bCalls).toBe(1);
+      expect((globalThis as any).__uCalls).toBe(1);
+
+      await reloadUserPlugins(sys, dir);
+      await sys.emit(mockEvent);
+      expect((globalThis as any).__bCalls).toBe(2); // builtin survived
+      expect((globalThis as any).__uCalls).toBe(2); // user re-registered
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      delete (globalThis as any).__uCalls;
+      delete (globalThis as any).__bCalls;
+    }
+  });
+
+  test("reloadUserPlugins removes a deleted plugin file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-plugins-"));
+    try {
+      const a = join(dir, "a.ts");
+      const b = join(dir, "b.ts");
+      writeFileSync(a, `export default function(h) { h.on("*", () => {}); }`);
+      writeFileSync(b, `export default function(h) { h.on("*", () => {}); }`);
+
+      const sys = new PluginSystem();
+      await loadPlugins(sys, dir, "user");
+      expect(sys.stats().plugins.length).toBe(2);
+
+      rmSync(b);
+      await reloadUserPlugins(sys, dir);
+      expect(sys.stats().plugins.length).toBe(1);
+      expect(sys.stats().plugins[0].name).toBe("a.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("stats.reloads increments on each reloadUserPlugins call", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-plugins-"));
+    try {
+      writeFileSync(join(dir, "p.ts"), `export default function(h) { h.on("*", () => {}); }`);
+      const sys = new PluginSystem();
+      await loadPlugins(sys, dir, "user");
+      expect(sys.stats().reloads).toBe(0);
+
+      await reloadUserPlugins(sys, dir);
+      expect(sys.stats().reloads).toBe(1);
+      expect(sys.stats().lastReloadAt).toBeDefined();
+
+      await reloadUserPlugins(sys, dir);
+      expect(sys.stats().reloads).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("load() default scope is 'user' (backwards-compatible)", () => {
+    const sys = new PluginSystem();
+    sys.load((hooks) => { hooks.on("*", () => {}); });
+    // Without explicit scope it defaults to "user" — unloadScope('user') must drop it
+    sys.unloadScope("user");
+    expect(sys.stats().handlers).toEqual({});
   });
 });
