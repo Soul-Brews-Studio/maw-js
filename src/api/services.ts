@@ -3,22 +3,29 @@ import { execFileSync } from "child_process";
 
 const PM2 = "/home/lfz/.bun/bin/pm2";
 
-// Allowlist of PM2 process names the /api/services control plane may touch.
-// Mirrors src/api/dispatch.ts ORACLE_TARGETS for the Oracle fleet panes, plus
-// the maw ecosystem processes from ecosystem.config.cjs and the oracle-v3
-// MCP. "sofia" is deliberately NOT in this set — /api/services is for PM2
-// management, not Oracle messaging, and there is no reason this endpoint
-// should ever restart the commander's pane. The Path A' reasoning that put
-// sofia back into /api/send does not apply here.
+// Exact-match allowlist of PM2-registered process names that /api/services
+// may cycle. Limited to the three processes currently registered in live
+// PM2 on a running maw host: maw-js (backend server), maw-ui (vite dev
+// server), and oracle-v3 (MCP server).
+//
+// Intentionally excluded (Warden R6 NEW-11 — aspirational vs reality):
+//   - maw / maw-broker / maw-boot: declared in ecosystem.config.cjs but
+//     not currently registered in PM2. maw runs under the "maw-js"
+//     registration (historical). maw-broker refuses to start without
+//     federationToken (P2b fail-closed). maw-boot is a one-shot wake
+//     command (autorestart: false). Re-add individually via a focused
+//     follow-up brief if either comes online.
+//   - 01-blade through 12-prism: Oracle fleet panes are tmux-managed,
+//     not PM2-managed. `pm2 restart 01-blade` errors at PM2 name lookup
+//     (evidenced live in Warden R6 probes §A3/§A4). Oracle pane
+//     lifecycle belongs in a tmux-aware endpoint, not /api/services.
+//   - sofia / 00-sofia: Path A' (e5007e3) reasoning scopes to /api/send
+//     messaging, not PM2 management. The commander's pane must never be
+//     a cycle target of this endpoint.
 const ALLOWED_SERVICE_NAMES = new Set([
-  // maw ecosystem
-  "maw", "maw-js", "maw-ui", "maw-broker", "maw-boot",
-  // oracle-v3 MCP
+  "maw-js",
+  "maw-ui",
   "oracle-v3",
-  // Oracle fleet panes
-  "01-blade", "02-link", "03-bastion", "04-lens", "05-edge",
-  "06-clip", "07-deck", "08-scope", "09-quill", "10-sage",
-  "11-warden", "12-prism",
 ]);
 
 function validateServiceName(name: unknown): string | null {
