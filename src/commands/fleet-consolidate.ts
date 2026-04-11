@@ -55,7 +55,7 @@ export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boo
     }
 
     const repo = cfg.windows?.[0]?.repo || "";
-    const repoPath = repo ? join(ghqRoot, "github.com", repo) : "";
+    const repoPath = repo ? join(ghqRoot, repo) : "";
     const repoExists = repoPath ? require("fs").existsSync(repoPath) : false;
 
     const result: ConsolidateResult = { name: dName, num, repo, repoExists, branches: [], merged: [], pushOk: false, removed: false };

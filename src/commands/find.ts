@@ -29,7 +29,7 @@ export async function cmdFind(keyword: string, opts: { oracle?: string } = {}) {
     const mainWindow = sess.windows[0];
     if (!mainWindow?.repo) continue;
 
-    const repoPath = join(ghqRoot, "github.com", mainWindow.repo);
+    const repoPath = join(ghqRoot, mainWindow.repo);
     const psiPath = join(repoPath, "ψ", "memory");
     if (existsSync(psiPath)) {
       targets.push({ name: oracleName, psiPath });
