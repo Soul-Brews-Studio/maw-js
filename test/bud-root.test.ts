@@ -25,7 +25,7 @@ function resolveParent(
   let parentName: string | null = opts.from || null;
   if (!parentName && !opts.root) {
     if (tmuxCwdName === null) return "ERROR"; // cmdBud would process.exit(1)
-    parentName = tmuxCwdName.replace(/-oracle$/, "").replace(/\.wt-.*$/, "");
+    parentName = tmuxCwdName.replace(/\.wt-.*$/, "").replace(/-oracle$/, "");
   }
   return parentName;
 }
@@ -88,13 +88,14 @@ describe("maw bud --root — parent resolution", () => {
     expect(resolveParent({}, "mawjs-oracle")).toBe("mawjs");
   });
 
-  test("no --root, no --from, worktree cwd → .wt- suffix stripped (pre-existing regex order leaves -oracle)", () => {
-    // NOTE: bud.ts currently runs `.replace(/-oracle$/)` BEFORE `.replace(/\.wt-.*$/)`,
-    // so for "mawjs-oracle.wt-feat-x" the -oracle$ match fails (because .wt- is
-    // at the end), only the .wt- suffix is stripped. Result is "mawjs-oracle",
-    // not "mawjs". This is pre-existing (not PR #254) and worth filing, but
-    // the test documents actual behavior so regressions here are visible.
-    expect(resolveParent({}, "mawjs-oracle.wt-feat-x")).toBe("mawjs-oracle");
+  test("no --root, no --from, worktree cwd → .wt- suffix AND -oracle stripped", () => {
+    // Fix for #255: bud.ts now runs `.replace(/\.wt-.*$/)` BEFORE `.replace(/-oracle$/)`,
+    // so "mawjs-oracle.wt-feat-x" → "mawjs-oracle" → "mawjs" (correct parent name).
+    // Before the fix, only .wt- was stripped (because -oracle$ didn't match the
+    // .wt-suffixed string) and the result was "mawjs-oracle", which silently
+    // corrupted lineage fields (budded_from, sync_peers lookup miss, soul-sync
+    // seed target miss) when budding from any worktree.
+    expect(resolveParent({}, "mawjs-oracle.wt-feat-x")).toBe("mawjs");
   });
 
   test("no --root, no --from, no tmux cwd → error sentinel (would process.exit)", () => {

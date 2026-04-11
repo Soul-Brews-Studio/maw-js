@@ -52,7 +52,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     try {
       const cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
       const repoName = cwd.split("/").pop() || "";
-      parentName = repoName.replace(/-oracle$/, "").replace(/\.wt-.*$/, "");
+      parentName = repoName.replace(/\.wt-.*$/, "").replace(/-oracle$/, "");
     } catch {
       console.error("  \x1b[31m✗\x1b[0m could not detect parent oracle. Use --from <oracle> or --root");
       process.exit(1);
