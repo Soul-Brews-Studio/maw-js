@@ -78,7 +78,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Plugin system — built-in + user plugins
   try {
-    const { PluginSystem, loadPlugins } = require("./plugins");
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("./plugins");
     const { homedir } = require("os");
     const { join, resolve, dirname } = require("path");
     const plugins = new PluginSystem();
@@ -88,13 +88,25 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     await loadPlugins(plugins, builtinDir, "builtin");
 
     // User plugins (file-drop: ~/.oracle/plugins/)
-    await loadPlugins(plugins, join(homedir(), ".oracle", "plugins"), "user");
+    const userPluginsDir = join(homedir(), ".oracle", "plugins");
+    await loadPlugins(plugins, userPluginsDir, "user");
+
+    // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
+    // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.
+    watchUserPlugins(userPluginsDir, async (changedFile: string) => {
+      console.log(`[plugin] reloading user plugins (${changedFile} changed)`);
+      await reloadUserPlugins(plugins, userPluginsDir);
+    });
 
     // Single feedListener wires everything through the plugin pipeline
     feedListeners.add((event) => plugins.emit(event));
 
     // Plugin debug API + page
     app.get("/api/plugins", (c) => c.json(plugins.stats()));
+    app.post("/api/plugins/reload", async (c) => {
+      await reloadUserPlugins(plugins, userPluginsDir);
+      return c.json({ ok: true, ...plugins.stats() });
+    });
     const { pluginsView } = require("./views/plugins");
     app.route("/plugins", pluginsView(plugins));
   } catch (err) {
