@@ -14,9 +14,19 @@ module.exports = {
     },
     {
       name: 'maw-boot',
-      script: 'src/cli.ts',
-      args: 'wake all --resume',
-      interpreter: '/home/nat/.bun/bin/bun',
+      // Launcher shim: PM2 wraps spawned processes with require-in-the-middle,
+      // which sync-require()s the entry file. src/cli.ts is an ESM async module
+      // (top-level await) → require() throws on Windows and some Linux setups:
+      //
+      //   TypeError: require() async module "...src/cli.ts" is unsupported.
+      //   use "await import()" instead.
+      //
+      // The .cjs shim is require-safe and spawns bun via child_process,
+      // bypassing the PM2 require hook entirely.
+      // See scripts/maw-boot.launcher.cjs.
+      script: 'scripts/maw-boot.launcher.cjs',
+      args: ['wake', 'all', '--resume'],
+      interpreter: 'node',
       // One-shot: spawn fleet after server starts, don't restart
       autorestart: false,
       // Give maw server time to come up
