@@ -145,6 +145,8 @@ configApi.post("/pin-verify", async (c) => {
   return c.json({ ok });
 });
 
+// PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
+// clients (e.g. maw-ui#8). See docs/federation.md before changing fields.
 configApi.get("/config", (c) => {
   if (c.req.query("raw") === "1") return c.json(loadConfig());
   return c.json(configForDisplay());

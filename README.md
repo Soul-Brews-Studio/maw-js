@@ -110,6 +110,8 @@ Dev server: `bun run dev` on maw-ui (:5173, proxies API to :3456).
 | `/federation` | Mesh status + join guide |
 | `/timemachine` | Fleet Time Machine (snapshot browser) |
 
+**Federation API reference**: see [`docs/federation.md`](docs/federation.md) for the v1 public endpoints (`/api/config`, `/api/fleet-config`, `/api/feed`, `/api/federation/status`) — shape contract, load-bearing fields, and what not to build in a v1 lens. First consumer: [maw-ui#8](https://github.com/Soul-Brews-Studio/maw-ui/pull/8).
+
 ## Evolution
 
 ```

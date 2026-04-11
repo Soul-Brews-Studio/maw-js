@@ -14,6 +14,9 @@ export { hostedAgents };
 
 export const federationApi = new Hono();
 
+// PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
+// clients; `peers[].node` and `peers[].agents` are optional (commit 9a0546d+).
+// See docs/federation.md before changing fields.
 federationApi.get("/federation/status", async (c) => {
   const status = await getFederationStatus();
   return c.json(status);
