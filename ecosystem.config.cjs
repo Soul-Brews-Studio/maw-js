@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'maw',
+      name: 'maw-js',
       script: 'src/server.ts',
       interpreter: '/home/lfz/.bun/bin/bun',
       watch: ['src'],
