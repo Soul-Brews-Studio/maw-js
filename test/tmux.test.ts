@@ -17,8 +17,11 @@ const mockExec = async (cmd: string, _host?: string) => {
 mock.module("../src/ssh", () => ({
   hostExec: mockExec,
   ssh: mockExec,
-  // Stub: real findWindow is tested in 00-ssh.test.ts (loads first alphabetically)
+  // Stub: real findWindow/listSessions are tested in 00-ssh.test.ts (loads
+  // first alphabetically). listSessions stub is needed so other test files
+  // that transitively import ../src/ssh don't crash on global mock pollution.
   findWindow: () => null,
+  listSessions: async () => [],
 }));
 
 // Ensure no socket env var leaks into tests
