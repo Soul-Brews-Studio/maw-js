@@ -10,6 +10,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 export interface BudOpts {
   from?: string;
   repo?: string;
+  org?: string;
   issue?: number;
   fast?: boolean;
   dryRun?: boolean;
@@ -17,9 +18,18 @@ export interface BudOpts {
 }
 
 /**
- * maw bud <name> [--from <parent>] [--repo org/repo] [--issue N] [--fast] [--dry-run]
+ * maw bud <name> [--from <parent>] [--org <org>] [--repo org/repo] [--issue N] [--fast] [--dry-run]
  *
  * Yeast budding — any oracle can spawn a new oracle.
+ *
+ * Target org resolution (first wins):
+ *   1. --org <org>                    — per-invocation override (#235)
+ *   2. config.githubOrg               — per-machine default from config
+ *   3. "Soul-Brews-Studio"            — hard-coded fallback
+ *
+ * Note: --repo is an INCUBATION flag (seeds the bud from an existing local
+ * project's ψ/), NOT a target-org override. Use --org to target a different
+ * GitHub org for the bud's own repo.
  *
  * Steps:
  *   1. Create oracle repo (gh repo create)
@@ -33,7 +43,7 @@ export interface BudOpts {
 export async function cmdBud(name: string, opts: BudOpts = {}) {
   const config = loadConfig();
   const ghqRoot = config.ghqRoot;
-  const org = config.githubOrg || "Soul-Brews-Studio";
+  const org = opts.org || config.githubOrg || "Soul-Brews-Studio";
 
   // Resolve parent oracle
   let parentName = opts.from;

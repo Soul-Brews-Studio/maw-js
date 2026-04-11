@@ -70,10 +70,11 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
     return true;
   }
   if (cmd === "bud") {
-    if (!args[1] || args[1] === "--help" || args[1] === "-h") { console.error("usage: maw bud <name> [--from <oracle>] [--repo org/repo] [--issue N] [--fast] [--dry-run]"); process.exit(1); }
-    const budOpts: { from?: string; repo?: string; issue?: number; fast?: boolean; dryRun?: boolean; note?: string } = {};
+    if (!args[1] || args[1] === "--help" || args[1] === "-h") { console.error("usage: maw bud <name> [--from <oracle>] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--dry-run]"); process.exit(1); }
+    const budOpts: { from?: string; repo?: string; org?: string; issue?: number; fast?: boolean; dryRun?: boolean; note?: string } = {};
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];
+      else if (args[i] === "--org" && args[i + 1]) budOpts.org = args[++i];
       else if (args[i] === "--repo" && args[i + 1]) budOpts.repo = args[++i];
       else if (args[i] === "--issue" && args[i + 1]) budOpts.issue = +args[++i];
       else if (args[i] === "--note" && args[i + 1]) budOpts.note = args[++i];
