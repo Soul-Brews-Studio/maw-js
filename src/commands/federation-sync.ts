@@ -23,6 +23,33 @@ import { loadConfig, cfgTimeout } from "../config";
 import type { MawConfig, PeerConfig } from "../config";
 import { curlFetch } from "../curl-fetch";
 
+// ---------- Pure identity helpers ----------
+
+/**
+ * Compute the set of oracles this node claims to host locally.
+ *
+ * Pure — lives here (not in src/api/federation.ts) so tests can import it
+ * without pulling in the full API module and its `../snapshot` chain. Under
+ * bun 1.3.10's stricter mock isolation, importing from api/federation was
+ * transitively loading snapshot.ts before snapshot.test.ts could mock paths,
+ * which caused CI-only snapshot test failures.
+ *
+ * We accept TWO conventions in config.agents:
+ *   - `'<nodeName>'` — explicit ("white")
+ *   - `'local'`     — shorthand ("me, whoever I am")
+ *
+ * Both mean "hosted here" and both must be reported, otherwise peers running
+ * `maw federation sync` will false-flag oracles as stale just because the
+ * local node wrote `'local'` instead of its own node name. (Discovered on
+ * 2026-04-11: `volt-colab-ml: 'local'` on white silently dropped, so
+ * oracle-world saw a stale-delete it should never have seen.)
+ */
+export function hostedAgents(agents: Record<string, string>, node: string): string[] {
+  return Object.entries(agents)
+    .filter(([, n]) => n === node || n === "local")
+    .map(([name]) => name);
+}
+
 // ---------- Types ----------
 
 export interface PeerIdentity {

@@ -2,9 +2,9 @@ import { describe, test, expect } from "bun:test";
 import {
   computeSyncDiff,
   applySyncDiff,
+  hostedAgents,
   type PeerIdentity,
 } from "../src/commands/federation-sync";
-import { hostedAgents } from "../src/api/federation";
 
 /**
  * federation-sync splits I/O (fetchPeerIdentities, cmdFederationSync)

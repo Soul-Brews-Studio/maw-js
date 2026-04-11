@@ -2,10 +2,15 @@ import { Hono } from "hono";
 import { getFederationStatus } from "../peers";
 import { loadConfig } from "../config";
 import { listSnapshots, loadSnapshot, latestSnapshot } from "../snapshot";
+import { hostedAgents } from "../commands/federation-sync";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
+
+// Re-export so existing importers (and any future code) can still reach
+// hostedAgents via the API module. The canonical home is federation-sync.ts.
+export { hostedAgents };
 
 export const federationApi = new Hono();
 
@@ -24,28 +29,6 @@ federationApi.get("/snapshots/:id", (c) => {
   if (!snap) return c.json({ error: "snapshot not found" }, 404);
   return c.json(snap);
 });
-
-/**
- * Compute the set of oracles this node claims to host locally.
- *
- * Pure — exported so federation-sync tests can cover the same filter that
- * `/api/identity` serves, without standing up an HTTP stack.
- *
- * We accept TWO conventions in config.agents:
- *   - `'<nodeName>'` — explicit ("white")
- *   - `'local'`     — shorthand ("me, whoever I am")
- *
- * Both mean "hosted here" and both must be reported, otherwise peers running
- * `maw federation sync` will false-flag oracles as stale just because the
- * local node wrote `'local'` instead of its own node name. (Discovered on
- * 2026-04-11: `volt-colab-ml: 'local'` on white silently dropped, so
- * oracle-world saw a stale-delete it should never have seen.)
- */
-export function hostedAgents(agents: Record<string, string>, node: string): string[] {
-  return Object.entries(agents)
-    .filter(([, n]) => n === node || n === "local")
-    .map(([name]) => name);
-}
 
 /** Node identity — public endpoint for federation dedup (#192). */
 federationApi.get("/identity", async (c) => {
