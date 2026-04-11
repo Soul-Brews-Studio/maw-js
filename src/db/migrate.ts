@@ -169,6 +169,41 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
     `,
   },
+  {
+    version: 9,
+    name: "create_api_keys",
+    sql: `
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        trial_id TEXT NOT NULL,
+        key TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL DEFAULT 'default',
+        tier TEXT NOT NULL DEFAULT 'solo',
+        rate_limit INTEGER NOT NULL DEFAULT 60,
+        status TEXT NOT NULL DEFAULT 'active',
+        last_used INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+      CREATE INDEX IF NOT EXISTS idx_api_keys_trial_id ON api_keys(trial_id);
+    `,
+  },
+  {
+    version: 10,
+    name: "create_usage_logs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS usage_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        response_ms INTEGER,
+        status INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_logs_ts ON usage_logs(ts);
+      CREATE INDEX IF NOT EXISTS idx_usage_logs_api_key_id ON usage_logs(api_key_id);
+    `,
+  },
 ];
 
 /**

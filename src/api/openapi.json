@@ -33,7 +33,8 @@
     { "name": "Dispatch", "description": "Oracle command dispatch" },
     { "name": "Chats", "description": "OracleNet chat (DB-backed)" },
     { "name": "Alerts", "description": "Alert management" },
-    { "name": "Schedule", "description": "Calendar & events" }
+    { "name": "Schedule", "description": "Calendar & events" },
+    { "name": "Tenant", "description": "Multi-tenant API key management & usage" }
   ],
   "components": {
     "securitySchemes": {
@@ -42,6 +43,12 @@
         "in": "header",
         "name": "X-Maw-Signature",
         "description": "HMAC-SHA256 signature: sign(token, method, path, timestamp). Also requires X-Maw-Timestamp header."
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "Tenant API key (maw_<hex>). Get one via POST /api/tenant/keys."
       },
       "pinJwt": {
         "type": "http",
@@ -803,6 +810,41 @@
         "summary": "Cancel event (soft delete)",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
         "responses": { "200": { "description": "Cancelled", "content": { "application/json": { "schema": { "type": "object", "properties": { "event": { "$ref": "#/components/schemas/ScheduleEvent" } } } } } } }
+      }
+    },
+    "/tenant/keys": {
+      "post": {
+        "tags": ["Tenant"],
+        "summary": "Create API key for a trial",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["trialId"], "properties": { "trialId": { "type": "string" }, "name": { "type": "string", "default": "default" } } } } } },
+        "responses": { "201": { "description": "API key created", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "apiKey": { "type": "object", "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "name": { "type": "string" }, "tier": { "type": "string" }, "rateLimit": { "type": "integer" } } } } } } } } }
+      }
+    },
+    "/tenant/keys/{trialId}": {
+      "get": {
+        "tags": ["Tenant"],
+        "summary": "List API keys (key preview only)",
+        "parameters": [{ "name": "trialId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Key list", "content": { "application/json": { "schema": { "type": "object", "properties": { "keys": { "type": "array", "items": { "type": "object" } }, "total": { "type": "integer" } } } } } } }
+      }
+    },
+    "/tenant/keys/{keyId}": {
+      "delete": {
+        "tags": ["Tenant"],
+        "summary": "Revoke API key",
+        "parameters": [{ "name": "keyId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Revoked", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } } }
+      }
+    },
+    "/tenant/usage/{trialId}": {
+      "get": {
+        "tags": ["Tenant"],
+        "summary": "Usage stats per tenant",
+        "parameters": [
+          { "name": "trialId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "hours", "in": "query", "schema": { "type": "integer", "default": 24 } }
+        ],
+        "responses": { "200": { "description": "Usage breakdown", "content": { "application/json": { "schema": { "type": "object", "properties": { "trialId": { "type": "string" }, "hours": { "type": "integer" }, "totalRequests": { "type": "integer" }, "endpoints": { "type": "array", "items": { "type": "object" } }, "keys": { "type": "integer" }, "tier": { "type": "string" } } } } } } }
       }
     }
   }

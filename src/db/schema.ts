@@ -128,6 +128,35 @@ export const events = sqliteTable("events", {
  * Oracle health — latest known state per oracle.
  * Updated on every relevant feed event or audit entry.
  */
+/**
+ * API Keys — multi-tenant authentication.
+ * Each trial/tenant gets API keys for programmatic access.
+ */
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(),                         // ak_<uuid>
+  trialId: text("trial_id").notNull(),                 // FK to trials.id
+  key: text("key").notNull().unique(),                 // maw_<random>
+  name: text("name").notNull().default("default"),     // human label
+  tier: text("tier").notNull().default("solo"),        // solo, team, fleet
+  rateLimit: integer("rate_limit").notNull().default(60), // requests per minute
+  status: text("status").notNull().default("active"),  // active, revoked
+  lastUsed: integer("last_used"),                      // epoch ms
+  createdAt: integer("created_at").notNull(),          // epoch ms
+});
+
+/**
+ * Usage logs — API metering per key.
+ * Tracks every authenticated API call for billing/quota.
+ */
+export const usageLogs = sqliteTable("usage_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  apiKeyId: text("api_key_id").notNull(),              // FK to api_keys.id
+  endpoint: text("endpoint").notNull(),                // e.g. "GET /feed"
+  ts: integer("ts").notNull(),                         // epoch ms
+  responseMs: integer("response_ms"),                  // latency
+  status: integer("status").notNull(),                 // HTTP status code
+});
+
 export const oracleHealth = sqliteTable("oracle_health", {
   oracle: text("oracle").primaryKey(),
   host: text("host"),

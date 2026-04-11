@@ -11,7 +11,7 @@
  */
 
 import { Client, GatewayIntentBits, type Message, type TextChannel } from "discord.js";
-import { listSessions, findWindow, sendKeys } from "../ssh";
+import { listSessions, findWindow, sendKeys, capture } from "../ssh";
 import { setBridgeBotChannel } from "./discord-bridge";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
@@ -41,6 +41,51 @@ function logToMawLog(from: string, to: string, msg: string) {
   } catch {}
 }
 
+/**
+ * Poll terminal capture to detect Oracle response.
+ * Takes a "before" snapshot, waits, then diffs to find new output.
+ * Returns the new output or null if nothing changed.
+ */
+async function pollForResponse(
+  window: { name: string },
+  beforeSnapshot: string,
+  maxWait = 60_000,
+  interval = 5_000,
+): Promise<string | null> {
+  const start = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise((r) => setTimeout(r, interval));
+
+    try {
+      const after = await capture(`${window.name}`, 80);
+      if (after === beforeSnapshot) continue; // still processing
+
+      // Extract only new lines
+      const beforeLines = new Set(beforeSnapshot.split("\n"));
+      const newLines = after
+        .split("\n")
+        .filter((line) => !beforeLines.has(line) && line.trim())
+        .join("\n")
+        .trim();
+
+      if (!newLines || newLines.length < 5) continue; // noise
+
+      // Check if Oracle is done (prompt reappeared or output stabilized)
+      await new Promise((r) => setTimeout(r, 3_000));
+      const check = await capture(`${window.name}`, 80);
+      if (check === after) {
+        // Output stabilized — Oracle is done
+        return newLines;
+      }
+    } catch {
+      // capture failed, keep trying
+    }
+  }
+
+  return null; // timed out
+}
+
 async function handleCommand(message: Message) {
   const content = message.content.trim();
 
@@ -53,7 +98,6 @@ async function handleCommand(message: Message) {
 
   const [, target, msg] = match;
   const oracleName = target.includes("-oracle") ? target : target;
-  const tmuxTarget = `${oracleName}:${oracleName}-oracle`;
 
   // Find oracle tmux window
   const sessions = await listSessions();
@@ -69,21 +113,68 @@ async function handleCommand(message: Message) {
 
   // Track this dispatch so we can forward the response
   pendingDispatches.set(oracleName + "-oracle", Date.now());
-  // Auto-expire after 5 minutes
   setTimeout(() => pendingDispatches.delete(oracleName + "-oracle"), 5 * 60 * 1000);
 
-  // Send to oracle — include instruction to reply via maw talk-to
-  const notification = `💬 from Discord (Boss): "${msg}"\n→ ตอบกลับด้วย: maw talk-to nat-discord "${msg.length > 50 ? "คำตอบ" : "reply"}"`;
+  // Capture terminal BEFORE sending command
+  let beforeSnapshot = "";
+  try {
+    beforeSnapshot = await capture(`${window.name}`, 80);
+  } catch {}
+
+  // Send to oracle
+  const notification = `💬 from Discord (Boss): "${msg}"`;
   await sendKeys(window, notification);
 
   const color = COLORS[oracleName] || 0x666666;
-  await message.reply({
+  const reply = await message.reply({
     embeds: [{
       color,
       author: { name: `📨 → ${oracleName}` },
       description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
-      footer: { text: "Waiting for Oracle response..." },
+      footer: { text: "⏳ Capturing response..." },
     }],
+  });
+
+  // Auto-capture response (non-blocking)
+  pollForResponse(window, beforeSnapshot).then(async (response) => {
+    if (!response) {
+      // Timed out — update embed
+      await reply.edit({
+        embeds: [{
+          color,
+          author: { name: `📨 → ${oracleName}` },
+          description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
+          footer: { text: "⏱️ No auto-capture — Oracle may still be processing" },
+        }],
+      }).catch(() => {});
+      return;
+    }
+
+    // Send captured response
+    const preview = response.length > 1800 ? response.slice(0, 1797) + "..." : response;
+    if (responseChannel) {
+      responseChannel.send({
+        embeds: [{
+          color,
+          author: { name: `${oracleName} responded` },
+          description: preview,
+          footer: { text: "Auto-captured from terminal" },
+        }],
+      }).catch(() => {});
+    }
+
+    // Update original embed
+    await reply.edit({
+      embeds: [{
+        color,
+        author: { name: `📨 → ${oracleName}` },
+        description: `"${msg.length > 200 ? msg.slice(0, 197) + "..." : msg}"`,
+        footer: { text: "✅ Response captured" },
+      }],
+    }).catch(() => {});
+
+    // Clear pending
+    pendingDispatches.delete(oracleName + "-oracle");
   });
 }
 

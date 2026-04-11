@@ -24,8 +24,10 @@ import { dispatchApi } from "./dispatch";
 import { chatsApi } from "./chats";
 import { alertsApi } from "./alerts";
 import { scheduleApi } from "./schedule";
+import { tenantApi } from "./tenant";
 import { docsApi } from "./docs";
 import { federationAuth } from "../lib/federation-auth";
+import { apiKeyAuth } from "../lib/api-key-auth";
 
 export const api = new Hono();
 
@@ -34,6 +36,9 @@ api.route("/", docsApi);
 
 // Federation auth — enforces HMAC on protected endpoints from remote peers
 api.use("*", federationAuth());
+
+// API key auth — multi-tenant (after federation, before routes)
+api.use("*", apiKeyAuth());
 
 api.route("/", sessionsApi);
 api.route("/", feedApi);
@@ -60,3 +65,4 @@ api.route("/", dispatchApi);
 api.route("/", chatsApi);
 api.route("/", alertsApi);
 api.route("/", scheduleApi);
+api.route("/", tenantApi);
