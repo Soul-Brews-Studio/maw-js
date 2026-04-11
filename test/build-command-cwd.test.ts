@@ -1,13 +1,17 @@
 import { describe, test, expect, mock } from "bun:test";
 
 // Mock only the dependencies that config.ts needs.
-// Include findWindow stub to prevent module-import crash in CI when
-// mock.module pollution carries over to 00-ssh.test.ts (the real
-// findWindow is tested there, which loads first alphabetically).
+// Include findWindow + listSessions stubs to prevent module-import crash in
+// CI when mock.module pollution carries over to other test files. The real
+// findWindow/listSessions are tested in 00-ssh.test.ts (loads first
+// alphabetically). Without listSessions here, anything that transitively
+// imports ../src/ssh (e.g. federation-sync.test.ts via peers → federation)
+// blows up at import time with "Export named 'listSessions' not found".
 mock.module("../src/ssh", () => ({
   hostExec: async () => "",
   ssh: async () => "",
   findWindow: () => null,
+  listSessions: async () => [],
 }));
 
 // Import the real functions (they use loadConfig internally which reads from disk)
