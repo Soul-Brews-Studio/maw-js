@@ -115,6 +115,47 @@ describe("soul-sync", () => {
       expect(findOracleForProjectForTest("nobody/orphan", fleet)).toBeNull();
     });
 
+    test("resolveProjectSlug handles github.com-rooted ghqRoot (#193)", () => {
+      const { resolveProjectSlug } = require("../src/commands/soul-sync");
+      const ghqRoot = "/home/neo/Code/github.com";
+      expect(
+        resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio/maw-js", ghqRoot)
+      ).toBe("Soul-Brews-Studio/maw-js");
+    });
+
+    test("resolveProjectSlug handles bare ghq root (#193 — was dropping repo segment)", () => {
+      const { resolveProjectSlug } = require("../src/commands/soul-sync");
+      const ghqRoot = "/home/neo/Code";
+      // Before the fix this returned "github.com/Soul-Brews-Studio" (org-only) —
+      // slice(0, 2) was grabbing [host, org] instead of [org, repo].
+      expect(
+        resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio/maw-js", ghqRoot)
+      ).toBe("Soul-Brews-Studio/maw-js");
+    });
+
+    test("resolveProjectSlug strips worktree suffix (#193)", () => {
+      const { resolveProjectSlug } = require("../src/commands/soul-sync");
+      const ghqRoot = "/home/neo/Code/github.com";
+      expect(
+        resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio/maw-js.wt-issue-193", ghqRoot)
+      ).toBe("Soul-Brews-Studio/maw-js");
+    });
+
+    test("resolveProjectSlug returns null when repoRoot is outside ghqRoot (#193)", () => {
+      const { resolveProjectSlug } = require("../src/commands/soul-sync");
+      expect(
+        resolveProjectSlug("/tmp/somewhere-else", "/home/neo/Code/github.com")
+      ).toBeNull();
+    });
+
+    test("resolveProjectSlug returns null when path has no repo segment (#193)", () => {
+      const { resolveProjectSlug } = require("../src/commands/soul-sync");
+      // Sitting at the org directory, no repo to resolve.
+      expect(
+        resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio", "/home/neo/Code/github.com")
+      ).toBeNull();
+    });
+
     test("project ψ/ syncs into oracle ψ/ across all SYNC_DIRS, new files only", () => {
       // Build a fake project + oracle pair
       const PROJECT_PSI = join(TEST_DIR, "project-repo", "ψ");

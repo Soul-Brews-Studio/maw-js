@@ -88,6 +88,41 @@ export function findProjectsForOracle(oracleName: string): string[] {
 }
 
 /**
+ * Resolve a git repo path to its canonical "org/repo" slug for `project_repos`
+ * lookup. Handles both shapes of `ghqRoot`:
+ *
+ *   A. github.com-rooted: `/home/neo/Code/github.com`
+ *      repoRoot = `/home/neo/Code/github.com/Soul-Brews-Studio/maw-js`
+ *      → rel = `Soul-Brews-Studio/maw-js` → slug = `Soul-Brews-Studio/maw-js`
+ *
+ *   B. bare ghq root:     `/home/neo/Code`
+ *      repoRoot = `/home/neo/Code/github.com/Soul-Brews-Studio/maw-js`
+ *      → rel = `github.com/Soul-Brews-Studio/maw-js` → (strip host) →
+ *        `Soul-Brews-Studio/maw-js` → slug = `Soul-Brews-Studio/maw-js`
+ *
+ * Before this normalization, shape B produced the org-only slug
+ * `github.com/Soul-Brews-Studio` because `.split("/").slice(0, 2)` grabbed
+ * the host + org instead of org + repo. See #193.
+ *
+ * Worktree suffix (`.wt-*`) is stripped from the repo segment so worktrees
+ * match their parent repo's `project_repos` entry.
+ *
+ * Returns null if `repoRoot` is not under `ghqRoot` or doesn't have the
+ * expected depth (e.g. sitting directly under ghqRoot with no org segment).
+ */
+export function resolveProjectSlug(repoRoot: string, ghqRoot: string): string | null {
+  if (!repoRoot.startsWith(ghqRoot)) return null;
+  let rel = repoRoot.slice(ghqRoot.length).replace(/^\/+/, "");
+  // If ghqRoot is the bare ghq root (not github.com-rooted), rel starts with
+  // a host segment — strip known forges so we always land at "<org>/<repo>".
+  rel = rel.replace(/^(github\.com|gitlab\.com|bitbucket\.org)\//, "");
+  const parts = rel.split("/").slice(0, 2);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  parts[1] = parts[1].replace(/\.wt-.*$/, "");
+  return parts.join("/");
+}
+
+/**
  * Find the oracle that owns a given project repo (org/repo slug).
  */
 export function findOracleForProject(projectRepo: string): string | null {
@@ -306,15 +341,7 @@ export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<Proje
   } catch { /* not a git repo */ }
 
   // Strip ghq root → "org/repo" slug. Drop worktree suffix for matching.
-  let repoSlug: string | null = null;
-  if (repoRoot.startsWith(ghqRoot)) {
-    const rel = repoRoot.slice(ghqRoot.length).replace(/^\/+/, "");
-    const parts = rel.split("/").slice(0, 2);
-    if (parts.length === 2) {
-      parts[1] = parts[1].replace(/\.wt-.*$/, "");
-      repoSlug = parts.join("/");
-    }
-  }
+  const repoSlug = resolveProjectSlug(repoRoot, ghqRoot);
 
   const repoBase = basename(repoRoot).replace(/\.wt-.*$/, "");
   const isOracle = repoBase.endsWith("-oracle");
