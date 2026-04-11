@@ -94,7 +94,11 @@ fleetApi.post("/fleet/soul-sync", async (c) => {
 
     const synced: string[] = [];
     for (const name of childNames) {
-      const child = configs[name];
+      // Match by exact name, partial name (e.g. "neo" matches "02-neo"), or window name
+      const child = configs[name] || Object.values(configs).find(c =>
+        (c.data.name || "").includes(name) ||
+        (c.data.windows?.[0]?.name || "").replace("-oracle", "") === name
+      );
       if (!child) continue;
       for (const field of syncFields) {
         if (parent.data[field] !== undefined) {
