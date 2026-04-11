@@ -311,7 +311,7 @@ Run \`/awaken\` for the full identity setup ceremony.
   console.log(`\n  \x1b[32m${parentName ? "🧬 Bud" : "🌱 Root bud"} complete!\x1b[0m ${parentName ? `${parentName} → ${name}` : name}`);
   console.log(`  \x1b[90m  repo: ${budRepoSlug}`);
   console.log(`  \x1b[90m  fleet: ${fleetFile}`);
-  console.log(`  \x1b[90m  sync_peers: [${parentName}]`);
+  console.log(`  \x1b[90m  sync_peers: [${parentName || ""}]`);
   if (!opts.fast) {
     console.log(`  \x1b[90m  run /awaken in the new oracle for full identity setup\x1b[0m`);
   }
