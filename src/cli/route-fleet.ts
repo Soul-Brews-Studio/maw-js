@@ -4,6 +4,7 @@ import { cmdPulseAdd, cmdPulseLs } from "../commands/pulse";
 import { cmdOverview } from "../commands/overview";
 import { cmdMegaStatus, cmdMegaStop } from "../commands/mega";
 import { cmdFederationStatus } from "../commands/federation";
+import { cmdFederationSync } from "../commands/federation-sync";
 import { cmdReunion } from "../commands/reunion";
 import { cmdSoulSync } from "../commands/soul-sync";
 import { cmdFleetHealth } from "../commands/fleet-health";
@@ -124,8 +125,16 @@ export async function routeFleet(cmd: string, args: string[]): Promise<boolean> 
     const sub = args[1]?.toLowerCase();
     if (!sub || sub === "status" || sub === "ls") {
       await cmdFederationStatus();
+    } else if (sub === "sync") {
+      await cmdFederationSync({
+        dryRun: args.includes("--dry-run"),
+        check: args.includes("--check"),
+        prune: args.includes("--prune"),
+        force: args.includes("--force"),
+        json: args.includes("--json"),
+      });
     } else {
-      console.error("usage: maw federation status");
+      console.error("usage: maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]");
       process.exit(1);
     }
     return true;

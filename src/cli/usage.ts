@@ -69,6 +69,11 @@ export function usage() {
   maw mega status             Same — all teams with members + tasks
   maw mega stop               Kill all active team panes
   maw federation status       Peer connectivity + agent counts
+  maw federation sync         Pull live /api/identity → auto-update config.agents
+  maw federation sync --dry-run   Preview diff, no writes
+  maw federation sync --check     Exit 1 if out-of-sync (CI)
+  maw federation sync --prune     Also remove oracles no longer hosted anywhere
+  maw federation sync --force     Overwrite existing routes on conflict
   maw talk-to <agent> <msg>    Thread + hey (persistent + real-time)
   maw <agent> <msg...>        Shorthand for hey
   maw <agent>                 Shorthand for peek
