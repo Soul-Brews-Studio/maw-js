@@ -16,6 +16,7 @@ import { avengersApi } from "./avengers";
 import { transportApi } from "./transport";
 import { workspaceApi } from "./workspace";
 import { wormholeApi } from "./wormhole";
+import { proxyApi } from "./proxy";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
@@ -40,3 +41,4 @@ api.route("/", avengersApi);
 api.route("/", transportApi);
 api.route("/", workspaceApi);
 api.route("/", wormholeApi);
+api.route("/", proxyApi);
