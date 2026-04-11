@@ -23,6 +23,45 @@ function normalizeOracleName(target: string): string {
   return base.replace(/^\d+-/, "").replace(/-oracle$/, "");
 }
 
+/**
+ * Strict shape check for the raw client-supplied `target` string before it
+ * reaches any of the ssh()-based helpers in ../ssh (capture, selectWindow,
+ * sendKeys). The helpers still interpolate the target into a shell string
+ * as of Round 4 — the durable argv-form refactor for src/ssh.ts is
+ * scheduled for Round 5. Until then, this regex is the gate that keeps
+ * shell metacharacters out of the helper layer.
+ *
+ * Allowed: ASCII alphanumerics, dash, underscore, dot, colon. Length
+ * bounded to 64. Anchored, no backtracking risk.
+ *
+ * Explicitly rejects (all of which Warden R9 bonus-audit called out):
+ *   quotes ('  "), backtick (`), dollar ($), parentheses ( )
+ *   semicolon (;), ampersand (&), pipe (|), redirection (< >)
+ *   whitespace, slash (/), backslash (\), hash (#), newlines
+ */
+const TARGET_SAFE_CHARS = /^[a-zA-Z0-9:._-]{1,64}$/;
+
+/**
+ * Strict shape check for the Oracle slug produced by normalizeOracleName().
+ * After normalization the string should be a bare Oracle name (e.g. "sofia",
+ * "blade", "01-blade" -> "blade"). This guard rejects anything that does not
+ * match that shape, as a defense-in-depth layer above findWindow().
+ */
+const NORMALIZED_NAME_SHAPE = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Two-layer validation used by /capture, /mirror, and /send. Returns the
+ * original, now-known-safe target string on success so tmux
+ * session:window semantics are preserved. Returns null on any failure.
+ */
+function validateTarget(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  if (!TARGET_SAFE_CHARS.test(raw)) return null;
+  const normalized = normalizeOracleName(raw);
+  if (!NORMALIZED_NAME_SHAPE.test(normalized)) return null;
+  return raw;
+}
+
 sessionsApi.get("/sessions", async (c) => {
   const local = await listSessions();
   if (c.req.query("local") === "true") {
@@ -33,20 +72,22 @@ sessionsApi.get("/sessions", async (c) => {
 });
 
 sessionsApi.get("/capture", async (c) => {
-  const target = c.req.query("target");
-  if (!target) return c.json({ error: "target required" }, 400);
+  const safe = validateTarget(c.req.query("target"));
+  if (!safe) return c.json({ error: "invalid target" }, 400);
   try {
-    return c.json({ content: await capture(target) });
-  } catch (e: any) {
-    return c.json({ content: "", error: e.message });
+    return c.json({ content: await capture(safe) });
+  } catch {
+    // Do not echo e.message — tmux / ssh error output can contain
+    // user-supplied substrings from the target, even after validation.
+    return c.json({ content: "", error: "capture failed" });
   }
 });
 
 sessionsApi.get("/mirror", async (c) => {
-  const target = c.req.query("target");
-  if (!target) return c.text("target required", 400);
+  const safe = validateTarget(c.req.query("target"));
+  if (!safe) return c.text("invalid target", 400);
   const lines = +(c.req.query("lines") || "40");
-  const raw = await capture(target);
+  const raw = await capture(safe);
   return c.text(processMirror(raw, lines));
 });
 
@@ -56,15 +97,26 @@ sessionsApi.post("/send", async (c) => {
     if (!target || !text) return c.json({ error: "target and text required" }, 400);
     if (typeof target !== "string") return c.json({ error: "target must be a string" }, 400);
 
+    // Shape-check the raw target with the same TARGET_SAFE_CHARS regex used
+    // by /capture and /mirror. This is defense-in-depth against anyone who
+    // POSTs a metacharacter-laden target that passes JSON parsing but could
+    // still confuse downstream consumers (curlFetch forwarding to peers,
+    // error echoes, logs).
+    if (!TARGET_SAFE_CHARS.test(target)) {
+      return c.json({ error: "invalid target" }, 400);
+    }
+
     // Normalize the raw client-supplied target into a bare Oracle name. From
     // here on, the rest of the handler must use `normalized` and never the
     // raw `target` — that is what keeps Warden §3.1 bypass B (colon smuggle)
     // closed, since findWindow is invoked without `allowRaw` and the raw
     // "session:window" form never reaches tmux.
     const normalized = normalizeOracleName(target);
-    if (!normalized) {
-      // Defensive empty check after stripping prefix/suffix — not a whitelist.
-      return c.json({ error: "target name empty after normalization" }, 400);
+    if (!NORMALIZED_NAME_SHAPE.test(normalized)) {
+      // Stricter than the pre-R4 empty-check: the normalized slug must
+      // match the same shape /capture + /mirror require. Defense-in-depth
+      // above findWindow() and Path A' live-session lookup.
+      return c.json({ error: "invalid target" }, 400);
     }
 
     const local = await listSessions();
