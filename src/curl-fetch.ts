@@ -74,7 +74,7 @@ async function curlSpawn(url: string, opts: typeof curlFetch extends (u: string,
   args.push(url);
 
   try {
-    const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
     const text = await new Response(proc.stdout).text();
     const code = await proc.exited;
     if (code !== 0) return { ok: false, status: code, data: null };

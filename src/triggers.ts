@@ -94,7 +94,7 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
     const result: TriggerFireResult = { trigger: t, action, ok: false, ts: Date.now() };
 
     try {
-      const proc = Bun.spawn(["bash", "-c", action], { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
+      const proc = Bun.spawn(["bash", "-c", action], { stdout: "pipe", stderr: "pipe", env: { ...process.env }, windowsHide: true });
       const output = (await new Response(proc.stdout).text()).trim();
       const code = await proc.exited;
       if (code !== 0) throw new Error(`exit ${code}`);

@@ -109,6 +109,7 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
     stdout: "pipe",
     stderr: "ignore",
     env: { ...process.env, TERM: "xterm-256color" },
+    windowsHide: true,
   });
 
   session = { proc, target: safe, ptySessionName, viewers: new Set([ws]), cleanupTimer: null };

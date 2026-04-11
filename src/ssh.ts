@@ -8,7 +8,7 @@ const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
 export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string> {
   const local = host === "local" || host === "localhost" || IS_LOCAL;
   const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
   const text = await new Response(proc.stdout).text();
   const code = await proc.exited;
   if (code !== 0) {
