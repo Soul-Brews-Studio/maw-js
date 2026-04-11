@@ -30,6 +30,8 @@ export function usage() {
   maw overview --kill       Tear down overview
   maw bud <name>               Bud new oracle from current (yeast model)
   maw bud <name> --from <o>   Bud from specific parent oracle
+  maw bud <name> --root       Root oracle — no parent lineage (works from empty)
+  maw bud <name> --root --repo org/project   Root + incubate into existing repo
   maw take <sess>:<win> [tgt] Move window to session (omit tgt = split to own session)
   maw archive <oracle>         Graceful oracle death (soul-sync → disable → archive)
   maw find <keyword>           Search ψ/memory/ across all oracles
