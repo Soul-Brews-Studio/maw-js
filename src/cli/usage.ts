@@ -11,6 +11,8 @@ export function usage() {
   maw wake <oracle> --issue N Wake oracle with GitHub issue as prompt
   maw wake <oracle> --incubate org/repo  Clone repo + worktree
   maw fleet init              Scan ghq repos, generate fleet/*.json
+  maw fleet init --agents     Reconcile config.agents from fleet + peers
+                              (additive, add --dry-run to preview)
   maw fleet ls                List fleet configs with conflict detection
   maw fleet renumber          Fix numbering conflicts (sequential)
   maw fleet validate          Check for problems (dupes, orphans, missing repos)

@@ -1,5 +1,5 @@
 import { cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync, cmdFleetSyncConfigs } from "../commands/fleet";
-import { cmdFleetInit } from "../commands/fleet-init";
+import { cmdFleetInit, cmdFleetInitAgents } from "../commands/fleet-init";
 import { cmdPulseAdd, cmdPulseLs } from "../commands/pulse";
 import { cmdOverview } from "../commands/overview";
 import { cmdMegaStatus, cmdMegaStop } from "../commands/mega";
@@ -17,7 +17,11 @@ export async function routeFleet(cmd: string, args: string[]): Promise<boolean> 
   if (cmd === "fleet") {
     const sub = args[1];
     if (sub === "init") {
-      await cmdFleetInit();
+      if (args.includes("--agents")) {
+        await cmdFleetInitAgents({ dryRun: args.includes("--dry-run") });
+      } else {
+        await cmdFleetInit();
+      }
     } else if (sub === "ls") {
       await cmdFleetLs();
     } else if (sub === "renumber") {
