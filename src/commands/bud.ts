@@ -13,6 +13,7 @@ export interface BudOpts {
   org?: string;
   issue?: number;
   fast?: boolean;
+  root?: boolean;
   dryRun?: boolean;
   note?: string;
 }
@@ -45,15 +46,15 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   const ghqRoot = config.ghqRoot;
   const org = opts.org || config.githubOrg || "Soul-Brews-Studio";
 
-  // Resolve parent oracle
-  let parentName = opts.from;
-  if (!parentName) {
+  // Resolve parent oracle (skip for --root)
+  let parentName: string | null = opts.from || null;
+  if (!parentName && !opts.root) {
     try {
       const cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
       const repoName = cwd.split("/").pop() || "";
       parentName = repoName.replace(/-oracle$/, "").replace(/\.wt-.*$/, "");
     } catch {
-      console.error("  \x1b[31m✗\x1b[0m could not detect parent oracle. Use --from <oracle>");
+      console.error("  \x1b[31m✗\x1b[0m could not detect parent oracle. Use --from <oracle> or --root");
       process.exit(1);
     }
   }
@@ -62,16 +63,26 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   const budRepoSlug = `${org}/${budRepoName}`;
   const budRepoPath = join(ghqRoot, org, budRepoName);
 
-  console.log(`\n  \x1b[36m🧬 Budding\x1b[0m — ${parentName} → ${name}\n`);
+  if (opts.root) {
+    console.log(`\n  \x1b[36m🌱 Root Bud\x1b[0m — ${name} (no parent lineage)\n`);
+  } else {
+    console.log(`\n  \x1b[36m🧬 Budding\x1b[0m — ${parentName} → ${name}\n`);
+  }
 
   if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create repo: ${budRepoSlug}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${budRepoPath}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would generate CLAUDE.md`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create fleet config`);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync from ${parentName}`);
+    if (parentName) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync from ${parentName}`);
+    } else {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] root oracle — no soul-sync`);
+    }
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would wake ${name}`);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would add ${name} to ${parentName}'s sync_peers`);
+    if (parentName) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would add ${name} to ${parentName}'s sync_peers`);
+    }
     console.log();
     return;
   }
@@ -120,14 +131,20 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   const claudeMd = join(budRepoPath, "CLAUDE.md");
   if (!existsSync(claudeMd)) {
     const now = new Date().toISOString().slice(0, 10);
+    const lineageHeader = parentName
+      ? `> Budded from **${parentName}** on ${now}`
+      : `> Root oracle — born ${now} (no parent lineage)`;
+    const lineageField = parentName
+      ? `- **Budded from**: ${parentName}`
+      : `- **Origin**: root (no parent)`;
     writeFileSync(claudeMd, `# ${name}-oracle
 
-> Budded from **${parentName}** on ${now}
+${lineageHeader}
 
 ## Identity
 - **Name**: ${name}
 - **Purpose**: (to be defined by /awaken)
-- **Budded from**: ${parentName}
+${lineageField}
 - **Federation tag**: \`[<host>:${name}]\` — replace \`<host>\` with your runtime host
   (e.g. \`mba\`, \`oracle-world\`, \`white\`, \`clinic-nat\`) when signing federation messages
 
@@ -181,8 +198,8 @@ Run \`/awaken\` for the full identity setup ceremony.
     fleetFile = join(FLEET_DIR, existing.file);
     const config = JSON.parse(readFileSync(fleetFile, "utf-8"));
     let updated = false;
-    if (!config.budded_from) { config.budded_from = parentName; updated = true; }
-    if (!config.budded_at) { config.budded_at = new Date().toISOString(); updated = true; }
+    if (!config.budded_from && parentName) { config.budded_from = parentName; updated = true; }
+    if (!config.budded_at && parentName) { config.budded_at = new Date().toISOString(); updated = true; }
     if (updated) {
       writeFileSync(fleetFile, JSON.stringify(config, null, 2) + "\n");
       console.log(`  \x1b[32m✓\x1b[0m fleet config updated with lineage: ${fleetFile}`);
@@ -193,44 +210,54 @@ Run \`/awaken\` for the full identity setup ceremony.
     const maxNum = entries.reduce((max, e) => Math.max(max, e.num), 0);
     const budNum = maxNum + 1;
     fleetFile = join(FLEET_DIR, `${String(budNum).padStart(2, "0")}-${name}.json`);
-    const fleetConfig = {
+    const fleetConfig: Record<string, unknown> = {
       name: `${String(budNum).padStart(2, "0")}-${name}`,
       windows: [{ name: `${name}-oracle`, repo: `${org}/${budRepoName}` }],
-      sync_peers: [parentName],
-      budded_from: parentName,
-      budded_at: new Date().toISOString(),
+      sync_peers: parentName ? [parentName] : [],
     };
+    if (parentName) {
+      fleetConfig.budded_from = parentName;
+      fleetConfig.budded_at = new Date().toISOString();
+    }
     writeFileSync(fleetFile, JSON.stringify(fleetConfig, null, 2) + "\n");
     console.log(`  \x1b[32m✓\x1b[0m fleet config: ${fleetFile}`);
   }
 
   // 4.5. Write birth note if provided
   if (opts.note) {
+    const birthFrom = parentName ? `Budded from: ${parentName}` : "Root oracle — no parent";
     writeFileSync(join(psiDir, "memory", "learnings", `${new Date().toISOString().slice(0, 10)}_birth-note.md`),
-      `---\npattern: Birth note from ${parentName}\ndate: ${new Date().toISOString().slice(0, 10)}\nsource: maw bud\n---\n\n# Why ${name} was born\n\n${opts.note}\n\nBudded from: ${parentName}\n`);
+      `---\npattern: Birth note${parentName ? ` from ${parentName}` : ""}\ndate: ${new Date().toISOString().slice(0, 10)}\nsource: maw bud\n---\n\n# Why ${name} was born\n\n${opts.note}\n\n${birthFrom}\n`);
     console.log(`  \x1b[32m✓\x1b[0m birth note written`);
   }
 
-  // 5. Soul-sync seed from parent
-  console.log(`  \x1b[36m⏳\x1b[0m soul-sync seed from ${parentName}...`);
-  try {
-    await cmdSoulSync(parentName, { from: true, cwd: budRepoPath });
-  } catch {
-    console.log(`  \x1b[33m⚠\x1b[0m soul-sync seed failed (parent may have empty ψ/)`);
+  // 5. Soul-sync seed from parent (skip for root buds)
+  if (parentName) {
+    console.log(`  \x1b[36m⏳\x1b[0m soul-sync seed from ${parentName}...`);
+    try {
+      await cmdSoulSync(parentName, { from: true, cwd: budRepoPath });
+    } catch {
+      console.log(`  \x1b[33m⚠\x1b[0m soul-sync seed failed (parent may have empty ψ/)`);
+    }
+  } else {
+    console.log(`  \x1b[90m○\x1b[0m root oracle — no soul-sync seed`);
   }
 
   // 6. Initial git commit + push
   try {
     await hostExec(`git -C '${budRepoPath}' add -A`);
-    await hostExec(`git -C '${budRepoPath}' commit -m 'feat: birth — budded from ${parentName}'`);
+    await hostExec(`git -C '${budRepoPath}' commit -m 'feat: birth — ${parentName ? `budded from ${parentName}` : "root oracle"}'`);
     await hostExec(`git -C '${budRepoPath}' push -u origin HEAD`);
     console.log(`  \x1b[32m✓\x1b[0m initial commit pushed`);
   } catch {
     console.log(`  \x1b[33m⚠\x1b[0m git push failed (may need manual setup)`);
   }
 
-  // 7. Update parent's sync_peers
-  for (const entry of loadFleetEntries()) {
+  // 7. Update parent's sync_peers (skip for root buds)
+  if (!parentName) {
+    console.log(`  \x1b[90m○\x1b[0m root oracle — no parent sync_peers to update`);
+  }
+  for (const entry of parentName ? loadFleetEntries() : []) {
     const entryName = entry.session.name.replace(/^\d+-/, "");
     if (entryName === parentName) {
       const parentFile = join(FLEET_DIR, entry.file);
@@ -281,7 +308,7 @@ Run \`/awaken\` for the full identity setup ceremony.
   }
 
   // Summary
-  console.log(`\n  \x1b[32m🧬 Bud complete!\x1b[0m ${parentName} → ${name}`);
+  console.log(`\n  \x1b[32m${parentName ? "🧬 Bud" : "🌱 Root bud"} complete!\x1b[0m ${parentName ? `${parentName} → ${name}` : name}`);
   console.log(`  \x1b[90m  repo: ${budRepoSlug}`);
   console.log(`  \x1b[90m  fleet: ${fleetFile}`);
   console.log(`  \x1b[90m  sync_peers: [${parentName}]`);
