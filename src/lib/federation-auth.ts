@@ -23,6 +23,14 @@ const PROTECTED = new Set([
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
+  // /api/worktrees/create is the emergency containment entry from Round 2
+  // bundle cleanup (R2C3). The handler in src/api/worktrees.ts:34-36
+  // interpolates body.repoPath and body.taskName into a shell string via
+  // execSync, which is an unauth RCE primitive from any non-loopback
+  // caller that lacks an Origin header. This entry closes the remote
+  // attack surface immediately by requiring HMAC. The durable
+  // execFileSync / argv-form refactor lives in a separate follow-up brief.
+  "/api/worktrees/create",
   // /api/config-file is sensitive on every method: GET reveals config,
   // POST overwrites it, PUT creates fleet entries, DELETE removes them.
   // Warden re-audit NEW-2 caught that PUT and DELETE bypassed the old

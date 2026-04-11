@@ -51,8 +51,11 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:3456",
   "http://localhost:3457",   // maw-ui vite dev server
   "http://127.0.0.1:3457",
-  "http://localhost:4177",   // maw-ui vite preview
-  "http://127.0.0.1:4177",
+  // :4177 (vite preview) entries were removed as part of the Warden R7
+  // housekeeping sweep. Nothing binds :4177 on the live host after the
+  // ghq duplicate tree cleanup, so the allowlist entry was unused
+  // attack surface. Re-add via a focused commit if `vite preview` is
+  // ever brought online alongside the dev server on :3457.
 ]);
 
 const app = new Hono();

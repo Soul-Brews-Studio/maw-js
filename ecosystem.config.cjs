@@ -4,9 +4,14 @@ module.exports = {
       name: 'maw-js',
       script: 'src/server.ts',
       interpreter: '/home/lfz/.bun/bin/bun',
-      watch: ['src'],
-      watch_delay: 500,
-      ignore_watch: ['node_modules', 'ui'],
+      // Watch intentionally disabled. Bastion ran the runtime disable at
+      // deploy time via `pm2 restart maw-js --watch false` (see
+      // sofia-reply-bastion-watch-disable.md). This config-level false
+      // makes the disable durable across `pm2 reload ecosystem.config.cjs`,
+      // which would otherwise re-enable watch from the previous `watch:
+      // ['src']` declaration. To re-enable locally for development, set
+      // watch: ['src'] temporarily — do not commit that.
+      watch: false,
       env: {
         MAW_HOST: 'local',
         MAW_PORT: '3456',
