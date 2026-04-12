@@ -1,4 +1,5 @@
 import { cmdWake, fetchIssuePrompt } from "../commands/wake";
+import { parseWakeTarget } from "../commands/wake-resolve";
 import { cmdWakeAll, cmdSleep } from "../commands/fleet";
 import { cmdDone } from "../commands/done";
 import { cmdSleepOne } from "../commands/sleep";
@@ -8,13 +9,20 @@ import { cmdBud } from "../commands/bud";
 
 export async function routeAgent(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "wake") {
-    if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>] [--fresh] [--no-attach] [--list]\n       maw wake all [--kill]"); process.exit(1); }
+    if (!args[1]) { console.error("usage: maw wake <oracle|org/repo|URL> [task] [--new <name>] [--fresh] [--no-attach] [--list]\n       maw wake all [--kill]"); process.exit(1); }
     if (args[1].toLowerCase() === "all") {
       await cmdWakeAll({ kill: args.includes("--kill"), all: args.includes("--all"), resume: args.includes("--resume") });
     } else {
       const wakeOpts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; noAttach?: boolean; listWt?: boolean } = {};
       let issueNum: number | null = null;
       let repo: string | undefined;
+      // Detect URL or org/repo slug → auto-incubate
+      const parsed = parseWakeTarget(args[1]);
+      const oracleName = parsed ? parsed.oracle : args[1];
+      if (parsed) {
+        wakeOpts.incubate = parsed.slug;
+        if (parsed.issueNum) { issueNum = parsed.issueNum; }
+      }
       for (let i = 2; i < args.length; i++) {
         if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }
         else if (args[i] === "--incubate" && args[i + 1]) { wakeOpts.incubate = args[++i]; }
@@ -32,7 +40,7 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
         wakeOpts.prompt = await fetchIssuePrompt(issueNum, repo);
         if (!wakeOpts.task) wakeOpts.task = `issue-${issueNum}`;
       }
-      await cmdWake(args[1], wakeOpts);
+      await cmdWake(oracleName, wakeOpts);
     }
     return true;
   }

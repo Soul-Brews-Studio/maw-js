@@ -112,8 +112,10 @@ export function usage() {
   maw wake neo --new free     Create worktree + wake
   maw wake neo --issue 5      Fetch issue #5 + send as claude -p prompt
   maw wake neo --issue 5 --repo org/repo   Explicit repo
-  maw wake neo --incubate org/repo         Clone via ghq + worktree
-  maw wake neo --incubate org/repo --issue 5  Incubate + issue prompt
+  maw wake org/repo                        Clone via ghq + wake (auto-detect name)
+  maw wake https://github.com/org/repo     Full GitHub URL works too
+  maw wake org/repo --issue 5              Clone + issue prompt
+  maw wake neo --incubate org/repo         Explicit incubate (legacy form)
 
 \x1b[33mPulse add:\x1b[0m
   maw pulse ls                Board table (terminal)
