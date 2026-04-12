@@ -59,6 +59,11 @@ mountViews(app);
 const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
 if (existsSync(MAW_UI_DIR)) {
   app.use("/*", serveStatic({ root: MAW_UI_DIR }));
+} else {
+  // The Door — minimal landing page when no packed maw-ui is installed.
+  // Lets users connect to any federation by pasting an address.
+  const doorHtml = readFileSync(join(import.meta.dir, "static", "door.html"), "utf-8");
+  app.get("/", (c) => c.html(doorHtml));
 }
 
 app.onError((err, c) => c.json({ error: err.message }, 500));
