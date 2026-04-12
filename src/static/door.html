@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maw — the door</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: #0a0a0a; color: #e0e0e0;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+  }
+  .door {
+    width: 100%; max-width: 400px; padding: 2rem;
+    display: flex; flex-direction: column; gap: 1rem;
+  }
+  h1 { font-size: 1.4rem; font-weight: 400; color: #888; text-align: center; }
+  .row { display: flex; gap: 0.5rem; }
+  input {
+    flex: 1; padding: 0.6rem 0.8rem;
+    background: #161616; border: 1px solid #333; border-radius: 6px;
+    color: #e0e0e0; font-size: 0.95rem; outline: none;
+  }
+  input:focus { border-color: #555; }
+  input::placeholder { color: #555; }
+  button {
+    padding: 0.6rem 1rem;
+    background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+    color: #ccc; font-size: 0.9rem; cursor: pointer;
+    white-space: nowrap; transition: border-color 0.15s;
+  }
+  button:hover { border-color: #666; color: #fff; }
+  .recent { display: flex; flex-direction: column; gap: 0.25rem; }
+  .recent-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: #111; border: 1px solid #222; border-radius: 4px;
+    cursor: pointer; transition: border-color 0.15s;
+  }
+  .recent-item:hover { border-color: #555; }
+  .recent-label { flex: 1; font-size: 0.85rem; color: #aaa; overflow: hidden; text-overflow: ellipsis; }
+  .recent-name { font-size: 0.8rem; color: #666; margin-left: auto; }
+  .recent-remove {
+    font-size: 0.75rem; color: #555; cursor: pointer;
+    padding: 0 0.25rem; border: none; background: none;
+  }
+  .recent-remove:hover { color: #e44; }
+  .status {
+    text-align: center; font-size: 0.85rem; color: #666;
+    min-height: 1.2rem;
+  }
+  .status.err { color: #c44; }
+  .status.ok { color: #4a4; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #333; border-top-color: #888;
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+    vertical-align: middle; margin-right: 0.4rem;
+  }
+</style>
+</head>
+<body>
+<div class="door">
+  <h1>maw</h1>
+
+  <div class="row">
+    <input id="addr" type="text" placeholder="paste any maw-js address"
+           spellcheck="false" autocomplete="off">
+    <button id="go">Connect</button>
+  </div>
+  <button id="local" style="width:100%">Local</button>
+
+  <div id="recents" class="recent"></div>
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+const STORAGE_KEY = "maw-door-recents";
+const MAX_RECENTS = 8;
+
+const $addr   = document.getElementById("addr");
+const $go     = document.getElementById("go");
+const $local  = document.getElementById("local");
+const $recent = document.getElementById("recents");
+const $status = document.getElementById("status");
+
+function getRecents() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+}
+
+function saveRecent(host, name) {
+  let list = getRecents().filter(r => r.host !== host);
+  list.unshift({ host, name: name || host, ts: Date.now() });
+  if (list.length > MAX_RECENTS) list = list.slice(0, MAX_RECENTS);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  renderRecents();
+}
+
+function removeRecent(host) {
+  const list = getRecents().filter(r => r.host !== host);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  renderRecents();
+}
+
+function renderRecents() {
+  const list = getRecents();
+  if (!list.length) { $recent.innerHTML = ""; return; }
+  $recent.innerHTML = list.map(r =>
+    `<div class="recent-item" data-host="${esc(r.host)}">
+       <span class="recent-label">${esc(r.host)}</span>
+       <span class="recent-name">${esc(r.name)}</span>
+       <button class="recent-remove" data-rm="${esc(r.host)}">&times;</button>
+     </div>`
+  ).join("");
+}
+
+function esc(s) {
+  const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+}
+
+function setStatus(msg, cls) {
+  $status.className = "status" + (cls ? " " + cls : "");
+  $status.innerHTML = msg;
+}
+
+function normalizeHost(raw) {
+  let s = raw.trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) s = "http://" + s;
+  return s.replace(/\/+$/, "");
+}
+
+async function connect(host) {
+  setStatus('<span class="spinner"></span>connecting...', "");
+  $go.disabled = true;
+  try {
+    const res = await fetch(host + "/api/config", { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const name = data.name || data.nodeName || "";
+    saveRecent(host, name);
+    setStatus("connected" + (name ? " — " + name : ""), "ok");
+    setTimeout(() => {
+      window.location.href = "/federation_2d.html?host=" + encodeURIComponent(host);
+    }, 300);
+  } catch (e) {
+    setStatus("could not reach " + host, "err");
+    $go.disabled = false;
+  }
+}
+
+$go.addEventListener("click", () => {
+  const host = normalizeHost($addr.value);
+  if (!host) { $addr.focus(); return; }
+  connect(host);
+});
+
+$addr.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $go.click();
+});
+
+$local.addEventListener("click", () => {
+  connect(window.location.origin);
+});
+
+$recent.addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-rm]");
+  if (rm) { e.stopPropagation(); removeRecent(rm.dataset.rm); return; }
+  const item = e.target.closest("[data-host]");
+  if (item) { $addr.value = item.dataset.host; connect(item.dataset.host); }
+});
+
+renderRecents();
+$addr.focus();
+</script>
+</body>
+</html>
