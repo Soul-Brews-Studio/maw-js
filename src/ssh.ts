@@ -34,15 +34,20 @@ export async function listSessions(host?: string): Promise<Session[]> {
   catch { return []; }
   const sessions: Session[] = [];
   for (const s of raw.split("\n").filter(Boolean)) {
-    const winRaw = await hostExec(
-      `${tmuxCmd()} list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
-      host,
-    );
-    const windows = winRaw.split("\n").filter(Boolean).map(w => {
-      const [idx, name, active] = w.split(":");
-      return { index: +idx, name, active: active === "1" };
-    });
-    sessions.push({ name: s, windows });
+    try {
+      const winRaw = await hostExec(
+        `${tmuxCmd()} list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
+        host,
+      );
+      const windows = winRaw.split("\n").filter(Boolean).map(w => {
+        const [idx, name, active] = w.split(":");
+        return { index: +idx, name, active: active === "1" };
+      });
+      sessions.push({ name: s, windows });
+    } catch {
+      // Session may have died between list-sessions and list-windows
+      sessions.push({ name: s, windows: [] });
+    }
   }
   return sessions;
 }
