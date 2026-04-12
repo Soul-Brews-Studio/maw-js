@@ -11,8 +11,13 @@ import { cmdPr } from "../commands/pr";
 import { cmdCosts } from "../commands/costs";
 import { cmdTriggers } from "../commands/triggers";
 import { cmdHealth } from "../commands/health";
+import { cmdUi } from "../commands/ui";
 
 export async function routeTools(cmd: string, args: string[]): Promise<boolean> {
+  if (cmd === "ui") {
+    await cmdUi(args.slice(1));
+    return true;
+  }
   if (cmd === "view" || cmd === "create-view" || cmd === "attach" || cmd === "a") {
     if (!args[1]) { console.error("usage: maw view <agent> [window] [--clean]"); process.exit(1); }
     const clean = args.includes("--clean");
