@@ -12,8 +12,16 @@ import { cmdFleetDoctor } from "../commands/fleet-doctor";
 import { cmdFleetConsolidate } from "../commands/fleet-consolidate";
 import { cmdArchive } from "../commands/archive";
 import { cmdFind } from "../commands/find";
+import { cmdRestart } from "../commands/restart";
 
 export async function routeFleet(cmd: string, args: string[]): Promise<boolean> {
+  if (cmd === "restart" || cmd === "reboot") {
+    const noUpdate = args.includes("--no-update");
+    const refIdx = args.indexOf("--ref");
+    const ref = refIdx >= 0 ? args[refIdx + 1] : undefined;
+    await cmdRestart({ noUpdate, ref });
+    return true;
+  }
   if (cmd === "fleet") {
     const sub = args[1];
     if (sub === "init") {

@@ -23,6 +23,7 @@ export function usage() {
   maw wake all --resume       Wake fleet + send /recap to active board items
   maw sleep <oracle> [window] Gracefully stop one oracle window
   maw stop                    Stop all fleet sessions
+  maw restart                 Clean views + update + stop + wake all
   maw about <oracle>           Oracle profile — session, worktrees, fleet
   maw oracle ls               Fleet status (awake/sleeping/worktrees)
   maw overview              War-room: all oracles in split panes
