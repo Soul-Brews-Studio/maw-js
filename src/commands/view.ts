@@ -18,8 +18,11 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   }
   if (!sessionName) { console.error(`session not found for: ${agent}`); process.exit(1); }
 
-  // Generate unique view name
-  const viewName = `${agent}-view${windowHint ? `-${windowHint}` : ""}`;
+  // Generate view name from RESOLVED session (not raw input) — prevents duplicates
+  // e.g. "maw a worm" and "maw a wormhole" both resolve to "102-white-wormhole"
+  // and should reuse the same view session instead of creating worm-view + wormhole-view
+  const viewBase = sessionName.replace(/^\d+-/, "");
+  const viewName = `${viewBase}-view${windowHint ? `-${windowHint}` : ""}`;
 
   // Kill existing view with same name
   const t = new Tmux();
