@@ -491,12 +491,17 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
   let sessCount = 0;
   let winCount = 0;
 
-  for (const sess of sessions) {
+  for (let si = 0; si < sessions.length; si++) {
+    const sess = sessions[si];
+    const progress = `[${si + 1}/${sessions.length}]`;
+
     // Check if session already exists
     if (await tmux.hasSession(sess.name)) {
-      console.log(`  \x1b[33m●\x1b[0m ${sess.name} — already awake`);
+      console.log(`  \x1b[33m●\x1b[0m ${progress} ${sess.name} — already awake`);
       continue;
     }
+
+    process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
 
     // Create session with first window
     const first = sess.windows[0];
@@ -532,7 +537,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
     // Select first window
     await tmux.selectWindow(`${sess.name}:1`);
     sessCount++;
-    console.log(`  \x1b[32m●\x1b[0m ${sess.name} — ${sess.windows.length} windows`);
+    console.log(` \x1b[32m✓\x1b[0m ${sess.windows.length} windows`);
   }
 
   // Scan disk for worktrees not covered by fleet configs and spawn them
