@@ -4,6 +4,9 @@ import { MawEngine } from "./engine";
 import type { WSData } from "./types";
 import { loadConfig } from "./config";
 import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+import { serveStatic } from "hono/bun";
 import { api } from "./api";
 import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
@@ -51,6 +54,12 @@ app.get("/topology", async (c) => {
 });
 
 mountViews(app);
+
+// Serve packed maw-ui dist (Shape A — single port, single process)
+const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
+if (existsSync(MAW_UI_DIR)) {
+  app.use("/*", serveStatic({ root: MAW_UI_DIR }));
+}
 
 app.onError((err, c) => c.json({ error: err.message }, 500));
 

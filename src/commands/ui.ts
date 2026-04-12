@@ -37,6 +37,9 @@
  * script if you want.
  */
 
+import { existsSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 import { loadConfig } from "../config";
 
 // ---- Constants -----------------------------------------------------------
@@ -52,6 +55,8 @@ export interface UiOptions {
   peer?: string;
   tunnel?: boolean;
   threeD?: boolean;
+  install?: boolean;
+  installVersion?: string;
 }
 
 // ---- Pure helpers (testable) ---------------------------------------------
@@ -85,13 +90,21 @@ export function justHost(hostPort: string): string {
   return hostPort.split(":")[0];
 }
 
+/** Check if maw-ui dist is installed at ~/.maw/ui/dist/ */
+export function isUiDistInstalled(): boolean {
+  const distDir = join(homedir(), ".maw", "ui", "dist");
+  return existsSync(join(distDir, "index.html"));
+}
+
 /** Build the lens URL the user should open in their browser. */
 export function buildLensUrl(opts: {
   remoteHost?: string;
   threeD?: boolean;
+  port?: number;
 }): string {
+  const port = opts.port ?? LENS_PORT;
   const page = opts.threeD ? LENS_PAGE_3D : LENS_PAGE_2D;
-  const base = `http://localhost:${LENS_PORT}/${page}`;
+  const base = `http://localhost:${port}/${page}`;
   if (!opts.remoteHost) return base;
   return `${base}?host=${encodeURIComponent(opts.remoteHost)}`;
 }
@@ -120,6 +133,10 @@ export function buildTunnelCommand(args: { user: string; host: string }): string
  * having to capture stdout. The CLI just prints this verbatim.
  */
 export function renderUiOutput(opts: UiOptions): string {
+  // Detect Shape A: if dist is installed, use maw-js port (3456) instead of vite (5173)
+  const distInstalled = isUiDistInstalled();
+  const lensPort = distInstalled ? MAW_PORT : LENS_PORT;
+
   // --tunnel mode
   if (opts.tunnel) {
     if (!opts.peer) {
@@ -138,15 +155,16 @@ export function renderUiOutput(opts: UiOptions): string {
     const host = justHost(hostPort);
     const user = process.env.USER || "neo";
     const sshCmd = buildTunnelCommand({ user, host });
-    const url = buildLensUrl({ threeD: opts.threeD });
+    const url = buildLensUrl({ threeD: opts.threeD, port: lensPort });
     return [
-      `# Run this on your local machine to forward both lens (${LENS_PORT}) and maw-js (${MAW_PORT}):`,
+      `# Run this on your local machine to forward both lens (${lensPort}) and maw-js (${MAW_PORT}):`,
       sshCmd,
       ``,
       `# Then open in your browser:`,
       url,
       ``,
       `# Stop the tunnel with Ctrl+C in the SSH terminal.`,
+      ...(distInstalled ? [``, `# (Shape A — maw-ui dist served from maw-js on port ${MAW_PORT})`] : []),
     ].join("\n");
   }
 
@@ -159,10 +177,10 @@ export function renderUiOutput(opts: UiOptions): string {
         `# expected a named peer (config.namedPeers) or literal host:port`,
       ].join("\n");
     }
-    return buildLensUrl({ remoteHost: hostPort, threeD: opts.threeD });
+    return buildLensUrl({ remoteHost: hostPort, threeD: opts.threeD, port: lensPort });
   }
 
-  return buildLensUrl({ threeD: opts.threeD });
+  return buildLensUrl({ threeD: opts.threeD, port: lensPort });
 }
 
 // ---- Arg parser ----------------------------------------------------------
@@ -170,7 +188,8 @@ export function renderUiOutput(opts: UiOptions): string {
 export function parseUiArgs(args: string[]): UiOptions {
   const opts: UiOptions = {};
   for (const a of args) {
-    if (a === "--tunnel") opts.tunnel = true;
+    if (a === "--install") opts.install = true;
+    else if (a === "--tunnel") opts.tunnel = true;
     else if (a === "--3d") opts.threeD = true;
     else if (!a.startsWith("--") && !opts.peer) opts.peer = a;
   }
@@ -181,5 +200,12 @@ export function parseUiArgs(args: string[]): UiOptions {
 
 export async function cmdUi(args: string[]): Promise<void> {
   const opts = parseUiArgs(args);
+
+  if (opts.install) {
+    const { cmdUiInstall } = await import("./ui-install");
+    await cmdUiInstall(opts.peer); // peer arg doubles as version if --install is set
+    return;
+  }
+
   console.log(renderUiOutput(opts));
 }
