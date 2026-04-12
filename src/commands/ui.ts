@@ -54,6 +54,7 @@ const LENS_PAGE_3D = "federation.html";
 export interface UiOptions {
   peer?: string;
   tunnel?: boolean;
+  dev?: boolean;
   threeD?: boolean;
   install?: boolean;
   installVersion?: string;
@@ -96,6 +97,35 @@ export function isUiDistInstalled(): boolean {
   return existsSync(join(distDir, "index.html"));
 }
 
+/** Find the maw-ui source directory for dev mode. */
+export function findMawUiSrcDir(): string | null {
+  // Try ghq path first (the standard oracle convention)
+  try {
+    const { execSync } = require("child_process");
+    const ghqPath = execSync("ghq list --full-path 2>/dev/null", { encoding: "utf-8" })
+      .split("\n")
+      .find((p: string) => p.endsWith("/maw-ui"));
+    if (ghqPath && existsSync(join(ghqPath, "package.json"))) return ghqPath;
+  } catch {}
+
+  // Try sibling of maw-js
+  const mawJsDir = join(__dirname, "..", "..");
+  const sibling = join(mawJsDir, "..", "maw-ui");
+  if (existsSync(join(sibling, "package.json"))) return sibling;
+
+  // Try env override
+  if (process.env.MAW_UI_SRC && existsSync(join(process.env.MAW_UI_SRC, "package.json"))) {
+    return process.env.MAW_UI_SRC;
+  }
+
+  return null;
+}
+
+/** Build the dev server start command. */
+export function buildDevCommand(mawUiDir: string): string {
+  return `cd ${mawUiDir} && bun run dev`;
+}
+
 /** Build the lens URL the user should open in their browser. */
 export function buildLensUrl(opts: {
   remoteHost?: string;
@@ -136,6 +166,35 @@ export function renderUiOutput(opts: UiOptions): string {
   // Detect Shape A: if dist is installed, use maw-js port (3456) instead of vite (5173)
   const distInstalled = isUiDistInstalled();
   const lensPort = distInstalled ? MAW_PORT : LENS_PORT;
+
+  // --dev mode: print the vite dev server command
+  if (opts.dev) {
+    const srcDir = findMawUiSrcDir();
+    if (!srcDir) {
+      return [
+        `# maw-ui source not found. Searched:`,
+        `#   - ghq list (no match for /maw-ui)`,
+        `#   - sibling directory of maw-js`,
+        `#   - $MAW_UI_SRC env var`,
+        `#`,
+        `# Clone it: ghq get https://github.com/Soul-Brews-Studio/maw-ui`,
+        `# Or set: export MAW_UI_SRC=/path/to/maw-ui`,
+      ].join("\n");
+    }
+    const devCmd = buildDevCommand(srcDir);
+    const url = buildLensUrl({ threeD: opts.threeD, port: LENS_PORT });
+    return [
+      `# Start vite dev server (HMR on :${LENS_PORT}, proxy /api → maw serve on :${MAW_PORT}):`,
+      devCmd,
+      ``,
+      `# Then open:`,
+      url,
+      ``,
+      `# Requires maw serve running on :${MAW_PORT} for API/WS proxy.`,
+      `# Edit files in ${srcDir} — vite hot-reloads instantly.`,
+      `# Ctrl+C stops the dev server. Static :${MAW_PORT} keeps serving if installed.`,
+    ].join("\n");
+  }
 
   // --tunnel mode
   if (opts.tunnel) {
@@ -190,6 +249,7 @@ export function parseUiArgs(args: string[]): UiOptions {
   for (const a of args) {
     if (a === "--install") opts.install = true;
     else if (a === "--tunnel") opts.tunnel = true;
+    else if (a === "--dev") opts.dev = true;
     else if (a === "--3d") opts.threeD = true;
     else if (!a.startsWith("--") && !opts.peer) opts.peer = a;
   }
