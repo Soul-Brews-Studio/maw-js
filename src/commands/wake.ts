@@ -1,6 +1,6 @@
 import { hostExec } from "../ssh";
 import { tmux } from "../tmux";
-import { buildCommand, buildCommandInDir, cfgTimeout } from "../config";
+import { buildCommand, buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../config";
 import { restoreTabOrder } from "../tab-order";
 import { takeSnapshot } from "../snapshot";
 import { execSync } from "child_process";
@@ -95,6 +95,15 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     await new Promise(r => setTimeout(r, 300));
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
+
+    // Auto-register agent in config.agents so federation peers can route to it (#285)
+    const config = loadConfig();
+    const agents = config.agents || {};
+    if (!(oracle in agents)) {
+      const node = config.node || "local";
+      saveConfig({ agents: { ...agents, [oracle]: node } });
+      console.log(`\x1b[32m+\x1b[0m registered agent '${oracle}' → '${node}' in config.agents`);
+    }
 
     if (!opts.task && !opts.newWt) {
       const allWt = await findWorktrees(parentDir, repoName);
