@@ -17,6 +17,7 @@ import { transportApi } from "./transport";
 import { workspaceApi } from "./workspace";
 import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
+import { pulseApi } from "./pulse";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
@@ -42,3 +43,4 @@ api.route("/", transportApi);
 api.route("/", workspaceApi);
 api.route("/", peerExecApi);
 api.route("/", proxyApi);
+api.route("/", pulseApi);
