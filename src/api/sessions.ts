@@ -6,8 +6,25 @@ import { loadConfig } from "../config";
 import { curlFetch } from "../curl-fetch";
 import { resolveTarget } from "../routing";
 import { processMirror } from "../commands/overview";
+import { resolveFleetSession } from "../commands/wake";
 
 export const sessionsApi = new Hono();
+
+/** Resolve oracle name → tmux target, same logic as local peek (#273). */
+function resolveCapture(query: string, sessions: { name: string }[]): string {
+  const config = loadConfig();
+  const mapped = (config.sessions as Record<string, string>)?.[query];
+  if (mapped) {
+    const filtered = sessions.filter(s => s.name === mapped);
+    if (filtered.length > 0) return findWindow(filtered, query) || query;
+  }
+  const fleetSession = resolveFleetSession(query);
+  if (fleetSession) {
+    const filtered = sessions.filter(s => s.name === fleetSession);
+    if (filtered.length > 0) return findWindow(filtered, query) || query;
+  }
+  return findWindow(sessions, query) || query;
+}
 
 sessionsApi.get("/sessions", async (c) => {
   const local = await listSessions();
@@ -22,7 +39,9 @@ sessionsApi.get("/capture", async (c) => {
   const target = c.req.query("target");
   if (!target) return c.json({ error: "target required" }, 400);
   try {
-    return c.json({ content: await capture(target) });
+    const sessions = await listSessions();
+    const resolved = resolveCapture(target, sessions);
+    return c.json({ content: await capture(resolved) });
   } catch (e: any) {
     return c.json({ content: "", error: e.message });
   }
@@ -32,7 +51,9 @@ sessionsApi.get("/mirror", async (c) => {
   const target = c.req.query("target");
   if (!target) return c.text("target required", 400);
   const lines = +(c.req.query("lines") || "40");
-  const raw = await capture(target);
+  const sessions = await listSessions();
+  const resolved = resolveCapture(target, sessions);
+  const raw = await capture(resolved);
   return c.text(processMirror(raw, lines));
 });
 
