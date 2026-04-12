@@ -3,6 +3,7 @@ import { loadConfig } from "../config";
 import { loadFleetEntries } from "./fleet-load";
 import { cmdSoulSync } from "./soul-sync";
 import { cmdWake } from "./wake";
+import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { FLEET_DIR } from "../paths";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
@@ -48,6 +49,12 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
 
   // Resolve parent oracle (skip for --root)
   let parentName: string | null = opts.from || null;
+  // If --from is a URL or org/repo slug, extract oracle name and clone (#280)
+  const fromTarget = parentName ? parseWakeTarget(parentName) : null;
+  if (fromTarget) {
+    parentName = fromTarget.oracle;
+    if (!opts.repo) await ensureCloned(fromTarget.slug);
+  }
   if (!parentName && !opts.root) {
     try {
       const cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
