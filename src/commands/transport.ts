@@ -15,7 +15,6 @@ export async function cmdTransportStatus() {
   const statuses = router.status();
   const notes: Record<string, string> = {
     "tmux": "local",
-    "mqtt": config.mqtt?.broker ? config.mqtt.broker : "not configured",
     "http-federation": config.peers?.length ? `${config.peers.length} peer(s)` : "no peers",
     "lora": "no hardware",
   };
@@ -40,7 +39,6 @@ export async function cmdTransportStatus() {
 
   // Show hints for unconfigured
   const hints: string[] = [];
-  if (!config.mqtt?.broker) hints.push(`mqtt: "mqtt": { "broker": "ws://..." }`);
   if (!config.peers?.length) hints.push(`peers: "peers": ["http://host:3456"]`);
   if (!config.agents) hints.push(`agents: "agents": { "neo": "white" }`);
   if (hints.length > 0) {

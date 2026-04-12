@@ -17,7 +17,16 @@ export type FeedEventType =
   | "SessionEnd"
   | "SessionStart"
   | "Stop"
-  | "Notification";
+  | "Notification"
+  // Message lifecycle (hooks v2)
+  | "MessageSend"
+  | "MessageDeliver"
+  | "MessageFail"
+  // Plugin lifecycle
+  | "PluginHook"
+  | "PluginFilter"
+  | "PluginLoad"
+  | "PluginError";
 
 export interface FeedEvent {
   timestamp: string;

@@ -15,6 +15,8 @@ export function pushFeedEvent(event: FeedEvent) {
 
 export const feedApi = new Hono();
 
+// PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
+// clients filtering `event === "MessageSend"`. See docs/federation.md.
 feedApi.get("/feed", (c) => {
   const limit = Math.min(200, +(c.req.query("limit") || String(cfgLimit("feedDefault"))));
   const oracle = c.req.query("oracle") || undefined;

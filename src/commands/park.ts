@@ -1,5 +1,5 @@
 import { tmux } from "../tmux";
-import { ssh } from "../ssh";
+import { hostExec } from "../ssh";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -52,10 +52,10 @@ export async function cmdPark(...rawArgs: string[]) {
   const cwd = (await tmux.run("display-message", "-t", `${session}:${targetWindow}`, "-p", "#{pane_current_path}")).trim();
   let branch = "", lastCommit = "", dirtyFiles: string[] = [];
   const safeCwd = cwd.replace(/'/g, "'\\''");
-  try { branch = (await ssh(`git -C '${safeCwd}' branch --show-current 2>/dev/null`)).trim(); } catch { /* expected: may not be a git dir */ }
-  try { lastCommit = (await ssh(`git -C '${safeCwd}' log -1 --oneline 2>/dev/null`)).trim(); } catch { /* expected: may not be a git dir */ }
+  try { branch = (await hostExec(`git -C '${safeCwd}' branch --show-current 2>/dev/null`)).trim(); } catch { /* expected: may not be a git dir */ }
+  try { lastCommit = (await hostExec(`git -C '${safeCwd}' log -1 --oneline 2>/dev/null`)).trim(); } catch { /* expected: may not be a git dir */ }
   try {
-    const status = (await ssh(`git -C '${safeCwd}' status --short 2>/dev/null`)).trim();
+    const status = (await hostExec(`git -C '${safeCwd}' status --short 2>/dev/null`)).trim();
     dirtyFiles = status ? status.split("\n").map(l => l.trim()) : [];
   } catch { /* expected: may not be a git dir */ }
 

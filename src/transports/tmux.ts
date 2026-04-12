@@ -5,7 +5,8 @@
  * This is always the first transport tried for local targets.
  */
 
-import { sendKeys, listSessions, findWindow } from "../ssh";
+import { sendKeys, listSessions } from "../ssh";
+import { findWindow } from "../find-window";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../transport";
 import type { FeedEvent } from "../lib/feed";
 

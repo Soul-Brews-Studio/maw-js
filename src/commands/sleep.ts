@@ -38,13 +38,17 @@ export async function cmdSleepOne(oracle: string, window?: string) {
     process.exit(1);
   }
 
-  const target = windows.find(w => w.name === windowName);
+  // Normalize trailing dashes — tmux window names like "fireman-1w-test-"
+  // cause exact-match failures and strand maw sleep (#206)
+  const stripDash = (s: string) => s.replace(/-+$/, "");
+
+  const target = windows.find(w => w.name === windowName || stripDash(w.name) === stripDash(windowName));
   if (!target) {
     // Try partial match (e.g. oracle-N-name pattern)
     const nameSuffix = window || "oracle";
     const fuzzy = windows.find(w =>
-      w.name === windowName ||
-      new RegExp(`^${oracle}-\\d+-${nameSuffix}$`).test(w.name)
+      stripDash(w.name) === stripDash(windowName) ||
+      new RegExp(`^${oracle}-\\d+-${nameSuffix}-?$`).test(w.name)
     );
     if (!fuzzy) {
       console.error(`\x1b[31merror\x1b[0m: window '${windowName}' not found in session '${session}'`);
@@ -79,7 +83,8 @@ async function doSleep(session: string, windowName: string, oracle: string) {
   // 3. If window still exists, force kill
   try {
     const windows = await tmux.listWindows(session);
-    const stillExists = windows.some(w => w.name === windowName);
+    const stripDash = (s: string) => s.replace(/-+$/, "");
+    const stillExists = windows.some(w => w.name === windowName || stripDash(w.name) === stripDash(windowName));
     if (stillExists) {
       await tmux.killWindow(target);
       console.log(`  \x1b[33m!\x1b[0m force-killed ${windowName} (did not exit gracefully)`);

@@ -5,11 +5,9 @@
 import { loadConfig } from "../config";
 import { TransportRouter } from "../transport";
 import { TmuxTransport } from "./tmux";
-import { MqttTransport } from "./mqtt";
 import { HttpTransport } from "./http";
 import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { LoRaTransport } from "./lora";
-import type { MqttConfig } from "./mqtt";
 
 /** Singleton router instance */
 let router: TransportRouter | null = null;
@@ -26,29 +24,13 @@ export function createTransportRouter(): TransportRouter {
   tmux.connect().catch(() => {}); // tmux is always available locally
   router.register(tmux);
 
-  // 2. MQTT if configured
-  const mqttConfig = config.mqtt;
-  if (mqttConfig?.broker) {
-    router.register(
-      new MqttTransport({
-        broker: mqttConfig.broker,
-        clientId: mqttConfig.clientId,
-        username: mqttConfig.username,
-        password: mqttConfig.password,
-        selfName: mqttConfig.selfName ?? config.node ?? "maw",
-        selfHost: mqttConfig.selfHost ?? config.node ?? "local",
-        federationToken: config.federationToken,
-      }),
-    );
-  }
-
-  // 3. Hub transport — workspace WebSocket connections (priority 30)
+  // 2. Hub transport — workspace WebSocket connections (priority 30)
   const workspaceConfigs = loadWorkspaceConfigs();
   if (workspaceConfigs.length > 0) {
     router.register(new HubTransport(config.node));
   }
 
-  // 4. HTTP federation as fallback
+  // 3. HTTP federation as fallback
   if (config.peers && config.peers.length > 0) {
     router.register(
       new HttpTransport({
@@ -58,7 +40,7 @@ export function createTransportRouter(): TransportRouter {
     );
   }
 
-  // 5. LoRa (future hardware — stub, canReach() always false)
+  // 4. LoRa (future hardware — stub, canReach() always false)
   router.register(new LoRaTransport());
 
   return router;
@@ -78,7 +60,6 @@ export function resetTransportRouter() {
 }
 
 export { TmuxTransport } from "./tmux";
-export { MqttTransport } from "./mqtt";
 export { HubTransport } from "./hub";
 export { HttpTransport } from "./http";
 export { LoRaTransport } from "./lora";

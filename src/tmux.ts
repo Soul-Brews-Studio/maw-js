@@ -1,4 +1,4 @@
-import { ssh } from "./ssh";
+import { hostExec } from "./ssh";
 import { loadConfig, cfgLimit } from "./config";
 
 /** Resolve tmux socket path from env or config. */
@@ -10,6 +10,15 @@ export function resolveSocket(): string | undefined {
 export function tmuxCmd(): string {
   const socket = resolveSocket();
   return socket ? `tmux -S '${socket}'` : "tmux";
+}
+
+export interface TmuxPane {
+  id: string;
+  command: string;
+  target: string;
+  title: string;
+  pid?: number;
+  cwd?: string;
 }
 
 export interface TmuxWindow {
@@ -43,11 +52,11 @@ export class Tmux {
     this.socket = socket !== undefined ? socket : resolveSocket();
   }
 
-  /** Base runner — executes `tmux [-S socket] <subcommand> [args...]` via ssh. */
+  /** Base runner — executes `tmux [-S socket] <subcommand> [args...]` via hostExec. */
   async run(subcommand: string, ...args: (string | number)[]): Promise<string> {
     const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
-    const cmd = `tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")} 2>/dev/null`;
-    return ssh(cmd, this.host);
+    const cmd = `tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")}`;
+    return hostExec(cmd, this.host);
   }
 
   /** Like run() but swallows errors — for best-effort cleanup ops. */
@@ -134,7 +143,10 @@ export class Tmux {
   }
 
   async newWindow(session: string, name: string, opts: { cwd?: string } = {}): Promise<void> {
-    const args: (string | number)[] = ["-t", session, "-n", name];
+    // Trailing colon on -t forces "next free index" semantics.
+    // Without it, `-t session` is interpreted as `-t session:<current_window>`,
+    // and tmux tries to create AT that index → "index 1 in use" error.
+    const args: (string | number)[] = ["-t", `${session}:`, "-n", name];
     if (opts.cwd) args.push("-c", opts.cwd);
     await this.run("new-window", ...args);
   }
@@ -143,11 +155,41 @@ export class Tmux {
     await this.tryRun("select-window", "-t", target);
   }
 
+  /** Switch the current tmux client to a different session. Only works when inside tmux. */
+  async switchClient(session: string): Promise<void> {
+    await this.tryRun("switch-client", "-t", session);
+  }
+
   async killWindow(target: string): Promise<void> {
     await this.tryRun("kill-window", "-t", target);
   }
 
   // --- Panes ---
+
+  /** Get all pane IDs across all sessions — single tmux call. */
+  async listPaneIds(): Promise<Set<string>> {
+    try {
+      const raw = await this.run("list-panes", "-a", "-F", "#{pane_id}");
+      return new Set(raw.split("\n").filter(Boolean));
+    } catch { return new Set(); }
+  }
+
+  /** Get structured info for all panes across all sessions. */
+  async listPanes(): Promise<TmuxPane[]> {
+    try {
+      const raw = await this.run("list-panes", "-a", "-F",
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}");
+      return raw.split("\n").filter(Boolean).map(line => {
+        const [id, command, target, title, pid, cwd] = line.split("|||");
+        return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined };
+      });
+    } catch { return []; }
+  }
+
+  /** Kill a single pane (best-effort — swallows errors). */
+  async killPane(target: string): Promise<void> {
+    await this.tryRun("kill-pane", "-t", target);
+  }
 
   /** Get the command running in a pane (e.g. "claude", "zsh") */
   async getPaneCommand(target: string): Promise<string> {
@@ -190,10 +232,10 @@ export class Tmux {
     if (lines > 50) {
       return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -lines);
     }
-    // For shorter captures, pipe through tail (needs raw ssh)
+    // For shorter captures, pipe through tail (needs raw hostExec)
     const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
     const cmd = `tmux ${socketFlag}capture-pane -t ${q(target)} -e -p 2>/dev/null | tail -${lines}`;
-    return ssh(cmd, this.host);
+    return hostExec(cmd, this.host);
   }
 
   async resizePane(target: string, cols: number, rows: number): Promise<void> {
@@ -232,7 +274,7 @@ export class Tmux {
     const escaped = text.replace(/'/g, "'\\''");
     const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
     const cmd = `printf '%s' '${escaped}' | tmux ${socketFlag}load-buffer -`;
-    await ssh(cmd, this.host);
+    await hostExec(cmd, this.host);
   }
 
   async pasteBuffer(target: string): Promise<void> {
@@ -284,5 +326,5 @@ export class Tmux {
   }
 }
 
-/** Default tmux instance (uses default host from ssh config). */
+/** Default tmux instance (uses default host from hostExec config). */
 export const tmux = new Tmux();

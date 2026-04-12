@@ -16,7 +16,6 @@ function agentFromDir(dirName: string): string {
   const orgPrefixes = [
     "laris-co-",
     "Soul-Brews-Studio-",
-  "evilelfza-",
     "nazt-",
     "DustBoy-PM25-",
     "FloodBoy-CM-",

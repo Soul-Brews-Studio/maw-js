@@ -9,13 +9,14 @@ import { routeAgent } from "./cli/route-agent";
 import { routeFleet } from "./cli/route-fleet";
 import { routeWorkspace } from "./cli/route-workspace";
 import { routeTools } from "./cli/route-tools";
+import { routeTeam } from "./cli/route-team";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
 
 logAudit(cmd || "", args);
 
-if (cmd === "--version" || cmd === "-v") {
+function getVersionString(): string {
   const pkg = require("../package.json");
   let hash = "";
   try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
@@ -26,12 +27,32 @@ if (cmd === "--version" || cmd === "-v") {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
   } catch {}
-  console.log(`maw v${pkg.version}${hash ? ` (${hash})` : ""}${buildDate ? ` built ${buildDate}` : ""}`);
+  return `maw v${pkg.version}${hash ? ` (${hash})` : ""}${buildDate ? ` built ${buildDate}` : ""}`;
+}
+
+if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+  console.log(getVersionString());
+} else if (cmd === "update" || cmd === "upgrade") {
+  const { execSync } = require("child_process");
+  const { repository } = require("../package.json");
+  const ref = args[1] || "main";
+  const before = getVersionString();
+  console.log(`\n  🍺 maw update ${ref}\n`);
+  console.log(`  from: ${before}`);
+  // Remove first to avoid bun dependency loop (#214)
+  try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+  execSync(`bun add -g github:${repository}#${ref}`, { stdio: "inherit" });
+  let after = "";
+  try { after = execSync(`maw --version`, { encoding: "utf-8" }).trim(); } catch {}
+  console.log(`\n  ✅ done`);
+  if (after) console.log(`  to:   ${after}\n`);
+  else console.log("");
 } else if (!cmd || cmd === "--help" || cmd === "-h") {
   usage();
 } else {
   const handled =
     await routeComm(cmd, args) ||
+    await routeTeam(cmd, args) ||
     await routeAgent(cmd, args) ||
     await routeFleet(cmd, args) ||
     await routeWorkspace(cmd, args) ||

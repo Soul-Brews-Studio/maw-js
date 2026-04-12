@@ -19,9 +19,8 @@ mock.module("../src/paths", () => ({
   MAW_ROOT: "/tmp",
 }));
 
-mock.module("../src/config", () => ({
-  loadConfig: () => ({ node: "test-node" }),
-}));
+import { mockConfigModule } from "./helpers/mock-config";
+mock.module("../src/config", () => mockConfigModule(() => ({ node: "test-node" })));
 
 // Mock listSessions to return predictable data
 let mockSessions: MockSession[] = [
@@ -31,7 +30,10 @@ let mockSessions: MockSession[] = [
 
 mock.module("../src/ssh", () => ({
   listSessions: async (): Promise<MockSession[]> => mockSessions,
+  hostExec: async (): Promise<string> => "",
   ssh: async (): Promise<string> => "",
+  // Stub: real findWindow is tested in 00-ssh.test.ts (loads first alphabetically)
+  findWindow: (): string | null => null,
 }));
 
 const { takeSnapshot, listSnapshots, loadSnapshot, latestSnapshot, SNAPSHOT_DIR } = await import("../src/snapshot");

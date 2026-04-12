@@ -23,18 +23,7 @@ const PROTECTED = new Set([
   "/api/transport/send",
   "/api/triggers/fire",
   "/api/worktrees/cleanup",
-  // /api/worktrees/create is the emergency containment entry from Round 2
-  // bundle cleanup (R2C3). The handler in src/api/worktrees.ts:34-36
-  // interpolates body.repoPath and body.taskName into a shell string via
-  // execSync, which is an unauth RCE primitive from any non-loopback
-  // caller that lacks an Origin header. This entry closes the remote
-  // attack surface immediately by requiring HMAC. The durable
-  // execFileSync / argv-form refactor lives in a separate follow-up brief.
   "/api/worktrees/create",
-  // /api/config-file is sensitive on every method: GET reveals config,
-  // POST overwrites it, PUT creates fleet entries, DELETE removes them.
-  // Warden re-audit NEW-2 caught that PUT and DELETE bypassed the old
-  // POST-only gating. Promoted to fully PROTECTED.
   "/api/config-file",
 ]);
 
@@ -45,15 +34,7 @@ const PROTECTED_POST = new Set([
   "/api/pin-set",
 ]);
 
-/**
- * Method-agnostic protected path patterns. Used for routes with dynamic path
- * segments (e.g. /api/services/:name/restart) that an exact-match Set cannot
- * express. Everything matching one of these patterns is treated the same as
- * an entry in PROTECTED.
- */
 const PROTECTED_PATTERNS: RegExp[] = [
-  // Warden re-audit NEW-1: PM2 control plane must require auth on every
-  // method. Previously unauthenticated, reachable via loopback CSRF.
   /^\/api\/services\/[^/]+\/(restart|stop|start)$/,
 ];
 
@@ -120,26 +101,31 @@ export function federationAuth(): MiddlewareHandler {
     const config = loadConfig();
     const token = config.federationToken;
 
+    // No token configured → auth disabled (backwards compat)
+    if (!token) return next();
+
     const url = new URL(c.req.url);
     const path = url.pathname.replace(/^\/api/, "/api"); // normalize
 
     // Not a protected path → pass
     if (!isProtected(path, c.req.method)) return next();
 
-    // Determine client IP from the raw socket only. X-Forwarded-For / X-Real-IP
-    // are attacker-controlled when no trusted proxy is in front of us, and there
-    // is currently no trusted-proxy config, so we never honor them here.
+    // Check if loopback (local CLI / browser on same machine).
+    // SECURITY: only the TCP source address is authoritative — X-Forwarded-For
+    // and X-Real-IP are attacker-controlled headers and MUST NOT influence
+    // auth decisions. See #191 for the empirically-verified RCE vector
+    // (Test 3 on mba: POST /api/send to a non-loopback interface with
+    // `X-Forwarded-For: 127.0.0.1` bypassed HMAC entirely).
+    //
+    // NOTE: this fix closes Path A (header spoof from external IP) and
+    // Path C (forwarder + spoof combo), but DOES NOT close Path B (a local
+    // process — cloudflared, nginx, sidecar — forwarding to localhost makes
+    // the TCP source legitimately 127.0.0.1). The full fix (Option C in #191)
+    // is to remove this bypass entirely and have the local CLI sign all
+    // requests; this lands in a follow-up PR.
     const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
 
-    // Loopback (local CLI / browser on same machine) always passes.
     if (isLoopback(clientIp)) return next();
-
-    // Non-loopback + no token configured → fail closed instead of silently
-    // letting every protected route through. Remote callers must configure
-    // federationToken to use this server.
-    if (!token) {
-      return c.json({ error: "federation auth not configured", reason: "no_token" }, 503);
-    }
 
     // Check for HMAC signature
     const sig = c.req.header("x-maw-signature");

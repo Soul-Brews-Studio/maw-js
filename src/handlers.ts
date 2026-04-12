@@ -1,4 +1,4 @@
-import { sendKeys, selectWindow, ssh, getPaneCommand } from "./ssh";
+import { sendKeys, selectWindow, hostExec, getPaneCommand } from "./ssh";
 import { tmux } from "./tmux";
 import { buildCommand } from "./config";
 import type { MawWS, Handler, MawEngine } from "./types";
@@ -62,16 +62,9 @@ const stop: Handler = (ws, data) => {
   runAction(ws, "stop", data.target, () => tmux.killWindow(data.target));
 };
 
-const wake: Handler = async (ws, data) => {
+const wake: Handler = (ws, data) => {
+  // Use client command if provided, otherwise resolve from config
   const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
-  // Check if Claude is already running — skip wake to avoid polluting active session
-  try {
-    const paneCmd = await getPaneCommand(data.target);
-    if (/claude|codex|node/i.test(paneCmd)) {
-      ws.send(JSON.stringify({ type: "action-ok", action: "wake", target: data.target, note: "already running" }));
-      return;
-    }
-  } catch { /* pane check failed, proceed with wake */ }
   runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
 };
 
@@ -90,63 +83,29 @@ const kill: Handler = (ws, data) => {
   runAction(ws, "kill", data.target, () => tmux.killWindow(data.target));
 };
 
-/**
- * Whitelist of POSIX signals the WebSocket `signal` handler may forward.
- * Matches the set `kill(1)` on Linux + macOS accepts by name plus the
- * numeric fallbacks we actually use from the CLI. Anything not in this
- * set — including anything with a shell metacharacter — is rejected at
- * the handler layer before `ssh()` is ever called.
- */
 const ALLOWED_SIGNALS = new Set([
-  // Symbolic names (with or without SIG prefix)
-  "SIGHUP", "HUP",
-  "SIGINT", "INT",
-  "SIGQUIT", "QUIT",
-  "SIGKILL", "KILL",
-  "SIGUSR1", "USR1",
-  "SIGUSR2", "USR2",
-  "SIGTERM", "TERM",
-  "SIGCONT", "CONT",
-  "SIGSTOP", "STOP",
-  "SIGTSTP", "TSTP",
-  "SIGWINCH", "WINCH",
-  // Numeric equivalents for the names above
+  "SIGHUP", "HUP", "SIGINT", "INT", "SIGQUIT", "QUIT",
+  "SIGKILL", "KILL", "SIGUSR1", "USR1", "SIGUSR2", "USR2",
+  "SIGTERM", "TERM", "SIGCONT", "CONT", "SIGSTOP", "STOP",
+  "SIGTSTP", "TSTP", "SIGWINCH", "WINCH",
   "1", "2", "3", "9", "10", "12", "15", "18", "19", "20", "28",
 ]);
 
-/**
- * Shape check for the signal name. Belt-and-suspenders: even if a new
- * entry is added to ALLOWED_SIGNALS in the future, a regex rejection
- * of anything containing whitespace, `$`, backtick, `;`, `&`, `|`, `(`,
- * `)`, or quotes ensures the string cannot smuggle shell metacharacters
- * through. Anchored, bounded length, no backtracking risk.
- */
 const SIGNAL_SHAPE = /^(SIG[A-Z]{1,8}|[A-Z]{1,8}|[0-9]{1,2})$/;
 
 const signal: Handler = async (ws, data) => {
   const raw = typeof data.signal === "string" && data.signal.length > 0 ? data.signal : "SIGTERM";
-
-  // Validate BEFORE ssh() call. Two layers:
-  // 1. Regex shape check — cheap anchored guard, rejects any string with
-  //    shell metacharacters or whitespace before touching the Set lookup.
-  // 2. Explicit allowlist — only signals we actually use get forwarded.
   if (!SIGNAL_SHAPE.test(raw) || !ALLOWED_SIGNALS.has(raw)) {
-    // Log only the length, never the raw payload (NEW-13 avoidance).
     console.warn(`[handlers] rejected signal (len=${raw.length})`);
     ws.send(JSON.stringify({ type: "error", error: "invalid signal name" }));
     return;
   }
   const sig = raw;
-
   runAction(ws, "signal", data.target, async () => {
-    // Get pane PID then send signal
     const pid = await tmux.run("display-message", "-t", data.target, "-p", "#{pane_pid}");
     const trimmedPid = pid.trim();
     if (!trimmedPid || isNaN(Number(trimmedPid))) throw new Error("Could not get pane PID");
-    // `sig` is now a validated whitelist member (no shell metacharacters
-    // possible) and `trimmedPid` passed an isNaN guard. The durable
-    // argv-form fix for src/ssh.ts is scheduled for Round 5.
-    await ssh(`kill -${sig} ${trimmedPid}`);
+    await hostExec(`kill -${sig} ${trimmedPid}`);
   });
 };
 

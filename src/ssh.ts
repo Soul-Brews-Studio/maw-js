@@ -4,10 +4,11 @@ import { tmuxCmd } from "./tmux";
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
 
-export async function ssh(cmd: string, host = DEFAULT_HOST): Promise<string> {
+/** Transport — run on oracle host. local → bash -c | remote → ssh */
+export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string> {
   const local = host === "local" || host === "localhost" || IS_LOCAL;
   const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
   const text = await new Response(proc.stdout).text();
   const code = await proc.exited;
   if (code !== 0) {
@@ -17,24 +18,23 @@ export async function ssh(cmd: string, host = DEFAULT_HOST): Promise<string> {
   return text.trim();
 }
 
-export interface Window {
-  index: number;
-  name: string;
-  active: boolean;
-}
+/** @deprecated Use hostExec */
+export const ssh = hostExec;
 
-export interface Session {
-  name: string;
-  windows: Window[];
-}
+// Window/Session types and findWindow live in ./find-window.
+// They are NOT re-exported here — callers must import them directly
+// from "./find-window". This breaks the module dependency chain that
+// Bun's mock.module("../src/ssh") was using to clobber findWindow
+// in tests (see #198). Direct imports bypass the mock entirely.
+import type { Session } from "./find-window";
 
 export async function listSessions(host?: string): Promise<Session[]> {
   let raw: string;
-  try { raw = await ssh(`${tmuxCmd()} list-sessions -F '#{session_name}' 2>/dev/null`, host); }
+  try { raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}' 2>/dev/null`, host); }
   catch { return []; }
   const sessions: Session[] = [];
   for (const s of raw.split("\n").filter(Boolean)) {
-    const winRaw = await ssh(
+    const winRaw = await hostExec(
       `${tmuxCmd()} list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
       host,
     );
@@ -47,53 +47,23 @@ export async function listSessions(host?: string): Promise<Session[]> {
   return sessions;
 }
 
-export interface FindWindowOptions {
-  /**
-   * If the fuzzy match fails AND the query contains ":", return the raw query
-   * as-is (a tmux "session:window" address). Historically this was the default
-   * behavior, but it lets any caller smuggle a free-form tmux address straight
-   * to `sendKeys`, which is a network-accessible command injection when the
-   * caller is `/api/send`. It is therefore OFF by default. Only pass
-   * `allowRaw: true` from call sites that are not exposed over a network
-   * boundary and legitimately need tmux-address passthrough (local CLI tools).
-   */
-  allowRaw?: boolean;
-}
-
-export function findWindow(
-  sessions: Session[],
-  query: string,
-  opts: FindWindowOptions = {},
-): string | null {
-  const q = query.toLowerCase();
-  // Match window names first (most specific)
-  for (const s of sessions) {
-    for (const w of s.windows) {
-      if (w.name.toLowerCase().includes(q)) return `${s.name}:${w.name}`;
-    }
-  }
-  // Match session names — return first window of matching session
-  for (const s of sessions) {
-    if (s.name.toLowerCase().includes(q) && s.windows.length > 0) {
-      return `${s.name}:${s.windows[0].name}`;
-    }
-  }
-  // Raw colon passthrough: gated behind explicit opt-in (see FindWindowOptions).
-  if (opts.allowRaw && query.includes(":")) return query;
-  return null;
-}
-
 export async function capture(target: string, lines = 80, host?: string): Promise<string> {
   // -e preserves ANSI escape sequences (colors), -S captures scroll-back
   if (lines > 50) {
     // Grab full visible pane + some scrollback
-    return ssh(`${tmuxCmd()} capture-pane -t '${target}' -e -p -S -${lines} 2>/dev/null`, host);
+    return hostExec(`${tmuxCmd()} capture-pane -t '${target}' -e -p -S -${lines} 2>/dev/null`, host);
   }
-  return ssh(`${tmuxCmd()} capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
+  return hostExec(`${tmuxCmd()} capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
 }
 
 export async function selectWindow(target: string, host?: string): Promise<void> {
-  await ssh(`${tmuxCmd()} select-window -t '${target}' 2>/dev/null`, host);
+  await hostExec(`${tmuxCmd()} select-window -t '${target}' 2>/dev/null`, host);
+}
+
+export async function switchClient(session: string, host?: string): Promise<void> {
+  if (process.env.TMUX) {
+    await ssh(`${tmuxCmd()} switch-client -t '${session}' 2>/dev/null`, host).catch(() => {});
+  }
 }
 
 /** Get the command running in a tmux pane (e.g. "claude", "zsh") */

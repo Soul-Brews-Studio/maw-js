@@ -1,4 +1,4 @@
-import { listSessions, ssh } from "../ssh";
+import { listSessions, hostExec } from "../ssh";
 import { tmux } from "../tmux";
 import { loadConfig } from "../config";
 import { readdirSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "fs";
@@ -6,6 +6,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
 import { cmdReunion } from "./reunion";
+import { cmdSoulSync } from "./soul-sync";
 import { takeSnapshot } from "../snapshot";
 
 export interface DoneOpts {
@@ -57,7 +58,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     // Get pane's cwd for git operations
     let paneCwd = "";
     try {
-      paneCwd = (await ssh(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
+      paneCwd = (await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
     } catch { /* expected: pane may not exist */ }
 
     if (opts.dryRun) {
@@ -86,15 +87,15 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     if (paneCwd) {
       console.log(`  \x1b[36m⏳\x1b[0m git auto-save in ${paneCwd}...`);
       try {
-        await ssh(`git -C '${paneCwd}' add -A`);
+        await hostExec(`git -C '${paneCwd}' add -A`);
         try {
-          await ssh(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
+          await hostExec(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
           console.log(`  \x1b[32m✓\x1b[0m committed changes`);
         } catch {
           console.log(`  \x1b[90m○\x1b[0m nothing to commit`);
         }
         try {
-          await ssh(`git -C '${paneCwd}' push`);
+          await hostExec(`git -C '${paneCwd}' push`);
           console.log(`  \x1b[32m✓\x1b[0m pushed to remote`);
         } catch {
           console.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
@@ -107,8 +108,11 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     // Reunion: sync ψ/memory/ from worktree back to main oracle repo
     if (!opts.dryRun) {
       await cmdReunion(windowName);
+      // Soul-sync to configured peers (cell membrane export)
+      try { await cmdSoulSync(undefined, { cwd: paneCwd }); } catch { /* no peers configured */ }
     } else {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would run reunion (sync ψ/memory/ to main oracle)`);
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync to configured peers`);
     }
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
@@ -147,14 +151,14 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
         try {
           // Detect branch name before removing
           let branch = "";
-          try { branch = (await ssh(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
-          await ssh(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
-          await ssh(`git -C '${mainPath}' worktree prune`);
+          try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
+          await hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
+          await hostExec(`git -C '${mainPath}' worktree prune`);
           console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
           removedWorktree = true;
           // Clean up branch
           if (branch && branch !== "main" && branch !== "HEAD") {
-            try { await ssh(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected: branch may have unmerged changes */ }
+            try { await hostExec(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected: branch may have unmerged changes */ }
           }
         } catch (e: any) {
           console.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
@@ -169,7 +173,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     // EXACT match only — substring matching killed unrelated worktrees (#60)
     try {
       const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
-      const ghqOut = await ssh(`find ${ghqRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+      const ghqOut = await hostExec(`find ${ghqRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
       const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
       // Exact match: worktree dir must end with .wt-N-<suffix> or .wt-<suffix>
       const exactMatch = allWtPaths.filter(p => {
@@ -183,13 +187,13 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
         const mainPath = wtPath.replace(base, mainRepo);
         try {
           let branch = "";
-          try { branch = (await ssh(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
-          await ssh(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
-          await ssh(`git -C '${mainPath}' worktree prune`);
+          try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
+          await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
+          await hostExec(`git -C '${mainPath}' worktree prune`);
           console.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
           removedWorktree = true;
           if (branch && branch !== "main" && branch !== "HEAD") {
-            try { await ssh(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected: branch may have unmerged changes */ }
+            try { await hostExec(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected: branch may have unmerged changes */ }
           }
         } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
       }

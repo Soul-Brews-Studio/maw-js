@@ -3,8 +3,6 @@ import { registerBuiltinHandlers } from "../handlers";
 import { pushCapture, pushPreviews, broadcastSessions, sendBusyAgents } from "./capture";
 import { StatusDetector } from "./status";
 import { broadcastTeams } from "./teams";
-import { broadcastKanban } from "./kanban";
-import { setKanbanBroadcast, autoMoveOracleTasks } from "../api/kanban";
 import { getAggregatedSessions, getPeers } from "../peers";
 import { loadConfig, buildCommand, cfgInterval, cfgLimit } from "../config";
 import type { FeedEvent } from "../lib/feed";
@@ -30,11 +28,8 @@ export class MawEngine {
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private teamsInterval: ReturnType<typeof setInterval> | null = null;
   private peerInterval: ReturnType<typeof setInterval> | null = null;
-  private kanbanInterval: ReturnType<typeof setInterval> | null = null;
   private crashCheckInterval: ReturnType<typeof setInterval> | null = null;
   private lastTeamsJson = { value: "" };
-  private lastKanbanJson = { value: "" };
-  private lastOracleStatuses = new Map<string, string>();
   private feedUnsub: (() => void) | null = null;
   private transportRouter: TransportRouter | null = null;
 
@@ -45,8 +40,6 @@ export class MawEngine {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
     registerBuiltinHandlers(this);
-    // Wire kanban broadcast so API writes push to WS clients
-    setKanbanBroadcast(async () => broadcastKanban(this.clients, this.lastKanbanJson));
     // Eagerly load sessions on startup — don't wait for first WS client.
     // Fixes: MQTT/API messages dropped when no browser is connected.
     this.initSessionCache();
@@ -157,19 +150,6 @@ export class MawEngine {
     }, cfgInterval("preview"));
     this.statusInterval = setInterval(async () => {
       await this.status.detect(this.sessionCache.sessions, this.clients, this.feedListeners);
-      // Oracle -> Kanban auto-update: when oracle transitions busy -> idle/ready, move tasks to review
-      for (const s of this.sessionCache.sessions) {
-        for (const w of s.windows) {
-          const target = `${s.name}:${w.index}`;
-          const currentStatus = this.status.getStatus(target) || "idle";
-          const oracleName = w.name.replace(/-oracle$/, "");
-          const prevStatus = this.lastOracleStatuses.get(oracleName);
-          if (prevStatus === "busy" && (currentStatus === "idle" || currentStatus === "ready")) {
-            autoMoveOracleTasks(oracleName, "review").catch(() => {});
-          }
-          this.lastOracleStatuses.set(oracleName, currentStatus);
-        }
-      }
       // Publish presence to transport router (feeds MQTT/HTTP peers)
       if (this.transportRouter) {
         const config = loadConfig();
@@ -194,10 +174,6 @@ export class MawEngine {
     this.teamsInterval = setInterval(() => {
       broadcastTeams(this.clients, this.lastTeamsJson);
     }, cfgInterval("teams"));
-    // Kanban task broadcast — poll for changes every 5s
-    this.kanbanInterval = setInterval(() => {
-      broadcastKanban(this.clients, this.lastKanbanJson);
-    }, 5000);
     // Crash detection + auto-restart
     this.crashCheckInterval = setInterval(() => this.handleCrashedAgents(), cfgInterval("crashCheck"));
 
@@ -217,7 +193,6 @@ export class MawEngine {
     if (this.statusInterval) { clearInterval(this.statusInterval); this.statusInterval = null; }
     if (this.teamsInterval) { clearInterval(this.teamsInterval); this.teamsInterval = null; }
     if (this.peerInterval) { clearInterval(this.peerInterval); this.peerInterval = null; }
-    if (this.kanbanInterval) { clearInterval(this.kanbanInterval); this.kanbanInterval = null; }
     if (this.crashCheckInterval) { clearInterval(this.crashCheckInterval); this.crashCheckInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
   }

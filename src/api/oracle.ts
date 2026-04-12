@@ -37,14 +37,3 @@ oracleApi.get("/oracle/stats", async (c) => {
     return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
   }
 });
-
-oracleApi.get("/oracle/inbox", async (c) => {
-  const limit = c.req.query("limit") || "20";
-  const type = c.req.query("type") || "all";
-  try {
-    const res = await fetch(`${ORACLE_URL}/api/inbox?limit=${limit}&type=${type}`);
-    return c.json(await res.json());
-  } catch (e: any) {
-    return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
-  }
-});

@@ -1,17 +1,12 @@
 module.exports = {
   apps: [
     {
-      name: 'maw-js',
+      name: 'maw',
       script: 'src/server.ts',
-      interpreter: '/home/lfz/.bun/bin/bun',
-      // Watch intentionally disabled. Bastion ran the runtime disable at
-      // deploy time via `pm2 restart maw-js --watch false` (see
-      // sofia-reply-bastion-watch-disable.md). This config-level false
-      // makes the disable durable across `pm2 reload ecosystem.config.cjs`,
-      // which would otherwise re-enable watch from the previous `watch:
-      // ['src']` declaration. To re-enable locally for development, set
-      // watch: ['src'] temporarily — do not commit that.
-      watch: false,
+      interpreter: '/home/nat/.bun/bin/bun',
+      watch: ['src'],
+      watch_delay: 500,
+      ignore_watch: ['node_modules', 'ui'],
       env: {
         MAW_HOST: 'local',
         MAW_PORT: '3456',
@@ -19,9 +14,19 @@ module.exports = {
     },
     {
       name: 'maw-boot',
-      script: 'src/cli.ts',
-      args: 'wake all --resume',
-      interpreter: '/home/lfz/.bun/bin/bun',
+      // Launcher shim: PM2 wraps spawned processes with require-in-the-middle,
+      // which sync-require()s the entry file. src/cli.ts is an ESM async module
+      // (top-level await) → require() throws on Windows and some Linux setups:
+      //
+      //   TypeError: require() async module "...src/cli.ts" is unsupported.
+      //   use "await import()" instead.
+      //
+      // The .cjs shim is require-safe and spawns bun via child_process,
+      // bypassing the PM2 require hook entirely.
+      // See scripts/maw-boot.launcher.cjs.
+      script: 'scripts/maw-boot.launcher.cjs',
+      args: ['wake', 'all', '--resume'],
+      interpreter: 'node',
       // One-shot: spawn fleet after server starts, don't restart
       autorestart: false,
       // Give maw server time to come up
@@ -31,7 +36,7 @@ module.exports = {
     {
       name: 'maw-broker',
       script: 'src/broker.ts',
-      interpreter: '/home/lfz/.bun/bin/bun',
+      interpreter: '/home/nat/.bun/bin/bun',
       autorestart: true,
       watch: false,
       env: {

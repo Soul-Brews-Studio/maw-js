@@ -1,4 +1,4 @@
-import { ssh } from "../ssh";
+import { hostExec } from "../ssh";
 import { tmux } from "../tmux";
 import { buildCommand } from "../config";
 import { findWorktrees } from "./wake";
@@ -6,7 +6,7 @@ import { findWorktrees } from "./wake";
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
   const searchTerm = repo.includes("/") ? repo.split("/").pop()! : repo;
-  const ghqOut = await ssh(`ghq list --full-path | grep -i '/${searchTerm}$' | head -1`);
+  const ghqOut = await hostExec(`ghq list --full-path | grep -i '/${searchTerm}$' | head -1`);
   if (!ghqOut?.trim()) {
     console.error(`repo not found: ${repo}`);
     process.exit(1);
@@ -37,8 +37,8 @@ export async function cmdWorkon(repo: string, task?: string): Promise<void> {
       const wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
       const branch = `agents/${wtName}`;
 
-      try { await ssh(`git -C '${repoPath}' branch -D '${branch}' 2>/dev/null`); } catch { /* expected: branch may not exist */ }
-      await ssh(`git -C '${repoPath}' worktree add '${wtPath}' -b '${branch}'`);
+      try { await hostExec(`git -C '${repoPath}' branch -D '${branch}' 2>/dev/null`); } catch { /* expected: branch may not exist */ }
+      await hostExec(`git -C '${repoPath}' worktree add '${wtPath}' -b '${branch}'`);
       console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
       targetPath = wtPath;
     }
@@ -50,7 +50,7 @@ export async function cmdWorkon(repo: string, task?: string): Promise<void> {
     console.error("not in a tmux session — run inside tmux");
     process.exit(1);
   }
-  const session = (await ssh("tmux display-message -p '#{session_name}'").catch(() => "")).trim();
+  const session = (await hostExec("tmux display-message -p '#{session_name}'").catch(() => "")).trim();
   if (!session) {
     console.error("could not detect current tmux session");
     process.exit(1);
