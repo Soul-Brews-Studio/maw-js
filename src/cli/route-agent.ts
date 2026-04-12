@@ -1,5 +1,5 @@
 import { cmdWake, fetchIssuePrompt } from "../commands/wake";
-import { parseWakeTarget, ensureCloned } from "../commands/wake-resolve";
+import { parseWakeTarget, ensureCloned } from "../commands/wake-target";
 import { cmdWakeAll, cmdSleep } from "../commands/fleet";
 import { cmdDone } from "../commands/done";
 import { cmdSleepOne } from "../commands/sleep";

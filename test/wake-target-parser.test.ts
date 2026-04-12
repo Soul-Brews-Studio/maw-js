@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseWakeTarget } from "../src/commands/wake-resolve";
+import { parseWakeTarget } from "../src/commands/wake-target";
 
 describe("parseWakeTarget — GitHub URLs", () => {
   test("basic HTTPS URL", () => {
