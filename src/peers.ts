@@ -12,24 +12,43 @@ export interface PeerStatus {
   latency?: number;
   node?: string;
   agents?: string[];
+  clockDeltaMs?: number;
+  clockWarning?: boolean;
 }
+
+/** Clock drift warning threshold — 3 minutes (early warning before 5-min HMAC cutoff) (#268) */
+const CLOCK_WARN_MS = 3 * 60 * 1000;
 
 /**
  * Check if a peer is reachable by making a HEAD request
  */
-async function checkPeerReachable(url: string): Promise<{ reachable: boolean; latency: number; node?: string; agents?: string[] }> {
+async function checkPeerReachable(url: string): Promise<{
+  reachable: boolean; latency: number; node?: string; agents?: string[]; clockDeltaMs?: number;
+}> {
   const start = Date.now();
   try {
     const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
     const latency = Date.now() - start;
-    // Fetch identity for node dedup (#192)
+    // Fetch identity for node dedup (#192) + clock delta (#268)
     let node: string | undefined;
     let agents: string[] | undefined;
+    let clockDeltaMs: number | undefined;
     try {
+      const beforeId = Date.now();
       const id = await curlFetch(`${url}/api/identity`, { timeout: cfgTimeout("http") });
-      if (id.ok && id.data) { node = id.data.node; agents = id.data.agents; }
+      const afterId = Date.now();
+      if (id.ok && id.data) {
+        node = id.data.node;
+        agents = id.data.agents;
+        // Compute clock delta if peer exposes clockUtc (#268)
+        if (id.data.clockUtc) {
+          const peerTime = new Date(id.data.clockUtc).getTime();
+          const localTime = (beforeId + afterId) / 2; // midpoint compensates for network latency
+          clockDeltaMs = peerTime - localTime;
+        }
+      }
     } catch {}
-    return { reachable: res.ok, latency, node, agents };
+    return { reachable: res.ok, latency, node, agents, clockDeltaMs };
   } catch {
     return { reachable: false, latency: Date.now() - start };
   }
@@ -104,13 +123,18 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
 }
 
 /**
- * Get federation status — list peers and check connectivity
+ * Get federation status — list peers and check connectivity + clock health (#268)
  */
 export async function getFederationStatus(): Promise<{
   localUrl: string;
   peers: PeerStatus[];
   totalPeers: number;
   reachablePeers: number;
+  clockHealth: {
+    clockUtc: string;
+    timezone: string;
+    uptimeSeconds: number;
+  };
 }> {
   const config = loadConfig();
   const peers = getPeers();
@@ -118,8 +142,8 @@ export async function getFederationStatus(): Promise<{
   const localUrl = `http://localhost:${port}`;
 
   const rawStatuses = await Promise.all(peers.map(async (url) => {
-    const { reachable, latency, node, agents } = await checkPeerReachable(url);
-    return { url, reachable, latency, node, agents };
+    const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
+    return { url, reachable, latency, node, agents, clockDeltaMs };
   }));
 
   // Dedup by node identity (#190) — keep fastest URL per node
@@ -128,7 +152,8 @@ export async function getFederationStatus(): Promise<{
     const key = s.node || s.url; // fall back to URL if no identity
     const existing = byNode.get(key);
     if (!existing || (s.reachable && (!existing.reachable || (s.latency ?? Infinity) < (existing.latency ?? Infinity)))) {
-      byNode.set(key, s);
+      const clockWarning = s.clockDeltaMs != null ? Math.abs(s.clockDeltaMs) > CLOCK_WARN_MS : undefined;
+      byNode.set(key, { ...s, clockWarning });
     }
   }
   const statuses = [...byNode.values()];
@@ -139,6 +164,11 @@ export async function getFederationStatus(): Promise<{
     peers: statuses,
     totalPeers: peers.length,
     reachablePeers,
+    clockHealth: {
+      clockUtc: new Date().toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      uptimeSeconds: Math.floor(process.uptime()),
+    },
   };
 }
 

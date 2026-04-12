@@ -33,7 +33,7 @@ federationApi.get("/snapshots/:id", (c) => {
   return c.json(snap);
 });
 
-/** Node identity — public endpoint for federation dedup (#192). */
+/** Node identity — public endpoint for federation dedup (#192) + clock health (#268). */
 federationApi.get("/identity", async (c) => {
   const config = loadConfig();
   const node = config.node ?? "local";
@@ -44,6 +44,7 @@ federationApi.get("/identity", async (c) => {
     version: pkg.version,
     agents,
     uptime: Math.floor(process.uptime()),
+    clockUtc: new Date().toISOString(),
   });
 });
 
