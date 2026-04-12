@@ -1,7 +1,7 @@
 /**
  * Nanoclaw bridge — sends messages from maw-js through nanoclaw to any channel.
  *
- * POST nanoclaw:PORT/inbound → nanoclaw routes to Telegram/Discord/etc.
+ * POST nanoclaw:PORT/send → nanoclaw routes to Telegram/Discord/etc.
  * Config: maw.config.json → nanoclaw: { url, channels: { nat: "tg:123456789" } }
  *
  * Built by white:mawjs-oracle as the maw-js side of the nanoclaw maw channel
@@ -44,7 +44,7 @@ export function resolveNanoclawJid(target: string): { jid: string; url: string }
 /** Send a message through nanoclaw to any channel */
 export async function sendViaNanoclaw(jid: string, text: string, url: string): Promise<boolean> {
   try {
-    const res = await curlFetch(`${url}/inbound`, {
+    const res = await curlFetch(`${url}/send`, {
       method: "POST",
       body: JSON.stringify({ jid, text }),
     });

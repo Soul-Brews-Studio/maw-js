@@ -8,6 +8,7 @@ import { TmuxTransport } from "./tmux";
 import { HttpTransport } from "./http";
 import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { LoRaTransport } from "./lora";
+import { NanoclawTransport } from "./nanoclaw";
 
 /** Singleton router instance */
 let router: TransportRouter | null = null;
@@ -40,7 +41,10 @@ export function createTransportRouter(): TransportRouter {
     );
   }
 
-  // 4. LoRa (future hardware — stub, canReach() always false)
+  // 4. NanoClaw (external chat channels — Telegram, Discord, etc.)
+  router.register(new NanoclawTransport());
+
+  // 5. LoRa (future hardware — stub, canReach() always false)
   router.register(new LoRaTransport());
 
   return router;
@@ -62,4 +66,5 @@ export function resetTransportRouter() {
 export { TmuxTransport } from "./tmux";
 export { HubTransport } from "./hub";
 export { HttpTransport } from "./http";
+export { NanoclawTransport } from "./nanoclaw";
 export { LoRaTransport } from "./lora";
