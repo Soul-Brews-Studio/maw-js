@@ -12,6 +12,7 @@
 
 import { findWindow, type Session } from "./find-window";
 import type { MawConfig } from "./config";
+import { resolveFleetSession } from "./commands/wake";
 
 export type ResolveResult =
   | { type: "local"; target: string }
@@ -33,10 +34,20 @@ export function resolveTarget(
 
   const selfNode = config.node ?? "local";
 
-  // --- Step 1: Local findWindow ---
+  // --- Step 1: Local findWindow + fleet config ---
   const localTarget = findWindow(sessions, query);
   if (localTarget) {
     return { type: "local", target: localTarget };
+  }
+  // Fleet config: oracle name → session name → findWindow (#281)
+  const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
+  if (fleetSession) {
+    const fleetTarget = findWindow(sessions.filter(s => s.name === fleetSession), query)
+      || findWindow(sessions.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
+    if (fleetTarget) return { type: "local", target: fleetTarget };
+    // Fleet config matched but session not running — try first window of fleet session
+    const fleetSess = sessions.find(s => s.name === fleetSession);
+    if (fleetSess?.windows.length) return { type: "local", target: `${fleetSession}:${fleetSess.windows[0].index}` };
   }
 
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---
@@ -48,9 +59,15 @@ export function resolveTarget(
 
     // Self-node check: "white:mawjs" from white → resolve locally
     if (nodeName === selfNode) {
-      // Try local findWindow with just the agent part
       const selfTarget = findWindow(sessions, agentName);
-      return selfTarget ? { type: "self-node", target: selfTarget } : { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
+      if (selfTarget) return { type: "self-node", target: selfTarget };
+      // Try fleet config resolution (#281)
+      const selfFleet = resolveFleetSession(agentName) || resolveFleetSession(agentName.replace(/-oracle$/, ""));
+      if (selfFleet) {
+        const fleetSess = sessions.find(s => s.name === selfFleet);
+        if (fleetSess?.windows.length) return { type: "self-node", target: `${selfFleet}:${fleetSess.windows[0].index}` };
+      }
+      return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }
 
     // Remote node: find peer URL
