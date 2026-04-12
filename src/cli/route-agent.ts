@@ -79,6 +79,12 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
   }
   if (cmd === "bud") {
     if (!args[1] || args[1] === "--help" || args[1] === "-h") { console.error("usage: maw bud <name> [--from <oracle>] [--root] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--dry-run]"); process.exit(1); }
+    // Guard: if first arg looks like a flag, user forgot the name
+    if (args[1].startsWith("--")) {
+      console.error(`  \x1b[31m✗\x1b[0m "${args[1]}" looks like a flag, not an oracle name.`);
+      console.error(`  \x1b[90m  usage: maw bud <name> ${args.slice(1).join(" ")}\x1b[0m`);
+      process.exit(1);
+    }
     const budOpts: { from?: string; repo?: string; org?: string; issue?: number; fast?: boolean; root?: boolean; dryRun?: boolean; note?: string } = {};
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];

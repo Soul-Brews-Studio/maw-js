@@ -19,10 +19,10 @@ logAudit(cmd || "", args);
 function getVersionString(): string {
   const pkg = require("../package.json");
   let hash = "";
-  try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
+  try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir, stdio: "pipe" }).toString().trim(); } catch {}
   let buildDate = "";
   try {
-    const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir }).toString().trim();
+    const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir, stdio: "pipe" }).toString().trim();
     const d = new Date(raw);
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
@@ -43,7 +43,7 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
   execSync(`bun add -g github:${repository}#${ref}`, { stdio: "inherit" });
   let after = "";
-  try { after = execSync(`maw --version`, { encoding: "utf-8" }).trim(); } catch {}
+  try { after = execSync(`maw --version`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch {}
   console.log(`\n  ✅ done`);
   if (after) console.log(`  to:   ${after}\n`);
   else console.log("");
