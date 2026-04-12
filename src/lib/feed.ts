@@ -69,8 +69,8 @@ export function parseLine(line: string): FeedEvent | null {
     sessionId = rest.trim();
   }
 
-  // Parse timestamp to epoch ms
-  const ts = new Date(timestamp.replace(" ", "T") + "+07:00").getTime();
+  // Parse timestamp to epoch ms (no offset → parsed as system local time)
+  const ts = new Date(timestamp.replace(" ", "T")).getTime();
   if (isNaN(ts)) return null;
 
   return { timestamp, oracle, host, event, project, sessionId, message, ts };
