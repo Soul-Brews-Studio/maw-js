@@ -6,34 +6,49 @@ import { cmdSleepOne } from "../commands/sleep";
 import { cmdOracleList, cmdOracleAbout, cmdOracleScan, cmdOracleFleet } from "../commands/oracle";
 import { cmdTake } from "../commands/take";
 import { cmdBud } from "../commands/bud";
+import { parseFlags } from "./parse-args";
 
 export async function routeAgent(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "wake") {
     if (!args[1]) { console.error("usage: maw wake <oracle|org/repo|URL> [task] [--new <name>] [--fresh] [--no-attach] [--list]\n       maw wake all [--kill]"); process.exit(1); }
     if (args[1].toLowerCase() === "all") {
-      await cmdWakeAll({ kill: args.includes("--kill"), all: args.includes("--all"), resume: args.includes("--resume") });
+      const flags = parseFlags(args, { "--kill": Boolean, "--all": Boolean, "--resume": Boolean }, 2);
+      await cmdWakeAll({ kill: flags["--kill"], all: flags["--all"], resume: flags["--resume"] });
     } else {
+      const flags = parseFlags(args, {
+        "--new": String,
+        "--incubate": String,
+        "--issue": Number,
+        "--repo": String,
+        "--fresh": Boolean,
+        "--no-attach": Boolean,
+        "--list": Boolean,
+        "--ls": "--list",
+      }, 2);
+
       const wakeOpts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; noAttach?: boolean; listWt?: boolean } = {};
-      let issueNum: number | null = null;
-      let repo: string | undefined;
-      // Detect URL or org/repo slug → clone via ghq, then let resolveOracle find it
+      let issueNum: number | null = flags["--issue"] ?? null;
+      let repo: string | undefined = flags["--repo"];
+
+      // Detect URL or org/repo slug → clone via ghq
       const parsed = parseWakeTarget(args[1]);
       const oracleName = parsed ? parsed.oracle : args[1];
       if (parsed) {
         await ensureCloned(parsed.slug);
         if (parsed.issueNum) { issueNum = parsed.issueNum; repo = parsed.slug; }
       }
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }
-        else if (args[i] === "--incubate" && args[i + 1]) { wakeOpts.incubate = args[++i]; }
-        else if (args[i] === "--issue" && args[i + 1]) { issueNum = +args[++i]; }
-        else if (args[i] === "--repo" && args[i + 1]) { repo = args[++i]; }
-        else if (args[i] === "--fresh") { wakeOpts.fresh = true; }
-        else if (args[i] === "--no-attach") { wakeOpts.noAttach = true; }
-        else if (args[i] === "--list" || args[i] === "--ls") { wakeOpts.listWt = true; }
-        else if (!wakeOpts.task) { wakeOpts.task = args[i]; }
-        else if (!wakeOpts.prompt) { wakeOpts.prompt = args.slice(i).join(" "); break; }
-      }
+
+      if (flags["--new"]) wakeOpts.newWt = flags["--new"];
+      if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
+      if (flags["--fresh"]) wakeOpts.fresh = true;
+      if (flags["--no-attach"]) wakeOpts.noAttach = true;
+      if (flags["--list"]) wakeOpts.listWt = true;
+
+      // Positional args after oracle name: task, then prompt
+      const positionals = flags._;
+      if (positionals.length > 0) wakeOpts.task = positionals[0];
+      if (positionals.length > 1) wakeOpts.prompt = positionals.slice(1).join(" ");
+
       if (wakeOpts.incubate && !repo) { repo = wakeOpts.incubate; }
       if (issueNum) {
         console.log(`\x1b[36m⚡\x1b[0m fetching issue #${issueNum}...`);
@@ -57,10 +72,10 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
   }
   if (cmd === "done" || cmd === "finish") {
     if (!args[1]) { console.error("usage: maw done <window-name> [--force] [--dry-run]\n       e.g. maw done neo-freelance"); process.exit(1); }
-    const force = args.includes("--force");
-    const dryRun = args.includes("--dry-run");
-    const name = args.slice(1).find(a => !a.startsWith("--"))!;
-    await cmdDone(name, { force, dryRun });
+    const flags = parseFlags(args, { "--force": Boolean, "--dry-run": Boolean }, 1);
+    const name = flags._[0];
+    if (!name) { console.error("usage: maw done <window-name> [--force] [--dry-run]"); process.exit(1); }
+    await cmdDone(name, { force: flags["--force"], dryRun: flags["--dry-run"] });
     return true;
   }
   if (cmd === "stop" || cmd === "rest") {
@@ -78,25 +93,39 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
     return true;
   }
   if (cmd === "bud") {
-    if (!args[1] || args[1] === "--help" || args[1] === "-h") { console.error("usage: maw bud <name> [--from <oracle>] [--root] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--dry-run]"); process.exit(1); }
-    // Guard: if first arg looks like a flag, user forgot the name
-    if (args[1].startsWith("--")) {
-      console.error(`  \x1b[31m✗\x1b[0m "${args[1]}" looks like a flag, not an oracle name.`);
+    const flags = parseFlags(args, {
+      "--from": String,
+      "--org": String,
+      "--repo": String,
+      "--issue": Number,
+      "--note": String,
+      "--fast": Boolean,
+      "--root": Boolean,
+      "--dry-run": Boolean,
+    }, 1);
+
+    const name = flags._[0];
+    if (!name || name === "--help" || name === "-h") {
+      console.error("usage: maw bud <name> [--from <oracle>] [--root] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--dry-run]");
+      process.exit(1);
+    }
+    // Guard: if name looks like a flag, user forgot the name (e.g. "maw bud --from url")
+    if (name.startsWith("--")) {
+      console.error(`  \x1b[31m✗\x1b[0m "${name}" looks like a flag, not an oracle name.`);
       console.error(`  \x1b[90m  usage: maw bud <name> ${args.slice(1).join(" ")}\x1b[0m`);
       process.exit(1);
     }
-    const budOpts: { from?: string; repo?: string; org?: string; issue?: number; fast?: boolean; root?: boolean; dryRun?: boolean; note?: string } = {};
-    for (let i = 2; i < args.length; i++) {
-      if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];
-      else if (args[i] === "--org" && args[i + 1]) budOpts.org = args[++i];
-      else if (args[i] === "--repo" && args[i + 1]) budOpts.repo = args[++i];
-      else if (args[i] === "--issue" && args[i + 1]) budOpts.issue = +args[++i];
-      else if (args[i] === "--note" && args[i + 1]) budOpts.note = args[++i];
-      else if (args[i] === "--fast") budOpts.fast = true;
-      else if (args[i] === "--root") budOpts.root = true;
-      else if (args[i] === "--dry-run") budOpts.dryRun = true;
-    }
-    await cmdBud(args[1], budOpts);
+
+    await cmdBud(name, {
+      from: flags["--from"],
+      repo: flags["--repo"],
+      org: flags["--org"],
+      issue: flags["--issue"],
+      note: flags["--note"],
+      fast: flags["--fast"],
+      root: flags["--root"],
+      dryRun: flags["--dry-run"],
+    });
     return true;
   }
   if (cmd === "oracle" || cmd === "oracles") {
@@ -104,19 +133,30 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
     if (!subcmd || subcmd === "ls" || subcmd === "list") {
       await cmdOracleList();
     } else if (subcmd === "scan") {
-      const json = args.includes("--json");
-      const force = args.includes("--force");
-      const local = args.includes("--local");
-      const remote = args.includes("--remote");
-      const all = args.includes("--all");
-      const verbose = args.includes("--verbose") || args.includes("-v");
-      await cmdOracleScan({ json, force, local, remote, all, verbose });
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--force": Boolean,
+        "--local": Boolean,
+        "--remote": Boolean,
+        "--all": Boolean,
+        "--verbose": Boolean,
+        "-v": "--verbose",
+      }, 2);
+      await cmdOracleScan({
+        json: flags["--json"],
+        force: flags["--force"],
+        local: flags["--local"],
+        remote: flags["--remote"],
+        all: flags["--all"],
+        verbose: flags["--verbose"],
+      });
     } else if (subcmd === "fleet") {
-      const json = args.includes("--json");
-      const stale = args.includes("--stale");
-      const orgIdx = args.indexOf("--org");
-      const org = orgIdx >= 0 ? args[orgIdx + 1] : undefined;
-      await cmdOracleFleet({ json, stale, org });
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--stale": Boolean,
+        "--org": String,
+      }, 2);
+      await cmdOracleFleet({ json: flags["--json"], stale: flags["--stale"], org: flags["--org"] });
     } else if (subcmd === "about" && args[2]) {
       await cmdOracleAbout(args[2]);
     } else {
