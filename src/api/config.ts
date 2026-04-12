@@ -141,7 +141,11 @@ configApi.post("/pin-verify", async (c) => {
   const correct = config.pin || "";
   if (!correct) return c.json({ ok: true });
   const ok = pin === correct;
-  if (ok) pinAttempts.delete(ip); // reset on success
+  if (ok) {
+    pinAttempts.delete(ip);
+    const { createToken } = await import("../lib/auth");
+    return c.json({ ok, token: createToken() });
+  }
   return c.json({ ok });
 });
 
