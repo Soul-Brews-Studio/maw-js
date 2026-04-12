@@ -5,7 +5,7 @@
 ## Architecture
 
 ```
-evilelfza/maw-js          evilelfza/maw-ui
+Soul-Brews-Studio/maw-js          Soul-Brews-Studio/maw-ui
 ├── src/          (backend)        ├── src/          (React app)
 │   ├── api/      (Hono routes)    │   ├── components/
 │   ├── commands/ (CLI)            │   ├── hooks/
@@ -25,16 +25,16 @@ evilelfza/maw-js          evilelfza/maw-ui
 ## Quick Start
 
 ```bash
-bunx --bun github:evilelfza/maw-js ls
-bunx --bun github:evilelfza/maw-js peek neo
-bunx --bun github:evilelfza/maw-js hey neo "how are you"
+bunx --bun github:Soul-Brews-Studio/maw-js ls
+bunx --bun github:Soul-Brews-Studio/maw-js peek neo
+bunx --bun github:Soul-Brews-Studio/maw-js hey neo "how are you"
 ```
 
 ## Install
 
 ```bash
-ghq get evilelfza/maw-js
-cd $(ghq root)/github.com/evilelfza/maw-js
+ghq get Soul-Brews-Studio/maw-js
+cd $(ghq root)/github.com/Soul-Brews-Studio/maw-js
 bun install && bun link
 maw ls
 ```
@@ -85,7 +85,7 @@ maw ping                           # → ✅ mba — 42ms, auth: ok
 
 ## Deploy (frontend)
 
-Frontend lives in [maw-ui](https://github.com/evilelfza/maw-ui). Deploy:
+Frontend lives in [maw-ui](https://github.com/Soul-Brews-Studio/maw-ui). Deploy:
 
 ```bash
 cd /path/to/maw-ui
@@ -109,6 +109,8 @@ Dev server: `bun run dev` on maw-ui (:5173, proxies API to :3456).
 | `#config` | JSON config editor |
 | `/federation` | Mesh status + join guide |
 | `/timemachine` | Fleet Time Machine (snapshot browser) |
+
+**Federation API reference**: see [`docs/federation.md`](docs/federation.md) for the v1 public endpoints (`/api/config`, `/api/fleet-config`, `/api/feed`, `/api/federation/status`) — shape contract, load-bearing fields, and what not to build in a v1 lens. First consumer: [maw-ui#8](https://github.com/Soul-Brews-Studio/maw-ui/pull/8).
 
 ## Evolution
 

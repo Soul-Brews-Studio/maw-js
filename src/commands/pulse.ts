@@ -1,4 +1,4 @@
-import { ssh } from "../ssh";
+import { hostExec } from "../ssh";
 import { cmdWake } from "./wake";
 
 const THAI_DAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
@@ -37,7 +37,7 @@ async function findOrCreateDailyThread(repo: string): Promise<{ url: string; num
   const threadTitle = `📅 ${label} Daily Thread`;
 
   // Search for existing daily thread (match by date only)
-  const existing = (await ssh(
+  const existing = (await hostExec(
     `gh issue list --repo ${repo} --search '${searchDate} in:title' --state open --json number,url,title --limit 1`
   )).trim();
   const parsed = JSON.parse(existing || "[]");
@@ -46,7 +46,7 @@ async function findOrCreateDailyThread(repo: string): Promise<{ url: string; num
   }
 
   // Create new daily thread with Thai day name
-  const url = (await ssh(
+  const url = (await hostExec(
     `gh issue create --repo ${repo} -t '${threadTitle.replace(/'/g, "'\\''")}' -b 'Tasks for ${label}' -l daily-thread`
   )).trim();
   const m = url.match(/\/(\d+)$/);
@@ -57,7 +57,7 @@ async function findOrCreateDailyThread(repo: string): Promise<{ url: string; num
 
 async function ensurePeriodComments(repo: string, threadNum: number): Promise<Record<string, { id: string; body: string }>> {
   // Fetch existing comments
-  const commentsJson = (await ssh(
+  const commentsJson = (await hostExec(
     `gh api repos/${repo}/issues/${threadNum}/comments --jq '[.[] | {id: .id, body: .body}]'`
   )).trim();
   const comments: { id: string; body: string }[] = JSON.parse(commentsJson || "[]");
@@ -72,7 +72,7 @@ async function ensurePeriodComments(repo: string, threadNum: number): Promise<Re
       // Create period comment
       const body = `${p.label}\n\n_(no tasks yet)_`;
       const escaped = body.replace(/'/g, "'\\''");
-      const created = (await ssh(
+      const created = (await hostExec(
         `gh api repos/${repo}/issues/${threadNum}/comments -f body='${escaped}' --jq '.id'`
       )).trim();
       result[p.key] = { id: created, body };
@@ -101,7 +101,7 @@ async function addTaskToPeriodComment(repo: string, threadNum: number, period: s
 
   // Use -f body= for update
   const escaped = newBody.replace(/'/g, "'\\''");
-  await ssh(`gh api repos/${repo}/issues/comments/${comment.id} -X PATCH -f body='${escaped}'`);
+  await hostExec(`gh api repos/${repo}/issues/comments/${comment.id} -X PATCH -f body='${escaped}'`);
 }
 
 export async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }) {
@@ -118,7 +118,7 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
   if (opts.oracle) labels.push(`oracle:${opts.oracle}`);
   const labelFlags = labels.length ? labels.map(l => `-l '${l}'`).join(" ") : "";
 
-  const issueUrl = (await ssh(
+  const issueUrl = (await hostExec(
     `gh issue create --repo ${repo} -t '${escaped}' ${labelFlags} -b 'Parent: #${thread.num}'`
   )).trim();
   const m = issueUrl.match(/\/(\d+)$/);
@@ -131,7 +131,7 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
 
   // 3. Add to Master Board
   try {
-    await ssh(`gh project item-add ${projectNum} --owner laris-co --url '${issueUrl}'`);
+    await hostExec(`gh project item-add ${projectNum} --owner laris-co --url '${issueUrl}'`);
     console.log(`\x1b[32m+\x1b[0m added to Master Board (#${projectNum})`);
   } catch (e) {
     console.log(`\x1b[33mwarn:\x1b[0m could not add to project board: ${e}`);
@@ -157,7 +157,7 @@ export async function cmdPulseLs(opts: { sync?: boolean }) {
   const repo = "laris-co/pulse-oracle";
 
   // Fetch all open issues
-  const issuesJson = (await ssh(
+  const issuesJson = (await hostExec(
     `gh issue list --repo ${repo} --state open --json number,title,labels --limit 50`
   )).trim();
   const issues: { number: number; title: string; labels: { name: string }[] }[] = JSON.parse(issuesJson || "[]");
@@ -254,17 +254,17 @@ export async function cmdPulseLs(opts: { sync?: boolean }) {
     const body = lines.join("\n").replace(/'/g, "'\\''");
 
     // Find or create index comment
-    const commentsJson2 = (await ssh(
+    const commentsJson2 = (await hostExec(
       `gh api repos/${repo}/issues/${thread.number}/comments --jq '[.[] | {id: .id, body: .body}]'`
     )).trim();
     const comments: { id: string; body: string }[] = JSON.parse(commentsJson2 || "[]");
     const indexComment = comments.find(c => c.body.includes("Pulse Board Index"));
 
     if (indexComment) {
-      await ssh(`gh api repos/${repo}/issues/comments/${indexComment.id} -X PATCH -f body='${body}'`);
+      await hostExec(`gh api repos/${repo}/issues/comments/${indexComment.id} -X PATCH -f body='${body}'`);
       console.log(`\x1b[32m✅\x1b[0m synced to daily thread #${thread.number}`);
     } else {
-      await ssh(`gh api repos/${repo}/issues/${thread.number}/comments -f body='${body}'`);
+      await hostExec(`gh api repos/${repo}/issues/${thread.number}/comments -f body='${body}'`);
       console.log(`\x1b[32m+\x1b[0m index posted to daily thread #${thread.number}`);
     }
   }

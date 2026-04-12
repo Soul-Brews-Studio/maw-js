@@ -441,7 +441,12 @@ async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number
         const suffix = wtBase.replace(`${repoName}.wt-`, "");
         const taskPart = suffix.replace(/^\d+-/, "");
         let windowName = `${oracleName}-${taskPart}`;
-        if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
+        if (usedNames.has(windowName)) {
+          // If collision is with fleet config or running window, this worktree is already covered
+          if (registeredNames.has(windowName) || runningWindows.includes(windowName)) continue;
+          // True collision with another worktree in this loop → use numbered fallback
+          windowName = `${oracleName}-${suffix}`;
+        }
         const altName = `${oracleName}-${suffix}`; // old-style name with number
 
         // Skip if already registered in fleet config or running

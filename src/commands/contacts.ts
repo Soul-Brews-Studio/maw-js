@@ -6,6 +6,8 @@ import { loadConfig } from "../config";
 interface Contact {
   maw?: string;
   thread?: string;
+  inbox?: string | null;
+  repo?: string | null;
   notes?: string;
   retired?: boolean;
 }
@@ -44,8 +46,10 @@ export async function cmdContactsLs() {
   for (const [name, c] of active) {
     const maw = c.maw ? `maw: \x1b[33m${c.maw}\x1b[0m` : "";
     const thread = c.thread ? `thread: \x1b[90m${c.thread}\x1b[0m` : "";
+    const inbox = c.inbox ? `inbox: \x1b[90m${c.inbox}\x1b[0m` : "";
+    const repo = c.repo ? `repo: \x1b[90m${c.repo}\x1b[0m` : "";
     const notes = c.notes ? `\x1b[90m"${c.notes}"\x1b[0m` : "";
-    const parts = [maw, thread, notes].filter(Boolean).join("    ");
+    const parts = [maw, thread, inbox, repo, notes].filter(Boolean).join("    ");
     console.log(`  \x1b[32m${name.padEnd(12)}\x1b[0m  ${parts}`);
   }
   console.log();
@@ -57,6 +61,8 @@ export async function cmdContactsAdd(name: string, args: string[]) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--maw" && args[i + 1]) c.maw = args[++i];
     else if (args[i] === "--thread" && args[i + 1]) c.thread = args[++i];
+    else if (args[i] === "--inbox" && args[i + 1]) c.inbox = args[++i];
+    else if (args[i] === "--repo" && args[i + 1]) c.repo = args[++i];
     else if (args[i] === "--notes" && args[i + 1]) c.notes = args[++i];
   }
   if (c.retired) delete c.retired;

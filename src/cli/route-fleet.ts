@@ -1,22 +1,39 @@
 import { cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync, cmdFleetSyncConfigs } from "../commands/fleet";
-import { cmdFleetInit } from "../commands/fleet-init";
+import { cmdFleetInit, cmdFleetInitAgents } from "../commands/fleet-init";
 import { cmdPulseAdd, cmdPulseLs } from "../commands/pulse";
 import { cmdOverview } from "../commands/overview";
 import { cmdMegaStatus, cmdMegaStop } from "../commands/mega";
 import { cmdFederationStatus } from "../commands/federation";
+import { cmdFederationSync } from "../commands/federation-sync";
 import { cmdReunion } from "../commands/reunion";
+import { cmdSoulSync } from "../commands/soul-sync";
+import { cmdFleetHealth } from "../commands/fleet-health";
+import { cmdFleetDoctor } from "../commands/fleet-doctor";
+import { cmdFleetConsolidate } from "../commands/fleet-consolidate";
+import { cmdArchive } from "../commands/archive";
+import { cmdFind } from "../commands/find";
 
 export async function routeFleet(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "fleet") {
     const sub = args[1];
     if (sub === "init") {
-      await cmdFleetInit();
+      if (args.includes("--agents")) {
+        await cmdFleetInitAgents({ dryRun: args.includes("--dry-run") });
+      } else {
+        await cmdFleetInit();
+      }
     } else if (sub === "ls") {
       await cmdFleetLs();
     } else if (sub === "renumber") {
       await cmdFleetRenumber();
     } else if (sub === "validate") {
       await cmdFleetValidate();
+    } else if (sub === "health") {
+      await cmdFleetHealth();
+    } else if (sub === "doctor" || sub === "dr") {
+      await cmdFleetDoctor({ fix: args.includes("--fix"), json: args.includes("--json") });
+    } else if (sub === "consolidate") {
+      await cmdFleetConsolidate({ dryRun: args.includes("--dry-run"), remove: args.includes("--remove") });
     } else if (sub === "sync") {
       await cmdFleetSyncConfigs();
     } else if (sub === "sync-windows" || sub === "syncwin") {
@@ -115,14 +132,47 @@ export async function routeFleet(cmd: string, args: string[]): Promise<boolean> 
     const sub = args[1]?.toLowerCase();
     if (!sub || sub === "status" || sub === "ls") {
       await cmdFederationStatus();
+    } else if (sub === "sync") {
+      await cmdFederationSync({
+        dryRun: args.includes("--dry-run"),
+        check: args.includes("--check"),
+        prune: args.includes("--prune"),
+        force: args.includes("--force"),
+        json: args.includes("--json"),
+      });
     } else {
-      console.error("usage: maw federation status");
+      console.error("usage: maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]");
       process.exit(1);
     }
     return true;
   }
   if (cmd === "reunion") {
     await cmdReunion(args[1]);
+    return true;
+  }
+  if (cmd === "soul-sync" || cmd === "soulsync" || cmd === "ss") {
+    if (args.includes("--project")) {
+      const { cmdSoulSyncProject } = await import("../commands/soul-sync");
+      await cmdSoulSyncProject();
+      return true;
+    }
+    const fromIdx = args.indexOf("--from");
+    if (fromIdx !== -1) {
+      await cmdSoulSync(args[fromIdx + 1], { from: true });
+    } else {
+      await cmdSoulSync(args[1]);
+    }
+    return true;
+  }
+  if (cmd === "archive") {
+    if (!args[1]) { console.error("usage: maw archive <oracle> [--dry-run]"); process.exit(1); }
+    await cmdArchive(args[1], { dryRun: args.includes("--dry-run") });
+    return true;
+  }
+  if (cmd === "find" || cmd === "search") {
+    if (!args[1]) { console.error("usage: maw find <keyword> [--oracle <name>]"); process.exit(1); }
+    const oracleIdx = args.indexOf("--oracle");
+    await cmdFind(args[1], { oracle: oracleIdx !== -1 ? args[oracleIdx + 1] : undefined });
     return true;
   }
   return false;

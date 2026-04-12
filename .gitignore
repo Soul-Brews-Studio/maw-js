@@ -19,4 +19,6 @@ wasm-vm/
 fleet/*.json
 !fleet/*.example.json
 ψ/
+.claude/skills/
 *.pem
+.claude/scheduled_tasks.lock

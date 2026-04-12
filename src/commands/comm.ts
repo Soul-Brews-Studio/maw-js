@@ -1,10 +1,41 @@
-import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
+import { findWindow } from "../find-window";
 import { loadConfig, cfgLimit } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
 import { scanWorktrees } from "../worktrees";
 import { curlFetch } from "../curl-fetch";
 import { findPeerForTarget } from "../peers";
+import { resolveTarget } from "../routing";
+import { appendFile, mkdir } from "fs/promises";
+import { homedir, hostname } from "os";
+import { join } from "path";
+
+/** Log message to ~/.oracle/maw-log.jsonl with normalized from/to */
+async function logMessage(from: string, to: string, msg: string, route: string) {
+  const config = loadConfig();
+  if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
+  const normalizedFrom = from.includes(":") ? from : `${config.node}:${from}`;
+  const logDir = join(homedir(), ".oracle");
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    from: normalizedFrom,
+    to,
+    msg: msg.slice(0, 500),
+    host: hostname(),
+    route,
+  }) + "\n";
+  try { await mkdir(logDir, { recursive: true }); await appendFile(join(logDir, "maw-log.jsonl"), line); } catch {}
+}
+
+/** Emit feed event to server plugin pipeline (CLI → server bridge) */
+function emitFeed(event: string, oracle: string, node: string, message: string, port: number) {
+  fetch(`http://localhost:${port}/api/feed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, oracle, host: node, message, ts: Date.now() }),
+  }).catch(() => {});
+}
 
 /** Resolve which sessions to search for an oracle query (#86). */
 function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
@@ -121,37 +152,27 @@ export async function cmdPeek(query?: string) {
   console.log(content);
 }
 
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
+function resolveMyName(config: ReturnType<typeof loadConfig>): string {
+  if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
+  // Try tmux session name: "08-mawjs" → "mawjs"
+  try {
+    const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+    if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
+  } catch {}
+  return config.node || "cli";
+}
+
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
-
-  // Node prefix syntax: "mba:homekeeper" → force route to mba node
-  if (query.includes(":") && !query.includes("/")) {
-    const [nodeName, agentName] = query.split(":", 2);
-    const peer = config.namedPeers?.find(p => p.name === nodeName);
-    const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
-    if (peerUrl) {
-      const res = await curlFetch(`${peerUrl}/api/send`, {
-        method: "POST",
-        body: JSON.stringify({ target: agentName, text: message }),
-      });
-      if (res.ok && res.data?.ok) {
-        console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${nodeName} → ${res.data.target || agentName}: ${message}`);
-        if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-        await runHook("after_send", { to: query, message });
-        return;
-      }
-      console.error(`\x1b[31mfailed\x1b[0m ⚡ ${nodeName} → ${agentName}: ${res.data?.error || "send failed"}`);
-      process.exit(1);
-    }
-  }
-
   const sessions = await listSessions();
-  const searchIn = resolveSearchSessions(query, sessions);
-  const target = findWindow(searchIn, query);
 
-  // Local target found → send via tmux
-  if (target) {
-    // Detect active Claude session (#17)
+  // --- Unified resolution via resolveTarget (#201) ---
+  const result = resolveTarget(query, config, sessions);
+
+  // Local target (or self-node) → send via tmux
+  if (result?.type === "local" || result?.type === "self-node") {
+    const target = result.target;
     if (!force) {
       const cmd = await getPaneCommand(target);
       const isAgent = /claude|codex|node/i.test(cmd);
@@ -161,22 +182,40 @@ export async function cmdSend(query: string, message: string, force = false) {
         process.exit(1);
       }
     }
-
     await sendKeys(target, message);
     await runHook("after_send", { to: query, message });
-    // Delivery confirmation: capture last line after brief delay
+    if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
+    const senderName = resolveMyName(config);
+    logMessage(senderName, query, message, "local");
+    emitFeed("MessageSend", senderName, config.node, `${query}: ${message.slice(0, 200)}`, config.port || 3456);
     await Bun.sleep(150);
     let lastLine = "";
-    try {
-      const content = await capture(target, 3);
-      lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
-    } catch {}
+    try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
   }
 
-  // Not found locally → auto-check federated peers (#150)
+  // Remote peer → federation HTTP
+  if (result?.type === "peer") {
+    const res = await curlFetch(`${result.peerUrl}/api/send`, {
+      method: "POST",
+      body: JSON.stringify({ target: result.target, text: message }),
+    });
+    if (res.ok && res.data?.ok) {
+      const agentName = resolveMyName(config);
+      logMessage(agentName, query, message, `peer:${result.node}`);
+      emitFeed("MessageSend", agentName, config.node!, `${result.node}:${query}: ${message.slice(0, 200)}`, config.port || 3456);
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      await runHook("after_send", { to: query, message });
+      return;
+    }
+    console.error(`\x1b[31mfailed\x1b[0m ⚡ ${result.node} → ${result.target}: ${res.data?.error || "send failed"}`);
+    process.exit(1);
+  }
+
+  // Fallback: async peer discovery (network scan — slow path)
   const peerUrl = await findPeerForTarget(query, sessions);
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
@@ -191,29 +230,15 @@ export async function cmdSend(query: string, message: string, force = false) {
     }
   }
 
-  // Not found on peers either → check agent registry for remote routing
-  const agentNode = config.agents?.[query] || config.agents?.[query.replace(/-oracle$/, "")];
-  if (agentNode && agentNode !== (config.node ?? "local")) {
-    // Route via federation (same as maw wire but auto-detected)
-    const port = loadConfig().port;
-    const res = await curlFetch(`http://localhost:${port}/api/send`, {
-      method: "POST",
-      body: JSON.stringify({ target: query, text: message }),
-    });
-    if (res.ok && res.data?.ok) {
-      const source = res.data.source === "local" ? "local" : `⚡ ${res.data.source}`;
-      console.log(`\x1b[32mdelivered\x1b[0m ${source} → ${res.data.target}: ${message}`);
-      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
-      return;
+  // Not found — surface error details from resolveTarget (#216)
+  if (result?.type === "error") {
+    console.error(`\x1b[31merror\x1b[0m: ${result.detail}`);
+    if (result.hint) console.error(`\x1b[33mhint\x1b[0m:  ${result.hint}`);
+  } else {
+    console.error(`\x1b[31merror\x1b[0m: window not found: ${query}`);
+    if (config.agents && Object.keys(config.agents).length > 0) {
+      console.error(`\x1b[33mhint\x1b[0m:  known agents: ${Object.keys(config.agents).join(", ")}`);
     }
-    console.error(`\x1b[31mfailed\x1b[0m: agent ${query} → node "${agentNode}" — ${res.data?.error || "send failed"}`);
-    process.exit(1);
-  }
-
-  console.error(`\x1b[31merror\x1b[0m: window not found: ${query}`);
-  if (config.agents && Object.keys(config.agents).length > 0) {
-    console.error(`\x1b[33mhint\x1b[0m:  known agents: ${Object.keys(config.agents).join(", ")}`);
   }
   process.exit(1);
 }

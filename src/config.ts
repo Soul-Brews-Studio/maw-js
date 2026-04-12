@@ -4,8 +4,13 @@ import { execSync } from "child_process";
 import { CONFIG_FILE } from "./paths";
 
 function detectGhqRoot(): string {
-  try { return execSync("ghq root", { encoding: "utf-8" }).trim(); }
-  catch { return join(require("os").homedir(), "Code/github.com"); }
+  try {
+    const root = execSync("ghq root", { encoding: "utf-8" }).trim();
+    // ghq may store repos under <root>/github.com/... — prefer that if it exists
+    const ghRoot = join(root, "github.com");
+    if (require("fs").existsSync(ghRoot)) return ghRoot;
+    return root;
+  } catch { return join(require("os").homedir(), "Code/github.com"); }
 }
 
 export type TriggerEvent = "issue-close" | "pr-merge" | "agent-idle" | "agent-wake" | "agent-crash";
@@ -54,7 +59,6 @@ export interface MawLimits {
   logsDefault?: number;
   logsTruncate?: number;
   messageTruncate?: number;
-  mqttBuffer?: number;
   ptyCols?: number;
   ptyRows?: number;
 }
@@ -79,8 +83,10 @@ export interface MawConfig {
   namedPeers?: PeerConfig[];
   /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */
   agents?: Record<string, string>;
-  /** MQTT broker config */
-  mqtt?: { broker: string; port?: number; wsPort?: number; clientId?: string; username?: string; password?: string; selfName?: string; selfHost?: string };
+  /** GitHub org for maw bud (default: Soul-Brews-Studio) */
+  githubOrg?: string;
+  /** GitHub orgs to scan for oracle repos (default: Soul-Brews-Studio, laris-co) */
+  githubOrgs?: string[];
   /** Fixed Claude session UUIDs per agent */
   sessionIds?: Record<string, string>;
   /** Path to ψ/ directory */
@@ -113,8 +119,7 @@ const DEFAULTS: MawConfig = {
 export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
-  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, mqttBuffer: 50, ptyCols: 500, ptyRows: 200 } as const,
-  mqtt: { port: 1883, wsPort: 9883 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200 } as const,
   hmacWindowSeconds: 300,
 } as const;
 
@@ -297,15 +302,6 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
     }
   }
 
-  // mqtt: object with broker URL
-  if ("mqtt" in raw) {
-    if (raw.mqtt && typeof raw.mqtt === "object" && !Array.isArray(raw.mqtt)) {
-      result.mqtt = raw.mqtt;
-    } else {
-      warn("mqtt", "must be an object with broker URL");
-    }
-  }
-
   // peers: array of valid URLs if present
   if ("peers" in raw) {
     if (Array.isArray(raw.peers)) {
@@ -320,6 +316,21 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
     } else {
       warn("peers", "must be an array of URLs");
     }
+  }
+
+  // githubOrg: string (#204)
+  if ("githubOrg" in raw && typeof raw.githubOrg === "string") {
+    result.githubOrg = raw.githubOrg;
+  }
+
+  // telegram: pass through (bridge config, not validated here)
+  if ("telegram" in raw && raw.telegram && typeof raw.telegram === "object") {
+    result.telegram = raw.telegram;
+  }
+
+  // nanoclaw: pass through (bridge config)
+  if ("nanoclaw" in raw && raw.nanoclaw && typeof raw.nanoclaw === "object") {
+    result.nanoclaw = raw.nanoclaw;
   }
 
   return result as Partial<MawConfig>;
@@ -443,6 +454,11 @@ export function buildCommand(agentName: string): string {
   const config = loadConfig();
   let cmd = config.commands.default || "claude";
 
+  // Strip --dangerously-skip-permissions when running as root (#181)
+  if (process.getuid?.() === 0) {
+    cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/, "");
+  }
+
   // Match specific patterns first (skip "default")
   for (const [pattern, command] of Object.entries(config.commands)) {
     if (pattern === "default") continue;
@@ -463,11 +479,13 @@ export function buildCommand(agentName: string): string {
     }
   }
 
-  // Prefix: load direnv (if present) + clear stale CLAUDECODE.
+  // Prefix: load direnv + clear stale CLAUDECODE.
   // direnv allow + export ensures .envrc env vars load before Claude starts,
   // since tmux send-keys can race with the shell's direnv hook.
+  // If direnv is not installed, `direnv allow` fails visibly (diagnostic),
+  // && short-circuits, and the rest of the block runs normally.
   // unset CLAUDECODE prevents "cannot be launched inside another" from crashed sessions.
-  const prefix = "command -v direnv >/dev/null && direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE 2>/dev/null;";
+  const prefix = "direnv allow . && eval \"$(direnv export zsh)\"; unset CLAUDECODE;";
 
   // If command uses --continue or --resume, add shell fallback without it.
   // --continue errors when no prior conversation exists (e.g. fresh worktree,
@@ -481,6 +499,13 @@ export function buildCommand(agentName: string): string {
   }
 
   return `${prefix} ${cmd}`;
+}
+
+/** Wrap buildCommand with cd to ensure correct working directory after reboot.
+ *  Parenthesize buildCommand so cd applies to both primary + fallback in `cmd || fallback`.
+ *  Otherwise shell precedence (`&&` tighter than `||`) makes the fallback run without cd. */
+export function buildCommandInDir(agentName: string, cwd: string): string {
+  return `cd '${cwd}' && { ${buildCommand(agentName)}; }`;
 }
 
 /** Get env vars from config (for tmux set-environment) */

@@ -15,15 +15,17 @@ import { triggersApi } from "./triggers";
 import { avengersApi } from "./avengers";
 import { transportApi } from "./transport";
 import { workspaceApi } from "./workspace";
-import { skillsApi } from "./skills";
+import { peerExecApi } from "./peer-exec";
+import { proxyApi } from "./proxy";
 import { dispatchApi } from "./dispatch";
-import { servicesApi } from "./services";
 import { kanbanApi } from "./kanban";
+import { servicesApi } from "./services";
+import { skillsApi } from "./skills";
 import { federationAuth } from "../lib/federation-auth";
 
 export const api = new Hono();
 
-// Federation auth โ€” enforces HMAC on protected endpoints from remote peers
+// Federation auth — enforces HMAC on protected endpoints from remote peers
 api.use("*", federationAuth());
 
 api.route("/", sessionsApi);
@@ -42,7 +44,9 @@ api.route("/", triggersApi);
 api.route("/", avengersApi);
 api.route("/", transportApi);
 api.route("/", workspaceApi);
-api.route("/", skillsApi);
+api.route("/", peerExecApi);
+api.route("/", proxyApi);
 api.route("/", dispatchApi);
-api.route("/", servicesApi);
 api.route("/", kanbanApi);
+api.route("/", servicesApi);
+api.route("/", skillsApi);

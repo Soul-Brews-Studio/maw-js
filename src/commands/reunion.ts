@@ -1,4 +1,4 @@
-import { listSessions, ssh } from "../ssh";
+import { listSessions, hostExec } from "../ssh";
 import { existsSync, readdirSync, copyFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 
@@ -11,7 +11,7 @@ const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces"]
 async function resolveMainRepoRoot(cwd: string): Promise<string | null> {
   try {
     // git rev-parse --git-common-dir returns path to shared .git
-    const commonDir = (await ssh(`git -C '${cwd}' rev-parse --git-common-dir`)).trim();
+    const commonDir = (await hostExec(`git -C '${cwd}' rev-parse --git-common-dir`)).trim();
     if (!commonDir || commonDir === ".git") return null; // already main repo
 
     // commonDir is something like /path/to/main-repo/.git
@@ -84,7 +84,7 @@ export async function cmdReunion(windowName?: string): Promise<ReunionResult | n
       return null;
     }
     try {
-      cwd = (await ssh(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
+      cwd = (await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
     } catch {
       console.log(`  \x1b[33m⚠\x1b[0m reunion: could not get cwd for ${target}`);
       return null;
@@ -92,7 +92,7 @@ export async function cmdReunion(windowName?: string): Promise<ReunionResult | n
   } else {
     // Use current pane's cwd
     try {
-      cwd = (await ssh("tmux display-message -p '#{pane_current_path}'")).trim();
+      cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
     } catch {
       console.log(`  \x1b[33m⚠\x1b[0m reunion: not in tmux, cannot determine cwd`);
       return null;

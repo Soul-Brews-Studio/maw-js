@@ -10,28 +10,49 @@ export interface PeerStatus {
   url: string;
   reachable: boolean;
   latency?: number;
+  node?: string;
+  agents?: string[];
 }
 
 /**
  * Check if a peer is reachable by making a HEAD request
  */
-async function checkPeerReachable(url: string): Promise<{ reachable: boolean; latency: number }> {
+async function checkPeerReachable(url: string): Promise<{ reachable: boolean; latency: number; node?: string; agents?: string[] }> {
   const start = Date.now();
   try {
     const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
     const latency = Date.now() - start;
-    return { reachable: res.ok, latency };
+    // Fetch identity for node dedup (#192)
+    let node: string | undefined;
+    let agents: string[] | undefined;
+    try {
+      const id = await curlFetch(`${url}/api/identity`, { timeout: cfgTimeout("http") });
+      if (id.ok && id.data) { node = id.data.node; agents = id.data.agents; }
+    } catch {}
+    return { reachable: res.ok, latency, node, agents };
   } catch {
     return { reachable: false, latency: Date.now() - start };
   }
 }
 
 /**
- * Get all configured peers from maw.config.json
+ * Get all configured peers from maw.config.json — merges flat peers[]
+ * with namedPeers[].url, deduped by URL (first occurrence wins).
+ * Both sources feed the same federation peer list.
  */
 export function getPeers(): string[] {
   const config = loadConfig();
-  return config.peers || [];
+  const flat = config.peers ?? [];
+  const named = (config.namedPeers ?? []).map(p => p.url);
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const url of [...flat, ...named]) {
+    if (!seen.has(url)) {
+      seen.add(url);
+      merged.push(url);
+    }
+  }
+  return merged;
 }
 
 /**
@@ -69,7 +90,14 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
     return sessions.map(s => ({ ...s, source: url }));
   }));
 
-  const peerSessions = peerResults.flat();
+  // Dedup sessions by source + name (#175)
+  const seen = new Set<string>();
+  const peerSessions = peerResults.flat().filter(s => {
+    const key = `${s.source}:${s.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   aggregatedCache = { peers: peerSessions, ts: Date.now() };
 
   return [...local, ...peerSessions];
@@ -89,11 +117,21 @@ export async function getFederationStatus(): Promise<{
   const port = loadConfig().port;
   const localUrl = `http://localhost:${port}`;
 
-  const statuses = await Promise.all(peers.map(async (url) => {
-    const { reachable, latency } = await checkPeerReachable(url);
-    return { url, reachable, latency };
+  const rawStatuses = await Promise.all(peers.map(async (url) => {
+    const { reachable, latency, node, agents } = await checkPeerReachable(url);
+    return { url, reachable, latency, node, agents };
   }));
 
+  // Dedup by node identity (#190) — keep fastest URL per node
+  const byNode = new Map<string, PeerStatus>();
+  for (const s of rawStatuses) {
+    const key = s.node || s.url; // fall back to URL if no identity
+    const existing = byNode.get(key);
+    if (!existing || (s.reachable && (!existing.reachable || (s.latency ?? Infinity) < (existing.latency ?? Infinity)))) {
+      byNode.set(key, s);
+    }
+  }
+  const statuses = [...byNode.values()];
   const reachablePeers = statuses.filter(s => s.reachable).length;
 
   return {

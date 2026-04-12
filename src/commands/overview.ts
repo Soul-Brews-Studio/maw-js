@@ -1,4 +1,4 @@
-import { listSessions, ssh } from "../ssh";
+import { listSessions, hostExec } from "../ssh";
 import { tmux } from "../tmux";
 import { loadConfig } from "../config";
 import type { Session } from "../ssh";

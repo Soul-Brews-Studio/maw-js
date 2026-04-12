@@ -4,6 +4,9 @@ import { MawEngine } from "./engine";
 import type { WSData } from "./types";
 import { loadConfig } from "./config";
 import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+import { serveStatic } from "hono/bun";
 import { api } from "./api";
 import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
@@ -32,76 +35,40 @@ export const VERSION = getVersionString();
 
 // --- Hono app ---
 
-// Origin allowlist for /api/*. This is a justified divergence from the
-// Soul-Brews-Studio/maw-js upstream, which still ships with `cors()` default-*.
-// The evilelfza fork runs on a single-user dev machine with sensitive tokens
-// (~/.claude.json, GitHub auth, etc.), so a browser-CSRF vector is materially
-// more dangerous than in Nat's multi-agent open-source threat model. After
-// e5007e3 removed the ORACLE_SEND_TARGETS whitelist, any tmux window —
-// including bash/zsh/vim/tailers — is a valid /api/send target, which turned
-// CSRF into a plausible path to RCE (Warden Round 4 NEW-8 HIGH).
-//
-// Requests without an Origin header (curl, Oracle reply-ping, local shell)
-// are allowed through unchanged — that is what keeps the reply-ping protocol
-// working. Browser requests from unknown origins are rejected both at the
-// CORS layer (no `Access-Control-Allow-Origin` returned) and server-side
-// via an explicit 403 (belt-and-suspenders, closes simple-request bypass).
+const app = new Hono();
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3456",
   "http://127.0.0.1:3456",
-  "http://localhost:3457",   // maw-ui vite dev server
+  "http://localhost:3457",
   "http://127.0.0.1:3457",
-  // :4177 (vite preview) entries were removed as part of the Warden R7
-  // housekeeping sweep. Nothing binds :4177 on the live host after the
-  // ghq duplicate tree cleanup, so the allowlist entry was unused
-  // attack surface. Re-add via a focused commit if `vite preview` is
-  // ever brought online alongside the dev server on :3457.
 ]);
-
-const app = new Hono();
 
 app.use("/api/*", async (c, next) => {
   await next();
   c.header("Access-Control-Allow-Private-Network", "true");
 });
-
 app.use("/api/*", cors({
-  origin: (origin) => {
-    // No Origin header → curl / Oracle reply-ping / local shell. Allow.
-    // Returning empty string omits Access-Control-Allow-Origin from the
-    // response, which is correct for non-browser callers that don't need it.
-    if (!origin) return "";
-    // Known-good browser origin from the developer's own maw-ui
-    if (ALLOWED_ORIGINS.has(origin)) return origin;
-    // Everything else: deny at the CORS layer (no ACAO header emitted).
-    return null;
-  },
-  credentials: false,
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "X-Maw-Signature", "X-Maw-Timestamp"],
+  origin: (origin) => ALLOWED_ORIGINS.has(origin) ? origin : "",
 }));
-
-// Server-side Origin enforcement — belt-and-suspenders layer. The CORS
-// middleware above only controls browser-visible response headers, which a
-// non-CORS "simple request" (e.g. form POST with text/plain) can bypass
-// client-side. For state-changing methods we additionally reject the request
-// server-side with 403 whenever the Origin header is present but not in
-// ALLOWED_ORIGINS. Requests without an Origin header still pass — curl and
-// every intra-Oracle reply-ping fall into that bucket.
-app.use("/api/*", async (c, next) => {
-  const method = c.req.method;
-  if (method === "POST" || method === "PUT" || method === "DELETE") {
-    const origin = c.req.header("Origin");
-    if (origin && !ALLOWED_ORIGINS.has(origin)) {
-      return c.json({ error: "cross-origin request blocked", origin }, 403);
-    }
-  }
-  await next();
-});
 
 app.route("/api", api);
 
+// Fleet topology visualization
+app.get("/topology", async (c) => {
+  const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
+  try {
+    const html = require("fs").readFileSync(path, "utf-8");
+    return c.html(html);
+  } catch { return c.text("fleet-topology.html not found", 404); }
+});
+
 mountViews(app);
+
+// Serve packed maw-ui dist (Shape A — single port, single process)
+const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
+if (existsSync(MAW_UI_DIR)) {
+  app.use("/*", serveStatic({ root: MAW_UI_DIR }));
+}
 
 app.onError((err, c) => c.json({ error: err.message }, 500));
 
@@ -109,7 +76,7 @@ export { app };
 
 // --- Server ---
 
-export function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
+export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
   const engine = new MawEngine({ feedBuffer, feedListeners });
 
   const HTTP_URL = `http://localhost:${port}`;
@@ -127,12 +94,42 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
 
-  // MQTT bridge — publish feed events to MQTT topics (if broker configured)
+  // Plugin system — built-in + user plugins
   try {
-    const { startMqttBridge } = require("./engine/mqtt-bridge");
-    startMqttBridge(feedListeners, feedBuffer);
-  } catch {}
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("./plugins");
+    const { homedir } = require("os");
+    const { join, resolve, dirname } = require("path");
+    const plugins = new PluginSystem();
 
+    // Built-in plugins (ship with maw-js)
+    const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
+    await loadPlugins(plugins, builtinDir, "builtin");
+
+    // User plugins (file-drop: ~/.oracle/plugins/)
+    const userPluginsDir = join(homedir(), ".oracle", "plugins");
+    await loadPlugins(plugins, userPluginsDir, "user");
+
+    // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
+    // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.
+    watchUserPlugins(userPluginsDir, async (changedFile: string) => {
+      console.log(`[plugin] reloading user plugins (${changedFile} changed)`);
+      await reloadUserPlugins(plugins, userPluginsDir);
+    });
+
+    // Single feedListener wires everything through the plugin pipeline
+    feedListeners.add((event) => plugins.emit(event));
+
+    // Plugin debug API + page
+    app.get("/api/plugins", (c) => c.json(plugins.stats()));
+    app.post("/api/plugins/reload", async (c) => {
+      await reloadUserPlugins(plugins, userPluginsDir);
+      return c.json({ ok: true, ...plugins.stats() });
+    });
+    const { pluginsView } = require("./views/plugins");
+    app.route("/plugins", pluginsView(plugins));
+  } catch (err) {
+    console.error("[plugins] failed to init:", err);
+  }
 
   const wsHandler = {
     open: (ws: any) => {
@@ -162,17 +159,27 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     return app.fetch(req, { server });
   };
 
-  // HTTP server (always) — bind to loopback so the entire LAN attack surface is gone.
-  // Cross-device access must be added deliberately via SSH tunnel or reverse proxy.
-  const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: fetchHandler, websocket: wsHandler });
-  console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL})`);
+  // HTTP server (always)
+  // Security: bind to localhost unless peers are configured (federation needs network access)
+  const config = loadConfig();
+  const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
+  const hostname = hasPeers ? "0.0.0.0" : "127.0.0.1";
+
+  if (hasPeers && !config.federationToken) {
+    console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
+    console.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
+    console.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
+  }
+
+  const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+  console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]`);
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;
   if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
-    Bun.serve({ hostname: "127.0.0.1", port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
+    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 
