@@ -4,8 +4,19 @@ import { tmuxCmd } from "./tmux";
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
 
+/**
+ * Tripwire for command-substitution injection. Rejects backtick or $( sequences.
+ * Zero legitimate call sites use these patterns (verified via grep).
+ * Cherry-picked from evilelfza's PR #270 (R4C3 security audit).
+ */
+const SHELL_SUBSTITUTION = /`|\$\(/;
+
 /** Transport — run on oracle host. local → bash -c | remote → ssh */
 export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string> {
+  if (SHELL_SUBSTITUTION.test(cmd)) {
+    console.warn(`[ssh] refused cmd with shell-substitution marker (len=${cmd.length})`);
+    throw new Error("ssh: refused cmd with shell-substitution marker");
+  }
   const local = host === "local" || host === "localhost" || IS_LOCAL;
   const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
