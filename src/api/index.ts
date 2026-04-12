@@ -15,7 +15,7 @@ import { triggersApi } from "./triggers";
 import { avengersApi } from "./avengers";
 import { transportApi } from "./transport";
 import { workspaceApi } from "./workspace";
-import { wormholeApi } from "./wormhole";
+import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
 import { federationAuth } from "../lib/federation-auth";
 
@@ -40,5 +40,5 @@ api.route("/", triggersApi);
 api.route("/", avengersApi);
 api.route("/", transportApi);
 api.route("/", workspaceApi);
-api.route("/", wormholeApi);
+api.route("/", peerExecApi);
 api.route("/", proxyApi);

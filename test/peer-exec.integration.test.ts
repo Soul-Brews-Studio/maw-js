@@ -1,34 +1,34 @@
 /**
- * Integration tests for POST /api/wormhole/request — exercises the FULL
+ * Integration tests for POST /api/peer/exec — exercises the FULL
  * signed-relay path through a mocked-fetch stub peer instead of just the
  * helper functions in isolation.
  *
  * PROTOTYPE — iteration 9 (convergence iteration) of the federation-join-easy
  * /loop. Drafted on feat/wormhole-http-endpoint-draft. Companion to
- * test/wormhole.test.ts (which covers the helpers + route 400/401/403/404
+ * test/peer-exec.test.ts (which covers the helpers + route 400/401/403/404
  * paths in-process). See mawui-oracle/ψ/writing/federation-join-easy.md.
  *
  * ## Strategy
  *
- * The wormhole route's `relayToPeer()` calls `fetch(peerUrl + "/api/wormhole/request")`
+ * The peer-exec route's `relayToPeer()` calls `fetch(peerUrl + "/api/peer/exec")`
  * to forward signed requests to a peer. We can't easily run a second
  * full hono server in the test runner, so instead we replace
  * `globalThis.fetch` with a router that dispatches to a stub peer hono
  * app via its own `app.request()` method. This gives us:
  *
- *   - Real wormhole route execution (in-process via app.request())
+ *   - Real peer-exec route execution (in-process via app.request())
  *   - Real signed outbound construction (relayToPeer calls signHeaders)
  *   - Stub peer that records what it received and returns canned responses
  *   - Round-trip assertions on body, headers, status, elapsed_ms
  *
  * The stub peer is intentionally simple — it doesn't run federation-auth
- * verification because we're testing the WORMHOLE route, not the auth
+ * verification because we're testing the peer-exec route, not the auth
  * middleware (which has its own coverage). The stub just records the
  * request and returns whatever the test specifies.
  *
  * ## What this catches that the unit tests miss
  *
- * The unit tests in test/wormhole.test.ts cover the route's pre-relay
+ * The unit tests in test/peer-exec.test.ts cover the route's pre-relay
  * paths (validation, trust boundary, peer resolution). They short-circuit
  * before the actual relay because all peers in those tests are unknown.
  * This integration test exercises the bytes that go OUT to the peer and
@@ -38,7 +38,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Hono } from "hono";
-import { wormholeApi } from "../src/api/wormhole";
+import { peerExecApi } from "../src/api/peer-exec";
 
 // ---- Stub peer infrastructure --------------------------------------------
 
@@ -54,7 +54,7 @@ function buildStubPeerApp(
   responseBuilder: (req: PeerCapture) => Response,
 ): Hono {
   const app = new Hono();
-  app.post("/api/wormhole/request", async (c) => {
+  app.post("/api/peer/exec", async (c) => {
     const headers: Record<string, string> = {};
     c.req.raw.headers.forEach((v, k) => {
       headers[k] = v;
@@ -77,7 +77,7 @@ function buildStubPeerApp(
 function makeMawApp(): Hono {
   const app = new Hono();
   const apiSub = new Hono();
-  apiSub.route("/", wormholeApi);
+  apiSub.route("/", peerExecApi);
   app.route("/api", apiSub);
   return app;
 }
@@ -117,7 +117,7 @@ function installPeerRouter(stubPeerUrl: string, stubApp: Hono) {
 
 // ---- Helpers -------------------------------------------------------------
 
-function makeWormholeBody(overrides: Partial<{
+function makePeerExecBody(overrides: Partial<{
   peer: string;
   cmd: string;
   args: string[];
@@ -134,7 +134,7 @@ function makeWormholeBody(overrides: Partial<{
 
 // ---- Tests ---------------------------------------------------------------
 
-describe("wormhole integration — happy path", () => {
+describe("peer-exec integration — happy path", () => {
   test("relays a signed request to the peer and returns the response verbatim", async () => {
     const captures: PeerCapture[] = [];
     const stubPeerUrl = "http://stub-peer-test:9999";
@@ -144,10 +144,10 @@ describe("wormhole integration — happy path", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody(),
+      body: makePeerExecBody(),
     });
 
     expect(res.status).toBe(200);
@@ -175,10 +175,10 @@ describe("wormhole integration — happy path", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    await app.request("/api/wormhole/request", {
+    await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody({ cmd: "/trace", args: ["--deep"] }),
+      body: makePeerExecBody({ cmd: "/trace", args: ["--deep"] }),
     });
 
     expect(captures.length).toBe(1);
@@ -195,7 +195,7 @@ describe("wormhole integration — happy path", () => {
   });
 });
 
-describe("wormhole integration — peer error paths", () => {
+describe("peer-exec integration — peer error paths", () => {
   test("peer returns 500 → we return 200 with peer's status in body", async () => {
     // Note: we return 200 from our route even when the peer errored.
     // The peer's status is in the body's `status` field for the caller
@@ -210,10 +210,10 @@ describe("wormhole integration — peer error paths", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody(),
+      body: makePeerExecBody(),
     });
 
     expect(res.status).toBe(200); // OUR route succeeded
@@ -229,10 +229,10 @@ describe("wormhole integration — peer error paths", () => {
     }) as typeof fetch;
 
     const app = makeMawApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody({ peer: "http://will-not-resolve.invalid:1234" }),
+      body: makePeerExecBody({ peer: "http://will-not-resolve.invalid:1234" }),
     });
 
     expect(res.status).toBe(502);
@@ -242,7 +242,7 @@ describe("wormhole integration — peer error paths", () => {
   });
 });
 
-describe("wormhole integration — body round-trip", () => {
+describe("peer-exec integration — body round-trip", () => {
   test("large response bodies round-trip cleanly", async () => {
     // Locks the v0.1-over-HTTP "one JSON blob per response" behavior.
     // Iteration 4+'s v0.2 protocol will replace this with chunked
@@ -256,10 +256,10 @@ describe("wormhole integration — body round-trip", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody(),
+      body: makePeerExecBody(),
     });
 
     expect(res.status).toBe(200);
@@ -280,10 +280,10 @@ describe("wormhole integration — body round-trip", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: makeWormholeBody(),
+      body: makePeerExecBody(),
     });
 
     expect(res.status).toBe(200);

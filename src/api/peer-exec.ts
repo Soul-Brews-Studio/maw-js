@@ -1,10 +1,10 @@
 /**
- * POST /api/wormhole/request — HTTP transport layer for the /wormhole protocol.
+ * POST /api/peer/exec — HTTP transport layer for the /wormhole protocol.
  *
  * PROTOTYPE — iteration 3 of the federation-join-easy proof. See
  * `mawui-oracle/ψ/writing/federation-join-easy.md` for the full architectural
  * context. This file is the server half of the "global maw-ui + ?host= via
- * wormhole relay" pattern — a companion to `wormholeClient.ts` in maw-ui.
+ * peer-exec relay" pattern — a companion to `wormholeClient.ts` in maw-ui.
  *
  * ## Why this endpoint exists
  *
@@ -22,7 +22,7 @@
  *   3. **Unified auth**: browsers don't know `federationToken`. Giving every
  *      visitor an HMAC token is a non-starter.
  *
- * The wormhole relay fixes all three by making the local backend the trust
+ * The peer-exec relay fixes all three by making the local backend the trust
  * gateway: browser → local backend is same-origin (no mixed-content, no CORS,
  * no new auth); local backend → peer uses the existing `signHeaders()` HMAC
  * mechanism.
@@ -30,7 +30,7 @@
  * NOTE: this does NOT sidestep CORS — `src/server.ts:40` already runs
  * `app.use("/api/*", cors())` (default permissive) and lines 36-39 set
  * `Access-Control-Allow-Private-Network: true`. CORS and PNA are already
- * handled for the direct-fetch path. The wormhole relay exists for the
+ * handled for the direct-fetch path. The peer-exec relay exists for the
  * mixed-content + WG + unified-auth problems, not for CORS. See the proof
  * doc for the corrected motivation list (iteration 2, ~23:55).
  *
@@ -52,12 +52,12 @@
  *
  * `src/lib/federation-auth.ts` has a known weakness (#191 Path B): a local
  * cloudflared sidecar forwarding to `127.0.0.1` makes the TCP source look
- * legitimately loopback, bypassing HMAC entirely. For the wormhole endpoint
+ * legitimately loopback, bypassing HMAC entirely. For the peer-exec endpoint
  * specifically, we CANNOT rely on loopback bypass because the browser will
  * almost certainly reach us via cloudflared when deployed to a public origin.
  *
  * Instead, this endpoint issues a localhost-only cookie on first request
- * (`wh_session`) and verifies it on subsequent calls. The cookie is a random
+ * (`pe_session`) and verifies it on subsequent calls. The cookie is a random
  * 128-bit token generated at server startup, stored in memory only. Rotating
  * maw-js invalidates all browser sessions, which is the correct security
  * posture for a prototype. A future iteration can harden this with a
@@ -82,23 +82,23 @@ import { signHeaders } from "../lib/federation-auth";
 
 // --- Session cookie (in-memory, rotates on server restart) ---------------
 
-const WH_SESSION_TOKEN = randomBytes(16).toString("hex");
-const WH_COOKIE_NAME = "wh_session";
-const WH_COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours
+const PE_SESSION_TOKEN = randomBytes(16).toString("hex");
+const PE_COOKIE_NAME = "pe_session";
+const PE_COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours
 
 function setSessionCookie(c: any): void {
   // HttpOnly so JS can't read it, SameSite=Strict so it's not sent cross-site,
   // no Secure flag so it works on http://localhost dev servers.
   c.header(
     "Set-Cookie",
-    `${WH_COOKIE_NAME}=${WH_SESSION_TOKEN}; HttpOnly; SameSite=Strict; Path=/api/wormhole; Max-Age=${WH_COOKIE_MAX_AGE}`,
+    `${PE_COOKIE_NAME}=${PE_SESSION_TOKEN}; HttpOnly; SameSite=Strict; Path=/api/peer; Max-Age=${PE_COOKIE_MAX_AGE}`,
   );
 }
 
 function hasValidSessionCookie(c: any): boolean {
   const cookieHeader = c.req.header("cookie") || "";
-  const match = cookieHeader.match(new RegExp(`${WH_COOKIE_NAME}=([a-f0-9]+)`));
-  return match !== null && match[1] === WH_SESSION_TOKEN;
+  const match = cookieHeader.match(new RegExp(`${PE_COOKIE_NAME}=([a-f0-9]+)`));
+  return match !== null && match[1] === PE_SESSION_TOKEN;
 }
 
 // --- Signature parsing ----------------------------------------------------
@@ -123,11 +123,11 @@ export function parseSignature(signature: string): ParsedSignature | null {
 // --- Trust boundary -------------------------------------------------------
 
 /**
- * Readonly command prefixes. These are always permitted regardless of origin.
+ * Readonly commands. These are always permitted regardless of origin.
  * Mirrors the /wormhole skill v0.1 trust boundary (which auto-permits /dig,
  * /trace, and read-only grep queries into ψ/memory/).
  */
-const READONLY_CMD_PREFIXES = [
+const READONLY_CMDS = [
   "/dig",
   "/trace",
   "/recap",
@@ -139,7 +139,7 @@ const READONLY_CMD_PREFIXES = [
 
 export function isReadOnlyCmd(cmd: string): boolean {
   const trimmed = cmd.trim();
-  return READONLY_CMD_PREFIXES.some((prefix) =>
+  return READONLY_CMDS.some((prefix) =>
     trimmed === prefix || trimmed.startsWith(prefix + " "),
   );
 }
@@ -182,21 +182,21 @@ interface RelayResult {
 }
 
 /**
- * Relay a wormhole request to a peer via HTTP, signing the outgoing call
+ * Relay a peer-exec request to a peer via HTTP, signing the outgoing call
  * with the existing federation-auth HMAC. The peer's maw-js must be running
  * and reachable from this backend's network (WG, LAN, or public).
  *
  * For the iteration-3 prototype, the relay simply forwards as a POST to the
- * peer's own /api/wormhole/request endpoint (if it exists) — recursively.
+ * peer's own /api/peer/exec endpoint (if it exists) — recursively.
  * Iteration 4 will add a fallback to the existing /api/send endpoint for
- * peers that don't yet support the wormhole route.
+ * peers that don't yet support the peer-exec route.
  */
 async function relayToPeer(
   peerUrl: string,
   body: { cmd: string; args: string[]; signature: string },
 ): Promise<RelayResult> {
   const start = Date.now();
-  const path = "/api/wormhole/request";
+  const path = "/api/peer/exec";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   // Sign the outgoing relay with the existing HMAC mechanism. The peer's
@@ -224,19 +224,19 @@ async function relayToPeer(
 
 // --- Route ---------------------------------------------------------------
 
-export const wormholeApi = new Hono();
+export const peerExecApi = new Hono();
 
 /**
- * GET /api/wormhole/session — issue a session cookie to a same-origin caller.
+ * GET /api/peer/session — issue a session cookie to a same-origin caller.
  * The UI calls this once on page load; subsequent POSTs carry the cookie.
  */
-wormholeApi.get("/wormhole/session", (c) => {
+peerExecApi.get("/peer/session", (c) => {
   setSessionCookie(c);
   return c.json({ ok: true, rotates: "on_server_restart" });
 });
 
 /**
- * POST /api/wormhole/request — relay a command to a peer.
+ * POST /api/peer/exec — relay a command to a peer.
  *
  * Body: { peer: string, cmd: string, args?: string[], signature: string }
  *
@@ -249,7 +249,7 @@ wormholeApi.get("/wormhole/session", (c) => {
  *   6. Relay via HTTP with HMAC-signed headers
  *   7. Return peer's response verbatim
  */
-wormholeApi.post("/wormhole/request", async (c) => {
+peerExecApi.post("/peer/exec", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return c.json({ error: "invalid_body" }, 400);
@@ -277,7 +277,7 @@ wormholeApi.post("/wormhole/request", async (c) => {
   //    have a valid cookie).
   const devBypass = process.env.NODE_ENV !== "production";
   if (!devBypass && !hasValidSessionCookie(c)) {
-    return c.json({ error: "no_session", hint: "GET /api/wormhole/session first" }, 401);
+    return c.json({ error: "no_session", hint: "GET /api/peer/session first" }, 401);
   }
 
   // 3 + 4. Trust boundary

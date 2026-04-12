@@ -1,6 +1,6 @@
 /**
- * Tests for POST /api/wormhole/request — the HTTP transport prototype for
- * the /wormhole protocol. Companion to src/api/wormhole.ts.
+ * Tests for POST /api/peer/exec — the HTTP transport prototype for
+ * the /wormhole protocol. Companion to src/api/peer-exec.ts.
  *
  * PROTOTYPE — iteration 4 of the federation-join-easy /loop. Drafted on the
  * feat/wormhole-http-endpoint-draft branch. See
@@ -23,8 +23,8 @@ import {
   isReadOnlyCmd,
   isShellPeerAllowed,
   resolvePeerUrl,
-  wormholeApi,
-} from "../src/api/wormhole";
+  peerExecApi,
+} from "../src/api/peer-exec";
 
 // ---- Pure helper tests ---------------------------------------------------
 
@@ -155,14 +155,14 @@ describe("resolvePeerUrl", () => {
 
 // ---- In-process POST route tests ----------------------------------------
 
-// Mount wormholeApi on a bare Hono app so we can call it with app.request().
+// Mount peerExecApi on a bare Hono app so we can call it with app.request().
 // This avoids booting the full server and keeps the tests deterministic.
 
 function makeApp(): Hono {
   const app = new Hono();
   // Mount under /api to match the real mount point in src/api/index.ts
   const apiSub = new Hono();
-  apiSub.route("/", wormholeApi);
+  apiSub.route("/", peerExecApi);
   app.route("/api", apiSub);
   return app;
 }
@@ -178,40 +178,40 @@ afterEach(() => {
   process.env.NODE_ENV = savedEnv;
 });
 
-describe("GET /api/wormhole/session", () => {
-  test("issues a wh_session cookie", async () => {
+describe("GET /api/peer/session", () => {
+  test("issues a pe_session cookie", async () => {
     const app = makeApp();
-    const res = await app.request("/api/wormhole/session");
+    const res = await app.request("/api/peer/session");
     expect(res.status).toBe(200);
     const cookie = res.headers.get("set-cookie");
     expect(cookie).not.toBeNull();
-    expect(cookie!).toMatch(/wh_session=[a-f0-9]+/);
+    expect(cookie!).toMatch(/pe_session=[a-f0-9]+/);
     expect(cookie!).toContain("HttpOnly");
     expect(cookie!).toContain("SameSite=Strict");
   });
 
   test("returns ok + rotation policy", async () => {
     const app = makeApp();
-    const res = await app.request("/api/wormhole/session");
+    const res = await app.request("/api/peer/session");
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.rotates).toBe("on_server_restart");
   });
 });
 
-describe("POST /api/wormhole/request (trust flow)", () => {
+describe("POST /api/peer/exec (trust flow)", () => {
   async function sessionCookie(app: Hono): Promise<string> {
-    const res = await app.request("/api/wormhole/session");
+    const res = await app.request("/api/peer/session");
     const setCookie = res.headers.get("set-cookie") ?? "";
-    const match = setCookie.match(/wh_session=([a-f0-9]+)/);
+    const match = setCookie.match(/pe_session=([a-f0-9]+)/);
     if (!match) throw new Error("no session cookie issued");
-    return `wh_session=${match[1]}`;
+    return `pe_session=${match[1]}`;
   }
 
   test("400 on missing fields (no peer)", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ cmd: "/dig", signature: "[local:anon-1]" }),
@@ -224,7 +224,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
   test("400 on bad signature shape", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ peer: "white", cmd: "/dig", signature: "not-a-signature" }),
@@ -236,7 +236,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
 
   test("401 when session cookie is missing (production mode)", async () => {
     const app = makeApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -253,7 +253,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
   test("403 when anon-* origin tries a non-readonly cmd", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -271,7 +271,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
   test("404 on unknown peer name (readonly cmd that passes trust check)", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -288,7 +288,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
   test("invalid JSON body → 400 invalid_body", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: "not-json-{",
@@ -302,7 +302,7 @@ describe("POST /api/wormhole/request (trust flow)", () => {
     // Flip to development for this one test
     process.env.NODE_ENV = "development";
     const app = makeApp();
-    const res = await app.request("/api/wormhole/request", {
+    const res = await app.request("/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" }, // no cookie
       body: JSON.stringify({
