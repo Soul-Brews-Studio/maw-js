@@ -1,120 +1,126 @@
-# maw-js
+# maw
 
-> Multi-Agent Workflow — backend server, CLI, and federation mesh
-
-## Architecture
-
-```
-Soul-Brews-Studio/maw-js          Soul-Brews-Studio/maw-ui
-├── src/          (backend)        ├── src/          (React app)
-│   ├── api/      (Hono routes)    │   ├── components/
-│   ├── commands/ (CLI)            │   ├── hooks/
-│   ├── engine/   (WebSocket)      │   ├── lib/
-│   ├── transports/ (MQTT/HTTP)    │   └── main.tsx
-│   └── views/    (static serve)   ├── office-8bit/  (Rust/WASM)
-├── test/                          ├── shrine/
-├── fleet/        (oracle configs) ├── wasm-vm/
-├── ui/                            └── package.json
-│   └── office/   ← built by maw-ui
-└── package.json
-```
-
-**maw-js** = backend (API, WebSocket, CLI, transports, tmux).
-**maw-ui** = frontend (React dashboard, built → deployed to `maw-js/ui/office/`).
-
-## Quick Start
-
-```bash
-bunx --bun github:Soul-Brews-Studio/maw-js ls
-bunx --bun github:Soul-Brews-Studio/maw-js peek neo
-bunx --bun github:Soul-Brews-Studio/maw-js hey neo "how are you"
-```
+> Multi-Agent Workflow — wake oracles, talk across machines, see the mesh.
 
 ## Install
 
 ```bash
-ghq get Soul-Brews-Studio/maw-js
-cd $(ghq root)/github.com/Soul-Brews-Studio/maw-js
-bun install && bun link
-maw ls
+# One line:
+curl -fsSL https://raw.githubusercontent.com/Soul-Brews-Studio/maw-js/main/install.sh | bash
+
+# Or manually:
+bun add -g github:Soul-Brews-Studio/maw-js
+
+# Or from source:
+ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
-## Server
+## Quick Start
 
 ```bash
-cp maw.config.example.json maw.config.json
-# Edit: host, ghqRoot, env (CLAUDE_CODE_OAUTH_TOKEN), pin, federationToken
-
-pm2 start ecosystem.config.cjs    # backend on :3456
-open http://localhost:3456         # serves ui/office/
+maw serve                                # start API + UI on :3456
+maw ui --install                         # download the federation lens
+maw ui                                   # → http://localhost:3456/federation_2d.html
+maw ls                                   # list sessions + windows
+maw wake neo                             # wake an oracle
+maw hey neo "what are you working on?"   # talk to it
 ```
 
-## CLI
+## Wake from anywhere
 
 ```bash
-maw ls                          # list sessions + windows
-maw peek [agent]                # see agent screen (or all)
-maw hey <agent> <msg>           # send message to agent
-maw peek node:agent             # remote peek via federation
-maw hey node:agent <msg>        # remote send via federation
-maw ping [node]                 # check peer connectivity
-maw wake <oracle> [task]        # wake oracle in tmux
-maw sleep <oracle> [window]     # gracefully stop window
-maw fleet ls                    # list fleet configs
-maw fleet snapshot              # save fleet state
-maw done <window>               # auto-save + clean up
+maw wake org/repo                        # clone via ghq + wake
+maw wake https://github.com/org/repo     # full URL works too
+maw wake org/repo --issue 5              # clone + send issue as prompt
+maw bud new-oracle --root                # create a fresh oracle (no parent)
+maw bud new-oracle --from neo            # bud from an existing oracle
 ```
 
 ## Federation
 
-Cross-machine agent communication with HMAC-SHA256 signing.
+Talk across machines with HMAC-SHA256 signing.
 
 ```bash
-# Config (same token on both nodes)
+maw hey white:neo "hello"                # send to oracle on another node
+maw peek white:neo                       # see their screen
+maw ping                                 # check peer connectivity
+
+# Config (maw.config.json)
 {
-  "node": "white",
-  "federationToken": "your-shared-secret-min-16-chars",
-  "namedPeers": [{ "name": "mba", "url": "http://mba.wg:3457" }]
+  "node": "oracle-world",
+  "federationToken": "shared-secret-min-16-chars",
+  "namedPeers": [{ "name": "white", "url": "http://10.20.0.7:3456" }]
 }
-
-# Talk across machines
-maw hey mba:homekeeper "hello"     # → delivered ⚡ mba → homekeeper
-maw peek mba:homekeeper            # → see their screen
-maw ping                           # → ✅ mba — 42ms, auth: ok
 ```
 
-## Deploy (frontend)
+## The Lens (maw-ui)
 
-Frontend lives in [maw-ui](https://github.com/Soul-Brews-Studio/maw-ui). Deploy:
+See the mesh in a browser. Any federation can point the lens at any backend:
 
 ```bash
-cd /path/to/maw-ui
-bun run build
-cp -r dist/* /path/to/maw-js/ui/office/
+maw ui                                   # local lens
+maw ui white                             # lens pointed at white's data
+maw ui --tunnel 10.20.0.16               # SSH tunnel + lens URL
 ```
 
-Dev server: `bun run dev` on maw-ui (:5173, proxies API to :3456).
+The lens reads `?host=` at runtime ([drizzle studio pattern](https://local.drizzle.studio)). Packed-serve mode: `maw ui --install` downloads the lens, `maw serve` serves it alongside the API on a single port.
 
-## Web UI Routes
+Frontend repo: [Soul-Brews-Studio/maw-ui](https://github.com/Soul-Brews-Studio/maw-ui)
 
-| Route | View |
-|-------|------|
-| `#dashboard` | Status cards, live feed, command center |
-| `#fleet` | Stage or pitch formation |
-| `#office` | Room grid — sessions as colored rooms |
-| `#mission` | SVG constellation map |
-| `#overview` | Compact agent grid |
-| `#terminal` | Full-screen xterm.js PTY |
-| `#chat` | AI conversation log |
-| `#config` | JSON config editor |
-| `/federation` | Mesh status + join guide |
-| `/timemachine` | Fleet Time Machine (snapshot browser) |
+## CLI
 
-**Federation API reference**: see [`docs/federation.md`](docs/federation.md) for the v1 public endpoints (`/api/config`, `/api/fleet-config`, `/api/feed`, `/api/federation/status`) — shape contract, load-bearing fields, and what not to build in a v1 lens. First consumer: [maw-ui#8](https://github.com/Soul-Brews-Studio/maw-ui/pull/8).
+```bash
+maw ls                           # list sessions + windows
+maw peek [agent]                 # see agent screen
+maw hey <agent> <msg>            # send message
+maw wake <oracle> [task]         # wake oracle in tmux
+maw sleep <oracle>               # gracefully stop
+maw done <window>                # auto-save + clean up
+maw bud <name> [--from parent]   # spawn new oracle
+maw fleet ls                     # list fleet configs
+maw fleet health                 # fleet health report
+maw fleet doctor                 # config doctor
+maw oracle scan                  # discover oracles across nodes
+maw contacts                     # list oracle contacts
+maw soul-sync                    # sync memory across peers
+maw find <keyword>               # search memory across oracles
+maw ui                           # open federation lens
+maw serve [port]                 # start API server (default: 3456)
+```
+
+Full command reference: `maw --help`
+
+## Federation API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/config` | Node identity + agents map |
+| `GET /api/fleet-config` | Fleet entries with sync_peers + lineage |
+| `GET /api/feed?limit=200` | Live event log |
+| `GET /api/federation/status` | Peer connectivity |
+| `POST /api/peer/exec` | Signed command relay between nodes |
+| `POST /api/proxy/*` | HTTP relay for mixed-content peers |
+
+Full reference: [`docs/federation.md`](docs/federation.md)
+
+## Architecture
+
+```
+maw-js (backend + CLI)              maw-ui (frontend)
+├── src/commands/  (48 commands)    ├── src/components/
+├── src/api/       (20 endpoints)   ├── src/hooks/
+├── src/engine/    (WebSocket)      ├── src/lib/
+├── src/transports/ (HTTP/tmux)     └── 16 HTML entry points
+├── test/          (28 test files)
+└── install.sh
+```
 
 ## Evolution
 
 ```
-maw.env.sh (Oct 2025) → oracles() zsh (Mar 2026) → maw.js (Mar 2026) → maw-js + maw-ui split (Mar 2026)
-   30+ shell cmds         ghq-based launcher         Bun/TS monolith         backend + frontend repos
+Oct 2025   maw.env.sh        30+ shell commands
+Mar 2026   maw.js             Bun/TS rewrite, tmux orchestration
+Mar 2026   maw-js + maw-ui    Backend/frontend split
+Apr 2026   v1.10.1            Federation mesh, 611 commits, 48 commands,
+                               20 API endpoints, 500+ tests, 8 contributors
 ```
