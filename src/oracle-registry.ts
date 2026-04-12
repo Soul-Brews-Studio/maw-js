@@ -203,7 +203,7 @@ export function scanLocal(): OracleEntry[] {
 
 // --- Remote scan (GitHub API) ---
 
-export async function scanRemote(orgs?: string[]): Promise<OracleEntry[]> {
+export async function scanRemote(orgs?: string[], verbose = false): Promise<OracleEntry[]> {
   const config = loadConfig();
   const defaultOrgs = config.githubOrgs || ["Soul-Brews-Studio", "laris-co"];
   const targetOrgs = orgs || defaultOrgs;
@@ -213,22 +213,26 @@ export async function scanRemote(orgs?: string[]): Promise<OracleEntry[]> {
 
   for (const org of targetOrgs) {
     try {
+      if (verbose) console.log(`  \x1b[90m⏳ scanning ${org}...\x1b[0m`);
       // Use gh CLI for auth-handled pagination
       const out = execSync(
         `gh api "/orgs/${org}/repos?per_page=100&type=all" --paginate --jq '.[] | .full_name + " " + .name'`,
         { encoding: "utf-8", timeout: 30000 },
       );
 
-      for (const line of out.trim().split("\n").filter(Boolean)) {
+      const repos = out.trim().split("\n").filter(Boolean);
+      const oracleRepos = repos.filter(l => l.split(" ")[1]?.endsWith("-oracle"));
+      if (verbose) console.log(`  \x1b[90m  ${repos.length} repos, ${oracleRepos.length} oracles\x1b[0m`);
+
+      for (const line of oracleRepos) {
         const [fullName, repoName] = line.split(" ");
         if (!repoName) continue;
 
-        // Detection: -oracle suffix
-        if (!repoName.endsWith("-oracle")) continue;
-
-        const key = fullName; // e.g. "Soul-Brews-Studio/mawjs-oracle"
+        const key = fullName;
         if (seen.has(key)) continue;
         seen.add(key);
+
+        if (verbose) process.stdout.write(`  \x1b[90m  checking ${repoName}...\x1b[0m`);
 
         // Check for ψ/ directory via API (light — just HEAD check)
         let hasPsi = false;
@@ -236,6 +240,8 @@ export async function scanRemote(orgs?: string[]): Promise<OracleEntry[]> {
           execSync(`gh api "/repos/${fullName}/contents/ψ" --silent 2>/dev/null`, { timeout: 5000 });
           hasPsi = true;
         } catch { /* no ψ/ */ }
+
+        if (verbose) console.log(hasPsi ? " \x1b[32mψ/\x1b[0m" : " \x1b[90m—\x1b[0m");
 
         entries.push({
           org,
@@ -274,10 +280,12 @@ export function scanAndCache(mode: "local" | "remote" | "both" = "local"): Regis
 }
 
 /** Full scan: local + remote merged */
-export async function scanFull(orgs?: string[]): Promise<RegistryCache> {
+export async function scanFull(orgs?: string[], verbose = false): Promise<RegistryCache> {
   const config = loadConfig();
+  if (verbose) console.log(`  \x1b[90m⏳ scanning local...\x1b[0m`);
   const localEntries = scanLocal();
-  const remoteEntries = await scanRemote(orgs);
+  if (verbose) console.log(`  \x1b[90m  ${localEntries.length} local oracles found\x1b[0m`);
+  const remoteEntries = await scanRemote(orgs, verbose);
 
   // Merge: local takes priority, remote fills gaps
   const merged = new Map<string, OracleEntry>();

@@ -208,7 +208,7 @@ export async function cmdOracleList() {
 
 // --- Fleet-wide scan + cache (#208) ---
 
-export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; local?: boolean; remote?: boolean } = {}) {
+export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; local?: boolean; remote?: boolean; verbose?: boolean } = {}) {
   const start = Date.now();
 
   const mode = opts.remote ? "remote" : opts.local ? "local" : "both";
@@ -216,7 +216,7 @@ export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; loc
   if (mode === "remote") {
     // Remote only — GitHub API
     console.log(`\n  \x1b[36m📡\x1b[0m Scanning GitHub orgs for *-oracle repos...\n`);
-    const entries = await scanRemote();
+    const entries = await scanRemote(undefined, opts.verbose);
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     if (opts.json) { console.log(JSON.stringify(entries, null, 2)); return; }
     console.log(`  \x1b[32m✓\x1b[0m Found ${entries.length} oracles remotely (${elapsed}s)\n`);
@@ -241,7 +241,7 @@ export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; loc
 
   // Both — full picture
   console.log(`\n  \x1b[36m📡\x1b[0m Full scan: local + GitHub remote...\n`);
-  const cache = await scanFull();
+  const cache = await scanFull(undefined, opts.verbose);
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
   if (opts.json) { console.log(JSON.stringify(cache, null, 2)); return; }

@@ -108,7 +108,8 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
       const force = args.includes("--force");
       const local = args.includes("--local");
       const remote = args.includes("--remote");
-      await cmdOracleScan({ json, force, local, remote });
+      const verbose = args.includes("--verbose") || args.includes("-v");
+      await cmdOracleScan({ json, force, local, remote, verbose });
     } else if (subcmd === "fleet") {
       const json = args.includes("--json");
       const stale = args.includes("--stale");
