@@ -117,3 +117,27 @@ sessionsApi.post("/select", async (c) => {
   await selectWindow(target);
   return c.json({ ok: true, target });
 });
+
+sessionsApi.post("/wake", async (c) => {
+  try {
+    const { target, task } = await c.req.json();
+    if (!target) return c.json({ error: "target required" }, 400);
+    const { cmdWake } = await import("../commands/wake");
+    await cmdWake(target, { noAttach: true, task });
+    return c.json({ ok: true, target });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
+
+sessionsApi.post("/sleep", async (c) => {
+  try {
+    const { target } = await c.req.json();
+    if (!target) return c.json({ error: "target required" }, 400);
+    const { cmdSleepOne } = await import("../commands/sleep");
+    await cmdSleepOne(target);
+    return c.json({ ok: true, target });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
