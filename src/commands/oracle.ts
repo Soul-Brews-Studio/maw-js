@@ -208,10 +208,11 @@ export async function cmdOracleList() {
 
 // --- Fleet-wide scan + cache (#208) ---
 
-export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; local?: boolean; remote?: boolean; verbose?: boolean } = {}) {
+export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; local?: boolean; remote?: boolean; all?: boolean; verbose?: boolean } = {}) {
   const start = Date.now();
 
-  const mode = opts.remote ? "remote" : opts.local ? "local" : "both";
+  // Default to local (fast). Use --all or --remote for GitHub API scan.
+  const mode = opts.all ? "both" : opts.remote ? "remote" : "local";
 
   if (mode === "remote") {
     // Remote only — GitHub API
