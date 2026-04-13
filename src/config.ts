@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 import { CONFIG_FILE } from "./paths";
+import { refreshContext } from "./lib/context";
 
 function detectGhqRoot(): string {
   try {
@@ -354,6 +355,7 @@ export function saveConfig(update: Partial<MawConfig>) {
   const merged = { ...current, ...update };
   writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   resetConfig(); // clear cache so next loadConfig() reads fresh
+  refreshContext(); // clear DI cache so middleware picks up new config
   return loadConfig();
 }
 

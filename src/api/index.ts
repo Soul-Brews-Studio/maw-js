@@ -19,8 +19,12 @@ import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
 import { pulseApi } from "./pulse";
 import { federationAuth } from "../lib/federation-auth";
+import { withContext } from "../lib/context";
 
 export const api = new Hono();
+
+// DI context — inject config (and later engine/transport) into all handlers
+api.use("*", withContext());
 
 // Federation auth — enforces HMAC on protected endpoints from remote peers
 api.use("*", federationAuth());
