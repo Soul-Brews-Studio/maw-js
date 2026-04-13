@@ -12,59 +12,24 @@
  */
 
 import { loadConfig } from "./config";
+import type { Static } from "@sinclair/typebox";
+import {
+  Identity as IdentitySchema,
+  Peer as PeerSchema,
+  FederationStatus as FederationStatusSchema,
+  Session as SessionSchema,
+  FeedEvent as FeedEventSchema,
+  PluginInfo as PluginInfoSchema,
+} from "./lib/schemas";
 
-// --- Types ---
+// --- Types (derived from TypeBox schemas — single source of truth) ---
 
-export interface Identity {
-  node: string;
-  version: string;
-  agents: string[];
-  clockUtc: string;
-  uptime: number;
-}
-
-export interface Peer {
-  url: string;
-  reachable: boolean;
-  latency?: number;
-  node?: string;
-  agents?: string[];
-  clockDeltaMs?: number;
-  clockWarning?: boolean;
-}
-
-export interface FederationStatus {
-  localUrl: string;
-  peers: Peer[];
-  totalPeers: number;
-  reachablePeers: number;
-  clockHealth?: { clockUtc: string; timezone: string; uptimeSeconds: number };
-}
-
-export interface Session {
-  name: string;
-  source?: string;
-  windows: { index: number; name: string; active: boolean }[];
-}
-
-export interface FeedEvent {
-  timestamp: string;
-  oracle: string;
-  host: string;
-  event: string;
-  project: string;
-  sessionId: string;
-  message: string;
-}
-
-export interface PluginInfo {
-  name: string;
-  type: string;
-  source: string;
-  loadedAt: string;
-  events: number;
-  errors: number;
-}
+export type Identity = Static<typeof IdentitySchema>;
+export type Peer = Static<typeof PeerSchema>;
+export type FederationStatus = Static<typeof FederationStatusSchema>;
+export type Session = Static<typeof SessionSchema>;
+export type FeedEvent = Static<typeof FeedEventSchema>;
+export type PluginInfo = Static<typeof PluginInfoSchema>;
 
 // --- Internal helpers ---
 
