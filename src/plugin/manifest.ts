@@ -53,19 +53,31 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
       `plugin.json: version must be semver N.N.N (got ${JSON.stringify(r.version)})`,
     );
   }
-  if (typeof r.wasm !== "string" || !r.wasm) {
-    throw new Error("plugin.json: wasm must be a non-empty string path");
+  // Must have either wasm or entry (not both required, at least one)
+  const hasWasm = typeof r.wasm === "string" && r.wasm.length > 0;
+  const hasEntry = typeof r.entry === "string" && (r.entry as string).length > 0;
+  if (!hasWasm && !hasEntry) {
+    throw new Error("plugin.json: must have either 'wasm' (WASM plugin) or 'entry' (TS plugin)");
   }
+
   if (typeof r.sdk !== "string" || !SEMVER_RANGE_RE.test(r.sdk)) {
     throw new Error(
       `plugin.json: sdk must be a semver range (got ${JSON.stringify(r.sdk)})`,
     );
   }
 
-  // Validate wasm file exists on disk
-  const resolvedWasm = resolve(dir, r.wasm);
-  if (!existsSync(resolvedWasm)) {
-    throw new Error(`plugin.json: wasm file not found: ${resolvedWasm}`);
+  // Validate file exists on disk
+  if (hasWasm) {
+    const resolvedWasm = resolve(dir, r.wasm as string);
+    if (!existsSync(resolvedWasm)) {
+      throw new Error(`plugin.json: wasm file not found: ${resolvedWasm}`);
+    }
+  }
+  if (hasEntry) {
+    const resolvedEntry = resolve(dir, r.entry as string);
+    if (!existsSync(resolvedEntry)) {
+      throw new Error(`plugin.json: entry file not found: ${resolvedEntry}`);
+    }
   }
 
   // --- Optional cli ---
@@ -106,7 +118,8 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   return {
     name: r.name,
     version: r.version,
-    wasm: r.wasm,
+    ...(hasWasm ? { wasm: r.wasm as string } : {}),
+    ...(hasEntry ? { entry: r.entry as string } : {}),
     sdk: r.sdk,
     ...(cli ? { cli } : {}),
     ...(api ? { api } : {}),
@@ -125,6 +138,13 @@ export function loadManifestFromDir(dir: string): LoadedPlugin | null {
   if (!existsSync(manifestPath)) return null;
   const jsonText = readFileSync(manifestPath, "utf8");
   const manifest = parseManifest(jsonText, dir);
-  const wasmPath = resolve(dir, manifest.wasm);
-  return { manifest, dir, wasmPath };
+  const hasWasm = !!manifest.wasm;
+  const hasEntry = !!manifest.entry;
+  return {
+    manifest,
+    dir,
+    wasmPath: hasWasm ? resolve(dir, manifest.wasm!) : "",
+    ...(hasEntry ? { entryPath: resolve(dir, manifest.entry!) } : {}),
+    kind: hasEntry ? "ts" as const : "wasm" as const,
+  };
 }

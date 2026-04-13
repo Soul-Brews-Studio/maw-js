@@ -70,7 +70,30 @@ export async function invokePlugin(
   plugin: LoadedPlugin,
   ctx: InvokeContext,
 ): Promise<InvokeResult> {
-  // Read WASM bytes
+  // TS plugins — import and call handler directly (full access)
+  if (plugin.kind === "ts" && plugin.entryPath) {
+    try {
+      const mod = await import(plugin.entryPath);
+      const handler = mod.default || mod.handler;
+      if (!handler) return { ok: false, error: "TS plugin has no default export or handler" };
+
+      // Capture stdout to return as output
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (...args: any[]) => logs.push(args.map(String).join(" "));
+      try {
+        const args = ctx.source === "cli" ? (ctx.args as string[]) : [JSON.stringify(ctx.args)];
+        await handler(args, {});
+        return { ok: true, output: logs.join("\n") || undefined };
+      } finally {
+        console.log = origLog;
+      }
+    } catch (err: any) {
+      return { ok: false, error: `TS plugin error: ${err.message}` };
+    }
+  }
+
+  // WASM plugins — instantiate and call handle(ptr, len) in sandbox
   let wasmBytes: Uint8Array;
   try {
     wasmBytes = readFileSync(plugin.wasmPath);

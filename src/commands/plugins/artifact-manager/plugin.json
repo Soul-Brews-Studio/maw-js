@@ -1,0 +1,16 @@
+{
+  "name": "artifact-manager",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Task artifact lifecycle — ls, get, write, attach, init. Pure TypeScript, no WASM.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "art",
+    "help": "maw art [ls|get|write|attach|init] — task artifact manager"
+  },
+  "api": {
+    "path": "/api/plugins/artifact-manager",
+    "methods": ["GET", "POST"]
+  }
+}
