@@ -3,10 +3,15 @@
  * Test cases designed by oracle-world:mawjs, implemented by white:mawjs-oracle.
  * See: #201
  */
-import { describe, test, expect } from "bun:test";
-import { resolveTarget } from "../src/core/routing";
+import { describe, test, expect, mock } from "bun:test";
 import type { Session } from "../src/core/runtime/find-window";
 import type { MawConfig } from "../src/config";
+
+// Re-export the real findWindow to counter hey-plugin.test.ts mock pollution (#198)
+const realFindWindow = await import("../src/core/runtime/find-window");
+mock.module("../src/core/runtime/find-window", () => realFindWindow);
+
+const { resolveTarget } = await import("../src/core/routing");
 
 // --- Fixtures ---
 
