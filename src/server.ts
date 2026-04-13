@@ -12,6 +12,8 @@ import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
 import { setupTriggerListener } from "./trigger-listener";
 import { createTransportRouter } from "./transports";
+import { listSessions } from "./ssh";
+import { Tmux } from "./tmux";
 import { handlePtyMessage, handlePtyClose } from "./pty";
 
 // --- Version info (computed once at startup) ---
@@ -77,6 +79,22 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
+
+  // Reap orphaned PTY + view sessions from previous server lifecycle (#300)
+  try {
+    const sessions = await listSessions();
+    const stale = sessions.filter(s =>
+      s.name.startsWith("maw-pty-") || s.name.endsWith("-view")
+    );
+    if (stale.length > 0) {
+      const reaper = new Tmux();
+      for (const s of stale) {
+        await reaper.killSession(s.name);
+        console.log(`[startup] reaped orphan: ${s.name}`);
+      }
+      console.log(`[startup] cleaned ${stale.length} orphaned sessions`);
+    }
+  } catch { /* tmux may not be running */ }
 
   // Connect transport router (non-blocking — server starts even if transports fail)
   try {
