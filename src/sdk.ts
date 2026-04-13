@@ -84,6 +84,17 @@ async function api<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+/** Typed fetch against maw serve. Throws on failure (unlike api() which swallows). */
+async function typedFetch<T>(path: string, init?: RequestInit & { timeout?: number }): Promise<T> {
+  const { timeout = 5000, ...rest } = init || {};
+  const res = await fetch(`${baseUrl()}${path}`, { signal: AbortSignal.timeout(timeout), ...rest });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}${body ? `: ${body}` : ""}`);
+  }
+  return await res.json() as T;
+}
+
 // --- API layer ---
 
 /** Node identity: name, version, agents, clock */
@@ -228,6 +239,8 @@ export const maw = {
   send,
   print,
   baseUrl,
+  /** Typed fetch — throws on failure. Use for endpoints not wrapped by SDK methods. */
+  fetch: typedFetch,
 };
 
 export default maw;
