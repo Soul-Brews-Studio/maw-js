@@ -67,11 +67,13 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   if (after) console.log(`  to:   ${after}\n`);
   else console.log("");
 } else {
-  // Auto-bootstrap: if ~/.maw/plugins/ is empty, copy core plugins from bundled
+  // Auto-bootstrap: if ~/.maw/plugins/ is empty, copy bundled + install from pluginSources
   const pluginDir = join(homedir(), ".maw", "plugins");
-  const { mkdirSync, existsSync, readdirSync, cpSync } = require("fs");
+  const { mkdirSync, existsSync, readdirSync, cpSync, writeFileSync, readFileSync } = require("fs");
+  const { execSync } = require("child_process");
   mkdirSync(pluginDir, { recursive: true });
   if (readdirSync(pluginDir).length === 0) {
+    // 1. Copy bundled plugins
     const bundled = join(import.meta.dir, "commands", "plugins");
     if (existsSync(bundled)) {
       for (const d of readdirSync(bundled)) {
@@ -79,8 +81,39 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
           cpSync(join(bundled, d), join(pluginDir, d), { recursive: true });
         }
       }
-      console.log(`[maw] bootstrapped ${readdirSync(pluginDir).length} plugins → ${pluginDir}`);
     }
+
+    // 2. Install from pluginSources URLs in config
+    try {
+      const { loadConfig } = await import("./config");
+      const config = loadConfig();
+      const sources: string[] = config.pluginSources ?? [];
+      for (const url of sources) {
+        try {
+          execSync(`ghq get -u "${url}"`, { stdio: "pipe" });
+          const ghqRoot = execSync("ghq root", { encoding: "utf-8" }).trim();
+          const repoPath = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
+          const src = join(ghqRoot, repoPath);
+          const pkgDir = join(src, "packages");
+          if (existsSync(pkgDir)) {
+            for (const pkg of readdirSync(pkgDir)) {
+              if (existsSync(join(pkgDir, pkg, "plugin.json"))) {
+                const dest = join(pluginDir, pkg);
+                if (!existsSync(dest)) {
+                  cpSync(join(pkgDir, pkg), dest, { recursive: true });
+                }
+              }
+            }
+          } else if (existsSync(join(src, "plugin.json"))) {
+            const manifest = JSON.parse(readFileSync(join(src, "plugin.json"), "utf-8"));
+            const dest = join(pluginDir, manifest.name);
+            if (!existsSync(dest)) cpSync(src, dest, { recursive: true });
+          }
+        } catch {}
+      }
+    } catch {}
+
+    console.log(`[maw] bootstrapped ${readdirSync(pluginDir).length} plugins → ${pluginDir}`);
   }
 
   // Load plugins from ~/.maw/plugins/ — the single source of truth

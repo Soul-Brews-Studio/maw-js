@@ -104,6 +104,8 @@ export interface MawConfig {
   hmacWindowSeconds?: number;
   /** PIN for web UI */
   pin?: string;
+  /** Plugin source URLs — auto-installed on bootstrap (nuke → first run) */
+  pluginSources?: string[];
 }
 
 const DEFAULTS: MawConfig = {
@@ -265,6 +267,15 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
       result.pin = raw.pin;
     } else {
       warn("pin", "must be a string");
+    }
+  }
+
+  // pluginSources: string[] of URLs
+  if ("pluginSources" in raw) {
+    if (Array.isArray(raw.pluginSources)) {
+      result.pluginSources = (raw.pluginSources as unknown[]).filter(s => typeof s === "string") as string[];
+    } else {
+      warn("pluginSources", "must be an array of URL strings");
     }
   }
 
