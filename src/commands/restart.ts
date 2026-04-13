@@ -47,6 +47,20 @@ export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string } = {}
       let after = "";
       try { after = execSync(`maw --version`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch {}
       console.log(`    ${before} → ${after || "updated"}`);
+      // Link SDK for plugins
+      try {
+        const mawDir = execSync(`ghq list --full-path | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+        if (mawDir) {
+          execSync(`cd ${mawDir} && bun link`, { stdio: "pipe" });
+          const oDir = require("os").homedir() + "/.oracle";
+          require("fs").mkdirSync(oDir, { recursive: true });
+          if (!require("fs").existsSync(oDir + "/package.json")) {
+            require("fs").writeFileSync(oDir + "/package.json", '{"name":"oracle-plugins","private":true}\n');
+          }
+          execSync(`cd ${oDir} && bun link maw`, { stdio: "pipe" });
+          console.log(`    🔗 SDK linked`);
+        }
+      } catch { /* non-fatal */ }
     } catch (e: any) {
       console.log(`    \x1b[33m⚠ update failed: ${e.message?.slice(0, 80) || e}\x1b[0m`);
     }
