@@ -52,6 +52,7 @@ export interface LoadedPlugin {
   wasmPath: string;       // resolved path to .wasm (empty for TS plugins)
   entryPath?: string;     // resolved path to .ts/.js (TS plugins only)
   kind: "wasm" | "ts";    // plugin type
+  disabled?: boolean;     // true if plugin is in disabledPlugins config list
 }
 
 export interface InvokeContext {

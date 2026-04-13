@@ -7,11 +7,16 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "take",
-    "aliases": ["handover"],
+    "aliases": [
+      "handover"
+    ],
     "help": "maw take <session>:<window> [target-session] — move a window between sessions"
   },
   "api": {
     "path": "/api/take",
-    "methods": ["POST"]
-  }
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0
 }

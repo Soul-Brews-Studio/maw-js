@@ -8,5 +8,6 @@
   "cli": {
     "command": "park",
     "help": "maw park [agent] | maw park ls — park an agent or list parked agents"
-  }
+  },
+  "weight": 50
 }

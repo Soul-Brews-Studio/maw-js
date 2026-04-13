@@ -10,7 +10,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
   if (cmd === "plugin") {
     const sub = args[1]?.toLowerCase();
     // "maw plugin ls/info/install/remove" → forward to plugins (plural) handler
-    if (sub && ["ls", "list", "info", "install", "remove", "uninstall", "rm", "lean", "nuke"].includes(sub)) {
+    if (sub && ["ls", "list", "info", "install", "remove", "uninstall", "rm", "lean", "nuke", "enable", "disable"].includes(sub)) {
       const { cmdPlugins } = await import("../commands/shared/plugins");
       const { parseFlags } = await import("./parse-args");
       const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean }, 2);

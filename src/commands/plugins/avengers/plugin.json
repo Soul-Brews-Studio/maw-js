@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "avengers",
-    "aliases": ["avg"],
+    "aliases": [
+      "avg"
+    ],
     "help": "maw avengers [status|assemble|disband] — Manage the Avengers multi-agent team"
-  }
+  },
+  "weight": 50
 }

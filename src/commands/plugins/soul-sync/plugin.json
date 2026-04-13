@@ -7,7 +7,11 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "soul-sync",
-    "aliases": ["soulsync", "ss"],
+    "aliases": [
+      "soulsync",
+      "ss"
+    ],
     "help": "maw soul-sync [target] [--from <source>] [--project]"
-  }
+  },
+  "weight": 10
 }

@@ -8,5 +8,6 @@
   "cli": {
     "command": "fleet",
     "help": "maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot> [args]"
-  }
+  },
+  "weight": 10
 }

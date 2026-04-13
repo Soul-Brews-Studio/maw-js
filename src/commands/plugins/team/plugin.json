@@ -9,5 +9,6 @@
     "command": "team",
     "aliases": [],
     "help": "maw team <shutdown|list> [args] — Manage agent teams"
-  }
+  },
+  "weight": 50
 }

@@ -11,6 +11,9 @@
   },
   "api": {
     "path": "/api/health",
-    "methods": ["GET"]
-  }
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 0
 }

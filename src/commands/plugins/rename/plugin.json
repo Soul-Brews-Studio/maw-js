@@ -8,5 +8,6 @@
   "cli": {
     "command": "rename",
     "help": "maw rename <tab# or name> <new-name>"
-  }
+  },
+  "weight": 50
 }

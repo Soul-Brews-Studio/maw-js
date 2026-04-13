@@ -7,10 +7,14 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "talk-to",
-    "aliases": ["talkto", "talk"],
+    "aliases": [
+      "talkto",
+      "talk"
+    ],
     "help": "maw talk-to <agent> <message> [--force] — talk to a remote agent on another node",
     "flags": {
       "--force": "boolean"
     }
-  }
+  },
+  "weight": 50
 }

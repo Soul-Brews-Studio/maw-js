@@ -11,6 +11,9 @@
   },
   "api": {
     "path": "/api/sleep",
-    "methods": ["POST"]
-  }
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0
 }

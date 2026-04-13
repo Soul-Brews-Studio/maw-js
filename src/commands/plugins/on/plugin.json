@@ -12,5 +12,6 @@
       "--once": "boolean",
       "--timeout": "string"
     }
-  }
+  },
+  "weight": 10
 }

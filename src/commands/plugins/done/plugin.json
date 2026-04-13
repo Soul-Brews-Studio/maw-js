@@ -7,11 +7,16 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "done",
-    "aliases": ["finish"],
+    "aliases": [
+      "finish"
+    ],
     "help": "maw done <window-name> [--force] [--dry-run] — clean up a finished worktree"
   },
   "api": {
     "path": "/api/done",
-    "methods": ["POST"]
-  }
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0
 }

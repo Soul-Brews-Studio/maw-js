@@ -86,18 +86,14 @@ describe("maw plugins CLI", () => {
     }
   });
 
-  test("ls table shows name/version/surfaces/dir columns", async () => {
+  test("ls grouped output shows plugin name and version", async () => {
     const pluginDir = mkdtempSync(join(tmpdir(), "maw-p-"));
     const p = makePlugin(pluginDir, "my-tool");
     try {
       await cmdPlugins("ls", [], { _: [] }, () => [p]);
-      const header = logs[0];
-      expect(header).toContain("name");
-      expect(header).toContain("version");
-      expect(header).toContain("surfaces");
-      const dataRow = logs[2]; // header, sep, row
-      expect(dataRow).toContain("my-tool");
-      expect(dataRow).toContain("1.0.0");
+      const all = logs.join("\n");
+      expect(all).toContain("my-tool");
+      expect(all).toContain("1.0.0");
     } finally {
       rmSync(pluginDir, { recursive: true, force: true });
     }

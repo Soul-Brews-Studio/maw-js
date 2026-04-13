@@ -7,10 +7,15 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "view",
-    "aliases": ["create-view", "attach", "a"],
+    "aliases": [
+      "create-view",
+      "attach",
+      "a"
+    ],
     "help": "maw view <agent> [window] [--clean] — create or attach to an agent's tmux view",
     "flags": {
       "--clean": "boolean"
     }
-  }
+  },
+  "weight": 10
 }

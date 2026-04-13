@@ -11,6 +11,9 @@
   },
   "api": {
     "path": "/api/ping",
-    "methods": ["GET"]
-  }
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 0
 }

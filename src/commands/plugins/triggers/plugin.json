@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "triggers",
-    "aliases": ["trigger"],
+    "aliases": [
+      "trigger"
+    ],
     "help": "maw triggers — List configured event triggers"
-  }
+  },
+  "weight": 50
 }

@@ -8,5 +8,6 @@
   "cli": {
     "command": "pulse",
     "help": "maw pulse <add|ls|cleanup> [opts]"
-  }
+  },
+  "weight": 10
 }

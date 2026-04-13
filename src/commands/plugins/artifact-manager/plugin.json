@@ -11,6 +11,10 @@
   },
   "api": {
     "path": "/api/plugins/artifact-manager",
-    "methods": ["GET", "POST"]
-  }
+    "methods": [
+      "GET",
+      "POST"
+    ]
+  },
+  "weight": 50
 }

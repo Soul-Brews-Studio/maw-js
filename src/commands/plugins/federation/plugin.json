@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "federation",
-    "aliases": ["fed"],
+    "aliases": [
+      "fed"
+    ],
     "help": "maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]"
-  }
+  },
+  "weight": 10
 }

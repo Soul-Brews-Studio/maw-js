@@ -65,6 +65,14 @@ export async function cmdPlugins(
         process.exit(1);
       }
       return doRemove(name, discover);
+    case "enable": {
+      if (!name) { console.error("usage: maw plugin enable <name>"); process.exit(1); }
+      return doEnable(name);
+    }
+    case "disable": {
+      if (!name) { console.error("usage: maw plugin disable <name>"); process.exit(1); }
+      return doDisable(name);
+    }
     case "lean":
       return doLean(discover);
     case "nuke":
@@ -100,21 +108,43 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
     return;
   }
 
-  const pluginHome = getPluginHome();
-  const rows = plugins.map(p => {
+  const { loadConfig } = require("../../config");
+  const disabled = new Set((loadConfig().disabledPlugins ?? []) as string[]);
+
+  // Group by weight tier
+  const tiers: { label: string; plugins: LoadedPlugin[] }[] = [
+    { label: "core", plugins: [] },
+    { label: "standard", plugins: [] },
+    { label: "extra", plugins: [] },
+  ];
+
+  for (const p of plugins) {
     const w = p.manifest.weight ?? 50;
-    const source = w < 10 ? "\x1b[32m●\x1b[0m core"
-      : w < 50 ? "\x1b[36m●\x1b[0m tool"
-      : "\x1b[33m●\x1b[0m feature";
-    return [
-      p.manifest.name,
-      p.manifest.version,
-      source,
-      surfaces(p),
-      shortenHome(p.dir),
-    ];
-  });
-  printTable(["name", "version", "source", "surfaces", "dir"], rows);
+    if (w < 10) tiers[0].plugins.push(p);
+    else if (w < 50) tiers[1].plugins.push(p);
+    else tiers[2].plugins.push(p);
+  }
+
+  for (const tier of tiers) {
+    if (tier.plugins.length === 0) continue;
+    console.log(`\n\x1b[1m${tier.label}\x1b[0m (${tier.plugins.length})`);
+    const rows = tier.plugins.map(p => {
+      const w = p.manifest.weight ?? 50;
+      const isDisabled = disabled.has(p.manifest.name);
+      const icon = isDisabled ? "\x1b[90m○\x1b[0m" : (w < 10 ? "\x1b[32m●\x1b[0m" : w < 50 ? "\x1b[36m●\x1b[0m" : "\x1b[33m●\x1b[0m");
+      const source = `${icon} ${isDisabled ? "disabled" : (w < 10 ? "core" : w < 50 ? "standard" : "extra")}`;
+      return [
+        p.manifest.name,
+        p.manifest.version,
+        source,
+        surfaces(p),
+        shortenHome(p.dir),
+      ];
+    });
+    printTable(["name", "version", "source", "surfaces", "dir"], rows);
+  }
+
+  console.log(`\ntotal: ${plugins.length} plugins`);
 }
 
 function doInfo(name: string, discover: () => LoadedPlugin[]): void {
@@ -240,24 +270,29 @@ function doRemove(name: string, discover: () => LoadedPlugin[]): void {
 }
 
 function doLean(discover: () => LoadedPlugin[]): void {
+  const { loadConfig, saveConfig } = require("../../config");
   const plugins = discover();
-  const home = getPluginHome();
-  const dirs = readdirSync(home);
-  let removed = 0;
+  const toDisable: string[] = [];
 
-  for (const d of dirs) {
-    // Keep core (00-*) plugins
-    if (d.startsWith("00-")) continue;
-    const dir = join(home, d);
-    const stat = require("fs").lstatSync(dir);
-    if (!stat.isDirectory() && !stat.isSymbolicLink()) continue;
-    archiveToTmp(d, dir);
-    removed++;
-    console.log(`  \x1b[90m✗\x1b[0m ${d}`);
+  for (const p of plugins) {
+    const w = p.manifest.weight ?? 50;
+    if (w >= 10) toDisable.push(p.manifest.name); // keep only weight 00 (core)
   }
 
-  const remaining = readdirSync(home).length;
-  console.log(`\n\x1b[32m✓\x1b[0m lean — removed ${removed}, kept ${remaining} core plugins`);
+  if (toDisable.length === 0) {
+    console.log("already lean — only core plugins active");
+    return;
+  }
+
+  const config = loadConfig();
+  const disabled = new Set(config.disabledPlugins ?? []);
+  for (const n of toDisable) disabled.add(n);
+  saveConfig({ disabledPlugins: [...disabled] });
+
+  for (const n of toDisable) console.log(`  \x1b[33m✗\x1b[0m ${n}`);
+  const remaining = plugins.length - toDisable.length;
+  console.log(`\n\x1b[32m✓\x1b[0m lean — disabled ${toDisable.length}, kept ${remaining} core plugins`);
+  console.log(`\x1b[90m  Restore: maw plugin enable <name>\x1b[0m`);
 }
 
 function doNuke(): void {
@@ -276,6 +311,36 @@ function doNuke(): void {
 
   console.log(`\n\x1b[31m💥\x1b[0m nuked — all plugins archived to /tmp/`);
   console.log(`\x1b[90m   next maw run will auto-bootstrap core plugins\x1b[0m`);
+}
+
+function doEnable(name: string): void {
+  const { loadConfig, saveConfig } = require("../../config");
+  const config = loadConfig();
+  const disabled = config.disabledPlugins ?? [];
+  if (!disabled.includes(name)) {
+    console.log(`${name} is already enabled`);
+    return;
+  }
+  saveConfig({ disabledPlugins: disabled.filter((n: string) => n !== name) });
+  console.log(`\x1b[32m✓\x1b[0m enabled ${name}`);
+}
+
+function doDisable(name: string): void {
+  const { loadConfig, saveConfig } = require("../../config");
+  const config = loadConfig();
+  const disabled = config.disabledPlugins ?? [];
+  if (disabled.includes(name)) {
+    console.log(`${name} is already disabled`);
+    return;
+  }
+  // Verify plugin exists
+  const plugins = discoverPackages();
+  if (!plugins.find(p => p.manifest.name === name)) {
+    console.error(`plugin not found: ${name}`);
+    process.exit(1);
+  }
+  saveConfig({ disabledPlugins: [...disabled, name] });
+  console.log(`\x1b[33m✗\x1b[0m disabled ${name}`);
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

@@ -6,8 +6,16 @@
   "description": "Transport layer status and diagnostics",
   "cli": {
     "command": "transport",
-    "aliases": ["tp"],
+    "aliases": [
+      "tp"
+    ],
     "help": "maw transport [status]"
   },
-  "api": { "path": "/api/transport/status", "methods": ["GET"] }
+  "api": {
+    "path": "/api/transport/status",
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 10
 }

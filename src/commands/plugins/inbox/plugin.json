@@ -8,5 +8,6 @@
   "cli": {
     "command": "inbox",
     "help": "maw inbox [read <id> | write <msg>]"
-  }
+  },
+  "weight": 50
 }

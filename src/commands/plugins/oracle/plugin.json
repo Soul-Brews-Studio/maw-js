@@ -6,8 +6,16 @@
   "description": "Oracle management — list, scan, fleet, about",
   "cli": {
     "command": "oracle",
-    "aliases": ["oracles"],
+    "aliases": [
+      "oracles"
+    ],
     "help": "maw oracle [ls|scan|fleet|about <name>]"
   },
-  "api": { "path": "/api/oracle", "methods": ["GET"] }
+  "api": {
+    "path": "/api/oracle",
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 0
 }

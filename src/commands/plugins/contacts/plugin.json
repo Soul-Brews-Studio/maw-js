@@ -6,8 +6,17 @@
   "description": "Manage oracle contacts — add, remove, list",
   "cli": {
     "command": "contacts",
-    "aliases": ["contact"],
+    "aliases": [
+      "contact"
+    ],
     "help": "maw contacts [ls|add|rm] [name] [transport]"
   },
-  "api": { "path": "/api/contacts", "methods": ["GET", "POST"] }
+  "api": {
+    "path": "/api/contacts",
+    "methods": [
+      "GET",
+      "POST"
+    ]
+  },
+  "weight": 0
 }

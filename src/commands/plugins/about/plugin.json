@@ -7,11 +7,16 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "about",
-    "aliases": ["info"],
+    "aliases": [
+      "info"
+    ],
     "help": "maw about <oracle> — show oracle info"
   },
   "api": {
     "path": "/api/about",
-    "methods": ["GET"]
-  }
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 10
 }

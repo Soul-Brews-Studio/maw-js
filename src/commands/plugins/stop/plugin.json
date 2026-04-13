@@ -7,11 +7,16 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "stop",
-    "aliases": ["rest"],
+    "aliases": [
+      "rest"
+    ],
     "help": "maw stop — stop ALL oracle fleet sessions"
   },
   "api": {
     "path": "/api/stop",
-    "methods": ["POST"]
-  }
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0
 }

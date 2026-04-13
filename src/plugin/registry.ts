@@ -13,6 +13,7 @@ import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { loadManifestFromDir } from "./manifest";
+import { loadConfig } from "../config";
 import {
   buildImportObject,
   preCacheBridge,
@@ -37,6 +38,7 @@ const SCAN_DIRS = [
  */
 export function discoverPackages(): LoadedPlugin[] {
   const plugins: LoadedPlugin[] = [];
+  const disabled = loadConfig().disabledPlugins ?? [];
 
   for (const baseDir of SCAN_DIRS) {
     if (!existsSync(baseDir)) continue;
@@ -52,7 +54,12 @@ export function discoverPackages(): LoadedPlugin[] {
       const pkgDir = join(baseDir, entry);
       try {
         const loaded = loadManifestFromDir(pkgDir);
-        if (loaded) plugins.push(loaded);
+        if (loaded) {
+          if (disabled.includes(loaded.manifest.name)) {
+            loaded.disabled = true;
+          }
+          plugins.push(loaded);
+        }
       } catch {
         // invalid manifest — skip silently
       }

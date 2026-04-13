@@ -8,5 +8,6 @@
   "cli": {
     "command": "pr",
     "help": "maw pr [number]"
-  }
+  },
+  "weight": 50
 }

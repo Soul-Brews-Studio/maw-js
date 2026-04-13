@@ -106,6 +106,8 @@ export interface MawConfig {
   pin?: string;
   /** Plugin source URLs — auto-installed on bootstrap (nuke → first run) */
   pluginSources?: string[];
+  /** Plugin names to disable (skip during scanning and execution) */
+  disabledPlugins?: string[];
 }
 
 const DEFAULTS: MawConfig = {
@@ -276,6 +278,15 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
       result.pluginSources = (raw.pluginSources as unknown[]).filter(s => typeof s === "string") as string[];
     } else {
       warn("pluginSources", "must be an array of URL strings");
+    }
+  }
+
+  // disabledPlugins: string[] of plugin names
+  if ("disabledPlugins" in raw) {
+    if (Array.isArray(raw.disabledPlugins)) {
+      result.disabledPlugins = (raw.disabledPlugins as unknown[]).filter(s => typeof s === "string") as string[];
+    } else {
+      warn("disabledPlugins", "must be an array of plugin names");
     }
   }
 

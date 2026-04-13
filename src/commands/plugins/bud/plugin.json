@@ -8,10 +8,21 @@
     "command": "bud",
     "help": "maw bud <name> [--from <oracle>] [--root] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--dry-run]",
     "flags": {
-      "--from": "string", "--org": "string", "--repo": "string",
-      "--issue": "number", "--note": "string",
-      "--fast": "boolean", "--root": "boolean", "--dry-run": "boolean"
+      "--from": "string",
+      "--org": "string",
+      "--repo": "string",
+      "--issue": "number",
+      "--note": "string",
+      "--fast": "boolean",
+      "--root": "boolean",
+      "--dry-run": "boolean"
     }
   },
-  "api": { "path": "/api/bud", "methods": ["POST"] }
+  "api": {
+    "path": "/api/bud",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0
 }

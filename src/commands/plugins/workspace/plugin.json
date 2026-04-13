@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "workspace",
-    "aliases": ["ws"],
+    "aliases": [
+      "ws"
+    ],
     "help": "maw workspace <subcommand> [args] — Multi-node workspace management"
-  }
+  },
+  "weight": 50
 }

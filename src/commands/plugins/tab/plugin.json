@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "tab",
-    "aliases": ["tabs"],
+    "aliases": [
+      "tabs"
+    ],
     "help": "maw tab [args] — manage tmux tabs"
-  }
+  },
+  "weight": 50
 }

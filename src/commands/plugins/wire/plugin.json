@@ -8,5 +8,6 @@
   "cli": {
     "command": "wire",
     "help": "maw wire <agent> <message> — send a raw wire message to an agent"
-  }
+  },
+  "weight": 10
 }

@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "workon",
-    "aliases": ["work"],
+    "aliases": [
+      "work"
+    ],
     "help": "maw workon <repo> [task]"
-  }
+  },
+  "weight": 50
 }

@@ -11,5 +11,6 @@
     "flags": {
       "--oracle": "string"
     }
-  }
+  },
+  "weight": 10
 }

@@ -7,7 +7,10 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "resume",
-    "aliases": ["unpause"],
+    "aliases": [
+      "unpause"
+    ],
     "help": "maw resume <agent> — resume a parked agent"
-  }
+  },
+  "weight": 50
 }

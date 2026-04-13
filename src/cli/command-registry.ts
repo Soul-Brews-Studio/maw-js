@@ -16,6 +16,7 @@ import { readdirSync, readFileSync, existsSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { parseFlags } from "./parse-args";
 import { loadManifestFromDir } from "../plugin/manifest";
+import { loadConfig } from "../config";
 import {
   buildImportObject, preCacheBridge, readString,
   textEncoder, textDecoder,
@@ -83,7 +84,7 @@ export function matchCommand(args: string[]): { desc: CommandDescriptor; remaini
  * Optionally exports command_name/command_desc globals for metadata.
  * Host functions (maw_print, maw_identity, etc.) are injected via importObject.
  */
-async function loadWasmCommand(path: string, filename: string, scope: "builtin" | "user"): Promise<void> {
+async function loadWasmCommand(path: string, filename: string, scope: "builtin" | "user", disabled: string[] = []): Promise<void> {
   const wasmBytes = readFileSync(path);
   const mod = new WebAssembly.Module(wasmBytes);
   const exports = WebAssembly.Module.exports(mod);
@@ -143,6 +144,10 @@ async function loadWasmCommand(path: string, filename: string, scope: "builtin" 
   const name = manifestName
     || (instance.exports.command_name as WebAssembly.Global)?.value
     || filename.replace(/\.wasm$/, "");
+
+  // Skip disabled plugins
+  if (disabled.includes(name)) return;
+
   const description = manifestDescription
     || (instance.exports.command_desc as WebAssembly.Global)?.value
     || `WASM command: ${filename}`;
@@ -242,16 +247,19 @@ export async function executeCommand(desc: CommandDescriptor, remaining: string[
 /** Scan a directory for command plugins */
 export async function scanCommands(dir: string, scope: "builtin" | "user"): Promise<number> {
   if (!existsSync(dir)) return 0;
+  const disabled = loadConfig().disabledPlugins ?? [];
   let count = 0;
   for (const file of readdirSync(dir).filter(f => /\.(ts|js|wasm)$/.test(f))) {
     try {
       const path = join(dir, file);
       if (file.endsWith(".wasm")) {
-        await loadWasmCommand(path, file, scope);
+        await loadWasmCommand(path, file, scope, disabled);
         count++;
       } else {
         const mod = await import(path);
         if (mod.command?.name) {
+          const cmdName = Array.isArray(mod.command.name) ? mod.command.name[0] : mod.command.name;
+          if (disabled.includes(cmdName)) continue;
           registerCommand(mod.command, path, scope);
           count++;
         }

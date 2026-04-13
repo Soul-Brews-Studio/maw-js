@@ -8,5 +8,6 @@
   "cli": {
     "command": "completions",
     "help": "maw completions [shell] — Generate shell completions for maw CLI"
-  }
+  },
+  "weight": 50
 }

@@ -8,5 +8,6 @@
   "cli": {
     "command": "reunion",
     "help": "maw reunion [filter] — trigger a federation reunion sync"
-  }
+  },
+  "weight": 50
 }

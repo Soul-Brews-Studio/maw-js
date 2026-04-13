@@ -7,7 +7,11 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "overview",
-    "aliases": ["warroom", "ov"],
+    "aliases": [
+      "warroom",
+      "ov"
+    ],
     "help": "maw overview [args] — show fleet overview / war room dashboard"
-  }
+  },
+  "weight": 10
 }

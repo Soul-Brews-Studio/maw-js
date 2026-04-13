@@ -8,5 +8,6 @@
   "cli": {
     "command": "archive",
     "help": "maw archive <oracle> [--dry-run] — archive an oracle's tmux session and data"
-  }
+  },
+  "weight": 50
 }

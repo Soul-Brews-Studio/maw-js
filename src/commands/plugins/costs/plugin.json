@@ -11,6 +11,9 @@
   },
   "api": {
     "path": "/api/costs",
-    "methods": ["GET"]
-  }
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 50
 }

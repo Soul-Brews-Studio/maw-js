@@ -9,5 +9,6 @@
     "command": "cleanup",
     "aliases": [],
     "help": "maw cleanup --zombie-agents [--yes] — Kill orphan zombie panes"
-  }
+  },
+  "weight": 50
 }
