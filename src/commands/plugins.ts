@@ -96,13 +96,19 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
     return;
   }
 
-  const rows = plugins.map(p => [
-    p.manifest.name,
-    p.manifest.version,
-    surfaces(p),
-    shortenHome(p.dir),
-  ]);
-  printTable(["name", "version", "surfaces", "dir"], rows);
+  const pluginHome = getPluginHome();
+  const rows = plugins.map(p => {
+    const source = p.dir.startsWith(pluginHome) ? "\x1b[32m●\x1b[0m installed"
+      : p.dir.includes("src/commands/plugins") ? "\x1b[36m○\x1b[0m bundled"
+      : "\x1b[33m○\x1b[0m legacy";
+    return [
+      p.manifest.name,
+      p.manifest.version,
+      source,
+      surfaces(p),
+    ];
+  });
+  printTable(["name", "version", "source", "surfaces"], rows);
 }
 
 function doInfo(name: string, discover: () => LoadedPlugin[]): void {
