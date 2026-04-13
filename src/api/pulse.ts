@@ -11,16 +11,17 @@
 
 import { Hono } from "hono";
 import { hostExec } from "../ssh";
-import { loadConfig } from "../config";
+import type { MawConfig } from "../config";
 
 export const pulseApi = new Hono();
 
-function getPulseRepo(): string {
-  return (loadConfig() as any).pulseRepo || "Soul-Brews-Studio/maw-js";
+function getPulseRepo(c: { get: (key: never) => unknown }): string {
+  const config = c.get("config" as never) as MawConfig & { pulseRepo?: string };
+  return config.pulseRepo || "Soul-Brews-Studio/maw-js";
 }
 
 pulseApi.get("/pulse", async (c) => {
-  const repo = c.req.query("repo") || getPulseRepo();
+  const repo = c.req.query("repo") || getPulseRepo(c);
   const state = c.req.query("state") || "open";
   const limit = c.req.query("limit") || "50";
   try {
@@ -37,7 +38,7 @@ pulseApi.get("/pulse", async (c) => {
 pulseApi.post("/pulse", async (c) => {
   const { title, body, labels, oracle } = await c.req.json();
   if (!title) return c.json({ error: "title required" }, 400);
-  const repo = getPulseRepo();
+  const repo = getPulseRepo(c);
   const labelFlags = labels?.length ? `-l "${labels.join(",")}"` : "";
   const oracleLabel = oracle ? `-l "oracle:${oracle}"` : "";
   try {
@@ -53,7 +54,7 @@ pulseApi.post("/pulse", async (c) => {
 pulseApi.patch("/pulse/:id", async (c) => {
   const id = c.req.param("id");
   const { addLabels, removeLabels, state } = await c.req.json();
-  const repo = getPulseRepo();
+  const repo = getPulseRepo(c);
   const cmds: string[] = [];
   if (addLabels?.length) cmds.push(`gh issue edit ${id} --repo ${repo} --add-label "${addLabels.join(",")}"`);
   if (removeLabels?.length) cmds.push(`gh issue edit ${id} --repo ${repo} --remove-label "${removeLabels.join(",")}"`);

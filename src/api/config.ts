@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
-import { loadConfig, saveConfig, configForDisplay } from "../config";
+import { type MawConfig, saveConfig, configForDisplay } from "../config";
 import { FLEET_DIR as fleetDir } from "../paths";
 
 export const configApi = new Hono();
@@ -62,7 +62,7 @@ configApi.post("/config-file", async (c) => {
       // Handle masked env values
       const parsed = JSON.parse(content);
       if (parsed.env && typeof parsed.env === "object") {
-        const current = loadConfig();
+        const current = c.get("config" as never) as MawConfig;
         for (const [k, v] of Object.entries(parsed.env as Record<string, string>)) {
           if (/\u2022/.test(v)) parsed.env[k] = current.env[k] || v;
         }
@@ -113,7 +113,7 @@ configApi.put("/config-file", async (c) => {
 });
 
 configApi.get("/pin-info", (c) => {
-  const config = loadConfig() as any;
+  const config = c.get("config" as never) as MawConfig;
   const pin = config.pin || "";
   return c.json({ length: pin.length, enabled: pin.length > 0 });
 });
@@ -137,7 +137,7 @@ configApi.post("/pin-verify", async (c) => {
   }
 
   const { pin } = await c.req.json();
-  const config = loadConfig() as any;
+  const config = c.get("config" as never) as MawConfig;
   const correct = config.pin || "";
   if (!correct) return c.json({ ok: true });
   const ok = pin === correct;
@@ -152,7 +152,7 @@ configApi.post("/pin-verify", async (c) => {
 // PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
 // clients (e.g. maw-ui#8). See docs/federation.md before changing fields.
 configApi.get("/config", (c) => {
-  if (c.req.query("raw") === "1") return c.json(loadConfig());
+  if (c.req.query("raw") === "1") return c.json(c.get("config" as never) as MawConfig);
   return c.json(configForDisplay());
 });
 
@@ -161,7 +161,7 @@ configApi.post("/config", async (c) => {
     const body = await c.req.json();
     // If env has masked values (bullet chars), keep originals for those keys
     if (body.env && typeof body.env === "object") {
-      const current = loadConfig();
+      const current = c.get("config" as never) as MawConfig;
       const merged: Record<string, string> = {};
       for (const [k, v] of Object.entries(body.env as Record<string, string>)) {
         merged[k] = /\u2022/.test(v) ? (current.env[k] || v) : v;

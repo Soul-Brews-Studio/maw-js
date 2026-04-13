@@ -8,35 +8,19 @@
  */
 
 import { Hono } from "hono";
-import { loadConfig } from "../config";
+import type { MawConfig } from "../config";
 
 export const avengersApi = new Hono();
 
-/** Get avengers base URL from config */
-function getAvengersUrl(): string | null {
-  const config = loadConfig() as any;
+/** Extract avengers base URL from injected config */
+function getAvengersUrl(c: { get: (key: never) => unknown }): string | null {
+  const config = c.get("config" as never) as MawConfig & { avengers?: string };
   return config.avengers || null;
-}
-
-/** Proxy a GET request to avengers */
-async function proxyGet(path: string): Promise<Response> {
-  const base = getAvengersUrl();
-  if (!base) {
-    return Response.json({ error: "avengers not configured — add \"avengers\": \"http://white.local:8090\" to maw.config.json" }, { status: 503 });
-  }
-
-  try {
-    const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(5000) });
-    const data = await res.json();
-    return Response.json(data);
-  } catch (err: any) {
-    return Response.json({ error: `avengers unreachable: ${err.message}` }, { status: 502 });
-  }
 }
 
 // GET /api/avengers/status — all accounts with rate limit windows
 avengersApi.get("/avengers/status", async (c) => {
-  const base = getAvengersUrl();
+  const base = getAvengersUrl(c);
   if (!base) return c.json({ error: "avengers not configured" }, 503);
 
   try {
@@ -55,7 +39,7 @@ avengersApi.get("/avengers/status", async (c) => {
 
 // GET /api/avengers/best — account with most remaining capacity
 avengersApi.get("/avengers/best", async (c) => {
-  const base = getAvengersUrl();
+  const base = getAvengersUrl(c);
   if (!base) return c.json({ error: "avengers not configured" }, 503);
 
   try {
@@ -69,7 +53,7 @@ avengersApi.get("/avengers/best", async (c) => {
 
 // GET /api/avengers/traffic — traffic stats per account
 avengersApi.get("/avengers/traffic", async (c) => {
-  const base = getAvengersUrl();
+  const base = getAvengersUrl(c);
   if (!base) return c.json({ error: "avengers not configured" }, 503);
 
   try {
@@ -93,7 +77,7 @@ avengersApi.get("/avengers/traffic", async (c) => {
 
 // GET /api/avengers/health — quick health check
 avengersApi.get("/avengers/health", async (c) => {
-  const base = getAvengersUrl();
+  const base = getAvengersUrl(c);
   if (!base) return c.json({ configured: false, reachable: false });
 
   try {
