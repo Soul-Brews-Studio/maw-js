@@ -26,17 +26,17 @@ let fakeInvokeResult: { ok: boolean; output?: string; error?: string } = {
   output: "federation context: source=peer from=local-node",
 };
 
-mock.module("../src/plugin/registry", () => ({
+mock.module("../../../plugin/registry", () => ({
   discoverPackages: () => fakePlugins,
   invokePlugin: async (_plugin: LoadedPlugin, _ctx: unknown) => fakeInvokeResult,
 }));
 
-mock.module("../src/config", () => ({ getEnvVars: () => ({}), buildCommand: () => "echo test", saveConfig: () => {}, validateConfig: (c: any) => c,
+mock.module("../../../config", () => ({ getEnvVars: () => ({}), buildCommand: () => "echo test", saveConfig: () => {}, validateConfig: (c: any) => c,
   loadConfig: () => ({ node: "local-node", port: 3456 }),
   cfgLimit: (_key: string) => 200,
 }));
 
-mock.module("../src/core/transport/ssh", () => ({
+mock.module("../../../core/transport/ssh", () => ({
   listSessions: async () => [],
   capture: async () => "",
   sendKeys: async () => {},
@@ -45,18 +45,18 @@ mock.module("../src/core/transport/ssh", () => ({
   getPaneInfos: async () => ({}),
 }));
 
-mock.module("../src/core/routing", () => ({
+mock.module("../../../core/routing", () => ({
   resolveTarget: () => ({ type: "error", detail: "not found", hint: "" }),
 }));
 
-mock.module("../src/core/runtime/hooks", () => ({ runHook: async () => {} }));
-mock.module("../src/core/transport/peers", () => ({ findPeerForTarget: async () => undefined }));
-mock.module("../src/core/fleet/worktrees", () => ({ scanWorktrees: async () => [] }));
+mock.module("../../../core/runtime/hooks", () => ({ runHook: async () => {} }));
+mock.module("../../../core/transport/peers", () => ({ findPeerForTarget: async () => undefined }));
+mock.module("../../../core/fleet/worktrees", () => ({ scanWorktrees: async () => [] }));
 // NOTE: do NOT mock find-window here — it leaks globally and breaks routing tests (#198)
-mock.module("../src/core/transport/curl-fetch", () => ({ curlFetch: async () => ({ ok: false, data: {} }) }));
-mock.module("../src/commands/shared/wake", () => ({ resolveFleetSession: () => undefined }));
+mock.module("../../../core/transport/curl-fetch", () => ({ curlFetch: async () => ({ ok: false, data: {} }) }));
+mock.module("../../../commands/shared/wake", () => ({ resolveFleetSession: () => undefined }));
 
-import { cmdSend } from "../src/commands/shared/comm";
+import { cmdSend } from "../../../commands/shared/comm";
 
 describe("maw hey plugin:<name> routing", () => {
   let exitCode: number | undefined;
