@@ -103,7 +103,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Plugin system — built-in + user plugins
   try {
-    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("./plugins");
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("./plugins/index");
     const { homedir } = require("os");
     const { join, resolve, dirname } = require("path");
     const plugins = new PluginSystem();
