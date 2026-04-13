@@ -77,18 +77,23 @@ export async function invokePlugin(
 ): Promise<InvokeResult> {
   // TS plugins — import and call handler directly (full access)
   if (plugin.kind === "ts" && plugin.entryPath) {
+    // Guard process.exit — cmd* functions call it on error. Convert to throw
+    // so the handler's try/catch can capture the output and return it.
+    const origExit = process.exit;
+    process.exit = ((code?: number) => { throw Object.assign(new Error("exit"), { exitCode: code ?? 0 }); }) as any;
+
     try {
       const mod = await import(plugin.entryPath);
       const handler = mod.default || mod.handler;
       if (!handler) return { ok: false, error: "TS plugin has no default export or handler" };
 
-      // Call handler with InvokeContext — the unified pattern.
-      // Handler does its own stdout capture internally.
       const result = await handler(ctx);
       if (result && typeof result === "object" && "ok" in result) return result;
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: `TS plugin error: ${err.message}` };
+      return { ok: false, error: err.message };
+    } finally {
+      process.exit = origExit;
     }
   }
 

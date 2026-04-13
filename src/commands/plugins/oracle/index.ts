@@ -78,7 +78,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
     console.error = origError;
