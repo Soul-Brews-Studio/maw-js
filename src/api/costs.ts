@@ -1,4 +1,4 @@
-import { Elysia, error } from "elysia";
+import { Elysia} from "elysia";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
@@ -85,7 +85,7 @@ function estimateCost(usage: SessionUsage): number {
   return (totalInput / 1_000_000) * rates.input + (usage.outputTokens / 1_000_000) * rates.output;
 }
 
-costsApi.get("/costs", ({ error }) => {
+costsApi.get("/costs", ({ set }) => {
   const projectsDir = join(homedir(), ".claude", "projects");
   let dirs: string[];
   try {
@@ -93,7 +93,7 @@ costsApi.get("/costs", ({ error }) => {
       try { return statSync(join(projectsDir, d)).isDirectory(); } catch { return false; }
     });
   } catch {
-    return error(500, { error: "Cannot read ~/.claude/projects/" });
+    set.status = 500; return { error: "Cannot read ~/.claude/projects/" };
   }
 
   const agents: Record<string, {

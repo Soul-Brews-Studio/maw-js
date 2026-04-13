@@ -1,4 +1,4 @@
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { getFederationStatus } from "../peers";
 import { loadConfig } from "../config";
 import { listSnapshots, loadSnapshot, latestSnapshot } from "../snapshot";
@@ -27,9 +27,9 @@ federationApi.get("/snapshots", () => {
   return listSnapshots();
 });
 
-federationApi.get("/snapshots/:id", ({ params, error }) => {
+federationApi.get("/snapshots/:id", ({ params, set}) => {
   const snap = loadSnapshot(params.id);
-  if (!snap) return error(404, { error: "snapshot not found" });
+  if (!snap) { set.status = 404; return { error: "snapshot not found" }; }
   return snap;
 });
 

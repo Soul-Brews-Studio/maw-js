@@ -1,4 +1,4 @@
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { listSessions, capture, sendKeys, selectWindow } from "../ssh";
 import { findWindow } from "../find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../peers";
@@ -40,9 +40,9 @@ sessionsApi.get("/sessions", async ({ query }) => {
   }),
 });
 
-sessionsApi.get("/capture", async ({ query, error }) => {
+sessionsApi.get("/capture", async ({ query, set}) => {
   const target = query.target;
-  if (!target) return error(400, { error: "target required" });
+  if (!target) { set.status = 400; return { error: "target required" }; }
   try {
     const sessions = await listSessions();
     const resolved = resolveCapture(target, sessions);
@@ -56,9 +56,9 @@ sessionsApi.get("/capture", async ({ query, error }) => {
   }),
 });
 
-sessionsApi.get("/mirror", async ({ query, error }) => {
+sessionsApi.get("/mirror", async ({ query, set}) => {
   const target = query.target;
-  if (!target) return error(400, "target required");
+  if (!target) { set.status = 400; return "target required"; }
   const lines = +(query.lines || "40");
   const sessions = await listSessions();
   const resolved = resolveCapture(target, sessions);
@@ -71,7 +71,7 @@ sessionsApi.get("/mirror", async ({ query, error }) => {
   }),
 });
 
-sessionsApi.post("/send", async ({ body, error }) => {
+sessionsApi.post("/send", async ({ body, set}) => {
   try {
     const { target, text } = body;
 
@@ -106,7 +106,7 @@ sessionsApi.post("/send", async ({ body, error }) => {
       if (res.ok && res.data?.ok) {
         return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "" };
       }
-      return error(502, { error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl });
+      set.status = 502; return { error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl };
     }
 
     // Fallback: async peer discovery
@@ -114,48 +114,48 @@ sessionsApi.post("/send", async ({ body, error }) => {
     if (peerUrl) {
       const ok = await sendKeysToPeer(peerUrl, target, text);
       if (ok) return { ok: true, target, text, source: peerUrl };
-      return error(502, { error: "Failed to send to peer", target, source: peerUrl });
+      set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
     }
 
     const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
-    return error(404, { error: `target not found: ${target}`, target, ...errDetail });
+    set.status = 404; return { error: `target not found: ${target}`, target, ...errDetail };
   } catch (err) {
-    return error(500, { error: String(err) });
+    set.status = 500; return { error: String(err) };
   }
 }, {
   body: SendBody,
 });
 
-sessionsApi.post("/select", async ({ body, error }) => {
+sessionsApi.post("/select", async ({ body, set}) => {
   const { target } = body;
-  if (!target) return error(400, { error: "target required" });
+  if (!target) { set.status = 400; return { error: "target required" }; }
   await selectWindow(target);
   return { ok: true, target };
 }, {
   body: t.Object({ target: t.String() }),
 });
 
-sessionsApi.post("/wake", async ({ body, error }) => {
+sessionsApi.post("/wake", async ({ body, set}) => {
   try {
     const { target, task } = body;
     const { cmdWake } = await import("../commands/wake");
     await cmdWake(target, { noAttach: true, task });
     return { ok: true, target };
   } catch (err) {
-    return error(500, { error: String(err) });
+    set.status = 500; return { error: String(err) };
   }
 }, {
   body: WakeBody,
 });
 
-sessionsApi.post("/sleep", async ({ body, error }) => {
+sessionsApi.post("/sleep", async ({ body, set}) => {
   try {
     const { target } = body;
     const { cmdSleepOne } = await import("../commands/sleep");
     await cmdSleepOne(target);
     return { ok: true, target };
   } catch (err) {
-    return error(500, { error: String(err) });
+    set.status = 500; return { error: String(err) };
   }
 }, {
   body: SleepBody,

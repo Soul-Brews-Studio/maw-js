@@ -1,4 +1,4 @@
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -23,12 +23,12 @@ uiStateApi.get("/ui-state", () => {
   return readUiState();
 });
 
-uiStateApi.post("/ui-state", async ({ body, error }) => {
+uiStateApi.post("/ui-state", async ({ body, set}) => {
   try {
     writeUiState(body as object);
     return { ok: true };
   } catch (e: any) {
-    return error(400, { error: e.message });
+    set.status = 400; return { error: e.message };
   }
 }, {
   body: t.Unknown(),

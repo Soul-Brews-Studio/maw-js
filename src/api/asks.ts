@@ -1,4 +1,4 @@
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -15,12 +15,12 @@ asksApi.get("/asks", () => {
   }
 });
 
-asksApi.post("/asks", async ({ body, error }) => {
+asksApi.post("/asks", async ({ body, set}) => {
   try {
     writeFileSync(asksPath, JSON.stringify(body, null, 2), "utf-8");
     return { ok: true };
   } catch (e: any) {
-    return error(400, { error: e.message });
+    set.status = 400; return { error: e.message };
   }
 }, {
   body: t.Unknown(),

@@ -9,7 +9,7 @@
  * PATCH /api/pulse/:id      -> update issue (labels, assignee, state)
  */
 
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { hostExec } from "../ssh";
 import { loadConfig, type MawConfig } from "../config";
 
@@ -20,7 +20,7 @@ function getPulseRepo(): string {
   return config.pulseRepo || "Soul-Brews-Studio/maw-js";
 }
 
-pulseApi.get("/pulse", async ({ query, error }) => {
+pulseApi.get("/pulse", async ({ query, set}) => {
   const repo = query.repo || getPulseRepo();
   const state = query.state || "open";
   const limit = query.limit || "50";
@@ -31,7 +31,7 @@ pulseApi.get("/pulse", async ({ query, error }) => {
     const issues = JSON.parse(raw || "[]");
     return { repo, issues };
   } catch (e: any) {
-    return error(500, { error: e.message, repo });
+    set.status = 500; return { error: e.message, repo };
   }
 }, {
   query: t.Object({
@@ -41,9 +41,9 @@ pulseApi.get("/pulse", async ({ query, error }) => {
   }),
 });
 
-pulseApi.post("/pulse", async ({ body, error }) => {
+pulseApi.post("/pulse", async ({ body, set}) => {
   const { title, body: issueBody, labels, oracle } = body;
-  if (!title) return error(400, { error: "title required" });
+  if (!title) { set.status = 400; return { error: "title required" }; }
   const repo = getPulseRepo();
   const labelFlags = labels?.length ? `-l "${labels.join(",")}"` : "";
   const oracleLabel = oracle ? `-l "oracle:${oracle}"` : "";
@@ -53,7 +53,7 @@ pulseApi.post("/pulse", async ({ body, error }) => {
     );
     return { ok: true, url: url.trim() };
   } catch (e: any) {
-    return error(500, { error: e.message });
+    set.status = 500; return { error: e.message };
   }
 }, {
   body: t.Object({
@@ -64,7 +64,7 @@ pulseApi.post("/pulse", async ({ body, error }) => {
   }),
 });
 
-pulseApi.patch("/pulse/:id", async ({ params, body, error }) => {
+pulseApi.patch("/pulse/:id", async ({ params, body, set}) => {
   const id = params.id;
   const { addLabels, removeLabels, state } = body;
   const repo = getPulseRepo();
@@ -73,12 +73,12 @@ pulseApi.patch("/pulse/:id", async ({ params, body, error }) => {
   if (removeLabels?.length) cmds.push(`gh issue edit ${id} --repo ${repo} --remove-label "${removeLabels.join(",")}"`);
   if (state === "closed") cmds.push(`gh issue close ${id} --repo ${repo}`);
   if (state === "open") cmds.push(`gh issue reopen ${id} --repo ${repo}`);
-  if (!cmds.length) return error(400, { error: "nothing to update" });
+  if (!cmds.length) { set.status = 400; return { error: "nothing to update" }; }
   try {
     for (const cmd of cmds) await hostExec(cmd);
     return { ok: true, id };
   } catch (e: any) {
-    return error(500, { error: e.message });
+    set.status = 500; return { error: e.message };
   }
 }, {
   params: t.Object({ id: t.String() }),

@@ -7,7 +7,7 @@
  *   GET /api/avengers/traffic   -> traffic stats across accounts
  */
 
-import { Elysia, error } from "elysia";
+import { Elysia} from "elysia";
 import { loadConfig, type MawConfig } from "../config";
 
 export const avengersApi = new Elysia();
@@ -19,9 +19,9 @@ function getAvengersUrl(): string | null {
 }
 
 // GET /api/avengers/status -- all accounts with rate limit windows
-avengersApi.get("/avengers/status", async ({ error }) => {
+avengersApi.get("/avengers/status", async ({ set }) => {
   const base = getAvengersUrl();
-  if (!base) return error(503, { error: "avengers not configured" });
+  if (!base) { set.status = 503; return { error: "avengers not configured" }; }
 
   try {
     const res = await fetch(`${base}/all`, { signal: AbortSignal.timeout(5000) });
@@ -33,28 +33,28 @@ avengersApi.get("/avengers/status", async ({ error }) => {
       timestamp: new Date().toISOString(),
     };
   } catch (err: any) {
-    return error(502, { error: `avengers unreachable: ${err.message}` });
+    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
   }
 });
 
 // GET /api/avengers/best -- account with most remaining capacity
-avengersApi.get("/avengers/best", async ({ error }) => {
+avengersApi.get("/avengers/best", async ({ set }) => {
   const base = getAvengersUrl();
-  if (!base) return error(503, { error: "avengers not configured" });
+  if (!base) { set.status = 503; return { error: "avengers not configured" }; }
 
   try {
     const res = await fetch(`${base}/best`, { signal: AbortSignal.timeout(5000) });
     const best = await res.json();
     return best;
   } catch (err: any) {
-    return error(502, { error: `avengers unreachable: ${err.message}` });
+    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
   }
 });
 
 // GET /api/avengers/traffic -- traffic stats per account
-avengersApi.get("/avengers/traffic", async ({ error }) => {
+avengersApi.get("/avengers/traffic", async ({ set }) => {
   const base = getAvengersUrl();
-  if (!base) return error(503, { error: "avengers not configured" });
+  if (!base) { set.status = 503; return { error: "avengers not configured" }; }
 
   try {
     const [trafficRes, speedRes] = await Promise.all([
@@ -71,7 +71,7 @@ avengersApi.get("/avengers/traffic", async ({ error }) => {
       timestamp: new Date().toISOString(),
     };
   } catch (err: any) {
-    return error(502, { error: `avengers unreachable: ${err.message}` });
+    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
   }
 });
 

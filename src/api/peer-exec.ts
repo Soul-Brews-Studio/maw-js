@@ -14,7 +14,7 @@
  *   Issues a localhost-only cookie on first request, verifies on subsequent calls.
  */
 
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { randomBytes } from "crypto";
 import { loadConfig } from "../config";
 import { signHeaders } from "../lib/federation-auth";
@@ -142,23 +142,23 @@ peerExecApi.get("/peer/session", ({ set }) => {
   return { ok: true, rotates: "on_server_restart" };
 });
 
-peerExecApi.post("/peer/exec", async ({ body, headers, error }) => {
+peerExecApi.post("/peer/exec", async ({ body, headers, set}) => {
   const { peer, cmd, args = [], signature } = body;
 
   if (!peer || !cmd || !signature) {
-    return error(400, { error: "missing_fields", required: ["peer", "cmd", "signature"] });
+    set.status = 400; return { error: "missing_fields", required: ["peer", "cmd", "signature"] };
   }
 
   // 1. Parse signature
   const parsed = parseSignature(signature);
   if (!parsed) {
-    return error(400, { error: "bad_signature", expected: "[host:agent]" });
+    set.status = 400; return { error: "bad_signature", expected: "[host:agent]" };
   }
 
   // 2. Session cookie check
   const devBypass = process.env.NODE_ENV !== "production";
   if (!devBypass && !hasValidSessionCookie(headers)) {
-    return error(401, { error: "no_session", hint: "GET /api/peer/session first" });
+    set.status = 401; return { error: "no_session", hint: "GET /api/peer/session first" };
   }
 
   // 3 + 4. Trust boundary
@@ -166,20 +166,20 @@ peerExecApi.post("/peer/exec", async ({ body, headers, error }) => {
   if (!readonly) {
     const allowed = isShellPeerAllowed(parsed.originHost);
     if (!allowed) {
-      return error(403, {
+      set.status = 403; return {
         error: "shell_peer_denied",
         origin: parsed.originHost,
         hint: parsed.isAnon
           ? "anonymous browser visitors are read-only; only /dig, /trace, /recap and similar work"
           : "add this origin to config.wormhole.shellPeers to permit shell cmds",
-      });
+      };
     }
   }
 
   // 5. Resolve peer
   const peerUrl = resolvePeerUrl(peer);
   if (!peerUrl) {
-    return error(404, { error: "unknown_peer", peer });
+    set.status = 404; return { error: "unknown_peer", peer };
   }
 
   // 6 + 7. Relay and return
@@ -193,7 +193,7 @@ peerExecApi.post("/peer/exec", async ({ body, headers, error }) => {
       trust_tier: readonly ? "readonly" : "shell_allowlisted",
     };
   } catch (err: any) {
-    return error(502, { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) });
+    set.status = 502; return { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) };
   }
 }, {
   body: t.Object({

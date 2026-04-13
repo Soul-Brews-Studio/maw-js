@@ -1,4 +1,4 @@
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 import { type MawConfig, loadConfig, saveConfig, configForDisplay } from "../config";
@@ -25,12 +25,12 @@ configApi.get("/config-files", () => {
 });
 
 // Read a single config file
-configApi.get("/config-file", ({ query, error }) => {
+configApi.get("/config-file", ({ query, set}) => {
   const filePath = query.path;
-  if (!filePath) return error(400, { error: "path required" });
-  if (filePath.includes("..")) return error(400, { error: "invalid path" });
+  if (!filePath) { set.status = 400; return { error: "path required" }; }
+  if (filePath.includes("..")) { set.status = 400; return { error: "invalid path" }; }
   const fullPath = join(import.meta.dir, "../..", filePath);
-  if (!existsSync(fullPath)) return error(404, { error: "not found" });
+  if (!existsSync(fullPath)) { set.status = 404; return { error: "not found" }; }
   try {
     const content = readFileSync(fullPath, "utf-8");
     // For maw.config.json, mask env values
@@ -42,19 +42,19 @@ configApi.get("/config-file", ({ query, error }) => {
     }
     return { content };
   } catch (e: any) {
-    return error(500, { error: e.message });
+    set.status = 500; return { error: e.message };
   }
 }, {
   query: t.Object({ path: t.Optional(t.String()) }),
 });
 
 // Save a config file
-configApi.post("/config-file", async ({ query, body, error }) => {
+configApi.post("/config-file", async ({ query, body, set}) => {
   const filePath = query.path;
-  if (!filePath) return error(400, { error: "path required" });
+  if (!filePath) { set.status = 400; return { error: "path required" }; }
   // Only allow maw.config.json and fleet/ files
   if (filePath !== "maw.config.json" && !filePath.startsWith("fleet/")) {
-    return error(403, { error: "invalid path" });
+    set.status = 403; return { error: "invalid path" };
   }
   try {
     const { content } = body;
@@ -75,7 +75,7 @@ configApi.post("/config-file", async ({ query, body, error }) => {
     }
     return { ok: true };
   } catch (e: any) {
-    return error(400, { error: e.message });
+    set.status = 400; return { error: e.message };
   }
 }, {
   query: t.Object({ path: t.Optional(t.String()) }),
@@ -83,11 +83,11 @@ configApi.post("/config-file", async ({ query, body, error }) => {
 });
 
 // Toggle enable/disable a fleet file
-configApi.post("/config-file/toggle", ({ query, error }) => {
+configApi.post("/config-file/toggle", ({ query, set}) => {
   const filePath = query.path;
-  if (!filePath || !filePath.startsWith("fleet/")) return error(400, { error: "invalid path" });
+  if (!filePath || !filePath.startsWith("fleet/")) { set.status = 400; return { error: "invalid path" }; }
   const fullPath = join(import.meta.dir, "../..", filePath);
-  if (!existsSync(fullPath)) return error(404, { error: "not found" });
+  if (!existsSync(fullPath)) { set.status = 404; return { error: "not found" }; }
   const isDisabled = filePath.endsWith(".disabled");
   const newPath = isDisabled ? fullPath.replace(/\.disabled$/, "") : fullPath + ".disabled";
   const newRelPath = isDisabled ? filePath.replace(/\.disabled$/, "") : filePath + ".disabled";
@@ -98,11 +98,11 @@ configApi.post("/config-file/toggle", ({ query, error }) => {
 });
 
 // Delete a fleet file
-configApi.delete("/config-file", ({ query, error }) => {
+configApi.delete("/config-file", ({ query, set}) => {
   const filePath = query.path;
-  if (!filePath || !filePath.startsWith("fleet/")) return error(400, { error: "cannot delete" });
+  if (!filePath || !filePath.startsWith("fleet/")) { set.status = 400; return { error: "cannot delete" }; }
   const fullPath = join(import.meta.dir, "../..", filePath);
-  if (!existsSync(fullPath)) return error(404, { error: "not found" });
+  if (!existsSync(fullPath)) { set.status = 404; return { error: "not found" }; }
   unlinkSync(fullPath);
   return { ok: true };
 }, {
@@ -110,13 +110,13 @@ configApi.delete("/config-file", ({ query, error }) => {
 });
 
 // Create a new fleet file
-configApi.put("/config-file", async ({ body, error }) => {
+configApi.put("/config-file", async ({ body, set}) => {
   const { name, content } = body;
-  if (!name || !name.endsWith(".json")) return error(400, { error: "name must end with .json" });
+  if (!name || !name.endsWith(".json")) { set.status = 400; return { error: "name must end with .json" }; }
   const safeName = basename(name);
   const fullPath = join(fleetDir, safeName);
-  if (existsSync(fullPath)) return error(409, { error: "file already exists" });
-  try { JSON.parse(content); } catch { return error(400, { error: "invalid JSON" }); }
+  if (existsSync(fullPath)) { set.status = 409; return { error: "file already exists" }; }
+  try { JSON.parse(content); } catch { set.status = 400; return { error: "invalid JSON" }; }
   writeFileSync(fullPath, content + "\n", "utf-8");
   return { ok: true, path: `fleet/${safeName}` };
 }, {
@@ -138,7 +138,7 @@ configApi.post("/pin-set", async ({ body }) => {
   body: t.Object({ pin: t.Optional(t.String()) }),
 });
 
-configApi.post("/pin-verify", async ({ body, headers, error }) => {
+configApi.post("/pin-verify", async ({ body, headers, set}) => {
   const ip = headers["cf-connecting-ip"] || headers["x-forwarded-for"] || "local";
   const now = Date.now();
   const entry = pinAttempts.get(ip) || { count: 0, resetAt: now + 60_000 };
@@ -146,7 +146,7 @@ configApi.post("/pin-verify", async ({ body, headers, error }) => {
   entry.count++;
   pinAttempts.set(ip, entry);
   if (entry.count > 5) {
-    return error(429, { ok: false, error: "Too many attempts. Wait 1 minute." });
+    set.status = 429; return { ok: false, error: "Too many attempts. Wait 1 minute." };
   }
 
   const { pin } = body;
@@ -173,7 +173,7 @@ configApi.get("/config", ({ query }) => {
   query: t.Object({ raw: t.Optional(t.String()) }),
 });
 
-configApi.post("/config", async ({ body, error }) => {
+configApi.post("/config", async ({ body, set}) => {
   try {
     const data = body as any;
     // If env has masked values (bullet chars), keep originals for those keys
@@ -188,7 +188,7 @@ configApi.post("/config", async ({ body, error }) => {
     saveConfig(data);
     return { ok: true };
   } catch (e: any) {
-    return error(400, { error: e.message });
+    set.status = 400; return { error: e.message };
   }
 }, {
   body: t.Unknown(),

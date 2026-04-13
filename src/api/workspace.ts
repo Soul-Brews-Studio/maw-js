@@ -10,7 +10,7 @@
  * Storage: JSON files in ~/.config/maw/workspaces/
  */
 
-import { Elysia, t, error } from "elysia";
+import { Elysia, t} from "elysia";
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from "crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
@@ -159,9 +159,9 @@ export const workspaceApi = new Elysia()
  * Body: { name, nodeId }
  * Returns: { id, token, joinCode, joinCodeExpiresAt }
  */
-workspaceApi.post("/workspace/create", async ({ body, error }) => {
+workspaceApi.post("/workspace/create", async ({ body, set}) => {
   if (!body.name || !body.nodeId) {
-    return error(400, { error: "name and nodeId are required" });
+    set.status = 400; return { error: "name and nodeId are required" };
   }
 
   const id = generateWorkspaceId();
@@ -199,14 +199,14 @@ workspaceApi.post("/workspace/create", async ({ body, error }) => {
  * Body: { code, nodeId }
  * Returns: { workspaceId, token, name }
  */
-workspaceApi.post("/workspace/join", async ({ body, error }) => {
+workspaceApi.post("/workspace/join", async ({ body, set}) => {
   if (!body.code || !body.nodeId) {
-    return error(400, { error: "code and nodeId are required" });
+    set.status = 400; return { error: "code and nodeId are required" };
   }
 
   const ws = findByJoinCode(body.code.toUpperCase());
   if (!ws) {
-    return error(404, { error: "invalid or expired join code" });
+    set.status = 404; return { error: "invalid or expired join code" };
   }
 
   // Check if node already joined
@@ -244,13 +244,13 @@ function authWorkspace(params: { id: string }, request: Request, headers: Record
  * Body: { name, nodeId, status?, capabilities? }
  * Registers or updates an agent in the workspace.
  */
-workspaceApi.post("/workspace/:id/agents", async ({ params, body, headers, request, error }) => {
+workspaceApi.post("/workspace/:id/agents", async ({ params, body, headers, request, set}) => {
   const auth = authWorkspace(params, request, headers);
-  if ("error" in auth) return error(401, { error: auth.error });
+  if ("error" in auth) { set.status = 401; return { error: auth.error }; }
   const ws = auth.ws;
 
   if (!body.name || !body.nodeId) {
-    return error(400, { error: "name and nodeId are required" });
+    set.status = 400; return { error: "name and nodeId are required" };
   }
 
   const now = new Date().toISOString();
@@ -289,9 +289,9 @@ workspaceApi.post("/workspace/:id/agents", async ({ params, body, headers, reque
  * GET /workspace/:id/agents
  * Returns all agents in the workspace.
  */
-workspaceApi.get("/workspace/:id/agents", ({ params, headers, request, error }) => {
+workspaceApi.get("/workspace/:id/agents", ({ params, headers, request, set}) => {
   const auth = authWorkspace(params, request, headers);
-  if ("error" in auth) return error(401, { error: auth.error });
+  if ("error" in auth) { set.status = 401; return { error: auth.error }; }
   const ws = auth.ws;
   return { agents: ws.agents, total: ws.agents.length };
 }, {
@@ -302,9 +302,9 @@ workspaceApi.get("/workspace/:id/agents", ({ params, headers, request, error }) 
  * GET /workspace/:id/status
  * Returns workspace status: nodes, agent count, health.
  */
-workspaceApi.get("/workspace/:id/status", ({ params, headers, request, error }) => {
+workspaceApi.get("/workspace/:id/status", ({ params, headers, request, set}) => {
   const auth = authWorkspace(params, request, headers);
-  if ("error" in auth) return error(401, { error: auth.error });
+  if ("error" in auth) { set.status = 401; return { error: auth.error }; }
   const ws = auth.ws;
 
   const fiveMinAgo = Date.now() - 5 * 60_000;
@@ -328,9 +328,9 @@ workspaceApi.get("/workspace/:id/status", ({ params, headers, request, error }) 
  * GET /workspace/:id/feed
  * Returns recent feed events. Query: ?limit=50
  */
-workspaceApi.get("/workspace/:id/feed", ({ params, query, headers, request, error }) => {
+workspaceApi.get("/workspace/:id/feed", ({ params, query, headers, request, set}) => {
   const auth = authWorkspace(params, request, headers);
-  if ("error" in auth) return error(401, { error: auth.error });
+  if ("error" in auth) { set.status = 401; return { error: auth.error }; }
   const ws = auth.ws;
   const limit = Math.min(200, +(query.limit || "50"));
   const events = ws.feed.slice(-limit).reverse();
@@ -345,13 +345,13 @@ workspaceApi.get("/workspace/:id/feed", ({ params, query, headers, request, erro
  * Body: { from, to?, text }
  * REST fallback for messaging. Appended to feed as message event.
  */
-workspaceApi.post("/workspace/:id/message", async ({ params, body, headers, request, error }) => {
+workspaceApi.post("/workspace/:id/message", async ({ params, body, headers, request, set}) => {
   const auth = authWorkspace(params, request, headers);
-  if ("error" in auth) return error(401, { error: auth.error });
+  if ("error" in auth) { set.status = 401; return { error: auth.error }; }
   const ws = auth.ws;
 
   if (!body.from || !body.text) {
-    return error(400, { error: "from and text are required" });
+    set.status = 400; return { error: "from and text are required" };
   }
 
   const target = body.to ? ` -> ${body.to}` : "";
