@@ -7,28 +7,18 @@ const root = join(import.meta.dir, "../../..");
 mock.module(join(root, "config"), () => ({
   loadConfig: () => ({ host: "localhost", port: 3456, peers: [] }),
   cfgTimeout: () => 2000,
+  getEnvVars: () => ({}),
+  buildCommand: () => "echo test",
+  saveConfig: () => {},
 }));
 
-mock.module(join(root, "core/transport/tmux"), () => ({
-  tmux: {
-    listSessions: async () => [{ name: "neo" }, { name: "white" }],
+// Mock the health impl directly — do NOT mock child_process (leaks globally in Bun 1.3)
+mock.module("./impl", () => ({
+  cmdHealth: async () => {
+    console.log("maw health — localhost:3456");
+    console.log("tmux server: running (2 sessions)");
+    console.log("pm2: maw online (pid 1234)");
   },
-  tmuxCmd: () => "tmux",
-  Tmux: class { listSessions = async () => []; run = async () => ""; tryRun = async () => ""; },
-}));
-
-mock.module("child_process", () => ({
-  execSync: (cmd: string) => {
-    if (cmd.includes("df -h")) return "tmpfs   1G  500M  500M  50% /tmp\n";
-    if (cmd.includes("free -m")) return "Mem:   8192   4096   2048   512   1024   2048\n";
-    if (cmd.includes("pm2 jlist")) return JSON.stringify([{ name: "maw", pid: 1234, pm2_env: { status: "online" } }]);
-    return "";
-  },
-}));
-
-(global as any).fetch = mock(async (_url: string) => ({
-  ok: true,
-  json: async () => [{ name: "neo" }],
 }));
 
 const { default: handler } = await import("./index");
