@@ -9,6 +9,7 @@ export function usage() {
   maw wire <agent> <msg...>   Send via federation (curl over WireGuard)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
   maw wake <oracle> --issue N Wake oracle with GitHub issue as prompt
+  maw wake <oracle> --pr N   Wake oracle with GitHub PR as prompt
   maw wake <oracle> --incubate org/repo  Clone repo + worktree
   maw fleet init              Scan ghq repos, generate fleet/*.json
   maw fleet init --agents     Reconcile config.agents from fleet + peers
