@@ -13,8 +13,9 @@
  */
 
 import { readdirSync, readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { join, dirname, resolve } from "path";
 import { parseFlags } from "./parse-args";
+import { loadManifestFromDir } from "../plugin/manifest";
 import {
   buildImportObject, preCacheBridge, readString,
   textEncoder, textDecoder,
@@ -127,10 +128,23 @@ async function loadWasmCommand(path: string, filename: string, scope: "builtin" 
 
   const handle = instance.exports.handle as (ptr: number, len: number) => number;
 
-  // Read command name from exports or derive from filename
-  const name = (instance.exports.command_name as WebAssembly.Global)?.value
+  // Check for sibling plugin.json — if present and references this .wasm, use manifest metadata
+  let manifestName: string | undefined;
+  let manifestDescription: string | undefined;
+  try {
+    const loaded = loadManifestFromDir(dirname(path));
+    if (loaded && resolve(loaded.wasmPath) === resolve(path)) {
+      manifestName = loaded.manifest.cli?.command;
+      manifestDescription = loaded.manifest.description;
+    }
+  } catch { /* no manifest or invalid — fall through to legacy */ }
+
+  // Read command name from manifest > exports > filename stem
+  const name = manifestName
+    || (instance.exports.command_name as WebAssembly.Global)?.value
     || filename.replace(/\.wasm$/, "");
-  const description = (instance.exports.command_desc as WebAssembly.Global)?.value
+  const description = manifestDescription
+    || (instance.exports.command_desc as WebAssembly.Global)?.value
     || `WASM command: ${filename}`;
 
   registerCommand(

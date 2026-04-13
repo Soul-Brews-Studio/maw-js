@@ -34,6 +34,8 @@ const PROTECTED_POST = new Set([
 function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
+  // Protect plugin invocation — POST /plugins/:name is a control operation
+  if (method === "POST" && path.startsWith("/plugins/")) return true;
   return false;
 }
 

@@ -1,0 +1,20 @@
+{
+  "entries": ["assembly/index.ts", "assembly/abort.ts"],
+  "options": {
+    "runtime": "stub",
+    "use": ["abort=assembly/abort/abort"]
+  },
+  "targets": {
+    "debug": {
+      "outFile": "build/debug.wasm",
+      "sourceMap": true,
+      "debug": true
+    },
+    "release": {
+      "outFile": "build/release.wasm",
+      "optimizeLevel": 3,
+      "shrinkLevel": 2,
+      "noAssert": true
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "hello-package",
+  "version": "1.0.0",
+  "description": "Reference plugin demonstrating CLI, API, and peer surfaces",
+  "private": true,
+  "scripts": {
+    "asbuild": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27",
+    "maw-plugin-sdk": "file:../../maw-plugin-sdk-assemblyscript"
+  }
+}

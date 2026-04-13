@@ -20,6 +20,7 @@ import { workspaceApi } from "./workspace";
 import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
 import { pulseApi } from "./pulse";
+import { pluginsRouter } from "./plugins";
 import { federationAuth } from "../lib/elysia-auth";
 
 export const api = new Elysia({ prefix: "/api" })
@@ -53,4 +54,5 @@ export const api = new Elysia({ prefix: "/api" })
   .use(workspaceApi)
   .use(peerExecApi)
   .use(proxyApi)
-  .use(pulseApi);
+  .use(pulseApi)
+  .use(pluginsRouter);
