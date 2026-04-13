@@ -98,9 +98,10 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
 
   const pluginHome = getPluginHome();
   const rows = plugins.map(p => {
-    const source = p.dir.startsWith(pluginHome) ? "\x1b[32m●\x1b[0m installed"
-      : p.dir.includes("src/commands/plugins") ? "\x1b[36m○\x1b[0m bundled"
-      : "\x1b[33m○\x1b[0m legacy";
+    const w = p.manifest.weight ?? 50;
+    const source = w < 10 ? "\x1b[32m●\x1b[0m core"
+      : w < 50 ? "\x1b[36m●\x1b[0m tool"
+      : "\x1b[33m●\x1b[0m feature";
     return [
       p.manifest.name,
       p.manifest.version,

@@ -24,11 +24,10 @@ import type { LoadedPlugin, InvokeContext, InvokeResult } from "./types";
 const PLUGIN_INVOKE_TIMEOUT_MS = 5_000;
 const WASM_MEMORY_MAX_PAGES = 256; // 16MB
 
+// Single scan dir — everything lives in ~/.maw/plugins/
+// Core plugins auto-installed on `maw update` or first run.
 const SCAN_DIRS = [
   join(homedir(), ".maw", "plugins"),
-  join(homedir(), ".oracle", "commands"),
-  // Bundled plugins shipped with maw-js (src/commands/plugins/)
-  join(import.meta.dir, "..", "commands", "plugins"),
 ];
 
 /**
@@ -44,7 +43,7 @@ export function discoverPackages(): LoadedPlugin[] {
     let entries: string[];
     try {
       entries = readdirSync(baseDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
+        .filter(e => e.isDirectory() || e.isSymbolicLink())
         .map(e => e.name);
     } catch {
       continue;

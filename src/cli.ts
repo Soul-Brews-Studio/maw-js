@@ -67,9 +67,24 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   if (after) console.log(`  to:   ${after}\n`);
   else console.log("");
 } else {
-  // Load command plugins (beta) — ~/.oracle/commands/ and src/commands/plugins/
-  await scanCommands(join(import.meta.dir, "commands", "plugins"), "builtin");
-  await scanCommands(join(homedir(), ".oracle", "commands"), "user");
+  // Auto-bootstrap: if ~/.maw/plugins/ is empty, copy core plugins from bundled
+  const pluginDir = join(homedir(), ".maw", "plugins");
+  const { mkdirSync, existsSync, readdirSync, cpSync } = require("fs");
+  mkdirSync(pluginDir, { recursive: true });
+  if (readdirSync(pluginDir).length === 0) {
+    const bundled = join(import.meta.dir, "commands", "plugins");
+    if (existsSync(bundled)) {
+      for (const d of readdirSync(bundled)) {
+        if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
+          cpSync(join(bundled, d), join(pluginDir, d), { recursive: true });
+        }
+      }
+      console.log(`[maw] bootstrapped ${readdirSync(pluginDir).length} plugins → ${pluginDir}`);
+    }
+  }
+
+  // Load plugins from ~/.maw/plugins/ — the single source of truth
+  await scanCommands(pluginDir, "user");
 
   if (!cmd || cmd === "--help" || cmd === "-h") {
     usage();
