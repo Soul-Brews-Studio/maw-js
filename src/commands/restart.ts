@@ -19,17 +19,20 @@ export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string } = {}
   const tmux = new Tmux();
   console.log(`\n  \x1b[36m🔄 maw restart\x1b[0m\n`);
 
-  // 1. Kill stale view sessions
+  // 1. Kill stale sessions (views, PTYs, bash leftovers)
   const sessions = await listSessions();
-  const views = sessions.filter(s => s.name.endsWith("-view"));
-  if (views.length > 0) {
-    console.log(`  \x1b[33m1. Cleaning ${views.length} stale view sessions...\x1b[0m`);
-    for (const v of views) {
+  const stale = sessions.filter(s =>
+    s.name.endsWith("-view") || s.name.startsWith("maw-pty-") ||
+    s.windows.every(w => w.name === "bash")
+  );
+  if (stale.length > 0) {
+    console.log(`  \x1b[33m1. Cleaning ${stale.length} stale sessions...\x1b[0m`);
+    for (const v of stale) {
       await tmux.killSession(v.name);
       console.log(`    \x1b[90m✗ ${v.name}\x1b[0m`);
     }
   } else {
-    console.log(`  \x1b[90m1. No stale views\x1b[0m`);
+    console.log(`  \x1b[90m1. No stale sessions\x1b[0m`);
   }
 
   // 2. Update maw-js
