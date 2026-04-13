@@ -10,6 +10,9 @@ import { routeFleet } from "./cli/route-fleet";
 import { routeWorkspace } from "./cli/route-workspace";
 import { routeTools } from "./cli/route-tools";
 import { routeTeam } from "./cli/route-team";
+import { scanCommands, matchCommand, executeCommand, listCommands } from "./cli/command-registry";
+import { join } from "path";
+import { homedir } from "os";
 
 const args = process.argv.slice(2);
 const cmd = args[0]?.toLowerCase();
@@ -47,9 +50,15 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   console.log(`\n  ✅ done`);
   if (after) console.log(`  to:   ${after}\n`);
   else console.log("");
-} else if (!cmd || cmd === "--help" || cmd === "-h") {
-  usage();
 } else {
+  // Load command plugins (beta) — ~/.oracle/commands/ and src/commands/plugins/
+  await scanCommands(join(import.meta.dir, "commands", "plugins"), "builtin");
+  await scanCommands(join(homedir(), ".oracle", "commands"), "user");
+
+  if (!cmd || cmd === "--help" || cmd === "-h") {
+    usage();
+  } else {
+
   const handled =
     await routeComm(cmd, args) ||
     await routeTeam(cmd, args) ||
@@ -59,13 +68,20 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
     await routeTools(cmd, args);
 
   if (!handled) {
-    // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
-    if (args.length >= 2) {
-      const f = args.includes("--force");
-      const m = args.slice(1).filter(a => a !== "--force");
-      await cmdSend(args[0], m.join(" "), f);
+    // Try plugin commands (beta) — after core routes, before fallback
+    const pluginMatch = matchCommand(args);
+    if (pluginMatch) {
+      await executeCommand(pluginMatch.desc, pluginMatch.remaining);
     } else {
-      await cmdPeek(args[0]);
+      // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
+      if (args.length >= 2) {
+        const f = args.includes("--force");
+        const m = args.slice(1).filter(a => a !== "--force");
+        await cmdSend(args[0], m.join(" "), f);
+      } else {
+        await cmdPeek(args[0]);
+      }
     }
+  }
   }
 }

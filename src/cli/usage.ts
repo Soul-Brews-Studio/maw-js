@@ -133,4 +133,18 @@ export function usage() {
   maw pulse add "Fix IME" --oracle neo --priority P1
   maw hey neo what is your status
   maw serve 8080`);
+
+  // Plugin commands (beta)
+  try {
+    const { listCommands } = require("./command-registry");
+    const cmds = listCommands();
+    if (cmds.length > 0) {
+      console.log(`\n\x1b[33mPlugin Commands (beta):\x1b[0m`);
+      for (const c of cmds) {
+        const name = Array.isArray(c.name) ? c.name[0] : c.name;
+        const scope = c.scope === "user" ? "\x1b[90m(user)\x1b[0m" : "";
+        console.log(`  maw ${name.padEnd(24)} ${c.description} ${scope}`);
+      }
+    }
+  } catch { /* registry not loaded yet */ }
 }
