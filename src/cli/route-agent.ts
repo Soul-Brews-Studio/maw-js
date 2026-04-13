@@ -1,4 +1,5 @@
-import { cmdWake, fetchIssuePrompt } from "../commands/wake";
+import { cmdWake } from "../commands/wake";
+import { fetchGitHubPrompt } from "../commands/wake-resolve";
 import { parseWakeTarget, ensureCloned } from "../commands/wake-target";
 import { cmdWakeAll, cmdSleep } from "../commands/fleet";
 import { cmdDone } from "../commands/done";
@@ -19,6 +20,7 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
         "--new": String,
         "--incubate": String,
         "--issue": Number,
+        "--pr": Number,
         "--repo": String,
         "--fresh": Boolean,
         "--no-attach": Boolean,
@@ -50,10 +52,15 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
       if (positionals.length > 1) wakeOpts.prompt = positionals.slice(1).join(" ");
 
       if (wakeOpts.incubate && !repo) { repo = wakeOpts.incubate; }
+      const prNum: number | null = flags["--pr"] ?? null;
       if (issueNum) {
         console.log(`\x1b[36m⚡\x1b[0m fetching issue #${issueNum}...`);
-        wakeOpts.prompt = await fetchIssuePrompt(issueNum, repo);
+        wakeOpts.prompt = await fetchGitHubPrompt("issue", issueNum, repo);
         if (!wakeOpts.task) wakeOpts.task = `issue-${issueNum}`;
+      } else if (prNum) {
+        console.log(`\x1b[36m⚡\x1b[0m fetching PR #${prNum}...`);
+        wakeOpts.prompt = await fetchGitHubPrompt("pr", prNum, repo);
+        if (!wakeOpts.task) wakeOpts.task = `pr-${prNum}`;
       }
       await cmdWake(oracleName, wakeOpts);
     }

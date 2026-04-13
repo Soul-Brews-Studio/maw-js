@@ -15,11 +15,11 @@ async function attachToSession(session: string) {
 }
 import {
   resolveOracle, findWorktrees, getSessionMap, resolveFleetSession,
-  detectSession, setSessionEnv, sanitizeBranchName, fetchIssuePrompt,
+  detectSession, setSessionEnv, sanitizeBranchName, fetchIssuePrompt, fetchGitHubPrompt,
 } from "./wake-resolve";
 
 // Re-export for external consumers
-export { fetchIssuePrompt, findWorktrees, detectSession, resolveFleetSession };
+export { fetchIssuePrompt, fetchGitHubPrompt, findWorktrees, detectSession, resolveFleetSession };
 
 /**
  * Check whether a tmux pane's shell is idle (no child processes).
