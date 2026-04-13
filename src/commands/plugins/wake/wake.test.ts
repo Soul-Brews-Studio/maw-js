@@ -10,6 +10,17 @@ let lastWakeAllCall: { opts: any } | null = null;
 // tests — so the mock key matches what bun uses for the dynamic imports in the handler.
 const src = join(import.meta.dir, "../../..");
 
+// Mock config to prevent getEnvVars resolution failure in CI (Bun 1.3 mock.module bug)
+mock.module(join(src, "config"), () => ({
+  loadConfig: () => ({ node: "test", agents: {}, env: {} }),
+  buildCommand: () => "echo test",
+  getEnvVars: () => ({}),
+  cfgTimeout: () => 30,
+  cfgLimit: () => 100,
+  saveConfig: () => {},
+  validateConfig: (c: any) => c,
+}));
+
 mock.module(join(src, "commands/shared/wake"), () => ({
   cmdWake: async (oracle: string, opts: any) => {
     lastWakeCall = { oracle, opts };

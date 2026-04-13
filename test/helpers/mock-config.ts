@@ -34,6 +34,11 @@ export function mockConfigModule(loadConfig: () => Partial<MawConfig>) {
   return {
     loadConfig,
     resetConfig: () => {},
+    saveConfig: () => {},
+    validateConfig: (c: any) => c,
+    buildCommand: (_name: string) => "echo test",
+    buildCommandInDir: (_name: string, cwd: string) => `cd '${cwd}' && echo test`,
+    getEnvVars: () => ({}),
     D: TEST_D,
     cfgInterval: (k: keyof MawIntervals) => INTERVALS[k],
     cfgTimeout: (k: keyof MawTimeouts) => TIMEOUTS[k],

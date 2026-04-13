@@ -31,7 +31,7 @@ mock.module("../src/plugin/registry", () => ({
   invokePlugin: async (_plugin: LoadedPlugin, _ctx: unknown) => fakeInvokeResult,
 }));
 
-mock.module("../src/config", () => ({
+mock.module("../src/config", () => ({ getEnvVars: () => ({}), buildCommand: () => "echo test", saveConfig: () => {}, validateConfig: (c: any) => c,
   loadConfig: () => ({ node: "local-node", port: 3456 }),
   cfgLimit: (_key: string) => 200,
 }));
