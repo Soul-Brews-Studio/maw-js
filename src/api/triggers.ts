@@ -1,13 +1,12 @@
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { getTriggers, getTriggerHistory, fire, type TriggerContext } from "../triggers";
 import type { TriggerEvent } from "../config";
-import { validateBody } from "../lib/validate";
 import { TriggerFireBody, type TTriggerFireBody } from "../lib/schemas";
 
-export const triggersApi = new Hono();
+export const triggersApi = new Elysia();
 
 /** GET /triggers — list configured triggers + last fired */
-triggersApi.get("/triggers", (c) => {
+triggersApi.get("/triggers", () => {
   const triggers = getTriggers();
   const history = getTriggerHistory();
 
@@ -29,17 +28,17 @@ triggersApi.get("/triggers", (c) => {
     };
   });
 
-  return c.json({ triggers: items, total: items.length });
+  return { triggers: items, total: items.length };
 });
 
 /** POST /triggers/fire — manually fire a trigger event */
-triggersApi.post("/triggers/fire", validateBody(TriggerFireBody), async (c) => {
-  const body = c.get("body") as TTriggerFireBody;
-  const event = body.event as TriggerEvent;
-  const ctx: TriggerContext = body.context || {};
+triggersApi.post("/triggers/fire", async ({ body }) => {
+  const typedBody = body as TTriggerFireBody;
+  const event = typedBody.event as TriggerEvent;
+  const ctx: TriggerContext = typedBody.context || {};
 
   const results = fire(event, ctx);
-  return c.json({
+  return {
     ok: true,
     event,
     fired: results.length,
@@ -49,5 +48,7 @@ triggersApi.post("/triggers/fire", validateBody(TriggerFireBody), async (c) => {
       output: r.output || null,
       error: r.error || null,
     })),
-  });
+  };
+}, {
+  body: TriggerFireBody,
 });

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Elysia, t } from "elysia";
 import { listSessions, capture, sendKeys, selectWindow } from "../ssh";
 import { findWindow } from "../find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../peers";
@@ -7,10 +7,9 @@ import { curlFetch } from "../curl-fetch";
 import { resolveTarget } from "../routing";
 import { processMirror } from "../commands/overview";
 import { resolveFleetSession } from "../commands/wake";
-import { validateBody } from "../lib/validate";
-import { WakeBody, SleepBody, SendBody, type TWakeBody, type TSleepBody, type TSendBody } from "../lib/schemas";
+import { WakeBody, SleepBody, SendBody } from "../lib/schemas";
 
-export const sessionsApi = new Hono();
+export const sessionsApi = new Elysia();
 
 /** Resolve oracle name → tmux target, same logic as local peek (#273). */
 function resolveCapture(query: string, sessions: { name: string }[]): string {
@@ -28,40 +27,53 @@ function resolveCapture(query: string, sessions: { name: string }[]): string {
   return findWindow(sessions, query) || query;
 }
 
-sessionsApi.get("/sessions", async (c) => {
+sessionsApi.get("/sessions", async ({ query }) => {
   const local = await listSessions();
-  if (c.req.query("local") === "true") {
-    return c.json(local.map(s => ({ ...s, source: "local" })));
+  if (query.local === "true") {
+    return local.map(s => ({ ...s, source: "local" }));
   }
   const aggregated = await getAggregatedSessions(local);
-  return c.json(aggregated);
+  return aggregated;
+}, {
+  query: t.Object({
+    local: t.Optional(t.String()),
+  }),
 });
 
-sessionsApi.get("/capture", async (c) => {
-  const target = c.req.query("target");
-  if (!target) return c.json({ error: "target required" }, 400);
+sessionsApi.get("/capture", async ({ query, error }) => {
+  const target = query.target;
+  if (!target) return error(400, { error: "target required" });
   try {
     const sessions = await listSessions();
     const resolved = resolveCapture(target, sessions);
-    return c.json({ content: await capture(resolved) });
+    return { content: await capture(resolved) };
   } catch (e: any) {
-    return c.json({ content: "", error: e.message });
+    return { content: "", error: e.message };
   }
+}, {
+  query: t.Object({
+    target: t.Optional(t.String()),
+  }),
 });
 
-sessionsApi.get("/mirror", async (c) => {
-  const target = c.req.query("target");
-  if (!target) return c.text("target required", 400);
-  const lines = +(c.req.query("lines") || "40");
+sessionsApi.get("/mirror", async ({ query, error }) => {
+  const target = query.target;
+  if (!target) return error(400, "target required");
+  const lines = +(query.lines || "40");
   const sessions = await listSessions();
   const resolved = resolveCapture(target, sessions);
   const raw = await capture(resolved);
-  return c.text(processMirror(raw, lines));
+  return processMirror(raw, lines);
+}, {
+  query: t.Object({
+    target: t.Optional(t.String()),
+    lines: t.Optional(t.String()),
+  }),
 });
 
-sessionsApi.post("/send", validateBody(SendBody), async (c) => {
+sessionsApi.post("/send", async ({ body, error }) => {
   try {
-    const { target, text } = c.get("body") as TSendBody;
+    const { target, text } = body;
 
     const config = loadConfig();
     const local = await listSessions();
@@ -81,7 +93,7 @@ sessionsApi.post("/send", validateBody(SendBody), async (c) => {
       await Bun.sleep(150);
       let lastLine = "";
       try { const content = await capture(resolved.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
-      return c.json({ ok: true, target: resolved.target, text, source: "local", lastLine });
+      return { ok: true, target: resolved.target, text, source: "local", lastLine };
     }
 
     // Remote peer → federation HTTP
@@ -92,51 +104,59 @@ sessionsApi.post("/send", validateBody(SendBody), async (c) => {
         timeout: 10000,
       });
       if (res.ok && res.data?.ok) {
-        return c.json({ ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "" });
+        return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "" };
       }
-      return c.json({ error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl }, 502);
+      return error(502, { error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl });
     }
 
     // Fallback: async peer discovery
     const peerUrl = await findPeerForTarget(target, local);
     if (peerUrl) {
       const ok = await sendKeysToPeer(peerUrl, target, text);
-      if (ok) return c.json({ ok: true, target, text, source: peerUrl });
-      return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+      if (ok) return { ok: true, target, text, source: peerUrl };
+      return error(502, { error: "Failed to send to peer", target, source: peerUrl });
     }
 
     const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
-    return c.json({ error: `target not found: ${target}`, target, ...errDetail }, 404);
+    return error(404, { error: `target not found: ${target}`, target, ...errDetail });
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return error(500, { error: String(err) });
   }
+}, {
+  body: SendBody,
 });
 
-sessionsApi.post("/select", async (c) => {
-  const { target } = await c.req.json();
-  if (!target) return c.json({ error: "target required" }, 400);
+sessionsApi.post("/select", async ({ body, error }) => {
+  const { target } = body;
+  if (!target) return error(400, { error: "target required" });
   await selectWindow(target);
-  return c.json({ ok: true, target });
+  return { ok: true, target };
+}, {
+  body: t.Object({ target: t.String() }),
 });
 
-sessionsApi.post("/wake", validateBody(WakeBody), async (c) => {
+sessionsApi.post("/wake", async ({ body, error }) => {
   try {
-    const { target, task } = c.get("body") as TWakeBody;
+    const { target, task } = body;
     const { cmdWake } = await import("../commands/wake");
     await cmdWake(target, { noAttach: true, task });
-    return c.json({ ok: true, target });
+    return { ok: true, target };
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return error(500, { error: String(err) });
   }
+}, {
+  body: WakeBody,
 });
 
-sessionsApi.post("/sleep", validateBody(SleepBody), async (c) => {
+sessionsApi.post("/sleep", async ({ body, error }) => {
   try {
-    const { target } = c.get("body") as TSleepBody;
+    const { target } = body;
     const { cmdSleepOne } = await import("../commands/sleep");
     await cmdSleepOne(target);
-    return c.json({ ok: true, target });
+    return { ok: true, target };
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return error(500, { error: String(err) });
   }
+}, {
+  body: SleepBody,
 });

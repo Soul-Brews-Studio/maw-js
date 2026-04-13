@@ -6,25 +6,24 @@
  *   POST /api/transport/send     → send message via transport router
  */
 
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { getTransportRouter } from "../transports";
-import { validateBody } from "../lib/validate";
 import { TransportSendBody, type TTransportSendBody } from "../lib/schemas";
 
-export const transportApi = new Hono();
+export const transportApi = new Elysia();
 
 // GET /api/transport/status — show all transports and their connectivity
-transportApi.get("/transport/status", (c) => {
+transportApi.get("/transport/status", () => {
   const router = getTransportRouter();
-  return c.json({
+  return {
     transports: router.status(),
     timestamp: new Date().toISOString(),
-  });
+  };
 });
 
 // POST /api/transport/send — send a message through the transport router
-transportApi.post("/transport/send", validateBody(TransportSendBody), async (c) => {
-  const { oracle, host, message, from } = c.get("body") as TTransportSendBody;
+transportApi.post("/transport/send", async ({ body }) => {
+  const { oracle, host, message, from } = body as TTransportSendBody;
 
   const router = getTransportRouter();
   const result = await router.send(
@@ -33,9 +32,11 @@ transportApi.post("/transport/send", validateBody(TransportSendBody), async (c) 
     from || "api",
   );
 
-  return c.json({
+  return {
     ...result,
     target: oracle,
     host: host || "local",
-  });
+  };
+}, {
+  body: TransportSendBody,
 });

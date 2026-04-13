@@ -1,9 +1,9 @@
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
 
-export const costsApi = new Hono();
+export const costsApi = new Elysia();
 
 // Cost per million tokens (USD)
 const COST_PER_MTOK: Record<string, { input: number; output: number }> = {
@@ -85,7 +85,7 @@ function estimateCost(usage: SessionUsage): number {
   return (totalInput / 1_000_000) * rates.input + (usage.outputTokens / 1_000_000) * rates.output;
 }
 
-costsApi.get("/costs", (c) => {
+costsApi.get("/costs", ({ error }) => {
   const projectsDir = join(homedir(), ".claude", "projects");
   let dirs: string[];
   try {
@@ -93,7 +93,7 @@ costsApi.get("/costs", (c) => {
       try { return statSync(join(projectsDir, d)).isDirectory(); } catch { return false; }
     });
   } catch {
-    return c.json({ error: "Cannot read ~/.claude/projects/" }, 500);
+    return error(500, { error: "Cannot read ~/.claude/projects/" });
   }
 
   const agents: Record<string, {
@@ -168,5 +168,5 @@ costsApi.get("/costs", (c) => {
     agents: agentList.length,
   };
 
-  return c.json({ agents: agentList, total });
+  return { agents: agentList, total };
 });
