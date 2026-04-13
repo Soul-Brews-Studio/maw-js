@@ -15,6 +15,54 @@ function makeTempPluginDir(files: Record<string, string>): string {
   return dir;
 }
 
+/**
+ * Build a minimal WASM binary that exports handle(i32, i32) -> i32 and memory.
+ * WAT equivalent:
+ *   (module
+ *     (memory (export "memory") 1)
+ *     (func (export "handle") (param i32 i32) (result i32) i32.const 0))
+ */
+function buildWasmWithHandleAndMemory(): Uint8Array {
+  return new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, // magic
+    0x01, 0x00, 0x00, 0x00, // version 1
+    // Type section (1): one func type (i32, i32) -> i32
+    0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+    // Function section (3): one function using type 0
+    0x03, 0x02, 0x01, 0x00,
+    // Memory section (5): one memory, min 1 page
+    0x05, 0x03, 0x01, 0x00, 0x01,
+    // Export section (7): "memory" (memory 0) + "handle" (func 0)
+    0x07, 0x13,
+    0x02, // 2 exports
+    0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, // "memory", memory, index 0
+    0x06, 0x68, 0x61, 0x6e, 0x64, 0x6c, 0x65, 0x00, 0x00, // "handle", func, index 0
+    // Code section (10): one function body — returns 0
+    0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x00, 0x0b,
+  ]);
+}
+
+/**
+ * Build a minimal WASM binary with only an "add" function export (no handle/memory).
+ * WAT equivalent:
+ *   (module
+ *     (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))
+ */
+function buildWasmWithoutHandle(): Uint8Array {
+  return new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, // magic
+    0x01, 0x00, 0x00, 0x00, // version 1
+    // Type section: (i32, i32) -> i32
+    0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+    // Function section: one function using type 0
+    0x03, 0x02, 0x01, 0x00,
+    // Export section: "add" (func 0)
+    0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
+    // Code section: local.get 0, local.get 1, i32.add
+    0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
+  ]);
+}
+
 // --- Registration ---
 
 describe("registerCommand", () => {
@@ -155,7 +203,7 @@ describe("scanCommands", () => {
     expect(count).toBe(0);
   });
 
-  test("ignores non-ts/js files", async () => {
+  test("ignores non-ts/js/wasm files", async () => {
     const dir = makeTempPluginDir({
       "readme.md": `# Not a plugin`,
       "data.json": `{}`,
@@ -163,6 +211,39 @@ describe("scanCommands", () => {
     });
     const count = await scanCommands(dir, "user");
     expect(count).toBe(1);
+    rmSync(dir, { recursive: true });
+  });
+
+  test("scanCommands includes .wasm files in filter", async () => {
+    // Build a minimal WASM module with handle + memory exports
+    const wasmModule = buildWasmWithHandleAndMemory();
+    const dir = makeTempPluginDir({});
+    writeFileSync(join(dir, "greet.wasm"), wasmModule);
+    const count = await scanCommands(dir, "user");
+    expect(count).toBe(1);
+    const match = matchCommand(["greet"]);
+    expect(match).not.toBeNull();
+    expect(match!.desc.description).toBe("WASM command: greet.wasm");
+    rmSync(dir, { recursive: true });
+  });
+
+  test("WASM without handle+memory exports is skipped gracefully", async () => {
+    // Build a minimal WASM module with only an "add" export (no handle/memory)
+    const wasmModule = buildWasmWithoutHandle();
+    const dir = makeTempPluginDir({});
+    writeFileSync(join(dir, "noop.wasm"), wasmModule);
+    // scanCommands counts the attempt but loadWasmCommand logs skip and doesn't register
+    const countBefore = listCommands().filter(c => {
+      const n = Array.isArray(c.name) ? c.name : [c.name];
+      return n.includes("noop");
+    }).length;
+    await scanCommands(dir, "user");
+    const countAfter = listCommands().filter(c => {
+      const n = Array.isArray(c.name) ? c.name : [c.name];
+      return n.includes("noop");
+    }).length;
+    // "noop" should NOT be registered as a command
+    expect(countAfter).toBe(countBefore);
     rmSync(dir, { recursive: true });
   });
 });
