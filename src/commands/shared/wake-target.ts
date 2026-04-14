@@ -77,7 +77,7 @@ export async function ensureCloned(slug: string): Promise<void> {
   if (ghqHit.trim()) return;
   console.log(`\x1b[36m⚡\x1b[0m cloning ${slug}...`);
   try {
-    await hostExec(`ghq get -p github.com/${slug}`);
+    await hostExec(`ghq get github.com/${slug}`);
   } catch (e: any) {
     console.log(`\x1b[33m⚠\x1b[0m clone failed: ${e.message || e}\n  falling back to normal resolution`);
   }

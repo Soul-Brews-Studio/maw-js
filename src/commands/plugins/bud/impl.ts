@@ -127,7 +127,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
         throw e;
       }
     }
-    await hostExec(`ghq get -p github.com/${budRepoSlug}`);
+    await hostExec(`ghq get github.com/${budRepoSlug}`);
     console.log(`  \x1b[32m✓\x1b[0m cloned via ghq`);
   }
 
