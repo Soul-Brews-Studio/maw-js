@@ -63,7 +63,7 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   // Refresh bundled plugin symlinks (point to new install)
   try {
     const pluginDir = join(homedir(), ".maw", "plugins");
-    const { existsSync: ex, readdirSync: rd, cpSync: cp, readFileSync: rf, lstatSync: ls, unlinkSync: ul, symlinkSync: sl } = require("fs");
+    const { existsSync: ex, readdirSync: rd, lstatSync: ls, unlinkSync: ul, symlinkSync: sl } = require("fs");
     const { mkdirSync: mk } = require("fs");
     mk(pluginDir, { recursive: true });
     const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
@@ -80,45 +80,6 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
         }
       }
       if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
-    }
-  } catch {}
-
-  // Update plugins from pluginSources (read config file directly — module path may be stale after reinstall)
-  try {
-    const configPath = join(homedir(), ".config", "maw", "maw.config.json");
-    const { readFileSync: readF } = require("fs");
-    const rawConfig = JSON.parse(readF(configPath, "utf-8"));
-    const sources: string[] = rawConfig.pluginSources ?? [];
-    if (sources.length > 0) {
-      console.log(`\n  🔌 updating ${sources.length} plugin source(s)...`);
-      const pluginDir = join(homedir(), ".maw", "plugins");
-      for (const url of sources) {
-        try {
-          execSync(`ghq get -u "${url}"`, { stdio: "pipe" });
-          const ghqRoot = execSync("ghq root", { encoding: "utf-8" }).trim();
-          const repoPath = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
-          const src = join(ghqRoot, repoPath);
-          const pkgDir = join(src, "packages");
-          if (ex(pkgDir)) {
-            let count = 0;
-            for (const pkg of rd(pkgDir)) {
-              if (ex(join(pkgDir, pkg, "plugin.json"))) {
-                const dest = join(pluginDir, pkg);
-                cp(join(pkgDir, pkg), dest, { recursive: true });
-                count++;
-              }
-            }
-            const repoName = url.split("/").pop();
-            console.log(`  ✓ ${repoName}: ${count} plugins updated`);
-          } else if (ex(join(src, "plugin.json"))) {
-            const m = JSON.parse(rf(join(src, "plugin.json"), "utf-8"));
-            cp(src, join(pluginDir, m.name), { recursive: true });
-            console.log(`  ✓ ${m.name} updated`);
-          }
-        } catch (e: any) {
-          console.log(`  ✗ ${url}: ${e.message?.slice(0, 60)}`);
-        }
-      }
     }
   } catch {}
 
