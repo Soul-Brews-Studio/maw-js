@@ -18,6 +18,8 @@ jobs:
             script: test:isolated
           - name: plugin
             script: test:plugin
+          - name: mock-smoke
+            script: test:mock-smoke
     name: test-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@v4
