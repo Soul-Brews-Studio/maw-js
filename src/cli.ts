@@ -57,6 +57,7 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
     "    maw update main     update to main branch",
     "",
     "  Flags:",
+    "    --yes, -y     skip confirmation prompt (for scripts/fleet)",
     "    --help, -h    show this message and exit (no side effects)",
     "",
     "  ⚠ Manual `bun add -g` may loop — use `maw update <ref>` instead.",
@@ -114,6 +115,22 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   const arrow = beforeVer === ref ? "\x1b[90m=\x1b[0m" : "\x1b[32m→\x1b[0m";
   const sameNote = beforeVer === ref ? " \x1b[90m(re-sync)\x1b[0m" : "";
   console.log(`\n  🍺 maw \x1b[36m${beforeVer}\x1b[0m ${arrow} \x1b[36m${ref}\x1b[0m${sameNote}\n`);
+
+  // Confirmation gate — show from→to, ask before destructive install.
+  // Skip with --yes/-y for scripted usage (e.g. fleet update).
+  if (!args.includes("--yes") && !args.includes("-y")) {
+    process.stdout.write("  proceed? [y/N] ");
+    const buf = Buffer.alloc(8);
+    const fd = require("fs").openSync("/dev/tty", "r");
+    const n = require("fs").readSync(fd, buf, 0, buf.length, null);
+    require("fs").closeSync(fd);
+    const answer = buf.slice(0, n).toString().trim().toLowerCase();
+    if (answer !== "y" && answer !== "yes") {
+      console.log("  \x1b[90maborted\x1b[0m");
+      process.exit(0);
+    }
+  }
+
   // Remove first to avoid bun dependency loop (#214)
   // Required: purges stale global refs that cause dep loops (#347)
   try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
