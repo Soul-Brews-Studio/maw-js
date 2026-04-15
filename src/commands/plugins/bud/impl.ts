@@ -18,6 +18,9 @@ export interface BudOpts {
   dryRun?: boolean;
   note?: string;
   split?: boolean;
+  /** Skip soul-sync seed from parent. Preserves lineage (parent in CLAUDE.md +
+   *  sync_peers) but starts with an empty memory. */
+  blank?: boolean;
 }
 
 /**
@@ -89,7 +92,9 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${budRepoPath}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would generate CLAUDE.md`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create fleet config`);
-    if (parentName) {
+    if (opts.blank) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] --blank: skipping soul-sync${parentName ? ` (lineage to ${parentName} preserved)` : ""}`);
+    } else if (parentName) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync from ${parentName}`);
     } else {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] root oracle — no soul-sync`);
@@ -246,8 +251,10 @@ Run \`/awaken\` for the full identity setup ceremony.
     console.log(`  \x1b[32m✓\x1b[0m birth note written`);
   }
 
-  // 5. Soul-sync seed from parent (skip for root buds)
-  if (parentName) {
+  // 5. Soul-sync seed from parent (skip for root buds or --blank)
+  if (opts.blank) {
+    console.log(`  \x1b[90m○\x1b[0m --blank: skipping soul-sync seed${parentName ? ` (lineage to ${parentName} preserved)` : ""}`);
+  } else if (parentName) {
     console.log(`  \x1b[36m⏳\x1b[0m soul-sync seed from ${parentName}...`);
     try {
       await cmdSoulSync(parentName, { from: true, cwd: budRepoPath });

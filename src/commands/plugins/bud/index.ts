@@ -26,11 +26,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--root": Boolean,
         "--dry-run": Boolean,
         "--split": Boolean,
+        "--blank": Boolean,
       }, 0);
 
       const name = flags._[0];
       if (!name || name === "--help" || name === "-h") {
-        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]" };
+        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--blank] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]" };
       }
       if (name.startsWith("-")) {
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };
@@ -46,6 +47,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         root: flags["--root"],
         dryRun: flags["--dry-run"],
         split: flags["--split"],
+        blank: flags["--blank"],
       });
     } else if (ctx.source === "api") {
       const body = ctx.args as Record<string, unknown>;
@@ -61,6 +63,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         root: body.root as boolean | undefined,
         dryRun: body.dryRun as boolean | undefined,
         split: body.split as boolean | undefined,
+        blank: body.blank as boolean | undefined,
       });
     }
 
