@@ -200,6 +200,11 @@ export function discoverPackages(): LoadedPlugin[] {
   const disabled = loadConfig().disabledPlugins ?? [];
   const runtimeVer = runtimeSdkVersion();
   let legacyCount = 0;
+  // #355 — aggregate mode counts for a single compact summary line instead
+  // of 53 lines of per-plugin load noise. Skills-cli's test-agents run flagged
+  // the per-plugin output as UX pollution. Verbose-by-default is still the
+  // invariant (#343), but the right grain is SUMMARY, not per-entry.
+  const modeCounts = { symlink: 0, artifact: 0, unbuilt: 0, legacy: 0 };
 
   for (const baseDir of scanDirs()) {
     if (!existsSync(baseDir)) continue;
@@ -271,22 +276,28 @@ export function discoverPackages(): LoadedPlugin[] {
         loaded.disabled = true;
       }
 
-      // Per-plugin verbose load line — fires unless --quiet/--silent (verbosity
-      // defaults to loud per #343). mode ∈ {symlink, sha256:abc1234…, unbuilt, legacy}
-      verbose(() => {
-        const mode = devMode
-          ? "symlink"
-          : m.artifact?.sha256
-            ? `sha256:${m.artifact!.sha256!.replace(/^sha256:/, "").slice(0, 7)}…`
-            : m.artifact
-              ? "unbuilt"
-              : "legacy";
-        info(`loaded plugin ${m.name}@${m.version} (sdk ${m.sdk}, ${mode})`);
-      });
+      // Aggregate mode for post-loop summary (#355 — replace 53 per-plugin
+      // lines with one compact summary). Per-plugin detail is still
+      // retrievable via `maw plugin ls` when needed.
+      if (devMode) modeCounts.symlink++;
+      else if (m.artifact?.sha256) modeCounts.artifact++;
+      else if (m.artifact) modeCounts.unbuilt++;
+      else modeCounts.legacy++;
 
       plugins.push(loaded);
     }
   }
+
+  // #355 — one-line summary instead of per-plugin spam. Still emits via
+  // verbose() so --quiet suppresses it (verbose-by-default invariant from #343).
+  verbose(() => {
+    const parts: string[] = [];
+    if (modeCounts.symlink) parts.push(`${modeCounts.symlink} symlink`);
+    if (modeCounts.artifact) parts.push(`${modeCounts.artifact} artifact`);
+    if (modeCounts.unbuilt) parts.push(`${modeCounts.unbuilt} unbuilt`);
+    if (modeCounts.legacy) parts.push(`${modeCounts.legacy} legacy`);
+    if (parts.length) info(`loaded ${plugins.length} plugins (${parts.join(", ")})`);
+  });
 
   warnLegacyOnce(legacyCount);
 
