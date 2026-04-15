@@ -1,0 +1,23 @@
+{
+  "name": "tag",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Set pane metadata: title, custom options. Enables deterministic routing by agent name.",
+  "cli": {
+    "command": "tag",
+    "help": "maw tag <target> [--pane N] [--title <text>] [--meta key=val ...]",
+    "flags": {
+      "--pane": "number",
+      "--title": "string",
+      "--meta": "string"
+    }
+  },
+  "api": {
+    "path": "/api/tag",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 10
+}
