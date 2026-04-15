@@ -14,8 +14,8 @@
     "build": "bun build src/cli.ts --outfile dist/maw --target=bun --minify",
     "deploy": "bun run build && bun src/cli.ts fleet sync && pm2 restart maw",
     "dev": "pm2 start ecosystem.config.cjs",
-    "test": "bun test test/ --path-ignore-patterns '**/maw-js/**' --path-ignore-patterns '**/test/isolated/**' --path-ignore-patterns 'agents/**'",
-    "test:isolated": "bun test test/isolated/ --path-ignore-patterns '**/maw-js/**' --path-ignore-patterns 'agents/**'",
+    "test": "bun test test/ --path-ignore-patterns '**/maw-js/**' --path-ignore-patterns '**/test/isolated/**'",
+    "test:isolated": "bun test test/isolated/ --path-ignore-patterns '**/maw-js/**'",
     "test:all": "bun run test && bun run test:isolated"
   },
   "description": "maw.js \u2014 Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
