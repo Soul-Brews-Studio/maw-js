@@ -6,7 +6,10 @@
   "description": "List tmux panes with metadata (index, size, command, title).",
   "cli": {
     "command": "panes",
-    "help": "maw panes [target] — list panes in current window, or all panes in <target>"
+    "help": "maw panes [target] [--pid] — list panes in current window, or all panes in <target>",
+    "flags": {
+      "--pid": "boolean"
+    }
   },
   "api": {
     "path": "/api/panes",

@@ -1,13 +1,17 @@
 import { listSessions, hostExec, tmuxCmd } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 
-export interface PanesOpts { /* reserved for future flags */ }
+export interface PanesOpts {
+  /** Include a PID column (for /proc inspection / ghost detection). */
+  pid?: boolean;
+}
 
 interface PaneRow {
   target: string;   // session:window.pane
   dims: string;     // WIDTHxHEIGHT
   command: string;
   title: string;
+  pid?: string;     // only populated when opts.pid
 }
 
 /**
@@ -20,7 +24,7 @@ interface PaneRow {
  * Output columns — target, dims, command, title — match the style of
  * `maw ls`: plain text, ANSI-colored header, one row per pane.
  */
-export async function cmdPanes(target?: string, _opts: PanesOpts = {}) {
+export async function cmdPanes(target?: string, opts: PanesOpts = {}) {
   const tmux = tmuxCmd();
 
   let filter: string | null = null; // tmux -t target for list-panes; null = current
@@ -68,7 +72,9 @@ export async function cmdPanes(target?: string, _opts: PanesOpts = {}) {
   }
 
   // Build list-panes command. Format uses ||| as field separator.
-  const fmt = "#{session_name}:#{window_index}.#{pane_index}|||#{pane_width}x#{pane_height}|||#{pane_current_command}|||#{pane_title}";
+  // #{pane_pid} only appended when --pid requested, to keep default output stable.
+  const baseFmt = "#{session_name}:#{window_index}.#{pane_index}|||#{pane_width}x#{pane_height}|||#{pane_current_command}|||#{pane_title}";
+  const fmt = opts.pid ? `${baseFmt}|||#{pane_pid}` : baseFmt;
   const targetFlag = filter ? `-s -t '${filter}'` : "";
   let raw: string;
   try {
@@ -79,8 +85,14 @@ export async function cmdPanes(target?: string, _opts: PanesOpts = {}) {
   }
 
   const rows: PaneRow[] = raw.split("\n").filter(Boolean).map(line => {
-    const [target, dims, command, title] = line.split("|||");
-    return { target, dims, command, title: title || "" };
+    const parts = line.split("|||");
+    return {
+      target: parts[0]!,
+      dims: parts[1]!,
+      command: parts[2]!,
+      title: parts[3] || "",
+      pid: opts.pid ? parts[4] : undefined,
+    };
   });
 
   if (rows.length === 0) {
@@ -93,11 +105,19 @@ export async function cmdPanes(target?: string, _opts: PanesOpts = {}) {
     target: Math.max(6, ...rows.map(r => r.target.length)),
     dims:   Math.max(6, ...rows.map(r => r.dims.length)),
     cmd:    Math.max(7, ...rows.map(r => r.command.length)),
+    pid:    opts.pid ? Math.max(3, ...rows.map(r => (r.pid || "").length)) : 0,
   };
   const pad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
 
-  console.log(`  \x1b[90m${pad("TARGET", w.target)}  ${pad("SIZE", w.dims)}  ${pad("COMMAND", w.cmd)}  TITLE\x1b[0m`);
-  for (const row of rows) {
-    console.log(`  ${pad(row.target, w.target)}  ${pad(row.dims, w.dims)}  ${pad(row.command, w.cmd)}  \x1b[90m${row.title}\x1b[0m`);
+  if (opts.pid) {
+    console.log(`  \x1b[90m${pad("TARGET", w.target)}  ${pad("SIZE", w.dims)}  ${pad("PID", w.pid)}  ${pad("COMMAND", w.cmd)}  TITLE\x1b[0m`);
+    for (const row of rows) {
+      console.log(`  ${pad(row.target, w.target)}  ${pad(row.dims, w.dims)}  ${pad(row.pid || "", w.pid)}  ${pad(row.command, w.cmd)}  \x1b[90m${row.title}\x1b[0m`);
+    }
+  } else {
+    console.log(`  \x1b[90m${pad("TARGET", w.target)}  ${pad("SIZE", w.dims)}  ${pad("COMMAND", w.cmd)}  TITLE\x1b[0m`);
+    for (const row of rows) {
+      console.log(`  ${pad(row.target, w.target)}  ${pad(row.dims, w.dims)}  ${pad(row.command, w.cmd)}  \x1b[90m${row.title}\x1b[0m`);
+    }
   }
 }
