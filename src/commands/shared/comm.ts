@@ -1,6 +1,7 @@
 import {
   listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos,
   findWindow, runHook, scanWorktrees, curlFetch, findPeerForTarget, resolveTarget,
+  hostExec,
   type SshSession as Session,
 } from "../../sdk";
 import { loadConfig, cfgLimit } from "../../config";
@@ -150,6 +151,51 @@ export async function cmdPeek(query?: string) {
   console.log(content);
 }
 
+/**
+ * Resolve a `session:window` target to a specific pane running an agent
+ * (claude / codex / node). Fixes the multi-pane routing bug: when an oracle
+ * window has multiple panes (e.g., team-agents split beside it), tmux's
+ * `send-keys -t session:window` defaults to the LAST-ACTIVE pane — which
+ * becomes whichever teammate just spawned, not the oracle itself.
+ *
+ * Strategy: list all panes in the window, pick the lowest-index pane
+ * running a claude/codex/node process. Pane 0 is conventionally the
+ * oracle's main pane (created by `tmux.newWindow` during `maw wake`);
+ * team-agents spawn LATER as splits and take higher indexes.
+ *
+ * If the target already specifies a pane (`.N` suffix) the caller knows
+ * what they want — pass through untouched. If no agent pane is found,
+ * return the target unchanged so the existing "no active Claude session"
+ * error path surfaces correctly.
+ */
+async function resolveOraclePane(target: string): Promise<string> {
+  // Already pane-specific — honor caller's choice.
+  if (/\.[0-9]+$/.test(target)) return target;
+
+  try {
+    const raw = await hostExec(
+      `tmux list-panes -t '${target}' -F '#{pane_index} #{pane_current_command}'`,
+    );
+    const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length <= 1) return target; // single-pane window: active pane is the only pane
+
+    const agentIndexes: number[] = [];
+    for (const line of lines) {
+      const spaceIdx = line.indexOf(" ");
+      if (spaceIdx < 0) continue;
+      const idx = parseInt(line.slice(0, spaceIdx), 10);
+      const cmd = line.slice(spaceIdx + 1);
+      if (Number.isFinite(idx) && /claude|codex|node/i.test(cmd)) {
+        agentIndexes.push(idx);
+      }
+    }
+    if (agentIndexes.length === 0) return target;
+    return `${target}.${Math.min(...agentIndexes)}`;
+  } catch {
+    return target;
+  }
+}
+
 /** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
 function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
@@ -181,9 +227,13 @@ export async function cmdSend(query: string, message: string, force = false) {
   // --- Unified resolution via resolveTarget (#201) ---
   const result = resolveTarget(query, config, sessions);
 
-  // Local target (or self-node) → send via tmux
+  // Local target (or self-node) → send via tmux.
+  // Resolve to a specific pane first: when the oracle window has multiple
+  // panes (team-agents spawned beside it), `send-keys -t session:window`
+  // would otherwise land in whichever pane is currently active, not the
+  // oracle's claude pane. See resolveOraclePane.
   if (result?.type === "local" || result?.type === "self-node") {
-    const target = result.target;
+    const target = await resolveOraclePane(result.target);
     if (!force) {
       const cmd = await getPaneCommand(target);
       const isAgent = /claude|codex|node/i.test(cmd);
