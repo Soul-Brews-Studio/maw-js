@@ -56,6 +56,19 @@ function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
   return sessions;
 }
 
+/**
+ * #359 — render a session header line for `maw ls`.
+ * View sessions (`*-view` suffix or the `maw-view` meta-session — see
+ * team/impl.ts:264) render dimmed with a trailing `[view]` tag; source
+ * sessions stay bright cyan. Pure function, exported for tests.
+ */
+export function renderSessionName(name: string): string {
+  const isView = /-view$/.test(name) || name === "maw-view";
+  return isView
+    ? `\x1b[90m${name}\x1b[0m \x1b[90m[view]\x1b[0m`
+    : `\x1b[36m${name}\x1b[0m`;
+}
+
 export async function cmdList() {
   const sessions = await listSessions();
 
@@ -67,14 +80,7 @@ export async function cmdList() {
   const infos = await getPaneInfos(targets);
 
   for (const s of sessions) {
-    // #359 — visually distinguish view sessions from source sessions.
-    // Match `*-view` suffix or the `maw-view` meta-session (see team/impl.ts:264).
-    const isView = /-view$/.test(s.name) || s.name === "maw-view";
-    if (isView) {
-      console.log(`\x1b[90m${s.name}\x1b[0m \x1b[90m[view]\x1b[0m`);
-    } else {
-      console.log(`\x1b[36m${s.name}\x1b[0m`);
-    }
+    console.log(renderSessionName(s.name));
     for (const w of s.windows) {
       const target = `${s.name}:${w.index}`;
       const info = infos[target] || { command: "", cwd: "" };
