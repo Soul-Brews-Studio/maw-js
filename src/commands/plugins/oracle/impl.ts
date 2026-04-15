@@ -256,7 +256,7 @@ export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; loc
   console.log(`  Cache written to \x1b[90m~/.config/maw/oracles.json\x1b[0m\n`);
 }
 
-export async function cmdOracleFleet(opts: { org?: string; stale?: boolean; json?: boolean } = {}) {
+export async function cmdOracleFleet(opts: { org?: string; stale?: boolean; json?: boolean; path?: boolean } = {}) {
   let cache = readCache();
 
   // Auto-bootstrap or refresh if stale
@@ -298,8 +298,9 @@ export async function cmdOracleFleet(opts: { org?: string; stale?: boolean; json
       const lineage = o.budded_from ? `budded from ${o.budded_from}` : "root";
       const node = o.federation_node ? `· ${o.federation_node}` : "";
       const missing = !o.local_path ? " \x1b[33m(not cloned)\x1b[0m" : "";
+      const pathCol = opts.path && o.local_path ? `\n        \x1b[90m${o.local_path}\x1b[0m` : "";
 
-      console.log(`    ${icon} ${psiTag} ${o.name.padEnd(20)} ${lineage.padEnd(24)} ${node}${missing}`);
+      console.log(`    ${icon} ${psiTag} ${o.name.padEnd(20)} ${lineage.padEnd(24)} ${node}${missing}${pathCol}`);
     }
     console.log();
   }

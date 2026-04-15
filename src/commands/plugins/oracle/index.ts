@@ -42,8 +42,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           "--json": Boolean,
           "--stale": Boolean,
           "--org": String,
+          "--path": Boolean,
+          "-p": "--path",
         }, 1);
-        await cmdOracleFleet({ json: flags["--json"], stale: flags["--stale"], org: flags["--org"] });
+        await cmdOracleFleet({
+          json: flags["--json"],
+          stale: flags["--stale"],
+          org: flags["--org"],
+          path: flags["--path"],
+        });
       } else if (subcmd === "about" && args[1]) {
         await cmdOracleAbout(args[1]);
       } else {
@@ -68,6 +75,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           json: query.json as boolean | undefined,
           stale: query.stale as boolean | undefined,
           org: query.org as string | undefined,
+          path: query.path as boolean | undefined,
         });
       } else if (sub === "about" && query.name) {
         await cmdOracleAbout(query.name as string);
