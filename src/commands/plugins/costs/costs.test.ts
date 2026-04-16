@@ -21,10 +21,9 @@ const mockAgentData = {
   total: { agents: 1, sessions: 3, tokens: 12000, cost: 0.5 },
 };
 
-(global as any).fetch = mock(async (_url: string) => ({
-  ok: true,
-  json: async () => mockAgentData,
-}));
+(global as any).fetch = mock(async (_url: string) =>
+  new Response(JSON.stringify(mockAgentData), { status: 200 }),
+);
 
 const { default: handler } = await import("./index");
 
@@ -45,10 +44,9 @@ describe("costs plugin", () => {
   });
 
   it("handles empty agents gracefully", async () => {
-    (global as any).fetch = mock(async () => ({
-      ok: true,
-      json: async () => ({ agents: [], total: { agents: 0, sessions: 0, tokens: 0, cost: 0 } }),
-    }));
+    (global as any).fetch = mock(async () =>
+      new Response(JSON.stringify({ agents: [], total: { agents: 0, sessions: 0, tokens: 0, cost: 0 } }), { status: 200 }),
+    );
     const ctx: InvokeContext = { source: "cli", args: [] };
     const result = await handler(ctx);
     expect(result.ok).toBe(true);

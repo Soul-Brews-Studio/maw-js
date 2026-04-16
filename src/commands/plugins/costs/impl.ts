@@ -1,15 +1,50 @@
 import { loadConfig } from "../../../config";
+import { UserError } from "../../../core/util/user-error";
+
+type CostAgent = {
+  name: string;
+  totalTokens: number;
+  estimatedCost: number;
+  sessions: number;
+  turns: number;
+  lastActive?: string;
+};
+
+type CostsResponse = {
+  error?: string;
+  agents: CostAgent[];
+  total: { agents: number; sessions: number; tokens: number; cost: number };
+};
 
 export async function cmdCosts() {
   const config = loadConfig();
   const base = `http://${config.host}:${config.port}`;
 
-  let data: any;
+  // Split three distinct failure paths so diagnostics aren't misleading (#390.1):
+  //   1. fetch throws  → real network failure, pm2 server not running
+  //   2. !res.ok       → server alive, returned non-2xx (e.g. 404, 500)
+  //   3. JSON.parse    → server alive, 2xx, but body isn't JSON
+  let res: Response;
   try {
-    const res = await fetch(`${base}/api/costs`);
-    data = await res.json();
+    res = await fetch(`${base}/api/costs`);
   } catch {
-    throw new Error("cannot reach maw server — is `maw serve` running?");
+    throw new UserError("cannot reach maw server — is `maw serve` running?");
+  }
+
+  // Read body as text once — avoids the "body already read" trap if json() fails
+  // and preserves the raw payload for error messages.
+  const bodyText = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    const suffix = bodyText ? `: ${bodyText.slice(0, 100)}` : "";
+    throw new Error(`maw server returned ${res.status} ${res.statusText}${suffix}`);
+  }
+
+  let data: CostsResponse;
+  try {
+    data = JSON.parse(bodyText) as CostsResponse;
+  } catch {
+    throw new Error(`maw server returned non-JSON response: ${bodyText.slice(0, 100)}`);
   }
 
   if (data.error) {

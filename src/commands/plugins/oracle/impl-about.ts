@@ -3,19 +3,47 @@ import { findWorktrees, detectSession } from "../../shared/wake";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { resolveOracleSafe } from "./impl-helpers";
+import { UserError } from "../../../core/util/user-error";
 
 export async function cmdOracleAbout(oracle: string) {
   const name = oracle.toLowerCase();
   const sessions = await listSessions();
 
-  console.log(`\n  \x1b[36mOracle — ${oracle.charAt(0).toUpperCase() + oracle.slice(1)}\x1b[0m\n`);
+  // Gather all signals first so we can distinguish "real oracle, sparse data"
+  // from "no such oracle" — the latter must error rather than print an
+  // empty-but-valid-looking record (#390.2).
+  const { repoPath, repoName, parentDir } = await resolveOracleSafe(name);
+  const session = await detectSession(name);
+
+  const fleetDir = FLEET_DIR;
+  let fleetFile: string | null = null;
+  let fleetWindowCount = 0;
+  try {
+    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
+      const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
+      const hasOracle = (config.windows || []).some(
+        (w: any) => w.name.toLowerCase() === `${name}-oracle` || w.name.toLowerCase() === name
+      );
+      if (hasOracle) {
+        fleetFile = file;
+        fleetWindowCount = config.windows.length;
+        break;
+      }
+    }
+  } catch { /* expected: fleet dir may not exist */ }
+
+  if (!repoPath && !session && !fleetFile) {
+    throw new UserError(`no oracle named '${oracle}' — try: maw oracle ls`);
+  }
+
+  // Heading — preserve user input casing. Auto-capitalizing turned 'mawjs'
+  // into 'Mawjs', which is wrong (oracle names are lowercase by convention).
+  console.log(`\n  \x1b[36mOracle — ${oracle}\x1b[0m\n`);
 
   // Repo
-  const { repoPath, repoName, parentDir } = await resolveOracleSafe(name);
   console.log(`  Repo:      ${repoPath || "(not found)"}`);
 
   // Session + windows
-  const session = await detectSession(name);
   if (session) {
     const s = sessions.find(s => s.name === session);
     const windows = s?.windows || [];
@@ -42,23 +70,6 @@ export async function cmdOracleAbout(oracle: string) {
   }
 
   // Fleet config
-  const fleetDir = FLEET_DIR;
-  let fleetFile: string | null = null;
-  let fleetWindowCount = 0;
-  try {
-    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
-      const hasOracle = (config.windows || []).some(
-        (w: any) => w.name.toLowerCase() === `${name}-oracle` || w.name.toLowerCase() === name
-      );
-      if (hasOracle) {
-        fleetFile = file;
-        fleetWindowCount = config.windows.length;
-        break;
-      }
-    }
-  } catch { /* expected: fleet dir may not exist */ }
-
   if (fleetFile) {
     const actualWindows = session
       ? (sessions.find(s => s.name === session)?.windows.length || 0)
