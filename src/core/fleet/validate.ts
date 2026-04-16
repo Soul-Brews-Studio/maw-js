@@ -13,10 +13,12 @@
  * creates `*-view` sessions for the view command. The check belongs at the
  * USER-INPUT boundary (bud/wake) only.
  */
+import { UserError } from "../util/user-error";
+
 export function assertValidOracleName(name: string): void {
   if (/-view$/.test(name)) {
     const suggestion = name.replace(/-view$/, "");
-    throw new Error(
+    throw new UserError(
       `Oracle name cannot end in '-view' — reserved for ephemeral view sessions. ` +
       `Try '${suggestion}' instead.`,
     );
