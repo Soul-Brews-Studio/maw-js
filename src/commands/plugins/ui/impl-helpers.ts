@@ -27,6 +27,10 @@ export interface UiOptions {
   threeD?: boolean;
   install?: boolean;
   installVersion?: string;
+  /** Positional subcommand: "install" | "status" */
+  subcommand?: "install" | "status";
+  /** --version flag for `maw ui install --version v1.x.x` */
+  version?: string;
 }
 
 // ---- Pure helpers (testable) ---------------------------------------------

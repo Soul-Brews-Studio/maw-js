@@ -19,11 +19,48 @@ ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio
 
 ```bash
 maw serve                                # start API + UI on :3456
-maw ui --install                         # download the federation lens
+maw ui install                           # download the federation lens
 maw ui                                   # → http://localhost:3456/federation_2d.html
 maw ls                                   # list sessions + windows
 maw wake neo                             # wake an oracle
 maw hey neo "what are you working on?"   # talk to it
+```
+
+## Installing the UI
+
+`maw` installs API-only. The React frontend ships separately from
+[Soul-Brews-Studio/maw-ui](https://github.com/Soul-Brews-Studio/maw-ui).
+
+### Quick install (recommended — requires `gh` auth)
+
+```bash
+maw ui install                       # latest release
+maw ui install --version v1.15.0     # specific version
+maw ui status                        # verify installation
+```
+
+Downloads `dist.tar.gz` from the maw-ui GitHub Release and extracts to
+`~/.maw/ui/dist/`. Restart the maw server to serve the new UI.
+
+> **TODO (maw-ui repo):** A release workflow that builds and publishes
+> `dist.tar.gz` as a release asset is needed in `Soul-Brews-Studio/maw-ui`
+> for `maw ui install` to work end-to-end.
+
+### Manual install (no `gh`)
+
+```bash
+# Download dist.tar.gz from a release page, then:
+mkdir -p ~/.maw/ui/dist
+tar -xzf dist.tar.gz -C ~/.maw/ui/dist --strip-components=1
+```
+
+### Build from source
+
+```bash
+ghq get -u github.com/Soul-Brews-Studio/maw-ui
+cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-ui"
+bun install && bun run build
+ln -sf "$(pwd)/dist" ~/.maw/ui/dist
 ```
 
 ## Wake from anywhere
@@ -67,7 +104,7 @@ maw ui white                             # lens pointed at white's data
 maw ui --tunnel 10.20.0.16               # SSH tunnel + lens URL
 ```
 
-The lens reads `?host=` at runtime ([drizzle studio pattern](https://local.drizzle.studio)). Packed-serve mode: `maw ui --install` downloads the lens, `maw serve` serves it alongside the API on a single port.
+The lens reads `?host=` at runtime ([drizzle studio pattern](https://local.drizzle.studio)). Packed-serve mode: `maw ui install` downloads the lens, `maw serve` serves it alongside the API on a single port.
 
 Frontend repo: [Soul-Brews-Studio/maw-ui](https://github.com/Soul-Brews-Studio/maw-ui)
 

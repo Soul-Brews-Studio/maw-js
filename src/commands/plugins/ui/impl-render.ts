@@ -103,12 +103,23 @@ export function renderUiOutput(opts: UiOptions): string {
 
 // ---- Arg parser ----------------------------------------------------------
 
+const UI_SUBCOMMANDS = ["install", "status"] as const;
+type UiSubcommand = typeof UI_SUBCOMMANDS[number];
+
 export function parseUiArgs(args: string[]): UiOptions {
-  const flags = parseFlags(args, {
+  // Detect positional subcommand as first arg (before any flags)
+  const firstArg = args[0];
+  const subcommand = UI_SUBCOMMANDS.includes(firstArg as UiSubcommand)
+    ? (firstArg as UiSubcommand)
+    : undefined;
+  const restArgs = subcommand ? args.slice(1) : args;
+
+  const flags = parseFlags(restArgs, {
     "--install": Boolean,
     "--tunnel": Boolean,
     "--dev": Boolean,
     "--3d": Boolean,
+    "--version": String,
   }, 0);
 
   // permissive mode puts unknown flags into _ too;
@@ -121,6 +132,8 @@ export function parseUiArgs(args: string[]): UiOptions {
     tunnel: flags["--tunnel"],
     dev: flags["--dev"],
     threeD: flags["--3d"],
+    subcommand,
+    version: flags["--version"],
   };
 }
 
@@ -129,9 +142,16 @@ export function parseUiArgs(args: string[]): UiOptions {
 export async function cmdUi(args: string[]): Promise<void> {
   const opts = parseUiArgs(args);
 
-  if (opts.install) {
+  if (opts.subcommand === "install" || opts.install) {
     const { cmdUiInstall } = await import("./ui-install");
-    await cmdUiInstall(opts.peer); // peer arg doubles as version if --install is set
+    // --version takes precedence; fall back to peer (backward compat with --install <version>)
+    await cmdUiInstall(opts.version ?? opts.peer);
+    return;
+  }
+
+  if (opts.subcommand === "status") {
+    const { cmdUiStatus } = await import("./ui-install");
+    await cmdUiStatus();
     return;
   }
 

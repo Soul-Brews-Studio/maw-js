@@ -1,85 +1,97 @@
 /**
- * maw ui --install — download and extract a pre-built maw-ui dist.
+ * maw ui install / maw ui status
  *
- * Downloads the latest (or specified) release from Soul-Brews-Studio/maw-ui,
- * extracts to ~/.maw/ui/dist/, and confirms. After install, `maw serve`
- * automatically serves the UI alongside the API on port 3456.
+ * install: downloads + extracts a pre-built maw-ui dist from a GitHub Release.
+ *          Uses `gh release download` so existing gh auth is reused.
+ *
+ * status:  reports whether a dist is installed and how many entries it has.
+ *
+ * After install, `maw serve` automatically serves the UI alongside the API on
+ * port 3456.
+ *
+ * NOTE: the maw-ui repo must have a release workflow that publishes dist.tar.gz
+ *       as a release asset. That workflow lives in Soul-Brews-Studio/maw-ui,
+ *       not here.
  */
 
-import { execSync } from "child_process";
-import { existsSync, mkdirSync, rmSync } from "fs";
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 
-const UI_DIR = join(homedir(), ".maw", "ui");
-const DIST_DIR = join(UI_DIR, "dist");
 const REPO = "Soul-Brews-Studio/maw-ui";
+const DIST_DIR = join(homedir(), ".maw", "ui", "dist");
 
-export async function cmdUiInstall(version?: string): Promise<void> {
-  // Resolve version
-  const tag = version || getLatestTag();
-  if (!tag) {
-    console.error("\x1b[31m✗\x1b[0m Could not determine latest release version");
-    process.exit(1);
-  }
-
-  console.log(`\x1b[36m👁 maw ui --install ${tag}\x1b[0m`);
-  console.log(`  Downloading maw-ui dist from ${REPO}@${tag}...`);
-
-  // Create dir
-  mkdirSync(UI_DIR, { recursive: true });
-
-  // Download tarball from GitHub release
-  const tarUrl = `https://github.com/${REPO}/releases/download/${tag}/maw-ui-dist.tar.gz`;
-  const tarPath = join(UI_DIR, "maw-ui-dist.tar.gz");
-
-  try {
-    execSync(`curl -fsSL -o "${tarPath}" "${tarUrl}"`, { stdio: "inherit" });
-  } catch {
-    // Fallback: try downloading the source and building
-    console.log(`  No release tarball found at ${tag}. Trying artifact download...`);
-    console.error(`\x1b[31m✗\x1b[0m No pre-built dist available for ${tag}`);
-    console.error(`  To create one: cd maw-ui && npm run build && tar -czf maw-ui-dist.tar.gz -C dist .`);
-    console.error(`  Then: gh release create ${tag} maw-ui-dist.tar.gz --repo ${REPO}`);
-    process.exit(1);
-  }
-
-  // Extract — clear old dist first
-  if (existsSync(DIST_DIR)) {
-    rmSync(DIST_DIR, { recursive: true });
-  }
-  mkdirSync(DIST_DIR, { recursive: true });
-
-  execSync(`tar -xzf "${tarPath}" -C "${DIST_DIR}"`, { stdio: "inherit" });
-
-  // Clean up tarball
-  rmSync(tarPath);
-
-  // Verify
-  const indexExists = existsSync(join(DIST_DIR, "index.html"));
-  const fedExists = existsSync(join(DIST_DIR, "federation_2d.html"));
-
-  if (!indexExists) {
-    console.error(`\x1b[31m✗\x1b[0m Extraction failed — no index.html in ${DIST_DIR}`);
-    process.exit(1);
-  }
-
-  console.log(`  \x1b[32m✓\x1b[0m Extracted to ${DIST_DIR}`);
-  console.log(`  \x1b[32m✓\x1b[0m index.html: ${indexExists ? "found" : "MISSING"}`);
-  console.log(`  \x1b[32m✓\x1b[0m federation_2d.html: ${fedExists ? "found" : "not found (optional)"}`);
-  console.log(`\n  maw-js will serve this UI at http://localhost:3456/ on next start.`);
-  console.log(`  Update with: maw ui --install [version]`);
-  console.log(`  Remove with: rm -rf ${DIST_DIR}`);
+/**
+ * Pure helper — returns the `gh` CLI args for downloading a release asset.
+ * Extracted so tests can verify the command construction without mocking
+ * spawnSync or touching the filesystem.
+ */
+export function buildGhReleaseArgs(repo: string, ref: string, dir: string): string[] {
+  return ["release", "download", ref, "-R", repo, "--pattern", "dist.tar.gz", "--dir", dir];
 }
 
-function getLatestTag(): string | null {
+export async function cmdUiInstall(version?: string): Promise<void> {
+  const ref = version ?? "latest";
+
+  process.stdout.write(`⚡ downloading maw-ui ${ref} from ${REPO}...\n`);
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "maw-ui-"));
   try {
-    const result = execSync(
-      `curl -s https://api.github.com/repos/${REPO}/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4`,
-      { encoding: "utf-8" },
-    ).trim();
-    return result || null;
-  } catch {
-    return null;
+    const dl = spawnSync("gh", buildGhReleaseArgs(REPO, ref, tmpDir), { encoding: "utf-8" });
+
+    if (dl.status !== 0) {
+      console.error(`✗ gh release download failed:\n${dl.stderr}`);
+      console.error(`  → ensure: gh auth status, and a release with dist.tar.gz asset exists`);
+      console.error(`  → TODO: maw-ui repo needs a release workflow that publishes dist.tar.gz`);
+      process.exit(1);
+    }
+
+    const tarPath = join(tmpDir, "dist.tar.gz");
+
+    // Wipe + recreate target so no stale files remain
+    rmSync(DIST_DIR, { recursive: true, force: true });
+    mkdirSync(DIST_DIR, { recursive: true });
+
+    const ext = spawnSync("tar", ["-xzf", tarPath, "-C", DIST_DIR, "--strip-components=1"], {
+      encoding: "utf-8",
+    });
+    if (ext.status !== 0) {
+      console.error(`✗ tar extraction failed:\n${ext.stderr}`);
+      process.exit(1);
+    }
+
+    const files = readdirSync(DIST_DIR);
+    if (files.length === 0) {
+      console.error(`✗ no files extracted to ${DIST_DIR}`);
+      process.exit(1);
+    }
+
+    console.log(`✓ maw-ui ${ref} installed → ${DIST_DIR} (${files.length} top-level entries)`);
+    console.log(`  → restart maw server to serve the new UI: pm2 restart maw OR maw serve`);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
   }
+}
+
+export async function cmdUiStatus(): Promise<void> {
+  if (!existsSync(DIST_DIR)) {
+    console.log(`✗ maw-ui not installed`);
+    console.log(`  → run: maw ui install`);
+    return;
+  }
+
+  const files = readdirSync(DIST_DIR);
+  let version = "unknown";
+  try {
+    const indexHtml = readFileSync(join(DIST_DIR, "index.html"), "utf-8");
+    const m = indexHtml.match(/data-maw-ui-version="([^"]+)"/);
+    if (m) version = m[1];
+  } catch {
+    /* ignore — index.html may not carry version metadata */
+  }
+
+  const versionStr = version === "unknown" ? "(version unknown)" : `v${version}`;
+  console.log(`✓ maw-ui ${versionStr} at ${DIST_DIR}`);
+  console.log(`  ${files.length} top-level entries`);
 }
