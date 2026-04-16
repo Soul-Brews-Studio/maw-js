@@ -1,8 +1,8 @@
 /**
  * Unit tests for src/core/ghq.ts
  *
- * Strategy: exercise the pure `_normalize` helper directly for Windows/POSIX
- * path handling. Skip integration (spawning real ghq) — that's what the
+ * Strategy: exercise the pure `_normalize` helper for Windows/POSIX path
+ * handling. Skip integration (spawning real ghq) — that's what the
  * end-to-end tests on main are for.
  */
 
@@ -42,24 +42,22 @@ describe("_normalize (Windows path handling)", () => {
   });
 });
 
-describe("ghqFindSync (pattern matching against normalized paths)", () => {
+describe("ghqFindSync (suffix matching)", () => {
   // Note: ghqFindSync calls execSync("ghq list --full-path") which we can't
-  // easily mock without module isolation. Instead we verify the regex
-  // construction by checking the return type contract.
+  // easily mock without module isolation. Verify the contract instead.
 
   test("returns string | null (never undefined or empty string)", () => {
     const result = ghqFindSync("definitely-not-a-real-repo-xxxyyy");
-    // Even if ghq isn't installed or finds nothing, result is null not undefined
     expect(result === null || typeof result === "string").toBe(true);
   });
 
-  test("accepts string patterns (case-insensitive by default)", () => {
-    // Passing a string pattern should not throw
-    expect(() => ghqFindSync("/foo$")).not.toThrow();
+  test("accepts plain suffix string (no regex required)", () => {
+    expect(() => ghqFindSync("/foo")).not.toThrow();
   });
 
-  test("accepts RegExp patterns", () => {
-    expect(() => ghqFindSync(/\/foo$/i)).not.toThrow();
+  test("returns null on no match (not undefined or empty)", () => {
+    const result = ghqFindSync("xxx-no-such-repo-yyy-zzz");
+    expect(result).toBeNull();
   });
 });
 
@@ -69,20 +67,33 @@ describe("ghqFind (async variant)", () => {
     expect(result === null || typeof result === "string").toBe(true);
   });
 
-  test("accepts string and RegExp patterns", async () => {
-    await expect(ghqFind("/foo$")).resolves.toBeDefined();
-    await expect(ghqFind(/\/foo$/i)).resolves.toBeDefined();
+  test("accepts plain suffix string", async () => {
+    await expect(ghqFind("/foo")).resolves.toBeDefined();
   });
 });
 
 describe("regression guard — the normalize pattern", () => {
   // The original bug: PR #379 fixed Windows by piping through `tr '\\' '/'`
-  // at 13 call sites. This helper exists to centralize that. If someone
-  // reverts `_normalize` to a pass-through, this test should fail.
+  // at 13 call sites. This helper centralizes that. If someone reverts
+  // _normalize to a pass-through, this test should fail.
   test("backslash-to-forward-slash is applied", () => {
     const windowsPath = "C:\\foo\\bar";
     const result = _normalize(windowsPath);
     expect(result[0]).not.toContain("\\");
     expect(result[0]).toBe("C:/foo/bar");
+  });
+});
+
+describe("API contract — suffix matching is case-insensitive", () => {
+  // The contract: ghqFind/ghqFindSync match suffixes case-insensitively.
+  // This guards against a future refactor that "tightens" the match to
+  // case-sensitive (would silently break GitHub org-name lookups since
+  // GitHub URLs are case-insensitive but ghq stores them case-preserving).
+  test("ghqFindSync contract documents case-insensitive behavior", () => {
+    // Can't ground-test without a real ghq install — assert the function
+    // accepts mixed-case input without throwing (catches accidental
+    // case-sensitive String.prototype.endsWith use).
+    expect(() => ghqFindSync("/FOO-Bar")).not.toThrow();
+    expect(() => ghqFindSync("MIXEDcase")).not.toThrow();
   });
 });

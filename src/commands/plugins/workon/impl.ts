@@ -1,5 +1,6 @@
 import { hostExec } from "../../../sdk";
 import { tmux } from "../../../sdk";
+import { ghqFind } from "../../../core/ghq";
 import { buildCommand } from "../../../config";
 import { findWorktrees } from "../../shared/wake";
 import { resolveWorktreeTarget } from "../../../core/matcher/resolve-target";
@@ -7,11 +8,10 @@ import { resolveWorktreeTarget } from "../../../core/matcher/resolve-target";
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
   const searchTerm = repo.includes("/") ? repo.split("/").pop()! : repo;
-  const ghqOut = await hostExec(`ghq list --full-path | grep -i '/${searchTerm}$' | head -1`);
-  if (!ghqOut?.trim()) {
+  const repoPath = await ghqFind(`/${searchTerm}$`);
+  if (!repoPath) {
     throw new Error(`repo not found: ${repo}`);
   }
-  const repoPath = ghqOut.trim();
   const repoName = repoPath.split("/").pop()!;
   const parentDir = repoPath.replace(/\/[^/]+$/, "");
   return { repoPath, repoName, parentDir };

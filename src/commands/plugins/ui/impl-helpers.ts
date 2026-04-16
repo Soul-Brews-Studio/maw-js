@@ -8,8 +8,8 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
 import { loadConfig } from "../../../config";
+import { ghqFindSync } from "../../../core/ghq";
 
 // ---- Constants -----------------------------------------------------------
 
@@ -73,12 +73,8 @@ export function isUiDistInstalled(): boolean {
 /** Find the maw-ui source directory for dev mode. */
 export function findMawUiSrcDir(): string | null {
   // Try ghq path first (the standard oracle convention)
-  try {
-    const ghqPath = execSync("ghq list --full-path 2>/dev/null", { encoding: "utf-8" })
-      .split("\n")
-      .find((p: string) => p.endsWith("/maw-ui"));
-    if (ghqPath && existsSync(join(ghqPath, "package.json"))) return ghqPath;
-  } catch {}
+  const ghqPath = ghqFindSync("/maw-ui");
+  if (ghqPath && existsSync(join(ghqPath, "package.json"))) return ghqPath;
 
   // Try sibling of maw-js
   const mawJsDir = join(__dirname, "..", "..");

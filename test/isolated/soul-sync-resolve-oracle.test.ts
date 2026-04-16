@@ -13,9 +13,14 @@ import { mockConfigModule } from "../helpers/mock-config";
 let commands: string[] = [];
 const mockExec = async (cmd: string, _host?: string) => {
   commands.push(cmd);
-  // Return a fake ghq path for any "/<stem>-oracle$" grep
-  if (cmd.includes("ghq list") && cmd.includes("/neo-oracle$")) {
-    return "/home/test/Code/github.com/laris-co/neo-oracle\n";
+  // Post-alpha.58: ghqFind helper does grep in JS, sends "ghq list --full-path"
+  // (no inline grep). Return a realistic ghq output and let the helper filter.
+  if (cmd.includes("ghq list")) {
+    return [
+      "/home/test/Code/github.com/laris-co/neo-oracle",
+      "/home/test/Code/github.com/Soul-Brews-Studio/maw-js",
+      "/home/test/Code/github.com/laris-co/some-other-repo",
+    ].join("\n") + "\n";
   }
   return "";
 };
@@ -39,24 +44,19 @@ describe("resolveOraclePath defensive suffix handling (#372)", () => {
   test("bare name 'neo' resolves to neo-oracle path", async () => {
     const path = await resolveOraclePath("neo");
     expect(path).toBe("/home/test/Code/github.com/laris-co/neo-oracle");
-    expect(commands[0]).toContain("/neo-oracle$");
   });
 
   test("full name 'neo-oracle' ALSO resolves (was broken pre-#372)", async () => {
     const path = await resolveOraclePath("neo-oracle");
     expect(path).toBe("/home/test/Code/github.com/laris-co/neo-oracle");
-    // Critical: must grep for /neo-oracle$ NOT /neo-oracle-oracle$
-    expect(commands[0]).toContain("/neo-oracle$");
-    expect(commands[0]).not.toContain("/neo-oracle-oracle$");
+    // Critical: must NOT look up /neo-oracle-oracle (the old double-suffix bug)
+    // — verified indirectly: the result is the SAME as the bare form below.
   });
 
-  test("both forms produce IDENTICAL grep command", async () => {
-    await resolveOraclePath("neo");
-    const bareCmd = commands[0];
-    commands = [];
-    await resolveOraclePath("neo-oracle");
-    const fullCmd = commands[0];
-    expect(bareCmd).toBe(fullCmd);
+  test("both forms produce identical lookup behavior", async () => {
+    const bare = await resolveOraclePath("neo");
+    const full = await resolveOraclePath("neo-oracle");
+    expect(bare).toBe(full);
   });
 
   test("non-existent oracle returns null in both forms", async () => {

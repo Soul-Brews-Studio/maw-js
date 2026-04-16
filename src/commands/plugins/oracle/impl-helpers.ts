@@ -1,24 +1,16 @@
-import { listSessions, hostExec, FLEET_DIR, type OracleEntry } from "../../../sdk";
+import { listSessions, FLEET_DIR, type OracleEntry } from "../../../sdk";
+import { ghqFind } from "../../../core/ghq";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-/** Like resolveOracle but returns null instead of process.exit */
+/** Like resolveOracle but returns null instead of throwing on miss */
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
-  try {
-    // Try oracle-oracle pattern first
-    let ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`).catch(() => "");
-    if (!ghqOut.trim()) {
-      // Try direct name (e.g., homekeeper → homelab)
-      ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}$' | head -1`).catch(() => "");
-    }
-    if (!ghqOut.trim()) return { parentDir: "", repoName: "", repoPath: "" };
-    const repoPath = ghqOut.trim();
-    const repoName = repoPath.split("/").pop()!;
-    const parentDir = repoPath.replace(/\/[^/]+$/, "");
-    return { repoPath, repoName, parentDir };
-  } catch {
-    return { parentDir: "", repoName: "", repoPath: "" };
-  }
+  // Try oracle-oracle pattern first, then direct name (e.g., homekeeper → homelab)
+  const repoPath = (await ghqFind(`/${oracle}-oracle$`)) ?? (await ghqFind(`/${oracle}$`));
+  if (!repoPath) return { parentDir: "", repoName: "", repoPath: "" };
+  const repoName = repoPath.split("/").pop()!;
+  const parentDir = repoPath.replace(/\/[^/]+$/, "");
+  return { repoPath, repoName, parentDir };
 }
 
 /** Discover oracles: union of fleet configs + running tmux sessions */

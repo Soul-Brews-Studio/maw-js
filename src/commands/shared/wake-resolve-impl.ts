@@ -1,5 +1,6 @@
 import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
+import { ghqFind } from "../../core/ghq";
 import { resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
@@ -47,9 +48,9 @@ export async function resolveFromWorktrees(
 }
 
 export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
-  const ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`);
-  if (ghqOut?.trim()) {
-    const repoPath = ghqOut.trim();
+  const ghqHit = await ghqFind(`/${oracle}-oracle`);
+  if (ghqHit) {
+    const repoPath = ghqHit;
     return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
   }
 
@@ -60,9 +61,9 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
       const win = (config.windows || []).find((w: any) => w.name === `${oracle}-oracle`);
       if (win?.repo) {
-        const fullPath = await hostExec(`ghq list --full-path | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
-        if (fullPath?.trim()) {
-          const repoPath = fullPath.trim();
+        const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
+        if (fullPath) {
+          const repoPath = fullPath;
           return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
         }
         // Fleet knows the slug but it's not cloned yet — remember for step 3
@@ -99,9 +100,9 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
         console.error(`\x1b[33m⚠\x1b[0m  clone failed for ${slug}: ${String(e?.message || e).split("\n")[0]}`);
         continue;
       }
-      const cloned = await hostExec(`ghq list --full-path | grep -i '/${slug.split("/").pop()}$' | head -1`);
-      if (cloned?.trim()) {
-        const repoPath = cloned.trim();
+      const cloned = await ghqFind(`/${slug.split("/").pop()}`);
+      if (cloned) {
+        const repoPath = cloned;
         console.log(`\x1b[32m✓\x1b[0m cloned to ${repoPath}`);
         return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
       }

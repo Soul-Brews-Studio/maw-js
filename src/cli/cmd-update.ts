@@ -6,6 +6,7 @@ import {
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { getVersionString } from "./cmd-version";
+import { ghqFindSync } from "../core/ghq";
 
 export async function runUpdate(args: string[]): Promise<void> {
   const { repository } = require("../../package.json");
@@ -104,7 +105,7 @@ export async function runUpdate(args: string[]): Promise<void> {
   // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
   // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
   try {
-    const mawDir = join(execSync(`ghq list --full-path | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8" }).trim());
+    const mawDir = ghqFindSync("/Soul-Brews-Studio/maw-js");
     if (mawDir) {
       // #346: Gate link on version match — stale ghq clone would override the fresh global install
       const cloneVersion: string = require(join(mawDir, "package.json")).version;

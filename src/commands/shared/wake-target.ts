@@ -7,6 +7,7 @@
  */
 
 import { hostExec } from "../../sdk";
+import { ghqFind } from "../../core/ghq";
 
 // --- URL/slug detection ---------------------------------------------------
 
@@ -73,8 +74,8 @@ export function parseWakeTarget(target: string): ParsedWakeTarget | null {
  * resolveOracle handle the error downstream.
  */
 export async function ensureCloned(slug: string): Promise<void> {
-  const ghqHit = await hostExec(`ghq list --full-path | grep -i '/${slug}$' | head -1`).catch(() => "");
-  if (ghqHit.trim()) return;
+  const ghqHit = await ghqFind(`/${slug}`);
+  if (ghqHit) return;
   console.log(`\x1b[36m⚡\x1b[0m cloning ${slug}...`);
   try {
     await hostExec(`ghq get github.com/${slug}`);

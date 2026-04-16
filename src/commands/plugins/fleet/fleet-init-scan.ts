@@ -2,6 +2,7 @@ import { join } from "path";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { hostExec } from "../../../sdk";
 import { FLEET_DIR } from "../../../sdk";
+import { ghqList } from "../../../core/ghq";
 
 interface FleetWindow {
   name: string;
@@ -58,8 +59,7 @@ export async function cmdFleetInit() {
   // Scan ghq for oracle repos
   console.log(`\n  \x1b[36mScanning for oracle repos...\x1b[0m\n`);
 
-  const ghqOut = await hostExec("ghq list --full-path");
-  const allRepos = ghqOut.trim().split("\n").filter(Boolean);
+  const allRepos = await ghqList();
 
   // Find oracle repos
   const oracleRepos: { name: string; path: string; repo: string; worktrees: { name: string; path: string; repo: string }[] }[] = [];

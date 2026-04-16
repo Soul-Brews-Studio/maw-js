@@ -1,4 +1,5 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot } from "../../sdk";
+import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
@@ -20,9 +21,9 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);
     await hostExec(`ghq get -u ${repoSlug}`);
-    const fullPath = await hostExec(`ghq list --full-path | grep -i '${repoSlug}$' | head -1`);
-    if (!fullPath?.trim()) throw new Error(`ghq could not find ${slug} after clone`);
-    const repoPath = fullPath.trim();
+    const fullPath = await ghqFind(repoSlug);
+    if (!fullPath) throw new Error(`ghq could not find ${slug} after clone`);
+    const repoPath = fullPath;
     resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
     if (!opts.task && !opts.newWt) opts.newWt = resolved.repoName.replace(/-/g, "");
   } else {

@@ -1,12 +1,12 @@
 import { existsSync } from "fs";
 import { join } from "path";
-import { hostExec } from "../../../sdk";
+import { ghqFind } from "../../../core/ghq";
 import { loadConfig } from "../../../config";
 import { loadFleet } from "../../shared/fleet-load";
 
 /**
  * Resolve ghq path for an oracle name.
- * Tries: ghq list --full-path | grep -i '/<stem>-oracle$'
+ * Tries: ghqFind(`/<stem>-oracle$`) — case-insensitive ghq lookup.
  *
  * Defensive — accepts both bare oracle name ("neo") and full repo name
  * ("neo-oracle"). Strips trailing "-oracle" before re-appending so callers
@@ -15,10 +15,8 @@ import { loadFleet } from "../../shared/fleet-load";
 export async function resolveOraclePath(name: string): Promise<string | null> {
   // Strip trailing -oracle so "neo" and "neo-oracle" both resolve identically.
   const stem = name.replace(/-oracle$/, "");
-  try {
-    const out = await hostExec(`ghq list --full-path | grep -i '/${stem}-oracle$' | head -1`);
-    if (out?.trim()) return out.trim();
-  } catch { /* not found */ }
+  const out = await ghqFind(`/${stem}-oracle$`);
+  if (out) return out;
 
   // Fallback: check fleet config for repo path
   const ghqRoot = loadConfig().ghqRoot;
