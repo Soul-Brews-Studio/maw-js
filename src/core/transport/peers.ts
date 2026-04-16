@@ -182,7 +182,13 @@ export async function findPeerForTarget(target: string, localSessions: Session[]
 }
 
 /**
- * Send keys to a target on a peer
+ * Send keys to a target on a peer.
+ *
+ * Returns false on any failure. Previously both the non-ok response path
+ * and the thrown-exception path were silently swallowed — TransportManager
+ * would log "send failed, trying next" with no trace of the underlying
+ * status/body (401 HMAC, timeout, etc.). Now we surface a structured warn
+ * before returning false so federation diagnostics can find it (#385 site 2).
  */
 export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
   try {
@@ -191,8 +197,18 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
       body: JSON.stringify({ target, text }),
       timeout: cfgTimeout("http"),
     });
+    if (!res.ok) {
+      const bodySnippet = res.data != null
+        ? (typeof res.data === "string" ? res.data : JSON.stringify(res.data)).slice(0, 200)
+        : "";
+      console.warn(
+        `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
+      );
+    }
     return res.ok;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[peers] sendKeysToPeer ${peerUrl} → ${target}: ${msg}`);
     return false;
   }
 }

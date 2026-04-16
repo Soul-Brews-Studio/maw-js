@@ -6,6 +6,8 @@ import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
+import type { FleetSession, FleetWindow } from "./fleet-load";
+import type { Session } from "../../core/runtime/find-window";
 
 /**
  * Worktree fallback for resolveOracle: if maw ls can see a worktree whose
@@ -58,8 +60,8 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   let fleetRepo: string | null = null;
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-      const win = (config.windows || []).find((w: any) => w.name === `${oracle}-oracle`);
+      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle`);
       if (win?.repo) {
         const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
@@ -84,7 +86,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   // Clone from GitHub — wake should prefer local-first (#237)
   // If fleet told us the exact org/slug, use that. Otherwise, probe configured orgs for `<oracle>-oracle`.
   try {
-    const cfg = loadConfig() as any;
+    const cfg = loadConfig();
     const candidates: string[] = [];
     if (fleetRepo) candidates.push(fleetRepo);
     const orgs: string[] = cfg.githubOrgs || (cfg.githubOrg ? [cfg.githubOrg] : ["Soul-Brews-Studio"]);
@@ -96,8 +98,9 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
       catch { continue; }
       console.log(`\x1b[36m🌱\x1b[0m ${oracle} not found locally — cloning github.com/${slug} into ghq...`);
       try { await hostExec(`ghq get -u 'github.com/${slug}'`); }
-      catch (e: any) {
-        console.error(`\x1b[33m⚠\x1b[0m  clone failed for ${slug}: ${String(e?.message || e).split("\n")[0]}`);
+      catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`\x1b[33m⚠\x1b[0m  clone failed for ${slug}: ${msg.split("\n")[0]}`);
         continue;
       }
       const cloned = await ghqFind(`/${slug.split("/").pop()}`);
@@ -112,17 +115,17 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   // Federation fallback: check peers
   try {
     const config = loadConfig();
-    const peers = (config as any).peers || [];
+    const peers = config.peers || [];
     for (const peer of peers) {
       try {
         const res = await curlFetch(`${peer}/api/sessions`, { timeout: 10000 });
         if (!res.ok) continue;
-        const sessions = res.data || [];
-        const list = Array.isArray(sessions) ? sessions : sessions.sessions || [];
+        const data = res.data;
+        const list: Session[] = Array.isArray(data) ? data : (data?.sessions || []);
         for (const s of list) {
           const oracleLower = oracle.toLowerCase();
           const sessionMatch = s.name.toLowerCase().includes(oracleLower);
-          const found = (s.windows || []).find((w: any) =>
+          const found = (s.windows || []).find(w =>
             w.name === `${oracle}-oracle` || w.name === oracle || w.name.toLowerCase().startsWith(oracleLower)
           ) || (sessionMatch ? (s.windows || [])[0] : null);
           if (found) {
@@ -142,7 +145,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
     if (scanned) return scanned;
   } catch { /* scan suggest failed — fall through to original error */ }
 
-  console.error(`oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${((loadConfig() as any).peers || []).length} peers — try: maw bud ${oracle}  OR  ghq get <url>)`);
+  console.error(`oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${(loadConfig().peers || []).length} peers — try: maw bud ${oracle}  OR  ghq get <url>)`);
   process.exit(1);
 }
 
@@ -158,8 +161,8 @@ export function getSessionMap(): Record<string, string> { return loadConfig().se
 export function resolveFleetSession(oracle: string): string | null {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-      if ((config.windows || []).some((w: any) => w.name === `${oracle}-oracle` || w.name === oracle)) return config.name;
+      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
+      if ((config.windows || []).some((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle)) return config.name;
     }
   } catch { /* fleet dir may not exist */ }
   return null;
