@@ -71,7 +71,7 @@ export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string; help?
       console.log(`    ${before} → ${after || "updated"}`);
       // Link SDK for plugins
       try {
-        const mawDir = execSync(`ghq list --full-path | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+        const mawDir = execSync(`ghq list --full-path | tr '\\\\' '/' | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         if (mawDir) {
           execSync(`cd ${mawDir} && bun link`, { stdio: "pipe" });
           const oDir = require("os").homedir() + "/.oracle";

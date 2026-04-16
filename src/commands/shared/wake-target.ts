@@ -73,7 +73,7 @@ export function parseWakeTarget(target: string): ParsedWakeTarget | null {
  * resolveOracle handle the error downstream.
  */
 export async function ensureCloned(slug: string): Promise<void> {
-  const ghqHit = await hostExec(`ghq list --full-path | grep -i '/${slug}$' | head -1`).catch(() => "");
+  const ghqHit = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${slug}$' | head -1`).catch(() => "");
   if (ghqHit.trim()) return;
   console.log(`\x1b[36m⚡\x1b[0m cloning ${slug}...`);
   try {

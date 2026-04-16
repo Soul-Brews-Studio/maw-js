@@ -6,10 +6,10 @@ import { join } from "path";
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
   try {
     // Try oracle-oracle pattern first
-    let ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`).catch(() => "");
+    let ghqOut = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${oracle}-oracle$' | head -1`).catch(() => "");
     if (!ghqOut.trim()) {
       // Try direct name (e.g., homekeeper → homelab)
-      ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}$' | head -1`).catch(() => "");
+      ghqOut = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${oracle}$' | head -1`).catch(() => "");
     }
     if (!ghqOut.trim()) return { parentDir: "", repoName: "", repoPath: "" };
     const repoPath = ghqOut.trim();

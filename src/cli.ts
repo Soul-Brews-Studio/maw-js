@@ -138,7 +138,7 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
   // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
   try {
-    const mawDir = join(execSync(`ghq list --full-path | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8" }).trim());
+    const mawDir = join(execSync(`ghq list --full-path | tr '\\\\' '/' | grep 'Soul-Brews-Studio/maw-js$'`, { encoding: "utf-8" }).trim());
     if (mawDir) {
       // #346: Gate link on version match — stale ghq clone would override the fresh global install
       const cloneVersion: string = require(join(mawDir, "package.json")).version;

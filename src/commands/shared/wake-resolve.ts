@@ -53,7 +53,7 @@ export async function fetchGitHubPrompt(type: "issue" | "pr", num: number, repo?
 export const fetchIssuePrompt = (num: number, repo?: string) => fetchGitHubPrompt("issue", num, repo);
 
 export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
-  const ghqOut = await hostExec(`ghq list --full-path | grep -i '/${oracle}-oracle$' | head -1`);
+  const ghqOut = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${oracle}-oracle$' | head -1`);
   if (ghqOut?.trim()) {
     const repoPath = ghqOut.trim();
     return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
@@ -66,7 +66,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
       const win = (config.windows || []).find((w: any) => w.name === `${oracle}-oracle`);
       if (win?.repo) {
-        const fullPath = await hostExec(`ghq list --full-path | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
+        const fullPath = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${win.repo.replace(/^[^/]+\//, "")}$' | head -1`);
         if (fullPath?.trim()) {
           const repoPath = fullPath.trim();
           return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
@@ -96,7 +96,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
         console.error(`\x1b[33m⚠\x1b[0m  clone failed for ${slug}: ${String(e?.message || e).split("\n")[0]}`);
         continue;
       }
-      const cloned = await hostExec(`ghq list --full-path | grep -i '/${slug.split("/").pop()}$' | head -1`);
+      const cloned = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${slug.split("/").pop()}$' | head -1`);
       if (cloned?.trim()) {
         const repoPath = cloned.trim();
         console.log(`\x1b[32m✓\x1b[0m cloned to ${repoPath}`);

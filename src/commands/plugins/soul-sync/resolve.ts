@@ -16,7 +16,7 @@ export async function resolveOraclePath(name: string): Promise<string | null> {
   // Strip trailing -oracle so "neo" and "neo-oracle" both resolve identically.
   const stem = name.replace(/-oracle$/, "");
   try {
-    const out = await hostExec(`ghq list --full-path | grep -i '/${stem}-oracle$' | head -1`);
+    const out = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '/${stem}-oracle$' | head -1`);
     if (out?.trim()) return out.trim();
   } catch { /* not found */ }
 

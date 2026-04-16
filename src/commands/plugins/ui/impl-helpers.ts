@@ -70,7 +70,7 @@ export function isUiDistInstalled(): boolean {
 export function findMawUiSrcDir(): string | null {
   // Try ghq path first (the standard oracle convention)
   try {
-    const ghqPath = execSync("ghq list --full-path 2>/dev/null", { encoding: "utf-8" })
+    const ghqPath = execSync("ghq list --full-path 2>/dev/null | tr '\\\\' '/'", { encoding: "utf-8" })
       .split("\n")
       .find((p: string) => p.endsWith("/maw-ui"));
     if (ghqPath && existsSync(join(ghqPath, "package.json"))) return ghqPath;

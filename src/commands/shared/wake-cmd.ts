@@ -20,7 +20,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);
     await hostExec(`ghq get -u ${repoSlug}`);
-    const fullPath = await hostExec(`ghq list --full-path | grep -i '${repoSlug}$' | head -1`);
+    const fullPath = await hostExec(`ghq list --full-path | tr '\\\\' '/' | grep -i '${repoSlug}$' | head -1`);
     if (!fullPath?.trim()) throw new Error(`ghq could not find ${slug} after clone`);
     const repoPath = fullPath.trim();
     resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
