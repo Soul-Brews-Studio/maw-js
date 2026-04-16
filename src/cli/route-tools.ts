@@ -1,4 +1,27 @@
+// #388.1 — core-route usage strings for --help intercept. These routes don't
+// pass through invokePlugin, so they need their own --help guard to prevent
+// `maw plugin list --help` / `maw agents --help` from running real work.
+const CORE_HELP: Record<string, string> = {
+  plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name>|disable <name>] [--json] [--all] [--force]",
+  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable|disable> [args]",
+  artifacts: "usage: maw artifacts [ls|get] [team] [task-id] [--json]",
+  artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
+  agents: "usage: maw agents [--json] [--all] [--node <node>]",
+  agent: "usage: maw agent [--json] [--all] [--node <node>]",
+  audit: "usage: maw audit [limit]",
+  serve: "usage: maw serve [port]",
+};
+
+function hasHelpFlag(args: string[]): boolean {
+  return args.some(a => a === "--help" || a === "-h");
+}
+
 export async function routeTools(cmd: string, args: string[]): Promise<boolean> {
+  // Short-circuit --help for core routes — prints usage and does NO work.
+  if (CORE_HELP[cmd] && hasHelpFlag(args.slice(1))) {
+    console.log(CORE_HELP[cmd]);
+    return true;
+  }
   if (cmd === "plugins") {
     const { cmdPlugins } = await import("../commands/shared/plugins");
     const { parseFlags } = await import("./parse-args");

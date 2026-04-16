@@ -85,17 +85,47 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
         }
       }
       if (matched) { /* unreachable — kept for clarity */ }
-      // Check for likely mistyped short commands before falling through to agent shorthand.
-      // Heuristic: single arg, length <= 3, no hyphen (agent names are longer or hyphenated).
-      // This catches `maw a`, `maw ls` typos, etc. without breaking `maw neo "hello"`.
-      if (args.length === 1 && args[0].length <= 3 && !/[a-z]+-[a-z]+/.test(args[0])) {
-        const knownCommands = plugins
-          .map(p => p.manifest.cli?.command)
-          .filter((c): c is string => Boolean(c));
-        const suggestion = knownCommands.find(c => c.startsWith(args[0]));
-        if (suggestion) {
-          console.error(`\x1b[31munknown command\x1b[0m: '${args[0]}' — did you mean '${suggestion}'?`);
-          process.exit(1);
+      // #388.2 — unknown command: fuzzy-suggest against the plugin registry.
+      // Only intercepts when cmd is NOT a known route/plugin/alias AND does
+      // NOT strictly match an oracle session name. Preserves `maw mawjs`
+      // shorthand while catching `maw hek` / `maw oracl` / typos.
+      const CORE_ROUTES = [
+        "hey", "send", "tell",
+        "plugins", "plugin", "artifacts", "artifact",
+        "agents", "agent", "audit", "serve",
+        "update", "upgrade", "version",
+      ];
+      const knownCommands: string[] = [...CORE_ROUTES];
+      for (const p of plugins) {
+        if (!p.manifest.cli) continue;
+        knownCommands.push(p.manifest.cli.command);
+        for (const a of p.manifest.cli.aliases ?? []) knownCommands.push(a);
+      }
+      const { listCommands } = await import("./cli/command-registry");
+      for (const c of listCommands()) {
+        const names = Array.isArray(c.name) ? c.name : [c.name];
+        for (const n of names) knownCommands.push(n);
+      }
+      const isKnownCommand = knownCommands.some(n => n.toLowerCase() === cmd);
+      if (!isKnownCommand) {
+        // Not a known command — is it a real oracle? (strict: exact name or "NN-name")
+        const { listSessions } = await import("./sdk");
+        const sessions = await listSessions().catch(() => [] as Awaited<ReturnType<typeof listSessions>>);
+        const target = args[0].toLowerCase();
+        const isOracle = sessions.some(s => {
+          const name = s.name.toLowerCase();
+          return name === target || name.replace(/^\d+-/, "") === target;
+        });
+        if (!isOracle) {
+          const { fuzzyMatch } = await import("./core/util/fuzzy");
+          const candidates = fuzzyMatch(args[0], knownCommands);
+          console.error(`\x1b[31m✗\x1b[0m unknown command: ${args[0]}`);
+          if (candidates.length > 0) {
+            console.error(`  did you mean: ${candidates.join(", ")}?`);
+          } else {
+            console.error(`  run 'maw --help' to see available commands`);
+          }
+          throw new Error(`unknown command: ${args[0]}`);
         }
       }
       // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)

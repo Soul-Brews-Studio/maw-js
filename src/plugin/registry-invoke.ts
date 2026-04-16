@@ -45,8 +45,11 @@ export async function invokePlugin(
       };
     }
 
-    // -h / --help — show usage + flags + surfaces
-    if (flag === "-h" || flag === "--help" || flag === "-help") {
+    // -h / --help — show usage + flags + surfaces.
+    // #388.1 — intercept anywhere in args, not just args[0], so
+    // `maw <plugin> <sub> --help` shows help instead of running the
+    // subcommand (e.g. `maw oracle scan --help`, `maw ui install --help`).
+    if (args.some(a => a === "-h" || a === "--help" || a === "-help")) {
       const lines: string[] = [];
       lines.push(`${m.name} v${m.version}`);
       if (m.description) lines.push(`  ${m.description}`);
