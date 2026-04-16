@@ -63,7 +63,7 @@ export function processMirror(raw: string, lines: number): string {
 export function mirrorCmd(t: OverviewTarget): string {
   const target = encodeURIComponent(`${t.session}:${t.window}`);
   const port = loadConfig().port;
-  return `watch --color -t -n0.5 'curl -s "http://localhost:${port}/api/mirror?target=${target}&lines=\\$(tput lines)"'`;
+  return `watch --color -t -n0.5 'curl -s "http://localhost:${port}/api/mirror?target=${target}&lines=$(tput lines)"'`;
 }
 
 export function pickLayout(count: number): string {
