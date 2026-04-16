@@ -32,8 +32,12 @@ maw hey neo "what are you working on?"   # talk to it
 maw wake org/repo                        # clone via ghq + wake
 maw wake https://github.com/org/repo     # full URL works too
 maw wake org/repo --issue 5              # clone + send issue as prompt
-maw bud new-oracle --root                # create a fresh oracle (no parent)
-maw bud new-oracle --from neo            # bud from an existing oracle
+maw bud myname --root                    # create a fresh oracle (no parent)
+maw bud myname --from neo                # bud from an existing oracle
+# 👉 maw bud <stem> always creates repo <stem>-oracle.
+#    Never include "-oracle" in <stem> — it doubles the suffix.
+#    e.g.  maw bud fusion       → fusion-oracle ✓
+#          maw bud fusion-oracle → fusion-oracle-oracle ✗
 ```
 
 ## Federation

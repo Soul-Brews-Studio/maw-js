@@ -6,7 +6,7 @@
   "description": "Create a new oracle (bud from parent)",
   "cli": {
     "command": "bud",
-    "help": "maw bud <name> [--from <oracle>] [--root] [--blank] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       maw bud <name> --tiny --parent <oracle> [--cron <schedule>]  (nested leaf oracle inside parent's vault)",
+    "help": "maw bud <name> [--from <oracle>] [--root] [--blank] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       maw bud <name> --tiny --parent <oracle> [--cron <schedule>]  (nested leaf oracle inside parent's vault)\n       NOTE: <name> is the STEM. The repo is created as <name>-oracle. Don't include '-oracle' in <name> or you get '<name>-oracle-oracle'.\n       e.g. 'maw bud fusion' → repo 'fusion-oracle'. 'maw bud fusion-oracle' → repo 'fusion-oracle-oracle' ✗",
     "flags": {
       "--from": "string",
       "--org": "string",
