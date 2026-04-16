@@ -4,6 +4,7 @@ import { resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
+import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
 
 /**
  * Worktree fallback for resolveOracle: if maw ls can see a worktree whose
@@ -133,6 +134,12 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
       } catch { /* peer unreachable */ }
     }
   } catch { /* no peers */ }
+
+  // Scan suggest: offer interactive org scan when all silent resolution paths fail
+  try {
+    const scanned = await scanSuggestOracle(oracle);
+    if (scanned) return scanned;
+  } catch { /* scan suggest failed — fall through to original error */ }
 
   console.error(`oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${((loadConfig() as any).peers || []).length} peers — try: maw bud ${oracle}  OR  ghq get <url>)`);
   process.exit(1);
