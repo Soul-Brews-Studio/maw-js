@@ -1,0 +1,59 @@
+name: Dependabot — regenerate bun.lock
+
+# Fixes #466 — dependabot bumps package.json but doesn't regenerate bun.lock,
+# so CI's `bun install --frozen-lockfile` rejects with "lockfile had changes,
+# but lockfile is frozen". This workflow runs `bun install` on dependabot PRs
+# and commits the updated lockfile back to the PR branch.
+#
+# Loop prevention:
+#   - `if: github.actor == 'dependabot[bot]'` gates the job.
+#   - When this workflow pushes a commit, github.actor becomes
+#     github-actions[bot], so the job condition is false → no recursion.
+#   - Dependabot does not re-run on non-dependabot pushes.
+
+on:
+  pull_request:
+    branches: [alpha, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regen-lockfile:
+    name: Regenerate bun.lock if stale
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Regenerate lockfile
+        run: bun install
+
+      - name: Check if lockfile changed
+        id: diff
+        run: |
+          if git diff --exit-code bun.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated lockfile
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore(deps): update bun.lock for dependabot PR"
+          git push
