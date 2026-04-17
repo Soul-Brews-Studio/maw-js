@@ -63,12 +63,13 @@ pulseApi.post("/pulse", async ({ body, set}) => {
   const { title, body: issueBody, labels, oracle } = body;
   if (!title) { set.status = 400; return { error: "title required" }; }
   const repo = getPulseRepo();
-  const labelFlags = labels?.length ? `-l "${labels.join(",")}"` : "";
-  const oracleLabel = oracle ? `-l "oracle:${oracle}"` : "";
   try {
-    const url = await hostExec(
-      `gh issue create --repo ${repo} -t '${title.replace(/'/g, "'\\''")}' -b '${(issueBody || "").replace(/'/g, "'\\''")}' ${labelFlags} ${oracleLabel}`
-    );
+    const allLabels = [...(labels || [])];
+    if (oracle) allLabels.push(`oracle:${oracle}`);
+    assertLabels(allLabels);
+    const args = ["issue", "create", "--repo", repo, "-t", title, "-b", issueBody || ""];
+    for (const l of allLabels) args.push("-l", l);
+    const url = await ghSpawn(args);
     return { ok: true, url: url.trim() };
   } catch (e: any) {
     set.status = 500; return { error: e.message };
