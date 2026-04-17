@@ -89,7 +89,7 @@ export function federationAuth(): MiddlewareHandler {
     const config = loadConfig();
     const token = config.federationToken;
     const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
-    const allowPeersWithoutToken = (config as unknown as { allowPeersWithoutToken?: boolean }).allowPeersWithoutToken === true;
+    const allowPeersWithoutToken = config.allowPeersWithoutToken === true;
 
     const url = new URL(c.req.url);
     const path = url.pathname.replace(/^\/api/, "/api"); // normalize

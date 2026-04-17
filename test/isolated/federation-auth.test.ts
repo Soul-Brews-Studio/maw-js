@@ -352,10 +352,24 @@ describe("federationAuth() middleware — peers-require-token invariant", () => 
   });
 
   test("explicit opt-out (allowPeersWithoutToken: true) → legacy behavior preserved", async () => {
-    configStore = { peers: [PEER], allowPeersWithoutToken: true } as any;
+    configStore = { peers: [PEER], allowPeersWithoutToken: true };
     const app = makeApp();
     const res = await fire(app, "http://host/api/send", { method: "POST" }, "8.8.8.8");
     expect(res.status).toBe(200);
+  });
+
+  test("validateConfig passes allowPeersWithoutToken through (mawjs review #396)", async () => {
+    // Review caught that the config field was silently stripped by
+    // validateConfig() because it wasn't in the validator allowlist. Without
+    // this validator test the operator-facing escape hatch was reachable
+    // from the test store (which bypasses validation) but NOT from
+    // maw.config.json in production. That mismatch is the UX bug mawjs
+    // flagged.
+    const { validateConfig } = await import("../../src/config/validate-ext");
+    expect(validateConfig({ allowPeersWithoutToken: true }).allowPeersWithoutToken).toBe(true);
+    expect(validateConfig({ allowPeersWithoutToken: false }).allowPeersWithoutToken).toBe(false);
+    // Non-boolean values are dropped with a warning (not coerced).
+    expect(validateConfig({ allowPeersWithoutToken: "yes" } as Record<string, unknown>).allowPeersWithoutToken).toBeUndefined();
   });
 
   test("namedPeers also triggers invariant (hasPeers is peers OR namedPeers)", async () => {

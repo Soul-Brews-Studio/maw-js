@@ -61,6 +61,14 @@ export interface MawConfig {
   peers?: string[];
   idleTimeoutMinutes?: number;
   federationToken?: string;
+  /**
+   * Explicit opt-in to legacy "peers configured but no token" behavior.
+   * When `true`, HMAC is NOT required on protected writes from non-loopback
+   * peers even when peers are configured. Default `false` (fail-closed).
+   * Setting this to `true` is operator opt-in to the pre-#396 default-
+   * insecure-open posture — only use when migrating a legacy mesh.
+   */
+  allowPeersWithoutToken?: boolean;
   autoRestart?: boolean;
   triggers?: TriggerConfig[];
   /** Node identity (e.g. "white", "mba") */
