@@ -1,7 +1,7 @@
 /**
  * wake-cmd.ts — cmdWake() is the `maw wake <oracle>` entry. Big branching:
  *   - input normalize + -view reject
- *   - --incubate: ghq-clone slug, default newWt
+ *   - --incubate: ghq-clone slug, default wt
  *   - detectSession hit vs. miss (create new session, auto-register agent)
  *   - worktree auto-spawn on session create + re-spawn on respawn-to-existing
  *   - --list-wt (early return)
@@ -428,9 +428,9 @@ describe("cmdWake — --incubate", () => {
     expect(caught!.message).toContain("ghq could not find");
   });
 
-  test("--incubate without --task/--newWt → default newWt = repoName stripped of dashes", async () => {
+  test("--incubate without --task/--wt → default wt = repoName stripped of dashes", async () => {
     ghqFindReturn = "/ghq/github.com/org/some-repo";
-    // When newWt is set and findWorktrees returns [], we hit the createWorktree branch.
+    // When wt is set and findWorktrees returns [], we hit the createWorktree branch.
     findWorktreesReturn = [];
     await cmdWake("one", { incubate: "org/some-repo" });
 
@@ -496,7 +496,7 @@ describe("cmdWake — new session creation (detectSession miss)", () => {
     expect(newSess[0].args[0]).toBe("42-fleet-foo");
   });
 
-  test("spawns worktree windows when --task/--newWt not set", async () => {
+  test("spawns worktree windows when --task/--wt not set", async () => {
     findWorktreesReturn = [
       { path: "/ghq/org/foo-oracle.wt-1-alpha", name: "1-alpha" },
       { path: "/ghq/org/foo-oracle.wt-2-beta", name: "2-beta" },
@@ -660,11 +660,11 @@ describe("cmdWake — --task / --new-wt worktree resolution", () => {
     expect(caught!.message).toContain("2-pay-v2");
   });
 
-  test("--new-wt uses the same resolution path as --task", async () => {
+  test("--wt uses the same resolution path as --task", async () => {
     detectSessionReturn = "foo";
     tmuxListWindowsByName["foo"] = [{ index: 0, name: "foo-oracle", active: true }];
     findWorktreesReturn = [];
-    await cmdWake("foo", { newWt: "newone" });
+    await cmdWake("foo", { wt: "newone" });
     expect(createWorktreeCalls).toHaveLength(1);
     expect(createWorktreeCalls[0].name).toBe("newone");
   });

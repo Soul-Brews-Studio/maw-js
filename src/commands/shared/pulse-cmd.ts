@@ -40,9 +40,9 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
 
   // 4. Wake oracle if specified
   if (opts.oracle) {
-    const wakeOpts: { task?: string; newWt?: string; prompt?: string } = {};
+    const wakeOpts: { task?: string; wt?: string; prompt?: string } = {};
     if (opts.wt) {
-      wakeOpts.newWt = opts.wt;
+      wakeOpts.wt = opts.wt;
     }
     const prompt = `/recap --deep — You have been assigned issue #${issueNum}: ${title}. Issue URL: ${issueUrl}. Orient yourself, then wait for human instructions.`;
     wakeOpts.prompt = prompt;

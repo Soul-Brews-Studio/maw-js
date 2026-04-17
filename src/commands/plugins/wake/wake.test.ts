@@ -105,4 +105,37 @@ describe("wake plugin", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("missing oracle");
   });
+
+  it("CLI --wt <name>: populates wakeOpts.wt", async () => {
+    const result = await handler({ source: "cli", args: ["neo", "--wt", "hotfix"] });
+    expect(result.ok).toBe(true);
+    expect(lastWakeCall?.opts.wt).toBe("hotfix");
+  });
+
+  it("CLI --new <name>: still works + emits deprecation warning on stderr", async () => {
+    const origError = console.error;
+    const errLogs: string[] = [];
+    console.error = (...a: any[]) => { errLogs.push(a.map(String).join(" ")); };
+    try {
+      const result = await handler({ source: "cli", args: ["neo", "--new", "hotfix"] });
+      expect(result.ok).toBe(true);
+      expect(lastWakeCall?.opts.wt).toBe("hotfix");
+      const combined = errLogs.join("\n") + "\n" + (result.output || "");
+      expect(combined).toContain("--new renamed to --wt");
+      expect(combined).toContain("alpha.114");
+    } finally {
+      console.error = origError;
+    }
+  });
+
+  it("CLI --wt and --new: both resolve to the same wt value", async () => {
+    const a = await handler({ source: "cli", args: ["neo", "--wt", "foo"] });
+    const wtValue = lastWakeCall?.opts.wt;
+    expect(a.ok).toBe(true);
+    lastWakeCall = null;
+    const b = await handler({ source: "cli", args: ["neo", "--new", "foo"] });
+    expect(b.ok).toBe(true);
+    expect(lastWakeCall?.opts.wt).toBe(wtValue);
+    expect(lastWakeCall?.opts.wt).toBe("foo");
+  });
 });
