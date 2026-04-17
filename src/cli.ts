@@ -63,37 +63,27 @@ async function main(): Promise<void> {
         // Also: slice by the MATCHED name (alias or command), not always command,
         // so remaining args are computed correctly when an alias fires.
         const { discoverPackages, invokePlugin } = await import("./plugin/registry");
+        const { resolvePluginMatch } = await import("./cli/dispatch-match");
         const plugins = discoverPackages();
         // #393 Bug H: use lowercased cmdName ONLY for plugin-name matching.
         // Pass the ORIGINAL-case args to the plugin. Previously remaining was
         // sliced off the lowercased cmdName, which silently lowercased team
         // names, subjects, paths, and any case-sensitive arg.
         const cmdName = args.join(" ").toLowerCase();
-        let matched = false;
-        for (const p of plugins) {
-          if (!p.manifest.cli) continue;
-          const names = [p.manifest.cli.command, ...(p.manifest.cli.aliases || [])];
-          let matchedName: string | null = null;
-          for (const n of names) {
-            const lower = n.toLowerCase();
-            if (cmdName === lower || cmdName.startsWith(lower + " ")) {
-              matchedName = lower;
-              break;
-            }
-          }
-          if (matchedName) {
-            matched = true;
-            // Compute how many whitespace-tokens the matched name consumes,
-            // then slice ORIGINAL args (case-preserved) after that many.
-            const matchedWords = matchedName.split(/\s+/).filter(Boolean).length;
-            const remaining = args.slice(matchedWords);
-            const result = await invokePlugin(p, { source: "cli", args: remaining });
-            if (result.ok && result.output) console.log(result.output);
-            else if (!result.ok) { console.error(result.error); process.exit(1); }
-            process.exit(0);
-          }
+        const dispatch = resolvePluginMatch(plugins, cmdName);
+        if (dispatch.kind === "ambiguous") {
+          console.error(`\x1b[31m✗\x1b[0m ambiguous command: ${args[0]}`);
+          console.error(`  candidates: ${dispatch.candidates.map(c => `${c.plugin} (${c.name})`).join(", ")}`);
+          throw new UserError(`ambiguous command: ${args[0]}`);
         }
-        if (matched) { /* unreachable — kept for clarity */ }
+        if (dispatch.kind === "match") {
+          const matchedWords = dispatch.matchedName.split(/\s+/).filter(Boolean).length;
+          const remaining = args.slice(matchedWords);
+          const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining });
+          if (result.ok && result.output) console.log(result.output);
+          else if (!result.ok) { console.error(result.error); process.exit(1); }
+          process.exit(0);
+        }
         // #388.2 — unknown command: fuzzy-suggest against the plugin registry.
         // Only intercepts when cmd is NOT a known route/plugin/alias AND does
         // NOT strictly match an oracle session name. Preserves `maw mawjs`
