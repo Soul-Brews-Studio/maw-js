@@ -909,7 +909,9 @@ describe("cmdSend — peer target (federation)", () => {
     await run(() => cmdSend("mba:mawjs", "ping"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("send failed");
+    // #411: remote fetch failure surfaces peer URL + underlying, not "send failed"
+    expect(errs.join("\n")).toContain("Remote fetch failed for peer");
+    expect(errs.join("\n")).toContain("mba.example");
   });
 
   test("peer success without data.lastLine → no ⤷ follow-up", async () => {
@@ -947,7 +949,7 @@ describe("cmdSend — async peer discovery fallback", () => {
     expect(exitCode).toBeUndefined();
   });
 
-  test("fallback peer curlFetch non-ok → falls through to generic window-not-found", async () => {
+  test("fallback peer curlFetch non-ok → surfaces remote failure, not window-not-found (#411)", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = null;
     findPeerForTargetReturn = "https://broken.example";
@@ -959,7 +961,10 @@ describe("cmdSend — async peer discovery fallback", () => {
     await run(() => cmdSend("mawjs", "ping"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("window not found: mawjs");
+    // #411: must surface the remote failure, not the local-miss message
+    expect(errs.join("\n")).toContain("Remote fetch failed for peer");
+    expect(errs.join("\n")).toContain("broken.example");
+    expect(errs.join("\n")).not.toContain("window not found: mawjs");
   });
 });
 

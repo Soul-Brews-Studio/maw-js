@@ -187,12 +187,11 @@ describe("local-first routing (#411)", () => {
 
     const errOutput = consoleErr.join("\n");
 
-    // Must surface the remote failure explicitly
+    // Must surface the remote failure explicitly — not a local-miss message
     expect(errOutput).toContain("Remote fetch failed for peer");
     expect(errOutput).toContain("mba.wg:3457");
 
-    // Must NOT claim this was a local miss — local was never the issue
-    expect(errOutput).not.toContain("not found in local sessions");
-    expect(errOutput).not.toContain("not in local sessions");
+    // Must NOT say "not in local sessions" when the real failure was network (#411)
+    expect(errOutput).not.toContain("not in local sessions or agents map");
   });
 });

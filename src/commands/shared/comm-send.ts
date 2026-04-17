@@ -141,7 +141,9 @@ export async function cmdSend(query: string, message: string, force = false) {
       await runHook("after_send", { to: query, message });
       return;
     }
-    console.error(`\x1b[31mfailed\x1b[0m ⚡ ${result.node} → ${result.target}: ${res.data?.error || "send failed"}`);
+    const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${result.peerUrl} (${result.node}): ${underlying}`);
+    console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);
   }
 
@@ -168,9 +170,9 @@ export async function cmdSend(query: string, message: string, force = false) {
     process.exit(1);
   }
 
-  // Local-only miss — no network was attempted (#411).
+  // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {
-    console.error(`\x1b[31merror\x1b[0m: Local target not found on this node: ${query}`);
+    console.error(`\x1b[31merror\x1b[0m: ${result.detail}`);
     if (result.hint) console.error(`\x1b[33mhint\x1b[0m:  ${result.hint}`);
   } else {
     console.error(`\x1b[31merror\x1b[0m: window not found: ${query}`);
