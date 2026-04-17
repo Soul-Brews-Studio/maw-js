@@ -7,10 +7,11 @@ export const command = {
 
 const USAGE =
   "usage: maw plugin <init|build|dev|install> [args]\n" +
-  "  init <name> --ts              scaffold a TS plugin\n" +
-  "  build [dir] [--watch]         bundle + pack a plugin\n" +
-  "  dev [dir]                     watch mode (alias for build --watch, DX verb)\n" +
-  "  install <dir | .tgz | URL>    install a built plugin";
+  "  init <name> --ts                    scaffold a TS plugin\n" +
+  "  build [dir] [--watch] [--types]     bundle + pack a plugin\n" +
+  "                                        --types: emit dist/<name>.d.ts\n" +
+  "  dev [dir] [--types]                 watch mode (alias for build --watch, DX verb)\n" +
+  "  install <dir | .tgz | URL>          install a built plugin";
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
