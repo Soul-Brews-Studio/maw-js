@@ -27,6 +27,7 @@ interface ExecResponse {
   match?: RegExp;        // cmd substring/regex to match
   result?: string;       // string to resolve with
   error?: string;        // message to reject with
+  sideEffect?: () => void; // run before resolving (e.g. mkdirSync to simulate `ghq get` landing)
 }
 
 let execCalls: string[] = [];
@@ -37,6 +38,7 @@ const mockExec = async (cmd: string): Promise<string> => {
   for (const r of execResponses) {
     if (r.match && r.match.test(cmd)) {
       if (r.error) throw new Error(r.error);
+      r.sideEffect?.();
       return r.result ?? "";
     }
   }
@@ -91,6 +93,7 @@ describe("ensureBudRepo — gh repo view pre-check", () => {
     const missingPath = join(tmpBase, "view-hit");
     execResponses = [
       { match: /^gh repo view /, result: `{"name":"view-hit-oracle"}` },
+      { match: /^ghq get /, sideEffect: () => mkdirSync(missingPath, { recursive: true }) },
     ];
 
     await ensureBudRepo(
@@ -112,6 +115,7 @@ describe("ensureBudRepo — gh repo view pre-check", () => {
     execResponses = [
       { match: /^gh repo view /, error: "not found" },
       // No response for `gh repo create` → default "" which means "success".
+      { match: /^ghq get /, sideEffect: () => mkdirSync(missingPath, { recursive: true }) },
     ];
 
     await ensureBudRepo(
@@ -141,6 +145,7 @@ describe("ensureBudRepo — gh repo view pre-check", () => {
     const missingPath = join(tmpBase, "view-other");
     execResponses = [
       { match: /^gh repo view /, result: `{"name":"some-other-repo"}` },
+      { match: /^ghq get /, sideEffect: () => mkdirSync(missingPath, { recursive: true }) },
     ];
 
     await ensureBudRepo(
@@ -160,6 +165,7 @@ describe("ensureBudRepo — gh repo create error branches", () => {
     execResponses = [
       { match: /^gh repo view /, error: "not found" },
       { match: /^gh repo create /, error: "repository already exists on remote" },
+      { match: /^ghq get /, sideEffect: () => mkdirSync(missingPath, { recursive: true }) },
     ];
 
     await ensureBudRepo(
@@ -260,6 +266,7 @@ describe("ensureBudRepo — ghq clone command shape", () => {
     const missingPath = join(tmpBase, "clone-shape");
     execResponses = [
       { match: /^gh repo view /, error: "not found" },
+      { match: /^ghq get /, sideEffect: () => mkdirSync(missingPath, { recursive: true }) },
     ];
 
     await ensureBudRepo(
