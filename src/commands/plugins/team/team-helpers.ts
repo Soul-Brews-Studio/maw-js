@@ -94,8 +94,7 @@ export function writeMessage(teamName: string, memberName: string, from: string,
     timestamp: new Date().toISOString(),
     read: false,
   });
-  const dir = join(TEAMS_DIR, teamName, "inboxes");
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  mkdirSync(join(TEAMS_DIR, teamName, "inboxes"), { recursive: true });
   writeFileSync(inboxPath, JSON.stringify(messages, null, 2));
 }
 

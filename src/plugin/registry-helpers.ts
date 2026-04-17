@@ -92,7 +92,7 @@ function markLegacyWarningShown(): void {
   try {
     const stateFile = warnStatePath();
     const dir = join(stateFile, "..");
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true });
     let state: Record<string, unknown> = {};
     if (existsSync(stateFile)) {
       try { state = JSON.parse(readFileSync(stateFile, "utf8")); } catch { /* corrupt — start fresh */ }
