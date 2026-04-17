@@ -220,16 +220,31 @@ export interface PairStatus {
   clockWarning?: boolean;
 }
 
-export async function getFederationStatusSymmetric(): Promise<{
+/**
+ * Optional dependency injections for `getFederationStatusSymmetric`.
+ * Passing nothing uses production behavior; tests inject to avoid the
+ * mock.module process-global-pollution finding from Bloom's federation-audit
+ * iteration 4 (3 PR #398 description explains).
+ */
+export interface SymmetricDeps {
+  /** Pre-computed baseline. If omitted, `getFederationStatus()` is called. */
+  baseStatus?: Awaited<ReturnType<typeof getFederationStatus>>;
+  /** Fetcher used for peer /api/federation/status cross-queries. Defaults to curlFetch. */
+  fetch?: typeof curlFetch;
+  /** Local node identity. Defaults to loadConfig().node ?? "local". */
+  localNode?: string;
+}
+
+export async function getFederationStatusSymmetric(deps: SymmetricDeps = {}): Promise<{
   localUrl: string;
   localNode: string;
   pairs: PairStatus[];
   healthyPairs: number;
   totalPairs: number;
 }> {
-  const config = loadConfig();
-  const localNode = config.node ?? "local";
-  const base = await getFederationStatus();
+  const localNode = deps.localNode ?? loadConfig().node ?? "local";
+  const fetchImpl = deps.fetch ?? curlFetch;
+  const base = deps.baseStatus ?? await getFederationStatus();
 
   const pairs = await Promise.all(base.peers.map(async (peer): Promise<PairStatus> => {
     const shared = {
@@ -246,7 +261,7 @@ export async function getFederationStatusSymmetric(): Promise<{
 
     // Forward works; ask the peer for its view and look for ourselves in it.
     try {
-      const res = await curlFetch(`${peer.url}/api/federation/status`, { timeout: cfgTimeout("http") });
+      const res = await fetchImpl(`${peer.url}/api/federation/status`, { timeout: cfgTimeout("http") });
       if (!res.ok || !res.data) {
         return {
           ...shared,
