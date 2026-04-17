@@ -74,20 +74,39 @@ export function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
       fleetSessions.add(entry.file.replace(/\.json$/, ""));
     }
   } catch { /* no fleet dir */ }
-  // Also allow the meta-view session `maw-view` which mirrors fleet panes.
-  fleetSessions.add("maw-view");
+
+  // Also allow meta-view sessions (maw-view + any *-view) which mirror fleet
+  // panes. Each oracle creates its meta-view as `<stem>-view` (e.g.
+  // mawjs-view, mawui-view). #393 Bug F — zombie-auditor iter3 caught this:
+  // hardcoding only "maw-view" left every oracle's live pane one keystroke
+  // away from being killed by `maw cleanup --zombie-agents --yes`.
+  const isViewSession = (s: string) => s === "maw-view" || /-view$/.test(s);
+
+  // Defense-in-depth: also compute the set of pane ids that have ANY fleet
+  // (or view) listing. If the same pane id appears across multiple sessions
+  // (tmux-linked windows), a single safe target is enough to mark it safe.
+  // This protects against tmux reporting the non-fleet session as canonical.
+  const safePaneIds = new Set<string>();
+  for (const p of allPanes) {
+    const session = p.target.split(":")[0];
+    if (fleetSessions.has(session) || isViewSession(session)) {
+      safePaneIds.add(p.id);
+    }
+  }
 
   const isFleetPane = (target: string): boolean => {
     const session = target.split(":")[0];
-    return fleetSessions.has(session);
+    return fleetSessions.has(session) || isViewSession(session);
   };
 
-  // Find claude panes that are (a) not in any team config AND (b) not in the fleet
+  // Find claude panes that are (a) not in any team config AND
+  // (b) not in the fleet/view (by either target OR any other listing of the same pane)
   return allPanes
     .filter(p =>
       p.command?.includes("claude") &&
       !knownTeamPaneIds.has(p.id) &&
-      !isFleetPane(p.target)
+      !isFleetPane(p.target) &&
+      !safePaneIds.has(p.id)
     )
     .map(p => ({
       paneId: p.id,
