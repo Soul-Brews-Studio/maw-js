@@ -1,0 +1,13 @@
+{
+  "name": "tmux",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "tmux control verbs — peek (read pane content by id, session:w.p, or team-agent name).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "tmux",
+    "help": "maw tmux <peek> — peek a pane by id (%N), session:w.p, or team-agent name"
+  },
+  "weight": 10
+}
