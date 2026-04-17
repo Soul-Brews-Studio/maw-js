@@ -1,6 +1,8 @@
 import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
-import { execSync } from "child_process";
+
+/** Allowlist: only http/https URLs may be used as plugin sources */
+const URL_SCHEME_RE = /^https?:\/\//;
 
 /**
  * Auto-bootstrap plugins into pluginDir if empty.
@@ -29,8 +31,15 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
       const sources: string[] = config.pluginSources ?? [];
       for (const url of sources) {
         try {
-          execSync(`ghq get -u "${url}"`, { stdio: "pipe" });
-          const ghqRoot = execSync("ghq root", { encoding: "utf-8" }).trim();
+          if (!URL_SCHEME_RE.test(url)) {
+            console.warn(`[maw] skipping pluginSource with invalid scheme: ${url}`);
+            continue;
+          }
+          const ghqProc = Bun.spawn(["ghq", "get", "-u", url], { stdout: "pipe", stderr: "pipe" });
+          await ghqProc.exited;
+          const rootProc = Bun.spawn(["ghq", "root"], { stdout: "pipe", stderr: "pipe" });
+          await rootProc.exited;
+          const ghqRoot = (await new Response(rootProc.stdout).text()).trim();
           const repoPath = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
           const src = join(ghqRoot, repoPath);
           const pkgDir = join(src, "packages");

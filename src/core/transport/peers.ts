@@ -2,6 +2,24 @@ import { loadConfig, cfgTimeout } from "../../config";
 import type { Session } from "./ssh";
 import { curlFetch } from "./curl-fetch";
 
+/**
+ * Schema validation at the federation boundary.
+ *
+ * Peer-supplied session names must match the tmux-safe character set
+ * [a-zA-Z0-9_.-] before we allow them into resolveTarget() and other
+ * code paths that may construct tmux targets from session names.
+ * Items failing validation are dropped and warned, never propagated.
+ */
+function isValidPeerSession(item: unknown): item is Session {
+  if (!item || typeof item !== "object") return false;
+  const s = item as Record<string, unknown>;
+  return (
+    typeof s.name === "string" &&
+    /^[a-zA-Z0-9_.\-]+$/.test(s.name) &&
+    Array.isArray(s.windows)
+  );
+}
+
 /** Simple TTL cache for aggregated sessions (#145) */
 let aggregatedCache: { peers: (Session & { source?: string })[]; ts: number } | null = null;
 const CACHE_TTL = 30_000;
@@ -102,7 +120,21 @@ async function fetchPeerSessions(url: string): Promise<Session[]> {
   try {
     const res = await curlFetch(`${url}/api/sessions?local=true`, { timeout: cfgTimeout("http") });
     if (!res.ok) return [];
-    return res.data || [];
+    const raw = res.data;
+    if (!Array.isArray(raw)) return [];
+    // Validate at federation boundary — drop sessions with malformed names
+    const valid: Session[] = [];
+    for (const item of raw) {
+      if (isValidPeerSession(item)) {
+        valid.push(item);
+      } else {
+        console.warn(
+          `[peers] dropped malformed session from ${url}:`,
+          JSON.stringify(item).slice(0, 120),
+        );
+      }
+    }
+    return valid;
   } catch {
     return [];
   }
