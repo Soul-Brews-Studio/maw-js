@@ -15,10 +15,18 @@ const mockExec = async (cmd: string, _host?: string) => {
   return sshResult;
 };
 import { mockSshModule } from "../helpers/mock-ssh";
-mock.module("../../src/core/transport/ssh", () => mockSshModule({
-  hostExec: mockExec,
-  ssh: mockExec,
-}));
+
+// Re-installs the canonical ssh mock. Called from beforeEach so that any
+// in-test mock.module override (see `run`/`tryRun`/`host` suites below) is
+// reverted before the next test — without this, tmux.test.ts is internally
+// order-dependent and fails under --randomize (issue #438).
+function installDefaultSshMock() {
+  mock.module("../../src/core/transport/ssh", () => mockSshModule({
+    hostExec: mockExec,
+    ssh: mockExec,
+  }));
+}
+installDefaultSshMock();
 
 // Ensure no socket env var leaks into tests
 delete process.env.MAW_TMUX_SOCKET;
@@ -29,6 +37,7 @@ describe("Tmux", () => {
   beforeEach(() => {
     commands = [];
     sshResult = "";
+    installDefaultSshMock();
     t = new Tmux();
   });
 
