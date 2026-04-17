@@ -8,7 +8,7 @@ export function initVault(budRepoPath: string): string {
   const psiDir = join(budRepoPath, "ψ");
   const psiDirs = [
     "memory/learnings", "memory/retrospectives", "memory/traces",
-    "memory/resonance", "inbox", "outbox", "plans",
+    "memory/resonance", "memory/collaborations", "inbox", "outbox", "plans",
   ];
   for (const d of psiDirs) {
     mkdirSync(join(psiDir, d), { recursive: true });

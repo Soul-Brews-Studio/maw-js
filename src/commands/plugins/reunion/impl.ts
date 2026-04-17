@@ -2,7 +2,7 @@ import { listSessions, hostExec } from "../../../sdk";
 import { existsSync, readdirSync, copyFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 
-const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces"];
+const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces", "memory/collaborations"];
 
 /**
  * Resolve the main oracle repo root from a worktree cwd.

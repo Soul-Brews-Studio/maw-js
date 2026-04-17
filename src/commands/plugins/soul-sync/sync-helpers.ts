@@ -2,7 +2,7 @@ import { existsSync, readdirSync, copyFileSync, mkdirSync, appendFileSync } from
 import { join } from "path";
 import { loadFleet } from "../../shared/fleet-load";
 
-const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces"];
+const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces", "memory/collaborations"];
 
 /**
  * Sync new files from src dir to dst dir (skip existing).
