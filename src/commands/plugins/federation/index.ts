@@ -23,8 +23,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const sub = args[0]?.toLowerCase();
 
     if (!sub || sub === "status" || sub === "ls") {
-      const { cmdFederationStatus } = await import("../../shared/federation");
-      await cmdFederationStatus();
+      if (args.includes("--verify")) {
+        const { cmdFederationStatusVerify } = await import("../../shared/federation");
+        const res = await cmdFederationStatusVerify();
+        if (!res.ok) {
+          return { ok: false, error: "one or more pairs are non-healthy", output: logs.join("\n") || undefined };
+        }
+      } else {
+        const { cmdFederationStatus } = await import("../../shared/federation");
+        await cmdFederationStatus();
+      }
     } else if (sub === "sync") {
       const { cmdFederationSync } = await import("../../shared/federation-sync");
       await cmdFederationSync({
@@ -37,7 +45,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: "usage: maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]",
+        error: "usage: maw federation <status|sync> [--verify|--dry-run|--check|--prune|--force|--json]",
       };
     }
 
