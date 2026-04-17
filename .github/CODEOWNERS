@@ -1,0 +1,11 @@
+# Catch-all
+*  @nazt
+
+# SDK — published package, higher review bar
+/packages/sdk/  @nazt
+
+# Core transport — federation + ssh + tmux are security-sensitive
+/src/core/  @nazt
+
+# CI / release
+/.github/  @nazt
