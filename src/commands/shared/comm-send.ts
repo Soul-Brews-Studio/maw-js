@@ -145,7 +145,9 @@ export async function cmdSend(query: string, message: string, force = false) {
     process.exit(1);
   }
 
-  // Fallback: async peer discovery (network scan — slow path)
+  // Fallback: async peer discovery (network scan — slow path).
+  // Only reached when resolveTarget found no local session AND no config-mapped peer.
+  // Local sessions were already checked above — if we reach here, local genuinely missed.
   const peerUrl = await findPeerForTarget(query, sessions);
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
@@ -158,11 +160,17 @@ export async function cmdSend(query: string, message: string, force = false) {
       await runHook("after_send", { to: query, message });
       return;
     }
+    // Remote fetch was attempted but failed — surface the remote failure explicitly (#411).
+    // Never fall through to "not found in local sessions" when the real problem is network.
+    const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peerUrl}: ${underlying}`);
+    console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
+    process.exit(1);
   }
 
-  // Not found — surface error details from resolveTarget (#216)
+  // Local-only miss — no network was attempted (#411).
   if (result?.type === "error") {
-    console.error(`\x1b[31merror\x1b[0m: ${result.detail}`);
+    console.error(`\x1b[31merror\x1b[0m: Local target not found on this node: ${query}`);
     if (result.hint) console.error(`\x1b[33mhint\x1b[0m:  ${result.hint}`);
   } else {
     console.error(`\x1b[31merror\x1b[0m: window not found: ${query}`);
