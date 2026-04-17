@@ -1,4 +1,4 @@
-import { hostExec } from "../../../sdk";
+import { Tmux } from "../../../core/transport/tmux";
 
 function branchToTitle(branch: string): string {
   // Strip prefix like "agents/" or "feature/"
@@ -19,23 +19,29 @@ export async function cmdPr(window?: string): Promise<void> {
     throw new Error("not in a tmux session — run inside tmux");
   }
 
+  const t = new Tmux();
+
   // Get cwd of target window (or current pane)
   let cwd: string;
   if (window) {
-    const session = (await hostExec("tmux display-message -p '#{session_name}'")).trim();
-    cwd = (await hostExec(`tmux display-message -t '${session}:${window}' -p '#{pane_current_path}'`)).trim();
+    const session = (await t.run("display-message", "-p", "#{session_name}")).trim();
+    cwd = (await t.run("display-message", "-t", `${session}:${window}`, "-p", "#{pane_current_path}")).trim();
   } else {
-    cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
+    cwd = (await t.run("display-message", "-p", "#{pane_current_path}")).trim();
   }
 
   if (!cwd) {
     throw new Error("could not detect working directory");
   }
 
-  // Get current branch
+  // Get current branch — use Bun.spawn arg-array to avoid cwd single-quote injection
   let branch: string;
   try {
-    branch = (await hostExec(`git -C '${cwd}' branch --show-current`)).trim();
+    const proc = Bun.spawn(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    branch = (await new Response(proc.stdout).text()).trim();
   } catch {
     throw new Error(`not a git repo: ${cwd}`);
   }
@@ -50,11 +56,20 @@ export async function cmdPr(window?: string): Promise<void> {
   if (issueNum) console.log(`\x1b[36m⚡\x1b[0m linking to issue #${issueNum}`);
 
   const body = issueNum ? `Closes #${issueNum}` : "";
-  const bodyFlag = body ? `--body '${body}'` : "--body ''";
-  const titleEscaped = title.replace(/'/g, "'\\''");
 
+  // Use Bun.spawn arg-array with cwd option — eliminates cd + shell-quoting workarounds
   try {
-    const result = await hostExec(`cd '${cwd}' && gh pr create --title '${titleEscaped}' ${bodyFlag}`);
+    const ghArgs = ["pr", "create", "--title", title];
+    if (body) ghArgs.push("--body", body);
+    else ghArgs.push("--body", "");
+    const ghProc = Bun.spawn(["gh", ...ghArgs], { stdout: "pipe", stderr: "pipe", cwd });
+    const [out, , code] = await Promise.all([
+      new Response(ghProc.stdout).text(),
+      new Response(ghProc.stderr).text(),
+      ghProc.exited,
+    ]);
+    if (code !== 0) throw new Error(`gh pr create failed (exit ${code})`);
+    const result = out.trim();
     console.log(`\x1b[32m✅\x1b[0m ${result}`);
   } catch (e: any) {
     throw new Error(e.message);

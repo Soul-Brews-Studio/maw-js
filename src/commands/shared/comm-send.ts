@@ -4,8 +4,9 @@
 
 import {
   listSessions, capture, sendKeys, getPaneCommand, findPeerForTarget, resolveTarget,
-  curlFetch, runHook, hostExec,
+  curlFetch, runHook,
 } from "../../sdk";
+import { Tmux } from "../../core/transport/tmux";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { writeInboxFile } from "../plugins/inbox/impl";
@@ -44,10 +45,9 @@ export async function resolveOraclePane(target: string): Promise<string> {
   if (/\.[0-9]+$/.test(target)) return target;
 
   try {
-    const raw = await hostExec(
-      `tmux list-panes -t '${target}' -F '#{pane_index} #{pane_current_command}'`,
-    );
-    const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+    const t = new Tmux();
+    const raw = await t.run("list-panes", "-t", target, "-F", "#{pane_index} #{pane_current_command}");
+    const lines = raw.split("\n").map((l: string) => l.trim()).filter(Boolean);
     if (lines.length <= 1) return target; // single-pane window: active pane is the only pane
 
     const agentIndexes: number[] = [];

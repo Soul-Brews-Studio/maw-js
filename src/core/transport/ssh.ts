@@ -1,5 +1,5 @@
 import { loadConfig } from "../../config";
-import { tmuxCmd } from "./tmux";
+import { tmuxCmd, Tmux } from "./tmux";
 
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
@@ -50,40 +50,18 @@ export const ssh = hostExec;
 import type { Session } from "../runtime/find-window";
 
 export async function listSessions(host?: string): Promise<Session[]> {
-  let raw: string;
-  try { raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}' 2>/dev/null`, host); }
-  catch { return []; }
-  const sessions: Session[] = [];
-  for (const s of raw.split("\n").filter(Boolean)) {
-    try {
-      const winRaw = await hostExec(
-        `${tmuxCmd()} list-windows -t '${s}' -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null`,
-        host,
-      );
-      const windows = winRaw.split("\n").filter(Boolean).map(w => {
-        const [idx, name, active] = w.split(":");
-        return { index: +idx, name, active: active === "1" };
-      });
-      sessions.push({ name: s, windows });
-    } catch {
-      // Session may have died between list-sessions and list-windows
-      sessions.push({ name: s, windows: [] });
-    }
-  }
-  return sessions;
+  const t = new Tmux(host);
+  return t.listSessions();
 }
 
 export async function capture(target: string, lines = 80, host?: string): Promise<string> {
-  // -e preserves ANSI escape sequences (colors), -S captures scroll-back
-  if (lines > 50) {
-    // Grab full visible pane + some scrollback
-    return hostExec(`${tmuxCmd()} capture-pane -t '${target}' -e -p -S -${lines} 2>/dev/null`, host);
-  }
-  return hostExec(`${tmuxCmd()} capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
+  const t = new Tmux(host);
+  return t.capture(target, lines);
 }
 
 export async function selectWindow(target: string, host?: string): Promise<void> {
-  await hostExec(`${tmuxCmd()} select-window -t '${target}' 2>/dev/null`, host);
+  const t = new Tmux(host);
+  await t.selectWindow(target);
 }
 
 export async function switchClient(session: string, host?: string): Promise<void> {
