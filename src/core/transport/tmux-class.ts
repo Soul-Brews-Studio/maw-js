@@ -262,6 +262,9 @@ export class Tmux {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
       await this.pasteBuffer(target);
+      // Flush-wait: let TUI finish rendering the paste before Enter hits.
+      // Without this, Enter races the paste-buffer commit in Claude Code.
+      await new Promise(r => setTimeout(r, 250));
       // Staggered Enter — submit immediately + 2 fallbacks
       await this.sendKeys(target, "Enter");
       await new Promise(r => setTimeout(r, 500));
@@ -271,6 +274,8 @@ export class Tmux {
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
+      // Flush-wait: same reason as above — avoid paste/submit race.
+      await new Promise(r => setTimeout(r, 250));
       // Staggered Enter — submit immediately + 2 fallbacks
       await this.sendKeys(target, "Enter");
       await new Promise(r => setTimeout(r, 500));
