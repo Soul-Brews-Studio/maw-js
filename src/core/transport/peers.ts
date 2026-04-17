@@ -194,6 +194,116 @@ export async function getFederationStatus(): Promise<{
 }
 
 /**
+ * Pair-health verification — cross-check that the peer's view includes us.
+ *
+ * `getFederationStatus()` only measures local→peer reach. This function
+ * classifies the pair state by also asking the peer "do you see me?":
+ *
+ *   - healthy : forward reach OK AND local appears in peer's peer list marked reachable
+ *   - half-up : forward reach OK but reverse is not (we're missing from peer's view,
+ *               or they have us but mark us unreachable)
+ *   - down    : forward reach itself fails
+ *   - unknown : forward OK but we couldn't fetch peer's /api/federation/status
+ *
+ * See ψ/lab/federation-audit/pair-health-failure.md (mawjs-no2-oracle) for
+ * the full invariant + failure-scenario catalogue.
+ */
+export interface PairStatus {
+  url: string;
+  node?: string;
+  pair: "healthy" | "half-up" | "down" | "unknown";
+  forward: boolean;
+  reverse: boolean | null;
+  reason?: string;
+  latency?: number;
+  agents?: string[];
+  clockWarning?: boolean;
+}
+
+export async function getFederationStatusSymmetric(): Promise<{
+  localUrl: string;
+  localNode: string;
+  pairs: PairStatus[];
+  healthyPairs: number;
+  totalPairs: number;
+}> {
+  const config = loadConfig();
+  const localNode = config.node ?? "local";
+  const base = await getFederationStatus();
+
+  const pairs = await Promise.all(base.peers.map(async (peer): Promise<PairStatus> => {
+    const shared = {
+      url: peer.url,
+      node: peer.node,
+      latency: peer.latency,
+      agents: peer.agents,
+      clockWarning: peer.clockWarning,
+    };
+
+    if (!peer.reachable) {
+      return { ...shared, pair: "down", forward: false, reverse: null, reason: "forward unreachable" };
+    }
+
+    // Forward works; ask the peer for its view and look for ourselves in it.
+    try {
+      const res = await curlFetch(`${peer.url}/api/federation/status`, { timeout: cfgTimeout("http") });
+      if (!res.ok || !res.data) {
+        return {
+          ...shared,
+          pair: "unknown",
+          forward: true,
+          reverse: null,
+          reason: `peer /api/federation/status returned ${res.status}`,
+        };
+      }
+      const peerView = res.data as { peers?: Array<{ url?: string; node?: string; reachable?: boolean }> };
+      const peerPeers = peerView.peers ?? [];
+      const meInPeerView = peerPeers.find(p => {
+        if (p.node && localNode && p.node === localNode) return true;
+        if (p.url && p.url === base.localUrl) return true;
+        return false;
+      });
+      if (!meInPeerView) {
+        return {
+          ...shared,
+          pair: "half-up",
+          forward: true,
+          reverse: false,
+          reason: "local node not in peer's peer list",
+        };
+      }
+      if (meInPeerView.reachable === false) {
+        return {
+          ...shared,
+          pair: "half-up",
+          forward: true,
+          reverse: false,
+          reason: "peer's view of local is unreachable",
+        };
+      }
+      return { ...shared, pair: "healthy", forward: true, reverse: true };
+    } catch (err) {
+      return {
+        ...shared,
+        pair: "unknown",
+        forward: true,
+        reverse: null,
+        reason: `peer status fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }));
+
+  const healthyPairs = pairs.filter(p => p.pair === "healthy").length;
+  return {
+    localUrl: base.localUrl,
+    localNode,
+    pairs,
+    healthyPairs,
+    totalPairs: pairs.length,
+  };
+}
+
+/**
  * Find which peer a target session comes from, or return null if local
  */
 export async function findPeerForTarget(target: string, localSessions: Session[]): Promise<string | null> {
