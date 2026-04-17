@@ -1,0 +1,48 @@
+name: CodeQL
+
+# Static application security testing via GitHub's CodeQL.
+# Free for public repos; runs on push to main/alpha + weekly schedule.
+# Surfaces findings on the repo's Security tab. Required by SECURITY.md
+# scope (command injection, auth bypass) as a detection layer.
+
+on:
+  push:
+    branches: [main, alpha]
+  pull_request:
+    branches: [main, alpha]
+  schedule:
+    # Mondays at 06:37 UTC — offset from :00 to avoid fleet clumping.
+    - cron: "37 6 * * 1"
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended: more queries, higher signal; security-and-quality
+          # would add style, which isn't useful here.
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
