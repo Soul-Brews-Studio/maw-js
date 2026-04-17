@@ -26,6 +26,9 @@
       "default": "./plugin.ts"
     }
   },
+  "scripts": {
+    "prepublishOnly": "bun test packages/sdk/"
+  },
   "files": [
     "index.ts",
     "index.d.ts",
