@@ -9,7 +9,13 @@
  * laris-co scans to ~50s. Bun.spawn with batch concurrency drops it 3-5×.
  */
 
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
+
+// Org name allowlist — rejects shell metacharacters. Matches GitHub's
+// org name rules (alphanumeric + dash, no consecutive dashes, not
+// starting with a dash). Defense in depth — execFileSync below doesn't
+// invoke a shell, but keeps config values honest.
+const ORG_NAME_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
 import { loadConfig } from "../../config";
 import type { OracleEntry } from "./registry-oracle-types";
 import { deriveName } from "./registry-oracle-scan-local";
@@ -39,14 +45,29 @@ export async function scanRemote(orgs?: string[], verbose = true): Promise<Oracl
   for (const org of targetOrgs) {
     const orgStart = Date.now();
     try {
+      // Allowlist check — invalid org names skip with a clear error rather
+      // than potentially leaking metacharacters into gh api calls (closes #473).
+      if (!ORG_NAME_RE.test(org)) {
+        console.error(`\x1b[31m✗\x1b[0m invalid org name "${org}" — skipping`);
+        continue;
+      }
+
       // Per-org progress — always shown so the user sees something during the
       // multi-second gh API call. Was behind `if (verbose)` until 2026-04-16
       // (silent dead air for 10-30s confused users — see gist 773655c4).
       process.stdout.write(`  \x1b[90m⏳ scanning ${org}...\x1b[0m`);
 
-      // Use gh CLI for auth-handled pagination
-      const out = execSync(
-        `gh api "/orgs/${org}/repos?per_page=100&type=all" --paginate --jq '.[] | .full_name + " " + .name'`,
+      // Use gh CLI for auth-handled pagination. execFileSync passes args
+      // discretely (no shell) — shell metacharacters in org can't escape.
+      const out = execFileSync(
+        "gh",
+        [
+          "api",
+          `/orgs/${org}/repos?per_page=100&type=all`,
+          "--paginate",
+          "--jq",
+          '.[] | .full_name + " " + .name',
+        ],
         { encoding: "utf-8", timeout: 30000 },
       );
 
