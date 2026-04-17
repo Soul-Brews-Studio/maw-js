@@ -34,3 +34,9 @@ maw-js
 ui/office/*.mp3
 ui/office/*.wav
 ui/office/*.ogg
+
+# ui/office/assets — built artifacts (rebuilt on demand, not tracked) (#451)
+ui/office/assets/
+
+# psi/ — ASCII alias of ψ/ vault runtime data (#451)
+psi/
