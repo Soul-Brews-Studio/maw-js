@@ -69,26 +69,29 @@ export async function cmdFederationStatus() {
     return;
   }
 
-  // Fetch peer agent counts in parallel for online peers
+  // Fetch peer agent counts in parallel for reachable peers
   const counts = await Promise.all(
     statuses.map(p => p.reachable ? fetchPeerAgentCount(p.url) : Promise.resolve(0))
   );
 
-  let online = 1; // local is always online (we're executing in it)
+  let reachableCount = 1; // local is always reachable (we're executing in it)
   for (let i = 0; i < statuses.length; i++) {
     const { url, reachable, latency } = statuses[i];
     const agentCount = counts[i];
-    if (reachable) online++;
+    if (reachable) reachableCount++;
 
     const dot = reachable ? "\x1b[32m●\x1b[0m" : "\x1b[31m●\x1b[0m";
+    // "reachable" is truthful — we only verified local→peer direction.
+    // The reverse direction (peer→local) is NOT checked here. See PR #398
+    // for the symmetric-pair proposal (`maw federation --verify`).
     const status = reachable
-      ? `\x1b[32monline\x1b[0m  \x1b[90m${latency}ms · ${agentCount} agent${agentCount !== 1 ? "s" : ""}\x1b[0m`
-      : "\x1b[31moffline\x1b[0m";
+      ? `\x1b[32mreachable\x1b[0m  \x1b[90m${latency}ms · ${agentCount} agent${agentCount !== 1 ? "s" : ""}\x1b[0m`
+      : "\x1b[31munreachable\x1b[0m";
 
     const label = labelForPeer(url, named);
     console.log(`  ${dot}  \x1b[37m${label}\x1b[0m  ${status}`);
     console.log(`     \x1b[90m${url}\x1b[0m`);
   }
 
-  console.log(`\n\x1b[90m${online}/${totalNodes} online\x1b[0m\n`);
+  console.log(`\n\x1b[90m${reachableCount}/${totalNodes} reachable (one-way; use --verify for pair-symmetric check — PR #398)\x1b[0m\n`);
 }
