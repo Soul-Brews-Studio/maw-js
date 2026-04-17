@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFi
 import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
-import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir } from "./team-helpers";
+import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -144,6 +144,19 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
   };
   writeFileSync(join(teamDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
+  // Bridge: write stub to tool store so list/status/shutdown can see this team (#393)
+  const toolTeamDir = join(TEAMS_DIR, name);
+  if (!existsSync(toolTeamDir)) {
+    mkdirSync(toolTeamDir, { recursive: true });
+    const stubConfig: TeamConfig = {
+      name,
+      description: opts.description || "",
+      members: [],
+      createdAt: Date.now(),
+    };
+    writeFileSync(join(toolTeamDir, "config.json"), JSON.stringify(stubConfig, null, 2));
+  }
+
   console.log(`\x1b[32m✓\x1b[0m team '${name}' created`);
   console.log(`  \x1b[90m${teamDir}/manifest.json\x1b[0m`);
 }
@@ -206,6 +219,19 @@ export async function cmdTeamSpawn(
   if (!manifest.members.includes(role)) {
     manifest.members.push(role);
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  }
+
+  // Bridge: sync member to tool store config (#393)
+  const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
+  if (existsSync(toolConfigPath)) {
+    try {
+      const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
+      const member: TeamMember = { name: role, model };
+      if (!toolConfig.members.some((m: any) => m.name === role)) {
+        toolConfig.members.push(member);
+        writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
+      }
+    } catch { /* best effort */ }
   }
 
   console.log(`\x1b[32m✓\x1b[0m spawn prompt written for '${role}'`);
