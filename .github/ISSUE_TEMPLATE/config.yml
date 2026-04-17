@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Soul-Brews-Studio/maw-js/security/advisories/new
+    about: Report privately via GitHub Security Advisory — NOT a public issue.
+  - name: Discussions / design proposals
+    url: https://github.com/Soul-Brews-Studio/maw-js/discussions
+    about: Talk it out before filing.

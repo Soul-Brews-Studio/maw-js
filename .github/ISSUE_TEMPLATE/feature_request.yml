@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a new capability or improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening, check [Discussions](https://github.com/Soul-Brews-Studio/maw-js/discussions) — design proposals land there first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this solve? Who is affected?
+      placeholder: "As a maw user I want to ... so that ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe your ideal solution. Rough is fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about and why you ruled them out.
+
+  - type: textarea
+    id: related-issues
+    attributes:
+      label: Related issues / PRs
+      description: Paste any related issue or PR numbers.
+      placeholder: "Related to #123, see also #456"

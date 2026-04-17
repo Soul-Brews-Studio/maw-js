@@ -1,5 +1,7 @@
 # maw
 
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![Version](https://img.shields.io/badge/version-2.0.0--alpha.121-orange)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
+
 > Multi-Agent Workflow — wake oracles, talk across machines, see the mesh.
 
 ## Install
