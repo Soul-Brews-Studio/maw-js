@@ -89,7 +89,8 @@ peerExecApi.post("/peer/exec", async ({ body, headers, set}) => {
   }
 
   // 2. Session cookie check
-  const devBypass = process.env.NODE_ENV !== "production";
+  // Bypass ONLY when explicitly in dev mode. Default (unset NODE_ENV) = secure.
+  const devBypass = process.env.NODE_ENV === "development";
   if (!devBypass && !hasValidSessionCookie(headers)) {
     set.status = 401; return { error: "no_session", hint: "GET /api/peer/session first" };
   }

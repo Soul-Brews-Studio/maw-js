@@ -46,8 +46,9 @@ proxyApi.post("/proxy", async ({ body, set, request }) => {
     return { error: "bad_signature", expected: "[host:agent]" };
   }
 
-  // 2. Session cookie check (dev bypass on NODE_ENV !== production)
-  const devBypass = process.env.NODE_ENV !== "production";
+  // 2. Session cookie check
+  // Bypass ONLY when explicitly in dev mode. Default (unset NODE_ENV) = secure.
+  const devBypass = process.env.NODE_ENV === "development";
   if (!devBypass && !hasValidProxySessionCookie(request)) {
     set.status = 401;
     return { error: "no_session", hint: "GET /api/proxy/session first" };
