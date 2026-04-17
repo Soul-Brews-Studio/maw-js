@@ -7,7 +7,7 @@ import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 
-export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -31,7 +31,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     if (!fullPath) throw new Error(`ghq could not find ${slug} after clone`);
     const repoPath = fullPath;
     resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
-    if (!opts.task && !opts.newWt) opts.newWt = resolved.repoName.replace(/-/g, "");
+    if (!opts.task && !opts.wt) opts.wt = resolved.repoName.replace(/-/g, "");
   } else {
     resolved = await resolveOracle(oracle);
   }
@@ -60,7 +60,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
       console.log(`\x1b[32m+\x1b[0m registered agent '${oracle}' → '${node}' in config.agents`);
     }
 
-    if (!opts.task && !opts.newWt) {
+    if (!opts.task && !opts.wt) {
       const allWt = await findWorktrees(parentDir, repoName);
       const usedNames = new Set<string>();
       for (const wt of allWt) {
@@ -79,7 +79,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
 
-    if (!opts.task && !opts.newWt) {
+    if (!opts.task && !opts.wt) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
@@ -123,8 +123,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
     return `${session}:${windowName}`;
   }
 
-  if (opts.newWt || opts.task) {
-    const name = sanitizeBranchName(opts.newWt || opts.task!);
+  if (opts.wt || opts.task) {
+    const name = sanitizeBranchName(opts.wt || opts.task!);
     const worktrees = await findWorktrees(parentDir, repoName);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
