@@ -2,11 +2,11 @@ module.exports = {
   apps: [
     {
       name: 'maw',
-      script: 'src/server.ts',
-      interpreter: '/home/nat/.bun/bin/bun',
-      watch: ['src'],
-      watch_delay: 500,
-      ignore_watch: ['node_modules', 'ui'],
+      script: 'src/core/server.ts',
+      interpreter: 'bun',                // PATH lookup — works on any host
+      watch: false,                       // production: restart manual after deploy only
+      max_restarts: 5,                    // fail-fast — no silent 542-restart loops
+      restart_delay: 3000,
       env: {
         MAW_HOST: 'local',
         MAW_PORT: '3456',
@@ -33,15 +33,6 @@ module.exports = {
       restart_delay: 5000,
     },
     // maw-dev moved to Soul-Brews-Studio/maw-ui (bun run dev)
-    {
-      name: 'maw-broker',
-      script: 'src/broker.ts',
-      interpreter: '/home/nat/.bun/bin/bun',
-      autorestart: true,
-      watch: false,
-      env: {
-        MAW_BROKER: '1',
-      },
-    },
+    // maw-broker removed — MQTT layer deleted in 3b71daa (WebSocket handles broadcast)
   ],
 };
