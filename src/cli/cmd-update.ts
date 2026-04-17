@@ -112,23 +112,33 @@ export async function runUpdate(args: string[]): Promise<void> {
     }
   }
 
-  // Remove first to avoid bun dependency loop (#214)
-  // Required: purges stale global refs that cause dep loops (#347)
-  try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
-
   // Allowlist: git tag names, branch names, commit SHAs — no shell metacharacters.
   // Channel shortcuts ("alpha"/"beta") resolve to a validated tag above; all
   // resolved refs must still pass this gate (defense-in-depth after channel resolve).
+  // CRITICAL: this MUST run BEFORE `bun remove -g maw` below. If validation
+  // fails after remove, the user is left with maw uninstalled and no reinstall.
+  // (Regression: #356/#473-class. Fix 2026-04-18 — emergency after user report.)
   const REF_RE = /^[a-zA-Z0-9._\-\/]+$/;
   if (!REF_RE.test(ref)) {
     console.error(`\x1b[31merror\x1b[0m: invalid ref "${ref}" — only [a-zA-Z0-9._-/] characters permitted`);
     process.exit(1);
   }
+
+  // Remove first to avoid bun dependency loop (#214)
+  // Required: purges stale global refs that cause dep loops (#347)
+  // NOTE: only runs AFTER ref validation above, so a rejected ref can't
+  // leave the user with an uninstalled maw.
+  try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+
   const installProc = Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
     stdio: ["inherit", "inherit", "inherit"],
   });
   const installCode = await installProc.exited;
-  if (installCode !== 0) process.exit(installCode);
+  if (installCode !== 0) {
+    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — maw is not reinstalled`);
+    console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
+    process.exit(installCode);
+  }
   // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
   // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
   try {
