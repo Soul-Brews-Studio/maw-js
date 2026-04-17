@@ -7,7 +7,7 @@ import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 
-export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -16,7 +16,13 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
-  if (opts.incubate) {
+  if (opts.repoPath) {
+    // #421 — caller already knows the exact on-disk path (e.g. `maw bud --org`
+    // just cloned it). Skip resolveOracle so a stale same-named repo in a
+    // different org can't shadow the freshly-created one.
+    const repoPath = opts.repoPath;
+    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+  } else if (opts.incubate) {
     const slug = opts.incubate;
     const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);

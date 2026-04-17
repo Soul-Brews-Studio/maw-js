@@ -77,7 +77,9 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
 
   // 8. Wake the bud
   console.log(`  \x1b[36m⏳\x1b[0m waking ${name}...`);
-  const wakeOpts: any = { noAttach: true };
+  // #421 — pass the exact cloned path so wake doesn't re-resolve via ghqFind,
+  // which would match any same-named repo in any org (stale-clone bug).
+  const wakeOpts: any = { noAttach: true, repoPath: budRepoPath };
   if (opts.issue) {
     const { fetchIssuePrompt } = await import("../../shared/wake");
     wakeOpts.prompt = await fetchIssuePrompt(opts.issue, `${org}/${budRepoName}`);

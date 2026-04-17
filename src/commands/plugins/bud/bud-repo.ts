@@ -37,5 +37,15 @@ export async function ensureBudRepo(
     }
   }
   await hostExec(`ghq get github.com/${budRepoSlug}`);
-  console.log(`  \x1b[32m✓\x1b[0m cloned via ghq`);
+  // #421 — verify landing path matches stated org. ghq honors the URL so this
+  // should always pass; if it doesn't, a stale ghq entry or reroute is masking
+  // the real location. Fail loudly rather than let wake resolve to the wrong org.
+  if (!existsSync(budRepoPath)) {
+    throw new Error(
+      `clone landed outside expected path — expected ${budRepoPath} but not found on disk after ghq get.\n` +
+      `  Check: ghq list | grep ${budRepoName}\n` +
+      `  The --org flag may be shadowed by a stale clone in another org.`,
+    );
+  }
+  console.log(`  \x1b[32m✓\x1b[0m cloned via ghq → ${budRepoPath}`);
 }
