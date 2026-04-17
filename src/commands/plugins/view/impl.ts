@@ -112,12 +112,17 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   const viewBase = sessionName.replace(/^\d+-/, "");
   const viewName = `${viewBase}-view${windowHint ? `-${windowHint}` : ""}`;
 
-  // Kill existing view with same name
-  await t.killSession(viewName);
-
-  // Create grouped session
-  await t.newGroupedSession(sessionName, viewName, { cols: 200, rows: 50 });
-  console.log(`\x1b[36mcreated\x1b[0m → ${viewName} (grouped with ${sessionName})`);
+  // Reuse existing view if present — killing it would evict anyone else
+  // already attached (e.g. a second terminal on the same view).
+  const viewExists = await t.hasSession(viewName);
+  let weCreated = false;
+  if (!viewExists) {
+    await t.newGroupedSession(sessionName, viewName, { windowSize: "largest" });
+    console.log(`\x1b[36mcreated\x1b[0m → ${viewName} (grouped with ${sessionName})`);
+    weCreated = true;
+  } else {
+    console.log(`\x1b[36mreuse\x1b[0m   → ${viewName} (existing grouped session — ${sessionName})`);
+  }
 
   // Select specific window if requested
   if (windowHint) {
@@ -177,9 +182,12 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
     console.error(`\x1b[33mwarn\x1b[0m: attach exited non-zero — ${msg}`);
   }
 
-  // Cleanup: kill grouped session after detach (or after failed attach)
-  await t.killSession(viewName);
-  console.log(`\x1b[90mcleaned\x1b[0m → ${viewName}`);
+  // Cleanup: kill grouped session after detach (or after failed attach) — but
+  // only if WE created it. A reused view may have other attached clients.
+  if (weCreated) {
+    await t.killSession(viewName);
+    console.log(`\x1b[90mcleaned\x1b[0m → ${viewName}`);
+  }
   // Normal return — no process.exit. Letting the event loop drain naturally
   // is safer than forcing an exit code that can race with parent shell state.
 }

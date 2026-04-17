@@ -84,13 +84,18 @@ export class Tmux {
   /** Create a grouped session — shares windows with parent, independent sizing.
    *  Caller is responsible for cleanup via killSession(). */
   async newGroupedSession(parent: string, name: string, opts: {
-    cols: number;
-    rows: number;
+    cols?: number;
+    rows?: number;
     window?: string;
-  }): Promise<void> {
-    await this.run("new-session", "-d", "-t", parent, "-s", name, "-x", opts.cols, "-y", opts.rows);
+    windowSize?: "largest" | "smallest" | "latest" | "manual";
+  } = {}): Promise<void> {
+    const args: (string | number)[] = ["-d", "-t", parent, "-s", name];
+    if (opts.cols !== undefined) args.push("-x", opts.cols);
+    if (opts.rows !== undefined) args.push("-y", opts.rows);
+    await this.run("new-session", ...args);
     // Note: do NOT set destroy-unattached here — tmux kills the session
     // immediately since it was created detached (-d) with no client yet.
+    if (opts.windowSize) await this.setOption(name, "window-size", opts.windowSize);
     if (opts.window) await this.selectWindow(`${name}:${opts.window}`);
   }
 
