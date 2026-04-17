@@ -24,7 +24,7 @@
     "ship:alpha": "bash scripts/ship-alpha.sh",
     "ship:alpha:dry": "bash scripts/ship-alpha.sh --dry-run"
   },
-  "description": "maw.js \u2014 Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
+  "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
@@ -39,6 +39,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "three": "^0.184.0",
+    "typescript": "^6.0.3",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
