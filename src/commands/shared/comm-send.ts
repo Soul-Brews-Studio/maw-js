@@ -71,10 +71,12 @@ export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
 
   // #362b — inform users when they omit the node prefix. Canonical form is
-  // `<node>:<oracle>`. Bare name works locally but scripts should use the
-  // prefixed form for fleet portability. Silent when MAW_QUIET=1.
+  // `<node>:<oracle>` (add `:<window>` to target a specific tmux window when
+  // the session has more than one — see #410). Bare name works locally but
+  // scripts should use the prefixed form for fleet portability. Silent when
+  // MAW_QUIET=1.
   if (!query.includes(":") && !query.includes("/") && !process.env.MAW_QUIET && config.node) {
-    console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts (bare name resolves locally)\x1b[0m`);
+    console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts — append ':<window>' to target a specific window (bare name resolves locally)\x1b[0m`);
   }
 
   // --- Plugin routing: maw hey plugin:<name> <msg> ---
