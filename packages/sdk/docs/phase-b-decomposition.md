@@ -127,7 +127,11 @@ The trust layer (`.tgz` signing, federation-distributed revocation) ships in Pha
 
 **Title**: `feat(plugin-compiler): Phase B — maw plugin dev verb`
 
+**Status**: Wave 1B shipped (`feat/pb-maw-plugin-dev`). See #340 Wave 1B.
+
 **Scope**: Promote `maw plugin build --watch` to a first-class `maw plugin dev` verb. `maw plugin dev [dir]` is a convenience wrapper: builds in watch mode + installs with `--link` (symlink, skips hash verification). The `--watch` flag on `build` remains for users who want watch without the auto-link. The round-trip time goal: under 200ms rebuild notification after a source file save (Bun's fast bundler baseline). sdk-consumer earned this — they deferred it in Phase A; Phase B is where it ships.
+
+**Wave 1B delivery**: `maw plugin dev` is wired as a first-class verb sharing the `runWatch()` loop from `build --watch`. The `--watch` flag alias is preserved (backward-compat invariant). The `--link` integration (auto-symlink after each build) is deferred to after B1 (host-injected shim) since symlink installs against the shim need that infrastructure first.
 
 **Dependencies**: B1 (symlink installs against the shim should work correctly)
 
