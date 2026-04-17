@@ -39,8 +39,9 @@ export type {
 export {
   hostExec, listSessions, capture, sendKeys,
   getPaneCommand, getPaneCommands, getPaneInfos,
+  HostExecError,
 } from "../core/transport/ssh";
-export type { Session as SshSession } from "../core/transport/ssh";
+export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
 export { curlFetch } from "../core/transport/curl-fetch";
 export {
   getPeers, getFederationStatus, findPeerForTarget,
