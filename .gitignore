@@ -29,3 +29,8 @@ agents/
 # Local env + accidental self-symlink (cleanup 2026-04-17)
 .envrc
 maw-js
+
+# Audio assets — keep local-only, not tracked (cleanup 2026-04-17)
+ui/office/*.mp3
+ui/office/*.wav
+ui/office/*.ogg
