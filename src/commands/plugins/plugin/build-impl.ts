@@ -64,32 +64,53 @@ export async function cmdPluginBuild(args: string[]): Promise<void> {
   const dir = resolve(flags._[0] || ".");
 
   if (flags["--watch"]) {
-    // One initial build, then rebuild on src change. Tolerate failures.
-    await runBuild(dir).catch(() => {});
-    console.log(`\n\x1b[36m⧖\x1b[0m watching ${dir}/src for changes (Ctrl-C to stop)...`);
-    let building = false;
-    const trigger = async () => {
-      if (building) return;
-      building = true;
-      try {
-        await runBuild(dir);
-      } catch (e: any) {
-        console.error(`\x1b[31m✗\x1b[0m rebuild failed: ${e.message}`);
-      } finally {
-        building = false;
-      }
-    };
-    const srcDir = join(dir, "src");
-    if (existsSync(srcDir)) {
-      watch(srcDir, { recursive: true }, () => {
-        void trigger();
-      });
-    }
-    await new Promise(() => { /* keep alive */ });
+    // `--watch` flag: watch mode without dev-link. Kept for backward compat.
+    await runWatch(dir);
     return;
   }
 
   await runBuild(dir);
+}
+
+/**
+ * maw plugin dev [dir]
+ *
+ * First-class DX verb (Phase B6). Equivalent to `build --watch` today;
+ * in a future sub-issue it will also `--link` the plugin after each build.
+ * Keeping the two paths separate lets us diverge them without touching build.
+ */
+export async function cmdPluginDev(args: string[]): Promise<void> {
+  const flags = parseFlags(args, {}, 0);
+  const dir = resolve(flags._[0] || ".");
+  console.log(`\x1b[36mmaw plugin dev\x1b[0m — watch mode (Ctrl-C to stop)`);
+  console.log(`  dir: ${dir}`);
+  await runWatch(dir);
+}
+
+/** Shared watch-mode loop used by both `build --watch` and `dev`. */
+async function runWatch(dir: string): Promise<void> {
+  // One initial build, then rebuild on src change. Tolerate failures.
+  await runBuild(dir).catch(() => {});
+  console.log(`\n\x1b[36m⧖\x1b[0m watching ${dir}/src for changes (Ctrl-C to stop)...`);
+  let building = false;
+  const trigger = async () => {
+    if (building) return;
+    building = true;
+    try {
+      await runBuild(dir);
+    } catch (e: any) {
+      console.error(`\x1b[31m✗\x1b[0m rebuild failed: ${e.message}`);
+    } finally {
+      building = false;
+    }
+  };
+  const srcDir = join(dir, "src");
+  if (existsSync(srcDir)) {
+    watch(srcDir, { recursive: true }, () => {
+      void trigger();
+    });
+  }
+  await new Promise(() => { /* keep alive */ });
 }
 
 async function runBuild(dir: string): Promise<BuildSummary> {

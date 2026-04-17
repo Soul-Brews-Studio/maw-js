@@ -2,13 +2,14 @@ import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 
 export const command = {
   name: "plugin",
-  description: "Plugin lifecycle — init, build, install.",
+  description: "Plugin lifecycle — init, build, dev, install.",
 };
 
 const USAGE =
-  "usage: maw plugin <init|build|install> [args]\n" +
+  "usage: maw plugin <init|build|dev|install> [args]\n" +
   "  init <name> --ts              scaffold a TS plugin\n" +
   "  build [dir] [--watch]         bundle + pack a plugin\n" +
+  "  dev [dir]                     watch mode (alias for build --watch, DX verb)\n" +
   "  install <dir | .tgz | URL>    install a built plugin";
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -38,6 +39,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "build") {
       const { cmdPluginBuild } = await import("./build-impl");
       await cmdPluginBuild(args.slice(1));
+    } else if (sub === "dev") {
+      const { cmdPluginDev } = await import("./build-impl");
+      await cmdPluginDev(args.slice(1));
     } else if (sub === "install") {
       // installer-loader (task #3) provides install-impl.ts
       try {
