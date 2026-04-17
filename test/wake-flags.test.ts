@@ -13,7 +13,7 @@ import { parseFlags } from "../src/cli/parse-args";
 
 interface WakeOpts {
   task?: string;
-  newWt?: string;
+  wt?: string;
   prompt?: string;
   incubate?: string;
   fresh?: boolean;
@@ -23,7 +23,8 @@ interface WakeOpts {
 
 function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefined } {
   const flags = parseFlags(args, {
-    "--new": String,
+    "--wt": String,
+    "--new": "--wt",
     "--incubate": String,
     "--issue": Number,
     "--pr": Number,
@@ -38,7 +39,7 @@ function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefin
   const opts: WakeOpts = {};
   let repo: string | undefined = flags["--repo"];
 
-  if (flags["--new"]) opts.newWt = flags["--new"];
+  if (flags["--wt"]) opts.wt = flags["--wt"];
   if (flags["--incubate"]) opts.incubate = flags["--incubate"];
   if (flags["--fresh"]) opts.fresh = true;
   if (flags["--no-attach"]) opts.noAttach = true;
