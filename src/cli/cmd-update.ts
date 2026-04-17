@@ -124,18 +124,27 @@ export async function runUpdate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Remove first to avoid bun dependency loop (#214)
-  // Required: purges stale global refs that cause dep loops (#347)
-  // NOTE: only runs AFTER ref validation above, so a rejected ref can't
-  // leave the user with an uninstalled maw.
-  try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
-
-  const installProc = Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
+  // Atomic install sequence — try install over existing FIRST so that a
+  // transient failure (network, auth, bun version) cannot leave the user
+  // with an uninstalled maw. `bun remove` only runs as a fallback when the
+  // initial install fails — the historical reason for remove-first was a
+  // dep-loop class (#214/#347), which is narrower than "every install".
+  //
+  // Order matters: validation (above) → try add → on fail, remove + retry →
+  // on still-fail, print recovery command. User always has a working maw
+  // unless BOTH adds fail.
+  const spawnInstall = () => Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
     stdio: ["inherit", "inherit", "inherit"],
   });
-  const installCode = await installProc.exited;
+
+  let installCode = await spawnInstall().exited;
   if (installCode !== 0) {
-    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — maw is not reinstalled`);
+    console.warn(`\x1b[33m⚠\x1b[0m first install attempt failed — clearing stale global refs and retrying`);
+    try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+    installCode = await spawnInstall().exited;
+  }
+  if (installCode !== 0) {
+    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — maw may be uninstalled`);
     console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
     process.exit(installCode);
   }
