@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { _setDirs } from "../../src/commands/plugins/team/impl";
@@ -17,7 +17,7 @@ let originalCwd: string;
 
 beforeEach(() => {
   originalCwd = process.cwd();
-  testDir = join(tmpdir(), `maw-bugB-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = mkdtempSync(join(tmpdir(), "maw-bugB-"));
   toolTeamsDir = join(testDir, "tool-teams");
   tasksDir = join(testDir, "tasks");
   oracleRoot = join(testDir, "oracle");
