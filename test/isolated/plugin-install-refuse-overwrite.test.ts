@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, symlinkSync, readlinkSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, symlinkSync, readlinkSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { installFromDir } from "../../src/commands/plugins/plugin/install-handlers";
@@ -16,7 +16,7 @@ let pluginsRoot: string;
 let originalEnv: string | undefined;
 
 beforeEach(() => {
-  testRoot = join(tmpdir(), `maw-bug403-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testRoot = mkdtempSync(join(tmpdir(), "maw-bug403-"));
   pluginsRoot = join(testRoot, "plugins");
   mkdirSync(pluginsRoot, { recursive: true });
   originalEnv = process.env.MAW_PLUGINS_DIR;
