@@ -4,16 +4,37 @@ import { tmuxCmd } from "./tmux";
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "local";
 const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
 
+export type HostExecTransport = "local" | "ssh";
+
+/** Error from hostExec — carries target + transport so callers can format. */
+export class HostExecError extends Error {
+  readonly target: string;
+  readonly transport: HostExecTransport;
+  readonly underlying: Error;
+  readonly exitCode?: number;
+
+  constructor(target: string, transport: HostExecTransport, underlying: Error, exitCode?: number) {
+    super(`[${transport}:${target}] ${underlying.message}`);
+    this.name = "HostExecError";
+    this.target = target;
+    this.transport = transport;
+    this.underlying = underlying;
+    this.exitCode = exitCode;
+  }
+}
+
 /** Transport — run on oracle host. local → bash -c | remote → ssh */
 export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string> {
   const local = host === "local" || host === "localhost" || IS_LOCAL;
+  const transport: HostExecTransport = local ? "local" : "ssh";
   const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
   const text = await new Response(proc.stdout).text();
   const code = await proc.exited;
   if (code !== 0) {
     const err = await new Response(proc.stderr).text();
-    throw new Error(err.trim() || `exit ${code}`);
+    const underlying = new Error(err.trim() || `exit ${code}`);
+    throw new HostExecError(host, transport, underlying, code);
   }
   return text.trim();
 }
