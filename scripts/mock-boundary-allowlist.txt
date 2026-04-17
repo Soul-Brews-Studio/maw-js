@@ -1,0 +1,21 @@
+# check-mock-boundary.sh grandfathered list (see issue #387)
+#
+# These files call mock.module() outside test/isolated/. They were written
+# before the boundary rule existed. New files MUST NOT be added here — prefer
+# moving the test into test/isolated/. Entries should be removed when files
+# are migrated.
+#
+# Comments (#) and blank lines are ignored. One path per line, relative to repo root.
+test/api-plugins.test.ts
+test/build-command-cwd.test.ts
+test/curl-fetch.test.ts
+test/hooks-registry.test.ts
+test/plugins-capture.test.ts
+test/plugins-kill.test.ts
+test/plugins-panes.test.ts
+test/plugins-zoom.test.ts
+test/plugins/whoami.test.ts
+test/pulse.test.ts
+test/restart-help.test.ts
+test/snapshot.test.ts
+test/upload.test.ts
