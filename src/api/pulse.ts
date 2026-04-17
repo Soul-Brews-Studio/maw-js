@@ -87,14 +87,20 @@ pulseApi.patch("/pulse/:id", async ({ params, body, set}) => {
   const id = params.id;
   const { addLabels, removeLabels, state } = body;
   const repo = getPulseRepo();
-  const cmds: string[] = [];
-  if (addLabels?.length) cmds.push(`gh issue edit ${id} --repo ${repo} --add-label "${addLabels.join(",")}"`);
-  if (removeLabels?.length) cmds.push(`gh issue edit ${id} --repo ${repo} --remove-label "${removeLabels.join(",")}"`);
-  if (state === "closed") cmds.push(`gh issue close ${id} --repo ${repo}`);
-  if (state === "open") cmds.push(`gh issue reopen ${id} --repo ${repo}`);
-  if (!cmds.length) { set.status = 400; return { error: "nothing to update" }; }
   try {
-    for (const cmd of cmds) await hostExec(cmd);
+    const ops: Array<() => Promise<string>> = [];
+    if (addLabels?.length) {
+      assertLabels(addLabels);
+      ops.push(() => ghSpawn(["issue", "edit", id, "--repo", repo, "--add-label", addLabels.join(",")]));
+    }
+    if (removeLabels?.length) {
+      assertLabels(removeLabels);
+      ops.push(() => ghSpawn(["issue", "edit", id, "--repo", repo, "--remove-label", removeLabels.join(",")]));
+    }
+    if (state === "closed") ops.push(() => ghSpawn(["issue", "close", id, "--repo", repo]));
+    if (state === "open") ops.push(() => ghSpawn(["issue", "reopen", id, "--repo", repo]));
+    if (!ops.length) { set.status = 400; return { error: "nothing to update" }; }
+    for (const op of ops) await op();
     return { ok: true, id };
   } catch (e: any) {
     set.status = 500; return { error: e.message };
