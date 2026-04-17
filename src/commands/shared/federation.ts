@@ -81,14 +81,18 @@ export async function cmdFederationStatus() {
     if (reachable) online++;
 
     const dot = reachable ? "\x1b[32m●\x1b[0m" : "\x1b[31m●\x1b[0m";
+    // "reachable" is truthful — we only verified local→peer direction.
+    // The reverse direction (peer→local) is NOT checked here. See
+    // federation-audit/pair-health-failure.md in mawjs-no2-oracle for the
+    // symmetric-pair proposal (iteration 4+).
     const status = reachable
-      ? `\x1b[32monline\x1b[0m  \x1b[90m${latency}ms · ${agentCount} agent${agentCount !== 1 ? "s" : ""}\x1b[0m`
-      : "\x1b[31moffline\x1b[0m";
+      ? `\x1b[32mreachable\x1b[0m  \x1b[90m${latency}ms · ${agentCount} agent${agentCount !== 1 ? "s" : ""}\x1b[0m`
+      : "\x1b[31munreachable\x1b[0m";
 
     const label = labelForPeer(url, named);
     console.log(`  ${dot}  \x1b[37m${label}\x1b[0m  ${status}`);
     console.log(`     \x1b[90m${url}\x1b[0m`);
   }
 
-  console.log(`\n\x1b[90m${online}/${totalNodes} online\x1b[0m\n`);
+  console.log(`\n\x1b[90m${online}/${totalNodes} reachable (one-way; pair-symmetric verify TBD)\x1b[0m\n`);
 }

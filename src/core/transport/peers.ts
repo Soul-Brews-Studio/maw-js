@@ -20,7 +20,15 @@ export interface PeerStatus {
 const CLOCK_WARN_MS = 3 * 60 * 1000;
 
 /**
- * Check if a peer is reachable by making a HEAD request
+ * Check if a peer is reachable by making a GET /api/sessions request.
+ *
+ * ONE-WAY ONLY. This verifies local→peer reach. It does NOT verify that
+ * the peer can reach back (peer→local). Asymmetric-NAT, one-sided firewall
+ * rules, and one-sided WireGuard configs all produce the state where
+ * `reachable: true` but the peer cannot message us.
+ *
+ * For symmetric pair verification, see the proposed `getFederationStatusSymmetric`
+ * in mawjs-no2-oracle/ψ/lab/federation-audit/pair-health-failure.md (Sketch A).
  */
 async function checkPeerReachable(url: string): Promise<{
   reachable: boolean; latency: number; node?: string; agents?: string[]; clockDeltaMs?: number;
