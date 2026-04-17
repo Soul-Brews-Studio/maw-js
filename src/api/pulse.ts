@@ -13,6 +13,24 @@ import { Elysia, t} from "elysia";
 import { hostExec } from "../core/transport/ssh";
 import { loadConfig, type MawConfig } from "../config";
 
+const LABEL_RE = /^[a-zA-Z0-9_:/.\- ]+$/;
+function assertLabels(labels: string[]): void {
+  for (const l of labels) {
+    if (!LABEL_RE.test(l)) throw new Error(`Invalid label: ${JSON.stringify(l)}`);
+  }
+}
+
+async function ghSpawn(args: string[]): Promise<string> {
+  const proc = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(err.trim() || `gh exited ${code}`);
+  return out;
+}
+
 export const pulseApi = new Elysia();
 
 function getPulseRepo(): string {
