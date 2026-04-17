@@ -1,0 +1,66 @@
+name: Ecosystem Drift Guard
+
+# Catches: refactors that rename/delete files referenced by ecosystem.config.cjs
+# Incident: 2026-04-17 — src/server.ts renamed to src/core/server.ts,
+#   ecosystem.config.cjs not updated → PM2 crash-loop (20+542 silent restarts)
+
+on:
+  push:
+    branches: [alpha, main]
+  pull_request:
+    branches: [alpha, main]
+
+jobs:
+  check-ecosystem:
+    name: ecosystem-paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify ecosystem.config.cjs script paths exist
+        run: bash scripts/check-ecosystem.sh
+
+  simulate-rename-regression:
+    name: rename-regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Simulate file rename breaking ecosystem (regression test)
+        run: |
+          echo "=== Simulating the Apr 17 incident ==="
+
+          # 1. Record current valid state
+          echo "Step 1: Verify current state is valid"
+          bash scripts/check-ecosystem.sh
+
+          # 2. Extract a script path from ecosystem config
+          SCRIPT=$(grep -oP "script:\s*'([^']+)'" ecosystem.config.cjs | head -1 | grep -oP "'[^']+'" | tr -d "'")
+          echo "Step 2: Target script = $SCRIPT"
+
+          if [ -z "$SCRIPT" ] || [ ! -f "$SCRIPT" ]; then
+            echo "⏭ No valid script to simulate with — skipping"
+            exit 0
+          fi
+
+          # 3. Rename the file (simulate refactor)
+          DIRNAME=$(dirname "$SCRIPT")
+          NEWPATH="${DIRNAME}/renamed-for-test-$(basename $SCRIPT)"
+          mv "$SCRIPT" "$NEWPATH"
+          echo "Step 3: Renamed $SCRIPT → $NEWPATH"
+
+          # 4. check-ecosystem.sh MUST fail
+          echo "Step 4: Verify check-ecosystem.sh catches the broken reference"
+          if bash scripts/check-ecosystem.sh 2>&1; then
+            echo "✗ REGRESSION: check-ecosystem.sh did NOT catch missing file!"
+            mv "$NEWPATH" "$SCRIPT"  # restore
+            exit 1
+          else
+            echo "✓ check-ecosystem.sh correctly caught the broken reference"
+          fi
+
+          # 5. Restore
+          mv "$NEWPATH" "$SCRIPT"
+          echo "Step 5: Restored $SCRIPT"
+          echo ""
+          echo "=== Regression test passed ==="
