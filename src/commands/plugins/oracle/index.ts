@@ -1,10 +1,12 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { cmdOracleList, cmdOracleAbout, cmdOracleScan, cmdOracleScanStale } from "./impl";
+import { cmdOraclePrune } from "./impl-prune";
+import { cmdOracleRegister } from "./impl-register";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
   name: ["oracle", "oracles"],
-  description: "Oracle management — list, scan, about (fleet deprecated → ls)",
+  description: "Oracle management — list, scan, about, prune, register",
 };
 
 // Shared spec for `ls` flags — used by both ls and the fleet alias.
@@ -87,10 +89,26 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           stale: flags["--stale"],
           path: flags["--path"],
         });
+      } else if (subcmd === "prune") {
+        const flags = parseFlags(args, {
+          "--stale": Boolean,
+          "--force": Boolean,
+          "--json": Boolean,
+        }, 1);
+        await cmdOraclePrune({
+          stale: flags["--stale"],
+          force: flags["--force"],
+          json: flags["--json"],
+        });
+      } else if (subcmd === "register") {
+        const name = args[1];
+        if (!name) return { ok: false, error: "usage: maw oracle register <name>" };
+        const flags = parseFlags(args, { "--json": Boolean }, 2);
+        await cmdOracleRegister(name, { json: flags["--json"] });
       } else if (subcmd === "about" && args[1]) {
         await cmdOracleAbout(args[1]);
       } else {
-        return { ok: false, error: "usage: maw oracle [ls|scan|about <name>]" };
+        return { ok: false, error: "usage: maw oracle [ls|scan|prune|register <name>|about <name>]" };
       }
     } else if (ctx.source === "api") {
       const query = ctx.args as Record<string, unknown>;
@@ -132,10 +150,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           stale: query.stale as boolean | undefined,
           path: query.path as boolean | undefined,
         });
+      } else if (sub === "prune") {
+        await cmdOraclePrune({
+          stale: query.stale as boolean | undefined,
+          force: query.force as boolean | undefined,
+          json: query.json as boolean | undefined,
+        });
+      } else if (sub === "register") {
+        if (!query.name) return { ok: false, error: "usage: query.sub=register + query.name" };
+        await cmdOracleRegister(query.name as string, {
+          json: query.json as boolean | undefined,
+        });
       } else if (sub === "about" && query.name) {
         await cmdOracleAbout(query.name as string);
       } else {
-        return { ok: false, error: "usage: query.sub=[ls|scan|about] + query.name for about" };
+        return { ok: false, error: "usage: query.sub=[ls|scan|prune|register|about] + query.name for about/register" };
       }
     }
 
