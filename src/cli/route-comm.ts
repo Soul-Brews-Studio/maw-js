@@ -14,8 +14,13 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // same "usage:" error. Now the missing-message case names the target
     // so the user sees their input got through.
     if (!target) {
-      console.error("usage: maw hey <agent> <message> [--force]");
+      console.error("usage: maw hey <target> <message> [--force]");
+      console.error("  target forms:");
+      console.error("    <agent>                      bare name, resolves on local node");
+      console.error("    <node>:<session>             canonical cross-node form (window 1)");
+      console.error("    <node>:<session>:<window>    target a specific tmux window (#410)");
       console.error("  e.g. maw hey mawjs \"hello from neo\"");
+      console.error("       maw hey phaith:01-hojo:3 \"hello hojo-hermes\"");
       throw new UserError("missing target and message");
     }
     if (!msgArgs.length) {
