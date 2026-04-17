@@ -215,4 +215,65 @@ describe("soul-sync", () => {
       expect(findPeersForTest("floodboy", fleet)).toEqual([]);
     });
   });
+
+  // #363 phase 1 — canonical collaboration docs (treaty-class) must ride
+  // through soul-sync so child oracles inherit them, not just learnings/
+  // retros/traces. Regression guard against dropping the subdir.
+  describe("collaborations propagation (#363 phase 1)", () => {
+    test("parent's memory/collaborations/ propagates to bud via syncOracleVaults", () => {
+      const { syncOracleVaults } = require("../src/commands/plugins/soul-sync/sync-helpers");
+
+      const budRoot = join(TEST_DIR, "bud-oracle");
+      const parentRoot = join(TEST_DIR, "mawjs-oracle");
+      const parentCollab = join(parentRoot, "ψ/memory/collaborations/white-wormhole/topics");
+
+      mkdirSync(parentCollab, { recursive: true });
+      writeFileSync(
+        join(parentCollab, "claim-chain-and-sync-protocol.md"),
+        "# ACCEPT primitive — 11 ratified agreements",
+      );
+      mkdirSync(budRoot, { recursive: true });
+
+      const result = syncOracleVaults(parentRoot, budRoot, "mawjs", "bud");
+
+      const budFile = join(budRoot, "ψ/memory/collaborations/white-wormhole/topics/claim-chain-and-sync-protocol.md");
+      expect(existsSync(budFile)).toBe(true);
+      expect(readFileSync(budFile, "utf-8")).toContain("ACCEPT primitive");
+      expect(result.synced["memory/collaborations"]).toBe(1);
+      expect(result.total).toBe(1);
+    });
+
+    test("collaborations sync skips files already present in bud (new-files-only)", () => {
+      const { syncOracleVaults } = require("../src/commands/plugins/soul-sync/sync-helpers");
+
+      const budRoot = join(TEST_DIR, "bud-oracle");
+      const parentRoot = join(TEST_DIR, "mawjs-oracle");
+      const parentCollab = join(parentRoot, "ψ/memory/collaborations/peer-x/topics");
+      const budCollab = join(budRoot, "ψ/memory/collaborations/peer-x/topics");
+
+      mkdirSync(parentCollab, { recursive: true });
+      mkdirSync(budCollab, { recursive: true });
+      writeFileSync(join(parentCollab, "treaty.md"), "# PARENT TREATY");
+      writeFileSync(join(budCollab, "treaty.md"), "# BUD-LOCAL EDIT — must not be overwritten");
+
+      const result = syncOracleVaults(parentRoot, budRoot, "mawjs", "bud");
+
+      expect(readFileSync(join(budCollab, "treaty.md"), "utf-8")).toContain("BUD-LOCAL EDIT");
+      expect(result.total).toBe(0);
+    });
+
+    test("no memory/collaborations on parent → bud sync is a no-op (no error)", () => {
+      const { syncOracleVaults } = require("../src/commands/plugins/soul-sync/sync-helpers");
+
+      const budRoot = join(TEST_DIR, "bud-oracle");
+      const parentRoot = join(TEST_DIR, "mawjs-oracle");
+      mkdirSync(join(parentRoot, "ψ/memory/learnings"), { recursive: true });
+      mkdirSync(budRoot, { recursive: true });
+
+      const result = syncOracleVaults(parentRoot, budRoot, "mawjs", "bud");
+
+      expect(existsSync(join(budRoot, "ψ/memory/collaborations"))).toBe(false);
+      expect(result.synced["memory/collaborations"]).toBeUndefined();
+    });
+  });
 });
