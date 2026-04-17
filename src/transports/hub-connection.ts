@@ -7,6 +7,7 @@ import type { TransportMessage, TransportPresence } from "../core/transport/tran
 import type { FeedEvent } from "../lib/feed";
 import { sign } from "../lib/federation-auth";
 import { trySilent } from "../core/util/try-silent";
+import { sanitizeLogField } from "../core/util/sanitize-log";
 import { HEARTBEAT_MS, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "./hub-config";
 import type { WorkspaceConfig } from "./hub-config";
 
@@ -51,7 +52,9 @@ export function handleMessage(
 
     switch (msg.type) {
       case "auth-ok":
-        console.log(`[hub] workspace ${conn.config.id}: authenticated (workspace=${msg.workspaceId})`);
+        // msg.workspaceId is attacker-influenced (parsed from WS frame).
+        // Sanitize before logging to close CodeQL js/log-injection (#474).
+        console.log(`[hub] workspace ${conn.config.id}: authenticated (workspace=${sanitizeLogField(msg.workspaceId)})`);
         if (Array.isArray(msg.agents)) conn.remoteAgents = new Set(msg.agents);
         break;
       case "message": {
@@ -80,10 +83,12 @@ export function handleMessage(
         }
         break;
       case "node-joined":
-        console.log(`[hub] workspace ${conn.config.id}: node joined — ${msg.nodeId}`);
+        // msg.nodeId is attacker-influenced — sanitize before logging.
+        console.log(`[hub] workspace ${conn.config.id}: node joined — ${sanitizeLogField(msg.nodeId)}`);
         break;
       case "node-left":
-        console.log(`[hub] workspace ${conn.config.id}: node left — ${msg.nodeId}`);
+        // msg.nodeId is attacker-influenced — sanitize before logging.
+        console.log(`[hub] workspace ${conn.config.id}: node left — ${sanitizeLogField(msg.nodeId)}`);
         if (msg.agents && Array.isArray(msg.agents)) {
           for (const agent of msg.agents) conn.remoteAgents.delete(agent);
         }
@@ -92,7 +97,8 @@ export function handleMessage(
         if (msg.event) for (const h of feedHandlers) h(msg.event);
         break;
       case "error":
-        console.error(`[hub] workspace ${conn.config.id}: hub error — ${msg.message || msg.reason}`);
+        // Both msg.message and msg.reason are attacker-influenced — sanitize.
+        console.error(`[hub] workspace ${conn.config.id}: hub error — ${sanitizeLogField(msg.message || msg.reason)}`);
         break;
       default:
         break;
