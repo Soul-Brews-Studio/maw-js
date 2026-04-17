@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import { cmdOracleList, cmdOracleAbout, cmdOracleScan } from "./impl";
+import { cmdOracleList, cmdOracleAbout, cmdOracleScan, cmdOracleScanStale } from "./impl";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
@@ -51,20 +51,28 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           "--local": Boolean,
           "--remote": Boolean,
           "--all": Boolean,
+          "--stale": Boolean,
           "--verbose": Boolean,
           "-v": "--verbose",
           "--quiet": Boolean,
           "-q": "--quiet",
         }, 1);
-        await cmdOracleScan({
-          json: flags["--json"],
-          force: flags["--force"],
-          local: flags["--local"],
-          remote: flags["--remote"],
-          all: flags["--all"],
-          verbose: flags["--verbose"],
-          quiet: flags["--quiet"],
-        });
+        if (flags["--stale"]) {
+          await cmdOracleScanStale({
+            json: flags["--json"],
+            all: flags["--all"],
+          });
+        } else {
+          await cmdOracleScan({
+            json: flags["--json"],
+            force: flags["--force"],
+            local: flags["--local"],
+            remote: flags["--remote"],
+            all: flags["--all"],
+            verbose: flags["--verbose"],
+            quiet: flags["--quiet"],
+          });
+        }
       } else if (subcmd === "fleet") {
         // Deprecated alias — warn then delegate to ls.
         console.error(
@@ -97,14 +105,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           path: query.path as boolean | undefined,
         });
       } else if (sub === "scan") {
-        await cmdOracleScan({
-          json: query.json as boolean | undefined,
-          force: query.force as boolean | undefined,
-          local: query.local as boolean | undefined,
-          remote: query.remote as boolean | undefined,
-          all: query.all as boolean | undefined,
-          verbose: query.verbose as boolean | undefined,
-        });
+        if (query.stale) {
+          await cmdOracleScanStale({
+            json: query.json as boolean | undefined,
+            all: query.all as boolean | undefined,
+          });
+        } else {
+          await cmdOracleScan({
+            json: query.json as boolean | undefined,
+            force: query.force as boolean | undefined,
+            local: query.local as boolean | undefined,
+            remote: query.remote as boolean | undefined,
+            all: query.all as boolean | undefined,
+            verbose: query.verbose as boolean | undefined,
+          });
+        }
       } else if (sub === "fleet") {
         console.error(
           `\x1b[33m⚠  oracle.fleet is deprecated — use oracle.ls\x1b[0m`,
