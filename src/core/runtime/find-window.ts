@@ -23,6 +23,21 @@ export interface Session {
 }
 
 /**
+ * Thrown when a bare-name query matches multiple candidates and no exact
+ * match can disambiguate. See #414 / #406-1a.
+ */
+export class AmbiguousMatchError extends Error {
+  readonly query: string;
+  readonly candidates: string[];
+  constructor(query: string, candidates: string[]) {
+    super(`Ambiguous match for "${query}" — candidates: ${candidates.join(", ")}`);
+    this.name = "AmbiguousMatchError";
+    this.query = query;
+    this.candidates = candidates;
+  }
+}
+
+/**
  * Match a session by name part. Tries (in order):
  *   1. Exact match
  *   2. Oracle-name match (strip leading `\d+-` from session name)
@@ -64,18 +79,36 @@ export function findWindow(sessions: Session[], query: string): string | null {
     // Fall through if no semantic match
   }
 
-  // Match window names first (most specific)
+  // Two-pass bare-name resolution (#414):
+  //   Pass 1 collects exact matches (window name, session name, stripped
+  //   oracle-name). Pass 2 collects substring matches only if Pass 1 was
+  //   empty. Multi-candidate in either pass → AmbiguousMatchError.
+  const exact = new Set<string>();
   for (const s of sessions) {
     for (const w of s.windows) {
-      if (w.name.toLowerCase().includes(q)) return `${s.name}:${w.index}`;
+      if (w.name.toLowerCase() === q) exact.add(`${s.name}:${w.index}`);
+    }
+    if (s.windows.length > 0) {
+      const sn = s.name.toLowerCase();
+      if (sn === q || sn.replace(/^\d+-/, "") === q) {
+        exact.add(`${s.name}:${s.windows[0].index}`);
+      }
     }
   }
-  // Match session names — return first window of matching session
+  if (exact.size === 1) return [...exact][0];
+  if (exact.size > 1) throw new AmbiguousMatchError(query, [...exact]);
+
+  const sub = new Set<string>();
   for (const s of sessions) {
+    for (const w of s.windows) {
+      if (w.name.toLowerCase().includes(q)) sub.add(`${s.name}:${w.index}`);
+    }
     if (s.name.toLowerCase().includes(q) && s.windows.length > 0) {
-      return `${s.name}:${s.windows[0].index}`;
+      sub.add(`${s.name}:${s.windows[0].index}`);
     }
   }
+  if (sub.size === 1) return [...sub][0];
+  if (sub.size > 1) throw new AmbiguousMatchError(query, [...sub]);
   // If query has ":" and the SESSION part matched a real session but the
   // WINDOW part didn't → return raw query (user may mean index, e.g. "08-mawjs:1").
   // If the SESSION part didn't match anything local → return null so cmdSend
