@@ -88,32 +88,42 @@ export function federationAuth(): MiddlewareHandler {
   return async (c, next) => {
     const config = loadConfig();
     const token = config.federationToken;
-
-    // No token configured → auth disabled (backwards compat)
-    if (!token) return next();
+    const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
+    const allowPeersWithoutToken = (config as unknown as { allowPeersWithoutToken?: boolean }).allowPeersWithoutToken === true;
 
     const url = new URL(c.req.url);
     const path = url.pathname.replace(/^\/api/, "/api"); // normalize
 
-    // Not a protected path → pass
+    // Not a protected path → pass (reads remain public so the Office UI works)
     if (!isProtected(path, c.req.method)) return next();
 
-    // Check if loopback (local CLI / browser on same machine).
-    // SECURITY: only the TCP source address is authoritative — X-Forwarded-For
-    // and X-Real-IP are attacker-controlled headers and MUST NOT influence
-    // auth decisions. See #191 for the empirically-verified RCE vector
-    // (Test 3 on mba: POST /api/send to a non-loopback interface with
-    // `X-Forwarded-For: 127.0.0.1` bypassed HMAC entirely).
-    //
-    // NOTE: this fix closes Path A (header spoof from external IP) and
-    // Path C (forwarder + spoof combo), but DOES NOT close Path B (a local
-    // process — cloudflared, nginx, sidecar — forwarding to localhost makes
-    // the TCP source legitimately 127.0.0.1). The full fix (Option C in #191)
-    // is to remove this bypass entirely and have the local CLI sign all
-    // requests; this lands in a follow-up PR.
+    // Loopback (local CLI / browser on same machine) still trusted.
+    // SECURITY: only the TCP source address is authoritative (see #191).
     const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
-
     if (isLoopback(clientIp)) return next();
+
+    // Peers-require-token invariant (Bloom federation-audit iteration 2):
+    // If peers are configured, the server binds to 0.0.0.0 (see core/server.ts)
+    // and is network-reachable. No federationToken in that posture is
+    // default-insecure-open — refuse protected writes from non-loopback
+    // callers. Operators who truly need the legacy behavior must opt in
+    // explicitly with `allowPeersWithoutToken: true`.
+    if (!token && hasPeers && !allowPeersWithoutToken) {
+      return c.json({ error: "federation auth required", reason: "federation_token_required" }, 401);
+    }
+
+    // No token configured AND no peers → local-only single-node mode.
+    // The server binds to 127.0.0.1 in this posture, so reaching this
+    // middleware from a non-loopback source is already unexpected; but
+    // preserve legacy pass-through so fresh installs work unchanged.
+    if (!token) return next();
+
+    // NOTE on Path B (from issue #191): a local process (cloudflared, nginx,
+    // sidecar) forwarding to localhost makes the TCP source legitimately
+    // 127.0.0.1, which `isLoopback` above will trust. This is a separate
+    // follow-up (Option C in #191 — have the local CLI sign all requests).
+    // X-Forwarded-For / X-Real-IP are never consulted; only the TCP source
+    // address is authoritative for loopback detection.
 
     // Check for HMAC signature
     const sig = c.req.header("x-maw-signature");
