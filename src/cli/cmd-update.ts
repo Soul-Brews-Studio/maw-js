@@ -115,7 +115,20 @@ export async function runUpdate(args: string[]): Promise<void> {
   // Remove first to avoid bun dependency loop (#214)
   // Required: purges stale global refs that cause dep loops (#347)
   try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
-  execSync(`bun add -g github:${repository}#${ref}`, { stdio: "inherit" });
+
+  // Allowlist: git tag names, branch names, commit SHAs — no shell metacharacters.
+  // Channel shortcuts ("alpha"/"beta") resolve to a validated tag above; all
+  // resolved refs must still pass this gate (defense-in-depth after channel resolve).
+  const REF_RE = /^[a-zA-Z0-9._\-\/]+$/;
+  if (!REF_RE.test(ref)) {
+    console.error(`\x1b[31merror\x1b[0m: invalid ref "${ref}" — only [a-zA-Z0-9._-/] characters permitted`);
+    process.exit(1);
+  }
+  const installProc = Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  const installCode = await installProc.exited;
+  if (installCode !== 0) process.exit(installCode);
   // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
   // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
   try {
