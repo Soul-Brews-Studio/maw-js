@@ -8,6 +8,9 @@ mock.module("./impl", () => ({
   cmdOracleScan: async (_opts: any) => {
     console.log("Scanned 5 oracles locally");
   },
+  cmdOracleScanStale: async (_opts: any) => {
+    console.log("Stale oracle scan  (DEAD 1  STALE 2)");
+  },
   cmdOracleFleet: async (_opts: any) => {
     console.log("Oracle Fleet  (5 oracles)");
   },
@@ -34,6 +37,12 @@ describe("oracle plugin", () => {
     const result = await handler({ source: "cli", args: ["scan"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Scanned");
+  });
+
+  it("cli: scan --stale dispatches to stale classifier", async () => {
+    const result = await handler({ source: "cli", args: ["scan", "--stale"] });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("Stale oracle scan");
   });
 
   it("cli: fleet shows fleet", async () => {
