@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
-import { sign, verify, isLoopback, signHeaders } from "../src/lib/federation-auth";
+import { sign, verify, isLoopback, signHeaders, hashBody } from "../src/lib/federation-auth";
 
 // --- isLoopback ---
 
@@ -102,6 +102,122 @@ describe("signHeaders", () => {
     const ts = parseInt(headers["X-Maw-Timestamp"], 10);
     const sig = headers["X-Maw-Signature"];
     expect(verify(token, "POST", "/api/send", ts, sig)).toBe(true);
+  });
+});
+
+// --- v2 body-hash signatures (D#2 — prevents captured-sig body-swap) ---
+
+describe("hashBody", () => {
+  const token = "test-federation-token-minimum-16-chars";
+
+  test("empty/undefined/null body → empty string (v1 marker)", () => {
+    expect(hashBody("")).toBe("");
+    expect(hashBody(undefined)).toBe("");
+    expect(hashBody(null)).toBe("");
+    expect(hashBody(new Uint8Array(0))).toBe("");
+  });
+
+  test("string body → 64-char hex digest", () => {
+    expect(hashBody("hello")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("same string → same hash (deterministic)", () => {
+    expect(hashBody("hello")).toBe(hashBody("hello"));
+  });
+
+  test("different strings → different hashes", () => {
+    expect(hashBody("hello")).not.toBe(hashBody("hello2"));
+  });
+
+  test("Uint8Array body hashes same bytes as string", () => {
+    const s = '{"target":"x","text":"y"}';
+    const u = new TextEncoder().encode(s);
+    expect(hashBody(s)).toBe(hashBody(u));
+  });
+});
+
+describe("sign/verify with bodyHash (v2)", () => {
+  const token = "test-federation-token-minimum-16-chars";
+
+  test("v2 round-trip — same body hash verifies", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const bh = hashBody('{"target":"x","text":"hello"}');
+    const sig = sign(token, "POST", "/api/send", ts, bh);
+    expect(verify(token, "POST", "/api/send", ts, sig, bh)).toBe(true);
+  });
+
+  test("v2 sig + different body-hash → false (the body-swap attack is blocked)", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const bhSigned = hashBody('{"target":"x","text":"original"}');
+    const bhReplayed = hashBody('{"target":"x","text":"attacker-payload"}');
+    const sig = sign(token, "POST", "/api/send", ts, bhSigned);
+    expect(verify(token, "POST", "/api/send", ts, sig, bhReplayed)).toBe(false);
+  });
+
+  test("v1 sig + any body-hash on verify → false (version mismatch)", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sigV1 = sign(token, "POST", "/api/send", ts);
+    // Verifier thinks it's v2 (has a body hash), but signature is v1
+    const bh = hashBody('{"target":"x"}');
+    expect(verify(token, "POST", "/api/send", ts, sigV1, bh)).toBe(false);
+  });
+
+  test("v2 sig verified as v1 (no body hash) → false (version mismatch)", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sigV2 = sign(token, "POST", "/api/send", ts, hashBody("any"));
+    expect(verify(token, "POST", "/api/send", ts, sigV2)).toBe(false);
+  });
+
+  test("v1 sig + no bodyHash on verify → true (backward compat path)", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sigV1 = sign(token, "POST", "/api/send", ts);
+    expect(verify(token, "POST", "/api/send", ts, sigV1)).toBe(true);
+  });
+
+  test("timestamp still enforced in v2 (old captured sig rejected)", () => {
+    const oldTs = Math.floor(Date.now() / 1000) - 400;
+    const bh = hashBody('{"x":1}');
+    const sig = sign(token, "POST", "/api/send", oldTs, bh);
+    expect(verify(token, "POST", "/api/send", oldTs, sig, bh)).toBe(false);
+  });
+});
+
+describe("signHeaders with body (v2)", () => {
+  const token = "test-federation-token-minimum-16-chars";
+
+  test("no body → v1 headers (no version header)", () => {
+    const h = signHeaders(token, "POST", "/api/send");
+    expect(h["X-Maw-Timestamp"]).toBeDefined();
+    expect(h["X-Maw-Signature"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(h["X-Maw-Auth-Version"]).toBeUndefined();
+  });
+
+  test("body provided → v2 headers (includes version)", () => {
+    const h = signHeaders(token, "POST", "/api/send", '{"x":1}');
+    expect(h["X-Maw-Auth-Version"]).toBe("v2");
+    expect(h["X-Maw-Signature"]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("empty body string → v1 (no version header; matches 'no body')", () => {
+    const h = signHeaders(token, "POST", "/api/send", "");
+    expect(h["X-Maw-Auth-Version"]).toBeUndefined();
+  });
+
+  test("v2 signature verifies when reconstructed with same body hash", () => {
+    const body = '{"target":"x","text":"hello"}';
+    const h = signHeaders(token, "POST", "/api/send", body);
+    const ts = parseInt(h["X-Maw-Timestamp"], 10);
+    const bh = hashBody(body);
+    expect(verify(token, "POST", "/api/send", ts, h["X-Maw-Signature"], bh)).toBe(true);
+  });
+
+  test("v2 signature does NOT verify with swapped body hash (the attack)", () => {
+    const realBody = '{"target":"x","text":"original"}';
+    const attackerBody = '{"target":"x","text":"payload"}';
+    const h = signHeaders(token, "POST", "/api/send", realBody);
+    const ts = parseInt(h["X-Maw-Timestamp"], 10);
+    const bhAttacker = hashBody(attackerBody);
+    expect(verify(token, "POST", "/api/send", ts, h["X-Maw-Signature"], bhAttacker)).toBe(false);
   });
 });
 
