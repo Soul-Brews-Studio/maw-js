@@ -6,8 +6,9 @@
   "description": "Spawn or attach to an oracle session",
   "cli": {
     "command": "wake",
-    "help": "maw wake <oracle|org/repo|URL> [task] [--task '<prompt>'] [--new <name>] [--fresh] [--no-attach] [--issue N] [--pr N] [--repo org/name] [--list]",
+    "help": "maw wake <oracle|org/repo|URL> [task] [--task '<prompt>'] [--wt <name>] [--fresh] [--no-attach] [--issue N] [--pr N] [--repo org/name] [--list]  (--new is deprecated alias for --wt, removed in alpha.114)",
     "flags": {
+      "--wt": "string",
       "--new": "string",
       "--incubate": "string",
       "--issue": "number",
