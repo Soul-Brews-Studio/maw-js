@@ -9,12 +9,26 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { hashFile } from "../../../plugin/registry";
 
+const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
+
 /**
  * Run `tar -xzf <tarball> -C <destDir>` synchronously. Returns true on success.
  * We shell out to GNU tar rather than adding a `tar` npm dep — Bun ships without
  * streaming tar, and adding a dep for a single call is not worth it.
  */
 export function extractTarball(tarballPath: string, destDir: string): { ok: true } | { ok: false; error: string } {
+  // Path-traversal guard: list entries first, reject any that escape the staging dir.
+  // GNU tar does not strip "../" by default; -C alone does not prevent traversal.
+  const list = spawnSync("tar", ["-tzf", tarballPath], { encoding: "utf8" });
+  if (list.status !== 0) {
+    return { ok: false, error: `tar list failed: ${list.stderr || list.stdout || `exit ${list.status}`}` };
+  }
+  for (const entry of list.stdout.split("\n").filter(Boolean)) {
+    if (entry.startsWith("/") || entry.split("/").includes("..")) {
+      return { ok: false, error: `tarball rejected: path traversal in entry "${entry}"` };
+    }
+  }
+
   const r = spawnSync("tar", ["-xzf", tarballPath, "-C", destDir], {
     encoding: "utf8",
   });
@@ -29,6 +43,12 @@ export function extractTarball(tarballPath: string, destDir: string): { ok: true
  * before writing (per brief: "verify content-type is gzip/tar").
  */
 export async function downloadTarball(url: string): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  // Scheme gate — defense in depth; detectMode already filters callers from cmdPluginInstall
+  // but direct callers of this function would bypass that upstream check.
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: `download refused: only http/https URLs are allowed (got ${JSON.stringify(url.slice(0, 32))})` };
+  }
+
   let res: Response;
   try {
     res = await fetch(url);
@@ -38,6 +58,13 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
   if (!res.ok) {
     return { ok: false, error: `download failed: HTTP ${res.status} ${res.statusText}` };
   }
+
+  // Size cap: reject before buffering if Content-Length already exceeds limit.
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_DOWNLOAD_BYTES) {
+    return { ok: false, error: `download refused: Content-Length ${declared} exceeds ${MAX_DOWNLOAD_BYTES} byte limit` };
+  }
+
   const ct = (res.headers.get("content-type") ?? "").toLowerCase();
   const ctOk =
     ct.includes("gzip") ||
@@ -48,7 +75,13 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
   if (!ctOk) {
     return { ok: false, error: `unexpected content-type ${JSON.stringify(ct)} — expected gzip/tar` };
   }
+
   const buf = new Uint8Array(await res.arrayBuffer());
+  // Cap actual bytes too — Content-Length can be absent or spoofed.
+  if (buf.byteLength > MAX_DOWNLOAD_BYTES) {
+    return { ok: false, error: `download refused: response body (${buf.byteLength} bytes) exceeds ${MAX_DOWNLOAD_BYTES} byte limit` };
+  }
+
   const tmp = mkdtempSync(join(tmpdir(), "maw-dl-"));
   const filename = basename(new URL(url).pathname) || "plugin.tgz";
   const outPath = join(tmp, filename);

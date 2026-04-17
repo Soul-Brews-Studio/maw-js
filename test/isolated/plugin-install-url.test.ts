@@ -197,7 +197,7 @@ describe("cmdPluginInstall — URL source (real Bun.serve)", () => {
     expect(exitCode).toBe(1);
     // Error surface can be "tar extract failed" OR "no plugin.json" — both are
     // actionable. Just assert one of the two.
-    const actionable = /tar extract failed|no plugin\.json|invalid plugin\.json/;
+    const actionable = /tar list failed|tar extract failed|no plugin\.json|invalid plugin\.json/;
     expect(stderr).toMatch(actionable);
     expect(existsSync(join(pluginsDir, "url-test-plugin"))).toBe(false);
   });
