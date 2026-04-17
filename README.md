@@ -78,7 +78,9 @@ maw bud myname --from neo                # bud from an existing oracle
 Talk across machines with HMAC-SHA256 signing.
 
 ```bash
-maw hey white:neo "hello"                # send to oracle on another node
+maw hey neo "hello"                      # bare name — resolves on local node
+maw hey white:neo "hello"                # canonical form — remote node, window 1
+maw hey white:neo:3 "hello hermes"       # pick a specific tmux window (#410)
 maw peek white:neo                       # see their screen
 maw ping                                 # check peer connectivity
 
