@@ -1,5 +1,6 @@
 import { loadConfig } from "../../../config";
 import { UserError } from "../../../core/util/user-error";
+import { sparkline } from "../../../lib/sparkline";
 
 type CostAgent = {
   name: string;
@@ -86,6 +87,85 @@ export async function cmdCosts() {
   console.log(`  \x1b[90m${"─".repeat(hdr.length)}\x1b[0m`);
   const totalCostColor = total.cost > 50 ? "\x1b[31m" : total.cost > 10 ? "\x1b[33m" : "\x1b[32m";
   console.log(`  ${"TOTAL".padEnd(30)}  ${fmtNum(total.tokens).padStart(14)}  ${totalCostColor}${"$" + total.cost.toFixed(2)}`.padStart(12) + `\x1b[0m  ${String(total.sessions).padStart(10)}`);
+  console.log();
+}
+
+// ---------------------------------------------------------------------------
+// Daily view
+// ---------------------------------------------------------------------------
+
+type DailyResponse = {
+  error?: string;
+  window: number;
+  buckets: string[];
+  agents: Array<{
+    name: string;
+    dailyCosts: number[];
+    totalCost: number;
+    hadActivity: boolean[];
+  }>;
+  total: { cost: number; agents: number };
+};
+
+export async function cmdCostsDaily(days: number, json: boolean) {
+  const config = loadConfig();
+  const base = `http://${config.host}:${config.port}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/costs/daily?days=${days}`);
+  } catch {
+    throw new UserError("cannot reach maw server — is `maw serve` running?");
+  }
+
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    const suffix = bodyText ? `: ${bodyText.slice(0, 100)}` : "";
+    throw new Error(`maw server returned ${res.status} ${res.statusText}${suffix}`);
+  }
+
+  let data: DailyResponse;
+  try {
+    data = JSON.parse(bodyText) as DailyResponse;
+  } catch {
+    throw new Error(`maw server returned non-JSON response: ${bodyText.slice(0, 100)}`);
+  }
+
+  if (data.error) throw new Error(data.error);
+
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (!data.agents.length) {
+    console.log(`\x1b[90mno activity in the last ${days} days\x1b[0m`);
+    return;
+  }
+
+  const lastBucket = data.buckets.at(-1) ?? "";
+  console.log(`\n\x1b[36mDAILY COSTS\x1b[0m  (${days}d ending ${lastBucket})\n`);
+
+  const nameW = 28;
+  for (const a of data.agents) {
+    const name =
+      a.name.length > nameW ? a.name.slice(0, nameW - 1) + "…" : a.name.padEnd(nameW);
+    const spark = sparkline(a.dailyCosts, a.hadActivity);
+    const cost = `$${a.totalCost.toFixed(2)}`;
+    console.log(`  ${name}  ${spark}  ${cost}`);
+  }
+
+  // Total row — sum across all agents per bucket
+  const totalCosts = (data.agents[0]?.dailyCosts ?? []).map(
+    (_: number, i: number) =>
+      data.agents.reduce((s: number, a) => s + a.dailyCosts[i], 0),
+  );
+  const totalHad = totalCosts.map((v: number) => v > 0);
+  const totalSpark = sparkline(totalCosts, totalHad);
+  const totalCostStr = `$${data.total.cost.toFixed(2)}`;
+  const sepLen = nameW + 2 + days + 4;
+  console.log(`  ${"─".repeat(sepLen)}`);
+  console.log(`  ${"TOTAL".padEnd(nameW)}  ${totalSpark}  ${totalCostStr}`);
   console.log();
 }
 

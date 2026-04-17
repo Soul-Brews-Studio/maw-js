@@ -85,6 +85,103 @@ function estimateCost(usage: SessionUsage): number {
   return (totalInput / 1_000_000) * rates.input + (usage.outputTokens / 1_000_000) * rates.output;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers for /costs/daily
+// ---------------------------------------------------------------------------
+
+/** Convert an ISO timestamp string to a local-TZ "YYYY-MM-DD" string. */
+function localDateStr(isoTs: string): string {
+  const d = new Date(isoTs);
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/**
+ * Generate N date strings (local TZ) ending today (inclusive), oldest first.
+ * Uses UTC arithmetic then converts to local date — DST-safe for display.
+ */
+function makeBuckets(n: number): string[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(today.getTime() - (n - 1 - i) * 86_400_000);
+    return localDateStr(d.toISOString());
+  });
+}
+
+costsApi.get("/costs/daily", ({ query, set }) => {
+  const days = Number(query.days ?? 7);
+  if (isNaN(days) || days < 1 || days > 365) {
+    set.status = 400;
+    return { error: "days must be 1–365" };
+  }
+
+  const buckets = makeBuckets(days);
+  const bucketIndex = new Map(buckets.map((b, i) => [b, i]));
+
+  const projectsDir = join(homedir(), ".claude", "projects");
+  let dirs: string[];
+  try {
+    dirs = readdirSync(projectsDir).filter((d) => {
+      try { return statSync(join(projectsDir, d)).isDirectory(); } catch { return false; }
+    });
+  } catch {
+    set.status = 500;
+    return { error: "Cannot read ~/.claude/projects/" };
+  }
+
+  // agentName → { costs: number[], hadActivity: boolean[] }
+  const agentDailyMap = new Map<string, { costs: number[]; hadActivity: boolean[] }>();
+
+  for (const dir of dirs) {
+    const dirPath = join(projectsDir, dir);
+    let files: string[];
+    try {
+      files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
+    } catch { continue; }
+
+    if (files.length === 0) continue;
+    const agentName = agentNameFromDir(dir);
+
+    if (!agentDailyMap.has(agentName)) {
+      agentDailyMap.set(agentName, {
+        costs: Array(days).fill(0),
+        hadActivity: Array(days).fill(false),
+      });
+    }
+
+    const entry = agentDailyMap.get(agentName)!;
+
+    for (const file of files) {
+      const usage = scanSession(join(dirPath, file));
+      if (!usage || !usage.lastTimestamp) continue;
+
+      const dateStr = localDateStr(usage.lastTimestamp);
+      const idx = bucketIndex.get(dateStr);
+      if (idx === undefined) continue; // outside the window
+
+      entry.costs[idx] += estimateCost(usage);
+      entry.hadActivity[idx] = true;
+    }
+  }
+
+  const agents = [...agentDailyMap.entries()]
+    .filter(([, d]) => d.costs.reduce((s, v) => s + v, 0) > 0)
+    .map(([name, d]) => ({
+      name,
+      dailyCosts: d.costs,
+      totalCost: d.costs.reduce((s, v) => s + v, 0),
+      hadActivity: d.hadActivity,
+    }))
+    .sort((a, b) => b.totalCost - a.totalCost);
+
+  const totalCost = agents.reduce((s, a) => s + a.totalCost, 0);
+  return { window: days, buckets, agents, total: { cost: totalCost, agents: agents.length } };
+});
+
 costsApi.get("/costs", ({ set }) => {
   const projectsDir = join(homedir(), ".claude", "projects");
   let dirs: string[];
