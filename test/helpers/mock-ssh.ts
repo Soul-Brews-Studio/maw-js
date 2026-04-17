@@ -1,6 +1,9 @@
 /**
  * Canonical ssh.ts mock — USE THIS for all mock.module calls on ssh.ts.
  *
+ * @target-module src/core/transport/ssh.ts
+ * (Checked by scripts/check-mock-export-sync.sh — #435)
+ *
  * Why: mock.module writes to a process-global module registry. When test A
  * mocks ssh.ts with N exports and test B mocks it with N-3, test B leaves
  * the global polluted. When later test C imports the real ssh.ts, its
