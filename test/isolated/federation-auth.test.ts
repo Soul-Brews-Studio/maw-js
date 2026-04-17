@@ -310,6 +310,90 @@ describe("federationAuth() middleware — bypass branches", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// Hono middleware — trustLoopback gate (Path B from #191, D#4)
+// ════════════════════════════════════════════════════════════════════════════
+// When config.trustLoopback is explicitly false, loopback bypass is closed.
+// This is the operator-facing lever to shut Path B (local reverse-proxy
+// sidecar forwarding to 127.0.0.1). See src/config/types.ts + paladin-forensic.md
+// (F3). Default (undefined/true) preserves legacy behavior — necessary
+// until CLI self-signing ships, because without it flipping trustLoopback
+// to false would break local `maw send`, `maw talk`, etc.
+
+describe("federationAuth() middleware — trustLoopback gate (Path B)", () => {
+  test("trustLoopback=true (explicit) + loopback → pass (legacy behavior)", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: true } as any;
+    const app = makeApp();
+    const res = await fire(app, "http://host/api/send", { method: "POST" }, "127.0.0.1");
+    expect(res.status).toBe(200);
+  });
+
+  test("trustLoopback unset (default) + loopback → pass (legacy default)", async () => {
+    configStore = { federationToken: TOKEN };
+    const app = makeApp();
+    const res = await fire(app, "http://host/api/send", { method: "POST" }, "127.0.0.1");
+    expect(res.status).toBe(200);
+  });
+
+  test("trustLoopback=false + loopback + no signature → 401 missing_signature (Path B CLOSED)", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: false } as any;
+    const app = makeApp();
+    const res = await fire(app, "http://host/api/send", { method: "POST" }, "127.0.0.1");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: "federation auth required",
+      reason: "missing_signature",
+    });
+  });
+
+  test("trustLoopback=false + loopback + VALID signed request → 200 (loopback caller signs)", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: false } as any;
+    const app = makeApp();
+    const now = Math.floor(Date.now() / 1000);
+    const signature = sign(TOKEN, "POST", "/api/send", now);
+    const res = await fire(
+      app,
+      "http://host/api/send",
+      {
+        method: "POST",
+        headers: { "X-Maw-Timestamp": String(now), "X-Maw-Signature": signature },
+      },
+      "127.0.0.1",
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("trustLoopback=false + loopback + bad signature → 401 signature_invalid", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: false } as any;
+    const app = makeApp();
+    const now = Math.floor(Date.now() / 1000);
+    const res = await fire(
+      app,
+      "http://host/api/send",
+      {
+        method: "POST",
+        headers: { "X-Maw-Timestamp": String(now), "X-Maw-Signature": "0".repeat(64) },
+      },
+      "127.0.0.1",
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("trustLoopback=false + ::1 IPv6 loopback + no signature → 401 (Path B closed for v6 too)", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: false } as any;
+    const app = makeApp();
+    const res = await fire(app, "http://host/api/send", { method: "POST" }, "::1");
+    expect(res.status).toBe(401);
+  });
+
+  test("trustLoopback=false + non-loopback still requires signature (unchanged)", async () => {
+    configStore = { federationToken: TOKEN, trustLoopback: false } as any;
+    const app = makeApp();
+    const res = await fire(app, "http://host/api/send", { method: "POST" }, "8.8.8.8");
+    expect(res.status).toBe(401);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // Hono middleware — reject branches (401 shape is security contract)
 // ════════════════════════════════════════════════════════════════════════════
 

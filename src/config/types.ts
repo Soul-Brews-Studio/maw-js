@@ -61,6 +61,27 @@ export interface MawConfig {
   peers?: string[];
   idleTimeoutMinutes?: number;
   federationToken?: string;
+  /**
+   * Trust loopback connections without HMAC (legacy default: true).
+   *
+   * When `true` (default), requests arriving with TCP source 127.0.0.1
+   * bypass the HMAC check — this is load-bearing for the local CLI,
+   * which doesn't sign its own calls yet. BUT: a local reverse proxy
+   * (cloudflared, nginx, sidecar) forwarding external traffic to
+   * 127.0.0.1 ALSO gets trusted, which is "Path B" from #191 — a
+   * foothold an attacker on a compromised local process can use to
+   * bypass federation auth entirely.
+   *
+   * When `false`, loopback requests are required to sign like any
+   * other peer. Operators who run `maw serve` behind any local
+   * reverse proxy, tunnel, or sidecar MUST set this to `false`.
+   * Until CLI self-signing ships, setting this to `false` will
+   * break interactive CLI commands; use with care.
+   *
+   * See ψ/lab/federation-audit/paladin-forensic.md (F3/Path B) for
+   * the full threat model.
+   */
+  trustLoopback?: boolean;
   autoRestart?: boolean;
   triggers?: TriggerConfig[];
   /** Node identity (e.g. "white", "mba") */

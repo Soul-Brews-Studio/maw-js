@@ -151,15 +151,17 @@ export function federationAuth(): MiddlewareHandler {
     // (Test 3 on mba: POST /api/send to a non-loopback interface with
     // `X-Forwarded-For: 127.0.0.1` bypassed HMAC entirely).
     //
-    // NOTE: this fix closes Path A (header spoof from external IP) and
-    // Path C (forwarder + spoof combo), but DOES NOT close Path B (a local
-    // process — cloudflared, nginx, sidecar — forwarding to localhost makes
-    // the TCP source legitimately 127.0.0.1). The full fix (Option C in #191)
-    // is to remove this bypass entirely and have the local CLI sign all
-    // requests; this lands in a follow-up PR.
+    // Path B (local reverse-proxy sidecar forwarding to 127.0.0.1) is now
+    // operator-gated by `config.trustLoopback`:
+    //   - true (default, legacy): loopback still bypasses auth — load-bearing
+    //     for local CLI until it self-signs. Operators behind reverse proxies
+    //     MUST flip this to false or they're exposed to Path B.
+    //   - false: loopback requests must sign like any other peer. This is
+    //     the fully-hardened posture; requires CLI self-signing (follow-up).
     const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
+    const trustLoopback = config.trustLoopback !== false; // default true
 
-    if (isLoopback(clientIp)) return next();
+    if (trustLoopback && isLoopback(clientIp)) return next();
 
     // Check for HMAC signature
     const sig = c.req.header("x-maw-signature");

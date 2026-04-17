@@ -36,6 +36,18 @@ function validateExtFields(
     }
   }
 
+  // trustLoopback: boolean. Defaults to `true` if unset (preserves legacy
+  // behavior — local CLI calls work without signing). Operators who run
+  // behind a local reverse proxy MUST set this to false (closes Path B
+  // from #191). See src/config/types.ts for the full threat model.
+  if ("trustLoopback" in raw) {
+    if (typeof raw.trustLoopback === "boolean") {
+      result.trustLoopback = raw.trustLoopback;
+    } else {
+      warn("trustLoopback", "must be a boolean");
+    }
+  }
+
   // pin: string if present
   if ("pin" in raw) {
     if (typeof raw.pin === "string") {
