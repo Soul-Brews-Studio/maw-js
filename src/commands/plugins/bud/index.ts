@@ -34,6 +34,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--split": Boolean,
         "--seed": Boolean,
         "--blank": Boolean,
+        "--signal-on-birth": Boolean,
       }, 0);
 
       const name = flags._[0];
@@ -56,6 +57,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         split: flags["--split"],
         seed: flags["--seed"],
         blank: flags["--blank"],
+        signalOnBirth: flags["--signal-on-birth"],
       });
     } else if (ctx.source === "api") {
       const body = ctx.args as Record<string, unknown>;
@@ -73,6 +75,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         split: body.split as boolean | undefined,
         seed: body.seed as boolean | undefined,
         blank: body.blank as boolean | undefined,
+        signalOnBirth: body.signalOnBirth as boolean | undefined,
       });
     }
 

@@ -6,6 +6,7 @@ import { hostExec } from "../../../sdk";
 import { ensureBudRepo } from "./bud-repo";
 import { initVault, generateClaudeMd, configureFleet, writeBirthNote } from "./bud-init";
 import { finalizeBud } from "./bud-wake";
+import { writeSignal } from "../../../core/fleet/leaf";
 import { join } from "path";
 
 export interface BudOpts {
@@ -23,6 +24,8 @@ export interface BudOpts {
   /** Opt-in: pre-load parent's ψ at birth (bulk push). Default is blank — child
    *  pulls memory later via `maw soul-sync <parent> --from` after /awaken. */
   seed?: boolean;
+  /** Drop a "birth" signal into the parent oracle's ψ/memory/signals/ on creation. */
+  signalOnBirth?: boolean;
 }
 
 // TinyBudOpts removed — --tiny deprecated, code moved to deprecated/tiny-bud-209/
@@ -136,6 +139,17 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     name, parentName, org, budRepoName, budRepoPath, psiDir, ghqRoot, fleetFile,
     opts: { seed: opts.seed, issue: opts.issue, repo: opts.repo, split: opts.split, fast: opts.fast },
   });
+
+  // Optional: drop birth signal into parent's ψ/
+  if (opts.signalOnBirth && parentName) {
+    const parentRepoPath = join(ghqRoot, org, `${parentName}-oracle`);
+    writeSignal(parentRepoPath, name, {
+      kind: "info",
+      message: `bud born: ${name}`,
+      context: { budRepoSlug: `${org}/${budRepoName}`, budRepoPath },
+    });
+    console.log(`  \x1b[36m⬡\x1b[0m signal dropped → ${parentName}'s ψ/memory/signals/`);
+  }
 
   // Summary
   console.log(`\n  \x1b[32m${parentName ? "🧬 Bud" : "🌱 Root bud"} complete!\x1b[0m ${parentName ? `${parentName} → ${name}` : name}`);

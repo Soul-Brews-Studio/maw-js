@@ -1,0 +1,22 @@
+{
+  "name": "signals",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List bud signals written to ψ/memory/signals/",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "signals",
+    "help": "maw signals [--days N] [--root <path>] [--json] — list bud signals",
+    "flags": {
+      "--days": "number",
+      "--root": "string",
+      "--json": "boolean"
+    }
+  },
+  "api": {
+    "path": "/api/signals",
+    "methods": ["GET"]
+  },
+  "weight": 50
+}
