@@ -4,7 +4,7 @@ import { describe, test, expect } from "bun:test";
 // replaces the ssh module, breaking findWindow for anyone importing
 // from there. The real implementation lives in find-window.ts which
 // no test mocks, so imports here stay stable.
-import { findWindow } from "../src/core/runtime/find-window";
+import { findWindow, AmbiguousMatchError } from "../src/core/runtime/find-window";
 import type { Session } from "../src/core/runtime/find-window";
 
 const MOCK_SESSIONS: Session[] = [
@@ -59,9 +59,68 @@ describe("findWindow", () => {
     expect(findWindow(MOCK_SESSIONS, "herm")).toBe("1-oracles:2");
   });
 
-  test("returns first match when multiple match", () => {
-    // "oracle" matches all in 1-oracles session
-    expect(findWindow(MOCK_SESSIONS, "oracle")).toBe("1-oracles:0");
+  test("throws AmbiguousMatchError when multiple substring matches and no exact (#414)", () => {
+    // "oracle" substring-matches 4 windows (neo/pulse/hermes/nexus-oracle) with no
+    // exact hit. Pre-#414 this silently picked the first; now it must error.
+    expect(() => findWindow(MOCK_SESSIONS, "oracle")).toThrow(AmbiguousMatchError);
+    try {
+      findWindow(MOCK_SESSIONS, "oracle");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AmbiguousMatchError);
+      const err = e as AmbiguousMatchError;
+      expect(err.query).toBe("oracle");
+      expect(err.candidates.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  describe("exact-match-first bare resolution (#414 / #406-1a)", () => {
+    const MOTHER_SESSIONS: Session[] = [
+      { name: "109-mother-roots", windows: [
+        { index: 1, name: "mother-roots-oracle", active: true },
+      ]},
+      { name: "13-mother", windows: [
+        { index: 1, name: "mother-oracle", active: true },
+      ]},
+      { name: "mother-view", windows: [
+        { index: 1, name: "view", active: true },
+      ]},
+    ];
+
+    test("bare 'mother' single exact oracle-name match resolves (13-mother)", () => {
+      // '13-mother' strips to 'mother' (oracle-name exact); '109-mother-roots'
+      // strips to 'mother-roots' (no exact); 'mother-view' (no NN- prefix, no exact).
+      // Pre-fix iteration order surfaced '109-mother-roots' via window substring.
+      expect(findWindow(MOTHER_SESSIONS, "mother")).toBe("13-mother:1");
+    });
+
+    test("bare 'mother' still resolves when 109-mother-roots listed first", () => {
+      // Guard against tmux list ordering (`13` < `109` lexical) — exact beats
+      // iteration position.
+      const reordered = [MOTHER_SESSIONS[0], MOTHER_SESSIONS[2], MOTHER_SESSIONS[1]];
+      expect(findWindow(reordered, "mother")).toBe("13-mother:1");
+    });
+
+    test("bare 'foo' with only prefix/substring matches → AmbiguousMatchError", () => {
+      const foo: Session[] = [
+        { name: "101-foo-bar", windows: [{ index: 1, name: "foo-bar-oracle", active: true }] },
+        { name: "102-foo-baz", windows: [{ index: 1, name: "foo-baz-oracle", active: true }] },
+      ];
+      expect(() => findWindow(foo, "foo")).toThrow(AmbiguousMatchError);
+      try {
+        findWindow(foo, "foo");
+      } catch (e) {
+        const err = e as AmbiguousMatchError;
+        expect(err.candidates).toContain("101-foo-bar:1");
+        expect(err.candidates).toContain("102-foo-baz:1");
+      }
+    });
+
+    test("bare 'view' unique exact window-name match resolves", () => {
+      // 'mother-view' session has a window literally named 'view'. Exact window
+      // match is unique → resolves even though 'view' substring-hits mother-view
+      // session name too (dedup keeps them consistent).
+      expect(findWindow(MOTHER_SESSIONS, "view")).toBe("mother-view:1");
+    });
   });
 
   describe("session:window syntax (#186)", () => {
