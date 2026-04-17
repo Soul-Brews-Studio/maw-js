@@ -472,13 +472,13 @@ describe("finalizeBud — step 7 (parent sync_peers)", () => {
 // ─── Step 8: wake the bud ───────────────────────────────────────────────────
 
 describe("finalizeBud — step 8 (wake)", () => {
-  test("default opts → cmdWake(name, { noAttach: true })", async () => {
+  test("default opts → cmdWake(name, { noAttach: true, repoPath })", async () => {
     const ctx = makeCtx({ name: "wakebud", parentName: null, opts: {} });
     await finalizeBud(ctx);
 
     expect(cmdWakeCalls).toHaveLength(1);
     expect(cmdWakeCalls[0].name).toBe("wakebud");
-    expect(cmdWakeCalls[0].opts).toEqual({ noAttach: true });
+    expect(cmdWakeCalls[0].opts).toEqual({ noAttach: true, repoPath: ctx.budRepoPath });
   });
 
   test("--issue → fetchIssuePrompt called with (issue, `${org}/${repo}`) + wakeOpts has prompt + task", async () => {
@@ -496,6 +496,7 @@ describe("finalizeBud — step 8 (wake)", () => {
     expect(cmdWakeCalls).toHaveLength(1);
     expect(cmdWakeCalls[0].opts).toEqual({
       noAttach: true,
+      repoPath: ctx.budRepoPath,
       prompt: "<fetched-issue-body>",
       task: "issue-201",
     });
