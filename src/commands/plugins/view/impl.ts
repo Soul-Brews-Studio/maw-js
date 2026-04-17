@@ -5,7 +5,7 @@ import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { logAnomaly } from "../../../core/fleet/audit";
 import { execSync } from "child_process";
 
-export async function cmdView(agent: string, windowHint?: string, clean = false) {
+export async function cmdView(agent: string, windowHint?: string, clean = false, kill = false) {
   // Find the session
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
@@ -115,11 +115,9 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   // Reuse existing view if present — killing it would evict anyone else
   // already attached (e.g. a second terminal on the same view).
   const viewExists = await t.hasSession(viewName);
-  let weCreated = false;
   if (!viewExists) {
     await t.newGroupedSession(sessionName, viewName, { windowSize: "largest" });
     console.log(`\x1b[36mcreated\x1b[0m → ${viewName} (grouped with ${sessionName})`);
-    weCreated = true;
   } else {
     console.log(`\x1b[36mreuse\x1b[0m   → ${viewName} (existing grouped session — ${sessionName})`);
   }
@@ -182,12 +180,13 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
     console.error(`\x1b[33mwarn\x1b[0m: attach exited non-zero — ${msg}`);
   }
 
-  // Cleanup: kill grouped session after detach (or after failed attach) — but
-  // only if WE created it. A reused view may have other attached clients.
-  if (weCreated) {
+  // #420: no auto-cleanup on detach. The view is grouped (shares state with
+  // the oracle session), so keeping it idle is cheap — and killing it here
+  // forces the next `maw a <agent>` to pay the create cost again. Stale
+  // views are reaped by `maw cleanup --zombie-agents` (#400/#418) or by
+  // explicit `--kill` on this command.
+  if (kill) {
     await t.killSession(viewName);
     console.log(`\x1b[90mcleaned\x1b[0m → ${viewName}`);
   }
-  // Normal return — no process.exit. Letting the event loop drain naturally
-  // is safer than forcing an exit code that can race with parent shell state.
 }

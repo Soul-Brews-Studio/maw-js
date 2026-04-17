@@ -12,9 +12,10 @@
       "attach",
       "a"
     ],
-    "help": "maw view <agent> [window] [--clean] — create or attach to an agent's tmux view",
+    "help": "maw view <agent> [window] [--clean] [--kill] — create or attach to an agent's tmux view",
     "flags": {
-      "--clean": "boolean"
+      "--clean": "boolean",
+      "--kill": "boolean"
     }
   },
   "weight": 10
