@@ -1,5 +1,5 @@
 /**
- * comm-send.ts — cmdSend + resolveOraclePane + resolveMyName.
+ * comm-send.ts — cmdSend + resolveOraclePane + resolveMyName + writeInboxMessage.
  */
 
 import {
@@ -8,6 +8,18 @@ import {
 } from "../../sdk";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
+import { writeInboxFile } from "../plugins/inbox/impl";
+
+/**
+ * Write a message to an oracle's ψ/inbox/ directory.
+ * peerRoot is the oracle's repo root (contains ψ/ dir).
+ * Called from route-comm.ts when --inbox is passed to `maw hey`.
+ */
+export function writeInboxMessage(peerRoot: string, from: string, to: string, body: string): string {
+  const { join } = require("path");
+  const inboxDir = join(peerRoot, "ψ", "inbox");
+  return writeInboxFile(inboxDir, from, to, body);
+}
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
