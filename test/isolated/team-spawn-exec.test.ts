@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { cmdTeamSpawn } from "../../src/commands/plugins/team/team-lifecycle";
@@ -19,7 +19,7 @@ let originalTMUX: string | undefined;
 beforeEach(() => {
   originalCwd = process.cwd();
   originalTMUX = process.env.TMUX;
-  testDir = join(tmpdir(), `maw-bugC-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = mkdtempSync(join(tmpdir(), "maw-bugC-"));
   // Oracle root markers for resolvePsi
   mkdirSync(join(testDir, "ψ/memory/mailbox/teams/test-team"), { recursive: true });
   writeFileSync(join(testDir, "CLAUDE.md"), "# test oracle\n");

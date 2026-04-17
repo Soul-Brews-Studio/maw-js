@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { loadTeam, writeShutdownRequest, _setDirs, cmdTeamList, cmdCleanupZombies } from "../src/commands/plugins/team/impl";
@@ -9,7 +9,7 @@ let teamsDir: string;
 let tasksDir: string;
 
 beforeEach(() => {
-  testDir = join(tmpdir(), `maw-team-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = mkdtempSync(join(tmpdir(), "maw-team-test-"));
   teamsDir = join(testDir, "teams");
   tasksDir = join(testDir, "tasks");
   mkdirSync(teamsDir, { recursive: true });
