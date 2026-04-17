@@ -5,28 +5,38 @@
 import type { LoadedPlugin } from "../../plugin/types";
 import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
 import { join, resolve } from "path";
-import { execSync } from "child_process";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
+
+/** Allowlist: only http/https URLs permitted as plugin sources */
+const URL_SCHEME_RE = /^https?:\/\//;
 
 function getPluginHome(): string {
   return process.env.MAW_PLUGIN_HOME ?? join(require("os").homedir(), ".maw", "plugins");
 }
 
-export function doInstall(srcPath: string, force: boolean): void {
+export async function doInstall(srcPath: string, force: boolean): Promise<void> {
   let src: string;
 
   // GitHub URL → clone via ghq, then install from local path
   if (srcPath.startsWith("http") || srcPath.startsWith("github.com/")) {
     const url = srcPath.startsWith("http") ? srcPath : `https://${srcPath}`;
+    if (!URL_SCHEME_RE.test(url)) {
+      console.error(`invalid URL scheme: ${url}`);
+      process.exit(1);
+    }
     console.log(`\x1b[36m⚡\x1b[0m cloning ${url}...`);
     try {
-      execSync(`ghq get -u "${url}"`, { stdio: "pipe" });
+      const proc = Bun.spawn(["ghq", "get", "-u", url], { stdout: "pipe", stderr: "pipe" });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`ghq exited ${code}`);
     } catch {
       console.error(`failed to clone: ${url}`);
       process.exit(1);
     }
-    const ghqRoot = execSync("ghq root", { encoding: "utf-8" }).trim();
+    const rootProc = Bun.spawn(["ghq", "root"], { stdout: "pipe", stderr: "pipe" });
+    await rootProc.exited;
+    const ghqRoot = (await new Response(rootProc.stdout).text()).trim();
     const repoPath = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
     src = join(ghqRoot, repoPath);
     if (!existsSync(src)) { console.error(`cloned but not found: ${src}`); process.exit(1); }
