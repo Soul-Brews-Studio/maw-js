@@ -52,6 +52,8 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
+bash "$(dirname "$0")/check-mock-boundary.sh" || { red "error: mock-boundary check failed (see #387)"; exit 1; }
+
 cyan "🚢 ship-alpha — $TAG"
 dim "  version: $VERSION"
 dim "  branch:  $BRANCH ($(git rev-parse --short HEAD))"
