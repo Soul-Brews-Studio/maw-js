@@ -28,21 +28,21 @@ extract_src_exports() {
   local src="$1"
   {
     # Direct declarations: export [async] class|function|const|let|var X
-    grep -oE '^[[:space:]]*export[[:space:]]+(async[[:space:]]+)?(class|function|const|let|var)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "$src" 2>/dev/null \
+    (grep -oE '^[[:space:]]*export[[:space:]]+(async[[:space:]]+)?(class|function|const|let|var)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "$src" 2>/dev/null || true) \
       | awk '{print $NF}'
     # Brace-style re-exports: export { a, b as c } [from "..."]
     # Skip `export type {` — runtime mocks don't need type-only symbols
-    grep -nE '^[[:space:]]*export[[:space:]]*\{' "$src" 2>/dev/null \
+    (grep -E '^[[:space:]]*export[[:space:]]*\{' "$src" 2>/dev/null || true) \
       | sed -E 's/.*export[[:space:]]*\{([^}]*)\}.*/\1/' \
       | tr ',' '\n' \
       | sed -E 's#^[[:space:]]+##; s#[[:space:]]+$##; s#.* as ##' \
-      | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' || true
+      | (grep -E '^[A-Za-z_][A-Za-z0-9_]*$' || true)
   } | sort -u
 }
 
 while IFS= read -r mock; do
   [[ -z "$mock" ]] && continue
-  target=$(grep -oE '@target-module[[:space:]]+\S+' "$mock" | awk '{print $2}' | head -1)
+  target=$(grep -oE '@target-module[[:space:]]+\S+' "$mock" 2>/dev/null | awk '{print $2}' | head -1 || true)
   [[ -z "$target" ]] && continue
   if [[ ! -f "$target" ]]; then
     echo "$mock: @target-module points to missing file: $target" >&2

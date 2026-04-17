@@ -3,6 +3,9 @@
  * mock.module("../src/config") needs to provide so bun's global
  * mock pollution doesn't drop D/cfgInterval/cfgTimeout/cfgLimit
  * from unrelated test files.
+ *
+ * @target-module src/config.ts
+ * (Checked by scripts/check-mock-export-sync.sh — #435)
  */
 import type { MawConfig, MawIntervals, MawTimeouts, MawLimits } from "../../src/config";
 
@@ -35,7 +38,8 @@ export function mockConfigModule(loadConfig: () => Partial<MawConfig>) {
     loadConfig,
     resetConfig: () => {},
     saveConfig: () => {},
-    validateConfig: (c: any) => c,
+    validateConfigShape: (c: any) => c,
+    configForDisplay: () => ({}),
     buildCommand: (_name: string) => "echo test",
     buildCommandInDir: (_name: string, cwd: string) => `cd '${cwd}' && echo test`,
     getEnvVars: () => ({}),
