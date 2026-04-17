@@ -29,7 +29,7 @@ jobs:
           bun-version: 1.3.11
 
       - name: Cache bun deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ hashFiles('bun.lock') }}
@@ -52,7 +52,7 @@ jobs:
           bun-version: 1.3.11
 
       - name: Cache bun deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ hashFiles('bun.lock') }}
