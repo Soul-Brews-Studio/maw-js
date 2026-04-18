@@ -1,0 +1,52 @@
+# 2-node federation test harness for maw-js.
+# Build: docker compose -f docker/compose.yml up -d --build
+# See scripts/dev-federation.sh for helper subcommands.
+
+services:
+  node-a:
+    image: maw-js:test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: node-a
+    container_name: maw-node-a
+    environment:
+      NODE_NAME: node-a
+      PEER_URL: http://node-b:3456
+      PEER_ALIAS: peer
+      MAW_HOME: /root/.maw
+    ports:
+      - "13456:3456"
+    volumes:
+      - maw-a-data:/root/.maw
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3456/api/plugins"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  node-b:
+    image: maw-js:test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: node-b
+    container_name: maw-node-b
+    environment:
+      NODE_NAME: node-b
+      PEER_URL: http://node-a:3456
+      PEER_ALIAS: peer
+      MAW_HOME: /root/.maw
+    ports:
+      - "13457:3456"
+    volumes:
+      - maw-b-data:/root/.maw
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3456/api/plugins"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  maw-a-data:
+  maw-b-data:
