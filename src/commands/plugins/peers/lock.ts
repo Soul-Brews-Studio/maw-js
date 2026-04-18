@@ -10,7 +10,7 @@
  * Sized for CLI use: 5s deadline, 50ms poll. peers.json writes are
  * sub-millisecond, so racing CLIs almost always succeed on first try.
  */
-import { openSync, closeSync, unlinkSync, writeSync, readSync, fstatSync, existsSync } from "fs";
+import { openSync, closeSync, unlinkSync, writeSync, readSync, existsSync } from "fs";
 
 const DEADLINE_MS = 5_000;
 const POLL_MS = 50;
@@ -47,14 +47,15 @@ export function withPeersLock<T>(path: string, fn: () => T): T {
     } catch (e: any) {
       if (e.code !== "EEXIST") throw e;
       // fd-based read for the same TOCTOU reason as the write above.
+      // Fixed 64-byte buffer — PIDs are ≤20 digits on every supported OS, so
+      // no fstatSync needed (also avoids the CodeQL "stat-then-read" pattern).
       let holderPid = NaN;
       let readFd: number | null = null;
       try {
-        readFd = openSync(lockPath, "r"); // lgtm[js/file-system-race] fd-bound, see #562/#581
-        const size = fstatSync(readFd).size;
-        const buf = Buffer.alloc(Math.min(size, 64));
-        readSync(readFd, buf, 0, buf.length, 0);
-        holderPid = parseInt(buf.toString("utf-8").trim(), 10);
+        readFd = openSync(lockPath, "r");
+        const buf = Buffer.alloc(64);
+        const n = readSync(readFd, buf, 0, buf.length, 0);
+        holderPid = parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
       } catch { /* empty/racy — treat as stale */ }
       finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (!isAlive(holderPid)) {

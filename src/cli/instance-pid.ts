@@ -8,7 +8,7 @@
  * `~/.maw/maw.pid` location. Backward-compat: prior alpha never wrote a PID
  * file, so stale absence is the default state; nothing to reconcile.
  */
-import { openSync, readSync, fstatSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
+import { openSync, readSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -54,14 +54,14 @@ export function acquirePidLock(instanceName: string | null): void {
       // Someone holds (or held) the lock — probe liveness.
       // fd-based read prevents path-TOCTOU (symlink swap between wx open and
       // the probe read). Mirrors the #562 / #581 fix in src/cli/update-lock.ts.
+      // Fixed 64-byte buffer — PIDs are ≤20 digits, no fstatSync needed.
       let prior = NaN;
       let readFd: number | null = null;
       try {
-        readFd = openSync(file, "r"); // lgtm[js/file-system-race] fd-bound, see #562/#581
-        const size = fstatSync(readFd).size;
-        const buf = Buffer.alloc(Math.min(size, 64));
-        readSync(readFd, buf, 0, buf.length, 0);
-        prior = parseInt(buf.toString("utf-8").trim(), 10);
+        readFd = openSync(file, "r");
+        const buf = Buffer.alloc(64);
+        const n = readSync(readFd, buf, 0, buf.length, 0);
+        prior = parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
       } catch { /* malformed — treat as stale */ }
       finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (Number.isFinite(prior) && isAlive(prior)) {
