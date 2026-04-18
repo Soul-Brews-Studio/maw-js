@@ -2,6 +2,7 @@ import { execSync } from "child_process";
 import {
   existsSync, writeFileSync, mkdirSync, readdirSync,
   lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
+  renameSync,
 } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
@@ -140,11 +141,40 @@ export async function runUpdate(args: string[]): Promise<void> {
   let installCode = await spawnInstall().exited;
   if (installCode !== 0) {
     console.warn(`\x1b[33m⚠\x1b[0m first install attempt failed — clearing stale global refs and retrying`);
+    // #551 — stash the current binary before destructive 'bun remove -g'.
+    // If the retry also fails, we restore from stash so the user never ends up
+    // with no maw. Empty-try around rename: stash is best-effort, retry not blocked.
+    const BIN = join(homedir(), ".bun", "bin", "maw");
+    const STASH = `${BIN}.prev`;
+    let stashed = false;
+    try {
+      if (existsSync(BIN)) {
+        // If a previous stash exists (prior crashed update), overwrite it —
+        // the currently-running binary is newer than any prior stash.
+        if (existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
+        renameSync(BIN, STASH);
+        stashed = true;
+      }
+    } catch { /* stash best-effort */ }
+
     try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
     installCode = await spawnInstall().exited;
+
+    if (installCode !== 0 && stashed && existsSync(STASH)) {
+      // Retry failed — restore the previous binary so the user isn't stranded.
+      try {
+        renameSync(STASH, BIN);
+        console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
+      } catch (e: any) {
+        console.error(`failed to restore stash: ${e.message || e}`);
+      }
+    } else if (installCode === 0 && stashed && existsSync(STASH)) {
+      // Retry succeeded — clean up the stash.
+      try { unlinkSync(STASH); } catch {}
+    }
   }
   if (installCode !== 0) {
-    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — maw may be uninstalled`);
+    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
     console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
     process.exit(installCode);
   }
