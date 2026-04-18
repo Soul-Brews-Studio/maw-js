@@ -25,7 +25,7 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
-> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{hour}]` (e.g. `v26.4.18-alpha.19`). Migrated from SemVer alpha on 2026-04-18 (see [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) and umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526)).
+> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{hour}]` (e.g. `v26.4.18-alpha.19`). Migrated from SemVer alpha on 2026-04-18. Cutting a release? See [CONTRIBUTING.md → Versioning](./CONTRIBUTING.md#versioning). Background: [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) · umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
 
 ## Recovering from `maw: command not found`
 
