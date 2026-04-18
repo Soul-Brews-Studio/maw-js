@@ -88,11 +88,11 @@ describe("from-repo: planFromRepoInjection", () => {
     expect(plan.blockers.some(b => b.includes("does not exist"))).toBe(true);
   });
 
-  it("blocks URL targets as not-yet-supported", () => {
+  it("blocks URL dry-run (clone is a side-effect)", () => {
     const plan = planFromRepoInjection({
       target: "https://github.com/x/y", stem: "demo", isUrl: true, pr: false, dryRun: true,
     });
-    expect(plan.blockers.some(b => b.includes("not yet supported"))).toBe(true);
+    expect(plan.blockers.some(b => b.includes("dry-run"))).toBe(true);
   });
 });
 
@@ -127,19 +127,6 @@ describe("from-repo: cmdBudFromRepo", () => {
       expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
       expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toContain("demo-oracle");
       expect(readFileSync(join(dir, ".claude", "settings.local.json"), "utf-8")).toBe("{}\n");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("non-dry-run with --pr refuses with pointer to follow-up", async () => {
-    const dir = mkGitRepo();
-    try {
-      await expect(cmdBudFromRepo({
-        target: dir, stem: "demo", isUrl: false, pr: true, dryRun: false,
-      })).rejects.toThrow(/--pr is not yet implemented/);
-      // refuse BEFORE writing — no ψ/ created
-      expect(existsSync(join(dir, "ψ"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -216,6 +203,138 @@ describe("from-repo: applyFromRepoInjection (executor)", () => {
     const opts = { target: "/nonexistent/zzz", stem: "demo", isUrl: false, pr: false, dryRun: false };
     const plan = planFromRepoInjection(opts);
     await expect(applyFromRepoInjection(plan, opts, () => {})).rejects.toThrow(/blocker/);
+  });
+});
+
+describe("from-repo: URL-mode + --pr (mocked git/gh)", () => {
+  let cmdBudFromRepoMocked: typeof cmdBudFromRepo;
+  let calls: { fn: string; args: any[] }[] = [];
+
+  beforeEach(async () => {
+    calls = [];
+    mock.module("./from-repo-git", () => ({
+      scaffoldBranchName: (stem: string) => `oracle/scaffold-${stem}`,
+      cloneShallow: async (url: string) => {
+        calls.push({ fn: "cloneShallow", args: [url] });
+        const d = mkGitRepo();
+        return d;
+      },
+      cleanupClone: (dir: string) => {
+        calls.push({ fn: "cleanupClone", args: [dir] });
+        rmSync(dir, { recursive: true, force: true });
+      },
+      branchCommitPushPR: async (cwd: string, stem: string, _log: any) => {
+        calls.push({ fn: "branchCommitPushPR", args: [cwd, stem] });
+        return `https://github.com/fake/pr/1`;
+      },
+    }));
+    delete (require.cache as any)[require.resolve("./from-repo")];
+    const mod = await import("./from-repo");
+    cmdBudFromRepoMocked = mod.cmdBudFromRepo;
+  });
+
+  it("URL target: clones, injects, opens PR, cleans up", async () => {
+    await cmdBudFromRepoMocked({
+      target: "https://github.com/fake/repo", stem: "demo",
+      isUrl: true, pr: false, dryRun: false,
+    });
+    const fns = calls.map(c => c.fn);
+    expect(fns).toContain("cloneShallow");
+    expect(fns).toContain("branchCommitPushPR");
+    expect(fns).toContain("cleanupClone");
+    // order: clone must precede PR, which must precede cleanup
+    expect(fns.indexOf("cloneShallow")).toBeLessThan(fns.indexOf("branchCommitPushPR"));
+    expect(fns.indexOf("branchCommitPushPR")).toBeLessThan(fns.indexOf("cleanupClone"));
+    // PR passed the stem, not the URL
+    const prCall = calls.find(c => c.fn === "branchCommitPushPR")!;
+    expect(prCall.args[1]).toBe("demo");
+  });
+
+  it("URL target dry-run throws without cloning", async () => {
+    await expect(cmdBudFromRepoMocked({
+      target: "https://github.com/fake/repo", stem: "demo",
+      isUrl: true, pr: false, dryRun: true,
+    })).rejects.toThrow(/blocker/);
+    expect(calls.some(c => c.fn === "cloneShallow")).toBe(false);
+  });
+
+  it("URL target cleans up even when PR fails", async () => {
+    // Re-mock: branchCommitPushPR throws
+    mock.module("./from-repo-git", () => ({
+      scaffoldBranchName: (stem: string) => `oracle/scaffold-${stem}`,
+      cloneShallow: async (url: string) => {
+        calls.push({ fn: "cloneShallow", args: [url] });
+        return mkGitRepo();
+      },
+      cleanupClone: (dir: string) => {
+        calls.push({ fn: "cleanupClone", args: [dir] });
+        rmSync(dir, { recursive: true, force: true });
+      },
+      branchCommitPushPR: async () => {
+        calls.push({ fn: "branchCommitPushPR", args: [] });
+        throw new Error("gh pr create failed");
+      },
+    }));
+    delete (require.cache as any)[require.resolve("./from-repo")];
+    const mod = await import("./from-repo");
+    await expect(mod.cmdBudFromRepo({
+      target: "https://github.com/fake/repo", stem: "demo",
+      isUrl: true, pr: false, dryRun: false,
+    })).rejects.toThrow(/gh pr create failed/);
+    expect(calls.some(c => c.fn === "cleanupClone")).toBe(true);
+  });
+
+  it("local path + --pr: injects then opens PR without cloning", async () => {
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepoMocked({
+        target: dir, stem: "demo", isUrl: false, pr: true, dryRun: false,
+      });
+      const fns = calls.map(c => c.fn);
+      expect(fns).not.toContain("cloneShallow");
+      expect(fns).not.toContain("cleanupClone");
+      expect(fns).toContain("branchCommitPushPR");
+      // Injection actually happened
+      expect(existsSync(join(dir, "ψ", "inbox"))).toBe(true);
+      // PR was opened against the local path, not a tmpdir
+      const prCall = calls.find(c => c.fn === "branchCommitPushPR")!;
+      expect(prCall.args[0]).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("local path without --pr: no PR helper called", async () => {
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepoMocked({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false,
+      });
+      expect(calls.some(c => c.fn === "branchCommitPushPR")).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("local + --pr: PR failure does NOT swallow the error", async () => {
+    mock.module("./from-repo-git", () => ({
+      scaffoldBranchName: (stem: string) => `oracle/scaffold-${stem}`,
+      cloneShallow: async () => { throw new Error("should not clone"); },
+      cleanupClone: () => {},
+      branchCommitPushPR: async () => { throw new Error("push rejected"); },
+    }));
+    delete (require.cache as any)[require.resolve("./from-repo")];
+    const mod = await import("./from-repo");
+    const dir = mkGitRepo();
+    try {
+      await expect(mod.cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: true, dryRun: false,
+      })).rejects.toThrow(/push rejected/);
+      // injection happened before PR attempt — ψ/ present
+      expect(existsSync(join(dir, "ψ", "inbox"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
