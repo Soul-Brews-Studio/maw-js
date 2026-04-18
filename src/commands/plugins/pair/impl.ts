@@ -1,16 +1,23 @@
 /**
- * maw pair — CLI glue (#573). pairGenerate (initiator) + pairAccept (acceptor).
+ * maw pair — CLI glue (#573). pairGenerate (recipient) + pairAccept (initiator).
+ * HTTP server-to-server: initiator supplies the target URL explicitly.
  * Both paths end with cmdAdd() so peers.json has reciprocal aliases.
  */
 
 import { loadConfig } from "../../../config";
 import { cmdAdd } from "../peers/impl";
-import { discover, fetchNodeName } from "./discovery";
 import { postHandshake, warnIfPlainHttp } from "./handshake";
-import { pretty, redact, normalize, isValidShape } from "./codes";
+import { normalize, isValidShape, redact } from "./codes";
 
 export interface GenerateOpts { expiresSec?: number; pollIntervalMs?: number; localUrl?: string }
 export interface GenerateResult { ok: boolean; code?: string; remoteNode?: string; error?: string }
+
+function validateUrl(raw: string): string | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return `invalid URL "${raw}"`; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return `invalid URL "${raw}" (must be http:// or https://)`;
+  return null;
+}
 
 export async function pairGenerate(opts: GenerateOpts = {}): Promise<GenerateResult> {
   const port = loadConfig().port ?? 3456;
@@ -31,7 +38,7 @@ export async function pairGenerate(opts: GenerateOpts = {}): Promise<GenerateRes
   const code = body.code;
   const expiresSec = Math.ceil((body.expiresAt - Date.now()) / 1000);
   console.log(`🤝 pair code: ${code}  (expires ${expiresSec}s)`);
-  console.log(`   listening for accept on ${base}/api/pair/${normalize(code)}`);
+  console.log(`   listening on ${base}/api/pair/${normalize(code)}`);
 
   const interval = opts.pollIntervalMs ?? 1000;
   const deadline = body.expiresAt;
@@ -50,28 +57,33 @@ export async function pairGenerate(opts: GenerateOpts = {}): Promise<GenerateRes
   return { ok: false, error: "pair code expired — no acceptor" };
 }
 
-export interface AcceptOpts { at?: string; port?: number; localUrl?: string }
+export interface AcceptOpts { localUrl?: string }
 
-export async function pairAccept(rawCode: string, opts: AcceptOpts = {}): Promise<GenerateResult> {
+export async function pairAccept(url: string, rawCode: string, opts: AcceptOpts = {}): Promise<GenerateResult> {
+  const urlErr = validateUrl(url);
+  if (urlErr) return { ok: false, error: urlErr };
   if (!isValidShape(rawCode)) return { ok: false, error: `invalid code shape: ${redact(rawCode)}` };
   const code = normalize(rawCode);
-  console.log(`🔍 scanning LAN for ${pretty(code)}...`);
-  const hit = await discover(code, { at: opts.at, port: opts.port });
-  if (!hit) return { ok: false, error: `could not find oracle advertising ${redact(code)} — try --at <url>` };
-  warnIfPlainHttp(hit.url);
-  const remoteNode = await fetchNodeName(hit.url) ?? "unknown";
-  console.log(`✅ found ${remoteNode} at ${hit.url}`);
+  warnIfPlainHttp(url);
 
   const myPort = loadConfig().port ?? 3456;
   const myNode = loadConfig().node ?? "local";
   const myUrl = opts.localUrl ?? `http://localhost:${myPort}`;
-  const res = await postHandshake(hit.url, code, { node: myNode, url: myUrl });
-  if (!res.ok) return { ok: false, error: `handshake failed: ${res.error} (status ${res.status})` };
-  console.log(`🤝 handshake complete`);
+  console.log(`🤝 posting to ${url}/api/pair/${code} ...`);
+  const res = await postHandshake(url, code, { node: myNode, url: myUrl });
+  if (!res.ok) {
+    const hint = res.status === 410 ? " (code expired or already consumed)"
+      : res.status === 404 ? " (code not found — check spelling or regenerate)"
+      : res.status === 400 ? " (bad request — check code shape)"
+      : res.status === 0   ? " (network unreachable — check URL + server running)"
+      : "";
+    return { ok: false, error: `handshake failed: ${res.error}${hint}` };
+  }
 
   try {
-    await cmdAdd({ alias: res.node || remoteNode, url: res.url || hit.url, node: res.node || remoteNode });
-    console.log(`   added peer alias: ${res.node || remoteNode} → ${res.url || hit.url}`);
+    await cmdAdd({ alias: res.node, url: res.url || url, node: res.node });
+    console.log(`✅ paired: ${res.node} ↔ ${myNode}`);
+    console.log(`   added peer alias: ${res.node} → ${res.url || url}`);
   } catch (e: any) {
     return { ok: false, error: `paired but peer write failed: ${e?.message ?? "unknown"}` };
   }
