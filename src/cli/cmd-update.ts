@@ -8,6 +8,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
+import { withUpdateLock } from "./update-lock";
 
 export async function runUpdate(args: string[]): Promise<void> {
   const { repository } = require("../../package.json");
@@ -134,105 +135,110 @@ export async function runUpdate(args: string[]): Promise<void> {
   // Order matters: validation (above) → try add → on fail, remove + retry →
   // on still-fail, print recovery command. User always has a working maw
   // unless BOTH adds fail.
-  const spawnInstall = () => Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
+  // #551 — serialize concurrent `maw update` invocations via filesystem lock.
+  // Channel-resolve + validation above runs unlocked; destructive install ops
+  // below (stash, bun remove, bun add, link refresh) are serialized.
+  await withUpdateLock(async () => {
+    const spawnInstall = () => Bun.spawn(["bun", "add", "-g", `github:${repository}#${ref}`], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
 
-  let installCode = await spawnInstall().exited;
-  if (installCode !== 0) {
-    console.warn(`\x1b[33m⚠\x1b[0m first install attempt failed — clearing stale global refs and retrying`);
-    // #551 — stash the current binary before destructive 'bun remove -g'.
-    // If the retry also fails, we restore from stash so the user never ends up
-    // with no maw. Empty-try around rename: stash is best-effort, retry not blocked.
-    const BIN = join(homedir(), ".bun", "bin", "maw");
-    const STASH = `${BIN}.prev`;
-    let stashed = false;
-    try {
-      if (existsSync(BIN)) {
-        // If a previous stash exists (prior crashed update), overwrite it —
-        // the currently-running binary is newer than any prior stash.
-        if (existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
-        renameSync(BIN, STASH);
-        stashed = true;
-      }
-    } catch { /* stash best-effort */ }
-
-    try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
-    installCode = await spawnInstall().exited;
-
-    if (installCode !== 0 && stashed && existsSync(STASH)) {
-      // Retry failed — restore the previous binary so the user isn't stranded.
+    let installCode = await spawnInstall().exited;
+    if (installCode !== 0) {
+      console.warn(`\x1b[33m⚠\x1b[0m first install attempt failed — clearing stale global refs and retrying`);
+      // #551 — stash the current binary before destructive 'bun remove -g'.
+      // If the retry also fails, we restore from stash so the user never ends up
+      // with no maw. Empty-try around rename: stash is best-effort, retry not blocked.
+      const BIN = join(homedir(), ".bun", "bin", "maw");
+      const STASH = `${BIN}.prev`;
+      let stashed = false;
       try {
-        renameSync(STASH, BIN);
-        console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
-      } catch (e: any) {
-        console.error(`failed to restore stash: ${e.message || e}`);
-      }
-    } else if (installCode === 0 && stashed && existsSync(STASH)) {
-      // Retry succeeded — clean up the stash.
-      try { unlinkSync(STASH); } catch {}
-    }
-  }
-  if (installCode !== 0) {
-    console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
-    console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
-    process.exit(installCode);
-  }
-  // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
-  // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
-  try {
-    const mawDir = ghqFindSync("/Soul-Brews-Studio/maw-js");
-    if (mawDir) {
-      // #346: Gate link on version match — stale ghq clone would override the fresh global install
-      const cloneVersion: string = require(join(mawDir, "package.json")).version;
-      const refNormalized = ref.replace(/^v/, "");
-      if (ref !== "main" && !cloneVersion.includes(refNormalized)) {
-        console.log(`  ⚠ SDK link skipped — local clone is ${cloneVersion}, installed ${ref}`);
-      } else {
-        execSync(`cd ${mawDir} && bun link`, { stdio: "pipe" });
-        const oracleDir = join(homedir(), ".oracle");
-        mkdirSync(oracleDir, { recursive: true });
-        if (!existsSync(join(oracleDir, "package.json"))) {
-          writeFileSync(join(oracleDir, "package.json"), '{"name":"oracle-plugins","private":true}\n');
+        if (existsSync(BIN)) {
+          // If a previous stash exists (prior crashed update), overwrite it —
+          // the currently-running binary is newer than any prior stash.
+          if (existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
+          renameSync(BIN, STASH);
+          stashed = true;
         }
-        execSync(`cd ${oracleDir} && bun link maw`, { stdio: "pipe" });
-        console.log(`  🔗 SDK linked (@maw/sdk)`);
+      } catch { /* stash best-effort */ }
+
+      try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+      installCode = await spawnInstall().exited;
+
+      if (installCode !== 0 && stashed && existsSync(STASH)) {
+        // Retry failed — restore the previous binary so the user isn't stranded.
+        try {
+          renameSync(STASH, BIN);
+          console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
+        } catch (e: any) {
+          console.error(`failed to restore stash: ${e.message || e}`);
+        }
+      } else if (installCode === 0 && stashed && existsSync(STASH)) {
+        // Retry succeeded — clean up the stash.
+        try { unlinkSync(STASH); } catch {}
       }
     }
-  } catch { /* ghq not available or link failed — non-fatal */ }
-  let after = "";
-  try { after = execSync(`maw --version`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch {}
-
-  // Refresh bundled plugin symlinks (point to new install)
-  try {
-    const pluginDir = join(homedir(), ".maw", "plugins");
-    mkdirSync(pluginDir, { recursive: true });
-    const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
-    const mawSrc = dirname(realpathSync(mawBin));
-    const bundled = join(mawSrc, "commands", "plugins");
-    if (existsSync(bundled)) {
-      let refreshed = 0;
-      for (const d of readdirSync(bundled)) {
-        if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
-          const dest = join(pluginDir, d);
-          // Replace old symlink or missing entry
-          try { if (lstatSync(dest).isSymbolicLink()) unlinkSync(dest); } catch {}
-          if (!existsSync(dest)) { symlinkSync(join(bundled, d), dest); refreshed++; }
+    if (installCode !== 0) {
+      console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
+      console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
+      process.exit(installCode);
+    }
+    // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
+    // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
+    try {
+      const mawDir = ghqFindSync("/Soul-Brews-Studio/maw-js");
+      if (mawDir) {
+        // #346: Gate link on version match — stale ghq clone would override the fresh global install
+        const cloneVersion: string = require(join(mawDir, "package.json")).version;
+        const refNormalized = ref.replace(/^v/, "");
+        if (ref !== "main" && !cloneVersion.includes(refNormalized)) {
+          console.log(`  ⚠ SDK link skipped — local clone is ${cloneVersion}, installed ${ref}`);
+        } else {
+          execSync(`cd ${mawDir} && bun link`, { stdio: "pipe" });
+          const oracleDir = join(homedir(), ".oracle");
+          mkdirSync(oracleDir, { recursive: true });
+          if (!existsSync(join(oracleDir, "package.json"))) {
+            writeFileSync(join(oracleDir, "package.json"), '{"name":"oracle-plugins","private":true}\n');
+          }
+          execSync(`cd ${oracleDir} && bun link maw`, { stdio: "pipe" });
+          console.log(`  🔗 SDK linked (@maw/sdk)`);
         }
       }
-      if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
-    }
-  } catch {}
+    } catch { /* ghq not available or link failed — non-fatal */ }
+    let after = "";
+    try { after = execSync(`maw --version`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch {}
 
-  // Arrow confirmation — "before → after" mirrors the header but with the
-  // actual resolved version (in case ref was 'main' or channel shortcut).
-  const afterVer = after.replace(/^maw\s+/, "");
-  if (afterVer) {
-    const sameAfter = beforeVer === afterVer;
-    const doneArrow = sameAfter ? "\x1b[90m=\x1b[0m" : "\x1b[32m→\x1b[0m";
-    const doneNote = sameAfter ? " \x1b[90m(no change — re-sync\'d)\x1b[0m" : "";
-    console.log(`\n  ✅ \x1b[36m${beforeVer}\x1b[0m ${doneArrow} \x1b[36m${afterVer}\x1b[0m${doneNote}\n`);
-  } else {
-    console.log(`\n  ✅ done\n`);
-  }
+    // Refresh bundled plugin symlinks (point to new install)
+    try {
+      const pluginDir = join(homedir(), ".maw", "plugins");
+      mkdirSync(pluginDir, { recursive: true });
+      const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
+      const mawSrc = dirname(realpathSync(mawBin));
+      const bundled = join(mawSrc, "commands", "plugins");
+      if (existsSync(bundled)) {
+        let refreshed = 0;
+        for (const d of readdirSync(bundled)) {
+          if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
+            const dest = join(pluginDir, d);
+            // Replace old symlink or missing entry
+            try { if (lstatSync(dest).isSymbolicLink()) unlinkSync(dest); } catch {}
+            if (!existsSync(dest)) { symlinkSync(join(bundled, d), dest); refreshed++; }
+          }
+        }
+        if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
+      }
+    } catch {}
+
+    // Arrow confirmation — "before → after" mirrors the header but with the
+    // actual resolved version (in case ref was 'main' or channel shortcut).
+    const afterVer = after.replace(/^maw\s+/, "");
+    if (afterVer) {
+      const sameAfter = beforeVer === afterVer;
+      const doneArrow = sameAfter ? "\x1b[90m=\x1b[0m" : "\x1b[32m→\x1b[0m";
+      const doneNote = sameAfter ? " \x1b[90m(no change — re-sync\'d)\x1b[0m" : "";
+      console.log(`\n  ✅ \x1b[36m${beforeVer}\x1b[0m ${doneArrow} \x1b[36m${afterVer}\x1b[0m${doneNote}\n`);
+    } else {
+      console.log(`\n  ✅ done\n`);
+    }
+  });
 }
