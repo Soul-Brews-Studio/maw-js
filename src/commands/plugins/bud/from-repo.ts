@@ -1,16 +1,17 @@
 /**
- * `maw bud --from-repo <target> --stem <stem>` — scaffold-only implementation.
+ * `maw bud --from-repo <target> --stem <stem>` — planner + orchestrator.
  *
- * SCOPE (this PR, #588): planning + dry-run printing only. Any non-dry-run
- * invocation exits with "not yet implemented — see #588". No filesystem
- * writes happen from this module in any path.
+ * SCOPE: local-path full run (#588 partial). URL clone / --pr / --force /
+ * fleet entry / --from lineage / --seed / sync_peers still deferred.
+ * Writes live in from-repo-exec.ts; planner stays pure/read-only.
  *
- * Design: docs/bud/from-repo-design.md
+ * Design: docs/bud/from-repo-design.md + docs/bud/from-repo-impl.md
  */
 
 import { existsSync, statSync } from "fs";
 import { join, isAbsolute } from "path";
 import type { FromRepoOpts, InjectionAction, InjectionPlan } from "./types";
+import { applyFromRepoInjection } from "./from-repo-exec";
 
 /** Heuristic: is `target` a URL or `org/repo` slug rather than a local path? */
 export function looksLikeUrl(target: string): boolean {
@@ -130,20 +131,20 @@ export function formatPlan(plan: InjectionPlan): string {
 }
 
 /**
- * Orchestrator. Dry-run: print the plan. Non-dry-run: refuse with a pointer
- * to #588 — the actual write path is a follow-up PR.
+ * Orchestrator. Dry-run: print the plan. Non-dry-run: print plan, then apply.
+ * Local-path only; URL / --pr paths stay blocked (planner surfaces them).
  */
 export async function cmdBudFromRepo(opts: FromRepoOpts): Promise<void> {
   const plan = planFromRepoInjection(opts);
-  if (opts.dryRun) {
-    console.log(formatPlan(plan));
-    if (plan.blockers.length > 0) {
-      throw new Error(`plan has ${plan.blockers.length} blocker(s) — see above`);
-    }
-    return;
+  console.log(formatPlan(plan));
+  if (plan.blockers.length > 0) {
+    throw new Error(`plan has ${plan.blockers.length} blocker(s) — see above`);
   }
-  throw new Error(
-    `maw bud --from-repo: not yet implemented — see #588.\n` +
-    `  Re-run with --dry-run to preview the injection plan.`,
-  );
+  if (opts.dryRun) return;
+  if (opts.pr) {
+    throw new Error(
+      `--pr is not yet implemented — see #588 follow-up. Re-run without --pr (commits nothing; you own the git state).`,
+    );
+  }
+  await applyFromRepoInjection(plan, opts);
 }
