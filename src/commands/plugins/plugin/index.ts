@@ -1,20 +1,99 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import type { RegistryManifest } from "./registry-fetch";
 
 export const command = {
   name: "plugin",
-  description: "Plugin lifecycle — init, build, dev, install.",
+  description: "Plugin lifecycle — init, build, dev, install, search, info.",
 };
 
 const USAGE =
-  "usage: maw plugin <init|build|dev|install|pin|unpin> [args]\n" +
+  "usage: maw plugin <init|build|dev|install|pin|unpin|registry|search|info> [args]\n" +
   "  init <name> --ts                    scaffold a TS plugin\n" +
   "  build [dir] [--watch] [--types]     bundle + pack a plugin\n" +
   "                                        --types: emit dist/<name>.d.ts\n" +
   "  dev [dir] [--types]                 watch mode (alias for build --watch, DX verb)\n" +
-  "  install <dir | .tgz | URL> [--pin]  install a built plugin\n" +
+  "  install <name | dir | .tgz | URL>   install a plugin (plain name → registry lookup)\n" +
   "                                        --pin: add to plugins.lock on first install\n" +
   "  pin <name> <tarball> [--version V]  add/update plugins.lock entry (#487)\n" +
-  "  unpin <name>                        remove a plugins.lock entry";
+  "  unpin <name>                        remove a plugins.lock entry\n" +
+  "  registry                            show registry URL + entry count\n" +
+  "  search <query>                      search registry by name/summary\n" +
+  "  info <name>                         show registry entry for <name>";
+
+function isPlainName(src: string): boolean {
+  if (/^https?:\/\//i.test(src)) return false;
+  if (src.endsWith(".tgz") || src.endsWith(".tar.gz")) return false;
+  if (src.startsWith("./") || src.startsWith("../") || src.startsWith("/")) return false;
+  if (src.includes("/")) return false;
+  return /^[a-z0-9][a-z0-9._-]*$/i.test(src);
+}
+
+async function runRegistryCmd(): Promise<void> {
+  const { getRegistry, registryUrl } = await import("./registry-fetch");
+  const url = registryUrl();
+  const reg = await getRegistry();
+  const count = Object.keys(reg.plugins).length;
+  console.log(`registry: ${url}`);
+  console.log(`updated:  ${reg.updated}`);
+  console.log(`plugins:  ${count}`);
+}
+
+async function runSearchCmd(args: string[]): Promise<void> {
+  const query = args[0];
+  if (!query) throw new Error("usage: maw plugin search <query>");
+  const { getRegistry } = await import("./registry-fetch");
+  const reg = await getRegistry();
+  const q = query.toLowerCase();
+  const matches = Object.entries(reg.plugins)
+    .filter(([name, e]) => name.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (matches.length === 0) {
+    console.log(`no plugins match ${JSON.stringify(query)}`);
+    return;
+  }
+  for (const [name, e] of matches) {
+    console.log(`${name}@${e.version}  ${e.summary}`);
+  }
+}
+
+async function runInfoCmd(args: string[]): Promise<void> {
+  const name = args[0];
+  if (!name) throw new Error("usage: maw plugin info <name>");
+  const { getRegistry } = await import("./registry-fetch");
+  const reg: RegistryManifest = await getRegistry();
+  const entry = reg.plugins[name];
+  if (!entry) throw new Error(`plugin '${name}' not in registry`);
+  console.log(`${name}@${entry.version}`);
+  console.log(`  summary:  ${entry.summary}`);
+  console.log(`  source:   ${entry.source}`);
+  console.log(`  sha256:   ${entry.sha256 ?? "(unpinned)"}`);
+  console.log(`  author:   ${entry.author}`);
+  console.log(`  license:  ${entry.license}`);
+  if (entry.homepage) console.log(`  homepage: ${entry.homepage}`);
+  console.log(`  added:    ${entry.addedAt}`);
+}
+
+async function runInstallCmd(args: string[]): Promise<void> {
+  const src = args.find(a => !a.startsWith("-"));
+  if (src && isPlainName(src)) {
+    const { getRegistry } = await import("./registry-fetch");
+    const { resolvePluginSource } = await import("./registry-resolve");
+    const reg = await getRegistry();
+    const resolved = resolvePluginSource(src, reg);
+    if (!resolved) {
+      throw new Error(
+        `plugin '${src}' not in registry.\n` +
+        `  if you have a direct URL or tarball, run: maw plugin install <url | .tgz>`,
+      );
+    }
+    const rewritten = args.map(a => (a === src ? resolved.source : a));
+    const { cmdPluginInstall } = await import("./install-impl");
+    await cmdPluginInstall(rewritten);
+    return;
+  }
+  const { cmdPluginInstall } = await import("./install-impl");
+  await cmdPluginInstall(args);
+}
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -52,14 +131,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "unpin") {
       const { cmdPluginUnpin } = await import("./lock-cli");
       await cmdPluginUnpin(args.slice(1));
+    } else if (sub === "registry") {
+      await runRegistryCmd();
+    } else if (sub === "search") {
+      await runSearchCmd(args.slice(1));
+    } else if (sub === "info") {
+      await runInfoCmd(args.slice(1));
     } else if (sub === "install") {
-      // installer-loader (task #3) provides install-impl.ts
       try {
-        const mod: { cmdPluginInstall?: (args: string[]) => Promise<void> } = await import("./install-impl");
-        if (typeof mod.cmdPluginInstall !== "function") {
-          return { ok: false, error: "plugin install: install-impl.ts present but missing cmdPluginInstall export" };
-        }
-        await mod.cmdPluginInstall(args.slice(1));
+        await runInstallCmd(args.slice(1));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (/Cannot find module/.test(msg)) {
