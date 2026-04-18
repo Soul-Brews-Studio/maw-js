@@ -19,6 +19,7 @@ import { transportApi } from "./transport";
 import { workspaceApi } from "./workspace";
 import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
+import { crossTeamQueueApi } from "./cross-team-queue";
 import { pulseApi } from "./pulse";
 import { pluginsRouter } from "./plugins";
 import { uploadApi } from "./upload";
@@ -55,6 +56,7 @@ export const api = new Elysia({ prefix: "/api" })
   .use(workspaceApi)
   .use(peerExecApi)
   .use(proxyApi)
+  .use(crossTeamQueueApi)
   .use(pulseApi)
   .use(pluginsRouter)
   .use(uploadApi);
