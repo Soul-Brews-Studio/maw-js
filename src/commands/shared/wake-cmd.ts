@@ -176,6 +176,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         const escaped = opts.prompt.replace(/'/g, "'\\''");
         await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath)} -p '${escaped}'`);
         if (opts.attach) await attachToSession(session);
+        await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
       }
       console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' already running in ${session}`);
@@ -183,6 +184,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         await tmux.selectWindow(`${session}:${existingWindow}`);
         await attachToSession(session);
       }
+      await maybeSplit(`${session}:${existingWindow}`, opts);
       return `${session}:${existingWindow}`;
     }
   } catch { /* session might be fresh */ }
@@ -200,18 +202,24 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
   if (opts.attach) await attachToSession(session);
 
-  // Optional --split: show the new window in a pane beside the caller.
-  if (opts.split && process.env.TMUX) {
-    try {
-      const { cmdSplit } = await import("../plugins/split/impl");
-      await cmdSplit(`${session}:${windowName}`);
-    } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);
-    }
-  } else if (opts.split && !process.env.TMUX) {
-    console.log(`  \x1b[33m⚠\x1b[0m --split requires tmux session (TMUX env var not set)`);
-  }
+  await maybeSplit(`${session}:${windowName}`, opts);
 
   takeSnapshot("wake").catch(() => {});
   return `${session}:${windowName}`;
+}
+
+// #533 — split ran only on the new-window path; existing-window early returns
+// silently skipped it. Extract so every path that resolves a target honours --split.
+async function maybeSplit(target: string, opts: { split?: boolean }): Promise<void> {
+  if (!opts.split) return;
+  if (!process.env.TMUX) {
+    console.log(`  \x1b[33m⚠\x1b[0m --split requires tmux session (TMUX env var not set)`);
+    return;
+  }
+  try {
+    const { cmdSplit } = await import("../plugins/split/impl");
+    await cmdSplit(target);
+  } catch (e: any) {
+    console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);
+  }
 }
