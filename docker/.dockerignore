@@ -1,0 +1,8 @@
+agents/
+node_modules/
+.git/
+ψ/
+*.log
+.DS_Store
+dist/
+coverage/
