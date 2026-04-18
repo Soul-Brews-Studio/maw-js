@@ -1,6 +1,6 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![Version](https://img.shields.io/badge/version-2.0.0--alpha.134-orange)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.4.18--alpha.19-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
 
 > Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
 
@@ -24,6 +24,8 @@ bun add -g github:Soul-Brews-Studio/maw-js
 # Or from source:
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
+
+> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{hour}]` (e.g. `v26.4.18-alpha.19`). Migrated from SemVer alpha on 2026-04-18 (see [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) and umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526)).
 
 ## Recovering from `maw: command not found`
 

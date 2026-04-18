@@ -2,9 +2,26 @@
 
 All notable changes to `maw` are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Pre-1.0 alpha releases may introduce breaking changes at any time.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## Versioning — CalVer (since 2026-04-18)
+
+On **2026-04-18**, `maw-js` migrated from SemVer alpha (`2.0.0-alpha.N`) to
+**CalVer** (`v{yy}.{m}.{d}[-alpha.{hour}]`). The first CalVer cut is
+[`v26.4.18-alpha.19`](https://github.com/Soul-Brews-Studio/maw-js/releases/tag/v26.4.18-alpha.19),
+matching the scheme already adopted by [skills-cli `v26.4.18`](https://github.com/Soul-Brews-Studio/skills-cli)
+(the precedent).
+
+- **Why**: dates carry meaning, alpha numbers don't. CalVer makes "how old is
+  this build?" answerable at a glance, and the 24/day cap is sufficient for
+  an alpha cadence.
+- **Rollover**: `-alpha.{hour}` (0–23) — at most 24 alpha cuts per UTC day.
+- **Old tags resolvable**: existing `v2.0.0-alpha.117` through `alpha.137`
+  tags are **not** rewritten — `plugins.lock` references and historical
+  changelog entries below remain valid forever.
+- **Umbrella**: [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
+
+Pre-1.0 alpha releases may still introduce breaking changes at any time.
 
 ## [Unreleased]
 
