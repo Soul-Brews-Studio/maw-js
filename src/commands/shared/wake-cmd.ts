@@ -6,6 +6,7 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
+import { maybeSplit } from "./wake-maybe-split";
 
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
@@ -208,18 +209,3 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   return `${session}:${windowName}`;
 }
 
-// #533 — split ran only on the new-window path; existing-window early returns
-// silently skipped it. Extract so every path that resolves a target honours --split.
-async function maybeSplit(target: string, opts: { split?: boolean }): Promise<void> {
-  if (!opts.split) return;
-  if (!process.env.TMUX) {
-    console.log(`  \x1b[33m⚠\x1b[0m --split requires tmux session (TMUX env var not set)`);
-    return;
-  }
-  try {
-    const { cmdSplit } = await import("../plugins/split/impl");
-    await cmdSplit(target);
-  } catch (e: any) {
-    console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);
-  }
-}
