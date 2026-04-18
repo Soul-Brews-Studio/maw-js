@@ -34,7 +34,7 @@ interface Signal {
 ## Writing a signal (`writeSignal`)
 
 ```typescript
-import { writeSignal } from "@maw/sdk/core/fleet/leaf";
+import { writeSignal } from "@maw-js/sdk/core/fleet/leaf";
 
 // Drop a signal into the parent oracle's vault
 writeSignal("/path/to/parent-oracle", "alpha", {
@@ -52,7 +52,7 @@ The function:
 ## Reading signals (`scanSignals`)
 
 ```typescript
-import { scanSignals } from "@maw/sdk/commands/shared/scan-signals";
+import { scanSignals } from "@maw-js/sdk/commands/shared/scan-signals";
 
 const signals = scanSignals("/path/to/parent-oracle", { days: 7 });
 // Returns ScannedSignal[] sorted newest-first, filtered to last 7 days.

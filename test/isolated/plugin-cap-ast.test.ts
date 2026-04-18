@@ -2,7 +2,7 @@
  * Phase B Wave 1A — isolated tests for AST-based capability inference.
  *
  * Covers all four patterns the Phase A regex misses:
- *   1. Direct import + call          — `import maw from "@maw/sdk"; maw.identity()`
+ *   1. Direct import + call          — `import maw from "@maw-js/sdk"; maw.identity()`
  *   2. Destructured usage            — `const { identity } = maw; identity()`
  *   3. Aliased binding               — `const m = maw; m.wake()`
  *   4. Dynamic member access         — `maw["wake"]()`
@@ -24,7 +24,7 @@ import { inferCapabilitiesRegex } from "../../src/commands/plugins/plugin/build-
 describe("AST: direct import + call", () => {
   test("default import → maw.identity()", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw.identity();
     `);
     expect(caps).toContain("sdk:identity");
@@ -32,7 +32,7 @@ describe("AST: direct import + call", () => {
 
   test("multiple verbs", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw.identity();
       maw.send("a", "b");
       maw.wake("agent");
@@ -44,7 +44,7 @@ describe("AST: direct import + call", () => {
 
   test("aliased default import", () => {
     const caps = inferCapabilitiesAst(`
-      import mawSdk from "@maw/sdk";
+      import mawSdk from "@maw-js/sdk";
       mawSdk.identity();
     `);
     expect(caps).toContain("sdk:identity");
@@ -52,7 +52,7 @@ describe("AST: direct import + call", () => {
 
   test("namespace import (import * as maw)", () => {
     const caps = inferCapabilitiesAst(`
-      import * as maw from "@maw/sdk";
+      import * as maw from "@maw-js/sdk";
       maw.identity();
       maw.send("x", "y");
     `);
@@ -86,7 +86,7 @@ describe("AST: direct import + call", () => {
 
   test("output is sorted and deduplicated", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw.identity();
       maw.identity();
       maw.send("a", "b");
@@ -100,9 +100,9 @@ describe("AST: direct import + call", () => {
 // ─── Pattern 2: Destructured usage ───────────────────────────────────────────
 
 describe("AST: destructured usage", () => {
-  test("named import: import { identity } from '@maw/sdk'", () => {
+  test("named import: import { identity } from '@maw-js/sdk'", () => {
     const caps = inferCapabilitiesAst(`
-      import { identity } from "@maw/sdk";
+      import { identity } from "@maw-js/sdk";
       identity();
     `);
     expect(caps).toContain("sdk:identity");
@@ -110,7 +110,7 @@ describe("AST: destructured usage", () => {
 
   test("named import with rename: import { identity as id }", () => {
     const caps = inferCapabilitiesAst(`
-      import { identity as id, send as s } from "@maw/sdk";
+      import { identity as id, send as s } from "@maw-js/sdk";
       id();
       s("a", "b");
     `);
@@ -120,7 +120,7 @@ describe("AST: destructured usage", () => {
 
   test("destructure from maw variable: const { identity } = maw", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const { identity } = maw;
       identity();
     `);
@@ -129,7 +129,7 @@ describe("AST: destructured usage", () => {
 
   test("destructure with rename from maw variable: const { identity: id } = maw", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const { identity: id, send: s } = maw;
       id();
       s("a", "b");
@@ -140,7 +140,7 @@ describe("AST: destructured usage", () => {
 
   test("destructure from aliased maw binding", () => {
     const caps = inferCapabilitiesAst(`
-      import mawSdk from "@maw/sdk";
+      import mawSdk from "@maw-js/sdk";
       const m = mawSdk;
       const { identity } = m;
       identity();
@@ -154,7 +154,7 @@ describe("AST: destructured usage", () => {
 describe("AST: aliased binding", () => {
   test("const m = maw; m.wake()", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const m = maw;
       m.wake("agent");
     `);
@@ -163,7 +163,7 @@ describe("AST: aliased binding", () => {
 
   test("let alias = maw; alias.identity()", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       let alias = maw;
       alias.identity();
     `);
@@ -174,7 +174,7 @@ describe("AST: aliased binding", () => {
     // Note: current walker does a single pre-pass. If a = maw, then b = a,
     // b should also be tracked since collectVariableAliases runs recursively.
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const a = maw;
       const b = a;
       b.send("x", "y");
@@ -190,7 +190,7 @@ describe("AST: aliased binding", () => {
 describe("AST: dynamic member access", () => {
   test("maw['wake']() — static string bracket access", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw["wake"]("agent");
     `);
     expect(caps).toContain("sdk:wake");
@@ -198,7 +198,7 @@ describe("AST: dynamic member access", () => {
 
   test("maw['identity']() — another static bracket", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw["identity"]();
     `);
     expect(caps).toContain("sdk:identity");
@@ -206,7 +206,7 @@ describe("AST: dynamic member access", () => {
 
   test("maw[varKey]() — dynamic bracket emits sdk:*dynamic*", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const key = "wake";
       maw[key]("agent");
     `);
@@ -216,7 +216,7 @@ describe("AST: dynamic member access", () => {
 
   test("maw[computedKey()]() — dynamic bracket emits sdk:*dynamic*", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       function getKey() { return "send"; }
       maw[getKey()]("a", "b");
     `);
@@ -228,11 +228,11 @@ describe("AST: dynamic member access", () => {
 
 describe("AST: re-export chain", () => {
   test("re-exported maw methods are tracked as named bindings", () => {
-    // If a file re-exports from @maw/sdk and calls the methods,
+    // If a file re-exports from @maw-js/sdk and calls the methods,
     // named imports are tracked regardless of re-export in other files.
     // (We scan per-file; each file's imports are tracked independently.)
     const caps = inferCapabilitiesAst(`
-      import { identity, send } from "@maw/sdk";
+      import { identity, send } from "@maw-js/sdk";
       export { identity, send };  // re-export
       // Call sites in same file:
       identity();
@@ -246,7 +246,7 @@ describe("AST: re-export chain", () => {
     // Re-exporting without calling should NOT add capabilities
     // (capability = usage, not declaration)
     const caps = inferCapabilitiesAst(`
-      export { identity, send } from "@maw/sdk";
+      export { identity, send } from "@maw-js/sdk";
     `);
     // Re-exports via export...from don't create local call bindings
     expect(caps).not.toContain("sdk:identity");
@@ -291,7 +291,7 @@ describe("AST: non-SDK module capabilities", () => {
 
   test("maw.fetch() does NOT add net:fetch (sdk method, not global)", () => {
     const caps = inferCapabilitiesAst(`
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw.fetch("https://x");
     `);
     expect(caps).toContain("sdk:fetch");
@@ -328,7 +328,7 @@ describe("invariant: AST catches everything regex catches", () => {
 
   test("AST catches destructured usage missed by regex", () => {
     const src = `
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const { identity } = maw;
       identity();
     `;
@@ -343,7 +343,7 @@ describe("invariant: AST catches everything regex catches", () => {
 
   test("AST catches aliased maw missed by regex", () => {
     const src = `
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       const m = maw;
       m.wake("agent");
     `;
@@ -359,7 +359,7 @@ describe("invariant: AST catches everything regex catches", () => {
 
   test("AST catches bracket access missed by regex", () => {
     const src = `
-      import maw from "@maw/sdk";
+      import maw from "@maw-js/sdk";
       maw["wake"]("agent");
     `;
     // Regex pattern `\bmaw\.(\w+)\b` does NOT match `maw["wake"]`

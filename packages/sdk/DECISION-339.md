@@ -1,4 +1,4 @@
-# Decision: @maw/sdk npm publish strategy (issue #339)
+# Decision: @maw-js/sdk npm publish strategy (issue #339)
 
 ## Owner identity
 
@@ -34,6 +34,6 @@ Best of both: plugin authors get the stable typed API today; runtime lands in `1
 ## Phase B graduation plan (#340)
 
 1. Ship runtime implementation alongside types
-2. Re-export from `@maw/sdk` without breaking the existing types API
+2. Re-export from `@maw-js/sdk` without breaking the existing types API
 3. Bump to `1.0.0` stable, remove `-alpha` pre-release tag
 4. Update `PUBLISH.md` with stable publishing cadence

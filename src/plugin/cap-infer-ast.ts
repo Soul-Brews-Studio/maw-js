@@ -18,7 +18,7 @@
  * the regex path detects PLUS additional patterns the regex misses.
  *
  * SDK import specifiers that are treated as "maw" bindings:
- *   • "@maw/sdk", "maw", "maw-sdk", "maw/sdk" (all common forms)
+ *   • "@maw-js/sdk", "maw", "maw-sdk", "maw/sdk" (all common forms)
  *   • Any import from those specifiers becomes a tracked binding.
  *
  * Module capability mappings (non-SDK):
@@ -33,7 +33,7 @@ import ts from "typescript";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Import specifiers recognised as the maw SDK. */
-const MAW_SDK_SPECIFIERS = new Set(["@maw/sdk", "maw", "maw-sdk", "maw/sdk"]);
+const MAW_SDK_SPECIFIERS = new Set(["@maw-js/sdk", "maw", "maw-sdk", "maw/sdk"]);
 
 /** Module specifiers that map to a fixed capability (non-SDK). */
 const MODULE_CAP_MAP: Record<string, string> = {
@@ -68,14 +68,14 @@ export function inferCapabilitiesAst(source: string, fileName = "plugin.ts"): st
   //
   // We track two kinds:
   //   • `mawDefaultBindings` — names bound to the default export (the maw object)
-  //     e.g. `import maw from "@maw/sdk"` → "maw"
-  //          `import * as maw from "@maw/sdk"` → "maw"
-  //          `import mawAlias from "@maw/sdk"` → "mawAlias"
+  //     e.g. `import maw from "@maw-js/sdk"` → "maw"
+  //          `import * as maw from "@maw-js/sdk"` → "maw"
+  //          `import mawAlias from "@maw-js/sdk"` → "mawAlias"
   //          `const m = maw; ...` → tracked via alias walk below
   //
   //   • `mawNamedBindings` — names bound to named exports (methods directly)
-  //     e.g. `import { identity, send } from "@maw/sdk"` → { identity: "identity", send: "send" }
-  //          `import { identity as id } from "@maw/sdk"` → { id: "identity" }
+  //     e.g. `import { identity, send } from "@maw-js/sdk"` → { identity: "identity", send: "send" }
+  //          `import { identity as id } from "@maw-js/sdk"` → { id: "identity" }
   //
   const mawDefaultBindings = new Set<string>(); // local names bound to maw object
   const mawNamedBindings = new Map<string, string>(); // local name → sdk method name
@@ -116,7 +116,7 @@ function collectImportBindings(
     const clause = stmt.importClause;
     if (!clause) continue;
 
-    // Default import: `import maw from "@maw/sdk"`
+    // Default import: `import maw from "@maw-js/sdk"`
     if (clause.name) {
       mawDefaultBindings.add(clause.name.text);
     }
@@ -125,10 +125,10 @@ function collectImportBindings(
     if (!bindings) continue;
 
     if (ts.isNamespaceImport(bindings)) {
-      // `import * as maw from "@maw/sdk"` — namespace is equivalent to default
+      // `import * as maw from "@maw-js/sdk"` — namespace is equivalent to default
       mawDefaultBindings.add(bindings.name.text);
     } else if (ts.isNamedImports(bindings)) {
-      // `import { identity, send as s } from "@maw/sdk"`
+      // `import { identity, send as s } from "@maw-js/sdk"`
       for (const el of bindings.elements) {
         // el.name is the local alias; el.propertyName is the exported name (if aliased).
         const localName = el.name.text;

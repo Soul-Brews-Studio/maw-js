@@ -34,7 +34,7 @@
       },
     },
     "packages/sdk": {
-      "name": "@maw/sdk",
+      "name": "@maw-js/sdk",
       "version": "1.0.0-alpha.1",
     },
   },
@@ -149,7 +149,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@maw/sdk": ["@maw/sdk@workspace:packages/sdk"],
+    "@maw-js/sdk": ["@maw-js/sdk@workspace:packages/sdk"],
 
     "@monaco-editor/loader": ["@monaco-editor/loader@1.7.0", "", { "dependencies": { "state-local": "^1.0.6" } }, "sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA=="],
 

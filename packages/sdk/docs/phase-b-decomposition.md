@@ -1,7 +1,7 @@
 # Phase B Decomposition — plugin-compiler
 
 > **Umbrella**: #340  
-> **Blocked on**: #339 (`@maw/sdk` npm publish — decision point)  
+> **Blocked on**: #339 (`@maw-js/sdk` npm publish — decision point)  
 > **Phase A shipped**: alpha.22, commit `508cbe1`  
 > **Design source**: `ψ/writing/2026-04-15/the-plugin-compiler-debate.md`
 
@@ -11,23 +11,23 @@
 
 Phase A shipped three verbs (`maw plugin init --ts`, `maw plugin build`, `maw plugin install`) with the SDK **bundled into each plugin**. This was the right MVP call: it avoided the injection-infrastructure problem and kept Phase A to one session. But bundling the SDK is a deliberate *deferral*, not a final state.
 
-Phase B is the transition from "declared capabilities" to "enforced capabilities." The key mechanism is the **host-injected shim**: instead of `@maw/sdk` being frozen inside each plugin's bundle, the host injects a runtime Proxy that can intercept every SDK call. With that Proxy in place, capability enforcement can be per-call, per-plugin, and triggered at trust-boundary crossing — without breaking any Phase A plugin that doesn't cross that boundary.
+Phase B is the transition from "declared capabilities" to "enforced capabilities." The key mechanism is the **host-injected shim**: instead of `@maw-js/sdk` being frozen inside each plugin's bundle, the host injects a runtime Proxy that can intercept every SDK call. With that Proxy in place, capability enforcement can be per-call, per-plugin, and triggered at trust-boundary crossing — without breaking any Phase A plugin that doesn't cross that boundary.
 
 Phase B is also the phase where author ergonomics mature: `maw plugin dev` earns its own verb, `maw plugin check` gives authors a pre-publish dry-run, and `maw plugin upgrade` handles the SDK bump workflow.
 
 The trust layer (`.tgz` signing, federation-distributed revocation) ships in Phase B as additive, non-breaking additions to the `artifact` object shape — laying the groundwork for Phase C's full revocation infrastructure.
 
-**Why Phase B is blocked on #339**: The host-shim flip requires `@maw/sdk` to be a real published package. A plugin on a fresh machine that runs `bun add @maw/sdk` must get types and runtime shim stubs from npm — not from the maw-js workspace. Until the npm publish story is decided (#339), the shim injection architecture is unresolvable.
+**Why Phase B is blocked on #339**: The host-shim flip requires `@maw-js/sdk` to be a real published package. A plugin on a fresh machine that runs `bun add @maw-js/sdk` must get types and runtime shim stubs from npm — not from the maw-js workspace. Until the npm publish story is decided (#339), the shim injection architecture is unresolvable.
 
 ---
 
 ## 2. Sub-issue Decomposition
 
-### B1 — `@maw/sdk` host-injected shim
+### B1 — `@maw-js/sdk` host-injected shim
 
-**Title**: `feat(plugin-compiler): Phase B — @maw/sdk host-injected shim`
+**Title**: `feat(plugin-compiler): Phase B — @maw-js/sdk host-injected shim`
 
-**Scope**: Replace the current pattern where `@maw/sdk` is bundled verbatim into each plugin's `dist/index.js`. After this sub-issue, `@maw/sdk` is marked `--external` in the Bun build and the host injects a runtime Proxy at plugin load time (`registry.ts`). The Proxy forwards each SDK method call to the actual host implementation, and in Phase B, will enforce capability declarations before forwarding. The shim must be injected before any plugin code runs — likely via a `globalThis.__mawSdk` sentinel that the external-ized `@maw/sdk` package reads on import.
+**Scope**: Replace the current pattern where `@maw-js/sdk` is bundled verbatim into each plugin's `dist/index.js`. After this sub-issue, `@maw-js/sdk` is marked `--external` in the Bun build and the host injects a runtime Proxy at plugin load time (`registry.ts`). The Proxy forwards each SDK method call to the actual host implementation, and in Phase B, will enforce capability declarations before forwarding. The shim must be injected before any plugin code runs — likely via a `globalThis.__mawSdk` sentinel that the external-ized `@maw-js/sdk` package reads on import.
 
 **Dependencies**: #339 (npm publish), #340-B2 (capability hard-fail consumes the shim)
 
@@ -36,7 +36,7 @@ The trust layer (`.tgz` signing, federation-distributed revocation) ships in Pha
 **Risk**: L (external-contract change — existing Phase A plugins will need a rebuild to use the shim; bundled SDK still works if authors don't rebuild, but gets no capability enforcement)
 
 **Acceptance criteria**:
-- `maw plugin build` marks `@maw/sdk` as external; output `dist/index.js` contains no inlined SDK code
+- `maw plugin build` marks `@maw-js/sdk` as external; output `dist/index.js` contains no inlined SDK code
 - At plugin load, host injects a Proxy that wraps every SDK method
 - An existing Phase A plugin (bundled SDK) loads and runs identically (no regression)
 - A rebuilt Phase B plugin uses the shim and produces a smaller bundle
@@ -151,7 +151,7 @@ The trust layer (`.tgz` signing, federation-distributed revocation) ships in Pha
 
 **Title**: `feat(plugin-compiler): Phase B — maw plugin upgrade`
 
-**Scope**: New verb `maw plugin upgrade [name]` handles the `@maw/sdk` peer dep bump workflow. Without an argument, upgrades all installed plugins. Workflow: (1) update `package.json` `@maw/sdk` version to latest compatible, (2) re-run `maw plugin build` with the new SDK version, (3) run `maw plugin check` against the result, (4) show diff of capability changes and manifest changes, (5) re-install. Fails loudly if any capability check fails post-upgrade. This closes the workflow gap where Phase A authors see an SDK mismatch error but have no single command to resolve it.
+**Scope**: New verb `maw plugin upgrade [name]` handles the `@maw-js/sdk` peer dep bump workflow. Without an argument, upgrades all installed plugins. Workflow: (1) update `package.json` `@maw-js/sdk` version to latest compatible, (2) re-run `maw plugin build` with the new SDK version, (3) run `maw plugin check` against the result, (4) show diff of capability changes and manifest changes, (5) re-install. Fails loudly if any capability check fails post-upgrade. This closes the workflow gap where Phase A authors see an SDK mismatch error but have no single command to resolve it.
 
 **Dependencies**: B5 (upgrade calls check as its validation step)
 

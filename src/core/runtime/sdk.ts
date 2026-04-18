@@ -2,7 +2,7 @@
  * maw SDK — typed, safe API for command plugins.
  *
  * Instead of execSync("curl ...") + JSON.parse, plugins use:
- *   import { maw } from "@maw/sdk";
+ *   import { maw } from "@maw-js/sdk";
  *   const id = await maw.identity();  // typed!
  *
  * Three layers:

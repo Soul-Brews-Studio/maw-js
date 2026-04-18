@@ -19,7 +19,7 @@ export function scanDirs(): string[] {
   return [process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins")];
 }
 
-/** Runtime SDK version — sourced from @maw/sdk package.json (build-inlined). */
+/** Runtime SDK version — sourced from @maw-js/sdk package.json (build-inlined). */
 let _runtimeSdkVersion: string | null = null;
 export function runtimeSdkVersion(): string {
   if (_runtimeSdkVersion) return _runtimeSdkVersion;

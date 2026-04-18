@@ -109,20 +109,20 @@ describe("maw plugin init --ts", () => {
     expect(m.entry).toBe("./src/index.ts");
   });
 
-  test("src/index.ts uses @maw/sdk imports", async () => {
+  test("src/index.ts uses @maw-js/sdk imports", async () => {
     const cwd = tmpDir();
     await initIn(cwd, ["hello", "--ts"]);
     const src = readFileSync(join(cwd, "hello", "src", "index.ts"), "utf8");
-    expect(src).toContain('from "@maw/sdk"');
-    expect(src).toContain('from "@maw/sdk/plugin"');
+    expect(src).toContain('from "@maw-js/sdk"');
+    expect(src).toContain('from "@maw-js/sdk/plugin"');
   });
 
-  test("package.json ships @maw/sdk via file: absolute path", async () => {
+  test("package.json ships @maw-js/sdk via file: absolute path", async () => {
     const cwd = tmpDir();
     await initIn(cwd, ["hello", "--ts"]);
     const pkg = JSON.parse(readFileSync(join(cwd, "hello", "package.json"), "utf8"));
     expect(pkg.type).toBe("module");
-    expect(pkg.devDependencies["@maw/sdk"]).toMatch(/^file:\/.+packages\/sdk$/);
+    expect(pkg.devDependencies["@maw-js/sdk"]).toMatch(/^file:\/.+packages\/sdk$/);
     expect(pkg.devDependencies.typescript).toBeDefined();
   });
 
@@ -200,11 +200,11 @@ describe("inferCapabilities (Phase B AST — default)", () => {
   // These tests mirror the regex suite but use proper import syntax.
 
   test("maw.identity() with import → sdk:identity", () => {
-    expect(inferCapabilities("import maw from '@maw/sdk'; maw.identity();")).toContain("sdk:identity");
+    expect(inferCapabilities("import maw from '@maw-js/sdk'; maw.identity();")).toContain("sdk:identity");
   });
 
   test("multiple maw verbs captured", () => {
-    const caps = inferCapabilities("import maw from '@maw/sdk'; maw.identity(); maw.send('a','b');");
+    const caps = inferCapabilities("import maw from '@maw-js/sdk'; maw.identity(); maw.send('a','b');");
     expect(caps).toContain("sdk:identity");
     expect(caps).toContain("sdk:send");
   });
@@ -228,11 +228,11 @@ describe("inferCapabilities (Phase B AST — default)", () => {
   });
 
   test("maw.print.ok() does NOT add net:fetch", () => {
-    expect(inferCapabilities("import maw from '@maw/sdk'; maw.print.ok('done');")).not.toContain("net:fetch");
+    expect(inferCapabilities("import maw from '@maw-js/sdk'; maw.print.ok('done');")).not.toContain("net:fetch");
   });
 
   test("dedupes and sorts output", () => {
-    const caps = inferCapabilities("import maw from '@maw/sdk'; maw.identity(); maw.identity();");
+    const caps = inferCapabilities("import maw from '@maw-js/sdk'; maw.identity(); maw.identity();");
     expect(caps).toEqual(["sdk:identity"]);
   });
 
@@ -249,7 +249,7 @@ describe("inferCapabilities (Phase B AST — default)", () => {
   test("MAW_PLUGIN_CAP_INFER=ast (explicit) routes to AST path", () => {
     process.env.MAW_PLUGIN_CAP_INFER = "ast";
     try {
-      expect(inferCapabilities("import maw from '@maw/sdk'; maw.identity();")).toContain("sdk:identity");
+      expect(inferCapabilities("import maw from '@maw-js/sdk'; maw.identity();")).toContain("sdk:identity");
     } finally {
       delete process.env.MAW_PLUGIN_CAP_INFER;
     }
@@ -307,11 +307,11 @@ describe("maw plugin build", () => {
     const dir = tmpDir();
     makeMinimalPlugin(dir, {
       // AST mode scans the source file before bundling.
-      // Use a type-only maw reference that bun can resolve without installing @maw/sdk
+      // Use a type-only maw reference that bun can resolve without installing @maw-js/sdk
       // (type imports are erased by tsc/bun, leaving only runtime calls).
       // We declare maw as `any` so the source is valid TS that bun can bundle.
       source:
-        `// @ts-ignore\nimport type maw from "@maw/sdk";\n` +
+        `// @ts-ignore\nimport type maw from "@maw-js/sdk";\n` +
         `declare const mawSdk: any;\n` +
         `// Phase B AST scans for import declarations, not runtime values.\n` +
         `// Use explicit named cap comment for e2e test fixture compatibility:\n` +
@@ -320,7 +320,7 @@ describe("maw plugin build", () => {
     });
     await cmdPluginBuild([dir]);
     const m = JSON.parse(readFileSync(join(dir, "dist", "plugin.json"), "utf8"));
-    // Type-only import of "@maw/sdk" is erased — capabilities come from declared list
+    // Type-only import of "@maw-js/sdk" is erased — capabilities come from declared list
     // or the AST scanning the source. Since `mawSdk` is not imported from a known
     // SDK specifier, capabilities are empty (correct: no undeclared capabilities).
     expect(Array.isArray(m.capabilities)).toBe(true);

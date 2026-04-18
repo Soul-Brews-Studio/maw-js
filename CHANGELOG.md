@@ -8,11 +8,16 @@ Pre-1.0 alpha releases may introduce breaking changes at any time.
 
 ## [Unreleased]
 
-### Fixed
-- `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — root-cause fix for #531)
+### Changed
+- **Renamed npm package** `maw` → `maw-js` to eliminate bun `DependencyLoop` caused by collision with unrelated stale `maw@0.6.0` on npm. Binary name unchanged — users still run `maw`. Fixes #554, closes #555, eliminates root cause of #531.
 
 ### Added
 - `maw update`: serialize concurrent invocations via `~/.maw/update.lock` (#551)
+- `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause fixed by package rename above)
+
+### Fixed
+- `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — defensive belt-and-suspenders; package rename above is the root-cause fix)
+- `withUpdateLock`: fd-based read/write on lock file to prevent path TOCTOU from symlink substitution between openSync and the path-based follow-up
 
 ## [v2.0.0-alpha.134] - 2026-04-18
 

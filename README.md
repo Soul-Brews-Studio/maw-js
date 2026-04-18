@@ -25,11 +25,17 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
-### Troubleshooting
+## Recovering from `maw: command not found`
 
-If `maw` disappears after an update, run `maw doctor` (see PR #550 / `docs/install-recovery.md`).
+If `maw` vanishes unexpectedly (see [#531](https://github.com/Soul-Brews-Studio/maw-js/issues/531) — root cause: npm name collision, fixed in #557 via rename to `maw-js`), recovery paths:
 
-As of the next alpha, `maw update` self-protects against the sweep via [#551](https://github.com/Soul-Brews-Studio/maw-js/pull/551) — it stashes the binary to `~/.bun/bin/maw.prev` before any destructive `bun remove` and restores on retry-fail. `maw doctor` remains useful if the binary disappears for other reasons (older alpha, manual `bun remove`, disk full, etc.).
+1. **One-shot reinstall**: `bun add -g github:Soul-Brews-Studio/maw-js`
+2. **Self-heal command**: `bunx -p github:Soul-Brews-Studio/maw-js maw doctor` — auto-detects + restores
+3. **Shell hook**: source `scripts/maw-heal.sh` from your `.bashrc` / `.zshrc` — checks on every shell init
+
+Defense-in-depth: `maw update` stashes the binary to `~/.bun/bin/maw.prev` before any destructive `bun remove` and restores on retry-fail (#551). `maw doctor` remains useful if the binary disappears for other reasons (older alpha, manual `bun remove`, disk full, etc.).
+
+Full runbook: [`docs/install-recovery.md`](docs/install-recovery.md).
 
 ## Quick Start
 

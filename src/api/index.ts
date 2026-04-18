@@ -11,7 +11,7 @@ import { oracleApi } from "./oracle";
 import { federationApi } from "./federation";
 import { worktreesApi } from "./worktrees";
 import { uiStateApi } from "./ui-state";
-// deprecated.ts removed — 410 stubs for tokens/maw-log APIs no longer needed
+import { deprecatedApi } from "./deprecated";
 import { costsApi } from "./costs";
 import { triggersApi } from "./triggers";
 import { avengersApi } from "./avengers";
@@ -48,6 +48,7 @@ export const api = new Elysia({ prefix: "/api" })
   .use(federationApi)
   .use(worktreesApi)
   .use(uiStateApi)
+  .use(deprecatedApi)
   .use(costsApi)
   .use(triggersApi)
   .use(avengersApi)

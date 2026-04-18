@@ -1,4 +1,4 @@
-# @maw/sdk
+# @maw-js/sdk
 
 Stable typed API for [maw-js](https://github.com/Soul-Brews-Studio/maw-js) plugin authors — Multi-Agent Workflow orchestration in Bun/TS.
 
@@ -7,7 +7,7 @@ Stable typed API for [maw-js](https://github.com/Soul-Brews-Studio/maw-js) plugi
 ## Install
 
 ```bash
-bun add @maw/sdk
+bun add @maw-js/sdk
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ bun add @maw/sdk
 ### Authoring a plugin
 
 ```ts
-import type { InvokeContext, InvokeResult } from "@maw/sdk/plugin";
+import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 
 export default async function (ctx: InvokeContext): Promise<InvokeResult> {
   return { ok: true, output: "hello from sdk" };
@@ -25,7 +25,7 @@ export default async function (ctx: InvokeContext): Promise<InvokeResult> {
 ### Calling the host SDK
 
 ```ts
-import { maw } from "@maw/sdk";
+import { maw } from "@maw-js/sdk";
 
 const id = await maw.identity();
 console.log(id.node, id.version);

@@ -3,8 +3,8 @@
  *
  * Scaffolds a 5-file TypeScript plugin at ./<name>/:
  *   plugin.json       — full v1 manifest with blank-but-present placeholders
- *   src/index.ts      — @maw/sdk hello-world stub
- *   package.json      — author-side deps (typescript, @maw/sdk via workspace)
+ *   src/index.ts      — @maw-js/sdk hello-world stub
+ *   package.json      — author-side deps (typescript, @maw-js/sdk via workspace)
  *   tsconfig.json     — strict ESM bundler resolution
  *   README.md         — 10-line quickstart
  *
@@ -59,11 +59,11 @@ export async function cmdPluginInit(args: string[]): Promise<void> {
   };
   writeFileSync(join(dest, "plugin.json"), JSON.stringify(manifest, null, 2) + "\n");
 
-  // 2. src/index.ts — @maw/sdk hello-world stub
+  // 2. src/index.ts — @maw-js/sdk hello-world stub
   writeFileSync(
     join(dest, "src", "index.ts"),
-    `import { maw } from "@maw/sdk";
-import type { InvokeContext, InvokeResult } from "@maw/sdk/plugin";
+    `import { maw } from "@maw-js/sdk";
+import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 
 export default async function (ctx: InvokeContext): Promise<InvokeResult> {
   const id = await maw.identity();
@@ -81,7 +81,7 @@ export default async function (ctx: InvokeContext): Promise<InvokeResult> {
     main: "src/index.ts",
     scripts: { build: "maw plugin build" },
     devDependencies: {
-      "@maw/sdk": `file:${SDK_PKG_PATH}`,
+      "@maw-js/sdk": `file:${SDK_PKG_PATH}`,
       typescript: "^5.0.0",
     },
   };

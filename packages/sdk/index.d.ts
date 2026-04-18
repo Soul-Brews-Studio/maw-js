@@ -1,5 +1,5 @@
 /**
- * @maw/sdk — stable typed API for maw-js plugin authors.
+ * @maw-js/sdk — stable typed API for maw-js plugin authors.
  *
  * Hand-authored declaration file. Self-contained — safe to ship
  * through file:, tarball, or npm install with no path dependencies.
