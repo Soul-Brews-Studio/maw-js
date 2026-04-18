@@ -44,6 +44,19 @@
 
 import { mock } from "bun:test";
 
+// Pass-through the pane-lock + pane-tag functions from their sub-modules so
+// the mocked `../../src/core/transport/tmux` barrel matches the real surface.
+// Tests that actually exercise locking/tagging should pass an `opts.tmux`
+// override — the pass-throughs themselves are side-effect-free at import.
+import {
+  withPaneLock as realWithPaneLock,
+  splitWindowLocked as realSplitWindowLocked,
+} from "../../src/core/transport/tmux-pane-lock";
+import {
+  tagPane as realTagPane,
+  readPaneTags as realReadPaneTags,
+} from "../../src/core/transport/tmux-pane-tags";
+
 // --- Public types ---
 
 export interface MockSession {
@@ -231,6 +244,10 @@ export function installTmuxMock(config: { sessions: MockSession[] }): void {
       Tmux: MockTmux,
       resolveSocket: () => undefined,
       tmuxCmd: () => "tmux",
+      withPaneLock: realWithPaneLock,
+      splitWindowLocked: realSplitWindowLocked,
+      tagPane: realTagPane,
+      readPaneTags: realReadPaneTags,
     };
   });
 }
