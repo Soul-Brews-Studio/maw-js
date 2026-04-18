@@ -43,9 +43,9 @@ describe("cmdSplit cascade (#365)", () => {
   test("anchors split to caller's TMUX_PANE", async () => {
     await cmdSplit("106-tennis-court-v2");
     expect(commands).toHaveLength(1);
-    expect(commands[0]).toContain("-t %42");
+    expect(commands[0]).toContain("-t '%42'");
     expect(commands[0]).toMatch(
-      /^tmux split-window -t %42 -h -l 50% "TMUX= tmux attach-session -t 106-tennis-court-v2:0"$/,
+      /^tmux split-window -t '%42' -h -l 50% "TMUX= tmux attach-session -t 106-tennis-court-v2:0"$/,
     );
   });
 
@@ -56,8 +56,8 @@ describe("cmdSplit cascade (#365)", () => {
     await cmdSplit("107-volt-pv");
 
     expect(commands).toHaveLength(2);
-    expect(commands[0]).toContain("-t %42");
-    expect(commands[1]).toContain("-t %42");
+    expect(commands[0]).toContain("-t '%42'");
+    expect(commands[1]).toContain("-t '%42'");
     // Both splits anchored to caller's pane — this is the cascade.
     expect(commands[0]).toContain("106-tennis-court-v2");
     expect(commands[1]).toContain("107-volt-pv");
@@ -66,19 +66,19 @@ describe("cmdSplit cascade (#365)", () => {
   test("passes --vertical + --pct through with target", async () => {
     await cmdSplit("106-tennis-court-v2", { vertical: true, pct: 30 });
     expect(commands[0]).toMatch(
-      /^tmux split-window -t %42 -v -l 30% "TMUX= tmux attach-session -t 106-tennis-court-v2:0"$/,
+      /^tmux split-window -t '%42' -v -l 30% "TMUX= tmux attach-session -t 106-tennis-court-v2:0"$/,
     );
   });
 
   test("--no-attach with target runs bash in new pane", async () => {
     await cmdSplit("106-tennis-court-v2", { noAttach: true });
-    expect(commands[0]).toBe('tmux split-window -t %42 -h -l 50% "bash"');
+    expect(commands[0]).toBe(`tmux split-window -t '%42' -h -l 50% "bash"`);
   });
 
   test("falls back (no -t) when TMUX_PANE is unset (defensive)", async () => {
     delete process.env.TMUX_PANE;
     await cmdSplit("106-tennis-court-v2");
-    expect(commands[0]).not.toContain("-t %");
+    expect(commands[0]).not.toContain("-t '%");
     expect(commands[0]).toMatch(
       /^tmux split-window -h -l 50% "TMUX= tmux attach-session -t 106-tennis-court-v2:0"$/,
     );

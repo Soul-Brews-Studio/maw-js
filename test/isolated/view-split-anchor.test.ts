@@ -33,7 +33,7 @@ let cmdSplitCalls: Array<{ target: string; opts: { anchorPane?: string } }> = []
 
 // ─── Mocks (install BEFORE importing the module-under-test) ──────────────────
 
-mock.module(join(import.meta.dir, "../src/sdk"), () => ({
+mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   listSessions: async () => fakeSessions,
   tmuxCmd: () => "tmux",
   resolveSocket: () => undefined,
@@ -54,21 +54,21 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   },
 }));
 
-mock.module(join(import.meta.dir, "../src/config"), () => ({
+mock.module(join(import.meta.dir, "../../src/config"), () => ({
   loadConfig: () => ({ host: "local" }),
 }));
 
-mock.module(join(import.meta.dir, "../src/core/fleet/audit"), () => ({
+mock.module(join(import.meta.dir, "../../src/core/fleet/audit"), () => ({
   logAnomaly: () => {},
 }));
 
-mock.module(join(import.meta.dir, "../src/commands/plugins/split/impl"), () => ({
+mock.module(join(import.meta.dir, "../../src/commands/plugins/split/impl"), () => ({
   cmdSplit: async (target: string, opts: { anchorPane?: string } = {}) => {
     cmdSplitCalls.push({ target, opts });
   },
 }));
 
-const { cmdView } = await import("../src/commands/plugins/view/impl");
+const { cmdView } = await import("../../src/commands/plugins/view/impl");
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 

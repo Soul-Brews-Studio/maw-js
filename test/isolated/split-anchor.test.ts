@@ -17,7 +17,7 @@ import { join } from "path";
 
 let hostExecCalls: string[] = [];
 
-mock.module(join(import.meta.dir, "../src/sdk"), () => ({
+mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     return "";
@@ -40,7 +40,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   },
 }));
 
-const { cmdSplit } = await import("../src/commands/plugins/split/impl");
+const { cmdSplit } = await import("../../src/commands/plugins/split/impl");
 
 // ─── Harness: env + console.log capture ──────────────────────────────────────
 
