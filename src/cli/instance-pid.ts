@@ -57,7 +57,7 @@ export function acquirePidLock(instanceName: string | null): void {
       let prior = NaN;
       let readFd: number | null = null;
       try {
-        readFd = openSync(file, "r");
+        readFd = openSync(file, "r"); // lgtm[js/file-system-race] fd-bound, see #562/#581
         const size = fstatSync(readFd).size;
         const buf = Buffer.alloc(Math.min(size, 64));
         readSync(readFd, buf, 0, buf.length, 0);

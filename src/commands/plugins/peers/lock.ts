@@ -50,7 +50,7 @@ export function withPeersLock<T>(path: string, fn: () => T): T {
       let holderPid = NaN;
       let readFd: number | null = null;
       try {
-        readFd = openSync(lockPath, "r");
+        readFd = openSync(lockPath, "r"); // lgtm[js/file-system-race] fd-bound, see #562/#581
         const size = fstatSync(readFd).size;
         const buf = Buffer.alloc(Math.min(size, 64));
         readSync(readFd, buf, 0, buf.length, 0);
