@@ -1,0 +1,13 @@
+{
+  "name": "cross-team-queue",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Unified inbox view across oracle vaults — scan + frontmatter parse + filter/aggregate. Plugin-first, inspired by #505.",
+  "author": "Soul-Brews-Studio",
+  "api": {
+    "path": "/cross-team-queue",
+    "methods": ["GET"]
+  },
+  "weight": 50
+}
