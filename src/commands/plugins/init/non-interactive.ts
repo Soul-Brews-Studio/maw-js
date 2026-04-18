@@ -9,6 +9,7 @@ export interface NonInteractiveOpts {
   peers: { name: string; url: string }[];
   federationToken?: string;
   force: boolean;
+  backup: boolean;
 }
 
 export type NonInteractiveResult =
@@ -27,6 +28,7 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
     "--peer-name": [String],
     "--federation-token": String,
     "--force": Boolean,
+    "--backup": Boolean,
   }, 0);
 
   const node = flags["--node"] ?? defaults.node;
@@ -62,6 +64,7 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
       peers,
       federationToken: flags["--federation-token"],
       force: !!flags["--force"],
+      backup: !!flags["--backup"],
     },
   };
 }

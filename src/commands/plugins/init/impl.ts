@@ -71,8 +71,20 @@ export async function cmdInit(opts: CmdInitOpts): Promise<CmdInitResult> {
     const parsed = parseNonInteractive(opts.args, home, def);
     if (!parsed.ok) return { ok: false, error: parsed.error };
 
-    if (configExists(CONFIG_FILE) && !parsed.opts.force) {
-      return { ok: false, error: `Config exists at ${CONFIG_FILE}. Use --force to overwrite.` };
+    // #510 (spec § 4a): --backup implies --force + preserve existing as .bak.<timestamp>.
+    // Without --force or --backup, refuse to overwrite.
+    if (configExists(CONFIG_FILE) && !parsed.opts.force && !parsed.opts.backup) {
+      return { ok: false, error: `Config exists at ${CONFIG_FILE}. Use --force to overwrite or --backup to preserve + overwrite.` };
+    }
+    if (configExists(CONFIG_FILE) && parsed.opts.backup) {
+      const bak = backupConfig(CONFIG_FILE);
+      write(`${GREEN}✓${RESET} backed up to ${bak}`);
+    }
+
+    // #510 (spec § 3 Q3): warn when no --token flag AND no CLAUDE_CODE_OAUTH_TOKEN env.
+    // Non-blocking — config still writes.
+    if (!parsed.opts.token && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+      process.stderr.write(`${GRAY}warning${RESET}: no --token and no CLAUDE_CODE_OAUTH_TOKEN env — Claude agents will need credentials before wake\n`);
     }
 
     const federationToken = parsed.opts.federate
