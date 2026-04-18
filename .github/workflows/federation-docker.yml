@@ -7,7 +7,6 @@ on:
       - 'scripts/test-docker-federation.sh'
       - 'src/commands/plugins/peers/**'
       - 'src/transports/**'
-      - '.github/workflows/federation-docker.yml'
 
 jobs:
   federation:
