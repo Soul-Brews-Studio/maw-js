@@ -5,7 +5,4 @@ import { MAW_ROOT } from "../core/paths";
 export const demoView = new Hono();
 
 demoView.get("/", serveStatic({ root: `${MAW_ROOT}/demo`, path: "/index.html" }));
-demoView.get("/*", serveStatic({
-  root: MAW_ROOT,
-  rewriteRequestPath: (p) => p.replace(/^\/demo/, "/demo"),
-}));
+demoView.get("/*", serveStatic({ root: MAW_ROOT }));

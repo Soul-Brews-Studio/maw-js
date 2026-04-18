@@ -138,7 +138,7 @@ export function federationAuth(): MiddlewareHandler {
     const allowPeersWithoutToken = config.allowPeersWithoutToken === true;
 
     const url = new URL(c.req.url);
-    const path = url.pathname.replace(/^\/api/, "/api"); // normalize
+    const path = url.pathname;
 
     // Not a protected path → pass (reads remain public so the Office UI works)
     if (!isProtected(path, c.req.method)) return next();
