@@ -51,12 +51,17 @@ logs as a `federation-docker-logs` artifact when the job fails.
 
 ## Known gaps
 
-- `maw-js` does not yet register a `/info` endpoint, so
-  `src/commands/plugins/peers/probe.ts` will surface `HTTP_4XX` against
-  any currently-built image. The probe round-trip is still useful for
-  catching transport / DNS / compose-wiring regressions, but the
-  handshake classifier will stay red until `/info` lands.
-  Tracking: <TODO: link issue #N once tester files it>.
+- **Historical (resolved, #596 / #603):** `maw-js` did not register a
+  `/info` endpoint, so `src/commands/plugins/peers/probe.ts` surfaced
+  `HTTP_4XX` against any currently-built image. The probe round-trip was
+  still useful for catching transport / DNS / compose-wiring regressions,
+  but the handshake classifier stayed red until `/info` shipped. Tracking
+  issue: [#596](https://github.com/Soul-Brews-Studio/maw-js/issues/596)
+  (closed by [#603](https://github.com/Soul-Brews-Studio/maw-js/pull/603)).
+- **Current:** the image build may fail at `bun install --frozen-lockfile`
+  if the committed `bun.lock` was written by a bun version older than the
+  one resolved by `oven/bun:1.3-alpine`. Tracking:
+  [#607](https://github.com/Soul-Brews-Studio/maw-js/issues/607).
 
 ## Related
 
