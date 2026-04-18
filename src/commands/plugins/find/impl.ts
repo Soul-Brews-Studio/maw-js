@@ -4,6 +4,15 @@ import { loadFleet } from "../../shared/fleet-load";
 import { join } from "path";
 import { existsSync } from "fs";
 
+// POSIX-correct single-quote escape: inside '…' the only metacharacter is
+// the quote itself, and the shell has no escape for it — you must close,
+// emit a literal quote, reopen. The prior `.replace(/'/g, "\\'")` left
+// backslashes un-escaped, which CodeQL flagged as js/incomplete-sanitization
+// (input `\\'` would break out of the quoting).
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 /**
  * maw find <keyword> [--oracle <name>]
  *
@@ -51,13 +60,13 @@ export async function cmdFind(keyword: string, opts: { oracle?: string } = {}) {
   // Search each oracle
   for (const { name, psiPath } of targets) {
     try {
-      const out = await hostExec(`grep -ril '${keyword.replace(/'/g, "\\'")}' '${psiPath}' 2>/dev/null || true`);
+      const out = await hostExec(`grep -ril ${shSingleQuote(keyword)} ${shSingleQuote(psiPath)} 2>/dev/null || true`);
       const files = out.trim().split("\n").filter(Boolean);
 
       for (const file of files) {
         // Get matching line for context
         try {
-          const match = await hostExec(`grep -m1 -i '${keyword.replace(/'/g, "\\'")}' '${file}' 2>/dev/null || true`);
+          const match = await hostExec(`grep -m1 -i ${shSingleQuote(keyword)} ${shSingleQuote(file)} 2>/dev/null || true`);
           results.push({
             oracle: name,
             file: file.replace(psiPath + "/", ""),
