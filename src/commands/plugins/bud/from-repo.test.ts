@@ -1,9 +1,10 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { InvokeContext } from "../../../plugin/types";
 import { planFromRepoInjection, looksLikeUrl, cmdBudFromRepo } from "./from-repo";
+import { applyFromRepoInjection, oracleMarkerBegin } from "./from-repo-exec";
 
 function mkGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "maw-from-repo-test-"));
@@ -117,15 +118,104 @@ describe("from-repo: cmdBudFromRepo", () => {
     }
   });
 
-  it("non-dry-run always refuses with pointer to #588", async () => {
+  it("non-dry-run on clean repo writes ψ/, CLAUDE.md, .claude/settings.local.json", async () => {
     const dir = mkGitRepo();
     try {
-      await expect(cmdBudFromRepo({
-        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false,
-      })).rejects.toThrow(/not yet implemented — see #588/);
+      await cmdBudFromRepo({ target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false });
+      expect(statSync(join(dir, "ψ", "inbox")).isDirectory()).toBe(true);
+      expect(statSync(join(dir, "ψ", "memory", "learnings")).isDirectory()).toBe(true);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+      expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toContain("demo-oracle");
+      expect(readFileSync(join(dir, ".claude", "settings.local.json"), "utf-8")).toBe("{}\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("non-dry-run with --pr refuses with pointer to follow-up", async () => {
+    const dir = mkGitRepo();
+    try {
+      await expect(cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: true, dryRun: false,
+      })).rejects.toThrow(/--pr is not yet implemented/);
+      // refuse BEFORE writing — no ψ/ created
+      expect(existsSync(join(dir, "ψ"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("non-dry-run refuses on collision (existing ψ/) without partial write", async () => {
+    const dir = mkGitRepo();
+    mkdirSync(join(dir, "ψ"));
+    try {
+      await expect(cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false,
+      })).rejects.toThrow(/blocker/);
+      // CLAUDE.md not touched
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("from-repo: applyFromRepoInjection (executor)", () => {
+  it("appends under marker when CLAUDE.md exists and preserves original content", async () => {
+    const dir = mkGitRepo();
+    try {
+      writeFileSync(join(dir, "CLAUDE.md"), "# host project\n\nPre-existing host content.\n");
+      const plan = planFromRepoInjection({ target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false });
+      await applyFromRepoInjection(plan, { target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false }, () => {});
+      const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+      expect(content).toContain("# host project");
+      expect(content).toContain("Pre-existing host content.");
+      expect(content).toContain(oracleMarkerBegin("demo"));
+      expect(content).toContain("Oracle scaffolding");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("idempotent re-run — second apply does not re-append CLAUDE.md", async () => {
+    const dir = mkGitRepo();
+    try {
+      writeFileSync(join(dir, "CLAUDE.md"), "# host\n");
+      const opts = { target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false };
+      const plan = planFromRepoInjection(opts);
+      await applyFromRepoInjection(plan, opts, () => {});
+      const firstContent = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+      // Re-plan: ψ/ now exists, so planner would block — but executor alone should be idempotent on CLAUDE.md
+      const replan = { ...plan, blockers: [] }; // simulate a re-apply path (stem match → skip)
+      await applyFromRepoInjection(replan, opts, () => {});
+      const secondContent = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+      expect(secondContent).toBe(firstContent);
+      // Count markers — exactly one
+      const markerCount = (secondContent.match(new RegExp(oracleMarkerBegin("demo").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length;
+      expect(markerCount).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves existing .claude/settings.local.json", async () => {
+    const dir = mkGitRepo();
+    try {
+      mkdirSync(join(dir, ".claude"));
+      writeFileSync(join(dir, ".claude", "settings.local.json"), `{"keep":true}\n`);
+      const opts = { target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false };
+      const plan = planFromRepoInjection(opts);
+      await applyFromRepoInjection(plan, opts, () => {});
+      expect(readFileSync(join(dir, ".claude", "settings.local.json"), "utf-8")).toBe(`{"keep":true}\n`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when invoked with a blocker'd plan", async () => {
+    const opts = { target: "/nonexistent/zzz", stem: "demo", isUrl: false, pr: false, dryRun: false };
+    const plan = planFromRepoInjection(opts);
+    await expect(applyFromRepoInjection(plan, opts, () => {})).rejects.toThrow(/blocker/);
   });
 });
 
