@@ -86,6 +86,8 @@
                 const events = data.type === 'feed' ? [data.event] : data.events || []
                 for (const ev of events) {
                   const name = ev.oracle
+                  // #474: reject unsafe keys from untrusted WS payload to block js/remote-property-injection.
+                  if (typeof name !== 'string' || name === '__proto__' || name === 'constructor' || name === 'prototype') continue
                   // Match to agent: "neo" → "neo-oracle" or worktree derivation
                   const wtMatch = (ev.project || '').match(/[.-]wt-(?:\d+-)?(.+)$/)
                   const windowName = wtMatch ? name + '-' + wtMatch[1] : name + '-oracle'
