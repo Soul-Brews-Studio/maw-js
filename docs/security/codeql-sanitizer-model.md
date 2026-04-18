@@ -46,11 +46,21 @@ truncates with a visible marker. It is a sanitizer by construction.
    for an unpublished local path. Publishing a model pack to the CodeQL
    registry is out of scope for this fix — it would require a separate
    pipeline, versioning decisions, and trust setup.
-2. **OPTION B — Inline suppression (shipped).** Add
-   `// lgtm[js/log-injection]` comments on the 4 lines, each citing the
-   sanitizer + tracking issues. GitHub CodeQL still honors the legacy
-   LGTM annotation format for backwards compatibility, which routes
-   through SARIF as a fingerprint suppression.
+2. **OPTION B — Inline suppression (shipped; empirically does not
+   close).** Add `// lgtm[js/log-injection]` comments on the 4 lines,
+   each citing the sanitizer + tracking issues. **Correction
+   (2026-04-19):** the original claim that "GitHub CodeQL still
+   honors the legacy LGTM annotation format for backwards
+   compatibility" is empirically false. The `// lgtm[query-id]`
+   convention belonged to LGTM.com (sunset 2022-12-16); the
+   GitHub-hosted CodeQL analyzer does not parse it. All 4
+   log-injection alerts remain open as of the 2026-04-19 Code
+   Scanning API check. See
+   `docs/security/lgtm-annotation-investigation.md`. Comments are
+   retained in source as human-readable rationale, not as
+   suppressions. Closing the alerts requires either the Code
+   Scanning dismissal API or OPTION A (a published sanitizer model
+   pack).
 3. **OPTION C — `query-filters` exclude (rejected).** Would suppress
    *every* `js/log-injection` finding in the repo, including real
    future ones.
@@ -79,13 +89,18 @@ CodeQL can't be run locally without a paid Semmle setup. Instead:
 - `bun run test:all` must stay green — the change is a comment plus a
   reverted workflow edit; no code paths touched.
 - After merge, the next scheduled scan (Monday 06:37 UTC) re-runs
-  CodeQL on `main`. Expected-closed alerts:
+  CodeQL on `main`. Expected-closed alerts were:
   - `js/log-injection` on the `auth-ok` log line (workspaceId)
   - `js/log-injection` on the `node-joined` log line (nodeId)
   - `js/log-injection` on the `node-left` log line (nodeId)
   - `js/log-injection` on the `error` log line (message/reason)
-- If any of the 4 remain after the next scan, the `// lgtm` syntax is
-  no longer honored — follow up with OPTION A via a published pack.
+- **Outcome (2026-04-19):** all 4 alerts remained open after the
+  post-#586 scan. Per
+  `docs/security/lgtm-annotation-investigation.md`, the hosted
+  analyzer does not honor `// lgtm[query-id]`. Follow-up is either
+  the Code Scanning dismissal API (per-alert, cheap) or OPTION A via
+  a published pack (structural, bundles well if a second sanitizer
+  arrives).
 
 ## Related
 
