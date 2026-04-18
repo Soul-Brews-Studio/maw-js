@@ -115,9 +115,16 @@ configApi.put("/config-file", async ({ body, set}) => {
   if (!name || !name.endsWith(".json")) { set.status = 400; return { error: "name must end with .json" }; }
   const safeName = basename(name);
   const fullPath = join(fleetDir, safeName);
-  if (existsSync(fullPath)) { set.status = 409; return { error: "file already exists" }; }
   try { JSON.parse(content); } catch { set.status = 400; return { error: "invalid JSON" }; }
-  writeFileSync(fullPath, content + "\n", "utf-8");
+  // Atomic create: O_CREAT | O_EXCL. Kernel rejects on EEXIST — no TOCTOU window. (#484)
+  try {
+    writeFileSync(fullPath, content + "\n", { encoding: "utf-8", flag: "wx" });
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+      set.status = 409; return { error: "file already exists" };
+    }
+    throw e;
+  }
   return { ok: true, path: `fleet/${safeName}` };
 }, {
   body: t.Object({ name: t.String(), content: t.String() }),
