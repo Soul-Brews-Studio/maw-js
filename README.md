@@ -187,3 +187,18 @@ Mar 2026   maw-js + maw-ui        Backend/frontend split
 Apr 2026   v2.0.0-alpha.66        Plugin OS, 896 commits, 57 commands,
                                    19 API endpoints, 1043 tests
 ```
+
+## Federation testing
+
+Peer handshake regressions hide on a single host. The Docker harness
+spins up two `maw-js:test` containers on a shared network and runs
+`maw peers probe` both directions as a round-trip smoke test.
+
+```bash
+bash scripts/test-docker-federation.sh   # build + up + probe + teardown
+bash scripts/dev-federation.sh up        # leave the 2-node stack running
+```
+
+CI runs the same script via `.github/workflows/federation-docker.yml`
+on any PR that touches `docker/**`, `src/transports/**`, or the peers
+plugin. Full runbook: [`docs/federation/docker-testing.md`](docs/federation/docker-testing.md).
