@@ -12,6 +12,8 @@ import { getVersionString } from "./cli/cmd-version";
 import { runUpdate } from "./cli/cmd-update";
 import { runBootstrap } from "./cli/plugin-bootstrap";
 import { UserError, isUserError } from "./core/util/user-error";
+import { AmbiguousMatchError } from "./core/runtime/find-window";
+import { renderAmbiguousMatch } from "./core/util/render-ambiguous";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -162,6 +164,13 @@ async function main(): Promise<void> {
 // bugs still surface their full stack so we can debug them.
 main().catch((e: unknown) => {
   if (isUserError(e)) {
+    process.exit(1);
+  }
+  // #567 — AmbiguousMatchError escapes from findWindow via resolver chains
+  // (cmdSend, cmdPeek, talk-to, view, etc.). Render it as actionable CLI
+  // output instead of a minified stack trace. Exit 1 preserved.
+  if (e instanceof AmbiguousMatchError) {
+    console.error(renderAmbiguousMatch(e, args));
     process.exit(1);
   }
   console.error(e);
