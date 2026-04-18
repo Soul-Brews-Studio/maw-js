@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-pr-size.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
