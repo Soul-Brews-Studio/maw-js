@@ -8,6 +8,9 @@ Pre-1.0 alpha releases may introduce breaking changes at any time.
 
 ## [Unreleased]
 
+### Added
+- `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause still under investigation)
+
 ## [v2.0.0-alpha.134] - 2026-04-18
 
 ### Added

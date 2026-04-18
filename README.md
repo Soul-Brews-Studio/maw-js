@@ -25,6 +25,16 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
+## Recovering from `maw: command not found`
+
+If `maw` vanishes unexpectedly (see [#531](https://github.com/Soul-Brews-Studio/maw-js/issues/531) — upstream bun behavior under investigation), three recovery paths:
+
+1. **One-shot reinstall**: `bun add -g github:Soul-Brews-Studio/maw-js`
+2. **Self-heal command**: `bunx -p github:Soul-Brews-Studio/maw-js maw doctor` — auto-detects + restores
+3. **Shell hook**: source `scripts/maw-heal.sh` from your `.bashrc` / `.zshrc` — checks on every shell init
+
+Full runbook: [`docs/install-recovery.md`](docs/install-recovery.md).
+
 ## Quick Start
 
 ```bash
