@@ -1,0 +1,39 @@
+name: Federation (Docker) integration
+
+on:
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'scripts/test-docker-federation.sh'
+      - 'src/commands/plugins/peers/**'
+      - 'src/transports/**'
+      - '.github/workflows/federation-docker.yml'
+
+jobs:
+  federation:
+    name: 2-node probe round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run federation integration test
+        run: bash scripts/test-docker-federation.sh
+
+      - name: Collect container logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/fed-logs
+          docker compose -f docker/compose.yml logs --no-color > /tmp/fed-logs/compose.log 2>&1 || true
+          docker compose -f docker/compose.yml ps > /tmp/fed-logs/ps.txt 2>&1 || true
+
+      - name: Upload container logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: federation-docker-logs
+          path: /tmp/fed-logs
+          if-no-files-found: ignore
