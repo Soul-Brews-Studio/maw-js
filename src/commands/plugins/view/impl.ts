@@ -3,7 +3,7 @@ import { Tmux, tmuxCmd, resolveSocket } from "../../../sdk";
 import { loadConfig } from "../../../config";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { logAnomaly } from "../../../core/fleet/audit";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { ttyAsk } from "../init/prompts";
 
 /**
@@ -196,13 +196,8 @@ export async function cmdView(
       );
       return;
     }
-    const directCmd = isLocal
-      ? socket
-        ? `tmux -S ${socket} attach-session -t ${sessionName}`
-        : `tmux attach-session -t ${sessionName}`
-      : `ssh -tt ${host} "${tmuxCmd()} attach-session -t '${sessionName}'"`;
     try {
-      execSync(directCmd, { stdio: "inherit" });
+      attachViaTmux({ isLocal, socket, host, target: sessionName });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`\x1b[33mwarn\x1b[0m: attach exited non-zero — ${msg}`);
@@ -276,19 +271,14 @@ export async function cmdView(
     return;
   }
 
-  // Use execSync (not Bun.spawn) for the blocking attach — Bun.spawn with
+  // Use execFileSync (not Bun.spawn) for the blocking attach — Bun.spawn with
   // stdin:"inherit" has TTY handoff issues that can propagate SIGHUP up to
   // the parent SSH session when tmux detaches, closing the whole terminal.
-  // execSync + stdio:"inherit" matches the proven pattern in wake.ts
-  // (attachToSession helper, e07b7e9).
-  const attachCmd = isLocal
-    ? socket
-      ? `tmux -S ${socket} attach-session -t ${viewName}`
-      : `tmux attach-session -t ${viewName}`
-    : `ssh -tt ${host} "${tmuxCmd()} attach-session -t '${viewName}'"`;
-
+  // execFileSync + stdio:"inherit" matches the proven pattern in wake.ts
+  // (attachToSession helper, e07b7e9). argv form avoids local shell
+  // interpretation of session names (js/indirect-command-line-injection, #474).
   try {
-    execSync(attachCmd, { stdio: "inherit" });
+    attachViaTmux({ isLocal, socket, host, target: viewName });
   } catch (err) {
     // tmux exits non-zero when attach fails (session gone, socket missing,
     // etc). Log but do NOT re-throw — a failed attach should not cascade
@@ -330,4 +320,31 @@ async function resolveAnchorPane(anchor: string): Promise<string> {
     await t.newGroupedSession(r.match.name, viewName, { windowSize: "largest" });
   }
   return `${viewName}:0`;
+}
+
+// Reject tmux session names that contain anything a remote shell could parse.
+// Tmux itself accepts only a restricted set, and our fleet validators
+// (src/core/fleet/validate.ts) tighten that further — but defense in depth
+// protects the ssh branch, where the remote command is shell-interpreted.
+const SAFE_SESSION_NAME = /^[A-Za-z0-9._-]+$/;
+
+function attachViaTmux(opts: {
+  isLocal: boolean;
+  socket: string | undefined;
+  host: string;
+  target: string;
+}): void {
+  const { isLocal, socket, host, target } = opts;
+  if (isLocal) {
+    const args = socket
+      ? ["-S", socket, "attach-session", "-t", target]
+      : ["attach-session", "-t", target];
+    execFileSync("tmux", args, { stdio: "inherit" });
+    return;
+  }
+  if (!SAFE_SESSION_NAME.test(target)) {
+    throw new Error(`refusing ssh attach: unsafe session name '${target}'`);
+  }
+  const remoteCmd = `${tmuxCmd()} attach-session -t '${target}'`;
+  execFileSync("ssh", ["-tt", host, remoteCmd], { stdio: "inherit" });
 }
