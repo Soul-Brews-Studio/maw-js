@@ -20,6 +20,29 @@ Bun v1.3+ is required. tmux is needed for multi-agent features. On Linux, `ssh` 
 4. If you added a new export to `src/core/transport/ssh.ts` or `src/config/*`, update the canonical mock in `test/helpers/mock-*.ts` (see `scripts/check-mock-export-sync.sh`).
 5. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
 
+## PR size
+
+Soft cap: **~300 LOC of production code per PR** (Google research pegs review quality dropping past ~400; 300 leaves headroom).
+
+The cap counts: files under `src/`, `scripts/`, and non-generated config.
+The cap does **not** count: test files, fixtures under `test/fixtures/`, generated code (`dist/`, lockfiles), or vendored deps.
+
+If you exceed the cap:
+
+1. Consider splitting (scaffold → logic → integration, or per-file).
+2. If splitting costs more than reviewing big, say so in the PR body and flag which chunks reviewers can skim vs read line-by-line.
+3. Day-per-PR scaffolds (like ADR-002 Day 1 of 4) are fine — the *split itself* is the cap-honoring move.
+
+Tests don't count toward the cap, but flag if tests are >50% of total diff so reviewers know what kind of PR they're reading.
+
+### Per-file size
+
+Within the PR cap, individual source files should target **150-200 LOC**. > 200 is a smell — split by responsibility (e.g., `parser.ts` + `validator.ts` instead of one `parse.ts`).
+
+This is for NEW files. Existing oversized files aren't a forced refactor; just stay under 200 for any NEW additions and flag refactor opportunities in the PR body.
+
+Exempt: type-definition files, specs/docs, generated/scaffolded boilerplate.
+
 ## Opening issues
 
 - **Bugs**: include the command you ran, the output you got, and what you expected. A minimal repro beats a long narrative.
