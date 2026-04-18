@@ -759,7 +759,9 @@ describe("cmdWake — --split", () => {
     await cmdWake("foo", { split: true });
 
     expect(cmdSplitCalls).toHaveLength(0);
-    expect(warns.some(w => w.includes("--split requires tmux session"))).toBe(true);
+    // #539 P1: warning text now reads as a runbook. Both the server-up and
+    // no-server branches share the "--split skipped" prefix.
+    expect(warns.some(w => w.includes("--split skipped"))).toBe(true);
   });
 
   test("--split + TMUX + cmdSplit throws → error caught, flow continues to takeSnapshot", async () => {

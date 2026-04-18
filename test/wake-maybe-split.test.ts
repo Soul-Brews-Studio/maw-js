@@ -45,10 +45,16 @@ const origLog = console.log;
 let logs: string[] = [];
 let savedTmux: string | undefined;
 
+// Strip ANSI color/style escapes so assertions can match literal text without
+// needing to know the exact color codes maybeSplit emits.
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
 function captureLogs() {
   logs = [];
   console.log = (...a: unknown[]) => {
-    logs.push(a.map((x) => (typeof x === "string" ? x : String(x))).join(" "));
+    logs.push(
+      stripAnsi(a.map((x) => (typeof x === "string" ? x : String(x))).join(" "))
+    );
   };
 }
 
