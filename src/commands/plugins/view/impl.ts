@@ -4,14 +4,68 @@ import { loadConfig } from "../../../config";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { logAnomaly } from "../../../core/fleet/audit";
 import { execSync } from "child_process";
+import { ttyAsk } from "../init/prompts";
+
+/**
+ * Decide whether to offer a wake prompt on missing target. Extracted for
+ * testability — tests can stub `isTTY` and `wakeFlag` directly.
+ *
+ * #549 contract:
+ *  - --no-wake → never prompt, never wake (back-compat for scripts)
+ *  - --wake    → wake unconditionally, no prompt (force opt-in)
+ *  - non-TTY   → never prompt (CI/script safety, current behavior)
+ *  - TTY       → prompt y/N
+ */
+export type WakePromptDecision = "skip" | "force" | "ask";
+export function decideWakePrompt(opts: {
+  isTTY: boolean;
+  wake?: boolean;
+  noWake?: boolean;
+}): WakePromptDecision {
+  if (opts.noWake) return "skip";
+  if (opts.wake) return "force";
+  if (!opts.isTTY) return "skip";
+  return "ask";
+}
+
+export interface ViewOpts {
+  windowHint?: string;
+  clean?: boolean;
+  kill?: boolean;
+  splitAnchor?: string | true;
+  wake?: boolean;
+  noWake?: boolean;
+  /** Test seam: ask user yes/no. Default = ttyAsk via /dev/tty. */
+  ask?: (question: string) => Promise<string>;
+  /** Test seam: stand-in for cmdWake. Default = real cmdWake. */
+  wakeImpl?: (target: string) => Promise<void>;
+}
 
 export async function cmdView(
   agent: string,
-  windowHint?: string,
+  windowHintOrOpts?: string | ViewOpts,
   clean = false,
   kill = false,
   splitAnchor?: string | true,
+  extraOpts: Pick<ViewOpts, "wake" | "noWake" | "ask" | "wakeImpl"> = {},
 ) {
+  // Backward-compatible signature: callers pass either a windowHint string
+  // OR a full ViewOpts object as the second arg.
+  let windowHint: string | undefined;
+  if (typeof windowHintOrOpts === "object" && windowHintOrOpts !== null) {
+    windowHint = windowHintOrOpts.windowHint;
+    clean = windowHintOrOpts.clean ?? clean;
+    kill = windowHintOrOpts.kill ?? kill;
+    splitAnchor = windowHintOrOpts.splitAnchor ?? splitAnchor;
+    extraOpts = {
+      wake: windowHintOrOpts.wake,
+      noWake: windowHintOrOpts.noWake,
+      ask: windowHintOrOpts.ask,
+      wakeImpl: windowHintOrOpts.wakeImpl,
+    };
+  } else {
+    windowHint = windowHintOrOpts;
+  }
   // Find the session
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
@@ -44,6 +98,43 @@ export async function cmdView(
     if (byWindow) sessionName = byWindow.name;
   }
   if (!sessionName) {
+    // #549 — offer to wake the missing target before erroring out.
+    // Decision matrix encoded in decideWakePrompt; see WakePromptDecision.
+    const decision = decideWakePrompt({
+      isTTY: Boolean(process.stdin.isTTY),
+      wake: extraOpts.wake,
+      noWake: extraOpts.noWake,
+    });
+
+    if (decision !== "skip") {
+      let proceed = decision === "force";
+      if (decision === "ask") {
+        const ask = extraOpts.ask ?? ttyAsk;
+        try {
+          const answer = (await ask(
+            `\x1b[36m?\x1b[0m Oracle '${agent}' is not running. Wake it now? [y/N]`,
+          )).trim().toLowerCase();
+          proceed = answer === "y" || answer === "yes";
+        } catch (e) {
+          // /dev/tty unavailable — fall through to the existing error.
+          proceed = false;
+        }
+      }
+
+      if (proceed) {
+        const wakeImpl =
+          extraOpts.wakeImpl ??
+          (async (target: string) => {
+            const { cmdWake } = await import("../../shared/wake-cmd");
+            await cmdWake(target, { attach: true });
+          });
+        console.log(`\x1b[36m⚡\x1b[0m waking '${agent}'...`);
+        await wakeImpl(agent);
+        // cmdWake({ attach: true }) handles the attach itself, so we're done.
+        return;
+      }
+    }
+
     if (resolved.kind === "none" && resolved.hints?.length) {
       console.error(`  \x1b[90mdid you mean:\x1b[0m`);
       for (const h of resolved.hints) {

@@ -49,8 +49,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const clean = scanned.includes("--clean");
     const kill = scanned.includes("--kill");
-    const filtered = scanned.filter(a => a !== "--clean" && a !== "--kill");
-    await cmdView(filtered[0], filtered[1], clean, kill, splitAnchor);
+    const wake = scanned.includes("--wake");
+    const noWake = scanned.includes("--no-wake");
+    const filtered = scanned.filter(
+      a => a !== "--clean" && a !== "--kill" && a !== "--wake" && a !== "--no-wake",
+    );
+    await cmdView(filtered[0], filtered[1], clean, kill, splitAnchor, { wake, noWake });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };
