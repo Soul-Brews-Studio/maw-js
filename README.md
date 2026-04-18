@@ -1,8 +1,16 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![Version](https://img.shields.io/badge/version-2.0.0--alpha.121-orange)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![Version](https://img.shields.io/badge/version-2.0.0--alpha.134-orange)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
 
-> Multi-Agent Workflow — wake oracles, talk across machines, see the mesh.
+> Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
+
+**maw is a CLI for running multiple AI agents across machines.** You wake
+an agent in a tmux window, send it tasks, watch its screen, and see what
+it cost — all from one terminal. One node or twenty; same commands. Built
+on [Bun](https://bun.sh) and [Claude Code](https://claude.com/claude-code).
+
+<!-- TODO: record via scripts/record-demo.sh after this lands (see #453) -->
+![maw demo](docs/demo.svg)
 
 ## Install
 
