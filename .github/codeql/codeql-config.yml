@@ -31,3 +31,12 @@ paths-ignore:
   - src/cli/update-lock.ts
   - src/cli/instance-pid.ts
   - src/commands/plugins/peers/lock.ts
+  # PRIVATE-PATH scaffold writer for `maw bud --from-repo` (#588).
+  # All writes land in a user-owned target repo that the caller has
+  # already chosen; racing requires same-uid shell, which is out of
+  # scope per docs/security/file-system-race-stance.md. The file does
+  # not process untrusted input — it writes template strings into a
+  # known-absent location guarded by the planner. Inline `// lgtm`
+  # markers are retained as context but do not suppress new alerts
+  # under the current GHAS CodeQL scanner.
+  - src/commands/plugins/bud/from-repo-exec.ts
