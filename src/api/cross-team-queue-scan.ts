@@ -115,9 +115,17 @@ function teamOf(oracleName: string): TeamName | "unknown" {
 function parseActionRequired(raw: unknown): { actionRequired: boolean; actionHint: string | null } {
   if (typeof raw !== "string") return { actionRequired: false, actionHint: null };
   const trimmed = raw.trim();
-  // "yes" | "yes (reason)" | "no" | ...
-  const match = trimmed.match(/^(yes|no)(?:\s*\(([^)]*)\))?\s*(.*)$/i);
-  if (!match) return { actionRequired: false, actionHint: null };
+  if (trimmed === "") return { actionRequired: false, actionHint: null };
+
+  // Word-boundary match on yes/no so `none` isn't mis-classified as `no`.
+  // Probe 2 (VELA 2026-04-18): unusual values like `review`, `none` must NOT
+  // silently collapse to false — Principle 2 (never silently drop).
+  const match = trimmed.match(/^(yes|no)\b(?:\s*\(([^)]*)\))?\s*(.*)$/i);
+  if (!match) {
+    // Unknown value — surface as actionRequired:true with raw as hint so
+    // Leo sees it in the queue rather than losing it silently.
+    return { actionRequired: true, actionHint: trimmed };
+  }
   const yes = match[1].toLowerCase() === "yes";
   const parenReason = match[2]?.trim() || null;
   const trailing = match[3]?.trim() || null;
@@ -257,7 +265,15 @@ export function scanCrossTeamQueue(vaultRoot?: string): ScanResult {
       const ageHours = computeAgeHours(date, mtime, scannedAt);
 
       const fromRaw = typeof fm.from === "string" ? fm.from : "";
-      const to = oracle; // authoritative per VELA §3.4 — directory wins over `to:` field
+
+      // Probe 3 (VELA 2026-04-18): directory wins EXCEPT when frontmatter
+      // `to:` names a TEAM_ROSTER.cross member (currently just `leo`). Items
+      // addressed to Leo are filesystem-homed in whichever oracle's inbox
+      // the author chose; semantically they're Leo-pending decisions.
+      const toFrontmatter = typeof fm.to === "string" ? normalizeOracleName(fm.to) : "";
+      const to = TEAM_ROSTER.cross.includes(toFrontmatter as (typeof TEAM_ROSTER.cross)[number])
+        ? toFrontmatter
+        : oracle;
 
       items.push({
         id,

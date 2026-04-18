@@ -234,3 +234,53 @@ describe("GET /api/cross-team-queue — contract + filters", () => {
     }
   });
 });
+
+// ─── Day-4 probes (VELA peer review) ────────────────────────────────────
+
+describe("Day 4 probes — VELA peer review 2026-04-18", () => {
+  test("Probe 2a: action_required: review → actionRequired=true, hint=review", () => {
+    const scan = scanCrossTeamQueue(FIXTURE_VAULT);
+    const item = scan.items.find((i) => i.filename === "2026-04-18_action-review.md");
+    expect(item).toBeDefined();
+    expect(item!.actionRequired).toBe(true);
+    expect(item!.actionHint).toBe("review");
+  });
+
+  test("Probe 2b: action_required: none → NOT mis-parsed as no prefix (word boundary)", () => {
+    const scan = scanCrossTeamQueue(FIXTURE_VAULT);
+    const item = scan.items.find((i) => i.filename === "2026-04-18_action-none.md");
+    expect(item).toBeDefined();
+    // With \b word-boundary fix: `none` doesn't match `no\b`, treated as unknown → true with hint
+    expect(item!.actionRequired).toBe(true);
+    expect(item!.actionHint).toBe("none");
+  });
+
+  test("Probe 3: `to: leo` in frontmatter overrides dir when leo ∈ TEAM_ROSTER.cross", () => {
+    const scan = scanCrossTeamQueue(FIXTURE_VAULT);
+    const item = scan.items.find((i) => i.filename === "2026-04-18_to-leo-cross.md");
+    expect(item).toBeDefined();
+    // File lives in david/inbox/ but addressed to leo → to=leo, team=cross
+    expect(item!.to).toBe("leo");
+    expect(item!.team).toBe("cross");
+    // from still preserved
+    expect(item!.from).toBe("david");
+  });
+
+  test("Probe 3 inverse: normal dir-wins still applies when `to:` matches dir or isn't cross-member", () => {
+    const scan = scanCrossTeamQueue(FIXTURE_VAULT);
+    const item = scan.items.find((i) => i.filename === "2026-04-17_normal-action-yes.md");
+    // frontmatter `to: forge`, dir=forge, not cross → dir wins
+    expect(item!.to).toBe("forge");
+    expect(item!.team).toBe("software");
+  });
+
+  test("Probe 4: empty vault serializes all fields with empty typed values", () => {
+    const emptyVault = join(import.meta.dir, "fixtures", "ctq", "empty-vault");
+    const scan = scanCrossTeamQueue(emptyVault);
+    expect(scan.items).toEqual([]);
+    expect(scan.errors).toEqual([]);
+    expect(scan.scannedFileCount).toBe(0);
+    expect(scan.emptyInboxes).toEqual([]);
+    expect(typeof scan.scannedAt).toBe("number");
+  });
+});
