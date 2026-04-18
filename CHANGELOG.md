@@ -8,8 +8,11 @@ Pre-1.0 alpha releases may introduce breaking changes at any time.
 
 ## [Unreleased]
 
+### Changed
+- **Renamed npm package** `maw` → `maw-js` to eliminate bun `DependencyLoop` caused by collision with unrelated stale `maw@0.6.0` on npm. Binary name unchanged — users still run `maw`. Fixes #554, closes #555, eliminates root cause of #531.
+
 ### Added
-- `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause still under investigation)
+- `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause fixed by package rename above)
 
 ## [v2.0.0-alpha.134] - 2026-04-18
 
