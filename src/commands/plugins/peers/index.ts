@@ -1,0 +1,106 @@
+import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+
+export const command = {
+  name: "peers",
+  description: "Federation peer aliases — add, list, info, remove (#568).",
+};
+
+/**
+ * maw peers — core plugin (#568).
+ *
+ * Subcommand dispatcher over the impl.ts CRUD functions. Shape mirrors
+ * the `project` plugin (#560): peel off positional[0] as the verb,
+ * dispatch on a switch, print helpText() on missing/unknown.
+ *
+ * Integration with `maw hey`/`peek`/`send` (alias:agent resolution)
+ * is intentionally deferred — this PR stands on its own with CRUD.
+ * Follow-up: resolve `<alias>:<agent>` via loadPeers() before the
+ * existing federation node lookup.
+ */
+export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
+  const impl = await import("./impl");
+
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origError = console.error;
+  console.log = (...a: any[]) => {
+    if (ctx.writer) ctx.writer(...a);
+    else logs.push(a.map(String).join(" "));
+  };
+  console.error = (...a: any[]) => {
+    if (ctx.writer) ctx.writer(...a);
+    else logs.push(a.map(String).join(" "));
+  };
+
+  const out = () => logs.join("\n");
+  const help = () => [
+    "usage: maw peers <add|list|info|remove> [...]",
+    "  add    <alias> <url> [--node <name>]  — register alias (auto-resolves node via /info)",
+    "  list                                   — tabular list of all peers",
+    "  info   <alias>                         — JSON details for one peer",
+    "  remove <alias>                         — remove (idempotent)",
+    "",
+    "storage: ~/.maw/peers.json (v1)",
+  ].join("\n");
+
+  try {
+    const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+    const positional = args.filter(a => !a.startsWith("--"));
+    const sub = positional[0];
+
+    if (!sub) {
+      console.log(help());
+      return { ok: true, output: out() || help() };
+    }
+
+    switch (sub) {
+      case "add": {
+        const alias = positional[1];
+        const url = positional[2];
+        if (!alias || !url) {
+          return { ok: false, error: "usage: maw peers add <alias> <url> [--node <name>]" };
+        }
+        const nodeIdx = args.indexOf("--node");
+        const node = nodeIdx >= 0 ? args[nodeIdx + 1] : undefined;
+        const res = await impl.cmdAdd({ alias, url, node });
+        if (res.overwrote) console.log(`warning: alias "${alias}" already existed — overwriting`);
+        console.log(`added ${alias} → ${url}${res.peer.node ? ` (${res.peer.node})` : ""}`);
+        return { ok: true, output: out() };
+      }
+      case "list":
+      case "ls": {
+        console.log(impl.formatList(impl.cmdList()));
+        return { ok: true, output: out() };
+      }
+      case "info": {
+        const alias = positional[1];
+        if (!alias) return { ok: false, error: "usage: maw peers info <alias>" };
+        const found = impl.cmdInfo(alias);
+        if (!found) return { ok: false, error: `peer "${alias}" not found` };
+        console.log(JSON.stringify(found, null, 2));
+        return { ok: true, output: out() };
+      }
+      case "remove":
+      case "rm": {
+        const alias = positional[1];
+        if (!alias) return { ok: false, error: "usage: maw peers remove <alias>" };
+        const removed = impl.cmdRemove(alias);
+        console.log(removed ? `removed ${alias}` : `no-op: ${alias} not present`);
+        return { ok: true, output: out() };
+      }
+      default: {
+        console.log(help());
+        return {
+          ok: false,
+          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|remove)`,
+          output: out() || help(),
+        };
+      }
+    }
+  } catch (e: any) {
+    return { ok: false, error: out() || e.message, output: out() || undefined };
+  } finally {
+    console.log = origLog;
+    console.error = origError;
+  }
+}
