@@ -1,0 +1,7 @@
+name: maw-js/sanitizer-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/javascript-all: "*"
+dataExtensions:
+  - "*.model.yml"
