@@ -27,6 +27,25 @@ cyan()   { printf '\033[36m%s\033[0m\n' "$*"; }
 green()  { printf '\033[32m%s\033[0m\n' "$*"; }
 red()    { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 dim()    { printf '\033[90m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
+
+# CalVer notice (added 2026-04-18 for #553) ------------------------------------
+# This is the legacy semver flow. The new path is CalVer via scripts/calver.ts.
+# Print a loud banner, sleep 5s so humans see it (non-blocking, can Ctrl-C).
+yellow "╭───────────────────────────────────────────────────────╮"
+yellow "│  maw-js is now on CalVer as of 2026-04-18             │"
+yellow "│                                                       │"
+yellow "│  Instead of \`bash scripts/ship-alpha.sh\`, use:        │"
+yellow "│    TZ=Asia/Bangkok bun scripts/calver.ts [--stable]   │"
+yellow "│                                                       │"
+yellow "│  Then commit + PR + merge → calver-release.yml        │"
+yellow "│  auto-tags and publishes (single-job, no cascade).    │"
+yellow "│                                                       │"
+yellow "│  See CONTRIBUTING.md → Versioning for details.        │"
+yellow "│  (Press Ctrl-C to abort, or wait 5s to continue.)     │"
+yellow "╰───────────────────────────────────────────────────────╯"
+sleep 5
+# -----------------------------------------------------------------------------
 
 # 1. Preflight
 VERSION=$(grep '"version"' package.json | head -1 | sed -E 's/.*"([^"]+)".*/\1/')

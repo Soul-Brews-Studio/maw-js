@@ -49,9 +49,34 @@ Exempt: type-definition files, specs/docs, generated/scaffolded boilerplate.
 - **Features**: open a short issue describing the problem first. If we align on the shape, a PR is welcome.
 - **Proposals / design docs**: use GitHub Discussions, not issues. Issues are for work; discussions are for thought.
 
-## Releases
+## Versioning
 
-Alphas ship from `main` via `bun run ship:alpha`. The script lints, tags, and force-pushes the rolling `alpha` branch. See `scripts/ship-alpha.sh`.
+**maw-js uses CalVer as of 2026-04-18.**
+
+Scheme: `v{yy}.{m}.{d}[-alpha.{hour}]` — e.g. `v26.4.18` (stable) or `v26.4.18-alpha.19` (alpha cut at 19:xx ICT). Up to 24 alpha cuts per day (one per hour). Spec lives in [umbrella #526](https://github.com/Soul-Brews-Studio/maw-js/issues/526) and the [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18).
+
+### Cut a release
+
+```bash
+TZ=Asia/Bangkok bun scripts/calver.ts            # alpha at current hour, e.g. v26.4.18-alpha.19
+TZ=Asia/Bangkok bun scripts/calver.ts --stable   # stable cut, e.g. v26.4.18
+TZ=Asia/Bangkok bun scripts/calver.ts --hour 14  # alpha at 14:xx
+TZ=Asia/Bangkok bun scripts/calver.ts --check    # dry-run, no writes
+```
+
+Or via the npm script alias: `bun run calver [--stable|--hour N|--check]` (TZ still recommended).
+
+Then commit + open a PR + merge into `main`. The `.github/workflows/calver-release.yml` workflow auto-tags `v<version>`, cuts a GitHub Release, and attaches the `dist/maw` build artifact. Single job — no cascade gaps.
+
+### Do NOT manually bump semver
+
+- Don't hand-edit `package.json` `version`. Always go through `scripts/calver.ts`.
+- Old semver tags (`v2.0.0-alpha.117` → `v2.0.0-alpha.137`) remain readable for history but no new semver tags should be cut.
+- The legacy `bun run ship:alpha` (`scripts/ship-alpha.sh`) still exists for emergency use during transition. It now prints a banner directing you to CalVer — please follow it.
+
+## Releases (legacy — pre-2026-04-18)
+
+Pre-CalVer alphas shipped from `main` via `bun run ship:alpha`. See `scripts/ship-alpha.sh`. Kept for historical reference; prefer the CalVer flow above.
 
 ## Code of Conduct
 
