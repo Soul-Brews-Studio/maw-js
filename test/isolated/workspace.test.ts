@@ -165,7 +165,7 @@ describe("cmdWorkspaceCreate", () => {
 
   test("explicit hub + ok response → writes ws config to disk", async () => {
     curlStubs = [{
-      match: /example\.com\/api\/workspace\/create/,
+      match: /^https?:\/\/example\.com\/api\/workspace\/create(?:\?|$)/,
       response: { ok: true, status: 200, data: { id: "ws-1", name: "alpha", joinCode: "abc123" } },
     }];
     configOverride = { node: "white" };
