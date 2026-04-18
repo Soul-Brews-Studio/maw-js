@@ -1,0 +1,65 @@
+# maw
+
+> Multi-Agent Workflow — CLI for running multiple AI agents across machines via tmux + Bun + Claude Code. Wake agents, talk across machines, see the mesh. TypeScript, Bun v1.3+, BSL 1.1 licensed.
+
+maw is a plugin-based CLI. Each plugin lives at `src/commands/plugins/<name>/` with a `plugin.json` manifest and an `index.ts` handler. The CLI discovers plugins via a two-pass system (compile-time bundled symlinks + runtime scan of `~/.maw/plugins/`). API surfaces are auto-mounted from `manifest.api` at `/api/plugins/<name>`. Federation is HMAC-SHA256 signed over `METHOD:PATH:TIMESTAMP:BODY_HASH` (v2).
+
+## Getting started
+
+- [README.md](./README.md): install, quick demo, command overview
+- [CONTRIBUTING.md](./CONTRIBUTING.md): PR workflow, test expectations, commit conventions, ~300 LOC PR soft-cap
+- [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md): be kind, assume good faith
+- [SECURITY.md](./SECURITY.md): responsible disclosure
+- [LICENSE](./LICENSE): Business Source License 1.1
+- [CHANGELOG.md](./CHANGELOG.md): per-alpha release notes
+
+## Source structure
+
+- `src/cli.ts`: CLI entrypoint
+- `src/commands/plugins/<name>/`: one directory per plugin (e.g., `view/`, `team/`, `bud/`, `health/`, `federation/`, `init/`)
+- `src/api/`: Elysia HTTP server + built-in routers (`teams.ts`, `federation.ts`, `costs.ts`) + auto-mount for plugin API surfaces
+- `src/core/`: plugin loader, command registry, transport (ssh, federation auth), config
+- `src/plugin/types.ts`: `PluginManifest`, `InvokeContext`, `InvokeResult` — the plugin contract
+- `test/`: unit + isolated + mock-smoke suites
+- `scripts/`: release, lint, mock-boundary checks
+
+## Plugin system
+
+- Manifest schema: `plugin.json` with `command`, `flags`, `cli.help`, `api: { path, methods }`, `hooks: { gate, filter, on, late }`, `cron`, `transport.peer`
+- Registration: `command-registry.ts` scans `~/.maw/plugins/` for `plugin.json` at runtime; bundled plugins are symlinked there on first run by `plugin-bootstrap.ts`
+- Arg parsing: `parseFlags(args, spec)` wrapping the `arg` library
+- Subcommands: manual dispatch by checking `args[0]` inside the handler (e.g., `maw team create`)
+- 60+ plugins bundled (count varies as plugins are added; check `maw plugin list`)
+
+## Federation
+
+- Auth: HMAC-SHA256 signed requests with `X-Maw-Auth-Version: v2` (payload = `METHOD:PATH:TIMESTAMP:SHA256(BODY)`). v1 = same without body hash.
+- Config: `trustLoopback`, `allowPeersWithoutToken` in federation config
+- Transport: SSH-based peer-to-peer via `src/core/transport/ssh.ts`
+- Pair-health classification: healthy / half-up / down / unknown
+
+## Install & supply-chain
+
+- Install: `bun add -g github:Soul-Brews-Studio/maw-js#alpha` or via `install.sh`
+- Plugin install integrity: `~/.maw/plugins.lock` registry-pinned hashes (alpha.135+, see #487 spec)
+- Update: `maw update` (atomic — try install first, remove only on fallback; alpha.132+)
+
+## UI
+
+- Dashboard lives in separate [maw-ui](https://github.com/Soul-Brews-Studio/maw-ui) repo (React 19 + Vite). Served from `/maw-ui/dist/` at `http://localhost:3456`.
+- WebSocket `/ws`: 50ms tmux-capture broadcasts, 5s session ticks
+- REST: `/api/sessions`, `/api/capture`, `/api/plugins/<name>` (auto-mounted)
+
+## Related repos
+
+- [maw-ui](https://github.com/Soul-Brews-Studio/maw-ui): web dashboard
+- [arra-oracle-skills-cli](https://github.com/nazt/arra-oracle-skills-cli): Oracle skill runtime (Claude Code slash-commands)
+- [mawjs-oracle](https://github.com/Soul-Brews-Studio/mawjs-oracle), [mawjs-no2-oracle](https://github.com/Soul-Brews-Studio/mawjs-no2-oracle), [neo-oracle](https://github.com/Soul-Brews-Studio/neo-oracle): the Oracle colony co-developing maw
+
+## For AI readers
+
+- This is an alpha project — surface moves fast, breaking changes land frequently. Check `git log` recency before trusting any specific API shape.
+- Tests in `test/isolated/` use `mock.module(...)`; elsewhere prefer dependency injection. See `scripts/check-mock-boundary.sh`.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org). Breaking changes go under alpha tags, not semver bumps.
+- Federation writes are signed; GETs currently not on public bind. See hardening backlog in Oracle vaults (private).
+- PR soft-cap: ~300 LOC of production code. See [CONTRIBUTING.md](./CONTRIBUTING.md#pr-size).
