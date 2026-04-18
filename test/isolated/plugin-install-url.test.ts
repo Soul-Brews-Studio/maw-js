@@ -54,6 +54,7 @@ function buildTarballFixture(): Uint8Array {
 
 const created: string[] = [];
 let origPluginsDir: string | undefined;
+let origPluginsLock: string | undefined;
 
 function tmpDir(prefix = "maw-url-test-"): string {
   const d = mkdtempSync(join(tmpdir(), prefix));
@@ -63,13 +64,18 @@ function tmpDir(prefix = "maw-url-test-"): string {
 
 beforeEach(() => {
   origPluginsDir = process.env.MAW_PLUGINS_DIR;
-  process.env.MAW_PLUGINS_DIR = join(tmpDir("maw-home-"), "plugins");
+  origPluginsLock = process.env.MAW_PLUGINS_LOCK;
+  const home = tmpDir("maw-home-");
+  process.env.MAW_PLUGINS_DIR = join(home, "plugins");
+  process.env.MAW_PLUGINS_LOCK = join(home, "plugins.lock");  // #487 isolation
   __resetDiscoverStateForTests();
 });
 
 afterEach(() => {
   if (origPluginsDir !== undefined) process.env.MAW_PLUGINS_DIR = origPluginsDir;
   else delete process.env.MAW_PLUGINS_DIR;
+  if (origPluginsLock !== undefined) process.env.MAW_PLUGINS_LOCK = origPluginsLock;
+  else delete process.env.MAW_PLUGINS_LOCK;
   for (const d of created.splice(0)) {
     if (existsSync(d)) rmSync(d, { recursive: true, force: true });
   }
@@ -158,8 +164,9 @@ function urlFor(path: string): string {
 describe("cmdPluginInstall — URL source (real Bun.serve)", () => {
   test("happy path: downloads, extracts, verifies hash, installs", async () => {
     const pluginsDir = process.env.MAW_PLUGINS_DIR!;
+    // #487 — URL installs are refused unless pinned; --pin adds on first install.
     const { exitCode, stdout } = await capture(() =>
-      cmdPluginInstall([urlFor("/plugin.tgz")]));
+      cmdPluginInstall([urlFor("/plugin.tgz"), "--pin"]));
     expect(exitCode).toBeUndefined();
     expect(stdout).toContain("url-test-plugin@0.1.0 installed");
     expect(stdout).toContain(`from ${urlFor("/plugin.tgz")}`);

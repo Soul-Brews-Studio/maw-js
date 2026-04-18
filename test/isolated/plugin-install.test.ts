@@ -23,6 +23,7 @@ import {
 
 const created: string[] = [];
 let origPluginsDir: string | undefined;
+let origPluginsLock: string | undefined;
 
 function tmpDir(prefix = "maw-install-test-"): string {
   const d = mkdtempSync(join(tmpdir(), prefix));
@@ -33,8 +34,12 @@ function pluginsDir(): string { return process.env.MAW_PLUGINS_DIR!; }
 
 beforeEach(() => {
   origPluginsDir = process.env.MAW_PLUGINS_DIR;
+  origPluginsLock = process.env.MAW_PLUGINS_LOCK;
   // MAW_PLUGINS_DIR overrides ~/.maw/plugins/ in installRoot()+scanDirs().
-  process.env.MAW_PLUGINS_DIR = join(tmpDir("maw-home-"), "plugins");
+  const home = tmpDir("maw-home-");
+  process.env.MAW_PLUGINS_DIR = join(home, "plugins");
+  // #487 — isolate plugins.lock per test so pins don't leak across cases.
+  process.env.MAW_PLUGINS_LOCK = join(home, "plugins.lock");
   __resetDiscoverStateForTests();
   resetDiscoverCache();  // alpha.67 memoization — clear between tests
 });
@@ -42,6 +47,8 @@ beforeEach(() => {
 afterEach(() => {
   if (origPluginsDir !== undefined) process.env.MAW_PLUGINS_DIR = origPluginsDir;
   else delete process.env.MAW_PLUGINS_DIR;
+  if (origPluginsLock !== undefined) process.env.MAW_PLUGINS_LOCK = origPluginsLock;
+  else delete process.env.MAW_PLUGINS_LOCK;
   for (const d of created.splice(0)) {
     if (existsSync(d)) rmSync(d, { recursive: true, force: true });
   }
@@ -234,7 +241,8 @@ describe("cmdPluginInstall — dir source", () => {
 describe("cmdPluginInstall — tarball source", () => {
   test("extracts, verifies hash, prints 'installed (sha256:…)' label", async () => {
     const fx = buildFixture();
-    const { exitCode, stdout } = await capture(() => cmdPluginInstall([fx.tarball]));
+    // #487 — unpinned installs are refused; test uses --pin to add on the fly.
+    const { exitCode, stdout } = await capture(() => cmdPluginInstall([fx.tarball, "--pin"]));
     expect(exitCode).toBeUndefined();
     const dest = join(pluginsDir(), "hello");
     expect(lstatSync(dest).isDirectory()).toBe(true);
@@ -250,7 +258,8 @@ describe("cmdPluginInstall — tarball source", () => {
     const tampered = join(fx.dir, "tampered.tgz");
     const tar = spawnSync("tar", ["-czf", tampered, "-C", fx.dir, "plugin.json", "index.js"]);
     expect(tar.status).toBe(0);
-    const { exitCode, stderr } = await capture(() => cmdPluginInstall([tampered]));
+    // Self-hash fencepost fires before the lock lookup, so --pin is irrelevant here.
+    const { exitCode, stderr } = await capture(() => cmdPluginInstall([tampered, "--pin"]));
     expect(exitCode).toBe(1);
     expect(stderr).toContain("hash mismatch");
     expect(existsSync(join(pluginsDir(), "hello"))).toBe(false);
@@ -258,7 +267,7 @@ describe("cmdPluginInstall — tarball source", () => {
 
   test("unbuilt tarball (sha256:null) → refused", async () => {
     const fx = buildFixture({ overrideSha256: null });
-    const { exitCode, stderr } = await capture(() => cmdPluginInstall([fx.tarball]));
+    const { exitCode, stderr } = await capture(() => cmdPluginInstall([fx.tarball, "--pin"]));
     expect(exitCode).toBe(1);
     expect(stderr).toContain("sha256=null");
   });
@@ -274,6 +283,9 @@ describe("cmdPluginInstall — URL source (mocked fetch)", () => {
     (globalThis as any).fetch = async () =>
       new Response(bytes, { status: 200, headers: { "content-type": "application/gzip" } });
     try {
+      // #487 — URL installs require a pinned entry. Pre-pin via the local tarball.
+      const { pinPlugin } = await import("../../src/commands/plugins/plugin/lock");
+      pinPlugin("hello", fx.tarball);
       const { exitCode, stdout } = await capture(() =>
         cmdPluginInstall(["https://example.com/hello-0.1.0.tgz"]));
       expect(exitCode).toBeUndefined();
