@@ -1,0 +1,13 @@
+name: "maw-js CodeQL config"
+
+# Preserve the extended suite from the workflow's default invocation while
+# layering our local model pack on top. The model pack teaches CodeQL that
+# `sanitizeLogField` in src/core/util/sanitize-log.ts is a real sanitizer
+# for the `js/log-injection` query — see docs/security/codeql-sanitizer-model.md
+# and issue #474.
+
+queries:
+  - uses: security-extended
+
+packs:
+  - ./models
