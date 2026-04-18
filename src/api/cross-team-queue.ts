@@ -1,52 +1,131 @@
 // cross-team-queue.ts — GET /api/cross-team-queue
-// Author: FORGE Oracle — 2026-04-18 (ADR-002 Day 1 scaffold)
+// Author: FORGE Oracle — 2026-04-18 (ADR-002 Day 2 — real scan)
 //
-// STAGE: Day 1 scaffold — returns schema-valid stub so VELA UI can bind to
-// the contract shape. Day 2 replaces the stub body with real filesystem
-// scan + frontmatter parse. No behavioral change to the response envelope.
+// Replaces Day 1 scaffold with filesystem scan + query filters. Addresses
+// NEXUS peer-review gotchas G1-G4 + adversarial A1:
+//   G1 — Number() coercion guarded with Number.isFinite()
+//   G2 — actionRequired enum validated, unknown → default "yes"
+//   G3 — relPath semantics documented in types file + scan module
+//   G4 — ageHours = max(date-parsed, mtime) in scan module
+//   A1 — recipient list split on comma ONLY, reject `;`/quotes/other
 
 import { Elysia } from "elysia";
 import type {
+  CrossTeamQueueItem,
   CrossTeamQueueResponse,
-  CrossTeamQueueQuery,
+  CrossTeamQueueStats,
 } from "../shared/cross-team-queue.types";
+import { TEAM_ROSTER } from "../shared/cross-team-queue.types";
+import { scanCrossTeamQueue } from "./cross-team-queue-scan";
+
+// ─── Query guards ────────────────────────────────────────────────────────
+
+function sanitizeList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  // A1: reject suspicious chars — only allow letters, digits, dash, underscore, comma
+  if (/[^A-Za-z0-9,_-]/.test(raw)) return [];
+  return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function coerceFinite(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined; // G1
+}
+
+function coerceActionRequired(raw: string | undefined): "yes" | "no" | "all" {
+  if (raw === "no" || raw === "all") return raw;
+  return "yes"; // G2: default + any unknown → safe default
+}
+
+// ─── Filtering ──────────────────────────────────────────────────────────
+
+interface NormalizedQuery {
+  teams: string[];
+  recipients: string[];
+  types: string[];
+  actionRequired: "yes" | "no" | "all";
+  maxAgeHours: number | undefined;
+  limit: number | undefined;
+}
+
+function normalizeQuery(q: Record<string, string | undefined>): NormalizedQuery {
+  const validTeams = new Set<string>([...Object.keys(TEAM_ROSTER), "unknown"]);
+  return {
+    teams: sanitizeList(q.team).filter((t) => validTeams.has(t)),
+    recipients: sanitizeList(q.recipient),
+    types: sanitizeList(q.type),
+    actionRequired: coerceActionRequired(q.actionRequired),
+    maxAgeHours: coerceFinite(q.maxAgeHours),
+    limit: coerceFinite(q.limit),
+  };
+}
+
+function passesFilter(item: CrossTeamQueueItem, q: NormalizedQuery): boolean {
+  if (q.actionRequired === "yes" && !item.actionRequired) return false;
+  if (q.actionRequired === "no" && item.actionRequired) return false;
+  if (q.teams.length > 0 && !q.teams.includes(item.team)) return false;
+  if (q.recipients.length > 0 && !q.recipients.includes(item.to)) return false;
+  if (q.types.length > 0 && !q.types.includes(item.type.toLowerCase())) return false;
+  if (q.maxAgeHours !== undefined && item.ageHours > q.maxAgeHours) return false;
+  return true;
+}
+
+// ─── Aggregation ────────────────────────────────────────────────────────
+
+function computeStats(items: CrossTeamQueueItem[]): CrossTeamQueueStats {
+  const byTeam: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+  const byRecipient: Record<string, number> = {};
+  let oldestAgeHours = 0;
+  for (const it of items) {
+    byTeam[it.team] = (byTeam[it.team] ?? 0) + 1;
+    byType[it.type] = (byType[it.type] ?? 0) + 1;
+    byRecipient[it.to] = (byRecipient[it.to] ?? 0) + 1;
+    if (it.ageHours > oldestAgeHours) oldestAgeHours = it.ageHours;
+  }
+  return { byTeam, byType, byRecipient, oldestAgeHours };
+}
+
+function groupByRecipient(
+  items: CrossTeamQueueItem[],
+  limit: number | undefined
+): Record<string, CrossTeamQueueItem[]> {
+  const out: Record<string, CrossTeamQueueItem[]> = {};
+  for (const it of items) {
+    (out[it.to] ??= []).push(it);
+  }
+  for (const key of Object.keys(out)) {
+    out[key].sort((a, b) => b.ageHours - a.ageHours);
+    if (limit !== undefined) out[key] = out[key].slice(0, limit);
+  }
+  return out;
+}
+
+// ─── Handler ────────────────────────────────────────────────────────────
 
 export const crossTeamQueueApi = new Elysia();
 
 crossTeamQueueApi.get("/cross-team-queue", ({ query }) => {
-  const q: CrossTeamQueueQuery = {
-    team: query?.team,
-    recipient: query?.recipient,
-    type: query?.type,
-    actionRequired: query?.actionRequired as "yes" | "no" | "all" | undefined,
-    maxAgeHours: query?.maxAgeHours ? Number(query.maxAgeHours) : undefined,
-    limit: query?.limit ? Number(query.limit) : undefined,
-  };
+  const q = normalizeQuery((query ?? {}) as Record<string, string | undefined>);
 
-  // Day 1 scaffold: empty schema-valid stub. Contract shape is real; data is not.
-  // Day 2: replace with scanInbox(q) from ./cross-team-queue-scan.ts
-  const response: CrossTeamQueueResponse & { _scaffoldNote: string } = {
+  const scan = scanCrossTeamQueue();
+  const filtered = scan.items.filter((it) => passesFilter(it, q));
+
+  // Sort flat items by age (oldest first — most likely overdue)
+  filtered.sort((a, b) => b.ageHours - a.ageHours);
+
+  const response: CrossTeamQueueResponse = {
     schemaVersion: 1,
-    scannedAt: new Date().toISOString(),
-    scannedFileCount: 0,
-    parseErrorCount: 0,
-    total: 0,
-    items: [],
-    byRecipient: {},
-    stats: {
-      byTeam: {},
-      byType: {},
-      byRecipient: {},
-      oldestAgeHours: 0,
-    },
-    emptyInboxes: [],
-    errors: [],
-    _scaffoldNote:
-      "Day 1 scaffold — schema-valid stub. Day 2 adds filesystem scan of " +
-      "~/david-oracle/ψ/memory/*/inbox/*.md with frontmatter parse. " +
-      "VELA scaffolds UI off ~/david-oracle/ψ/memory/forge/writing/cross-team-queue-fixture-v1.json until Day 3 integration. " +
-      "Query params acknowledged but not yet applied: " + JSON.stringify(q) + ". " +
-      "See ADR-002 for design + schema contract.",
+    scannedAt: new Date(scan.scannedAt).toISOString(),
+    scannedFileCount: scan.scannedFileCount,
+    parseErrorCount: scan.errors.length,
+    total: filtered.length,
+    items: filtered,
+    byRecipient: groupByRecipient(filtered, q.limit),
+    stats: computeStats(filtered),
+    emptyInboxes: scan.emptyInboxes,
+    errors: scan.errors,
   };
 
   return response;
