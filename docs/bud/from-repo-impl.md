@@ -19,6 +19,81 @@ From #591 body:
 
 Cumulatively 5 of 8 shipped after this PR; 3 defer (fleet entry, `--from` lineage, `--seed`/`sync_peers`). `--force` still deferred — safe default remains "refuse if `ψ/` present." #588 stays open until the remaining three land.
 
+## (h) Continuation PR — `--force` + `--track-vault` + fleet entry + `--from` lineage
+
+The remaining six TODOs from #591 split into a "light quad" (this PR) and a "file-copy pair" (deferred):
+
+| # | TODO              | Continuation | Defer | Reason |
+|---|-------------------|--------------|-------|--------|
+| 1 | `--force`         | ✅           | —     | Tiny — flip a planner blocker into a warning + `overwrite` action |
+| 2 | Fleet entry       | ✅           | —     | Reuse `configureFleet` from `bud-init.ts`; isolate behind a thin module so tests can mock |
+| 3 | `--from` lineage  | ✅           | —     | Embed `<!-- oracle: budded from <parent> -->` + lineage line in CLAUDE.md template/append |
+| 4 | `--track-vault`   | ✅           | —     | Default = add `ψ/` to target's `.gitignore`; `--track-vault` skips that |
+| 5 | `--seed`          | —            | ✅    | Requires soul-sync file-copy from parent — needs separate scope |
+| 6 | `sync_peers`      | —            | ✅    | Same — depends on parent peers.json + #589 work |
+
+After this PR cumulatively 8 of 8 TODOs from #591 are shipped except `--seed` + `sync_peers`. #588 stays open until those land.
+
+### `--force` semantics
+
+Today the planner emits a hard blocker if `ψ/` already exists in the target. With `--force`:
+
+- The blocker downgrades to an `overwrite` action (same kind: `mkdir`, but a `force` reason annotation is attached for the planner-format output).
+- `mkdirSync({recursive: true})` is already idempotent on the directories themselves, so no destructive write of the existing tree happens — we never `rmSync` `ψ/`. `--force` only suppresses the *refusal*; it does not blow away pre-existing memory. (Aligns with "Nothing is Deleted".)
+- CLAUDE.md is unaffected by `--force` — it remains idempotent via the marker, and the executor still appends a new block if no marker is present (which is the normal append-on-existing-CLAUDE.md path). If the user wants to inject a SECOND oracle scaffold under a different stem, that already works without `--force` (stem-scoped marker).
+- `.claude/settings.local.json` continues to be left untouched if it exists.
+
+In short, `--force` means "don't refuse on the ψ/ collision blocker." Nothing more, nothing less.
+
+### Fleet-entry module — `from-repo-fleet.ts`
+
+Reuse the existing `configureFleet` from `bud-init.ts`? No — `configureFleet` takes `org` and `budRepoName` derived from the parent's bud flow. For `--from-repo` we instead derive the slug from the *target* repo:
+
+1. Read `git -C <target> remote get-url origin` to extract the `org/repo` slug. If no remote exists (rare, fresh local repo), fall back to using the target dir basename and emit a warning — fleet entry still gets written but with `repo: "<unknown>/<basename>"`.
+2. Write `<NN>-<stem>.json` to `FLEET_DIR` using the same idempotent shape as `configureFleet` (load existing entries, find next NN, write JSON with `windows` + `sync_peers: []`, plus `budded_from`/`budded_at` if `--from` was given).
+
+Lives in a dedicated module so:
+- Tests can `mock.module("./from-repo-fleet", …)` to prove the planner+executor wire it up correctly without touching real `~/.config/maw/fleet/`.
+- The module is the only place that reads `FLEET_DIR` from `core/paths.ts`, so future moves of fleet storage only touch one file.
+
+### `--from <parent>` lineage in CLAUDE.md
+
+Two effects, both in the executor:
+
+1. Full-write path (no existing CLAUDE.md): include the `Budded from: <parent>` lineage field in the identity block. Mirrors the existing `bud-init.ts:generateClaudeMd` shape.
+2. Append-under-marker path (existing CLAUDE.md): the appended block adds an `Origin: budded from <parent>` bullet inside the fenced section.
+
+A machine-readable HTML comment also goes inside the fence: `<!-- oracle-lineage: parent=<parent> -->`. Used by future tooling (`maw soul-sync --from`, `maw fleet`) to detect lineage without re-parsing markdown prose.
+
+If `--from` is omitted, no lineage line is emitted (current behavior preserved).
+
+### `--track-vault` semantics + `.gitignore`
+
+Today the executor does not touch `.gitignore`. Default behavior changes to:
+
+1. After successful injection, append `ψ/` to the target's `.gitignore` (creating the file if absent). Idempotent — if `^ψ/$` already matches a line, skip.
+2. `--track-vault` set: skip the `.gitignore` step. ψ/ becomes a tracked part of the host repo.
+
+Why default-ignore rather than default-track? Most existing repos that are getting the bud-into-existing-repo treatment will not want the entire memory vault checked in alongside source. Federation already has Vault sync (per memory entry on `vault sync scope`), so the default keeps the host repo's git history clean. Operators who *want* to track ψ/ opt in explicitly.
+
+### Test additions
+
+- `--force` allows ψ/ collision: `mkGitRepo` → pre-create `ψ/` → call with `force: true` → expect injection completes, CLAUDE.md exists.
+- `--from <parent>` writes lineage marker: assert CLAUDE.md contains both `Budded from: <parent>` and the `oracle-lineage` HTML comment.
+- `--track-vault` controls `.gitignore`: default run adds `ψ/`; `trackVault: true` does not.
+- Fleet wiring: mock `from-repo-fleet.ts` and assert the `register` function is called with `{stem, repoSlug, parent}` after a successful injection.
+
+### File layout — continuation PR
+
+- `src/commands/plugins/bud/types.ts` — extend `FromRepoOpts` with `force?: boolean`, `from?: string`, `trackVault?: boolean`.
+- `src/commands/plugins/bud/from-repo.ts` — planner: respect `--force` (downgrade ψ/ blocker), reflect lineage + .gitignore actions; orchestrator: invoke fleet register after executor.
+- `src/commands/plugins/bud/from-repo-exec.ts` — executor: lineage in CLAUDE.md (full-write + append-block), `.gitignore` write (default), pass-through of `force` (no destructive ops).
+- `src/commands/plugins/bud/from-repo-fleet.ts` — **new**. `registerFleetEntry({stem, target, parent})`. Reads remote, computes slug, writes `<NN>-<stem>.json` to `FLEET_DIR`. ≤100 LOC.
+- `src/commands/plugins/bud/index.ts` — wire new flags: `--force`, `--from` (only when `--from-repo` is set), `--track-vault`.
+- `src/commands/plugins/bud/from-repo.test.ts` — new test cases per above.
+
+All files ≤200 LOC.
+
 ## (b) File-write sequencing
 
 Non-transactional — but **fail-fast + fail-before-mutate**:
