@@ -12,10 +12,11 @@
       "attach",
       "a"
     ],
-    "help": "maw view <agent> [window] [--clean] [--kill] — create or attach to an agent's tmux view",
+    "help": "maw view <agent> [window] [--clean] [--kill] [--split[=<anchor>]] — create or attach to an agent's tmux view. --split splits the caller's active pane; --split=<anchor> splits the pane hosting <anchor>'s view (auto-creates if missing).",
     "flags": {
       "--clean": "boolean",
-      "--kill": "boolean"
+      "--kill": "boolean",
+      "--split": "string"
     }
   },
   "weight": 10

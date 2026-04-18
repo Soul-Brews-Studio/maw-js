@@ -5,7 +5,13 @@ import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { logAnomaly } from "../../../core/fleet/audit";
 import { execSync } from "child_process";
 
-export async function cmdView(agent: string, windowHint?: string, clean = false, kill = false) {
+export async function cmdView(
+  agent: string,
+  windowHint?: string,
+  clean = false,
+  kill = false,
+  splitAnchor?: string | true,
+) {
   // Find the session
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
@@ -83,6 +89,14 @@ export async function cmdView(agent: string, windowHint?: string, clean = false,
     if (clean) {
       await t.set(sessionName, "status", "off");
     }
+    if (splitAnchor !== undefined) {
+      const { cmdSplit } = await import("../split/impl");
+      const anchorPane = typeof splitAnchor === "string"
+        ? await resolveAnchorPane(splitAnchor)
+        : undefined;
+      await cmdSplit(sessionName, { anchorPane });
+      return;
+    }
     console.log(`\x1b[36mattach\x1b[0m  → ${sessionName}${clean ? " (clean)" : ""}`);
     if (isLocal && process.env.TMUX) {
       await t.switchClient(sessionName);
@@ -144,6 +158,18 @@ export async function cmdView(agent: string, windowHint?: string, clean = false,
     await t.set(viewName, "status", "off");
   }
 
+  // --split[=<anchor>]: open the view in a new tmux pane instead of
+  // detaching+attaching the whole client. Explicit anchor breaks the
+  // active-pane-drift that caused the fractal-split cascade (#545/#546).
+  if (splitAnchor !== undefined) {
+    const { cmdSplit } = await import("../split/impl");
+    const anchorPane = typeof splitAnchor === "string"
+      ? await resolveAnchorPane(splitAnchor)
+      : undefined;
+    await cmdSplit(viewName, { anchorPane });
+    return;
+  }
+
   // Attach interactively
   console.log(`\x1b[36mattach\x1b[0m  → ${viewName}${clean ? " (clean)" : ""}`);
 
@@ -189,4 +215,28 @@ export async function cmdView(agent: string, windowHint?: string, clean = false,
     await t.killSession(viewName);
     console.log(`\x1b[90mcleaned\x1b[0m → ${viewName}`);
   }
+}
+
+/**
+ * Resolve a `--split=<anchor>` argument to a tmux pane selector for cmdSplit.
+ *   - "session:window"  → passed through (tmux resolves to that window's active pane)
+ *   - bare name         → find <name>-view; auto-bootstrap via newGroupedSession
+ *                         if it doesn't exist yet; return "<name>-view:0"
+ */
+async function resolveAnchorPane(anchor: string): Promise<string> {
+  if (anchor.includes(":")) return anchor;
+  const t = new Tmux();
+  const viewName = `${anchor.replace(/-view$/, "")}-view`;
+  if (!(await t.hasSession(viewName))) {
+    const sessions = await listSessions();
+    const candidates = sessions.filter(
+      s => !/-view$/.test(s.name) && !/-view-view$/.test(s.name),
+    );
+    const r = resolveSessionTarget(anchor, candidates);
+    if (r.kind !== "exact" && r.kind !== "fuzzy") {
+      throw new Error(`--split=${anchor}: no matching session or existing view`);
+    }
+    await t.newGroupedSession(r.match.name, viewName, { windowSize: "largest" });
+  }
+  return `${viewName}:0`;
 }
