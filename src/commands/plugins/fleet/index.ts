@@ -55,7 +55,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const { cmdFleetSync } = await import("../../shared/fleet");
       await cmdFleetSync();
     } else if (sub === "snapshots" || sub === "snapshot-ls") {
-      const { listSnapshots } = await import("../../../snapshot");
+      const { listSnapshots } = await import("../../../core/fleet/snapshot");
       const snaps = listSnapshots();
       if (snaps.length === 0) {
         console.log("no snapshots yet");
@@ -68,7 +68,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`  ${s.file.replace(".json", "")}  ${local}  \x1b[90m${s.trigger}\x1b[0m  ${s.sessionCount} sessions, ${s.windowCount} windows`);
       }
     } else if (sub === "restore") {
-      const { loadSnapshot, latestSnapshot } = await import("../../../snapshot");
+      const { loadSnapshot, latestSnapshot } = await import("../../../core/fleet/snapshot");
       const snap = args[1] ? loadSnapshot(args[1]) : latestSnapshot();
       if (!snap) {
         return { ok: false, error: "no snapshot found" };
@@ -83,9 +83,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         }
       }
     } else if (sub === "snapshot") {
-      const { takeSnapshot } = await import("../../../snapshot");
-      const path = await takeSnapshot("manual");
-      console.log(`\x1b[32m📸\x1b[0m snapshot saved: ${path}`);
+      const { takeSnapshot } = await import("../../../core/fleet/snapshot");
+      const trigger = args[1] || "manual";
+      const path = await takeSnapshot(trigger);
+      console.log(`\x1b[32m📸\x1b[0m snapshot saved: ${path} (trigger: ${trigger})`);
     } else if (!sub) {
       const { cmdFleetLs } = await import("../../shared/fleet");
       await cmdFleetLs();
