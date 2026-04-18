@@ -10,7 +10,7 @@
  * Sized for CLI use: 5s deadline, 50ms poll. peers.json writes are
  * sub-millisecond, so racing CLIs almost always succeed on first try.
  */
-import { openSync, closeSync, unlinkSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { openSync, closeSync, unlinkSync, writeSync, readSync, fstatSync, existsSync } from "fs";
 
 const DEADLINE_MS = 5_000;
 const POLL_MS = 50;
@@ -39,12 +39,24 @@ export function withPeersLock<T>(path: string, fn: () => T): T {
   while (true) {
     try {
       fd = openSync(lockPath, "wx"); // O_CREAT | O_EXCL
-      writeFileSync(lockPath, String(process.pid));
+      // fd-based write — prevents path-TOCTOU symlink swap between open and write.
+      // See #562 / #581 (exemplar fix in src/cli/update-lock.ts).
+      const pidBytes = Buffer.from(String(process.pid));
+      writeSync(fd, pidBytes, 0, pidBytes.length, 0);
       break;
     } catch (e: any) {
       if (e.code !== "EEXIST") throw e;
+      // fd-based read for the same TOCTOU reason as the write above.
       let holderPid = NaN;
-      try { holderPid = parseInt(readFileSync(lockPath, "utf-8").trim(), 10); } catch { /* empty/racy */ }
+      let readFd: number | null = null;
+      try {
+        readFd = openSync(lockPath, "r");
+        const size = fstatSync(readFd).size;
+        const buf = Buffer.alloc(Math.min(size, 64));
+        readSync(readFd, buf, 0, buf.length, 0);
+        holderPid = parseInt(buf.toString("utf-8").trim(), 10);
+      } catch { /* empty/racy — treat as stale */ }
+      finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (!isAlive(holderPid)) {
         try { unlinkSync(lockPath); } catch { /* race with another stealer is fine */ }
         continue;
