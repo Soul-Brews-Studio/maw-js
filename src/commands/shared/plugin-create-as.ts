@@ -18,6 +18,7 @@ export function scaffoldAs(name: string, dest: string, templateDir = TEMPLATE_AS
   if (existsSync(pkgPath)) {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     pkg.name = name;
+    // lgtm[js/file-system-race] — PRIVATE-PATH: rewrites package.json in user-owned scaffold dest, see docs/security/file-system-race-stance.md
     writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   }
 

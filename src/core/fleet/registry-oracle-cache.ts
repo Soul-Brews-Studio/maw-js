@@ -52,6 +52,7 @@ export function writeCache(cache: RegistryCache, targetFile: string = CACHE_FILE
   } catch { /* malformed existing file — fall back to writing fresh */ }
 
   const merged = mergeRegistry(existing, cache);
+  // lgtm[js/file-system-race] — PRIVATE-PATH: fleet registry cache under ~/.maw/, see docs/security/file-system-race-stance.md
   writeFileSync(targetFile, JSON.stringify(merged, null, 2) + "\n", "utf-8");
 }
 
