@@ -17,6 +17,9 @@ mock.module("../src/core/paths", () => ({
   FLEET_DIR: join(TEST_DIR, "fleet"),
   CONFIG_FILE: join(TEST_DIR, "maw.config.json"),
   MAW_ROOT: "/tmp",
+  // #566: resolveHome() must be present — bun mock.module is process-global,
+  // so this mock also satisfies resolve-home.test.ts if it runs after.
+  resolveHome: () => TEST_DIR,
 }));
 
 import { mockConfigModule } from "./helpers/mock-config";

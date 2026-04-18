@@ -8,7 +8,7 @@
  * `~/.maw/maw.pid` location. Backward-compat: prior alpha never wrote a PID
  * file, so stale absence is the default state; nothing to reconcile.
  */
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
+import { openSync, readFileSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -39,18 +39,30 @@ export function acquirePidLock(instanceName: string | null): void {
   const home = resolveHome();
   mkdirSync(home, { recursive: true });
   const file = pidFile();
-  if (existsSync(file)) {
+
+  // Atomic create-or-fail (O_CREAT|O_EXCL). Avoids the TOCTOU gap between
+  // existsSync+writeFileSync. On success we own the lock. On EEXIST we probe
+  // the prior PID; if stale, remove and retry once.
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const prior = parseInt(readFileSync(file, "utf-8").trim(), 10);
+      const fd = openSync(file, "wx");
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      break; // acquired
+    } catch (e: any) {
+      if (e?.code !== "EEXIST") throw e;
+      // Someone holds (or held) the lock — probe liveness.
+      let prior = NaN;
+      try { prior = parseInt(readFileSync(file, "utf-8").trim(), 10); } catch { /* malformed */ }
       if (Number.isFinite(prior) && isAlive(prior)) {
         const label = instanceName ? ` as ${instanceName}` : "";
         console.error(`\x1b[31m✗\x1b[0m another maw serve is already running${label} (PID ${prior}). Stop it first.`);
         process.exit(1);
       }
-      // Stale PID — fall through and overwrite.
-    } catch { /* malformed file — overwrite */ }
+      // Stale PID — remove and retry the atomic create once.
+      try { unlinkSync(file); } catch { /* already gone */ }
+    }
   }
-  writeFileSync(file, String(process.pid));
 
   // Clean up on clean shutdown. Best-effort — never crash if unlink fails.
   const cleanup = () => {

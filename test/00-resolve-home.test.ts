@@ -2,14 +2,31 @@
  * #566 — MAW_HOME resolution and instance-name validation.
  *
  * resolveHome() is the single source of truth for the per-instance maw root.
- * CONFIG_DIR etc. derive from it at import time — these tests exercise the
- * helper itself and the validation regex, which are module-import-safe.
+ * These tests validate the helper's contract + the name-validation regex.
+ *
+ * NOTE: other test files in this suite (snapshot.test.ts, curl-fetch.test.ts)
+ * use `mock.module("../src/core/paths", ...)` which is PROCESS-GLOBAL in
+ * bun-test. To keep this test hermetic, we re-register the mock here with a
+ * factory that reproduces the real resolveHome() contract. This guarantees
+ * the import below gets a real resolver regardless of file ordering.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { homedir } from "os";
-import { resolveHome } from "../src/core/paths";
-import { INSTANCE_NAME_RE } from "../src/cli/instance-preset";
+
+// Re-register a "real" mock for src/core/paths with a live resolveHome.
+// The constants are unused here but must be present for modules that import
+// them (mock.module is an all-or-nothing module substitution).
+mock.module("../src/core/paths", () => ({
+  MAW_ROOT: "/tmp",
+  CONFIG_DIR: join(homedir(), ".config", "maw"),
+  FLEET_DIR: join(homedir(), ".config", "maw", "fleet"),
+  CONFIG_FILE: join(homedir(), ".config", "maw", "maw.config.json"),
+  resolveHome: () => process.env.MAW_HOME || join(homedir(), ".maw"),
+}));
+
+const { resolveHome } = await import("../src/core/paths");
+const { INSTANCE_NAME_RE } = await import("../src/cli/instance-preset");
 
 describe("resolveHome()", () => {
   const prior = process.env.MAW_HOME;

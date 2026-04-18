@@ -6,6 +6,8 @@ mock.module("../src/core/paths", () => ({
   FLEET_DIR: "/tmp/maw-test/fleet",
   CONFIG_FILE: "/tmp/maw-test/maw.config.json",
   MAW_ROOT: "/tmp",
+  // #566: resolveHome() must be present — bun mock.module is process-global.
+  resolveHome: () => "/tmp/maw-test",
 }));
 
 let mockToken: string | undefined = "test-token-16chars!";

@@ -33,6 +33,7 @@ mock.module("../../src/core/paths", () => ({
   FLEET_DIR: tmpFleet,
   CONFIG_FILE: join(tmpBase, "maw.config.json"),
   MAW_ROOT: tmpBase,
+  resolveHome: () => tmpBase, // #566
 }));
 
 const {

@@ -56,14 +56,12 @@ export function applyInstancePreset(argv: string[] = process.argv.slice(2)): voi
   process.env.MAW_HOME = home;
 
   // Convenience: symlink <home>/plugins → ~/.maw/plugins so instances share
-  // the plugin pool (plugins are not migrated per the #566 contract). Best
-  // effort — failure is non-fatal.
+  // the plugin pool (plugins are not migrated per the #566 contract).
+  // Atomic: symlinkSync throws EEXIST if the link is already there — we just
+  // swallow it. No TOCTOU gap. Other errors are also non-fatal (best-effort).
   try {
-    const { symlinkSync, existsSync } = require("fs");
+    const { symlinkSync } = require("fs");
     const target = join(homedir(), ".maw", "plugins");
-    const linkPath = join(home, "plugins");
-    if (!existsSync(linkPath) && existsSync(target)) {
-      symlinkSync(target, linkPath, "dir");
-    }
-  } catch { /* best-effort */ }
+    symlinkSync(target, join(home, "plugins"), "dir");
+  } catch { /* already linked, target missing, or permissions — best-effort */ }
 }

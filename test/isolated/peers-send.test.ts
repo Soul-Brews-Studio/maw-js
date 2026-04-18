@@ -6,6 +6,7 @@ mock.module("../../src/core/paths", () => ({
   FLEET_DIR: "/tmp/maw-test/fleet",
   CONFIG_FILE: "/tmp/maw-test/maw.config.json",
   MAW_ROOT: "/tmp",
+  resolveHome: () => "/tmp/maw-test", // #566
 }));
 
 import { mockConfigModule } from "../helpers/mock-config";
