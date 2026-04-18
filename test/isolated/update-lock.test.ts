@@ -28,6 +28,7 @@ let openCursor = 0;
 let nowPlan: number[] = [];
 let nowCursor = 0;
 let realNow: () => number;
+let readFileSyncImpl: (path: string) => string = () => "";
 
 // ── Install fs mock (openSync/closeSync/unlinkSync/existsSync/mkdirSync) ─
 await mock.module("fs", () => ({
@@ -53,6 +54,13 @@ await mock.module("fs", () => ({
   },
   mkdirSync: (path: string, opts: unknown) => {
     calls.push({ fn: "mkdirSync", args: [path, opts] });
+  },
+  writeFileSync: (path: string, data: string) => {
+    calls.push({ fn: "writeFileSync", args: [path, data] });
+  },
+  readFileSync: (path: string, _enc: string) => {
+    calls.push({ fn: "readFileSync", args: [path] });
+    return readFileSyncImpl(path);
   },
 }));
 
@@ -112,6 +120,8 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     openPlan = [{ code: "EEXIST" }, 7];
     // Keep Date.now small so we stay under the 60s deadline.
     stubDateNow([1_000, 1_100, 1_200, 1_300, 1_400]);
+    // Mock lock holder as OUR pid so it's alive → forces wait path (not stale-steal)
+    readFileSyncImpl = () => String(process.pid);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
     const origLog = console.log;
@@ -171,22 +181,16 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     expect(unlinks.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("case 5 — stale lock >60s: warns, unlinks, takes over", async () => {
-    // Every open returns EEXIST until we push past the deadline; then fd 5.
+  test("case 5 — stale lock with DEAD pid: immediate takeover (no 60s wait)", async () => {
+    // First open returns EEXIST with a dead PID's content; cleanup + retry succeeds.
     openPlan = [
-      { code: "EEXIST" },
       { code: "EEXIST" },
       5, // succeeds after takeover unlink
     ];
-    // Date.now progression: START, then two calls under deadline, then past 60s.
-    // Module captures START = Date.now() as first call, then DEADLINE computed
-    // inline. Loop calls Date.now() on each EEXIST iteration.
-    stubDateNow([
-      0,           // START
-      500,         // first Date.now() > DEADLINE check (pre-deadline)
-      61_000,      // second check — PAST deadline, triggers takeover
-      61_000,      // subsequent
-    ]);
+    // readFileSync returns a PID that's guaranteed dead (pid 999999 extremely unlikely
+    // to be live on the test host). kill(pid, 0) throws ESRCH → isAlive returns false.
+    readFileSyncImpl = () => "999999";
+    stubDateNow([0, 500, 500]);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
     const origWarn = console.warn;
@@ -201,9 +205,35 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
       console.log = origLog;
     }
 
-    expect(warns.some((w) => w.includes("taking over"))).toBe(true);
-    // Stale lock was unlinked mid-loop (before the successful open).
+    expect(warns.some((w) => w.includes("stale update lock") && w.includes("taking over"))).toBe(true);
     // Successful-open fd (5) eventually closed in finally.
     expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 5)).toBe(true);
+  });
+
+  test("case 6 — live PID holding lock past deadline: throws (doesn't steal)", async () => {
+    // Lock holder's PID is our own process (definitely alive); after 60s wait, throw.
+    openPlan = [
+      { code: "EEXIST" },
+      { code: "EEXIST" },
+    ];
+    readFileSyncImpl = () => String(process.pid);
+    stubDateNow([0, 500, 61_000]);
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+
+    const origWarn = console.warn;
+    const origLog = console.log;
+    console.warn = () => {};
+    console.log = () => {};
+
+    let caught: Error | null = null;
+    try {
+      await withUpdateLock(async () => {});
+    } catch (e) {
+      caught = e as Error;
+    } finally {
+      console.warn = origWarn;
+      console.log = origLog;
+    }
+    expect(caught?.message).toContain("update lock timeout");
   });
 });

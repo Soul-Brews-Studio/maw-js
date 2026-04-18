@@ -152,11 +152,18 @@ export async function runUpdate(args: string[]): Promise<void> {
       const BIN = join(homedir(), ".bun", "bin", "maw");
       const STASH = `${BIN}.prev`;
       let stashed = false;
+      // Refuse if .prev already exists — that's a prior crashed update's
+      // last-known-good escape hatch; silently overwriting would destroy it
+      // (architect's gotcha on #551). User resolves explicitly.
+      if (existsSync(STASH)) {
+        console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists (prior update crashed — last-known-good binary).`);
+        console.error(`  restore manually:  mv ${STASH} ${BIN}`);
+        console.error(`  or discard it:     rm ${STASH}   \x1b[90m# only if you're sure\x1b[0m`);
+        console.error(`  then re-run:       maw update ${ref}`);
+        process.exit(1);
+      }
       try {
         if (existsSync(BIN)) {
-          // If a previous stash exists (prior crashed update), overwrite it —
-          // the currently-running binary is newer than any prior stash.
-          if (existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
           renameSync(BIN, STASH);
           stashed = true;
         }

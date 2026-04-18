@@ -79,11 +79,16 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     expect(retryIdx).toBeGreaterThan(stashBlockEnd);
   });
 
-  // ── Case 4: prior .prev overwritten ───────────────────────────────────
-  it("case 4 — old .prev cleared before new stash rename", () => {
-    // unlinkSync(STASH) sits inside `if (existsSync(STASH))` BEFORE renameSync(BIN, STASH).
+  // ── Case 4: prior .prev REFUSE (architect's safety gotcha) ────────────
+  it("case 4 — existing .prev refuses with process.exit(1) (does NOT overwrite)", () => {
+    // If ~/.bun/bin/maw.prev already exists, it's a prior crash's last-known-good
+    // escape hatch. Silently overwriting would destroy that. Refuse + hint user.
     expect(cmdUpdateSrc).toMatch(
-      /if\s*\(\s*existsSync\(STASH\)\s*\)\s*\{\s*try\s*\{\s*unlinkSync\(STASH\)\s*;?\s*\}\s*catch\s*\{[^}]*\}\s*\}[\s\S]*?renameSync\(BIN\s*,\s*STASH\)/,
+      /if\s*\(\s*existsSync\(STASH\)\s*\)\s*\{[\s\S]*?process\.exit\(1\)/,
+    );
+    // Must NOT silently unlink old stash before rename
+    expect(cmdUpdateSrc).not.toMatch(
+      /unlinkSync\(STASH\)[\s\S]*?renameSync\(BIN\s*,\s*STASH\)/,
     );
   });
 
