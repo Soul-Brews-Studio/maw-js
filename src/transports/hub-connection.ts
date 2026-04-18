@@ -53,7 +53,8 @@ export function handleMessage(
     switch (msg.type) {
       case "auth-ok":
         // msg.workspaceId is attacker-influenced (parsed from WS frame).
-        // Sanitize before logging to close CodeQL js/log-injection (#474).
+        // Sanitize before logging to close CodeQL js/log-injection (#474, #486).
+        // lgtm[js/log-injection] — sanitizeLogField strips control chars + ANSI, see docs/security/codeql-sanitizer-model.md
         console.log(`[hub] workspace ${conn.config.id}: authenticated (workspace=${sanitizeLogField(msg.workspaceId)})`);
         if (Array.isArray(msg.agents)) conn.remoteAgents = new Set(msg.agents);
         break;
@@ -83,11 +84,13 @@ export function handleMessage(
         }
         break;
       case "node-joined":
-        // msg.nodeId is attacker-influenced — sanitize before logging.
+        // msg.nodeId is attacker-influenced — sanitize before logging (#474, #486).
+        // lgtm[js/log-injection] — sanitizeLogField, see docs/security/codeql-sanitizer-model.md
         console.log(`[hub] workspace ${conn.config.id}: node joined — ${sanitizeLogField(msg.nodeId)}`);
         break;
       case "node-left":
-        // msg.nodeId is attacker-influenced — sanitize before logging.
+        // msg.nodeId is attacker-influenced — sanitize before logging (#474, #486).
+        // lgtm[js/log-injection] — sanitizeLogField, see docs/security/codeql-sanitizer-model.md
         console.log(`[hub] workspace ${conn.config.id}: node left — ${sanitizeLogField(msg.nodeId)}`);
         if (msg.agents && Array.isArray(msg.agents)) {
           for (const agent of msg.agents) conn.remoteAgents.delete(agent);
@@ -97,7 +100,8 @@ export function handleMessage(
         if (msg.event) for (const h of feedHandlers) h(msg.event);
         break;
       case "error":
-        // Both msg.message and msg.reason are attacker-influenced — sanitize.
+        // Both msg.message and msg.reason are attacker-influenced — sanitize (#474, #486).
+        // lgtm[js/log-injection] — sanitizeLogField, see docs/security/codeql-sanitizer-model.md
         console.error(`[hub] workspace ${conn.config.id}: hub error — ${sanitizeLogField(msg.message || msg.reason)}`);
         break;
       default:
