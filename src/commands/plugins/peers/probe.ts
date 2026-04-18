@@ -50,7 +50,8 @@ export function classifyProbeError(input: unknown): ProbeErrorCode {
   if (!err || typeof err !== "object") return "UNKNOWN";
 
   const code = err.cause?.code ?? err.code;
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "EAI_NODATA") return "DNS";
+  // ENOTIMP = resolver method unimplemented (e.g. mDNS/.local without Avahi); EAI_FAIL = unrecoverable DNS (#593).
+  if (code === "ENOTFOUND" || code === "ENOTIMP" || code === "EAI_FAIL" || code === "EAI_AGAIN" || code === "EAI_NODATA") return "DNS";
   // Bun conflates DNS + refused into "ConnectionRefused" — we run a DNS
   // precheck upstream, so any code that reaches here means connect failed.
   if (code === "ECONNREFUSED" || code === "ConnectionRefused") return "REFUSED";
@@ -158,9 +159,17 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
   return { node };
 }
 
+/** Hint chooser — DNS bucket sub-types for ENOTIMP get a distinct hint (#593). */
+export function pickHint(err: LastError): string {
+  if (err.code === "DNS" && /ENOTIMP/i.test(err.message)) {
+    return "install avahi-daemon (Linux) for mDNS, or add white.local to /etc/hosts";
+  }
+  return PROBE_HINTS[err.code] ?? PROBE_HINTS.UNKNOWN;
+}
+
 /** Colored, multi-line stderr block with actionable hint. */
 export function formatProbeError(err: LastError, url: string, alias: string): string {
-  const hint = PROBE_HINTS[err.code] ?? PROBE_HINTS.UNKNOWN;
+  const hint = pickHint(err);
   const host = safeHost(url);
   return [
     `\x1b[33m⚠\x1b[0m peer handshake failed: \x1b[1m${err.code}\x1b[0m`,
