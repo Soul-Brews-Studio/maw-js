@@ -23,18 +23,29 @@ const realFs = await import("fs");
 // ── Shared spy state ──────────────────────────────────────────────────────
 interface Call { fn: string; args: unknown[] }
 let calls: Call[] = [];
+// openPlan governs the "wx" (acquire) opens only.  Stale-steal "r" opens are
+// handled separately and return a dedicated read-fd so the acquire plan
+// cursor is not consumed by the read path (#562 fd-based read/write).
 let openPlan: Array<number | { code: string }> = []; // fd number OR error spec
 let openCursor = 0;
+const READ_FD = 7777; // arbitrary fd handed back for stale-read opens
 let nowPlan: number[] = [];
 let nowCursor = 0;
 let realNow: () => number;
-let readFileSyncImpl: (path: string) => string = () => "";
+// readSyncImpl returns the bytes that the production code's readSync sees.
+// It used to be readSyncImpl returning a string; under the fd-based read
+// the impl writes into the caller-supplied buffer, so we model it that way.
+let readSyncImpl: () => string = () => "";
 
-// ── Install fs mock (openSync/closeSync/unlinkSync/existsSync/mkdirSync) ─
+// ── Install fs mock (openSync/closeSync/unlinkSync/existsSync/mkdirSync +
+//    writeSync/readSync/fstatSync for the fd-based TOCTOU-safe path) ──────
 await mock.module("fs", () => ({
   ...realFs,
   openSync: (path: string, flags: string) => {
     calls.push({ fn: "openSync", args: [path, flags] });
+    // Stale-steal read path uses "r"; route to a dedicated fd so the acquire
+    // plan cursor isn't consumed by reads.
+    if (flags === "r") return READ_FD;
     const next = openPlan[Math.min(openCursor, openPlan.length - 1)];
     openCursor++;
     if (typeof next === "number") return next;
@@ -55,12 +66,20 @@ await mock.module("fs", () => ({
   mkdirSync: (path: string, opts: unknown) => {
     calls.push({ fn: "mkdirSync", args: [path, opts] });
   },
-  writeFileSync: (path: string, data: string) => {
-    calls.push({ fn: "writeFileSync", args: [path, data] });
+  writeSync: (fd: number, buf: Buffer, _off: number, _len: number, _pos: number) => {
+    calls.push({ fn: "writeSync", args: [fd, buf.toString("utf-8")] });
+    return buf.length;
   },
-  readFileSync: (path: string, _enc: string) => {
-    calls.push({ fn: "readFileSync", args: [path] });
-    return readFileSyncImpl(path);
+  fstatSync: (fd: number) => {
+    calls.push({ fn: "fstatSync", args: [fd] });
+    return { size: Buffer.byteLength(readSyncImpl()) } as ReturnType<typeof realFs.fstatSync>;
+  },
+  readSync: (fd: number, buf: Buffer, _off: number, _len: number, _pos: number) => {
+    calls.push({ fn: "readSync", args: [fd] });
+    const data = Buffer.from(readSyncImpl());
+    const n = Math.min(buf.length, data.length);
+    data.copy(buf, 0, 0, n);
+    return n;
   },
 }));
 
@@ -121,7 +140,7 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     // Keep Date.now small so we stay under the 60s deadline.
     stubDateNow([1_000, 1_100, 1_200, 1_300, 1_400]);
     // Mock lock holder as OUR pid so it's alive → forces wait path (not stale-steal)
-    readFileSyncImpl = () => String(process.pid);
+    readSyncImpl = () => String(process.pid);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
     const origLog = console.log;
@@ -137,8 +156,10 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
       console.log = origLog;
     }
 
-    const opens = calls.filter((c) => c.fn === "openSync");
-    expect(opens.length).toBe(2);
+    // Only count acquire ("wx") opens — the fd-based stale-check also issues
+    // an "r" open per #562, which is not part of the acquire-attempt count.
+    const wxOpens = calls.filter((c) => c.fn === "openSync" && c.args[1] === "wx");
+    expect(wxOpens.length).toBe(2);
     // "waiting up to 60s" announcement printed once.
     expect(logs.some((l) => l.includes("waiting up to 60s"))).toBe(true);
   });
@@ -189,7 +210,7 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     ];
     // readFileSync returns a PID that's guaranteed dead (pid 999999 extremely unlikely
     // to be live on the test host). kill(pid, 0) throws ESRCH → isAlive returns false.
-    readFileSyncImpl = () => "999999";
+    readSyncImpl = () => "999999";
     stubDateNow([0, 500, 500]);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
@@ -216,7 +237,7 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
       { code: "EEXIST" },
       { code: "EEXIST" },
     ];
-    readFileSyncImpl = () => String(process.pid);
+    readSyncImpl = () => String(process.pid);
     stubDateNow([0, 500, 61_000]);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 

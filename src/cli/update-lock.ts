@@ -1,4 +1,4 @@
-import { openSync, closeSync, unlinkSync, existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { openSync, closeSync, unlinkSync, existsSync, mkdirSync, writeSync, readSync, fstatSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -39,13 +39,26 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
   while (true) {
     try {
       fd = openSync(LOCK_PATH, "wx"); // O_EXCL — fails if exists
-      writeFileSync(LOCK_PATH, String(process.pid));
+      // fd-based write prevents path-TOCTOU (an attacker swapping LOCK_PATH for
+      // a symlink between openSync and the write would otherwise redirect the
+      // PID into an arbitrary file).  See #562 / #552.
+      const pidBytes = Buffer.from(String(process.pid));
+      writeSync(fd, pidBytes, 0, pidBytes.length, 0);
       break;
     } catch (e: any) {
       if (e.code !== "EEXIST") throw e;
       // Steal stale lock: if holder PID is dead, remove + retry immediately.
+      // fd-based read for the same TOCTOU reason as the write above.
       let holderPid = NaN;
-      try { holderPid = parseInt(readFileSync(LOCK_PATH, "utf-8").trim(), 10); } catch {}
+      let readFd: number | null = null;
+      try {
+        readFd = openSync(LOCK_PATH, "r");
+        const size = fstatSync(readFd).size;
+        const buf = Buffer.alloc(Math.min(size, 64));
+        readSync(readFd, buf, 0, buf.length, 0);
+        holderPid = parseInt(buf.toString("utf-8").trim(), 10);
+      } catch { /* treat as stale — holderPid stays NaN */ }
+      finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (!isAlive(holderPid)) {
         console.warn(`\x1b[33m⚠\x1b[0m stale update lock (pid ${holderPid || "?"} gone) — taking over`);
         try { unlinkSync(LOCK_PATH); } catch {}
