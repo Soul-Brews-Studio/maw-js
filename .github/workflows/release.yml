@@ -1,9 +1,15 @@
 name: Release
 
+# Legacy path — serves scripts/ship-alpha.sh for pre-CalVer tags.
+# CalVer tags (v20.*-v99.*) are handled by calver-release.yml which
+# creates the tag + release + attaches dist/maw all inline.
+
 on:
   push:
     tags:
       - 'v*'
+      - '!v[2-9][0-9].*'   # exclude v20-v99 (CalVer year range)
+      - '!sdk-v*'          # handled by publish-sdk.yml
 
 jobs:
   release:

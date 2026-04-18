@@ -24,8 +24,17 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
+          # CalVer versions (v{yy}.{m}.{d}[-alpha.{hour}]) are handled by
+          # calver-release.yml — skip here to avoid double-fire.
+          # See: #526 (CalVer adoption umbrella)
+          if [[ "$VERSION" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(-alpha\.[0-9]{1,2}[a-z]?)?$ ]]; then
+            echo "::notice::CalVer version '$VERSION' — handled by calver-release.yml. Skipping legacy auto-tag."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check if tag exists
         id: check
+        if: steps.version.outputs.skip != 'true'
         run: |
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -34,7 +43,7 @@ jobs:
           fi
 
       - name: Create tag and release
-        if: steps.check.outputs.exists == 'false'
+        if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
