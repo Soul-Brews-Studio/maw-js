@@ -55,9 +55,22 @@ export type ResolveResult<T extends { name: string }> =
  * The target is trimmed before matching. An empty target returns "none"
  * with no hints — we don't want the empty string to match everything.
  */
+export interface ResolveOptions {
+  /**
+   * When true, Tier 2b (prefix/middle) excludes items with a numeric fleet
+   * prefix (`/^\d+-/`). Session names follow the `NN-<oracle>` convention —
+   * the suffix after `NN-` IS the oracle name, so sub-segment matching is
+   * wrong by construction (#535). Worktrees use the same numeric prefix as
+   * a sequence counter but the remainder is descriptive, so sub-segment
+   * matching is legitimate there (e.g. `pay` → `2-pay-v1`). Default: false.
+   */
+  fleetSessions?: boolean;
+}
+
 export function resolveByName<T extends { name: string }>(
   target: string,
   items: readonly T[],
+  options: ResolveOptions = {},
 ): ResolveResult<T> {
   const lc = target.trim().toLowerCase();
   if (lc === "") return { kind: "none" };
@@ -75,8 +88,15 @@ export function resolveByName<T extends { name: string }>(
   // Tier 2b — prefix or middle (`target-*` or `*-target-*`). Only tried
   // when there's no suffix match. Catches view/aux sessions when the user
   // is specifically looking for one.
+  //
+  // When `fleetSessions: true`, numeric-prefixed items (`NN-<oracle>`) are
+  // EXCLUDED here — they belong to the full suffix oracle (e.g. `114-mawjs-no2`
+  // IS `mawjs-no2`, not a sub-oracle `mawjs`). Tier 2a's exact-suffix rule
+  // is the only legitimate way to resolve into a fleet session. Without this
+  // exclusion, typing `mawjs` matches `114-mawjs-no2` via `-mawjs-` — #535.
   const prefixOrMid = items.filter(it => {
     const n = it.name.toLowerCase();
+    if (options.fleetSessions && /^\d+-/.test(n)) return false;
     return n.startsWith(`${lc}-`) || n.includes(`-${lc}-`);
   });
   if (prefixOrMid.length === 1) return { kind: "fuzzy", match: prefixOrMid[0]! };
@@ -91,6 +111,15 @@ export function resolveByName<T extends { name: string }>(
 }
 
 // Thin convenience wrappers so call sites read cleanly at the use site.
-// Both are the same generic — they exist purely for intent at the call site.
-export const resolveSessionTarget = resolveByName;
-export const resolveWorktreeTarget = resolveByName;
+// Session target enables `fleetSessions` so `NN-<oracle>` names are resolved
+// correctly; worktree target leaves it off since worktree numeric prefixes
+// are sequence counters, not fleet-name boundaries.
+export const resolveSessionTarget = <T extends { name: string }>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> => resolveByName(target, items, { fleetSessions: true });
+
+export const resolveWorktreeTarget = <T extends { name: string }>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> => resolveByName(target, items);
