@@ -11,7 +11,8 @@
  * valid — it just means `alias:<agent>` routing needs the URL-to-node
  * map from another source. That's a follow-up concern.
  */
-import { loadPeers, mutatePeers, type Peer } from "./store";
+import { loadPeers, mutatePeers, type Peer, type LastError } from "./store";
+import { probePeer } from "./probe";
 
 const ALIAS_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -31,22 +32,14 @@ export function validateUrl(raw: string): string | null {
   return null;
 }
 
-/** Best-effort fetch of <url>/info to resolve node name. Returns null on any failure. */
+/**
+ * Thin back-compat wrapper returning `string | null`. New callers should
+ * use probePeer() directly to get structured errors — but pre-#565 code
+ * paths that only want the node name keep working unchanged.
+ */
 export async function resolveNode(url: string): Promise<string | null> {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2000);
-    const res = await fetch(new URL("/info", url), { signal: ctrl.signal });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    const body = await res.json() as { node?: unknown; name?: unknown };
-    const node = (typeof body.node === "string" && body.node)
-      || (typeof body.name === "string" && body.name)
-      || null;
-    return node || null;
-  } catch {
-    return null;
-  }
+  const res = await probePeer(url);
+  return res.node;
 }
 
 export interface AddOptions {
@@ -59,6 +52,8 @@ export interface AddResult {
   alias: string;
   overwrote: boolean;
   peer: Peer;
+  /** Probe error, if the /info handshake failed. Caller prints a loud warning. */
+  probeError?: LastError;
 }
 
 export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
@@ -67,20 +62,68 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   const urlErr = validateUrl(opts.url);
   if (urlErr) throw new Error(urlErr);
 
-  // Resolve node OUTSIDE the lock — it does network I/O.
-  const node = opts.node ?? await resolveNode(opts.url);
+  // Probe OUTSIDE the lock — it does network I/O. If --node was supplied
+  // we still probe to surface errors, but the user-supplied node wins.
+  const probe = await probePeer(opts.url);
+  const resolvedNode = opts.node ?? probe.node ?? null;
+
   const peer: Peer = {
     url: opts.url,
-    node: node || null,
+    node: resolvedNode,
     addedAt: new Date().toISOString(),
-    lastSeen: null,
+    lastSeen: probe.error ? null : new Date().toISOString(),
   };
+  if (probe.error) peer.lastError = probe.error;
+
   let existed = false;
   mutatePeers((data) => {
     existed = Boolean(data.peers[opts.alias]);
     data.peers[opts.alias] = peer;
   });
-  return { alias: opts.alias, overwrote: existed, peer };
+  return { alias: opts.alias, overwrote: existed, peer, probeError: probe.error };
+}
+
+/**
+ * Re-run the /info handshake for an existing alias. On success clears
+ * lastError and sets lastSeen; on failure records lastError.
+ *
+ * Throws if the alias does not exist.
+ */
+export interface ProbeResult {
+  alias: string;
+  url: string;
+  node: string | null;
+  ok: boolean;
+  error?: LastError;
+}
+
+export async function cmdProbe(alias: string): Promise<ProbeResult> {
+  const data = loadPeers();
+  const existing = data.peers[alias];
+  if (!existing) throw new Error(`peer "${alias}" not found`);
+
+  const probe = await probePeer(existing.url);
+  const now = new Date().toISOString();
+
+  mutatePeers((d) => {
+    const p = d.peers[alias];
+    if (!p) return; // removed between load and mutate — race-safe no-op
+    if (probe.error) {
+      p.lastError = probe.error;
+    } else {
+      delete p.lastError;
+      p.lastSeen = now;
+      if (probe.node) p.node = probe.node;
+    }
+  });
+
+  return {
+    alias,
+    url: existing.url,
+    node: probe.node ?? existing.node,
+    ok: !probe.error,
+    error: probe.error,
+  };
 }
 
 export function cmdList(): Array<{ alias: string } & Peer> {

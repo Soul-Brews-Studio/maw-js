@@ -27,11 +27,29 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { withPeersLock } from "./lock";
 
+/**
+ * Structured last-probe failure — opt-in field on Peer (#565).
+ *
+ * Absent (undefined) means either the peer has never been probed, or
+ * the most recent probe succeeded. Readers that don't know about this
+ * field continue to work — schema v1 is unchanged.
+ */
+export interface LastError {
+  /** Classified code — see probe.ts classifyProbeError(). */
+  code: "DNS" | "REFUSED" | "TIMEOUT" | "TLS" | "HTTP_4XX" | "HTTP_5XX" | "BAD_BODY" | "UNKNOWN";
+  /** Raw error message (from err.message or synthesized for HTTP cases). */
+  message: string;
+  /** ISO timestamp when the failure was recorded. */
+  at: string;
+}
+
 export interface Peer {
   url: string;
   node: string | null;
   addedAt: string;
   lastSeen: string | null;
+  /** Optional — set by probePeer() when handshake fails; cleared on success. */
+  lastError?: LastError;
 }
 
 export interface PeersFile {

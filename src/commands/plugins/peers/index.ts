@@ -34,10 +34,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   const out = () => logs.join("\n");
   const help = () => [
-    "usage: maw peers <add|list|info|remove> [...]",
-    "  add    <alias> <url> [--node <name>]  — register alias (auto-resolves node via /info)",
+    "usage: maw peers <add|list|info|probe|remove> [...]",
+    "  add    <alias> <url> [--node <name>]  — register alias (auto-probes /info; loud on failure)",
     "  list                                   — tabular list of all peers",
-    "  info   <alias>                         — JSON details for one peer",
+    "  info   <alias>                         — JSON details for one peer (includes lastError if set)",
+    "  probe  <alias>                         — re-run /info handshake; updates lastSeen / lastError (#565)",
     "  remove <alias>                         — remove (idempotent)",
     "",
     "storage: ~/.maw/peers.json (v1)",
@@ -65,7 +66,27 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const res = await impl.cmdAdd({ alias, url, node });
         if (res.overwrote) console.log(`warning: alias "${alias}" already existed — overwriting`);
         console.log(`added ${alias} → ${url}${res.peer.node ? ` (${res.peer.node})` : ""}`);
+        if (res.probeError) {
+          const { formatProbeError } = await import("./probe");
+          console.error(formatProbeError(res.probeError, url, alias));
+        }
         return { ok: true, output: out() };
+      }
+      case "probe": {
+        const alias = positional[1];
+        if (!alias) return { ok: false, error: "usage: maw peers probe <alias>" };
+        const data = await import("./store").then(s => s.loadPeers());
+        const existing = data.peers[alias];
+        if (!existing) return { ok: false, error: `peer "${alias}" not found` };
+        console.log(`probing ${alias} → ${existing.url} ...`);
+        const r = await impl.cmdProbe(alias);
+        if (r.ok) {
+          console.log(`\x1b[32m✓\x1b[0m reached ${alias}${r.node ? ` (${r.node})` : ""}`);
+          return { ok: true, output: out() };
+        }
+        const { formatProbeError } = await import("./probe");
+        console.error(formatProbeError(r.error!, existing.url, alias));
+        return { ok: false, error: `probe failed: ${r.error!.code}`, output: out() };
       }
       case "list":
       case "ls": {
@@ -92,7 +113,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(help());
         return {
           ok: false,
-          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|remove)`,
+          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|probe|remove)`,
           output: out() || help(),
         };
       }
