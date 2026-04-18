@@ -6,35 +6,26 @@ import { join } from "path";
 import { homedir } from "os";
 import { warn } from "../cli/verbosity";
 
+// JSON import inlined at build time — survives bundling (dist/maw).
+// Source mode: resolved on load. Bundled mode: Bun embeds the JSON.
+// Either way runtimeSdkVersion() returns the real value, never "0.0.0".
+// See #543 — previous fs-read approach broke in dist/maw because
+// import.meta.dir walks to a path that doesn't exist post-bundle.
+import sdkPkg from "../../packages/sdk/package.json" with { type: "json" };
+
 // Single scan dir — everything lives in ~/.maw/plugins/ (or MAW_PLUGINS_DIR
 // if set). Resolved at call time so tests can override the root.
 export function scanDirs(): string[] {
   return [process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins")];
 }
 
-/** Runtime SDK version — read from @maw/sdk package.json. Canonical per the plan. */
+/** Runtime SDK version — sourced from @maw/sdk package.json (build-inlined). */
 let _runtimeSdkVersion: string | null = null;
 export function runtimeSdkVersion(): string {
   if (_runtimeSdkVersion) return _runtimeSdkVersion;
-  // packages/sdk/package.json — resolved relative to this file at src/plugin/
-  const pkgPath = join(import.meta.dir, "..", "..", "packages", "sdk", "package.json");
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof pkg.version === "string") {
-      _runtimeSdkVersion = pkg.version;
-      return pkg.version;
-    }
-  } catch {
-    // Fall through to maw-js root package.json.
-  }
-  try {
-    const rootPkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "package.json"), "utf8"));
-    _runtimeSdkVersion = String(rootPkg.version ?? "0.0.0");
-    return _runtimeSdkVersion;
-  } catch {
-    _runtimeSdkVersion = "0.0.0";
-    return _runtimeSdkVersion;
-  }
+  const v = typeof sdkPkg.version === "string" ? sdkPkg.version : "0.0.0";
+  _runtimeSdkVersion = v;
+  return v;
 }
 
 /**
