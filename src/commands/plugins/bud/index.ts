@@ -39,6 +39,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--seed": Boolean,
         "--blank": Boolean,
         "--signal-on-birth": Boolean,
+        "--force": Boolean,
+        "--track-vault": Boolean,
       }, 0);
 
       // --from-repo branches early: inject scaffolding into an existing repo (#588).
@@ -58,13 +60,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           isUrl: looksLikeUrl(target),
           pr: !!flags["--pr"],
           dryRun: !!flags["--dry-run"],
+          force: !!flags["--force"],
+          from: flags["--from"],
+          trackVault: !!flags["--track-vault"],
         });
         return { ok: true, output: logs.join("\n") || undefined };
       }
 
       const name = flags._[0];
       if (!name || name === "--help" || name === "-h") {
-        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       Or:    maw bud --from-repo <path> --stem <stem> [--pr] [--dry-run]  (#588, scaffold-only)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
+        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       Or:    maw bud --from-repo <path|url> --stem <stem> [--pr] [--from <parent>] [--force] [--track-vault] [--dry-run]  (#588)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
       }
       if (name.startsWith("-")) {
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };

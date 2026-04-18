@@ -17,6 +17,12 @@ export interface FromRepoOpts {
   pr: boolean;
   /** Print the injection plan and exit without writing. */
   dryRun: boolean;
+  /** Suppress the ψ/-collision blocker. Never destructive — mkdir is idempotent. */
+  force?: boolean;
+  /** Parent oracle stem — embedded as lineage in CLAUDE.md (and fleet entry). */
+  from?: string;
+  /** Keep ψ/ tracked in git. Default: append `ψ/` to target .gitignore. */
+  trackVault?: boolean;
 }
 
 /** One file in the injection plan — what would be added or appended. */

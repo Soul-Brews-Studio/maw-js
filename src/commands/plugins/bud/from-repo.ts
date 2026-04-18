@@ -1,10 +1,10 @@
 /**
  * `maw bud --from-repo <target> --stem <stem>` — planner + orchestrator.
  *
- * SCOPE: local-path + URL clone + `--pr` branch-and-PR flow (#588).
- * Deferred: --force, --seed, fleet entry, --from lineage, sync_peers.
- * Writes live in from-repo-exec.ts; git/gh shell-outs in from-repo-git.ts.
- * Planner stays pure / read-only.
+ * SCOPE: local-path + URL clone + `--pr` + `--force` + `--from` lineage +
+ * `--track-vault` + fleet-entry registration (#588). Deferred: --seed, sync_peers.
+ * Writes live in from-repo-exec.ts; git/gh shell-outs in from-repo-git.ts;
+ * fleet writes in from-repo-fleet.ts. Planner stays pure / read-only.
  *
  * Design: docs/bud/from-repo-design.md + docs/bud/from-repo-impl.md
  */
@@ -14,6 +14,7 @@ import { join, isAbsolute } from "path";
 import type { FromRepoOpts, InjectionAction, InjectionPlan } from "./types";
 import { applyFromRepoInjection } from "./from-repo-exec";
 import { cloneShallow, cleanupClone, branchCommitPushPR } from "./from-repo-git";
+import { registerFleetEntry } from "./from-repo-fleet";
 
 /** Heuristic: is `target` a URL or `org/repo` slug rather than a local path? */
 export function looksLikeUrl(target: string): boolean {
@@ -71,17 +72,22 @@ export function planFromRepoInjection(opts: FromRepoOpts): InjectionPlan {
     return { target, stem: opts.stem, actions, blockers };
   }
 
-  // Collision: ψ/ already present
-  if (existsSync(join(target, "ψ"))) {
+  // Collision: ψ/ already present. --force downgrades the blocker to a warning.
+  const psiExists = existsSync(join(target, "ψ"));
+  if (psiExists && !opts.force) {
     blockers.push(
-      `ψ/ already present at ${target} — looks like an existing oracle repo. Use maw soul-sync or maw wake.`,
+      `ψ/ already present at ${target} — looks like an existing oracle repo. Use maw soul-sync, maw wake, or pass --force to merge into the existing vault.`,
     );
     return { target, stem: opts.stem, actions, blockers };
   }
 
   // 1. ψ/ vault directories
   for (const d of PSI_DIRS) {
-    actions.push({ kind: "mkdir", path: d });
+    actions.push({
+      kind: "mkdir",
+      path: d,
+      reason: psiExists ? "ψ/ exists — --force: mkdir is idempotent, merge into existing vault" : undefined,
+    });
   }
 
   // 2. CLAUDE.md — write if absent, append if present
@@ -108,11 +114,29 @@ export function planFromRepoInjection(opts: FromRepoOpts): InjectionPlan {
     actions.push({ kind: "write", path: ".claude/settings.local.json", reason: "empty {} scaffold" });
   }
 
-  // 4. fleet entry — deferred; listed as skip so operators see the gap
+  // 4. .gitignore — append `ψ/` unless --track-vault. Idempotent; reflected in
+  //    plan even if the line is already present (executor de-dupes).
+  if (opts.trackVault) {
+    actions.push({
+      kind: "skip",
+      path: ".gitignore",
+      reason: "--track-vault — leaving ψ/ unignored",
+    });
+  } else {
+    actions.push({
+      kind: "append",
+      path: ".gitignore",
+      reason: "add `ψ/` (default; pass --track-vault to keep ψ/ tracked)",
+    });
+  }
+
+  // 5. fleet entry — registered after the executor lands. Plan reflects intent.
   actions.push({
-    kind: "skip",
+    kind: "write",
     path: `fleet/<NN>-${opts.stem}.json`,
-    reason: "fleet entry creation deferred to follow-up PR (#588)",
+    reason: opts.from
+      ? `register in ~/.config/maw/fleet/ with budded_from=${opts.from}`
+      : "register in ~/.config/maw/fleet/",
   });
 
   return { target, stem: opts.stem, actions, blockers };
@@ -176,6 +200,16 @@ async function runLocal(opts: FromRepoOpts): Promise<void> {
   }
   if (opts.dryRun) return;
   await applyFromRepoInjection(plan, opts);
+  // Fleet entry — register the budded oracle so `maw wake <stem>` works.
+  // Failure to register is logged but never blocks the injection (the repo
+  // is the canonical artifact; fleet is a convenience index).
+  try {
+    const result = registerFleetEntry({ stem: opts.stem, target: opts.target, parent: opts.from });
+    const verb = result.created ? "registered" : "updated";
+    console.log(`  \x1b[32m✓\x1b[0m fleet entry ${verb}: ${result.file}`);
+  } catch (e: any) {
+    console.log(`  \x1b[33m!\x1b[0m fleet entry skipped: ${e.message}`);
+  }
   if (opts.pr) {
     const url = await branchCommitPushPR(opts.target, opts.stem, (m) => console.log(m));
     console.log(`\n  \x1b[32m🎉 PR opened:\x1b[0m ${url}\n`);

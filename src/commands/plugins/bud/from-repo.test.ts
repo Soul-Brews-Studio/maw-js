@@ -6,6 +6,19 @@ import type { InvokeContext } from "../../../plugin/types";
 import { planFromRepoInjection, looksLikeUrl, cmdBudFromRepo } from "./from-repo";
 import { applyFromRepoInjection, oracleMarkerBegin } from "./from-repo-exec";
 
+// Hermetic default: stub the fleet module so the test suite never writes to
+// the real ~/.config/maw/fleet/. Individual describe blocks override as needed.
+const fleetCalls: { stem: string; target: string; parent?: string }[] = [];
+mock.module("./from-repo-fleet", () => ({
+  registerFleetEntry: (opts: { stem: string; target: string; parent?: string }) => {
+    fleetCalls.push(opts);
+    return { file: `/tmp/fake-fleet/${opts.stem}.json`, created: true, slug: { org: "fake", repo: "fake" } };
+  },
+  parseRemoteUrl: (_: string) => null,
+  resolveSlug: (_: string) => ({ org: "fake", repo: "fake" }),
+  readOriginRemote: (_: string) => null,
+}));
+
 function mkGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "maw-from-repo-test-"));
   mkdirSync(join(dir, ".git"));
@@ -33,7 +46,8 @@ describe("from-repo: planFromRepoInjection", () => {
       expect(kinds).toContain("mkdir:ψ/inbox");
       expect(kinds).toContain("write:CLAUDE.md");
       expect(kinds).toContain("write:.claude/settings.local.json");
-      expect(kinds.some(k => k.startsWith("skip:fleet/"))).toBe(true);
+      expect(kinds).toContain("append:.gitignore");
+      expect(kinds.some(k => k.startsWith("write:fleet/"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -379,3 +393,129 @@ describe("from-repo: handler wiring", () => {
     }
   });
 });
+
+describe("from-repo: --force / --from / --track-vault (#588 continuation)", () => {
+  it("--force lifts the ψ/ collision blocker", () => {
+    const dir = mkGitRepo();
+    try {
+      mkdirSync(join(dir, "ψ"));
+      const plan = planFromRepoInjection({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: true, force: true,
+      });
+      expect(plan.blockers).toEqual([]);
+      expect(plan.actions.find(a => a.path === "ψ/memory/learnings")?.kind).toBe("mkdir");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("without --force the ψ/ collision blocker mentions --force as a remedy", () => {
+    const dir = mkGitRepo();
+    try {
+      mkdirSync(join(dir, "ψ"));
+      const plan = planFromRepoInjection({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: true,
+      });
+      expect(plan.blockers[0]).toContain("--force");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--from <parent> embeds lineage marker in CLAUDE.md (full-write path)", async () => {
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false, from: "neo",
+      });
+      const claude = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+      expect(claude).toContain("Budded from");
+      expect(claude).toContain("neo");
+      expect(claude).toContain("<!-- oracle-lineage: parent=neo -->");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--from <parent> embeds lineage marker in CLAUDE.md (append path)", async () => {
+    const dir = mkGitRepo();
+    try {
+      writeFileSync(join(dir, "CLAUDE.md"), "# host\n");
+      await cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false, from: "neo",
+      });
+      const claude = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+      expect(claude).toContain("# host");
+      expect(claude).toContain("Budded from");
+      expect(claude).toContain("<!-- oracle-lineage: parent=neo -->");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("default appends `ψ/` to .gitignore (creates file if absent)", async () => {
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({ target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false });
+      const gi = readFileSync(join(dir, ".gitignore"), "utf-8");
+      expect(gi).toContain("ψ/");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--track-vault skips the .gitignore write", async () => {
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false, trackVault: true,
+      });
+      expect(existsSync(join(dir, ".gitignore"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it(".gitignore append is idempotent", async () => {
+    const dir = mkGitRepo();
+    try {
+      writeFileSync(join(dir, ".gitignore"), "node_modules/\nψ/\n");
+      await cmdBudFromRepo({ target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false });
+      const gi = readFileSync(join(dir, ".gitignore"), "utf-8");
+      expect(gi.match(/ψ\//g)?.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("plan reflects --track-vault as skip:.gitignore", () => {
+    const dir = mkGitRepo();
+    try {
+      const plan = planFromRepoInjection({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: true, trackVault: true,
+      });
+      const gi = plan.actions.find(a => a.path === ".gitignore");
+      expect(gi?.kind).toBe("skip");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("orchestrator wires registerFleetEntry with stem/target/parent", async () => {
+    const before = fleetCalls.length;
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({
+        target: dir, stem: "lineage-test", isUrl: false, pr: false, dryRun: false, from: "neo",
+      });
+      const newCalls = fleetCalls.slice(before);
+      expect(newCalls.length).toBe(1);
+      expect(newCalls[0].stem).toBe("lineage-test");
+      expect(newCalls[0].target).toBe(dir);
+      expect(newCalls[0].parent).toBe("neo");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+

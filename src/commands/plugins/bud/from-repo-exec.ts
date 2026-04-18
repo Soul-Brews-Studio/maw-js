@@ -39,15 +39,21 @@ export function oracleMarkerEnd(stem: string): string {
 }
 
 /** Full CLAUDE.md template — used when target repo has no CLAUDE.md. */
-function fullClaudeMd(stem: string, today: string): string {
+function fullClaudeMd(stem: string, today: string, parent?: string): string {
+  const lineageHeader = parent
+    ? `> Budded from **${parent}** on ${today} via \`maw bud --from-repo\``
+    : `> Oracle scaffolding injected on ${today} via \`maw bud --from-repo\``;
+  const originLine = parent
+    ? `- **Budded from**: ${parent}\n<!-- oracle-lineage: parent=${parent} -->`
+    : `- **Origin**: injected into existing repo (not budded from a parent)`;
   return `# ${stem}-oracle
 
-> Oracle scaffolding injected on ${today} via \`maw bud --from-repo\`
+${lineageHeader}
 
 ## Identity
 - **Name**: ${stem}
 - **Purpose**: (to be defined by /awaken)
-- **Origin**: injected into existing repo (not budded from a parent)
+${originLine}
 
 ## Principles (inherited from Oracle)
 1. Nothing is Deleted
@@ -63,13 +69,16 @@ Run \`/awaken\` for the full identity setup ceremony.
 }
 
 /** The appended block — fenced with markers so re-runs are idempotent. */
-function appendBlock(stem: string, today: string): string {
+function appendBlock(stem: string, today: string, parent?: string): string {
+  const lineageBullet = parent
+    ? `\n- **Budded from**: ${parent}\n<!-- oracle-lineage: parent=${parent} -->`
+    : "";
   return `\n${oracleMarkerBegin(stem)}
 ## Oracle scaffolding
 
 > Budded into this repo on ${today} via \`maw bud --from-repo --stem ${stem}\`
 
-- **Oracle stem**: ${stem}
+- **Oracle stem**: ${stem}${lineageBullet}
 - **Rule 6**: Oracle Never Pretends to Be Human — sign federation messages as \`[<host>:${stem}]\`
 - Run \`/awaken\` for the full identity setup ceremony.
 ${oracleMarkerEnd(stem)}
@@ -104,12 +113,12 @@ function writeSettings(target: string, log: Log): void {
 }
 
 /** Write or append CLAUDE.md. Idempotent via HTML-comment marker. */
-function writeClaudeMd(target: string, stem: string, today: string, log: Log): void {
+function writeClaudeMd(target: string, stem: string, today: string, log: Log, parent?: string): void {
   const claudePath = join(target, "CLAUDE.md");
   if (!existsSync(claudePath)) {
     // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
-    writeFileSync(claudePath, fullClaudeMd(stem, today));
-    log(`  \x1b[32m✓\x1b[0m CLAUDE.md written (full template)`);
+    writeFileSync(claudePath, fullClaudeMd(stem, today, parent));
+    log(`  \x1b[32m✓\x1b[0m CLAUDE.md written (full template)${parent ? ` — lineage: ${parent}` : ""}`);
     return;
   }
   const existing = readFileSync(claudePath, "utf-8");
@@ -119,8 +128,26 @@ function writeClaudeMd(target: string, stem: string, today: string, log: Log): v
   }
   const sep = existing.endsWith("\n") ? "" : "\n";
   // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
-  writeFileSync(claudePath, existing + sep + appendBlock(stem, today));
-  log(`  \x1b[32m✓\x1b[0m CLAUDE.md appended oracle-scaffold block for stem=${stem}`);
+  writeFileSync(claudePath, existing + sep + appendBlock(stem, today, parent));
+  log(`  \x1b[32m✓\x1b[0m CLAUDE.md appended oracle-scaffold block for stem=${stem}${parent ? ` — lineage: ${parent}` : ""}`);
+}
+
+/**
+ * Append `ψ/` to .gitignore unless --track-vault. Idempotent — skip if any
+ * non-comment line already matches `^ψ/?$`.
+ */
+function writeGitignore(target: string, log: Log): void {
+  const path = join(target, ".gitignore");
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  const lines = existing.split("\n").map(l => l.trim());
+  if (lines.some(l => l === "ψ" || l === "ψ/")) {
+    log(`  \x1b[90m○\x1b[0m .gitignore already ignores ψ/ — skip`);
+    return;
+  }
+  const sep = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+  // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
+  writeFileSync(path, existing + sep + "ψ/\n");
+  log(`  \x1b[32m✓\x1b[0m .gitignore now ignores ψ/ (pass --track-vault to keep tracked)`);
 }
 
 /**
@@ -139,6 +166,7 @@ export async function applyFromRepoInjection(
   log(`\n  \x1b[36m🌱 injecting oracle scaffolding\x1b[0m — ${opts.stem} → ${plan.target}\n`);
   writeVault(plan.target, log);
   writeSettings(plan.target, log);
-  writeClaudeMd(plan.target, opts.stem, today, log);
+  writeClaudeMd(plan.target, opts.stem, today, log, opts.from);
+  if (!opts.trackVault) writeGitignore(plan.target, log);
   log(`\n  \x1b[32m✓ done\x1b[0m — run \`maw wake ${opts.stem}\` to start a session\n`);
 }
