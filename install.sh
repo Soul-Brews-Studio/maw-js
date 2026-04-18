@@ -27,8 +27,9 @@ REPO="Soul-Brews-Studio/maw-js"
 REF=""
 REF_TYPE=""
 USE_BUNX=0
+FORCE=0
 
-# ── Parse args ─��──���───────────────────────────────���─────────
+# ── Parse args ─────────────────────────────────────────────
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,14 +43,17 @@ while [ $# -gt 0 ]; do
       MAW_GHQ=1; shift ;;
     --skip-pm2)
       MAW_SKIP_PM2=1; shift ;;
+    --force|-f)
+      FORCE=1; shift ;;
     --help|-h)
-      echo "Usage: install.sh [--branch <name>] [--tag <version>] [--bunx] [--ghq] [--skip-pm2]"
+      echo "Usage: install.sh [--branch <name>] [--tag <version>] [--bunx] [--ghq] [--skip-pm2] [--force]"
       echo ""
       echo "  --branch, -b <name>    Install from branch (e.g. alpha, main)"
       echo "  --tag, -t <version>    Install from tag (e.g. v1.7.2, v1.8.0)"
       echo "  --bunx                 Create bunx wrapper instead of global install"
       echo "  --ghq                  Also clone repo via ghq"
       echo "  --skip-pm2             Skip PM2 setup hints"
+      echo "  --force, -f            Reinstall even if already at desired ref"
       echo ""
       echo "  No flag = latest release via bun add -g."
       echo "  Shorthand: install.sh alpha = --branch alpha"
@@ -134,8 +138,27 @@ WRAPPER
   echo "  Mode: bunx (fetches latest on every run)"
 else
   # ── bun add -g mode (persistent) ───────────────────────────
+  #
+  # Fast-path: skip reinstall if maw is already at the desired tag and the
+  # user did not pass --force. Reason: `bun add -g <github>` mutates the
+  # global node_modules in place over a multi-second window, during which
+  # `~/.bun/bin/maw` points at a half-extracted target. Concurrent `maw`
+  # invocations during that window fail with "No such file or directory"
+  # (#507 regression — observed live 2026-04-18 mid-session).
+  if [ "$FORCE" != "1" ] && [ "$REF_TYPE" = "tag" ] && command -v maw >/dev/null 2>&1; then
+    CURRENT=$(maw --version 2>/dev/null | head -1 | awk '{print $NF}')
+    if [ -n "$CURRENT" ] && [ "$CURRENT" = "$REF" ]; then
+      echo ""
+      echo "  ✅ maw already at $CURRENT — skipping reinstall (use --force to override)"
+      echo ""
+      echo "  🍺 Done!"
+      exit 0
+    fi
+  fi
+
   echo ""
   echo "📦 Installing maw from ${PKG}..."
+  echo "  ⚠️  Don't run maw commands for the next ~10s — bun re-extracts the global package."
   bun add -g "${PKG}"
 
   echo "  Mode: persistent (binary linked)"

@@ -65,8 +65,25 @@ export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string; help?
     try {
       const pkg = require("../../../../package.json");
       const before = `v${pkg.version}`;
-      try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
-      execSync(`bun add -g github:${pkg.repository}#${ref}`, { stdio: "pipe" });
+      // Atomic install sequence — try install over existing FIRST so that a
+      // transient failure (network, auth, bun version) cannot leave the user
+      // with an uninstalled maw. `bun remove` only runs as a fallback when
+      // the initial install fails. Mirrors the alpha.132 fix in cmd-update.ts
+      // (regression #507 — this site was missed in the original sweep).
+      const tryInstall = (): boolean => {
+        try {
+          execSync(`bun add -g github:${pkg.repository}#${ref}`, { stdio: "pipe" });
+          return true;
+        } catch { return false; }
+      };
+      if (!tryInstall()) {
+        console.log(`    \x1b[33m⚠ first install attempt failed — clearing stale global refs and retrying\x1b[0m`);
+        try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+        if (!tryInstall()) {
+          console.log(`    \x1b[31m✗ update failed — manual recovery: bun add -g github:${pkg.repository}#alpha\x1b[0m`);
+          return;
+        }
+      }
       let after = "";
       try { after = execSync(`maw --version`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch {}
       console.log(`    ${before} → ${after || "updated"}`);
