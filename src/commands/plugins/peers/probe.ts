@@ -2,21 +2,18 @@
  * maw peers — handshake probe + error classifier (#565).
  *
  * Replaces the silent try/catch→null in resolveNode(). probePeer()
- * fetches `<url>/info`, classifies failures into a small enum, and
- * returns both the resolved node (if any) and a structured error (if
- * any). Callers decide whether to persist, warn, or retry.
- *
- * The old resolveNode() wrapper in impl.ts still returns `string | null`
- * for call sites that only want the node — no silent reroute.
+ * fetches <url>/info, classifies failures into a small enum, and
+ * returns both resolved node (if any) and structured error (if any).
+ * The old resolveNode() wrapper in impl.ts is kept as a thin
+ * `string | null` fallback for pre-#565 call sites.
  */
 import type { LastError } from "./store";
+import { lookup } from "dns/promises";
 
 export type ProbeErrorCode = LastError["code"];
 
 export interface ProbeResult {
-  /** Resolved node name from /info, or null on any failure or missing field. */
   node: string | null;
-  /** Structured error if the probe failed; undefined on success. */
   error?: LastError;
 }
 
@@ -34,10 +31,9 @@ export const PROBE_HINTS: Record<ProbeErrorCode, string> = {
 
 /**
  * Classify a thrown fetch error OR a failed Response into a ProbeErrorCode.
- *
- * Node/undici surfaces syscall codes via `err.cause.code` for fetch failures.
- * AbortError names an abort (our 2s timeout). TLS failures surface as
- * CERT_* / SELF_SIGNED_* codes. HTTP failures come in as a non-ok Response.
+ * Node/undici → err.cause.code; AbortError → 2s timeout; TLS → CERT_*;
+ * HTTP → non-ok Response. Bun collapses DNS+refused → "ConnectionRefused";
+ * run prefetchDnsCheck() first to recover the DNS distinction.
  */
 export function classifyProbeError(input: unknown): ProbeErrorCode {
   // HTTP: non-ok Response
@@ -54,8 +50,10 @@ export function classifyProbeError(input: unknown): ProbeErrorCode {
   if (!err || typeof err !== "object") return "UNKNOWN";
 
   const code = err.cause?.code ?? err.code;
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS";
-  if (code === "ECONNREFUSED") return "REFUSED";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "EAI_NODATA") return "DNS";
+  // Bun conflates DNS + refused into "ConnectionRefused" — we run a DNS
+  // precheck upstream, so any code that reaches here means connect failed.
+  if (code === "ECONNREFUSED" || code === "ConnectionRefused") return "REFUSED";
   if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return "TIMEOUT";
   if (err.name === "AbortError" || err.name === "TimeoutError") return "TIMEOUT";
   if (typeof code === "string" && (code.startsWith("CERT_") || code.startsWith("SELF_SIGNED") || code.startsWith("DEPTH_ZERO_") || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE")) {
@@ -63,6 +61,26 @@ export function classifyProbeError(input: unknown): ProbeErrorCode {
   }
 
   return "UNKNOWN";
+}
+
+/**
+ * DNS precheck — resolves host-doesn't-resolve vs connection-refused before
+ * fetch (Bun conflates them). Returns DNS LastError on failure, null on ok.
+ */
+async function prefetchDnsCheck(url: string): Promise<LastError | null> {
+  let hostname: string;
+  try { hostname = new URL(url).hostname; } catch { return null; }
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.startsWith("[")) return null;
+  try {
+    await lookup(hostname);
+    return null;
+  } catch (e: any) {
+    return {
+      code: classifyProbeError(e),
+      message: typeof e?.message === "string" ? e.message : `DNS lookup failed for ${hostname}`,
+      at: new Date().toISOString(),
+    };
+  }
 }
 
 /** Build a LastError record from a thrown error + url context. */
@@ -75,15 +93,15 @@ function errToLast(err: unknown, fallbackMsg: string): LastError {
 }
 
 /**
- * Probe a peer's /info endpoint with a 2s timeout.
- *
- * On success: { node: <string|null> } — node field comes from body.node
- * or body.name. Missing both => node=null with BAD_BODY error recorded.
- *
- * On failure: { node: null, error: {...} } — caller persists lastError
- * and prints a loud warning.
+ * Probe <url>/info with a 2s timeout. Success → { node } (body.node or
+ * body.name). Failure → { node: null, error } — caller persists + warns.
  */
 export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeResult> {
+  // DNS precheck first — cheaper than fetch and gives us clean ENOTFOUND
+  // classification on Bun (whose fetch conflates DNS/refused into one code).
+  const dnsErr = await prefetchDnsCheck(url);
+  if (dnsErr) return { node: null, error: dnsErr };
+
   let res: Response;
   try {
     const ctrl = new AbortController();
@@ -140,10 +158,7 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
   return { node };
 }
 
-/**
- * Format a probe error as a colored, multi-line stderr block with hint.
- * Stderr-only so piping stdout to jq is safe.
- */
+/** Colored, multi-line stderr block with actionable hint. */
 export function formatProbeError(err: LastError, url: string, alias: string): string {
   const hint = PROBE_HINTS[err.code] ?? PROBE_HINTS.UNKNOWN;
   const host = safeHost(url);
