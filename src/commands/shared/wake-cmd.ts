@@ -24,7 +24,13 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
   } else if (opts.incubate) {
     const slug = opts.incubate;
-    const repoSlug = slug.includes("github.com") ? slug : `github.com/${slug}`;
+    // CodeQL js/incomplete-url-substring-sanitization: use prefix anchor, not
+    // substring match — `attacker.com/github.com/...` would have passed .includes.
+    const repoSlug = (
+      slug.startsWith("github.com/") ||
+      slug.startsWith("https://github.com/") ||
+      slug.startsWith("http://github.com/")
+    ) ? slug : `github.com/${slug}`;
     console.log(`\x1b[36m⚡\x1b[0m incubating ${slug}...`);
     await hostExec(`ghq get -u ${repoSlug}`);
     const fullPath = await ghqFind(repoSlug);
