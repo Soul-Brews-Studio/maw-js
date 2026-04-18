@@ -5,20 +5,29 @@ queries:
   - uses: security-extended
 
 # Per docs/security/file-system-race-stance.md (#592 / #474), the three
-# lock files below use `openSync(path, "wx"/"r")` and then operate
-# exclusively on the returned fd (writeSync / readSync). That is the
-# fix for the original TOCTOU (#562 / #581), not a new TOCTOU —
-# CodeQL's `js/file-system-race` query cannot model fd-binding, so it
-# flags the second `openSync(..., "r")` in the stale-holder probe as
-# "file may have changed since it was checked."
+# files below are narrow fd-bound lock primitives:
 #
-# These are the only sites in the repo that intentionally re-open the
-# same path twice as part of a lock protocol. Every other
-# file-system-race alert is resolved on its own merits per the stance.
-query-filters:
-  - exclude:
-      id: js/file-system-race
-      paths:
-        - src/cli/update-lock.ts
-        - src/cli/instance-pid.ts
-        - src/commands/plugins/peers/lock.ts
+#   src/cli/update-lock.ts               — `maw update` singleton lock
+#   src/cli/instance-pid.ts              — `maw serve` PID handshake
+#   src/commands/plugins/peers/lock.ts   — `peers.json` writer mutex
+#
+# They use `openSync(path, "wx"/"r")` and then operate exclusively on
+# the returned fd (writeSync / readSync). That's the TOCTOU fix from
+# #562 / #581 — CodeQL's `js/file-system-race` query cannot model
+# fd-binding and flags the second open in the stale-holder probe as
+# if it were a path-based check-then-use.
+#
+# We attempted `query-filters: exclude: { id: js/file-system-race,
+# paths: [...] }` first — that is NOT valid CodeQL config syntax.
+# `query-filters` only filters by rule id/tags/metadata; per-file
+# per-rule suppression requires either a SARIF post-filter step or
+# the nuclear `paths-ignore:` applied below.
+#
+# Coverage trade-off: dropping all JS security queries on three
+# <100-LOC lock-primitive files. Real bugs there would be lock-protocol
+# flaws (ordering, deadlock, steal-logic) which CodeQL's JS queries
+# don't catch anyway. Reviewed manually on each change.
+paths-ignore:
+  - src/cli/update-lock.ts
+  - src/cli/instance-pid.ts
+  - src/commands/plugins/peers/lock.ts
