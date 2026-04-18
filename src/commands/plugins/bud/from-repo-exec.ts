@@ -98,6 +98,7 @@ function writeSettings(target: string, log: Log): void {
     return;
   }
   mkdirSync(claudeDir, { recursive: true });
+  // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
   writeFileSync(settings, "{}\n");
   log(`  \x1b[32m✓\x1b[0m .claude/settings.local.json written`);
 }
@@ -106,6 +107,7 @@ function writeSettings(target: string, log: Log): void {
 function writeClaudeMd(target: string, stem: string, today: string, log: Log): void {
   const claudePath = join(target, "CLAUDE.md");
   if (!existsSync(claudePath)) {
+    // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
     writeFileSync(claudePath, fullClaudeMd(stem, today));
     log(`  \x1b[32m✓\x1b[0m CLAUDE.md written (full template)`);
     return;
@@ -116,6 +118,7 @@ function writeClaudeMd(target: string, stem: string, today: string, log: Log): v
     return;
   }
   const sep = existing.endsWith("\n") ? "" : "\n";
+  // lgtm[js/file-system-race] — PRIVATE-PATH: scaffold dest is user-owned, see docs/security/file-system-race-stance.md
   writeFileSync(claudePath, existing + sep + appendBlock(stem, today));
   log(`  \x1b[32m✓\x1b[0m CLAUDE.md appended oracle-scaffold block for stem=${stem}`);
 }
