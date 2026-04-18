@@ -31,6 +31,7 @@ function nextId(team: string): number {
     try { counter = JSON.parse(readFileSync(p, "utf-8")); } catch { /**/ }
   }
   const id = counter.next;
+  // lgtm[js/file-system-race] — PRIVATE-PATH: counter under ~/.maw/teams/, see docs/security/file-system-race-stance.md
   writeFileSync(p, JSON.stringify({ next: id + 1 }));
   return id;
 }

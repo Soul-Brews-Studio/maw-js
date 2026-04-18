@@ -89,6 +89,7 @@ function markLegacyWarningShown(): void {
       try { state = JSON.parse(readFileSync(stateFile, "utf8")); } catch { /* corrupt — start fresh */ }
     }
     state["legacy-plugin-warning"] = { lastShownMs: Date.now() };
+    // lgtm[js/file-system-race] — PRIVATE-PATH: plugin throttle state under user state dir, see docs/security/file-system-race-stance.md
     writeFileSync(stateFile, JSON.stringify(state), "utf8");
   } catch { /* non-critical — ignore write errors */ }
 }

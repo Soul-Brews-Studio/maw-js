@@ -218,6 +218,7 @@ export async function cmdTeamSpawn(
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
   if (!manifest.members.includes(role)) {
     manifest.members.push(role);
+    // lgtm[js/file-system-race] — PRIVATE-PATH: manifest under ~/.maw/teams/<team>/, see docs/security/file-system-race-stance.md
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   }
 
@@ -229,6 +230,7 @@ export async function cmdTeamSpawn(
       const member: TeamMember = { name: role, model };
       if (!toolConfig.members.some((m: any) => m.name === role)) {
         toolConfig.members.push(member);
+        // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
         writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
       }
     } catch { /* best effort */ }

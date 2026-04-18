@@ -59,6 +59,7 @@ export function updateArtifact(team: string, taskId: string, updates: Partial<Ar
   if (!existsSync(metaPath)) return;
   const meta: ArtifactMeta = JSON.parse(readFileSync(metaPath, "utf-8"));
   Object.assign(meta, updates, { updatedAt: new Date().toISOString() });
+  // lgtm[js/file-system-race] — PRIVATE-PATH: artifacts under ~/.maw/artifacts/<team>/<task>/, see docs/security/file-system-race-stance.md
   writeFileSync(metaPath, JSON.stringify(meta, null, 2));
 }
 
