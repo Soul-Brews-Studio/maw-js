@@ -47,30 +47,32 @@ const CATEGORY_WEIGHT: Record<string, number> = { core: 5, standard: 30, extra: 
 export async function cmdPluginInstall(args: string[]): Promise<void> {
   const flags = parseFlags(
     args,
-    { "--link": Boolean, "--force": Boolean, "--category": String },
+    { "--link": Boolean, "--force": Boolean, "--category": String, "--pin": Boolean },
     0,
   );
   const src = flags._[0];
 
   if (!src || src === "--help" || src === "-h") {
-    throw new Error("usage: maw plugin install <dir | .tgz | URL> [--link] [--force] [--category core|standard|extra]");
+    throw new Error("usage: maw plugin install <dir | .tgz | URL> [--link] [--force] [--pin] [--category core|standard|extra]");
   }
 
   ensureInstallRoot();
   const mode = detectMode(src);
   const force = !!flags["--force"];
+  const pin = !!flags["--pin"];
   const cat = flags["--category"] as string | undefined;
   if (cat !== undefined && !(cat in CATEGORY_WEIGHT)) {
     throw new Error(`--category must be one of: core, standard, extra (got ${JSON.stringify(cat)})`);
   }
   const weight = cat !== undefined ? CATEGORY_WEIGHT[cat] : undefined;
 
-  // Dispatch on source type.
+  // Dispatch on source type. --pin only meaningful for tarball/URL installs
+  // (dev `--link` is a symlink, not a supply-chain surface).
   if (mode.kind === "dir") {
     await installFromDir(mode.src, { force, weight });
   } else if (mode.kind === "tarball") {
-    await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force, weight });
+    await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force, weight, pin });
   } else {
-    await installFromUrl(mode.src, { force, weight });
+    await installFromUrl(mode.src, { force, weight, pin });
   }
 }

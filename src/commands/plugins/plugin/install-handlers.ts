@@ -9,8 +9,9 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { formatSdkMismatchError, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
 import { installRoot, removeExisting } from "./install-source-detect";
-import { extractTarball, downloadTarball, verifyArtifactHash } from "./install-extraction";
+import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst } from "./install-extraction";
 import { readManifest, printInstallSuccess } from "./install-manifest-helpers";
+import { readLock, pinPlugin } from "./lock";
 
 /**
  * #404 — preserve category across replace. Category is derived from `weight`
@@ -98,7 +99,7 @@ export async function installFromDir(
 
 export async function installFromTarball(
   tarballPath: string,
-  opts: { source: string; force?: boolean; weight?: number },
+  opts: { source: string; force?: boolean; weight?: number; pin?: boolean },
 ): Promise<void> {
   if (!existsSync(tarballPath)) {
     throw new Error(`tarball not found: ${tarballPath}`);
@@ -125,10 +126,52 @@ export async function installFromTarball(
     throw new Error(formatSdkMismatchError(manifest!.name, manifest!.sdk, runtime));
   }
 
-  const hashResult = verifyArtifactHash(staging, manifest!);
-  if (!hashResult.ok) {
+  // Defense-in-depth fencepost (#487 §8 Phase 1): manifest-embedded hash still
+  // catches transport corruption and hand-edited tarballs before we touch
+  // ~/.maw/plugins. It is NOT the adversarial check — plugins.lock is.
+  const selfHashResult = verifyArtifactHash(staging, manifest!);
+  if (!selfHashResult.ok) {
     rmSync(staging, { recursive: true, force: true });
-    throw new Error(hashResult.error);
+    throw new Error(selfHashResult.error);
+  }
+
+  // Registry-pinned verification (#487 Option A). The expected hash comes from
+  // the operator-curated lockfile, not the tarball itself — this is what
+  // closes the MITM / CDN-swap threat.
+  let lock;
+  try {
+    lock = readLock();
+  } catch (e: any) {
+    rmSync(staging, { recursive: true, force: true });
+    throw e;
+  }
+  const pinned = lock.plugins[manifest!.name];
+  if (!pinned) {
+    if (!opts.pin) {
+      rmSync(staging, { recursive: true, force: true });
+      throw new Error(
+        `plugin '${manifest!.name}' not in plugins.lock — run: maw plugin pin ${manifest!.name} ${opts.source}\n` +
+        `  (or re-run install with --pin to add it now)`,
+      );
+    }
+    // --pin: accept this install AND stage the lock entry using the hash we
+    // just verified via the manifest. Safe because we already asserted the
+    // tarball is internally consistent; --pin is an explicit trust handshake.
+  } else {
+    if (pinned.version !== manifest!.version) {
+      rmSync(staging, { recursive: true, force: true });
+      throw new Error(
+        `plugin '${manifest!.name}' version mismatch: plugins.lock=${pinned.version} tarball=${manifest!.version}`,
+      );
+    }
+    const pinnedResult = verifyArtifactHashAgainst(staging, manifest!, pinned.sha256);
+    if (!pinnedResult.ok) {
+      rmSync(staging, { recursive: true, force: true });
+      throw new Error(
+        `plugin '${manifest!.name}' ${pinnedResult.error}\n` +
+        `  lockfile hash did not match — this is the real adversarial check (#487).`,
+      );
+    }
   }
 
   // All gates passed — move staging into the install root.
@@ -156,6 +199,13 @@ export async function installFromTarball(
     rmSync(staging, { recursive: true, force: true });
   }
 
+  // --pin: after a successful install, stage the lockfile entry. We pin using
+  // the original tarball path so `maw plugin pin --verify` (future) can
+  // re-hash from the same source.
+  if (opts.pin && !lock.plugins[manifest!.name]) {
+    pinPlugin(manifest!.name, tarballPath);
+  }
+
   const sourceNote = opts.source.startsWith("http") ? `from ${opts.source}` : "";
   printInstallSuccess(
     manifest!,
@@ -167,14 +217,14 @@ export async function installFromTarball(
 
 export async function installFromUrl(
   url: string,
-  opts: { force?: boolean; weight?: number } = {},
+  opts: { force?: boolean; weight?: number; pin?: boolean } = {},
 ): Promise<void> {
   const dl = await downloadTarball(url);
   if (!dl.ok) {
     throw new Error(dl.error);
   }
   try {
-    await installFromTarball(dl.path, { source: url, force: opts.force, weight: opts.weight });
+    await installFromTarball(dl.path, { source: url, force: opts.force, weight: opts.weight, pin: opts.pin });
   } finally {
     // Clean up the downloaded temp file.
     try {

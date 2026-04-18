@@ -89,7 +89,39 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
   return { ok: true, path: outPath };
 }
 
-/** Verify sha256 of `artifactPath` (relative to dir) matches `expected`. */
+/**
+ * Verify sha256 of `manifest.artifact.path` (relative to `dir`) matches
+ * `expected`. If `expected` is null/undefined, the manifest's embedded hash is
+ * used as the expected value — this is the legacy (circular) check kept as a
+ * defense-in-depth fencepost for transport corruption. See #487 / plugins.lock
+ * for the real adversarial check (registry-pinned hashes).
+ */
+export function verifyArtifactHashAgainst(
+  dir: string,
+  manifest: PluginManifest,
+  expected: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!manifest.artifact) {
+    return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
+  }
+  const artifactPath = join(dir, manifest.artifact.path);
+  if (!existsSync(artifactPath)) {
+    return { ok: false, error: `artifact missing at ${manifest.artifact.path}` };
+  }
+  const observed = hashFile(artifactPath);
+  if (observed !== expected) {
+    return {
+      ok: false,
+      error:
+        `artifact hash mismatch — refusing to install.\n` +
+        `  expected: ${expected}\n` +
+        `  actual:   ${observed}`,
+    };
+  }
+  return { ok: true };
+}
+
+/** Legacy manifest-only hash check. Kept as defense-in-depth fencepost per #487 §8 Phase 1. */
 export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok: true } | { ok: false; error: string } {
   if (!manifest.artifact) {
     return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
@@ -97,19 +129,5 @@ export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok:
   if (manifest.artifact.sha256 === null) {
     return { ok: false, error: "tarball manifest has artifact.sha256=null (unbuilt) — rebuild with `maw plugin build`" };
   }
-  const artifactPath = join(dir, manifest.artifact.path);
-  if (!existsSync(artifactPath)) {
-    return { ok: false, error: `artifact missing at ${manifest.artifact.path}` };
-  }
-  const observed = hashFile(artifactPath);
-  if (observed !== manifest.artifact.sha256) {
-    return {
-      ok: false,
-      error:
-        `artifact hash mismatch — refusing to install.\n` +
-        `  expected: ${manifest.artifact.sha256}\n` +
-        `  actual:   ${observed}`,
-    };
-  }
-  return { ok: true };
+  return verifyArtifactHashAgainst(dir, manifest, manifest.artifact.sha256);
 }

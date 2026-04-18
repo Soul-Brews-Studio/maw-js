@@ -6,12 +6,15 @@ export const command = {
 };
 
 const USAGE =
-  "usage: maw plugin <init|build|dev|install> [args]\n" +
+  "usage: maw plugin <init|build|dev|install|pin|unpin> [args]\n" +
   "  init <name> --ts                    scaffold a TS plugin\n" +
   "  build [dir] [--watch] [--types]     bundle + pack a plugin\n" +
   "                                        --types: emit dist/<name>.d.ts\n" +
   "  dev [dir] [--types]                 watch mode (alias for build --watch, DX verb)\n" +
-  "  install <dir | .tgz | URL>          install a built plugin";
+  "  install <dir | .tgz | URL> [--pin]  install a built plugin\n" +
+  "                                        --pin: add to plugins.lock on first install\n" +
+  "  pin <name> <tarball> [--version V]  add/update plugins.lock entry (#487)\n" +
+  "  unpin <name>                        remove a plugins.lock entry";
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -43,6 +46,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "dev") {
       const { cmdPluginDev } = await import("./build-impl");
       await cmdPluginDev(args.slice(1));
+    } else if (sub === "pin") {
+      const { cmdPluginPin } = await import("./lock-cli");
+      await cmdPluginPin(args.slice(1));
+    } else if (sub === "unpin") {
+      const { cmdPluginUnpin } = await import("./lock-cli");
+      await cmdPluginUnpin(args.slice(1));
     } else if (sub === "install") {
       // installer-loader (task #3) provides install-impl.ts
       try {
