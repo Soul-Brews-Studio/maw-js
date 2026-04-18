@@ -35,6 +35,14 @@ If you exceed the cap:
 
 Tests don't count toward the cap, but flag if tests are >50% of total diff so reviewers know what kind of PR they're reading.
 
+### Per-file size
+
+Within the PR cap, individual source files should target **150-200 LOC**. > 200 is a smell — split by responsibility (e.g., `parser.ts` + `validator.ts` instead of one `parse.ts`).
+
+This is for NEW files. Existing oversized files aren't a forced refactor; just stay under 200 for any NEW additions and flag refactor opportunities in the PR body.
+
+Exempt: type-definition files, specs/docs, generated/scaffolded boilerplate.
+
 ## Opening issues
 
 - **Bugs**: include the command you ran, the output you got, and what you expected. A minimal repro beats a long narrative.
