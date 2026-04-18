@@ -146,6 +146,62 @@ describe("peers store — corruption + cleanup + lock (#572)", () => {
     expect(errs.some(e => e.includes("failed to parse"))).toBe(true);
   });
 
+  it("wrong-shape peers.json (array) → loadPeers returns empty + renames aside + warns (#579 follow-up)", async () => {
+    const { loadPeers, peersPath } = await import("./store");
+    const path = peersPath();
+    // Parses fine as JSON, but `peers` is an array — would silently
+    // no-op every write. Before the fix this returned the array unchanged.
+    writeFileSync(path, '{"peers":[]}');
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (msg: string) => { errs.push(String(msg)); };
+    try {
+      const data = loadPeers();
+      expect(data.peers).toEqual({});
+      expect(Array.isArray(data.peers)).toBe(false);
+    } finally {
+      console.error = orig;
+    }
+    expect(existsSync(path)).toBe(false);
+    const { readdirSync } = await import("fs");
+    const aside = readdirSync(dir).find(f => f.startsWith("peers.json.corrupt-"));
+    expect(aside).toBeDefined();
+    expect(errs.some(e => e.includes("invalid store shape"))).toBe(true);
+  });
+
+  it("wrong-shape peers.json (top-level array) → loadPeers returns empty + renames aside", async () => {
+    const { loadPeers, peersPath } = await import("./store");
+    const path = peersPath();
+    writeFileSync(path, '[]');
+    const orig = console.error;
+    console.error = () => {};
+    try {
+      const data = loadPeers();
+      expect(data.peers).toEqual({});
+    } finally {
+      console.error = orig;
+    }
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("add after wrong-shape recovery actually persists (reproduces the silent-drop bug)", async () => {
+    const { peersPath } = await import("./store");
+    const path = peersPath();
+    writeFileSync(path, '{"peers":[]}');
+    const orig = console.error;
+    console.error = () => {};
+    try {
+      const { cmdAdd, cmdList } = await import("./impl");
+      const res = await cmdAdd({ alias: "x", url: "http://1.2.3.4", node: null });
+      expect(res.alias).toBe("x");
+      const rows = cmdList();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].alias).toBe("x");
+    } finally {
+      console.error = orig;
+    }
+  });
+
   it("stale .tmp on startup → loadPeers cleans it up", async () => {
     const { loadPeers, peersPath } = await import("./store");
     const tmp = peersPath() + ".tmp";

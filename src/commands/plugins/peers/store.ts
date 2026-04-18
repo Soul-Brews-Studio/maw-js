@@ -17,9 +17,10 @@
  * read-modify-write critical section so concurrent `maw peers add`
  * calls don't lose each other's updates (#572 nit 3). See ./lock.ts.
  *
- * Corruption: if the live file fails to parse, we rename it aside to
- * `peers.json.corrupt-<ISO>` and start fresh — non-destructive, with
- * an audit trail (#572 nit 1).
+ * Corruption: if the live file fails to parse, OR if it parses but
+ * the shape is wrong (e.g. `{"peers":[]}` — array instead of object),
+ * we rename it aside to `peers.json.corrupt-<ISO>` and start fresh —
+ * non-destructive, with an audit trail (#572 nit 1, follow-up to #579).
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
@@ -58,10 +59,10 @@ export function loadPeers(): PeersFile {
   }
   try {
     const parsed = JSON.parse(raw) as Partial<PeersFile>;
-    if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+    if (!isValidStoreShape(parsed)) throw new Error("invalid store shape (expected { peers: { ... } } object)");
     return {
       version: 1,
-      peers: parsed.peers && typeof parsed.peers === "object" ? parsed.peers : {},
+      peers: (parsed.peers ?? {}) as Record<string, Peer>,
     };
   } catch (e: any) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -70,6 +71,20 @@ export function loadPeers(): PeersFile {
     console.error(`\x1b[33m⚠\x1b[0m peers store at ${path} failed to parse (${e?.message || e}); moved aside to ${aside}`);
     return emptyStore();
   }
+}
+
+/**
+ * Validate the parsed JSON matches the expected store shape:
+ * a non-null object whose `peers` field is itself a non-null,
+ * non-array object. Guards against `{"peers":[]}` (array) and
+ * other junk that would silently no-op every write (follow-up
+ * to #579).
+ */
+function isValidStoreShape(parsed: unknown): parsed is PeersFile {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  const peers = (parsed as { peers?: unknown }).peers;
+  if (peers === undefined) return true; // missing peers is ok — we default to {}
+  return typeof peers === "object" && peers !== null && !Array.isArray(peers);
 }
 
 export function savePeers(data: PeersFile): void {
@@ -100,10 +115,10 @@ function readUnlocked(path: string): PeersFile {
   if (!existsSync(path)) return emptyStore();
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<PeersFile>;
-    if (!parsed || typeof parsed !== "object") return emptyStore();
+    if (!isValidStoreShape(parsed)) return emptyStore();
     return {
       version: 1,
-      peers: parsed.peers && typeof parsed.peers === "object" ? parsed.peers : {},
+      peers: (parsed.peers ?? {}) as Record<string, Peer>,
     };
   } catch {
     return emptyStore();
