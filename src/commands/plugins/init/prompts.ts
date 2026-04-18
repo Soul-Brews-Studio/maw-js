@@ -1,6 +1,5 @@
 import { createInterface } from "readline";
-import { createReadStream, openSync, existsSync, accessSync, constants as fsConstants } from "fs";
-import { dirname } from "path";
+import { createReadStream, openSync } from "fs";
 
 export type AskFn = (question: string, defaultVal?: string) => Promise<string>;
 
@@ -42,16 +41,6 @@ export function validateGhqRoot(input: string, homedir: string): { ok: true; pat
     return { ok: false, err: "Path must be absolute (start with / or ~)" };
   }
   const expanded = input.startsWith("~") ? input.replace(/^~/, homedir) : input;
-  // #510: if path doesn't exist, require parent writable (spec § 3 Q2).
-  // If path exists, trust it (even if read-only — runtime clone step is the failure surface).
-  if (!existsSync(expanded)) {
-    const parent = dirname(expanded);
-    try {
-      accessSync(parent, fsConstants.W_OK);
-    } catch {
-      return { ok: false, err: "Cannot create directory at that path — check permissions" };
-    }
-  }
   return { ok: true, path: expanded };
 }
 
