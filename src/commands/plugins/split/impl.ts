@@ -14,6 +14,10 @@ export interface SplitOpts {
   lock?: boolean;
   /** Settle delay after split when lock=true. Default: 200ms. */
   settleMs?: number;
+  /** Pane-id / selector to split beside instead of $TMUX_PANE. Break the
+   *  implicit active-pane-drift that caused fractal-split cascade (#545).
+   *  Accepts: "%N" (pane id), "session:window.pane", or "session:window". */
+  anchorPane?: string;
 }
 
 /**
@@ -98,10 +102,13 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
   // Fallback: if TMUX_PANE isn't set (shouldn't happen — we checked $TMUX above,
   // and any pane inside tmux has TMUX_PANE set — but defend anyway), omit -t
   // and accept the pre-fix behavior.
+  // Precedence: opts.anchorPane (explicit, from cmdView) > $TMUX_PANE (caller's
+  // pane) > none. Explicit anchor breaks the active-pane-drift that caused
+  // fractal-split cascade in #545/#546.
   const direction = opts.vertical ? "-v" : "-h";
   const innerCmd = opts.noAttach ? "bash" : `TMUX= tmux attach-session -t ${resolved}`;
-  const callerPane = process.env.TMUX_PANE;
-  const targetFlag = callerPane ? `-t ${callerPane} ` : "";
+  const anchor = opts.anchorPane ?? process.env.TMUX_PANE;
+  const targetFlag = anchor ? `-t '${anchor.replace(/'/g, "'\\''")}' ` : "";
   const cmd = `tmux split-window ${targetFlag}${direction} -l ${pct}% "${innerCmd}"`;
 
   try {
@@ -118,7 +125,8 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
     }
     const side = opts.vertical ? "below" : "beside";
     const action = opts.noAttach ? "empty pane" : resolved;
-    console.log(`  \x1b[32m✓\x1b[0m split ${side} — ${action} (${pct}%)`);
+    const anchorLabel = opts.anchorPane ? ` (anchored at ${opts.anchorPane})` : "";
+    console.log(`  \x1b[32m✓\x1b[0m split ${side} — ${action} (${pct}%)${anchorLabel}`);
   } catch (e: any) {
     throw new Error(`split failed: ${e.message || e}`);
   }
