@@ -11,7 +11,7 @@
  * valid — it just means `alias:<agent>` routing needs the URL-to-node
  * map from another source. That's a follow-up concern.
  */
-import { loadPeers, savePeers, type Peer } from "./store";
+import { loadPeers, mutatePeers, type Peer } from "./store";
 
 const ALIAS_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -67,8 +67,7 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   const urlErr = validateUrl(opts.url);
   if (urlErr) throw new Error(urlErr);
 
-  const data = loadPeers();
-  const existed = Boolean(data.peers[opts.alias]);
+  // Resolve node OUTSIDE the lock — it does network I/O.
   const node = opts.node ?? await resolveNode(opts.url);
   const peer: Peer = {
     url: opts.url,
@@ -76,8 +75,11 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     addedAt: new Date().toISOString(),
     lastSeen: null,
   };
-  data.peers[opts.alias] = peer;
-  savePeers(data);
+  let existed = false;
+  mutatePeers((data) => {
+    existed = Boolean(data.peers[opts.alias]);
+    data.peers[opts.alias] = peer;
+  });
   return { alias: opts.alias, overwrote: existed, peer };
 }
 
@@ -95,11 +97,14 @@ export function cmdInfo(alias: string): ({ alias: string } & Peer) | null {
 }
 
 export function cmdRemove(alias: string): boolean {
-  const data = loadPeers();
-  if (!data.peers[alias]) return false;
-  delete data.peers[alias];
-  savePeers(data);
-  return true;
+  let existed = false;
+  mutatePeers((data) => {
+    if (data.peers[alias]) {
+      existed = true;
+      delete data.peers[alias];
+    }
+  });
+  return existed;
 }
 
 export function formatList(rows: Array<{ alias: string } & Peer>): string {

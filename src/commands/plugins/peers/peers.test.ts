@@ -125,6 +125,50 @@ describe("peers store — atomic write crash-safety", () => {
   });
 });
 
+describe("peers store — corruption + cleanup + lock (#572)", () => {
+  it("corrupt peers.json → loadPeers returns empty + renames aside + warns", async () => {
+    const { loadPeers, peersPath } = await import("./store");
+    const path = peersPath();
+    writeFileSync(path, "{ this is not valid json");
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (msg: string) => { errs.push(String(msg)); };
+    try {
+      const data = loadPeers();
+      expect(data.peers).toEqual({});
+    } finally {
+      console.error = orig;
+    }
+    expect(existsSync(path)).toBe(false);
+    const { readdirSync } = await import("fs");
+    const aside = readdirSync(dir).find(f => f.startsWith("peers.json.corrupt-"));
+    expect(aside).toBeDefined();
+    expect(errs.some(e => e.includes("failed to parse"))).toBe(true);
+  });
+
+  it("stale .tmp on startup → loadPeers cleans it up", async () => {
+    const { loadPeers, peersPath } = await import("./store");
+    const tmp = peersPath() + ".tmp";
+    writeFileSync(tmp, "leftover from a crashed write");
+    expect(existsSync(tmp)).toBe(true);
+    loadPeers();
+    expect(existsSync(tmp)).toBe(false);
+  });
+
+  it("two concurrent addPeer promises → both aliases survive", async () => {
+    const { cmdAdd, cmdList } = await import("./impl");
+    const [a, b] = await Promise.all([
+      cmdAdd({ alias: "alpha", url: "http://a.local", node: "a" }),
+      cmdAdd({ alias: "beta", url: "http://b.local", node: "b" }),
+    ]);
+    expect(a.alias).toBe("alpha");
+    expect(b.alias).toBe("beta");
+    const rows = cmdList();
+    const aliases = rows.map(r => r.alias).sort();
+    expect(aliases).toEqual(["alpha", "beta"]);
+  });
+});
+
 describe("peers dispatcher (index.ts)", () => {
   it("no args → prints help", async () => {
     const { default: handler } = await import("./index");
