@@ -26,9 +26,15 @@ describe("classifyProbeError", () => {
     expect(classifyProbeError({ cause: { code: "ENOTFOUND" } })).toBe("DNS");
   });
 
-  it("EAI_AGAIN → DNS", async () => {
-    const { classifyProbeError } = await import("./probe");
-    expect(classifyProbeError({ cause: { code: "EAI_AGAIN" } })).toBe("DNS");
+  it.each([
+    ["EAI_AGAIN",  /Host does not resolve/],
+    ["EAI_NODATA", /Host does not resolve/],
+    ["EAI_FAIL",   /Host does not resolve/],
+    ["ENOTIMP",    /avahi-daemon.*etc\/hosts/],
+  ])("%s → DNS bucket with expected hint (#593)", async (code, hintRe) => {
+    const { classifyProbeError, pickHint } = await import("./probe");
+    expect(classifyProbeError({ cause: { code } })).toBe("DNS");
+    expect(pickHint({ code: "DNS", message: `getaddrinfo ${code} x`, at: "" })).toMatch(hintRe);
   });
 
   it("ECONNREFUSED → REFUSED", async () => {
