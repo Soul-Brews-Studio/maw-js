@@ -54,12 +54,13 @@
   .status.err { color: #c44; }
   .status.ok { color: #4a4; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .spinner {
+  .spinner, .status.loading::before {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #333; border-top-color: #888;
     border-radius: 50%; animation: spin 0.6s linear infinite;
     vertical-align: middle; margin-right: 0.4rem;
   }
+  .status.loading::before { content: ""; }
 </style>
 </head>
 <body>
@@ -123,7 +124,9 @@ function esc(s) {
 
 function setStatus(msg, cls) {
   $status.className = "status" + (cls ? " " + cls : "");
-  $status.innerHTML = msg;
+  // CodeQL js/xss-through-dom: textContent escapes; spinner is now a CSS
+  // pseudo-element on .status.loading rather than embedded HTML.
+  $status.textContent = msg;
 }
 
 function normalizeHost(raw) {
@@ -134,7 +137,7 @@ function normalizeHost(raw) {
 }
 
 async function connect(host) {
-  setStatus('<span class="spinner"></span>connecting...', "");
+  setStatus("connecting...", "loading");
   $go.disabled = true;
   try {
     const res = await fetch(host + "/api/config", { signal: AbortSignal.timeout(6000) });
