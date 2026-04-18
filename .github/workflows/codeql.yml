@@ -35,9 +35,10 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # security-extended: more queries, higher signal; security-and-quality
-          # would add style, which isn't useful here.
-          queries: security-extended
+          # Config references the local model pack that teaches CodeQL
+          # about `sanitizeLogField` as a js/log-injection sanitizer (#474).
+          # The `security-extended` suite is retained inside the config.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
