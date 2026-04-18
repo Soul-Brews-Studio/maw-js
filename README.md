@@ -25,6 +25,12 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
+### Troubleshooting
+
+If `maw` disappears after an update, run `maw doctor` (see PR #550 / `docs/install-recovery.md`).
+
+As of the next alpha, `maw update` self-protects against the sweep via [#551](https://github.com/Soul-Brews-Studio/maw-js/pull/551) — it stashes the binary to `~/.bun/bin/maw.prev` before any destructive `bun remove` and restores on retry-fail. `maw doctor` remains useful if the binary disappears for other reasons (older alpha, manual `bun remove`, disk full, etc.).
+
 ## Quick Start
 
 ```bash

@@ -8,6 +8,12 @@ Pre-1.0 alpha releases may introduce breaking changes at any time.
 
 ## [Unreleased]
 
+### Fixed
+- `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — root-cause fix for #531)
+
+### Added
+- `maw update`: serialize concurrent invocations via `~/.maw/update.lock` (#551)
+
 ## [v2.0.0-alpha.134] - 2026-04-18
 
 ### Added
