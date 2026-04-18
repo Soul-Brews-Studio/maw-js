@@ -1,9 +1,10 @@
 /**
  * `maw bud --from-repo <target> --stem <stem>` — planner + orchestrator.
  *
- * SCOPE: local-path full run (#588 partial). URL clone / --pr / --force /
- * fleet entry / --from lineage / --seed / sync_peers still deferred.
- * Writes live in from-repo-exec.ts; planner stays pure/read-only.
+ * SCOPE: local-path + URL clone + `--pr` branch-and-PR flow (#588).
+ * Deferred: --force, --seed, fleet entry, --from lineage, sync_peers.
+ * Writes live in from-repo-exec.ts; git/gh shell-outs in from-repo-git.ts.
+ * Planner stays pure / read-only.
  *
  * Design: docs/bud/from-repo-design.md + docs/bud/from-repo-impl.md
  */
@@ -12,6 +13,7 @@ import { existsSync, statSync } from "fs";
 import { join, isAbsolute } from "path";
 import type { FromRepoOpts, InjectionAction, InjectionPlan } from "./types";
 import { applyFromRepoInjection } from "./from-repo-exec";
+import { cloneShallow, cleanupClone, branchCommitPushPR } from "./from-repo-git";
 
 /** Heuristic: is `target` a URL or `org/repo` slug rather than a local path? */
 export function looksLikeUrl(target: string): boolean {
@@ -44,9 +46,13 @@ export function planFromRepoInjection(opts: FromRepoOpts): InjectionPlan {
   const blockers: string[] = [];
   const actions: InjectionAction[] = [];
 
+  // URL / slug targets: the orchestrator resolves them to a tmpdir via
+  // cloneShallow and calls the planner again with isUrl=false. If a URL
+  // reaches the planner directly, it's a dry-run — surface a blocker so
+  // we don't attempt a clone during a read-only preview.
   if (opts.isUrl) {
     blockers.push(
-      `URL / org-slug targets not yet supported — see #588 TODO. Pass a local path for dry-run.`,
+      `URL / org-slug dry-run not supported — clone would be a side effect. Re-run without --dry-run.`,
     );
     return { target: opts.target, stem: opts.stem, actions, blockers };
   }
@@ -131,20 +137,47 @@ export function formatPlan(plan: InjectionPlan): string {
 }
 
 /**
- * Orchestrator. Dry-run: print the plan. Non-dry-run: print plan, then apply.
- * Local-path only; URL / --pr paths stay blocked (planner surfaces them).
+ * Orchestrator.
+ * - Dry-run (local only): print the plan and return.
+ * - Local path: print plan, apply injection; if --pr, open PR afterwards.
+ * - URL / slug: shallow-clone → tmpdir, delegate to local-path flow, always
+ *   open PR (the tmpdir is ephemeral so committing-only would be lost),
+ *   cleanup tmpdir on both success and failure.
  */
 export async function cmdBudFromRepo(opts: FromRepoOpts): Promise<void> {
+  if (opts.isUrl) {
+    if (opts.dryRun) {
+      // Preserve the dry-run safety rail (planner surfaces the blocker).
+      const plan = planFromRepoInjection(opts);
+      console.log(formatPlan(plan));
+      throw new Error(`plan has ${plan.blockers.length} blocker(s) — see above`);
+    }
+    console.log(`\n  \x1b[36m⚡\x1b[0m cloning ${opts.target}...`);
+    const tmp = await cloneShallow(opts.target);
+    console.log(`  \x1b[32m✓\x1b[0m cloned → ${tmp}`);
+    const localOpts: FromRepoOpts = { ...opts, target: tmp, isUrl: false, pr: true };
+    try {
+      await runLocal(localOpts);
+    } finally {
+      cleanupClone(tmp);
+      console.log(`  \x1b[90m○\x1b[0m cleaned up temp clone`);
+    }
+    return;
+  }
+  await runLocal(opts);
+}
+
+/** Local-path path — also used after URL clone. */
+async function runLocal(opts: FromRepoOpts): Promise<void> {
   const plan = planFromRepoInjection(opts);
   console.log(formatPlan(plan));
   if (plan.blockers.length > 0) {
     throw new Error(`plan has ${plan.blockers.length} blocker(s) — see above`);
   }
   if (opts.dryRun) return;
-  if (opts.pr) {
-    throw new Error(
-      `--pr is not yet implemented — see #588 follow-up. Re-run without --pr (commits nothing; you own the git state).`,
-    );
-  }
   await applyFromRepoInjection(plan, opts);
+  if (opts.pr) {
+    const url = await branchCommitPushPR(opts.target, opts.stem, (m) => console.log(m));
+    console.log(`\n  \x1b[32m🎉 PR opened:\x1b[0m ${url}\n`);
+  }
 }
