@@ -14,11 +14,11 @@ mock.module("../src/core/transport/ssh", () => ({
   listSessions: async () => [],
 }));
 
-// Import the real functions (they use loadConfig internally which reads from disk)
-// We test the pure wrapper logic
-describe("buildCommandInDir", () => {
+// Pure-string reference tests for shell path quoting. Post-#541 buildCommandInDir
+// no longer emits `cd` at all (see test/command-simplified.test.ts for the real
+// contract); these cases remain as a quoting-pattern sanity check only.
+describe("shell path quoting (reference tests)", () => {
   test("prepends cd before command", () => {
-    // Pure logic test — buildCommandInDir is just: cd + buildCommand
     const cwd = "/home/nat/Code/github.com/laris-co/neo-oracle";
     const cmd = "claude --dangerously-skip-permissions --continue";
     const result = `cd '${cwd}' && ${cmd}`;
@@ -36,14 +36,5 @@ describe("buildCommandInDir", () => {
     const cwd = "/home/nat/Code/repo-with-dash_and.dots";
     const result = `cd '${cwd}' && claude --continue`;
     expect(result).toContain("cd '/home/nat/Code/repo-with-dash_and.dots'");
-  });
-
-  test("cd comes before direnv prefix", () => {
-    const prefix = "command -v direnv >/dev/null && direnv allow .";
-    const cwd = "/tmp/test";
-    const result = `cd '${cwd}' && ${prefix} && claude --continue`;
-    // cd must be FIRST so direnv's "." resolves to the right directory
-    expect(result.indexOf("cd")).toBe(0);
-    expect(result.indexOf("direnv")).toBeGreaterThan(result.indexOf("cd"));
   });
 });
