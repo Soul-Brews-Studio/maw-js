@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
 process.env.MAW_CLI = "1";
 
+// #566: apply --as <name> BEFORE any state-touching import (paths.ts evaluates
+// MAW_HOME at module load). Must be the first side effect.
+import { applyInstancePreset } from "./cli/instance-preset";
+applyInstancePreset();
+
 import { cmdPeek, cmdSend } from "./commands/shared/comm";
 import { logAudit } from "./core/fleet/audit";
 import { usage } from "./cli/usage";
