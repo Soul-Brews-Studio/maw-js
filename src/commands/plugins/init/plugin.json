@@ -1,0 +1,13 @@
+{
+  "name": "init",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "First-run wizard — configure ~/.config/maw/maw.config.json",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "init",
+    "help": "maw init — interactive first-run wizard. Flags: --non-interactive --node <name> --ghq-root <path> --token <t> --federate --peer <url> --peer-name <name> --federation-token <hex> --force"
+  },
+  "weight": 5
+}
