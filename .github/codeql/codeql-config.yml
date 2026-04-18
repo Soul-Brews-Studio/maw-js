@@ -1,0 +1,24 @@
+name: "maw-js CodeQL config"
+
+# Keep security-extended so we don't lose the signal the workflow picks up.
+queries:
+  - uses: security-extended
+
+# Per docs/security/file-system-race-stance.md (#592 / #474), the three
+# lock files below use `openSync(path, "wx"/"r")` and then operate
+# exclusively on the returned fd (writeSync / readSync). That is the
+# fix for the original TOCTOU (#562 / #581), not a new TOCTOU —
+# CodeQL's `js/file-system-race` query cannot model fd-binding, so it
+# flags the second `openSync(..., "r")` in the stale-holder probe as
+# "file may have changed since it was checked."
+#
+# These are the only sites in the repo that intentionally re-open the
+# same path twice as part of a lock protocol. Every other
+# file-system-race alert is resolved on its own merits per the stance.
+query-filters:
+  - exclude:
+      id: js/file-system-race
+      paths:
+        - src/cli/update-lock.ts
+        - src/cli/instance-pid.ts
+        - src/commands/plugins/peers/lock.ts

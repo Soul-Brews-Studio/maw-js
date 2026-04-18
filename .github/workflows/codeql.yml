@@ -35,9 +35,10 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # security-extended: more queries, higher signal; security-and-quality
-          # would add style, which isn't useful here.
-          queries: security-extended
+          # config-file wires security-extended AND the fd-lock file
+          # exclusions for `js/file-system-race`. See stance doc at
+          # docs/security/file-system-race-stance.md (#592) for rationale.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
