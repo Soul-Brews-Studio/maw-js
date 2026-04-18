@@ -1,0 +1,13 @@
+{
+  "name": "doctor",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Diagnostic checks — verifies maw install health and auto-heals when possible (#531).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "doctor",
+    "help": "maw doctor [install] — run install-check (and future: config-check, peer-check)"
+  },
+  "weight": 80
+}
