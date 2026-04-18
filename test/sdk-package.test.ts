@@ -1,5 +1,5 @@
 /**
- * @maw/sdk workspace package tests — verifies the package is installable
+ * @maw-js/sdk workspace package tests — verifies the package is installable
  * from an external project via bun's file: protocol, that types resolve,
  * and that the runtime import of `maw` exposes the expected surface.
  *
@@ -14,12 +14,12 @@ import { spawnSync } from "child_process";
 
 const SDK_PKG_DIR = resolve(__dirname, "..", "packages", "sdk");
 
-describe("@maw/sdk workspace package", () => {
+describe("@maw-js/sdk workspace package", () => {
   test("package.json declares expected fields", () => {
     const pkg = JSON.parse(
       require("fs").readFileSync(join(SDK_PKG_DIR, "package.json"), "utf8"),
     );
-    expect(pkg.name).toBe("@maw/sdk");
+    expect(pkg.name).toBe("@maw-js/sdk");
     expect(pkg.version).toBe("1.0.0-alpha.1");
     expect(pkg.type).toBe("module");
     expect(pkg.main).toBe("./index.ts");
@@ -58,7 +58,7 @@ describe("@maw/sdk workspace package", () => {
           JSON.stringify({
             name: "maw-sdk-consumer-test",
             type: "module",
-            dependencies: { "@maw/sdk": `file:${SDK_PKG_DIR}` },
+            dependencies: { "@maw-js/sdk": `file:${SDK_PKG_DIR}` },
           }),
         );
         const install = spawnSync("bun", ["install"], {
@@ -67,15 +67,15 @@ describe("@maw/sdk workspace package", () => {
         });
         expect(install.status).toBe(0);
 
-        // node_modules/@maw/sdk should resolve to our source
-        const resolved = join(dir, "node_modules", "@maw", "sdk", "index.ts");
+        // node_modules/@maw-js/sdk should resolve to our source
+        const resolved = join(dir, "node_modules", "@maw-js", "sdk", "index.ts");
         expect(existsSync(resolved)).toBe(true);
 
         // Runtime import exposes the maw object
         writeFileSync(
           join(dir, "probe.ts"),
-          `import { maw } from "@maw/sdk";
-import type { InvokeContext, InvokeResult } from "@maw/sdk/plugin";
+          `import { maw } from "@maw-js/sdk";
+import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 const h: (ctx: InvokeContext) => Promise<InvokeResult> = async () => ({ ok: true });
 console.log(typeof maw.identity, typeof maw.federation, typeof maw.baseUrl, typeof h);
 `,

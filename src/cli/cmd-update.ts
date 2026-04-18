@@ -148,7 +148,7 @@ export async function runUpdate(args: string[]): Promise<void> {
     console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
     process.exit(installCode);
   }
-  // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
+  // Link SDK so plugins can `import { maw } from "@maw-js/sdk"` (workspace package at packages/sdk/)
   // Legacy plugins using bare `maw/sdk` are still resolved via `bun link maw`.
   try {
     const mawDir = ghqFindSync("/Soul-Brews-Studio/maw-js");
@@ -166,7 +166,7 @@ export async function runUpdate(args: string[]): Promise<void> {
           writeFileSync(join(oracleDir, "package.json"), '{"name":"oracle-plugins","private":true}\n');
         }
         execSync(`cd ${oracleDir} && bun link maw`, { stdio: "pipe" });
-        console.log(`  🔗 SDK linked (@maw/sdk)`);
+        console.log(`  🔗 SDK linked (@maw-js/sdk)`);
       }
     }
   } catch { /* ghq not available or link failed — non-fatal */ }

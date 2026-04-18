@@ -8,7 +8,7 @@
 `dist/index.js`. This gives plugin authors typed autocomplete for their
 plugin's exported interfaces, hook registrations, and capability shape
 — without changing the SDK's hand-authored contract types in
-`@maw/sdk/plugin`.
+`@maw-js/sdk/plugin`.
 
 This is **opt-in**. Existing Phase A plugins built without `--types` are
 completely unaffected.
@@ -77,7 +77,7 @@ run, even if tsc exits non-zero.
 
 ## SDK types are not affected
 
-The `@maw/sdk` hand-authored declarations (`index.d.ts`, `plugin.d.ts`)
+The `@maw-js/sdk` hand-authored declarations (`index.d.ts`, `plugin.d.ts`)
 are the stable SDK contract and are never modified by `--types`. The
 emitted `.d.ts` captures only the exports of the plugin's own source.
 

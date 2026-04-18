@@ -1,4 +1,4 @@
-# Publishing @maw/sdk
+# Publishing @maw-js/sdk
 
 ## One-time setup (run once, not in CI)
 
@@ -13,7 +13,7 @@ If `maw` scope is already taken on npm, use `@maw-sdk` as fallback and update `n
 
 ### 2. Set the NPM_TOKEN secret
 
-Generate a granular access token on npmjs.com (Automation type, scoped to `@maw/sdk`), then:
+Generate a granular access token on npmjs.com (Automation type, scoped to `@maw-js/sdk`), then:
 
 ```bash
 gh secret set NPM_TOKEN --repo Soul-Brews-Studio/maw-js
@@ -30,20 +30,20 @@ gh secret set NPM_TOKEN --repo Soul-Brews-Studio/maw-js
    git push origin sdk-vX.Y.Z
    ```
 4. GitHub Actions workflow `publish-sdk.yml` triggers automatically.
-5. Verify: `npm view @maw/sdk`
+5. Verify: `npm view @maw-js/sdk`
 
 ## Rollback / unpublish window
 
 npm allows unpublish within **72 hours** of publish:
 
 ```bash
-npm unpublish @maw/sdk@X.Y.Z
+npm unpublish @maw-js/sdk@X.Y.Z
 ```
 
 After 72 hours, deprecate instead:
 
 ```bash
-npm deprecate @maw/sdk@X.Y.Z "use X.Y.Z+1"
+npm deprecate @maw-js/sdk@X.Y.Z "use X.Y.Z+1"
 ```
 
 ## Phase B graduation (see #340)

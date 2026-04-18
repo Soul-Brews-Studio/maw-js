@@ -1,5 +1,5 @@
 /**
- * @maw/sdk/plugin — plugin-authoring types.
+ * @maw-js/sdk/plugin — plugin-authoring types.
  *
  * Self-contained declarations. Mirrors src/plugin/types.ts InvokeContext +
  * InvokeResult so plugin authors can import without a path dependency.
