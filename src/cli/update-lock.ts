@@ -52,6 +52,7 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
       let holderPid = NaN;
       let readFd: number | null = null;
       try {
+        // lgtm[js/file-system-race] — POST-FIX-STALE: fd-based read per #581, alert is pre-fix stale; see docs/security/file-system-race-stance.md
         readFd = openSync(LOCK_PATH, "r");
         const size = fstatSync(readFd).size;
         const buf = Buffer.alloc(Math.min(size, 64));
