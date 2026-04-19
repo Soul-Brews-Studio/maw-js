@@ -20,7 +20,7 @@ $ bun run src/core/server.ts  # MAW_PORT=3457
 maw v26.4.18-alpha.26 (…) serve → http://localhost:3457 (…) [127.0.0.1]
 
 $ curl -s localhost:3457/info
-{"node":"white","version":"26.4.18-alpha.26","ts":"2026-04-19T01:08:18Z","maw":true}
+{"node":"white","version":"26.4.18-alpha.27","ts":"2026-04-19T01:08:18Z","maw":{"schema":"1","plugins":{"manifestEndpoint":"/api/plugins"},"capabilities":["plugin.listManifest","peer.handshake","info"]}}
 $ echo $?
 0  # HTTP 200 — /info is correctly mounted
 ```
@@ -116,7 +116,7 @@ wording doesn't silently regress.
 
 - PR #603 (`09ee0b9`) — `feat(transport): add /info endpoint for peer handshake (closes #596)`
 - `src/views/index.ts:10` — `/info` route registration (confirmed mounted)
-- `src/views/info.ts` — handler, returns `{node, version, ts, maw: true}`
+- `src/views/info.ts` — handler, returns `{node, version, ts, maw: {schema, plugins, capabilities}}` as of #628; pre-#628 peers return `{…, maw: true}` and are still accepted by the probe gate.
 - `src/commands/plugins/peers/probe.ts:27` — current `HTTP_4XX` hint
 - `ecosystem.config.cjs` — pm2 config (correct path, `watch: false`)
 - `docs/federation/peer-handshake-errors.md` — #565 sibling doc
