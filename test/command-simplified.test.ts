@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 
 // Drives loadConfig() via a per-test mutable fixture so we can exercise the
 // post-#541 buildCommand branches (bare cmd, --continue fallback, pattern
@@ -29,6 +29,11 @@ mock.module("../src/config/load", () => ({
 
 const { buildCommand, buildCommandInDir } = await import("../src/config/command");
 
+// buildCommand strips --dangerously-skip-permissions when process.getuid() === 0
+// (root-stripping from #181). Tests below assert the flag is preserved in the
+// fallback, so pin the uid to a non-root value regardless of the host user.
+// Fixes #685.
+const origGetuid = process.getuid;
 beforeEach(() => {
   fakeConfig = {
     host: "local",
@@ -42,6 +47,10 @@ beforeEach(() => {
     node: "local",
   };
   fakeSessionIds = {};
+  (process as any).getuid = () => 1000;
+});
+afterEach(() => {
+  (process as any).getuid = origGetuid;
 });
 
 describe("buildCommand — post-#541 contract", () => {
