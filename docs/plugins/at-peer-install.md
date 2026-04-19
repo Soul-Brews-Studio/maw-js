@@ -204,6 +204,59 @@ acceptance criterion from the task.
 
 ---
 
+## 7.3. PIN-consent gate (#644 Phase 3)
+
+When `MAW_CONSENT=1`, `cmdPluginInstall` gates `<name>@<peer>` installs
+from untrusted peers behind a PIN handshake before any artifact bytes
+are fetched:
+
+```text
+$ MAW_CONSENT=1 maw plugin install ping@mawjs-parent
+→ mawjs-parent (mawjs-parent) advertises: ping@1.0.0 (sha256: 9a34beefdead…)
+⏸  consent required → plugin-install
+   peer:   mawjs-parent (mawjs-parent)  [http://mawjs-parent.internal:2700]
+   plugin: ping@1.0.0  sha256:9a34beef…
+   request id: 5f2c…
+   PIN (relay OOB to mawjs-parent operator): K7X3M9
+   expires: 2026-04-19T17:22:00.000Z
+
+   on mawjs-parent: maw consent approve 5f2c… K7X3M9
+   then re-run: maw plugin install ping@mawjs-parent
+```
+
+Flow:
+
+1. `resolvePeerInstall` returns the advertised version + sha256 + peer URL.
+2. `maybeGatePluginInstall` checks `trust.json` for
+   `myNode → peerNode : plugin-install`. If present → allow.
+3. Otherwise, POST `/api/consent/request` to the peer, mirror the pending
+   entry locally, surface the PIN via stderr, exit 2.
+4. Operator on the peer runs `maw consent approve <id> <pin>`. That
+   writes a trust entry (the PIN is the OOB authentication of the
+   initiator's identity — an attacker who impersonates `from` can't
+   produce the PIN printed on the real initiator's terminal).
+5. Re-running `maw plugin install ping@mawjs-parent` now bypasses the
+   gate and proceeds to `installFromUrl`.
+
+Gate scope is intentionally narrow:
+
+- Only gates `kind: "peer"` (`<name>@<peer>`). Local paths, tarballs, and
+  raw URLs are unaffected — those are either the operator's own bytes or
+  already covered by `plugins.lock`.
+- Default OFF — users opt in via `MAW_CONSENT=1`, matching the Phase 1
+  (`maw hey`) and Phase 2 (`maw team invite`) convention.
+- Trust key is scoped to `plugin-install` — a trust entry for `hey` does
+  NOT authorize plugin installs (see `ConsentAction` in
+  `src/core/consent/store.ts`).
+- When the peer doesn't advertise its node name (legacy), the gate falls
+  back to the `namedPeer` nickname for the trust key so the entry is
+  still usable.
+
+Trust entries live in `~/.maw/trust.json`; revoke via the existing
+`maw consent revoke` command (or delete the key manually).
+
+---
+
 ## 8. File ownership
 
 - `src/commands/plugins/plugin/install-impl.ts` — new `@peer` dispatch branch
@@ -214,6 +267,9 @@ acceptance criterion from the task.
 - `src/api/plugin-download.ts` — NEW, `/plugin/download/:name` endpoint
 - `src/api/index.ts` — mount the new endpoint
 - `test/integration/plugin-install-at-peer.test.ts` — NEW, 2-port demo
+- `src/core/consent/gate-plugin-install.ts` — NEW (#644 Phase 3), gate helper
+- `test/core/consent/gate-plugin-install.test.ts` — NEW (#644 Phase 3), unit tests
+- `test/integration/plugin-install-consent.test.ts` — NEW (#644 Phase 3), 2-port consent demo
 - `docs/plugins/at-peer-install.md` — this doc
 
 No changes to `plugins.lock` semantics, `installFromTarball`, or
