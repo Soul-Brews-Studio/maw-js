@@ -17,7 +17,14 @@ describe("buildInfo()", () => {
     expect(info.node.length).toBeGreaterThan(0);
     expect(typeof info.version).toBe("string");
     expect(typeof info.ts).toBe("string");
-    expect(info.maw).toBe(true);
+    // Post-#628: maw is a self-describing object, not a bare boolean.
+    expect(typeof info.maw).toBe("object");
+    expect(info.maw.schema).toBe("1");
+    expect(info.maw.plugins.manifestEndpoint).toBe("/api/plugins");
+    expect(Array.isArray(info.maw.capabilities)).toBe(true);
+    expect(info.maw.capabilities).toContain("plugin.listManifest");
+    expect(info.maw.capabilities).toContain("peer.handshake");
+    expect(info.maw.capabilities).toContain("info");
   });
 
   test("ts is a valid ISO-8601 timestamp", () => {
@@ -55,7 +62,13 @@ describe("GET /info (Hono route)", () => {
     expect(typeof body.node).toBe("string");
     expect(typeof body.version).toBe("string");
     expect(typeof body.ts).toBe("string");
-    expect(body.maw).toBe(true);
+    // Post-#628: maw is a truthy self-describing object.
+    expect(typeof body.maw).toBe("object");
+    expect(body.maw).toBeTruthy();
+    const maw = body.maw as { schema: string; plugins: { manifestEndpoint: string }; capabilities: string[] };
+    expect(maw.schema).toBe("1");
+    expect(typeof maw.plugins.manifestEndpoint).toBe("string");
+    expect(Array.isArray(maw.capabilities)).toBe(true);
   });
 
   test("body satisfies probe.ts consumer — body.node is a non-empty string", async () => {

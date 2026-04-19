@@ -287,6 +287,127 @@ describe("dispatcher — probe subcommand + loud add", () => {
   });
 });
 
+describe("isValidMawHandshake (#628 back-compat gate)", () => {
+  it("accepts old shape — maw: true", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake(true)).toBe(true);
+  });
+
+  it("accepts new shape — maw: { schema: '1', ... }", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake({
+      schema: "1",
+      plugins: { manifestEndpoint: "/api/plugins" },
+      capabilities: ["info"],
+    })).toBe(true);
+  });
+
+  it("accepts any future schema string — forward-compat", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake({ schema: "2" })).toBe(true);
+    expect(isValidMawHandshake({ schema: "99-beta" })).toBe(true);
+  });
+
+  it("rejects missing/falsy maw", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake(undefined)).toBe(false);
+    expect(isValidMawHandshake(null)).toBe(false);
+    expect(isValidMawHandshake(false)).toBe(false);
+    expect(isValidMawHandshake(0)).toBe(false);
+    expect(isValidMawHandshake("")).toBe(false);
+  });
+
+  it("rejects object without schema (avoids typo silently passing)", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake({})).toBe(false);
+    expect(isValidMawHandshake({ plugins: {} })).toBe(false);
+    expect(isValidMawHandshake({ schema: 1 })).toBe(false); // must be string
+    expect(isValidMawHandshake({ schema: "" })).toBe(false); // non-empty
+  });
+
+  it("rejects truthy-but-wrong types — maw: 'yes' / maw: 1 must NOT slip past", async () => {
+    const { isValidMawHandshake } = await import("./probe");
+    expect(isValidMawHandshake("yes")).toBe(false);
+    expect(isValidMawHandshake(1)).toBe(false);
+    expect(isValidMawHandshake([])).toBe(false);
+  });
+});
+
+describe("probePeer — maw handshake gate (#628)", () => {
+  it("accepts old {maw:true} shape end-to-end", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({ node: "legacy-peer", maw: true });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://localhost:${server.port}`, 1500);
+      expect(r.error).toBeUndefined();
+      expect(r.node).toBe("legacy-peer");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("accepts new {maw:{schema:'1',...}} shape end-to-end", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({
+            node: "enriched-peer",
+            version: "26.4.18-alpha.27",
+            ts: new Date().toISOString(),
+            maw: {
+              schema: "1",
+              plugins: { manifestEndpoint: "/api/plugins" },
+              capabilities: ["plugin.listManifest", "peer.handshake", "info"],
+            },
+          });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://localhost:${server.port}`, 1500);
+      expect(r.error).toBeUndefined();
+      expect(r.node).toBe("enriched-peer");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("rejects /info with node but no maw → BAD_BODY", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({ node: "impostor" }); // no maw field
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://localhost:${server.port}`, 1500);
+      expect(r.node).toBeNull();
+      expect(r.error?.code).toBe("BAD_BODY");
+      expect(r.error?.message).toMatch(/maw/i);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
 describe("back-compat", () => {
   it("resolveNode still returns string | null and swallows errors", async () => {
     const { resolveNode } = await import("./impl");
