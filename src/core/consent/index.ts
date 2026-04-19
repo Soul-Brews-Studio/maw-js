@@ -19,3 +19,7 @@ export {
   type ConsentRequest, type ConsentResult,
   newRequestId, requestConsent, approveConsent, rejectConsent,
 } from "./request";
+export {
+  type PluginInstallGateContext, type PluginInstallGateDecision,
+  maybeGatePluginInstall, shortSha,
+} from "./gate-plugin-install";

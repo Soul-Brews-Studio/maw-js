@@ -82,6 +82,30 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
       `${mode.name}@${resolved.version}` +
       (resolved.peerSha256 ? ` (sha256: ${resolved.peerSha256.slice(0, 12)}…)` : ""),
     );
+
+    // #644 Phase 3 — PIN consent before we touch the network for the artifact.
+    // Default OFF; opt in via MAW_CONSENT=1. Gate lives here (not in resolver)
+    // so the operator sees what the peer advertised BEFORE being asked to
+    // approve — the decision context is on-screen.
+    if (process.env.MAW_CONSENT === "1") {
+      const { maybeGatePluginInstall } = await import("../../../core/consent/gate-plugin-install");
+      const { loadConfig } = await import("../../../config");
+      const myNode = loadConfig().node ?? "local";
+      const decision = await maybeGatePluginInstall({
+        myNode,
+        peerName: resolved.peerName,
+        peerNode: resolved.peerNode,
+        peerUrl: resolved.peerUrl,
+        pluginName: mode.name,
+        pluginVersion: resolved.version,
+        pluginSha256: resolved.peerSha256,
+      });
+      if (!decision.allow) {
+        if (decision.message) console.error(decision.message);
+        process.exit(decision.exitCode ?? 1);
+      }
+    }
+
     console.log(`→ downloading ${resolved.downloadUrl}…`);
     await installFromUrl(resolved.downloadUrl, { force, weight, pin });
   } else {

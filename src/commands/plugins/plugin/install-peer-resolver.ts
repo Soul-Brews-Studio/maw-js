@@ -20,6 +20,8 @@ export interface ResolvedPeerSource {
   peerNode?: string;
   /** The version the peer advertised — surfaced in the success label. */
   version: string;
+  /** Peer base URL — used by the #644 Phase 3 consent gate to POST /api/consent/request. */
+  peerUrl: string;
 }
 
 export interface ResolvePeerInstallOpts {
@@ -87,6 +89,7 @@ export async function resolvePeerInstall(
     peerSha256: hit.sha256,
     peerName: hit.peerName ?? peer,
     version: hit.version,
+    peerUrl: hit.peerUrl,
   };
   if (hit.peerNode) resolved.peerNode = hit.peerNode;
   return resolved;

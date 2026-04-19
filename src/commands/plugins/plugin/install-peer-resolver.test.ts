@@ -35,6 +35,8 @@ describe("resolvePeerInstall — happy path", () => {
     expect(r.peerName).toBe("mawjs-parent");
     expect(r.peerNode).toBe("mawjs-parent");
     expect(r.version).toBe("1.0.0");
+    // #644 Phase 3 — peerUrl threaded through for the consent gate.
+    expect(r.peerUrl).toBe("http://peer.internal:2700");
   });
 
   it("percent-encodes the plugin name in the download URL", async () => {
