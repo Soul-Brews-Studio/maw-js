@@ -89,6 +89,15 @@ describe("PROBE_HINTS", () => {
       expect(PROBE_HINTS[c].length).toBeGreaterThan(10);
     }
   });
+
+  it("HTTP_4XX hint names the stale-peer case (dogfood 2026-04-19)", async () => {
+    // A stale pm2-managed `maw serve` that predates PR #603 responds
+    // 404 on /info even though it's "up". The hint must steer operators
+    // toward restarting the peer, not chasing a phantom endpoint bug.
+    // See docs/federation/stale-peer-diagnosis.md.
+    const { PROBE_HINTS } = await import("./probe");
+    expect(PROBE_HINTS.HTTP_4XX.toLowerCase()).toMatch(/old version|restart/);
+  });
 });
 
 describe("formatProbeError", () => {
