@@ -88,7 +88,7 @@ async function main(): Promise<void> {
           const remaining = args.slice(matchedWords);
           const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining });
           if (result.ok && result.output) console.log(result.output);
-          else if (!result.ok) { console.error(result.error); process.exit(1); }
+          else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
           process.exit(0);
         }
         // #388.2 — unknown command: fuzzy-suggest against the plugin registry.

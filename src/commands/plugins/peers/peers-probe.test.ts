@@ -91,6 +91,25 @@ describe("PROBE_HINTS", () => {
   });
 });
 
+describe("PROBE_EXIT_CODES", () => {
+  it("maps every error family to a non-zero exit code", async () => {
+    const { PROBE_EXIT_CODES } = await import("./probe");
+    expect(PROBE_EXIT_CODES.DNS).toBe(3);
+    expect(PROBE_EXIT_CODES.REFUSED).toBe(4);
+    expect(PROBE_EXIT_CODES.TIMEOUT).toBe(5);
+    expect(PROBE_EXIT_CODES.HTTP_4XX).toBe(6);
+    expect(PROBE_EXIT_CODES.HTTP_5XX).toBe(6);
+    expect(PROBE_EXIT_CODES.TLS).toBe(2);
+    expect(PROBE_EXIT_CODES.BAD_BODY).toBe(2);
+    expect(PROBE_EXIT_CODES.UNKNOWN).toBe(2);
+    // No mapping should be 0 or 1 — that would mean "success" or "generic
+    // failure" and defeat the fail-loud point.
+    for (const v of Object.values(PROBE_EXIT_CODES)) {
+      expect(v).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
+
 describe("formatProbeError", () => {
   it("renders host, error, hint, retry line", async () => {
     const { formatProbeError } = await import("./probe");
@@ -186,19 +205,46 @@ describe("dispatcher — probe subcommand + loud add", () => {
     expect(res.error).toContain('peer "ghost" not found');
   });
 
-  it("add on unreachable host still returns ok:true but writes warning to output", async () => {
+  it("add on unreachable host → ok:false with DNS-family exitCode (fail loud)", async () => {
     const { default: handler } = await import("./index");
     const res = await handler({
       source: "cli",
       args: ["add", "g", "http://does-not-exist.invalid:9999"],
     });
-    expect(res.ok).toBe(true);
+    expect(res.ok).toBe(false);
+    expect(res.exitCode).toBe(3); // DNS
+    expect(res.error).toContain("peer handshake failed: DNS");
+    expect(res.error).toContain("--allow-unreachable");
+    // Loud block + "added" line still end up in captured output.
     expect(res.output).toContain("added g");
-    // Loud block is on stderr, which the dispatcher captures into the
-    // same logs buffer — both streams end up in res.output.
     expect(res.output).toContain("peer handshake failed");
-    expect(res.output).toContain("DNS");
     expect(res.output).toContain("maw peers probe g");
+  });
+
+  it("add --allow-unreachable on unreachable host → ok:true (back-compat opt-out)", async () => {
+    const { default: handler } = await import("./index");
+    const res = await handler({
+      source: "cli",
+      args: ["add", "g", "http://does-not-exist.invalid:9999", "--allow-unreachable"],
+    });
+    expect(res.ok).toBe(true);
+    expect(res.exitCode).toBeUndefined();
+    expect(res.output).toContain("added g");
+    // Warning block still shown — silence requires a separate flag.
+    expect(res.output).toContain("peer handshake failed");
+  });
+
+  it("add still persists the peer even when handshake fails (ok:false)", async () => {
+    const { default: handler } = await import("./index");
+    const res = await handler({
+      source: "cli",
+      args: ["add", "g", "http://does-not-exist.invalid:9999"],
+    });
+    expect(res.ok).toBe(false);
+    // The peer was still written (so `maw peers probe g` can retry later).
+    const info = await handler({ source: "cli", args: ["info", "g"] });
+    expect(info.ok).toBe(true);
+    expect(info.output).toContain("lastError");
   });
 
   it("info output contains lastError after a failed add", async () => {

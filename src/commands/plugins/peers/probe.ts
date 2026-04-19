@@ -17,6 +17,30 @@ export interface ProbeResult {
   error?: LastError;
 }
 
+/**
+ * Exit code per probe error family — fail-loud for scripts.
+ *
+ * Scripts that chain `maw peers add` with subsequent commands need a
+ * non-zero exit to branch on. The old `ok:true + ⚠ block on stderr`
+ * behavior was easy to miss in CI logs.
+ *
+ *   2 — generic/structural (UNKNOWN, BAD_BODY, TLS)
+ *   3 — DNS (host does not resolve)
+ *   4 — REFUSED (resolved but port closed)
+ *   5 — TIMEOUT (no response in 2s)
+ *   6 — HTTP_4XX / HTTP_5XX (peer responded but /info failed)
+ */
+export const PROBE_EXIT_CODES: Record<ProbeErrorCode, number> = {
+  DNS: 3,
+  REFUSED: 4,
+  TIMEOUT: 5,
+  HTTP_4XX: 6,
+  HTTP_5XX: 6,
+  TLS: 2,
+  BAD_BODY: 2,
+  UNKNOWN: 2,
+};
+
 /** Actionable hint per error code — shown in CLI output. */
 export const PROBE_HINTS: Record<ProbeErrorCode, string> = {
   DNS: "Host does not resolve. Check /etc/hosts, DNS, or VPN.",
