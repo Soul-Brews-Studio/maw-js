@@ -3,10 +3,10 @@
  * installFromDir / installFromTarball / installFromUrl
  */
 
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { basename, join, resolve } from "path";
 import { formatSdkMismatchError, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
 import { installRoot, removeExisting } from "./install-source-detect";
 import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst } from "./install-extraction";
@@ -59,6 +59,53 @@ function refuseExistingInstall(dest: string, incoming: string, name: string): ne
   );
 }
 
+/**
+ * #641 — Auto-link `maw-js` into the plugin source's `node_modules/` on
+ * `--link` install so `import "maw-js/sdk"` resolves without per-repo setup.sh.
+ *
+ * Resolution chain for the maw-js root:
+ *   1. `$MAW_JS_PATH` env override (used by tests + unusual layouts)
+ *   2. Walk up from this file (src/commands/plugins/plugin/) four levels →
+ *      the running maw-js repo root. That's where `package.json#name="maw-js"`
+ *      with `exports["./sdk"]` lives, which is what bun needs to resolve.
+ *
+ * Idempotent: if `<srcDir>/node_modules/maw-js` is already a symlink to the
+ * resolved root, no-op. If it points elsewhere, replace. If it's a real
+ * directory or file, leave it alone — the operator put something there
+ * intentionally.
+ */
+function resolveMawJsRoot(): string {
+  if (process.env.MAW_JS_PATH) return process.env.MAW_JS_PATH;
+  // this file: <mawJsRoot>/src/commands/plugins/plugin/install-handlers.ts
+  return resolve(import.meta.dir, "..", "..", "..", "..");
+}
+
+export function ensurePluginMawJsLink(srcDir: string): void {
+  const mawJsRoot = resolveMawJsRoot();
+  const nodeModulesDir = join(srcDir, "node_modules");
+  const target = join(nodeModulesDir, "maw-js");
+
+  let existing: import("fs").Stats | undefined;
+  try { existing = lstatSync(target); } catch { /* absent */ }
+
+  if (existing) {
+    if (existing.isSymbolicLink()) {
+      try {
+        const linkTarget = readlinkSync(target);
+        const resolved = resolve(nodeModulesDir, linkTarget);
+        if (resolved === mawJsRoot) return; // already correct
+      } catch { /* dangling — fall through to replace */ }
+      unlinkSync(target);
+    } else {
+      // Real directory or file — respect operator intent, don't clobber.
+      return;
+    }
+  }
+
+  mkdirSync(nodeModulesDir, { recursive: true });
+  symlinkSync(mawJsRoot, target, "dir");
+}
+
 export async function installFromDir(
   srcDir: string,
   opts: { force?: boolean; weight?: number } = {},
@@ -93,6 +140,10 @@ export async function installFromDir(
 
   removeExisting(dest);
   symlinkSync(srcDir, dest, "dir");
+
+  // #641 — arrange `maw-js/sdk` resolution from the plugin's perspective so
+  // the author never has to run a per-repo setup.sh.
+  ensurePluginMawJsLink(srcDir);
 
   printInstallSuccess(manifest!, dest, "linked (dev)");
 }

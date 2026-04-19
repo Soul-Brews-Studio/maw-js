@@ -29,7 +29,7 @@ import { basename } from "path";
 export { installRoot, detectMode, ensureInstallRoot, removeExisting } from "./install-source-detect";
 export { extractTarball, downloadTarball, verifyArtifactHash } from "./install-extraction";
 export { readManifest, shortHash, printInstallSuccess } from "./install-manifest-helpers";
-export { installFromDir, installFromTarball, installFromUrl } from "./install-handlers";
+export { installFromDir, installFromTarball, installFromUrl, ensurePluginMawJsLink } from "./install-handlers";
 
 // TODO(phase-b): trust-boundary enforcement. First tarball installed from a
 // non-first-party URL should flip capability enforcement on for that plugin.
