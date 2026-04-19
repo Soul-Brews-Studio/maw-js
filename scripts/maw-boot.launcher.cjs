@@ -48,6 +48,16 @@ const BUN_BIN = resolveBun();
 const CLI = path.join(__dirname, "..", "src", "cli.ts");
 const forwardedArgs = process.argv.slice(2);
 
+// Pre-flight: fail loud if the CLI entry was renamed/moved since last deploy.
+// Without this, a missing entry produces an opaque bun error buried in PM2
+// logs and crash-loops against `max_restarts` — the exact 04-17 failure mode.
+if (!fs.existsSync(CLI)) {
+  console.error("[maw-boot launcher] entry not found: " + CLI);
+  console.error("[maw-boot launcher] ecosystem drift — src/cli.ts was renamed or deleted.");
+  console.error("[maw-boot launcher] run: bash scripts/check-ecosystem.sh");
+  process.exit(2);
+}
+
 const child = spawn(BUN_BIN, ["run", CLI, ...forwardedArgs], {
   stdio: "inherit",
   // shell:true on Windows is required to execute .cmd files.
