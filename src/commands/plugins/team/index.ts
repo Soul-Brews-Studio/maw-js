@@ -163,9 +163,27 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[1]) { return { ok: false, error: "usage: maw team delete <team-name>" }; }
       await cmdTeamDelete(args[1]);
 
+    } else if (sub === "invite") {
+      // maw team invite <team> <peer> [--scope <scope>] [--lead <lead>]
+      const { cmdTeamInvite } = await import("./team-invite");
+      const flags = parseFlags(args, {
+        "--scope": String,
+        "--lead": String,
+      }, 1);
+      const team = flags._[0];
+      const peer = flags._[1];
+      if (!team || !peer) {
+        logs.push("usage: maw team invite <team> <peer> [--scope <scope>] [--lead <lead>]");
+        return { ok: false, error: "team and peer required", output: logs.join("\n") };
+      }
+      await cmdTeamInvite(team, peer, {
+        scope: flags["--scope"] as string | undefined,
+        lead: flags["--lead"] as string | undefined,
+      });
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
