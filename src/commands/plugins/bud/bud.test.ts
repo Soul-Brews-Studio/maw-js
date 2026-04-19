@@ -1,52 +1,86 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, mock, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { InvokeContext } from "../../../plugin/types";
 
-// Load the real impl once, before any mock.module(./impl, …) rewrites the
-// module cache. Capture the function reference into a local so it survives
-// the later cache rewrite (namespace bindings are live and would otherwise
-// resolve to the mock, causing infinite recursion).
+// Capture real modules BEFORE any mock.module rewrites the cache.
+// Namespace imports are live bindings, so we copy function references into
+// locals to survive the rewrite (otherwise delegating to them would recurse
+// into the mock itself).
 import * as rawImpl from "./impl";
+import * as rawBudRepo from "./bud-repo";
+import * as rawBudWake from "./bud-wake";
+import * as rawBudInit from "./bud-init";
+import * as rawConfig from "../../../config";
+
 const realCmdBud = rawImpl.cmdBud;
+const realEnsureBudRepo = rawBudRepo.ensureBudRepo;
+const realFinalizeBud = rawBudWake.finalizeBud;
+const realInitVault = rawBudInit.initVault;
+const realGenerateClaudeMd = rawBudInit.generateClaudeMd;
+const realConfigureFleet = rawBudInit.configureFleet;
+const realWriteBirthNote = rawBudInit.writeBirthNote;
+const realConfigModule = { ...rawConfig };
 
 let lastOpts: any = null;
 let useReal = false;
 let budRepoPath = "";
 
-mock.module("./impl", () => ({
-  cmdBud: async (name: string, opts: any) => {
-    lastOpts = opts;
-    if (useReal) return realCmdBud(name, opts);
-    console.log(`budding ${name}`);
-  },
-}));
-
-// Stub repo/fleet/wake seams so #643 Phase 3 integration runs against a tmp dir.
-mock.module("./bud-repo", () => ({
-  ensureBudRepo: async () => budRepoPath,
-}));
-mock.module("./bud-wake", () => ({
-  finalizeBud: async () => {},
-}));
-mock.module("./bud-init", () => {
-  const { mkdirSync } = require("fs");
-  const { join } = require("path");
-  return {
-    initVault: (p: string) => {
-      const psi = join(p, "ψ");
-      mkdirSync(psi, { recursive: true });
-      return psi;
+function installMocks() {
+  mock.module("../../../config", () => ({
+    ...realConfigModule,
+    loadConfig: () => ({ ghqRoot: "/tmp/nope", githubOrg: "Soul-Brews-Studio", env: {}, commands: {}, sessions: {} }),
+  }));
+  mock.module("./impl", () => ({
+    cmdBud: async (name: string, opts: any) => {
+      lastOpts = opts;
+      if (useReal) return realCmdBud(name, opts);
+      console.log(`budding ${name}`);
     },
-    generateClaudeMd: () => {},
-    configureFleet: () => "/tmp/fake-fleet.json",
-    writeBirthNote: () => {},
-  };
-});
+  }));
+  mock.module("./bud-repo", () => ({
+    ensureBudRepo: async () => budRepoPath,
+  }));
+  mock.module("./bud-wake", () => ({
+    finalizeBud: async () => {},
+  }));
+  mock.module("./bud-init", () => {
+    const { mkdirSync } = require("fs");
+    const { join } = require("path");
+    return {
+      initVault: (p: string) => {
+        const psi = join(p, "ψ");
+        mkdirSync(psi, { recursive: true });
+        return psi;
+      },
+      generateClaudeMd: () => {},
+      configureFleet: () => "/tmp/fake-fleet.json",
+      writeBirthNote: () => {},
+    };
+  });
+}
+
+function restoreMocks() {
+  // Re-register the real modules — bun has no "unmock" primitive, so we
+  // install passthrough mocks that point back at the real implementations.
+  mock.module("../../../config", () => realConfigModule);
+  mock.module("./impl", () => ({ cmdBud: realCmdBud }));
+  mock.module("./bud-repo", () => ({ ensureBudRepo: realEnsureBudRepo }));
+  mock.module("./bud-wake", () => ({ finalizeBud: realFinalizeBud }));
+  mock.module("./bud-init", () => ({
+    initVault: realInitVault,
+    generateClaudeMd: realGenerateClaudeMd,
+    configureFleet: realConfigureFleet,
+    writeBirthNote: realWriteBirthNote,
+  }));
+}
 
 describe("bud plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
+
+  beforeAll(() => installMocks());
+  afterAll(() => restoreMocks());
 
   beforeEach(async () => {
     lastOpts = null;
@@ -101,6 +135,9 @@ describe("bud plugin", () => {
 describe("cmdBud --nickname (#643 Phase 3)", () => {
   let prevMawHome: string | undefined;
   let sandbox: string;
+
+  beforeAll(() => installMocks());
+  afterAll(() => restoreMocks());
 
   beforeEach(() => {
     useReal = true;
