@@ -14,8 +14,23 @@
  * matches the test/integration/* pattern used elsewhere in this repo.
  */
 
-import type { BaseFederationBackend, PeerHandle, SetUpOpts } from "./backend";
+import type { BaseFederationBackend, EmulatedPluginEntry, PeerHandle, SetUpOpts } from "./backend";
 import { spawnSync } from "child_process";
+
+function mutationUnsupported(op: string): never {
+  throw new Error(
+    `DockerBackend Phase 1/2 does not support PeerHandle.${op}() — ` +
+    `scenarios that mutate peer state must declare backends: ["emulated"]`,
+  );
+}
+
+class DockerPeerHandle implements PeerHandle {
+  constructor(readonly url: string, readonly node: string) {}
+  installPlugin(_e: EmulatedPluginEntry): Promise<void> { return mutationUnsupported("installPlugin"); }
+  setOffline(_o: boolean): Promise<void> { return mutationUnsupported("setOffline"); }
+  setSlow(_d: number | null): Promise<void> { return mutationUnsupported("setSlow"); }
+  spoofSha(_n: string, _s: string | null): Promise<void> { return mutationUnsupported("spoofSha"); }
+}
 
 const COMPOSE_FILE = "docker/compose.yml";
 const HEALTHY_TIMEOUT_MS = 90_000;
@@ -44,8 +59,8 @@ export class DockerBackend implements BaseFederationBackend {
     await waitHealthy(HEALTHY_TIMEOUT_MS);
 
     return [
-      { url: "http://127.0.0.1:13456", node: "node-a" },
-      { url: "http://127.0.0.1:13457", node: "node-b" },
+      new DockerPeerHandle("http://127.0.0.1:13456", "node-a"),
+      new DockerPeerHandle("http://127.0.0.1:13457", "node-b"),
     ];
   }
 
