@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -34,6 +34,8 @@ describe("maw bud --org — #421 propagation", () => {
         if (cmd.startsWith("gh repo view")) throw new Error("not found");
         // ghq get lands the clone at budRepoPath (the good-path case)
         if (cmd.startsWith("ghq get")) mkdirSync(budRepoPath, { recursive: true });
+        // ghq list reports whatever exists on disk (mirrors real ghq).
+        if (cmd.startsWith("ghq list")) return existsSync(budRepoPath) ? `${budRepoPath}\n` : "";
         return "";
       },
     }));
@@ -49,11 +51,15 @@ describe("maw bud --org — #421 propagation", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  test("ensureBudRepo FAILS LOUDLY when ghq lands the clone outside the expected path (stale-org reroute)", async () => {
+  test("ensureBudRepo FAILS LOUDLY when ghq list cannot find the clone after ghq get (#630)", async () => {
+    // Fixed in #630: we now trust `ghq list` as the post-clone source of truth.
+    // This test asserts the loud failure when ghq get "succeeds" but ghq list
+    // can't find the repo afterward (broken install / intercepted URL).
     mock.module("../../src/sdk", () => ({
       hostExec: async (cmd: string) => {
         if (cmd.startsWith("gh repo view")) throw new Error("not found");
-        return ""; // ghq "succeeds" but we never create the expected dir
+        // ghq list always empty — simulates broken ghq or URL reroute.
+        return "";
       },
     }));
 
@@ -63,7 +69,7 @@ describe("maw bud --org — #421 propagation", () => {
     const { ensureBudRepo } = await import("../../src/commands/plugins/bud/bud-repo");
     await expect(
       ensureBudRepo("laris-co/god-line-oracle", budRepoPath, "god-line-oracle", "laris-co"),
-    ).rejects.toThrow(/clone landed outside expected path/);
+    ).rejects.toThrow(/ghq get succeeded but ghq list cannot find/);
 
     rmSync(tmp, { recursive: true, force: true });
   });
