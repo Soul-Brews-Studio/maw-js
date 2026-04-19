@@ -134,6 +134,21 @@ export async function cmdSend(query: string, message: string, force = false) {
   // --- Unified resolution via resolveTarget (#201) ---
   const result = resolveTarget(query, config, sessions);
 
+  // --- Consent gate (#644 Phase 1, opt-in via MAW_CONSENT=1) ---
+  // Local + self-node sends are never gated. Cross-node hey to a peer that
+  // hasn't approved (myNode → peerNode : hey) yet returns a request id +
+  // PIN; user relays PIN OOB, peer runs `maw consent approve <id> <pin>`,
+  // re-runs hey. After first approval, trust.json bypasses the gate.
+  if (process.env.MAW_CONSENT === "1") {
+    const { maybeGateConsent } = await import("../../core/consent/gate");
+    const myNode = config.node ?? "local";
+    const decision = await maybeGateConsent({ myNode, resolved: result, query, message });
+    if (!decision.allow) {
+      if (decision.message) console.error(decision.message);
+      process.exit(decision.exitCode ?? 1);
+    }
+  }
+
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
   // panes (team-agents spawned beside it), `send-keys -t session:window`

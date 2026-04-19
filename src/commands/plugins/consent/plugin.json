@@ -1,0 +1,14 @@
+{
+  "name": "consent",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "PIN-consent for cross-oracle actions (#644 Phase 1 — gates `maw hey` when MAW_CONSENT=1).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "consent",
+    "aliases": [],
+    "help": "maw consent | list | approve <id> <pin> | reject <id> | trust <peer> [action] | untrust <peer> [action]"
+  },
+  "weight": 50
+}
