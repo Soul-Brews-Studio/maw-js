@@ -5,6 +5,7 @@ RUN apk add --no-cache wget
 WORKDIR /app
 
 COPY package.json bun.lock* ./
+COPY packages/sdk/package.json packages/sdk/
 RUN bun install --frozen-lockfile
 
 COPY . .
