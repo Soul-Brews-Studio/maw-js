@@ -83,16 +83,34 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
     if (worktreeResult) return worktreeResult;
   } catch { /* scanWorktrees failed — fall through to clone */ }
 
-  // Clone from GitHub — wake should prefer local-first (#237)
-  // If fleet told us the exact org/slug, use that. Otherwise, probe configured orgs for `<oracle>-oracle`.
+  // Fleet pin is authoritative — #686. When fleet says windows[].repo, clone
+  // that exact slug loudly. Do NOT fall through to scan-suggest (which would
+  // re-ask for a 24-org scan we already know the answer to).
+  if (fleetRepo) {
+    console.log(`\x1b[36m🌱\x1b[0m ${oracle} pinned in fleet → github.com/${fleetRepo} — cloning to ghq...`);
+    try {
+      await hostExec(`ghq get -u 'github.com/${fleetRepo}'`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} but clone failed: ${msg.split("\n")[0]}`);
+      console.error(`\x1b[90m  manually: ghq get -u 'github.com/${fleetRepo}' && maw wake ${oracle}\x1b[0m`);
+      process.exit(1);
+    }
+    const cloned = await ghqFind(`/${fleetRepo.split("/").pop()}`);
+    if (cloned) {
+      console.log(`\x1b[32m✓\x1b[0m cloned to ${cloned}`);
+      return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
+    }
+    console.error(`\x1b[31merror\x1b[0m: clone of ${fleetRepo} reported success but path not found in ghq list`);
+    process.exit(1);
+  }
+
+  // No fleet pin — probe configured orgs for `<oracle>-oracle`
   try {
     const cfg = loadConfig();
-    const candidates: string[] = [];
-    if (fleetRepo) candidates.push(fleetRepo);
     const orgs: string[] = cfg.githubOrgs || (cfg.githubOrg ? [cfg.githubOrg] : ["Soul-Brews-Studio"]);
-    for (const org of orgs) candidates.push(`${org}/${oracle}-oracle`);
-
-    for (const slug of candidates) {
+    for (const org of orgs) {
+      const slug = `${org}/${oracle}-oracle`;
       // Probe — skip missing repos silently so we can fall through to federation
       try { await hostExec(`gh repo view '${slug}' --json name 2>/dev/null`); }
       catch { continue; }
