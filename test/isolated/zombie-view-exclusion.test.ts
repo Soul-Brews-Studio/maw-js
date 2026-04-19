@@ -15,11 +15,13 @@ import type { TmuxPane } from "../../src/sdk";
 // at module init time via env var, so we can't use a temp-dir approach
 // once another test has already imported paths.ts. Mock the helper instead.
 mock.module("../../src/commands/shared/fleet-load", () => ({
+  loadFleet: () => [],
   loadFleetEntries: () => [
     { file: "101-mawjs.json", data: { name: "mawjs", windows: [] } },
     { file: "112-fusion.json", data: { name: "fusion", windows: [] } },
   ],
   loadFleetData: () => [],
+  getSessionNames: async () => [],
 }));
 
 // Also need ~/.claude/teams/ to exist (or not trip up knownTeamPaneIds
