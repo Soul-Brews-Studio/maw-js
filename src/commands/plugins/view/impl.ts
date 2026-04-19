@@ -100,9 +100,23 @@ export async function cmdView(
   if (!sessionName) {
     // #549 — offer to wake the missing target before erroring out.
     // Decision matrix encoded in decideWakePrompt; see WakePromptDecision.
+    //
+    // Fleet-known oracles skip the y/N prompt — if the user typed `maw a <x>`
+    // and fleet configs pin <x>, we're confident this isn't a typo. Typos
+    // (unknown names) still hit the prompt as a guard against accidental wake.
+    let autoWake = extraOpts.wake;
+    if (!autoWake && !extraOpts.noWake) {
+      try {
+        const { resolveFleetSession } = await import("../../shared/wake-resolve");
+        if (resolveFleetSession(agent)) {
+          console.log(`\x1b[36m⚡\x1b[0m '${agent}' is fleet-known — auto-wake`);
+          autoWake = true;
+        }
+      } catch { /* fleet check best-effort — fall through to prompt */ }
+    }
     const decision = decideWakePrompt({
       isTTY: Boolean(process.stdin.isTTY),
-      wake: extraOpts.wake,
+      wake: autoWake,
       noWake: extraOpts.noWake,
     });
 
