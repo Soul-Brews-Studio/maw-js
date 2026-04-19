@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import type { InvokeContext } from "../../../plugin/types";
 
@@ -21,11 +21,20 @@ const mockAgentData = {
   total: { agents: 1, sessions: 3, tokens: 12000, cost: 0.5 },
 };
 
-(global as any).fetch = mock(async (_url: string) =>
-  new Response(JSON.stringify(mockAgentData), { status: 200 }),
-);
-
 const { default: handler } = await import("./index");
+
+// Snapshot/restore global.fetch around every test so this suite doesn't
+// leak a mock into sibling suites (#649).
+let savedFetch: typeof fetch;
+beforeEach(() => {
+  savedFetch = globalThis.fetch;
+  (globalThis as any).fetch = mock(async (_url: string) =>
+    new Response(JSON.stringify(mockAgentData), { status: 200 }),
+  );
+});
+afterEach(() => {
+  globalThis.fetch = savedFetch;
+});
 
 describe("costs plugin", () => {
   it("CLI surface — returns ok with cost table", async () => {
@@ -44,7 +53,7 @@ describe("costs plugin", () => {
   });
 
   it("handles empty agents gracefully", async () => {
-    (global as any).fetch = mock(async () =>
+    (globalThis as any).fetch = mock(async () =>
       new Response(JSON.stringify({ agents: [], total: { agents: 0, sessions: 0, tokens: 0, cost: 0 } }), { status: 200 }),
     );
     const ctx: InvokeContext = { source: "cli", args: [] };
@@ -54,7 +63,7 @@ describe("costs plugin", () => {
   });
 
   it("returns ok:false when server is unreachable", async () => {
-    (global as any).fetch = mock(async () => { throw new Error("ECONNREFUSED"); });
+    (globalThis as any).fetch = mock(async () => { throw new Error("ECONNREFUSED"); });
     const ctx: InvokeContext = { source: "cli", args: [] };
     const result = await handler(ctx);
     expect(result.ok).toBe(false);

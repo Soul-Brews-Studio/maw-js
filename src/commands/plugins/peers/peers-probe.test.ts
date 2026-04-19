@@ -334,25 +334,6 @@ describe("isValidMawHandshake (#628 back-compat gate)", () => {
 });
 
 describe("probePeer — maw handshake gate (#628)", () => {
-  // costs.test.ts (and potentially others) monkey-patch `global.fetch`
-  // without restoring it. Under `bun run test:plugin` our file runs
-  // after them and inherits a mock that throws ECONNREFUSED for every
-  // URL — poisoning these real-server round-trips. Snapshot + restore
-  // the native fetch around each test so we're robust to that.
-  let savedFetch: typeof fetch | undefined;
-  beforeEach(() => {
-    savedFetch = globalThis.fetch;
-    // Reset to the genuine Bun fetch — look it up off the Response/Bun
-    // prototype chain via the platform-provided binding.
-    // In practice, `Bun.fetch` is the native impl; falling back to
-    // savedFetch is fine when no pollution has occurred.
-    const bunFetch = (globalThis as any).Bun?.fetch;
-    if (typeof bunFetch === "function") globalThis.fetch = bunFetch;
-  });
-  afterEach(() => {
-    if (savedFetch) globalThis.fetch = savedFetch;
-  });
-
   it("accepts old {maw:true} shape end-to-end", async () => {
     const server = Bun.serve({
       port: 0,
