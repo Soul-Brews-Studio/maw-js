@@ -4,6 +4,15 @@ import { loadConfig, buildCommand, getEnvVars } from "../../config";
 import { ensureSessionRunning } from "./wake";
 import { loadFleet } from "./fleet-load";
 import { respawnMissingWorktrees, resumeActiveItems } from "./fleet-resume";
+import {
+  isSshTransportError,
+  runWakeLoopFailSoft,
+  type WakeStep,
+} from "./fleet-wake-failsoft";
+
+// Re-export for back-compat with existing callers/tests.
+export { firstStderrLine, isSshTransportError, runWakeLoopFailSoft } from "./fleet-wake-failsoft";
+export type { WakeStep, WakeLoopResult } from "./fleet-wake-failsoft";
 
 export async function cmdSleep() {
   const sessions = loadFleet();
@@ -44,56 +53,62 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
   const skipMsg = skipped > 0 ? `, ${skipped} dormant skipped` : "";
   console.log(`\n  \x1b[36mWaking fleet...\x1b[0m  (${sessions.length} sessions${disabled ? `, ${disabled} disabled` : ""}${skipMsg})\n`);
 
-  let sessCount = 0;
   let winCount = 0;
+  let sessCount = 0;
 
-  for (let si = 0; si < sessions.length; si++) {
-    const sess = sessions[si];
-    const progress = `[${si + 1}/${sessions.length}]`;
+  const steps: WakeStep[] = sessions.map((sess, si) => ({
+    sessName: sess.name,
+    run: async () => {
+      const progress = `[${si + 1}/${sessions.length}]`;
 
-    // Check if session already exists
-    if (await tmux.hasSession(sess.name)) {
-      console.log(`  \x1b[33m●\x1b[0m ${progress} ${sess.name} — already awake`);
-      continue;
-    }
-
-    process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
-
-    // Create session with first window
-    const first = sess.windows[0];
-    const firstPath = `${loadConfig().ghqRoot}/${first.repo}`;
-    await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
-    // Set env vars on session (not visible in tmux output)
-    for (const [key, val] of Object.entries(getEnvVars())) {
-      await tmux.setEnvironment(sess.name, key, val);
-    }
-
-    if (!sess.skip_command) {
-      await new Promise(r => setTimeout(r, 300));
-      try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
-    }
-    winCount++;
-
-    // Add remaining windows
-    for (let i = 1; i < sess.windows.length; i++) {
-      const win = sess.windows[i];
-      const winPath = `${loadConfig().ghqRoot}/${win.repo}`;
-      try {
-        await tmux.newWindow(sess.name, win.name, { cwd: winPath });
-        if (!sess.skip_command) {
-          await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
-        }
-        winCount++;
-      } catch {
-        // Window creation might fail (duplicate name, bad path)
+      if (await tmux.hasSession(sess.name)) {
+        console.log(`  \x1b[33m●\x1b[0m ${progress} ${sess.name} — already awake`);
+        return;
       }
-    }
 
-    // Select first window
-    await tmux.selectWindow(`${sess.name}:1`);
-    sessCount++;
-    console.log(` \x1b[32m✓\x1b[0m ${sess.windows.length} windows`);
+      process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
+
+      const first = sess.windows[0];
+      const firstPath = `${loadConfig().ghqRoot}/${first.repo}`;
+      await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
+      for (const [key, val] of Object.entries(getEnvVars())) {
+        await tmux.setEnvironment(sess.name, key, val);
+      }
+
+      if (!sess.skip_command) {
+        await new Promise(r => setTimeout(r, 300));
+        try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
+      }
+      winCount++;
+
+      for (let i = 1; i < sess.windows.length; i++) {
+        const win = sess.windows[i];
+        const winPath = `${loadConfig().ghqRoot}/${win.repo}`;
+        try {
+          await tmux.newWindow(sess.name, win.name, { cwd: winPath });
+          if (!sess.skip_command) {
+            await new Promise(r => setTimeout(r, 300));
+            await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
+          }
+          winCount++;
+        } catch (e) {
+          // Window creation may fail (duplicate name, bad path). Propagate
+          // ssh transport errors so the outer loop records a remote-skip.
+          if (isSshTransportError(e)) throw e;
+        }
+      }
+
+      await tmux.selectWindow(`${sess.name}:1`);
+      sessCount++;
+      console.log(` \x1b[32m✓\x1b[0m ${sess.windows.length} windows`);
+    },
+  }));
+
+  const { remoteSkipped, warnings } = await runWakeLoopFailSoft(steps);
+  for (const w of warnings) {
+    // Clear any in-progress "⏳ [n/m] name..." line before emitting.
+    process.stdout.write("\r\x1b[2K");
+    console.log(`  \x1b[33m⚠\x1b[0m ${w}`);
   }
 
   // Scan disk for worktrees not covered by fleet configs and spawn them
@@ -107,7 +122,12 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
     let totalRetried = 0;
     for (const sess of sessions) {
       if (sess.skip_command) continue;
-      totalRetried += await ensureSessionRunning(sess.name);
+      try {
+        totalRetried += await ensureSessionRunning(sess.name);
+      } catch (e) {
+        if (isSshTransportError(e)) continue; // already counted as remote-skipped
+        throw e;
+      }
     }
     if (totalRetried > 0) {
       console.log(`  \x1b[33m${totalRetried} window(s) retried.\x1b[0m`);
@@ -119,13 +139,19 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
   // Restore saved tab order (from previous sleep)
   let totalReordered = 0;
   for (const sess of sessions) {
-    totalReordered += await restoreTabOrder(sess.name);
+    try {
+      totalReordered += await restoreTabOrder(sess.name);
+    } catch (e) {
+      if (isSshTransportError(e)) continue; // already counted as remote-skipped
+      throw e;
+    }
   }
   if (totalReordered > 0) {
     console.log(`  \x1b[36m↻ ${totalReordered} window(s) reordered to saved positions.\x1b[0m`);
   }
 
-  console.log(`\n  \x1b[32m${sessCount} sessions, ${winCount} windows woke up.\x1b[0m\n`);
+  const skippedSuffix = remoteSkipped > 0 ? ` \x1b[33m${remoteSkipped} remote skipped.\x1b[0m` : "";
+  console.log(`\n  \x1b[32m${sessCount} sessions, ${winCount} windows woke up.\x1b[0m${skippedSuffix}\n`);
 
   if (opts.resume) {
     console.log("  \x1b[36mResuming active board items...\x1b[0m\n");
