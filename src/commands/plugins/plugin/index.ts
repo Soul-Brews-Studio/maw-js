@@ -111,7 +111,8 @@ async function runSearchCmd(args: string[]): Promise<void> {
         ? `@${h.peerName}${h.peerNode && h.peerNode !== h.peerName ? `(${h.peerNode})` : ""}`
         : `@${h.peerUrl}`;
       const summary = h.summary ?? "";
-      console.log(`  ${h.name}@${h.version}  ${summary}  ${tag}`);
+      const warn = h.identityMismatch ? " \x1b[33m[identity-mismatch]\x1b[0m" : "";
+      console.log(`  ${h.name}@${h.version}  ${summary}  ${tag}${warn}`);
     }
   }
   for (const e of result.errors) {

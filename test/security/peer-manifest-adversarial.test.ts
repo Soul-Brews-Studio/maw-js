@@ -108,35 +108,99 @@ describe("manifest-vs-tarball sha256 mismatch", () => {
 });
 
 // ─── Case 3 — Identity swap ─────────────────────────────────────────────────
-// Classification: FAIL-KNOWN (follow-up).
-// Reason: searchPeers trusts `manifest.node` verbatim as `peerNode` on the
-// hit. A hostile peer at `http://white:3456` can claim `node: "attacker"`
-// (or any other oracle's name) and the hit will show that node name.
-// There is no cross-check against /info or the namedPeers known-node
-// map. Mitigation lives upstream (HMAC auth ensures only authorized
-// peers can reach /api at all), so the blast radius is bounded to
-// "namedPeer lies about which node it is". Follow-up: file an issue to
-// cross-reference node names with /info.
+// Classification: FIXED (#651, PR that flipped this test).
+// Reason: searchPeers now cross-checks `manifest.node` against the
+// config-trusted `namedPeers[].name`. A hostile peer at `http://white:3456`
+// that claims `node: "attacker"` still gets the forged value surfaced (so
+// callers can see what was claimed), but `identityMismatch: true` flags
+// the hit and a stderr warning is emitted. Callers (install, trust
+// decisions) MUST check `identityMismatch` before routing through
+// `peerNode`.
 describe("identity swap (peer claims another node's name)", () => {
-  test("FAIL-KNOWN: manifest.node is echoed as peerNode without cross-check", async () => {
+  test("mismatch is flagged: identityMismatch=true + stderr warn, peerNode preserved as evidence", async () => {
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => {
+      warnings.push(args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+    }) as typeof console.warn;
+    try {
+      const fetchImpl = mockPeer({
+        schemaVersion: 1,
+        node: "attacker", // lies — real peer is "white"
+        pluginCount: 1,
+        plugins: [{ name: "example", version: "1.0.0" }],
+      });
+      const r = await searchPeers("example", {
+        peers: [{ url: "http://white:3456", name: "white" }],
+        fetch: fetchImpl,
+        noCache: true,
+        cacheDir,
+      });
+      expect(r.hits).toHaveLength(1);
+      // The forged value is still surfaced so operators can see what the
+      // peer tried to claim — but identityMismatch flags it as untrusted.
+      expect(r.hits[0]!.peerNode).toBe("attacker");
+      expect(r.hits[0]!.peerName).toBe("white");
+      expect(r.hits[0]!.peerUrl).toBe("http://white:3456");
+      expect(r.hits[0]!.identityMismatch).toBe(true);
+      // Stderr warning names the peer URL, configured name, and claimed node.
+      expect(warnings.some(w =>
+        w.includes("identity mismatch") &&
+        w.includes("http://white:3456") &&
+        w.includes("'white'") &&
+        w.includes("'attacker'"),
+      )).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("honest peer (node matches configured name) → no mismatch flag, no warn", async () => {
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => {
+      warnings.push(args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+    }) as typeof console.warn;
+    try {
+      const fetchImpl = mockPeer({
+        schemaVersion: 1,
+        node: "white",
+        pluginCount: 1,
+        plugins: [{ name: "example", version: "1.0.0" }],
+      });
+      const r = await searchPeers("example", {
+        peers: [{ url: "http://white:3456", name: "white" }],
+        fetch: fetchImpl,
+        noCache: true,
+        cacheDir,
+      });
+      expect(r.hits).toHaveLength(1);
+      expect(r.hits[0]!.identityMismatch).toBeUndefined();
+      expect(warnings.some(w => w.includes("identity mismatch"))).toBe(false);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("unnamed peer (no configured name) → no mismatch flag (nothing to compare against)", async () => {
+    // When a peer is listed only by URL (flat peers[], not namedPeers[]),
+    // there is no trusted name to compare against. Don't flag — the
+    // operator explicitly opted into an unnamed peer.
     const fetchImpl = mockPeer({
       schemaVersion: 1,
-      node: "attacker", // lies — real peer is "white"
+      node: "whoever",
       pluginCount: 1,
       plugins: [{ name: "example", version: "1.0.0" }],
     });
     const r = await searchPeers("example", {
-      peers: [{ url: "http://white:3456", name: "white" }],
+      peers: [{ url: "http://anon:3456" }], // no name
       fetch: fetchImpl,
       noCache: true,
       cacheDir,
     });
     expect(r.hits).toHaveLength(1);
-    // Documents current behavior: the peer's self-reported node is echoed.
-    // If/when a cross-check lands, flip this assertion to `expect(...).toBe("white")`.
-    expect(r.hits[0]!.peerNode).toBe("attacker");
-    expect(r.hits[0]!.peerName).toBe("white");
-    expect(r.hits[0]!.peerUrl).toBe("http://white:3456");
+    expect(r.hits[0]!.identityMismatch).toBeUndefined();
+    expect(r.hits[0]!.peerNode).toBe("whoever");
   });
 });
 

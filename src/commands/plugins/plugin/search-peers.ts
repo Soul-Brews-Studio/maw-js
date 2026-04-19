@@ -37,6 +37,13 @@ export interface PluginSearchHit {
   peerUrl: string;
   peerNode?: string;
   sha256?: string | null;
+  /**
+   * True when the peer's self-reported `manifest.node` disagrees with the
+   * config-trusted `namedPeers[].name` (#651). When set, callers should treat
+   * `peerNode` as attacker-controlled and refuse to route install/trust
+   * decisions through it.
+   */
+  identityMismatch?: boolean;
 }
 
 export interface PeerError {
@@ -272,6 +279,18 @@ export async function searchPeers(
     const peer = peers[idx]!;
     if (outcome.ok && outcome.manifest) {
       responded++;
+      // Cross-check peer identity (#651): if the config pins this peer to a
+      // name, the peer's self-reported manifest.node should match. A hostile
+      // peer at a known URL can otherwise forge another oracle's name in
+      // every hit.
+      const identityMismatch =
+        peer.name != null && outcome.manifest.node !== peer.name;
+      if (identityMismatch) {
+        console.warn(
+          `[search-peers] identity mismatch: ${peer.url} (configured as '${peer.name}') ` +
+          `reports node='${outcome.manifest.node}' — treating peerNode as untrusted`,
+        );
+      }
       for (const entry of outcome.manifest.plugins) {
         if (!matches(query, entry)) continue;
         const hit: PluginSearchHit = {
@@ -284,6 +303,7 @@ export async function searchPeers(
         if (entry.author) hit.author = entry.author;
         if (peer.name) hit.peerName = peer.name;
         if (entry.sha256 !== undefined) hit.sha256 = entry.sha256;
+        if (identityMismatch) hit.identityMismatch = true;
         hits.push(hit);
       }
     } else if (outcome.error) {
