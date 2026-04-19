@@ -151,7 +151,7 @@ export async function installFromDir(
   // sealed artifact so there's no tarball hash to record).
   const absSrc = resolve(srcDir);
   const pluginJsonBytes = readFileSync(join(absSrc, "plugin.json"));
-  const sha = createHash("sha256").update(pluginJsonBytes).digest("hex");
+  const sha = `sha256:${createHash("sha256").update(pluginJsonBytes).digest("hex")}`;
   recordInstall({
     name: manifest!.name,
     version: manifest!.version,
