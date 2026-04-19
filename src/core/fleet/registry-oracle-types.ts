@@ -16,6 +16,9 @@ export interface OracleEntry {
   budded_at: string | null;
   federation_node: string | null;
   detected_at: string;     // ISO8601
+  // Optional human-chosen label, authoritative source is <local_path>/ψ/nickname.
+  // Not persisted to oracles.json — populated in-memory via read-through cache.
+  nickname?: string;
 }
 
 export interface RegistryCache {
