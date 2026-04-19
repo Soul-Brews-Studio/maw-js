@@ -1,9 +1,5 @@
-// server.ts auto-starts Bun.serve when imported without MAW_CLI — suppress
-// that side effect for these pure unit tests. Must be set BEFORE the import.
-process.env.MAW_CLI = "1";
-
 import { describe, test, expect } from "bun:test";
-import { resolveBindHost, type BindConfig } from "../src/core/server";
+import { resolveBindHost, type BindConfig } from "../src/core/bind-host";
 
 const EMPTY: BindConfig = {};
 const EMPTY_ENV = {};
