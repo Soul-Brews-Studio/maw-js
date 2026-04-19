@@ -19,6 +19,15 @@ mock.module("./impl", () => ({
   },
 }));
 
+mock.module("./impl-nickname", () => ({
+  cmdOracleSetNickname: (name: string, nickname: string) => {
+    console.log(`set-nickname ${name}=${nickname}`);
+  },
+  cmdOracleGetNickname: (name: string) => {
+    console.log(`get-nickname ${name}`);
+  },
+}));
+
 describe("oracle plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
 
@@ -55,6 +64,42 @@ describe("oracle plugin", () => {
     const result = await handler({ source: "cli", args: ["about", "neo"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Oracle — neo");
+  });
+
+  it("cli: set-nickname dispatches with name + nickname", async () => {
+    const result = await handler({
+      source: "cli",
+      args: ["set-nickname", "neo", "Moe"],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("set-nickname neo=Moe");
+  });
+
+  it("cli: set-nickname with missing nickname arg returns usage error", async () => {
+    const result = await handler({ source: "cli", args: ["set-nickname", "neo"] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/usage/i);
+  });
+
+  it("cli: get-nickname dispatches by name", async () => {
+    const result = await handler({ source: "cli", args: ["get-nickname", "neo"] });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("get-nickname neo");
+  });
+
+  it("cli: get-nickname with no name returns usage error", async () => {
+    const result = await handler({ source: "cli", args: ["get-nickname"] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/usage/i);
+  });
+
+  it("api: set-nickname via query dispatches", async () => {
+    const result = await handler({
+      source: "api",
+      args: { sub: "set-nickname", name: "neo", nickname: "Moe" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("set-nickname neo=Moe");
   });
 
   // Behavior #7: fleet deprecation alias
