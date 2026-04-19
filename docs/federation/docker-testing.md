@@ -3,6 +3,36 @@
 Reproduce a GitHub-Actions-like environment locally: two maw-js
 containers on a shared Docker network, handshaking as peers.
 
+## Topology
+
+```mermaid
+flowchart LR
+    host(["Host machine"])
+    host -->|localhost:13456| A_port
+    host -->|localhost:13457| B_port
+
+    subgraph bridge["Docker bridge network"]
+        direction LR
+        subgraph A["node-a (maw-node-a)"]
+            A_port["port 3456"]
+            A_vol[("maw-a-data<br/>→ /root/.maw")]
+            A_hc{{"healthcheck:<br/>/api/plugins"}}
+        end
+        subgraph B["node-b (maw-node-b)"]
+            B_port["port 3456"]
+            B_vol[("maw-b-data<br/>→ /root/.maw")]
+            B_hc{{"healthcheck:<br/>/api/plugins"}}
+        end
+        A -->|"probe → http://node-b:3456/info"| B
+        B -->|"probe → http://node-a:3456/info"| A
+    end
+```
+
+Host ports `13456` / `13457` map to each container's `3456`. Inside the
+bridge network, containers reach each other by hostname (`node-a`,
+`node-b`) via Docker's embedded DNS — no `localhost` shortcut, so peer
+handshake bugs surface the same way they would across real hosts.
+
 ## Why this exists
 
 Peer handshake bugs only surface across real network boundaries — on a
