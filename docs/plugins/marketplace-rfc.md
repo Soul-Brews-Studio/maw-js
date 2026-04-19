@@ -245,7 +245,8 @@ If the team agrees Shape A is the right call:
    - new CLI flags: `--peers`, `--peers-only`, `--broad`, `--peer <name>`
    - new install syntax: `<name>@<peer>`
 3. Land behind a feature flag (`MAW_PLUGIN_PEER_SEARCH=1`) for a release, then
-   default on.
+   default on. See [`peer-search-rollout.md`](./peer-search-rollout.md) for
+   the flip-gate criteria.
 
 If Shape A ships and demand clearly outgrows it, revive this RFC for Shape B.
 
