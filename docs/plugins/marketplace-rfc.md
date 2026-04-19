@@ -248,3 +248,8 @@ If the team agrees Shape A is the right call:
    default on.
 
 If Shape A ships and demand clearly outgrows it, revive this RFC for Shape B.
+
+## Validation
+
+See [dogfood-protocol.md](./dogfood-protocol.md) for the repeatable recipe
+that proves Shape A works end-to-end across two oracles (#634).
