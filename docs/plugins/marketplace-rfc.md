@@ -1,9 +1,10 @@
 # Plugin marketplace — RFC (federated search vs central registry)
 
 Status: DRAFT — discussion, no code lands from this doc alone.
+Tracking issue: [#623](https://github.com/Soul-Brews-Studio/maw-js/issues/623)
+Prerequisite: [#402 — plugins must work standalone](https://github.com/Soul-Brews-Studio/maw-js/issues/402)
 Owner: marketplace-scoper (team go-5-r5-0419)
 Date: 2026-04-19
-Prerequisite: [#402 — plugins must work standalone](https://github.com/Soul-Brews-Studio/maw-js/issues/402)
 
 ## Problem
 
