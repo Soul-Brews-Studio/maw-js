@@ -94,20 +94,33 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
     return;
   }
 
-  // Spawn PTY via script(1) — attach to our grouped session (not the original)
-  // script(1) syntax diverges between util-linux and BSD (macOS):
-  //   util-linux:  script [-qfc <cmd>] <file>
-  //   BSD/macOS:   script [-aeFkpqr] <file> [command ...]
-  // Using -qfc on macOS dies with "illegal option -- f" → `script` exits immediately
-  // → stdout reader finishes → we fire {type:"detached"} before the PTY ever attaches,
-  // which is exactly what the lens shows as "[session detached]" on macOS hosts.
-  // Detect darwin and use the BSD invocation instead.
+  // Spawn PTY wrapper — attach to our grouped session (not the original).
+  //
+  // Linux (util-linux `script -qfc`): works fine; it creates a PTY internally
+  // and doesn't care that Bun gives it a pipe for stdin.
+  //
+  // macOS (BSD `script`): calls tcgetattr() on its stdin at startup to copy
+  // terminal settings into the new PTY. With `stdin: "pipe"` from Bun, that
+  // ioctl fails with "Operation not supported on socket" → script exits
+  // immediately → stdout reader sees EOF → we fire {type:"detached"} before
+  // anything attaches. This was the mystery "[session detached]" on every
+  // click in the lens on macOS hosts.
+  //
+  // Fix on darwin: use `/usr/bin/expect` which allocates its own PTY (ptyfork)
+  // without probing caller's stdin. `spawn -noecho` silences the echo of the
+  // command; `interact` bridges stdin↔PTY↔stdout so keystrokes flow to the
+  // tmux session and output streams back. expect(1) ships preinstalled on
+  // every macOS.
   let args: string[];
   if (isLocalHost()) {
     const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
-    args = process.platform === "darwin"
-      ? ["script", "-q", "/dev/null", "sh", "-c", cmd]
-      : ["script", "-qfc", cmd, "/dev/null"];
+    if (process.platform === "darwin") {
+      // Shell-escape cmd for embedding inside expect's double-quoted string.
+      const esc = cmd.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+      args = ["/usr/bin/expect", "-c", `spawn -noecho sh -c "${esc}"; interact`];
+    } else {
+      args = ["script", "-qfc", cmd, "/dev/null"];
+    }
   } else {
     const host = process.env.MAW_HOST || loadConfig().host || "local";
     args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
