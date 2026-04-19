@@ -22,6 +22,13 @@ export interface PeerPluginEntry {
   summary?: string;
   author?: string;
   sha256?: string | null;
+  /**
+   * Relative URL to fetch this plugin's tarball from the peer (Task #1).
+   * Additive; clients ignore unknown keys, so no schemaVersion bump needed.
+   * Joined against the peer's base URL by the client — keeps the peer from
+   * having to know its own externally-reachable hostname.
+   */
+  downloadUrl?: string;
 }
 
 export interface PeerManifestResponse {
@@ -39,6 +46,7 @@ export const pluginListManifestApi = new Elysia().get(
       const entry: PeerPluginEntry = {
         name: m.name,
         version: m.version,
+        downloadUrl: `/api/plugin/download/${encodeURIComponent(m.name)}`,
       };
       if (m.description) entry.summary = m.description;
       if (m.author) entry.author = m.author;
