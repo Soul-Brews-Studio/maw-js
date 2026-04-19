@@ -2,9 +2,15 @@
  * searchPeers — 2-port integration (#631).
  *
  * Spins up two real HTTP servers that mimic /api/plugin/list-manifest on
- * separately-bound ports, then calls searchPeers() against both with the
- * real default fetch (no injection). Exercises the cache path, the real
- * JSON encode/decode, and the merge across two distinct peers.
+ * separately-bound ports, then calls searchPeers() against both. Exercises
+ * the cache path, real JSON encode/decode, and merge across two peers.
+ *
+ * Uses a locally-defined native fetch wrapper (`rawFetch`) rather than
+ * curlFetch. Other plugin tests `mock.module` the curl-fetch module at
+ * Bun's process-global registry (see Bloom federation-audit PR #398);
+ * running under test:plugin hijacks curlFetch for every subsequent test
+ * in the process, which would make this test's real HTTP return ok:false.
+ * rawFetch sidesteps that pollution.
  *
  * Skipped when MAW_SKIP_INTEGRATION=1 — CI shards that can't bind ports.
  */
@@ -13,8 +19,23 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { searchPeers } from "./search-peers";
-import type { PeerManifestResponse } from "../../../api/plugin-list-manifest";
+import { searchPeers } from "../../src/commands/plugins/plugin/search-peers";
+import type { PeerManifestResponse } from "../../src/api/plugin-list-manifest";
+import type { CurlResponse } from "../../src/core/transport/curl-fetch";
+
+async function rawFetch(url: string, opts?: { timeout?: number }): Promise<CurlResponse> {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), opts?.timeout ?? 5000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(t);
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
 
 const SKIP = process.env.MAW_SKIP_INTEGRATION === "1";
 
@@ -69,6 +90,7 @@ describe.skipIf(SKIP)("searchPeers — 2-port integration", () => {
         { url: serverA.url, name: "alpha" },
         { url: serverB.url, name: "beta" },
       ],
+      fetch: rawFetch,
       cacheDir,
       noCache: true,
     });
@@ -95,6 +117,7 @@ describe.skipIf(SKIP)("searchPeers — 2-port integration", () => {
   it("records http-error for a known-bad path", async () => {
     const r = await searchPeers("example", {
       peers: [{ url: `${serverA.url}/nope-does-not-exist-404-path`, name: "broken" }],
+      fetch: rawFetch,
       cacheDir,
       noCache: true,
     });
@@ -105,6 +128,7 @@ describe.skipIf(SKIP)("searchPeers — 2-port integration", () => {
   it("second call uses per-peer cache (zero additional fetches on server down)", async () => {
     const primed = await searchPeers("example", {
       peers: [{ url: serverA.url, name: "alpha" }],
+      fetch: rawFetch,
       cacheDir,
     });
     expect(primed.responded).toBe(1);
@@ -114,6 +138,7 @@ describe.skipIf(SKIP)("searchPeers — 2-port integration", () => {
 
     const cached = await searchPeers("example", {
       peers: [{ url: serverA.url, name: "alpha" }],
+      fetch: rawFetch,
       cacheDir,
     });
     expect(cached.responded).toBe(1);

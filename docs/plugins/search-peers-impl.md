@@ -218,15 +218,23 @@ All fetches injected — no real HTTP. Follows the `SymmetricDeps` pattern
 already used in `getFederationStatusSymmetric` so we don't hit the
 `mock.module` process-global issue Bloom flagged in federation-audit.
 
-### Integration (`search-peers-2port.test.ts`)
+### Integration (`test/integration/search-peers-2port.test.ts`)
 
-- Spawn two maw servers on ports 3456 / 3457, each with the example plugin
-  loaded.
-- Configure port-3456 instance with `namedPeers: [{name: "two", url: "http://localhost:3457"}]`.
-- Call `searchPeers("example", { })` against port-3456's `getPeers()` view.
-- Assert: 1 hit, peerUrl points to 3457, peerNode populated.
+- `Bun.serve()` two HTTP servers on OS-assigned ports, each mimicking
+  `GET /api/plugin/list-manifest` with a distinct node identity + plugin set.
+- Call `searchPeers("example", { peers, fetch: rawFetch })` and assert the
+  merge: two hits, one per peer, peerNode populated from manifest.
+- Also covers http-error classification and cache-fallback (prime peer,
+  stop the server, assert second call still responds from on-disk cache).
 
-Skipped when `MAW_SKIP_INTEGRATION=1` is set (CI env that can't bind two
+Lives under `test/integration/` rather than next to the unit tests because
+`mock.module(..., curl-fetch)` calls in sibling plugin tests
+(`hey-plugin.test.ts`, `ping.test.ts`) pollute Bun's process-global
+module registry — co-located the integration test would hijack real
+HTTP and return `{ok: false}` (same class of bug Bloom flagged in
+PR #398 federation-audit).
+
+Skipped when `MAW_SKIP_INTEGRATION=1` is set (CI shards that can't bind
 ports, same pattern used elsewhere in the tree).
 
 ## Risks / open questions deferred to follow-up
