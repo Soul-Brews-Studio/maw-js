@@ -14,6 +14,8 @@ export type ProbeErrorCode = LastError["code"];
 
 export interface ProbeResult {
   node: string | null;
+  /** Peer's self-reported nickname from /info (#643 Phase 2). Null means peer did not advertise one. */
+  nickname?: string | null;
   error?: LastError;
 }
 
@@ -151,9 +153,9 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
     };
   }
 
-  let body: { node?: unknown; name?: unknown; maw?: unknown };
+  let body: { node?: unknown; name?: unknown; nickname?: unknown; maw?: unknown };
   try {
-    body = await res.json() as { node?: unknown; name?: unknown; maw?: unknown };
+    body = await res.json() as { node?: unknown; name?: unknown; nickname?: unknown; maw?: unknown };
   } catch (e) {
     return {
       node: null,
@@ -195,7 +197,12 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
     };
   }
 
-  return { node };
+  // Nickname is optional and strictly cosmetic — only accept non-empty strings.
+  const nickname = typeof body.nickname === "string" && body.nickname.length > 0
+    ? body.nickname
+    : null;
+
+  return { node, nickname };
 }
 
 /**

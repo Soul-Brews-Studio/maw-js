@@ -50,6 +50,8 @@ export interface Peer {
   lastSeen: string | null;
   /** Optional — set by probePeer() when handshake fails; cleared on success. */
   lastError?: LastError;
+  /** Optional human-friendly nickname, propagated from peer's /info (#643 Phase 2). */
+  nickname?: string | null;
 }
 
 export interface PeersFile {

@@ -74,6 +74,7 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     lastSeen: probe.error ? null : new Date().toISOString(),
   };
   if (probe.error) peer.lastError = probe.error;
+  if (probe.nickname) peer.nickname = probe.nickname;
 
   let existed = false;
   mutatePeers((data) => {
@@ -114,6 +115,9 @@ export async function cmdProbe(alias: string): Promise<ProbeResult> {
       delete p.lastError;
       p.lastSeen = now;
       if (probe.node) p.node = probe.node;
+      // Refresh nickname on success: string updates, null clears.
+      if (probe.nickname) p.nickname = probe.nickname;
+      else if (probe.nickname === null) delete p.nickname;
     }
   });
 
@@ -152,8 +156,14 @@ export function cmdRemove(alias: string): boolean {
 
 export function formatList(rows: Array<{ alias: string } & Peer>): string {
   if (!rows.length) return "no peers";
-  const header = ["alias", "url", "node", "lastSeen"];
-  const lines = rows.map(r => [r.alias, r.url, r.node ?? "-", r.lastSeen ?? "-"]);
+  const header = ["alias", "url", "node", "nickname", "lastSeen"];
+  const lines = rows.map(r => [
+    r.alias,
+    r.url,
+    r.node ?? "-",
+    r.nickname ?? "-",
+    r.lastSeen ?? "-",
+  ]);
   const widths = header.map((h, i) =>
     Math.max(h.length, ...lines.map(l => l[i].length)));
   const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i])).join("  ");
