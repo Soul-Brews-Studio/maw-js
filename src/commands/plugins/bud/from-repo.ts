@@ -15,6 +15,7 @@ import type { FromRepoOpts, InjectionAction, InjectionPlan } from "./types";
 import { applyFromRepoInjection } from "./from-repo-exec";
 import { cloneShallow, cleanupClone, branchCommitPushPR } from "./from-repo-git";
 import { registerFleetEntry } from "./from-repo-fleet";
+import { seedFromParent, copyPeersSnapshot } from "./from-repo-seed";
 
 /** Heuristic: is `target` a URL or `org/repo` slug rather than a local path? */
 export function looksLikeUrl(target: string): boolean {
@@ -139,6 +140,32 @@ export function planFromRepoInjection(opts: FromRepoOpts): InjectionPlan {
       : "register in ~/.config/maw/fleet/",
   });
 
+  // 6. --seed: pre-load parent's ψ/memory (#588 final pair). Requires --from.
+  if (opts.seed) {
+    if (opts.from) {
+      actions.push({
+        kind: "write",
+        path: "ψ/memory/ (seeded from parent)",
+        reason: `--seed: copy ${opts.from}'s ψ/memory/ into target (dest-biased, no overwrite)`,
+      });
+    } else {
+      actions.push({
+        kind: "skip",
+        path: "ψ/memory/ (seed)",
+        reason: "--seed requires --from <parent> — nothing to seed from",
+      });
+    }
+  }
+
+  // 7. --sync-peers: snapshot host peers.json into target. Non-destructive.
+  if (opts.syncPeers) {
+    actions.push({
+      kind: "write",
+      path: "ψ/peers.json",
+      reason: "--sync-peers: snapshot host peers.json (portable seed, no ~/.maw/ mutation)",
+    });
+  }
+
   return { target, stem: opts.stem, actions, blockers };
 }
 
@@ -200,6 +227,26 @@ async function runLocal(opts: FromRepoOpts): Promise<void> {
   }
   if (opts.dryRun) return;
   await applyFromRepoInjection(plan, opts);
+  // --seed: pre-load parent's ψ/memory/ after the vault exists. Requires --from.
+  if (opts.seed) {
+    if (!opts.from) {
+      console.log(`  \x1b[33m!\x1b[0m --seed ignored (no --from <parent> to seed from)`);
+    } else {
+      try {
+        seedFromParent(opts.target, opts.from, (m) => console.log(m));
+      } catch (e: any) {
+        console.log(`  \x1b[33m!\x1b[0m --seed failed: ${e.message} — injection still complete`);
+      }
+    }
+  }
+  // --sync-peers: snapshot host peers.json into target vault.
+  if (opts.syncPeers) {
+    try {
+      copyPeersSnapshot(opts.target, (m) => console.log(m));
+    } catch (e: any) {
+      console.log(`  \x1b[33m!\x1b[0m --sync-peers failed: ${e.message} — injection still complete`);
+    }
+  }
   // Fleet entry — register the budded oracle so `maw wake <stem>` works.
   // Failure to register is logged but never blocks the injection (the repo
   // is the canonical artifact; fleet is a convenience index).

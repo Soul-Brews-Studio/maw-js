@@ -23,6 +23,10 @@ export interface FromRepoOpts {
   from?: string;
   /** Keep ψ/ tracked in git. Default: append `ψ/` to target .gitignore. */
   trackVault?: boolean;
+  /** Pre-load parent's ψ/memory/ into target at bud time. Requires `from`. */
+  seed?: boolean;
+  /** Snapshot host peers.json into target's ψ/peers.json as a portable seed. */
+  syncPeers?: boolean;
 }
 
 /** One file in the injection plan — what would be added or appended. */
