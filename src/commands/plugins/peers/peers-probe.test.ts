@@ -428,6 +428,109 @@ describe("probePeer — maw handshake gate (#628)", () => {
       server.stop(true);
     }
   });
+
+  // ─── Nickname propagation (#643 Phase 2) ──────────────────────────────────
+  it("extracts optional nickname string from /info body", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({
+            node: "enriched-peer",
+            nickname: "Mo",
+            maw: { schema: "1", plugins: { manifestEndpoint: "/api/plugins" }, capabilities: [] },
+          });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://127.0.0.1:${server.port}`, 1500);
+      expect(r.error).toBeUndefined();
+      expect(r.node).toBe("enriched-peer");
+      expect(r.nickname).toBe("Mo");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("nickname is null when /info omits the field", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({ node: "plain-peer", maw: true });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://127.0.0.1:${server.port}`, 1500);
+      expect(r.error).toBeUndefined();
+      expect(r.nickname).toBeNull();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("empty-string nickname in /info resolves to null (not '')", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          return Response.json({ node: "blank", nickname: "", maw: true });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { probePeer } = await import("./probe");
+      const r = await probePeer(`http://127.0.0.1:${server.port}`, 1500);
+      expect(r.error).toBeUndefined();
+      expect(r.nickname).toBeNull();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("cmdAdd persists nickname and cmdProbe clears it when peer drops it", async () => {
+    let currentNickname: string | null = "Moe";
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") {
+          const body: Record<string, unknown> = { node: "roundtrip", maw: true };
+          if (currentNickname !== null) body.nickname = currentNickname;
+          return Response.json(body);
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    try {
+      const { cmdAdd, cmdInfo, cmdProbe } = await import("./impl");
+      const add = await cmdAdd({ alias: "r", url: `http://127.0.0.1:${server.port}` });
+      expect(add.peer.nickname).toBe("Moe");
+      expect(cmdInfo("r")?.nickname).toBe("Moe");
+
+      // Peer drops its nickname — re-probe should clear it on the store.
+      currentNickname = null;
+      const probed = await cmdProbe("r");
+      expect(probed.ok).toBe(true);
+      expect(cmdInfo("r")?.nickname).toBeUndefined();
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 describe("back-compat", () => {

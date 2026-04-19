@@ -101,6 +101,22 @@ describe("peers impl", () => {
     expect(out).toContain("w");
     expect(out).toContain("http://w.local");
   });
+
+  it("formatList includes a nickname column (#643 Phase 2)", async () => {
+    const { formatList } = await import("./impl");
+    const now = new Date().toISOString();
+    const out = formatList([
+      { alias: "w", url: "http://w.local", node: "white", addedAt: now, lastSeen: now, nickname: "Moe" },
+      { alias: "b", url: "http://b.local", node: "black", addedAt: now, lastSeen: now },
+    ]);
+    // Header names the column.
+    expect(out).toMatch(/nickname/);
+    // Set nickname renders; missing renders as "-".
+    expect(out).toContain("Moe");
+    const blackLine = out.split("\n").find(l => l.startsWith("b  "));
+    expect(blackLine).toBeDefined();
+    expect(blackLine).toMatch(/\s-\s/);
+  });
 });
 
 describe("peers store — atomic write crash-safety", () => {

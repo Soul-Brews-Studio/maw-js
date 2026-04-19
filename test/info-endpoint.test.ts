@@ -5,10 +5,14 @@
  * consumed by src/commands/plugins/peers/probe.ts:111.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Hono } from "hono";
 import { hostname } from "os";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { buildInfo, infoView } from "../src/views/info";
+import { setCachedNickname } from "../src/core/fleet/nicknames";
 
 describe("buildInfo()", () => {
   test("returns required fields with correct types", () => {
@@ -46,6 +50,46 @@ describe("buildInfo()", () => {
     // Either cfg.node was set, or os.hostname() — both non-empty.
     const h = hostname();
     expect([info.node, h].every(s => typeof s === "string" && s.length > 0)).toBe(true);
+  });
+});
+
+describe("buildInfo() nickname propagation (#643 Phase 2)", () => {
+  let prevMawHome: string | undefined;
+  let sandbox: string;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), "maw-info-nickname-"));
+    prevMawHome = process.env.MAW_HOME;
+    process.env.MAW_HOME = sandbox;
+  });
+
+  afterEach(() => {
+    if (prevMawHome === undefined) delete process.env.MAW_HOME;
+    else process.env.MAW_HOME = prevMawHome;
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  test("nickname field is omitted when unset", () => {
+    const info = buildInfo();
+    expect(info.nickname).toBeUndefined();
+    // Serializes without the field at all — optional by shape.
+    const json = JSON.parse(JSON.stringify(info));
+    expect("nickname" in json).toBe(false);
+  });
+
+  test("nickname field is populated when cache has an entry for the local node", () => {
+    const { node } = buildInfo();
+    setCachedNickname(node, "Moe");
+    const info = buildInfo();
+    expect(info.nickname).toBe("Moe");
+  });
+
+  test("empty-string cache entry does not surface as a nickname", () => {
+    const { node } = buildInfo();
+    // Explicit clear — should behave as "unset".
+    setCachedNickname(node, "");
+    const info = buildInfo();
+    expect(info.nickname).toBeUndefined();
   });
 });
 
