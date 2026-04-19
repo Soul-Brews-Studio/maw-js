@@ -113,11 +113,11 @@ describe("cmdDoctor install — binary present", () => {
     const out = await run(() => cmdDoctor([]));
 
     expect(out.ok).toBe(true);
-    expect(out.checks).toHaveLength(1);
-    expect(out.checks[0].name).toBe("install");
-    expect(out.checks[0].ok).toBe(true);
-    expect(out.checks[0].message).toContain("present and resolvable");
-    expect(execSyncCalls).toHaveLength(0);
+    expect(out.checks.find(c => c.name === "install")).toBeDefined();
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(true);
+    expect(install.message).toContain("present and resolvable");
+    expect(execSyncCalls.filter(c => c.cmd.startsWith("bun add"))).toHaveLength(0);
   });
 
   test("relative symlink resolved against bin dir → ok true", async () => {
@@ -130,7 +130,7 @@ describe("cmdDoctor install — binary present", () => {
     const out = await run(() => cmdDoctor([]));
 
     expect(out.ok).toBe(true);
-    expect(out.checks[0].message).toContain("present and resolvable");
+    expect(out.checks.find(c => c.name === "install")!.message).toContain("present and resolvable");
   });
 
   test("dangling symlink (link target missing) → ok false, message 'broken symlink'", async () => {
@@ -142,10 +142,11 @@ describe("cmdDoctor install — binary present", () => {
     const out = await run(() => cmdDoctor([]));
 
     expect(out.ok).toBe(false);
-    expect(out.checks[0].ok).toBe(false);
-    expect(out.checks[0].message).toContain("broken symlink");
-    expect(out.checks[0].message).toContain(target);
-    expect(execSyncCalls).toHaveLength(0);
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(false);
+    expect(install.message).toContain("broken symlink");
+    expect(install.message).toContain(target);
+    expect(execSyncCalls.filter(c => c.cmd.startsWith("bun add"))).toHaveLength(0);
   });
 
   test("not a symlink (readlinkSync throws EINVAL) → ok true", async () => {
@@ -155,8 +156,9 @@ describe("cmdDoctor install — binary present", () => {
     const out = await run(() => cmdDoctor([]));
 
     expect(out.ok).toBe(true);
-    expect(out.checks[0].ok).toBe(true);
-    expect(out.checks[0].message).toContain("present and resolvable");
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(true);
+    expect(install.message).toContain("present and resolvable");
   });
 });
 
@@ -169,39 +171,43 @@ describe("cmdDoctor install — binary missing → reinstall", () => {
     existsMap[BIN_PATH] = false;
     execSyncFlipBinaryPresent = true; // side-effect: install creates the binary
 
-    const out = await run(() => cmdDoctor([]));
+    const out = await run(() => cmdDoctor(["install"]));
 
     expect(out.ok).toBe(true);
-    expect(out.checks[0].ok).toBe(true);
-    expect(out.checks[0].message).toContain("reinstalled");
-    expect(out.checks[0].message).toContain("github:Soul-Brews-Studio/maw-js");
-    expect(execSyncCalls).toHaveLength(1);
-    expect(execSyncCalls[0].cmd).toContain("bun add -g");
-    expect(execSyncCalls[0].cmd).toContain("Soul-Brews-Studio/maw-js");
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(true);
+    expect(install.message).toContain("reinstalled");
+    expect(install.message).toContain("github:Soul-Brews-Studio/maw-js");
+    const addCalls = execSyncCalls.filter(c => c.cmd.startsWith("bun add"));
+    expect(addCalls).toHaveLength(1);
+    expect(addCalls[0].cmd).toContain("bun add -g");
+    expect(addCalls[0].cmd).toContain("Soul-Brews-Studio/maw-js");
   });
 
   test("execSync succeeds + binary still missing → ok false, message 'did not produce'", async () => {
     existsMap[BIN_PATH] = false;
     execSyncFlipBinaryPresent = false; // install "succeeds" but binary doesn't appear
 
-    const out = await run(() => cmdDoctor([]));
+    const out = await run(() => cmdDoctor(["install"]));
 
     expect(out.ok).toBe(false);
-    expect(out.checks[0].ok).toBe(false);
-    expect(out.checks[0].message).toContain("did not produce");
-    expect(execSyncCalls).toHaveLength(1);
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(false);
+    expect(install.message).toContain("did not produce");
+    expect(execSyncCalls.filter(c => c.cmd.startsWith("bun add"))).toHaveLength(1);
   });
 
   test("execSync throws → ok false, message starts with 'reinstall failed:'", async () => {
     existsMap[BIN_PATH] = false;
     execSyncThrow = new Error("network unreachable");
 
-    const out = await run(() => cmdDoctor([]));
+    const out = await run(() => cmdDoctor(["install"]));
 
     expect(out.ok).toBe(false);
-    expect(out.checks[0].ok).toBe(false);
-    expect(out.checks[0].message).toMatch(/^reinstall failed:/);
-    expect(out.checks[0].message).toContain("network unreachable");
+    const install = out.checks.find(c => c.name === "install")!;
+    expect(install.ok).toBe(false);
+    expect(install.message).toMatch(/^reinstall failed:/);
+    expect(install.message).toContain("network unreachable");
   });
 });
 
@@ -210,20 +216,22 @@ describe("cmdDoctor install — binary missing → reinstall", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("cmdDoctor args dispatch", () => {
-  test("args=[] runs install check", async () => {
+  test("args=[] runs install + version checks", async () => {
     existsMap[BIN_PATH] = true;
 
     const out = await run(() => cmdDoctor([]));
 
-    expect(out.checks.map(c => c.name)).toEqual(["install"]);
+    expect(out.checks.map(c => c.name)).toContain("install");
+    expect(out.checks.some(c => c.name.startsWith("version:"))).toBe(true);
   });
 
-  test("args=['all'] runs install check", async () => {
+  test("args=['all'] runs install + version checks", async () => {
     existsMap[BIN_PATH] = true;
 
     const out = await run(() => cmdDoctor(["all"]));
 
-    expect(out.checks.map(c => c.name)).toEqual(["install"]);
+    expect(out.checks.map(c => c.name)).toContain("install");
+    expect(out.checks.some(c => c.name.startsWith("version:"))).toBe(true);
   });
 
   test("args=['install'] runs install check only", async () => {
