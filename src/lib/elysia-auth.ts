@@ -36,6 +36,11 @@ function isProtected(path: string, method: string): boolean {
   if (PROTECTED_POST.has(path) && method === "POST") return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation
   if (method === "POST" && path.startsWith("/plugins/")) return true;
+  // Protect plugin tarball download (Task #1) — serves full artifact bytes.
+  // list-manifest is intentionally public (lean metadata for discovery);
+  // download is not — an anonymous GET would expose plugin artifacts to
+  // anyone who can reach the node.
+  if (method === "GET" && path.startsWith("/plugin/download/")) return true;
   return false;
 }
 
