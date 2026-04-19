@@ -151,15 +151,30 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
     };
   }
 
-  let body: { node?: unknown; name?: unknown };
+  let body: { node?: unknown; name?: unknown; maw?: unknown };
   try {
-    body = await res.json() as { node?: unknown; name?: unknown };
+    body = await res.json() as { node?: unknown; name?: unknown; maw?: unknown };
   } catch (e) {
     return {
       node: null,
       error: {
         code: "BAD_BODY",
         message: `/info body was not valid JSON`,
+        at: new Date().toISOString(),
+      },
+    };
+  }
+
+  // Accept both the old handshake (#596 — `maw: true`) and the new
+  // self-describing shape (#628 — `maw: { schema: "1", ... }`). Any
+  // truthy `maw` value passes; missing/falsy fails as BAD_BODY so we
+  // don't paint random HTTP 200 endpoints as maw peers.
+  if (!isValidMawHandshake(body.maw)) {
+    return {
+      node: null,
+      error: {
+        code: "BAD_BODY",
+        message: `/info response missing valid "maw" handshake field`,
         at: new Date().toISOString(),
       },
     };
@@ -181,6 +196,24 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
   }
 
   return { node };
+}
+
+/**
+ * Handshake gate — accepts the pre-#628 `maw: true` form AND the new
+ * `maw: { schema: "1", ... }` form. Objects must carry at least a
+ * `schema` string to count as a valid new-shape handshake (bare `{}`
+ * is rejected so a typo doesn't silently pass). Anything truthy but
+ * not one of these shapes (e.g. `maw: "yes"`, `maw: 1`) is rejected —
+ * future shapes should bump the schema field rather than changing the
+ * outer type.
+ */
+export function isValidMawHandshake(maw: unknown): boolean {
+  if (maw === true) return true;
+  if (maw && typeof maw === "object") {
+    const m = maw as { schema?: unknown };
+    return typeof m.schema === "string" && m.schema.length > 0;
+  }
+  return false;
 }
 
 /** Hint chooser — DNS bucket sub-types for ENOTIMP get a distinct hint (#593). */
