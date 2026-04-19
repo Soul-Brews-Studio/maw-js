@@ -1,0 +1,35 @@
+# Mirrors .github/workflows/ci.yml as closely as a single image can.
+# Base: oven/bun:1.3.11 — pins bun to the exact version used in CI. The
+# default oven/bun tag is Debian-based (glibc), which matches GHA's
+# ubuntu-latest runner more closely than the -alpine variant.
+FROM oven/bun:1.3.11
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CI=true \
+    GITHUB_ACTIONS=true \
+    TZ=UTC \
+    GOPATH=/root/go \
+    PATH=/root/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Packages the CI job assumes are present on ubuntu-latest:
+# - git, bash, ca-certs: baseline
+# - tmux: maw spawns panes in integration tests
+# - golang: needed to `go install` ghq (see Install ghq step in ci.yml)
+# - jq, wget, curl: general CI tooling parity
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash git tmux jq wget curl ca-certificates golang-go \
+    && rm -rf /var/lib/apt/lists/*
+
+# ghq is referenced by cmdWake / cmd-update / plugin-bootstrap / find / done.
+# CI installs it via `go install github.com/x-motemen/ghq@latest` — do the
+# same here so log output matches.
+RUN go install github.com/x-motemen/ghq@latest
+
+WORKDIR /app
+
+# The compose service bind-mounts the repo at /src and copies into /app at
+# runtime (fresh-install semantics, matching CI's clean checkout). We do not
+# COPY or `bun install` at build time so builds are fast and invariant.
+
+CMD ["bash", "-lc", "bun --version && node --version && echo ready"]
