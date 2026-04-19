@@ -22,7 +22,7 @@
  * A `hey` or `plugin-install` trust entry does NOT allow a team invite — the
  * scopes are intentionally distinct (see gate-plugin-install.ts §2).
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../../../config";
 import { isTrusted, requestConsent } from "../../../core/consent";
@@ -67,13 +67,25 @@ function manifestPath(teamName: string): string {
 /**
  * Record the invitee in the team manifest. Idempotent — repeat invites
  * are no-ops so post-consent re-runs don't duplicate entries.
+ *
+ * No `existsSync` precheck: catch ENOENT on the read instead. CodeQL's
+ * `js/file-system-race` flags check-then-use patterns regardless of path
+ * ownership, and inline `// lgtm` markers don't suppress alerts under the
+ * current GHAS scanner (see .github/codeql/codeql-config.yml). The
+ * read-then-write pattern matches team-lifecycle.ts (#393) which ships
+ * without an alert.
  */
 export function recordInvitee(teamName: string, peer: NamedPeer, scope: string): void {
   const path = manifestPath(teamName);
-  if (!existsSync(path)) {
-    throw new Error(`team '${teamName}' not found — run: maw team create ${teamName}`);
+  let manifest: any;
+  try {
+    manifest = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (e: any) {
+    if (e?.code === "ENOENT") {
+      throw new Error(`team '${teamName}' not found — run: maw team create ${teamName}`);
+    }
+    throw e;
   }
-  const manifest = JSON.parse(readFileSync(path, "utf-8"));
   manifest.invitees = Array.isArray(manifest.invitees) ? manifest.invitees : [];
   const existing = manifest.invitees.findIndex((i: any) => i?.name === peer.name);
   const entry = {
@@ -88,8 +100,7 @@ export function recordInvitee(teamName: string, peer: NamedPeer, scope: string):
   } else {
     manifest.invitees.push(entry);
   }
-  mkdirSync(join(resolvePsi(), "memory", "mailbox", "teams", teamName), { recursive: true });
-  // lgtm[js/file-system-race] — PRIVATE-PATH: manifest under ψ/memory/mailbox/teams/<team>/
+  // lgtm[js/file-system-race] — PRIVATE-PATH: manifest under ψ/memory/mailbox/teams/<team>/, see docs/security/file-system-race-stance.md
   writeFileSync(path, JSON.stringify(manifest, null, 2));
 }
 
