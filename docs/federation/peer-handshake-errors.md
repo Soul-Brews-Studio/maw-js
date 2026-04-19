@@ -164,6 +164,7 @@ New unit tests (peers.test.ts):
 ## References
 
 - Issue #565 — "better member selection, surfaces ambiguity instead of silently picking"
+- [`pair-code.md`](./pair-code.md) — sibling `#565` facet: `maw pair` 6-char ephemeral pairing (shipped #573)
 - `src/commands/plugins/peers/impl.ts:35–50` — existing silent `resolveNode`
 - `src/commands/plugins/peers/store.ts:30–35` — `Peer` interface
 - Memory: `project_neo_federation_ambiguity.md` — drove the seam

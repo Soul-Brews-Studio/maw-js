@@ -202,3 +202,7 @@ bash scripts/dev-federation.sh up        # leave the 2-node stack running
 CI runs the same script via `.github/workflows/federation-docker.yml`
 on any PR that touches `docker/**`, `src/transports/**`, or the peers
 plugin. Full runbook: [`docs/federation/docker-testing.md`](docs/federation/docker-testing.md).
+
+Onboarding a new node? Use `maw pair generate` / `maw pair <url> <code>`
+for a 6-char ephemeral handshake — see
+[`docs/federation/pair-code.md`](docs/federation/pair-code.md).
