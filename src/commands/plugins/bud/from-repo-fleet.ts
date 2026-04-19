@@ -10,7 +10,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { FLEET_DIR } from "../../../core/paths";
 
 /** Parsed `org/repo` slug from a remote URL. */
@@ -32,10 +32,16 @@ export function parseRemoteUrl(url: string): RepoSlug | null {
   return { org: m[1], repo: m[2] };
 }
 
-/** Read `git -C <target> remote get-url origin`; returns null on any failure. */
+/**
+ * Read `git -C <target> remote get-url origin`; returns null on any failure.
+ *
+ * Uses execFileSync + argv to avoid shell interpretation of `target`
+ * (js/indirect-command-line-injection, #474). Matches the pattern proven
+ * in view/impl.ts (#604) and wake.ts attachToSession.
+ */
 export function readOriginRemote(target: string): string | null {
   try {
-    return execSync(`git -C ${JSON.stringify(target)} remote get-url origin`, {
+    return execFileSync("git", ["-C", target, "remote", "get-url", "origin"], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
