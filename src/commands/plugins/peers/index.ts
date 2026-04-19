@@ -34,15 +34,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   const out = () => logs.join("\n");
   const help = () => [
-    "usage: maw peers <add|list|info|probe|remove> [...]",
-    "  add    <alias> <url> [--node <name>] [--allow-unreachable]",
-    "         — register alias (auto-probes /info). Exits non-zero on handshake failure:",
-    "           2=UNKNOWN/BAD_BODY/TLS  3=DNS  4=REFUSED  5=TIMEOUT  6=HTTP_4XX/5XX",
-    "         --allow-unreachable keeps exit 0 even when the probe fails (CI/bootstrap).",
-    "  list                                   — tabular list of all peers",
-    "  info   <alias>                         — JSON details for one peer (includes lastError if set)",
-    "  probe  <alias>                         — re-run /info handshake; updates lastSeen / lastError (#565)",
-    "  remove <alias>                         — remove (idempotent)",
+    "usage: maw peers <add|list|info|probe|probe-all|remove> [...]",
+    "  add       <alias> <url> [--node <name>] [--allow-unreachable]",
+    "            — register alias (auto-probes /info). Exits non-zero on handshake failure:",
+    "              2=UNKNOWN/BAD_BODY/TLS  3=DNS  4=REFUSED  5=TIMEOUT  6=HTTP_4XX/5XX",
+    "            --allow-unreachable keeps exit 0 even when the probe fails (CI/bootstrap).",
+    "  list                                      — tabular list of all peers",
+    "  info      <alias>                         — JSON details for one peer (includes lastError if set)",
+    "  probe     <alias>                         — re-run /info handshake; updates lastSeen / lastError (#565)",
+    "  probe-all [--timeout <ms>] [--allow-unreachable]",
+    "            — probe every peer in parallel; prints liveness table. Exit = worst PROBE_EXIT_CODE (#669).",
+    "  remove    <alias>                         — remove (idempotent)",
     "",
     "storage: ~/.maw/peers.json (v1)",
   ].join("\n");
@@ -100,6 +102,31 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.error(formatProbeError(r.error!, existing.url, alias));
         return { ok: false, error: `probe failed: ${r.error!.code}`, output: out() };
       }
+      case "probe-all": {
+        const timeoutIdx = args.indexOf("--timeout");
+        let timeoutMs = 2000;
+        if (timeoutIdx >= 0) {
+          const raw = args[timeoutIdx + 1];
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            return { ok: false, error: `usage: maw peers probe-all [--timeout <ms>]  (got --timeout ${raw ?? ""})` };
+          }
+          timeoutMs = parsed;
+        }
+        const allowUnreachable = args.includes("--allow-unreachable");
+        const { cmdProbeAll, formatProbeAll } = await import("./probe-all");
+        const r = await cmdProbeAll(timeoutMs);
+        console.log(formatProbeAll(r));
+        if (r.failCount > 0 && !allowUnreachable) {
+          return {
+            ok: false,
+            output: out(),
+            error: `probe-all: ${r.failCount}/${r.rows.length} peer(s) failed — pass --allow-unreachable to exit 0`,
+            exitCode: r.worstExitCode || 2,
+          };
+        }
+        return { ok: true, output: out() };
+      }
       case "list":
       case "ls": {
         console.log(impl.formatList(impl.cmdList()));
@@ -125,7 +152,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(help());
         return {
           ok: false,
-          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|probe|remove)`,
+          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|probe|probe-all|remove)`,
           output: out() || help(),
         };
       }
