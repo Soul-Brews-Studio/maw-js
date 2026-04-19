@@ -36,4 +36,10 @@ fi
 echo "[${NODE_NAME}] bootstrap complete — peers.json:"
 cat "$MAW_HOME/peers.json" 2>/dev/null || echo "(no peers.json yet)"
 
+# Force 0.0.0.0 bind even if peers.json hasn't been populated yet (#616).
+# maw serve's resolveBindHost() treats MAW_HOST="0.0.0.0" as an explicit
+# opt-in. Without this, a container whose first `maw peers add` failed
+# (peer not up yet) would stay on loopback and be unreachable for retry.
+export MAW_HOST=0.0.0.0
+
 exec "$@"
