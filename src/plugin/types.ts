@@ -91,4 +91,10 @@ export interface InvokeResult {
   ok: boolean;
   output?: string;
   error?: string;
+  /**
+   * Non-zero exit code for `ok: false` results. When unset, the CLI
+   * defaults to exit 1 on failure. Plugins use this to distinguish
+   * failure modes for scripts (e.g. handshake vs DNS vs refused).
+   */
+  exitCode?: number;
 }

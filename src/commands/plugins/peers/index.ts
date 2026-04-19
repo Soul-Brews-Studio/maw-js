@@ -35,7 +35,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const out = () => logs.join("\n");
   const help = () => [
     "usage: maw peers <add|list|info|probe|remove> [...]",
-    "  add    <alias> <url> [--node <name>]  — register alias (auto-probes /info; loud on failure)",
+    "  add    <alias> <url> [--node <name>] [--allow-unreachable]",
+    "         — register alias (auto-probes /info). Exits non-zero on handshake failure:",
+    "           2=UNKNOWN/BAD_BODY/TLS  3=DNS  4=REFUSED  5=TIMEOUT  6=HTTP_4XX/5XX",
+    "         --allow-unreachable keeps exit 0 even when the probe fails (CI/bootstrap).",
     "  list                                   — tabular list of all peers",
     "  info   <alias>                         — JSON details for one peer (includes lastError if set)",
     "  probe  <alias>                         — re-run /info handshake; updates lastSeen / lastError (#565)",
@@ -59,16 +62,25 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const alias = positional[1];
         const url = positional[2];
         if (!alias || !url) {
-          return { ok: false, error: "usage: maw peers add <alias> <url> [--node <name>]" };
+          return { ok: false, error: "usage: maw peers add <alias> <url> [--node <name>] [--allow-unreachable]" };
         }
         const nodeIdx = args.indexOf("--node");
         const node = nodeIdx >= 0 ? args[nodeIdx + 1] : undefined;
+        const allowUnreachable = args.includes("--allow-unreachable");
         const res = await impl.cmdAdd({ alias, url, node });
         if (res.overwrote) console.log(`warning: alias "${alias}" already existed — overwriting`);
         console.log(`added ${alias} → ${url}${res.peer.node ? ` (${res.peer.node})` : ""}`);
         if (res.probeError) {
-          const { formatProbeError } = await import("./probe");
+          const { formatProbeError, PROBE_EXIT_CODES } = await import("./probe");
           console.error(formatProbeError(res.probeError, url, alias));
+          if (!allowUnreachable) {
+            return {
+              ok: false,
+              output: out(),
+              error: `peer handshake failed: ${res.probeError.code} — pass --allow-unreachable to bypass`,
+              exitCode: PROBE_EXIT_CODES[res.probeError.code] ?? 2,
+            };
+          }
         }
         return { ok: true, output: out() };
       }

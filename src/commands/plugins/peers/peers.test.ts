@@ -241,8 +241,11 @@ describe("peers dispatcher (index.ts)", () => {
   });
 
   it("add then list through dispatcher", async () => {
+    // http://w.local doesn't resolve on most hosts; use --allow-unreachable
+    // so this test stays focused on the add→list flow rather than the
+    // fail-loud exit behavior (covered in peers-probe.test.ts).
     const { default: handler } = await import("./index");
-    const add = await handler({ source: "cli", args: ["add", "w", "http://w.local", "--node", "white"] });
+    const add = await handler({ source: "cli", args: ["add", "w", "http://w.local", "--node", "white", "--allow-unreachable"] });
     expect(add.ok).toBe(true);
     expect(add.output).toContain("added w");
     const list = await handler({ source: "cli", args: ["list"] });
