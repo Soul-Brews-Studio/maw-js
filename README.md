@@ -206,3 +206,10 @@ plugin. Full runbook: [`docs/federation/docker-testing.md`](docs/federation/dock
 Onboarding a new node? Use `maw pair generate` / `maw pair <url> <code>`
 for a 6-char ephemeral handshake — see
 [`docs/federation/pair-code.md`](docs/federation/pair-code.md).
+
+## Marketplace
+
+Plugins can be discovered and installed peer-to-peer (Shape A, no central
+registry required). See
+[`docs/plugins/shape-a-demo.md`](docs/plugins/shape-a-demo.md) for a
+7-step walkthrough — peers, federated search, `@peer` install, consent.
