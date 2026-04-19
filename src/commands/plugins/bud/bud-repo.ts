@@ -2,18 +2,43 @@ import { hostExec } from "../../../sdk";
 import { existsSync } from "fs";
 
 /**
+ * Ask ghq where it parked a repo. Authoritative over `config.ghqRoot` —
+ * which can drift (stale overrides, cross-host config sync). #630
+ */
+async function resolveGhqPath(slug: string): Promise<string | null> {
+  try {
+    const out = await hostExec(`ghq list --exact --full-path github.com/${slug}`);
+    const first = out.split("\n").map(s => s.trim()).find(Boolean);
+    return first && existsSync(first) ? first : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Step 1: Ensure the oracle's GitHub repo exists and is cloned locally.
  * Idempotent — skips creation/clone if already present.
+ *
+ * Returns the ACTUAL clone path reported by ghq, not the predicted
+ * `budRepoPath`. The two diverge when `config.ghqRoot` is stale or
+ * overridden (#630) — ghq always honors its own `ghq root`, so trust it.
  */
 export async function ensureBudRepo(
   budRepoSlug: string,
   budRepoPath: string,
   budRepoName: string,
   org: string,
-): Promise<void> {
+): Promise<string> {
   if (existsSync(budRepoPath)) {
     console.log(`  \x1b[90m○\x1b[0m repo already exists: ${budRepoPath}`);
-    return;
+    return budRepoPath;
+  }
+  // Pre-check ghq in case the repo is already cloned but at a different path
+  // than config.ghqRoot predicts — avoid re-creating on GitHub.
+  const preExisting = await resolveGhqPath(budRepoSlug);
+  if (preExisting) {
+    console.log(`  \x1b[90m○\x1b[0m repo already cloned (via ghq): ${preExisting}`);
+    return preExisting;
   }
   console.log(`  \x1b[36m⏳\x1b[0m creating repo: ${budRepoSlug}...`);
   try {
@@ -37,15 +62,23 @@ export async function ensureBudRepo(
     }
   }
   await hostExec(`ghq get github.com/${budRepoSlug}`);
-  // #421 — verify landing path matches stated org. ghq honors the URL so this
-  // should always pass; if it doesn't, a stale ghq entry or reroute is masking
-  // the real location. Fail loudly rather than let wake resolve to the wrong org.
-  if (!existsSync(budRepoPath)) {
+  // #630 — trust `ghq list`, not `config.ghqRoot`. The config value can be
+  // stale or overridden (observed: ghqRoot="/tmp/nope" while real ghq root was
+  // /home/neo/Code), which stranded the bud mid-scaffold. Resolve the real
+  // landing path and use that for all downstream ψ/ + fleet + wake steps.
+  const actualPath = await resolveGhqPath(budRepoSlug);
+  if (!actualPath) {
     throw new Error(
-      `clone landed outside expected path — expected ${budRepoPath} but not found on disk after ghq get.\n` +
+      `ghq get succeeded but ghq list cannot find github.com/${budRepoSlug}.\n` +
       `  Check: ghq list | grep ${budRepoName}\n` +
-      `  The --org flag may be shadowed by a stale clone in another org.`,
+      `  This indicates a broken ghq install or a reroute intercepting the URL.`,
     );
   }
-  console.log(`  \x1b[32m✓\x1b[0m cloned via ghq → ${budRepoPath}`);
+  if (actualPath !== budRepoPath) {
+    console.log(`  \x1b[33m⚠\x1b[0m config.ghqRoot predicted ${budRepoPath}`);
+    console.log(`  \x1b[33m  but ghq parked the clone at ${actualPath}\x1b[0m`);
+    console.log(`  \x1b[90m  using ghq's location — run 'maw init --force' to refresh config\x1b[0m`);
+  }
+  console.log(`  \x1b[32m✓\x1b[0m cloned via ghq → ${actualPath}`);
+  return actualPath;
 }

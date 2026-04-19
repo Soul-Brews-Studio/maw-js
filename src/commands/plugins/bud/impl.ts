@@ -97,7 +97,10 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
 
   const budRepoName = `${name}-oracle`;
   const budRepoSlug = `${org}/${budRepoName}`;
-  const budRepoPath = join(ghqRoot, org, budRepoName);
+  // Predicted path — may drift from ghq's actual landing dir when
+  // config.ghqRoot is stale (#630). ensureBudRepo returns the authoritative
+  // post-clone path; use that for all scaffolding below.
+  const predictedRepoPath = join(ghqRoot, org, budRepoName);
 
   if (opts.root) {
     console.log(`\n  \x1b[36m🌱 Root Bud\x1b[0m — ${name} (no parent lineage)\n`);
@@ -107,7 +110,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
 
   if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create repo: ${budRepoSlug}`);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${budRepoPath}`);
+    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${predictedRepoPath}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would generate CLAUDE.md`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create fleet config`);
     if (opts.seed && parentName) {
@@ -125,8 +128,8 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     return;
   }
 
-  // 1. Create oracle repo
-  await ensureBudRepo(budRepoSlug, budRepoPath, budRepoName, org);
+  // 1. Create oracle repo — returns the ACTUAL clone path per ghq (#630).
+  const budRepoPath = await ensureBudRepo(budRepoSlug, predictedRepoPath, budRepoName, org);
 
   // 2-4.5. Initialize vault, CLAUDE.md, fleet config, birth note
   const psiDir = initVault(budRepoPath);
