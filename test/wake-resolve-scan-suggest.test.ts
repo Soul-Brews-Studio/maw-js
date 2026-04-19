@@ -10,7 +10,9 @@ import {
   buildOrgList,
   scanOrgs,
   scanSuggestOracle,
+  readTtyAnswer,
   type OrgEntry,
+  type TtyReader,
 } from "../src/commands/shared/wake-resolve-scan-suggest";
 
 // ---------------------------------------------------------------------------
@@ -170,6 +172,42 @@ describe("scanSuggestOracle — non-TTY fallback", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  test("leftover newline from prior inquirer prompt does not cause false abort", async () => {
+    // Repro of oracle-world bug: inquirer leaves '\n' on /dev/tty; our first
+    // readSync picks it up, trims to "", returns false → user sees "aborted"
+    // despite typing 'y'. The fix: loop past whitespace-only reads.
+    const reads: ReturnType<TtyReader>[] = [
+      { ok: true, text: "\n", n: 1 },      // leftover newline from prior prompt
+      { ok: true, text: "y\n", n: 2 },     // actual user answer
+    ];
+    let i = 0;
+    const reader: TtyReader = () => reads[i++] ?? { ok: false };
+
+    const answer = readTtyAnswer(reader);
+    expect(answer).toBe("y");
+    expect(i).toBe(2); // both reads consumed
+  });
+
+  test("readTtyAnswer returns null after 3 whitespace-only reads", () => {
+    const reader: TtyReader = () => ({ ok: true, text: "\n", n: 1 });
+    expect(readTtyAnswer(reader)).toBeNull();
+  });
+
+  test("readTtyAnswer returns null when TTY unavailable", () => {
+    const reader: TtyReader = () => ({ ok: false });
+    expect(readTtyAnswer(reader)).toBeNull();
+  });
+
+  test("readTtyAnswer returns null on EOF (n=0)", () => {
+    const reader: TtyReader = () => ({ ok: true, text: "", n: 0 });
+    expect(readTtyAnswer(reader)).toBeNull();
+  });
+
+  test("readTtyAnswer lowercases and trims the answer", () => {
+    const reader: TtyReader = () => ({ ok: true, text: "  YES  \n", n: 8 });
+    expect(readTtyAnswer(reader)).toBe("yes");
   });
 
   test("returns null gracefully when gh cli is not installed", async () => {

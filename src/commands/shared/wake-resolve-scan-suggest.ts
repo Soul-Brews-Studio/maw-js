@@ -54,16 +54,50 @@ function defaultExecFn(cmd: string): string {
   return r.stdout || "";
 }
 
-/** TTY y/N prompt. Returns true/false/null (null = /dev/tty unavailable). */
-export function defaultPromptFn(msg: string): boolean | null {
+/**
+ * Read a single chunk from /dev/tty. Returns {ok,text,n}. ok=false on error/unavailable.
+ * Exposed for testing the leftover-newline retry loop in readTtyAnswer.
+ */
+export type TtyReader = () => { ok: true; text: string; n: number } | { ok: false };
+
+function defaultTtyReader(): ReturnType<TtyReader> {
   try {
-    process.stdout.write(msg);
     const buf = Buffer.alloc(8);
     const fd = openSync("/dev/tty", "r");
     const n = readSync(fd, buf, 0, buf.length, null);
     closeSync(fd);
-    const answer = buf.slice(0, n).toString().trim().toLowerCase();
-    return answer === "y" || answer === "yes";
+    return { ok: true, text: buf.slice(0, n).toString(), n };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Read y/N answer from TTY, tolerating a leftover `\n` left behind by a prior
+ * prompt (e.g. inquirer). If the first read yields whitespace-only with n>0,
+ * loop and read again — up to 3 attempts. Returns null if TTY unavailable or
+ * all attempts were empty.
+ */
+export function readTtyAnswer(reader: TtyReader = defaultTtyReader): string | null {
+  for (let i = 0; i < 3; i++) {
+    const r = reader();
+    if (!r.ok) return null;
+    if (r.n === 0) return null; // EOF
+    const trimmed = r.text.trim();
+    if (trimmed.length > 0) return trimmed.toLowerCase();
+    // whitespace-only (e.g. leftover '\n') — retry
+  }
+  return null;
+}
+
+/** TTY y/N prompt. Returns true/false/null (null = /dev/tty unavailable or empty). */
+export function defaultPromptFn(msg: string): boolean | null {
+  try {
+    process.stdout.write(msg);
+    const answer = readTtyAnswer();
+    if (answer === null) return null;
+    if (answer === "y" || answer === "yes") return true;
+    return false;
   } catch {
     return null;
   }
