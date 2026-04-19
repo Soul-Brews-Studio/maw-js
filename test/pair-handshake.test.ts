@@ -84,7 +84,7 @@ describe("pair API — handshake + consume", () => {
     const { status, json } = await call(`/pair/${code}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ node: "mba", url: "http://mba.local:3456" }),
+      body: JSON.stringify({ node: "mba", url: "http://fake.invalid:3456" }),
     });
     expect(status).toBe(200);
     expect(json.ok).toBe(true);
@@ -94,7 +94,7 @@ describe("pair API — handshake + consume", () => {
 
   it("replay: second POST /pair/:code returns 410 consumed", async () => {
     const code = await newCode();
-    const body = JSON.stringify({ node: "mba", url: "http://mba.local:3456" });
+    const body = JSON.stringify({ node: "mba", url: "http://fake.invalid:3456" });
     const first = await call(`/pair/${code}`, { method: "POST", headers: { "content-type": "application/json" }, body });
     expect(first.status).toBe(200);
     const second = await call(`/pair/${code}`, { method: "POST", headers: { "content-type": "application/json" }, body });
@@ -117,7 +117,7 @@ describe("pair API — handshake + consume", () => {
     const { status, json } = await call(`/pair/XXX`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ node: "mba", url: "http://mba.local:3456" }),
+      body: JSON.stringify({ node: "mba", url: "http://fake.invalid:3456" }),
     });
     expect(status).toBe(400);
     expect(json.error).toBe("invalid_shape");
@@ -130,7 +130,7 @@ describe("pair API — handshake + consume", () => {
     await call(`/pair/${code}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ node: "mba", url: "http://mba.local:3456" }),
+      body: JSON.stringify({ node: "mba", url: "http://fake.invalid:3456" }),
     });
     const after = await call(`/pair/${code}/status`);
     expect(after.json.consumed).toBe(true);
@@ -142,11 +142,11 @@ describe("pair API — handshake + consume", () => {
     await call(`/pair/${code}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ node: "mba", url: "http://mba.local:3456" }),
+      body: JSON.stringify({ node: "mba", url: "http://fake.invalid:3456" }),
     });
     const { loadPeers } = await import("../src/commands/plugins/peers/store");
     const peers = loadPeers();
-    expect(peers.peers["mba"]?.url).toBe("http://mba.local:3456");
+    expect(peers.peers["mba"]?.url).toBe("http://fake.invalid:3456");
     expect(peers.peers["mba"]?.node).toBe("mba");
   });
 });
