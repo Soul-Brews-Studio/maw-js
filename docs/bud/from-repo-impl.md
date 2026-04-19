@@ -19,6 +19,75 @@ From #591 body:
 
 Cumulatively 5 of 8 shipped after this PR; 3 defer (fleet entry, `--from` lineage, `--seed`/`sync_peers`). `--force` still deferred — safe default remains "refuse if `ψ/` present." #588 stays open until the remaining three land.
 
+## (i) Final PR — `--seed` + `--sync-peers` (file-copy pair)
+
+Closes the file-copy pair deferred from #611. After this PR all 8 TODOs from #591 are shipped and #588 can close.
+
+### `--seed` semantics
+
+When `--seed` and `--from <parent>` are both set on `--from-repo`, copy the parent oracle's `ψ/memory/` tree into the target's `ψ/memory/` at bud time. Mirrors the existing `cmdBud` behavior (`bud-wake.ts` step 5) where `--seed` triggers a bulk soul-sync from parent.
+
+- **Source resolution**: `<ghqRoot>/<org>/<parent>-oracle/ψ/memory`. `ghqRoot` and `org` come from `loadConfig()` (same fallback chain as `cmdBud`: `--org` / `config.githubOrg` / `"Soul-Brews-Studio"`). For `--from-repo` we don't expose `--org`, so this PR resolves `org` as `config.githubOrg || "Soul-Brews-Studio"`.
+- **Destination**: `<target>/ψ/memory` — already created by `writeVault` earlier in the exec sequence.
+- **Copy semantics**: `fs.cpSync(src, dst, {recursive: true, errorOnExist: false, force: false})`. `force: false` means a pre-existing child file is NOT overwritten ("Nothing is Deleted"). `errorOnExist: false` means we don't throw on conflicts — just skip per-file. The result is a union-merge biased to the child's existing content.
+- **Failure mode**: If parent's `ψ/memory/` doesn't exist (new parent, fresh fleet), log a warning and skip — mirrors `finalizeBud`'s "soul-sync seed failed (parent may have empty ψ/)" handling. Never blocks the injection.
+- **No `--from`?**: `--seed` alone is a warning and no-op — there's no parent to seed from. The planner surfaces this so `--dry-run` tells the user.
+- **URL-mode**: `--seed` still works because parent resolution is LOCAL (via ghqRoot/org/<parent>-oracle) — the URL target is independent of parent source.
+
+### `--sync-peers` semantics
+
+When `--sync-peers` is set, copy the host's `peers.json` (the `~/.maw/peers.json` / `$PEERS_FILE` / `$MAW_HOME/peers.json` file — parent and child share the same file on a single host) into the TARGET REPO as a portable seed at `<target>/ψ/peers.json`.
+
+Why a file inside the target repo rather than mutating `~/.maw/peers.json`? Three reasons:
+
+1. **Same-host degenerate case**: On one machine, parent's `~/.maw/peers.json` IS child's `~/.maw/peers.json`. A literal copy is a no-op. Writing into `<target>/ψ/peers.json` makes the operation meaningful — it creates a portable snapshot that travels WITH the target repo.
+2. **Non-destructive**: We never touch `~/.maw/` — respects the principle that scaffolding only writes under `<target>`. Operators who clone the target on a different host can `maw peers import <target>/ψ/peers.json` (or a future bootstrap hook reads it) to materialize the peers locally.
+3. **"Inherit parent's peer contacts" spirit**: The target repo carries the inherited peer list with it. When the new oracle wakes (even on a new host), the peer contacts are discoverable from the vault.
+
+- **Source**: `peersPath()` from `src/commands/plugins/peers/store.ts` (already handles `PEERS_FILE` / `MAW_HOME` / default). Resolved at runtime.
+- **Destination**: `<target>/ψ/peers.json`. Created alongside the vault — `ψ/` is already mkdir'd.
+- **Missing source**: If no `peers.json` exists on the host, log a skip and move on.
+- **Idempotency**: Overwrite is safe — the file is a snapshot, not mutable per-host state. Re-running produces the same content (modulo `lastSeen` timestamp drift).
+
+### Flag wiring
+
+- `index.ts`: `--seed` is already parsed (for native `cmdBud`). Route it into `FromRepoOpts.seed` when `--from-repo` is set. Add a new `--sync-peers` boolean and route into `FromRepoOpts.syncPeers`. Usage line updated.
+- `types.ts`: `FromRepoOpts` gains `seed?: boolean` and `syncPeers?: boolean`.
+- `from-repo.ts`: planner reflects the two new actions:
+  - `mkdir/write: ψ/memory/ (seed from <parent>)` — `kind: "write"`, reason `--seed`
+  - `write: ψ/peers.json (from <peersPath>)` — `kind: "write"`, reason `--sync-peers`
+  Orchestrator calls new executor entry points after `applyFromRepoInjection` (seed + peers live AFTER vault mkdir, so ψ/memory already exists).
+- `from-repo-exec.ts`: gains `seedFromParent` and `copyPeersSnapshot` helpers. Both tolerate missing sources.
+
+### Parent resolution — small, focused
+
+- Does NOT shell out.
+- Does NOT clone the parent repo.
+- Pure function of `ghqRoot + org + parentStem` from `loadConfig()` — the parent's `ψ/memory/` must already be on disk locally. If it isn't, --seed is a warning + skip. Same contract as `cmdBud`'s `cmdSoulSync` call (which also reads parent's local ψ/).
+
+### Test additions
+
+Hermetic, real-fs where possible:
+
+- `--seed` copies parent's ψ/memory/ contents (set up a fake parent tree under a tmp `ghqRoot`, mock `loadConfig` to point there, assert copied files appear in target).
+- `--seed` without `--from`: log warning, no copy.
+- `--seed` with missing parent vault: log skip, injection still completes.
+- `--sync-peers` copies `peers.json` to `<target>/ψ/peers.json` (use `PEERS_FILE` env override to point at a tmpfile).
+- `--sync-peers` without source peers.json: skip, no file written.
+- Planner reflects `--seed` + `--sync-peers` as `write` actions.
+- `--seed` biased to destination: pre-existing target-side file is NOT overwritten (force:false).
+
+### File layout — this PR
+
+- `src/commands/plugins/bud/types.ts` — add `seed?`, `syncPeers?` fields.
+- `src/commands/plugins/bud/from-repo.ts` — planner emits new actions; orchestrator calls new exec helpers.
+- `src/commands/plugins/bud/from-repo-exec.ts` — new `seedFromParent` + `copyPeersSnapshot` (~80 LOC combined).
+- `src/commands/plugins/bud/index.ts` — add `--sync-peers` flag, route `--seed` into `FromRepoOpts`.
+- `src/commands/plugins/bud/from-repo.test.ts` — new describe block.
+- `docs/bud/from-repo-impl.md` — this section.
+
+All files remain ≤250 LOC post-change.
+
 ## (h) Continuation PR — `--force` + `--track-vault` + fleet entry + `--from` lineage
 
 The remaining six TODOs from #591 split into a "light quad" (this PR) and a "file-copy pair" (deferred):
