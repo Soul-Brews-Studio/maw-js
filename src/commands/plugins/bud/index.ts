@@ -31,6 +31,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--repo": String,
         "--issue": Number,
         "--note": String,
+        "--nickname": String,
         "--fast": Boolean,
         "--root": Boolean,
         "--dry-run": Boolean,
@@ -72,7 +73,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const name = flags._[0];
       if (!name || name === "--help" || name === "-h") {
-        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       Or:    maw bud --from-repo <path|url> --stem <stem> [--pr] [--from <parent>] [--seed] [--sync-peers] [--force] [--track-vault] [--dry-run]  (#588)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
+        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--nickname <pretty>] [--fast] [--split] [--dry-run]\n       Or:    maw bud --from-repo <path|url> --stem <stem> [--pr] [--from <parent>] [--seed] [--sync-peers] [--force] [--track-vault] [--dry-run]  (#588)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
       }
       if (name.startsWith("-")) {
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };
@@ -84,6 +85,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         org: flags["--org"],
         issue: flags["--issue"],
         note: flags["--note"],
+        nickname: flags["--nickname"],
         fast: flags["--fast"],
         root: flags["--root"],
         dryRun: flags["--dry-run"],
@@ -102,6 +104,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         org: body.org as string | undefined,
         issue: body.issue as number | undefined,
         note: body.note as string | undefined,
+        nickname: body.nickname as string | undefined,
         fast: body.fast as boolean | undefined,
         root: body.root as boolean | undefined,
         dryRun: body.dryRun as boolean | undefined,

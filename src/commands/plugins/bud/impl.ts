@@ -7,6 +7,7 @@ import { ensureBudRepo } from "./bud-repo";
 import { initVault, generateClaudeMd, configureFleet, writeBirthNote } from "./bud-init";
 import { finalizeBud } from "./bud-wake";
 import { writeSignal } from "../../../core/fleet/leaf";
+import { validateNickname, writeNickname, setCachedNickname } from "../../../core/fleet/nicknames";
 import { join } from "path";
 
 export interface BudOpts {
@@ -26,6 +27,8 @@ export interface BudOpts {
   seed?: boolean;
   /** Drop a "birth" signal into the parent oracle's ψ/memory/signals/ on creation. */
   signalOnBirth?: boolean;
+  /** Pretty display name — written to ψ/nickname at birth (#643 Phase 3). */
+  nickname?: string;
 }
 
 // TinyBudOpts removed — --tiny deprecated, code moved to deprecated/tiny-bud-209/
@@ -73,6 +76,14 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     );
   }
 
+  // Validate nickname early — fail fast before any repo work (#643 Phase 3).
+  let nicknameValue = "";
+  if (opts.nickname !== undefined) {
+    const v = validateNickname(opts.nickname);
+    if (!v.ok) throw new Error(v.error);
+    nicknameValue = v.value;
+  }
+
   const config = loadConfig();
   const ghqRoot = config.ghqRoot;
   const org = opts.org || config.githubOrg || "Soul-Brews-Studio";
@@ -102,16 +113,20 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   // post-clone path; use that for all scaffolding below.
   const predictedRepoPath = join(ghqRoot, org, budRepoName);
 
+  const nickSuffix = nicknameValue ? ` (${nicknameValue})` : "";
   if (opts.root) {
-    console.log(`\n  \x1b[36m🌱 Root Bud\x1b[0m — ${name} (no parent lineage)\n`);
+    console.log(`\n  \x1b[36m🌱 Root Bud\x1b[0m — ${name}${nickSuffix} (no parent lineage)\n`);
   } else {
-    console.log(`\n  \x1b[36m🧬 Budding\x1b[0m — ${parentName} → ${name}\n`);
+    console.log(`\n  \x1b[36m🧬 Budding\x1b[0m — ${parentName} → ${name}${nickSuffix}\n`);
   }
 
   if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create repo: ${budRepoSlug}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${predictedRepoPath}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would generate CLAUDE.md`);
+    if (nicknameValue) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would write nickname: ${nicknameValue}`);
+    }
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create fleet config`);
     if (opts.seed && parentName) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] --seed: would bulk soul-sync from ${parentName}`);
@@ -131,9 +146,16 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   // 1. Create oracle repo — returns the ACTUAL clone path per ghq (#630).
   const budRepoPath = await ensureBudRepo(budRepoSlug, predictedRepoPath, budRepoName, org);
 
-  // 2-4.5. Initialize vault, CLAUDE.md, fleet config, birth note
+  // 2-4.5. Initialize vault, CLAUDE.md, nickname, fleet config, birth note
   const psiDir = initVault(budRepoPath);
   generateClaudeMd(budRepoPath, name, parentName);
+  if (nicknameValue) {
+    // Authoritative on-disk write (staged by finalizeBud's `git add -A`),
+    // then refresh the read-through cache so /info + peers pick it up immediately.
+    writeNickname(budRepoPath, nicknameValue);
+    setCachedNickname(name, nicknameValue);
+    console.log(`  \x1b[32m✓\x1b[0m nickname set: \x1b[33m${nicknameValue}\x1b[0m`);
+  }
   const fleetFile = configureFleet(name, org, budRepoName, parentName);
   if (opts.note) writeBirthNote(psiDir, name, parentName, opts.note);
 
