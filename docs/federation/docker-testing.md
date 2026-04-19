@@ -59,14 +59,30 @@ Requires Docker Engine 24+ and `docker compose` v2.
 ## Expected output
 
 ```
+--- probe a → b ---
+probing peer → http://node-b:3456 ...
+✓ reached peer (node-b)
+--- probe b → a ---
+probing peer → http://node-a:3456 ...
+✓ reached peer (node-a)
+
 ## Docker federation probe result
-a → b: PASS, code: 0, hint: -
-b → a: PASS, code: 0, hint: -
+- a → b: PASS, code: 0, hint: -
+- b → a: PASS, code: 0, hint: -
+
+OK: both directions passed
 ```
 
 The script exits `0` only if both probe calls exit `0` **and** the
 output contains no `handshake failed` substring. Any other shape is a
 regression.
+
+Last verified end-to-end on 2026-04-19 against `main` at
+[`76e1db1`](https://github.com/Soul-Brews-Studio/maw-js/commit/76e1db1) —
+both directions PASS once the bind heuristic from
+[#619](https://github.com/Soul-Brews-Studio/maw-js/pull/619) (closes
+[#616](https://github.com/Soul-Brews-Studio/maw-js/issues/616)) is in
+place.
 
 ## Debugging failures
 
@@ -88,10 +104,16 @@ logs as a `federation-docker-logs` artifact when the job fails.
   but the handshake classifier stayed red until `/info` shipped. Tracking
   issue: [#596](https://github.com/Soul-Brews-Studio/maw-js/issues/596)
   (closed by [#603](https://github.com/Soul-Brews-Studio/maw-js/pull/603)).
-- **Current:** the image build may fail at `bun install --frozen-lockfile`
-  if the committed `bun.lock` was written by a bun version older than the
-  one resolved by `oven/bun:1.3-alpine`. Tracking:
-  [#607](https://github.com/Soul-Brews-Studio/maw-js/issues/607).
+- **Historical (resolved, #607 / #614):** the image build failed at
+  `bun install --frozen-lockfile` when the committed `bun.lock` was
+  written by a bun version older than the one resolved by
+  `oven/bun:1.3-alpine`. Aligning the Dockerfile to the lockfile's bun
+  version unblocked the harness.
+- **Historical (resolved, #616 / #619):** `maw serve` defaulted to
+  binding `127.0.0.1` only, so cross-container probes resolved DNS but
+  hit `REFUSED` on connect. The bind heuristic now upgrades to `0.0.0.0`
+  when `MAW_HOST` is set or when `peers.json` exists, which is what the
+  compose entrypoint provides.
 
 ## Related
 
