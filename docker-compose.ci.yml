@@ -1,0 +1,52 @@
+# Local reproducer for the GH Actions CI env. Runs `bun run test:all` (the
+# full matrix) against a fresh install inside a pinned bun + ghq container.
+#
+# Usage:
+#   bun run ci:local
+# or directly:
+#   docker compose -f docker-compose.ci.yml run --rm ci
+#
+# For finer-grained matrix suites (unit / isolated / plugin / mock-smoke
+# individually), see docker-compose.test.yml — this file intentionally only
+# exposes the `test:all` entrypoint requested by the task brief.
+
+services:
+  ci:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+    image: mawjs-ci:local
+    working_dir: /app
+    environment:
+      - CI=true
+      - GITHUB_ACTIONS=true
+      - TZ=UTC
+    volumes:
+      # Read-only source mount — matches CI's "clean checkout" model, avoids
+      # leaking the host node_modules or stray tmux sockets into the run.
+      - type: bind
+        source: .
+        target: /src
+        read_only: true
+      # tmpfs /app — each `run --rm` starts with a fresh install, just like
+      # a CI job getting a fresh runner.
+      - type: tmpfs
+        target: /app
+      # Persistent bun install cache — speeds up iterative local runs.
+      - bun-cache:/root/.bun/install/cache
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        cp -a /src/. /app/
+        echo "--- env ---"
+        echo "bun $(bun --version)"
+        echo "node $(node --version 2>/dev/null || echo N/A)"
+        echo "ghq $(ghq --version 2>/dev/null || echo N/A)"
+        echo "--- install ---"
+        bun install --frozen-lockfile
+        echo "--- test:all ---"
+        bun run test:all
+
+volumes:
+  bun-cache:
