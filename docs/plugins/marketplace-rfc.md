@@ -114,22 +114,16 @@ ownership. Reuses: `peers.json`, peer transport, `plugins.lock` sha256 pins.
 
 ### Risks
 
-- **Peer churn** — peers go offline; mitigate with short timeouts + `(offline)`
-  markers in output.
-- **Peer trust** — an untrusted peer can offer a malicious plugin. Mitigation:
-  sha256 pin on install (existing `plugins.lock` flow) + a prompt before
-  installing from a peer not previously used.
-- **Name collisions** — two peers ship different plugins with the same name.
-  Mitigation: search output always shows `@<peer>`; install requires
-  disambiguation when ≥2 hits share a name.
-- **Discovery scope** — what does "known peers" mean? Three candidates:
-  1. `peers.json` only (fastest, smallest blast radius, misses strangers);
-  2. `peers.json` + oracles seen via `maw oracle scan --remote` (broader,
-     slower, surfaces the long tail);
-  3. explicit `--peer <name>` flag only (most conservative).
-
-  Recommendation: **1** by default, **2** behind `--broad`, **3** always
-  available as override.
+- **Peer churn** — peers go offline; short timeouts + `(offline)` markers.
+- **Peer trust** — untrusted peer offers malicious plugin. Mitigation: sha256
+  pin on install (existing `plugins.lock` flow) + prompt before installing
+  from a previously-unused peer.
+- **Name collisions** — two peers ship same-named plugins. Mitigation: search
+  output always shows `@<peer>`; install requires disambiguation.
+- **Discovery scope** — what's "known peers"? (1) `peers.json` only (fastest,
+  misses strangers); (2) `peers.json` + oracles from `maw oracle scan --remote`
+  (broader, slower); (3) explicit `--peer <name>` only. Recommended: 1 by
+  default, 2 behind `--broad`, 3 always available.
 
 ## Shape B — Central registry
 
@@ -201,37 +195,28 @@ Months:
 
 Reasons:
 
-- Shape A is ~200 LOC of new code that reuses every primitive we already have
-  (`peers.json`, peer transport, sha256 pins, manifest format).
-- Shape A is **reversible** — if it's the wrong shape, delete two files.
-  Shape B commits to years of ops.
-- Shape B can be built **on top of** Shape A later (one well-connected peer
-  that just happens to host a canonical manifest) without invalidating any
-  existing install path.
-- Philosophical alignment: the whole maw stack is federation-first; a central
-  registry is the outlier shape.
+- Reuses every primitive we already have (`peers.json`, peer transport,
+  sha256 pins, manifest format) in ~200 LOC.
+- Reversible — delete two files if it's wrong. Shape B commits to years of ops.
+- Shape B can be built *on top of* Shape A later (one well-known peer that
+  happens to host a canonical manifest) without invalidating install paths.
+- Federation-first is the shape of every other maw primitive.
 
 ## Prerequisite — #402
 
-Plugins must load correctly when installed standalone before either shape
-is safe to widely adopt. Today some plugins import from `src/...` relative
-paths that only resolve inside the maw-js tree; once installed into
-`~/.maw/plugins/<name>/` they break. Shape A makes this worse by encouraging
-installs from peers where the caller has no way to audit import paths.
-
-#402 is tracked separately; this RFC assumes it lands before any marketplace
-work.
+Plugins must load standalone before either shape ships. Today some plugins
+use `src/...` relative imports that only resolve inside the maw-js tree and
+break once installed to `~/.maw/plugins/<name>/`. Shape A worsens this by
+encouraging installs from peers the caller can't audit. #402 assumed to
+land first.
 
 ## Non-goals (this RFC)
 
-- **Not** proposing plugin categories, ratings, reviews, or downloads
-  telemetry. These belong to a later iteration if we go Shape B.
-- **Not** proposing changes to `plugins.lock` — sha256 pinning continues
-  unchanged; the marketplace is just a different source of first-install
-  hints.
-- **Not** proposing a web UI.
-- **Not** proposing removal of the existing community `registry.json` — it
-  remains the "known-good" curated set and survives both shapes.
+- Plugin categories, ratings, reviews, downloads telemetry (Shape B concern).
+- Changes to `plugins.lock` — sha256 pinning is unchanged.
+- A web UI.
+- Removing the existing community `registry.json` — it stays as the curated
+  "known-good" set and survives both shapes.
 
 ## Open questions
 
