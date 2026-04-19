@@ -92,6 +92,44 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 
 export { parseFlags } from "../cli/parse-args";
 
+// ─── Transport Router ────────────────────────────────────────────────────────
+
+export {
+  createTransportRouter, getTransportRouter, resetTransportRouter,
+} from "../transports";
+export { TransportRouter, classifyError } from "../core/transport/transport";
+export type {
+  Transport, TransportTarget, TransportMessage, TransportPresence,
+  TransportResult, TransportFailureReason,
+} from "../core/transport/transport";
+
+// ─── Bud (create a new oracle) ───────────────────────────────────────────────
+
+export { cmdBud } from "../commands/plugins/bud/impl";
+export type { BudOpts } from "../commands/plugins/bud/impl";
+export {
+  cmdBudFromRepo, looksLikeUrl, planFromRepoInjection, formatPlan,
+} from "../commands/plugins/bud/from-repo";
+export {
+  initVault, generateClaudeMd, configureFleet, writeBirthNote,
+} from "../commands/plugins/bud/bud-init";
+export { finalizeBud } from "../commands/plugins/bud/bud-wake";
+export type { BudFinalizeCtx } from "../commands/plugins/bud/bud-wake";
+export { ensureBudRepo } from "../commands/plugins/bud/bud-repo";
+export type { FromRepoOpts, InjectionPlan, InjectionAction } from "../commands/plugins/bud/types";
+
+// ─── Oracle management ───────────────────────────────────────────────────────
+
+export {
+  cmdOracleAbout,
+  cmdOracleList,
+  cmdOracleScan,
+  cmdOracleFleet,
+  cmdOracleScanStale,
+  cmdOraclePrune,
+  cmdOracleRegister,
+} from "../commands/plugins/oracle/impl";
+
 // ─── definePlugin — the plugin contract ──────────────────────────────────────
 
 import type { InvokeContext, InvokeResult } from "../plugin/types";
