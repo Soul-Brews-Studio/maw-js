@@ -35,6 +35,10 @@ function getVersionString(): string {
 
 export const VERSION = getVersionString();
 
+// Bind heuristic lives in ./bind-host.ts so tests can import it without
+// pulling in server.ts's module-level auto-start side effects.
+import { resolveBindHost } from "./bind-host";
+
 // --- Views + static (Hono keeps these) ---
 
 const views = new Hono();
@@ -179,10 +183,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   };
 
   // HTTP server (always)
-  // Security: bind to localhost unless peers are configured (federation needs network access)
+  // Security: bind to localhost unless federation is active (see resolveBindHost).
   const config = loadConfig();
-  const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
-  const hostname = hasPeers ? "0.0.0.0" : "127.0.0.1";
+  const { hostname, reason } = resolveBindHost(config);
+  const hasPeers = reason !== null;
 
   if (hasPeers && !config.federationToken) {
     console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
@@ -192,7 +196,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
   setBunServer(server);
-  console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]`);
+  const bindNote = reason ? ` (${reason})` : "";
+  console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;
