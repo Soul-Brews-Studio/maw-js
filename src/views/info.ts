@@ -3,6 +3,7 @@ import { hostname } from "os";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../config";
+import { resolveNickname } from "../core/fleet/nicknames";
 
 /**
  * Self-describing maw field — schema "1" (#628).
@@ -24,6 +25,8 @@ export interface InfoResponse {
   node: string;
   version: string;
   ts: string;
+  /** Optional human-friendly nickname for this oracle (#643 Phase 2). */
+  nickname?: string;
   maw: InfoMaw;
 }
 
@@ -45,9 +48,28 @@ function readNode(): string {
   return hostname();
 }
 
+/**
+ * Look up the nickname for the local oracle (#643 Phase 2).
+ *
+ * Resolution: read-through cache keyed by node name, with cwd's
+ * `ψ/nickname` as on-disk fallback (the maw-js server runs from the
+ * oracle repo, so cwd == local oracle repo in the common case).
+ * Any error → omit silently; nickname is strictly cosmetic.
+ */
+function readLocalNickname(node: string): string | undefined {
+  try {
+    const v = resolveNickname(node, process.cwd());
+    return v ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildInfo(): InfoResponse {
-  return {
-    node: readNode(),
+  const node = readNode();
+  const nickname = readLocalNickname(node);
+  const resp: InfoResponse = {
+    node,
     version: readVersion(),
     ts: new Date().toISOString(),
     maw: {
@@ -58,6 +80,8 @@ export function buildInfo(): InfoResponse {
       capabilities: ["plugin.listManifest", "peer.handshake", "info"],
     },
   };
+  if (nickname) resp.nickname = nickname;
+  return resp;
 }
 
 export const infoView = new Hono();
