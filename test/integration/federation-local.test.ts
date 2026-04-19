@@ -46,7 +46,10 @@ async function waitForInfo(url: string, timeoutMs = 20_000): Promise<void> {
       const res = await fetch(`${url}/info`);
       if (res.ok) {
         const body = (await res.json()) as { maw?: unknown; node?: unknown };
-        if (body.maw === true && typeof body.node === "string" && body.node) return;
+        // Accept both pre-#628 `maw: true` and post-#628 object shape.
+        const mawOk = body.maw === true
+          || (!!body.maw && typeof body.maw === "object");
+        if (mawOk && typeof body.node === "string" && body.node) return;
       }
     } catch (e) {
       lastErr = e;
@@ -138,12 +141,15 @@ describe.skipIf(SKIP)("federation — 2-port localhost /info + probe round-trip"
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   });
 
-  test("each node's /info returns 200 with maw:true and the configured node name", async () => {
+  test("each node's /info returns 200 with a truthy maw handshake and the configured node name", async () => {
     for (const n of [nodeA, nodeB]) {
       const res = await fetch(`${n.url}/info`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { node?: unknown; maw?: unknown; ts?: unknown };
-      expect(body.maw).toBe(true);
+      // Post-#628: maw is a self-describing object (`{schema,plugins,capabilities}`).
+      // The probe gate accepts both, so we assert only the generic "truthy"
+      // contract here — the shape specifics are covered in info-endpoint.test.ts.
+      expect(body.maw).toBeTruthy();
       expect(body.node).toBe(n.name);
       expect(typeof body.ts).toBe("string");
     }
