@@ -17,7 +17,8 @@ const USAGE =
   "  pin <name> <tarball> [--version V]  add/update plugins.lock entry (#487)\n" +
   "  unpin <name>                        remove a plugins.lock entry\n" +
   "  registry                            show registry URL + entry count\n" +
-  "  search <query>                      search registry by name/summary\n" +
+  "  search <query> [--peers|--peers-only|--peer <name>]\n" +
+  "                                      search registry and/or peers (#631)\n" +
   "  info <name>                         show registry entry for <name>";
 
 function isPlainName(src: string): boolean {
@@ -38,21 +39,84 @@ async function runRegistryCmd(): Promise<void> {
   console.log(`plugins:  ${count}`);
 }
 
-async function runSearchCmd(args: string[]): Promise<void> {
-  const query = args[0];
-  if (!query) throw new Error("usage: maw plugin search <query>");
-  const { getRegistry } = await import("./registry-fetch");
-  const reg = await getRegistry();
-  const q = query.toLowerCase();
-  const matches = Object.entries(reg.plugins)
-    .filter(([name, e]) => name.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q))
-    .sort(([a], [b]) => a.localeCompare(b));
-  if (matches.length === 0) {
-    console.log(`no plugins match ${JSON.stringify(query)}`);
-    return;
+interface SearchFlags {
+  query: string;
+  peers: boolean;
+  peersOnly: boolean;
+  peer?: string;
+}
+
+function parseSearchArgs(args: string[]): SearchFlags {
+  let query: string | undefined;
+  let peers = false;
+  let peersOnly = false;
+  let peer: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--peers") peers = true;
+    else if (a === "--peers-only") peersOnly = true;
+    else if (a === "--peer") {
+      peer = args[++i];
+      if (!peer) throw new Error("--peer requires a name");
+    } else if (!a.startsWith("-") && query === undefined) {
+      query = a;
+    }
   }
-  for (const [name, e] of matches) {
-    console.log(`${name}@${e.version}  ${e.summary}`);
+  if (!query) {
+    throw new Error(
+      "usage: maw plugin search <query> [--peers | --peers-only | --peer <name>]",
+    );
+  }
+  return { query, peers, peersOnly, peer };
+}
+
+async function runSearchCmd(args: string[]): Promise<void> {
+  const flags = parseSearchArgs(args);
+  const wantPeers = flags.peers || flags.peersOnly || !!flags.peer;
+  const wantRegistry = !flags.peersOnly && !flags.peer;
+
+  if (wantRegistry) {
+    const { getRegistry } = await import("./registry-fetch");
+    const reg = await getRegistry();
+    const q = flags.query.toLowerCase();
+    const matches = Object.entries(reg.plugins)
+      .filter(([name, e]) => name.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q))
+      .sort(([a], [b]) => a.localeCompare(b));
+    if (wantPeers) console.log("registry:");
+    if (matches.length === 0) {
+      if (wantPeers) console.log("  (no hits)");
+      else console.log(`no plugins match ${JSON.stringify(flags.query)}`);
+    } else {
+      for (const [name, e] of matches) {
+        console.log(`${wantPeers ? "  " : ""}${name}@${e.version}  ${e.summary}`);
+      }
+    }
+  }
+
+  if (!wantPeers) return;
+
+  const { searchPeers } = await import("./search-peers");
+  const result = await searchPeers(flags.query, {
+    peer: flags.peer,
+  });
+  const secs = (result.elapsedMs / 1000).toFixed(1);
+  console.log(
+    `\npeers (${result.queried} queried, ${result.responded} responded in ${secs}s):`,
+  );
+  if (result.hits.length === 0) {
+    console.log("  (no hits)");
+  } else {
+    for (const h of result.hits) {
+      const tag = h.peerName
+        ? `@${h.peerName}${h.peerNode && h.peerNode !== h.peerName ? `(${h.peerNode})` : ""}`
+        : `@${h.peerUrl}`;
+      const summary = h.summary ?? "";
+      console.log(`  ${h.name}@${h.version}  ${summary}  ${tag}`);
+    }
+  }
+  for (const e of result.errors) {
+    const label = e.peerName ?? e.peerUrl;
+    console.log(`  \x1b[90m! ${label}: ${e.reason}${e.detail ? ` (${e.detail})` : ""}\x1b[0m`);
   }
 }
 
