@@ -95,10 +95,19 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
   }
 
   // Spawn PTY via script(1) — attach to our grouped session (not the original)
+  // script(1) syntax diverges between util-linux and BSD (macOS):
+  //   util-linux:  script [-qfc <cmd>] <file>
+  //   BSD/macOS:   script [-aeFkpqr] <file> [command ...]
+  // Using -qfc on macOS dies with "illegal option -- f" → `script` exits immediately
+  // → stdout reader finishes → we fire {type:"detached"} before the PTY ever attaches,
+  // which is exactly what the lens shows as "[session detached]" on macOS hosts.
+  // Detect darwin and use the BSD invocation instead.
   let args: string[];
   if (isLocalHost()) {
     const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
-    args = ["script", "-qfc", cmd, "/dev/null"];
+    args = process.platform === "darwin"
+      ? ["script", "-q", "/dev/null", "sh", "-c", cmd]
+      : ["script", "-qfc", cmd, "/dev/null"];
   } else {
     const host = process.env.MAW_HOST || loadConfig().host || "local";
     args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
