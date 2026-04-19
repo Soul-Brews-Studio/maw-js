@@ -24,6 +24,7 @@ import {
   type OracleEntry,
 } from "../../../sdk";
 import { lineageOf, timeSince, type OracleLineage } from "./impl-helpers";
+import { resolveNickname } from "../../../core/fleet/nicknames";
 
 export interface OracleListOpts {
   awake?: boolean;
@@ -94,11 +95,20 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
     }
   }
 
-  // 4. Enrich each entry with awake state + lineage
+  // 4. Enrich each entry with awake state + lineage + nickname (read-through)
   const enriched: EnrichedEntry[] = entries.map((entry) => {
     const session = awakeByName.get(entry.name) ?? null;
     const awake = session !== null;
-    return { entry, awake, session, lineage: lineageOf(entry, awake, agents) };
+    const nickname = resolveNickname(entry.name, entry.local_path || null);
+    const enrichedEntry: OracleEntry = nickname
+      ? { ...entry, nickname }
+      : entry;
+    return {
+      entry: enrichedEntry,
+      awake,
+      session,
+      lineage: lineageOf(entry, awake, agents),
+    };
   });
 
   // 5. Apply filters
@@ -216,5 +226,13 @@ function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): string {
       ? `\n        \x1b[90m${e.local_path}\x1b[0m`
       : "";
 
-  return `    ${icon} ${tag}  ${e.name.padEnd(22)} ${lineageNote.padEnd(26)} ${node}${missing}${registerHint}${pathCol}`;
+  const displayName = e.nickname
+    ? `${e.name} \x1b[90m(${e.nickname})\x1b[0m`
+    : e.name;
+  // padEnd counts ANSI codes, so pad the plain width then re-embed.
+  const plainWidth = e.nickname
+    ? `${e.name} (${e.nickname})`.length
+    : e.name.length;
+  const padding = " ".repeat(Math.max(0, 22 - plainWidth));
+  return `    ${icon} ${tag}  ${displayName}${padding} ${lineageNote.padEnd(26)} ${node}${missing}${registerHint}${pathCol}`;
 }
