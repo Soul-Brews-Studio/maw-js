@@ -33,6 +33,10 @@ export interface TeamInviteOptions {
   scope?: string;
   /** Team lead name surfaced in the consent summary. Defaults to config.node. */
   lead?: string;
+  /** Test injection — override peer lookup. Defaults to config.namedPeers. */
+  peerLookup?: (peerName: string) => NamedPeer | null;
+  /** Test injection — override local node. Defaults to config.node. */
+  myNode?: string;
 }
 
 export interface TeamInviteDecision {
@@ -44,13 +48,13 @@ export interface TeamInviteDecision {
 
 const SCOPE_DEFAULT = "member";
 
-interface NamedPeer {
+export interface NamedPeer {
   name: string;
   url: string;
   node?: string;
 }
 
-function findPeer(peerName: string): NamedPeer | null {
+function defaultPeerLookup(peerName: string): NamedPeer | null {
   const cfg = loadConfig() as { namedPeers?: NamedPeer[] };
   const named = cfg.namedPeers ?? [];
   return named.find(p => p.name === peerName) ?? null;
@@ -107,7 +111,8 @@ export async function runTeamInvite(
     };
   }
 
-  const peer = findPeer(peerName);
+  const lookup = opts.peerLookup ?? defaultPeerLookup;
+  const peer = lookup(peerName);
   if (!peer) {
     return {
       ok: false,
@@ -127,7 +132,7 @@ export async function runTeamInvite(
     return { ok: true };
   }
 
-  const myNode = loadConfig().node ?? "local";
+  const myNode = opts.myNode ?? (loadConfig().node ?? "local");
   const lead = opts.lead || myNode;
 
   // Trust key falls back to peerName when peer didn't advertise a node.
