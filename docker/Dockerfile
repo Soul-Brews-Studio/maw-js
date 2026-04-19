@@ -10,6 +10,8 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 
+RUN chmod +x src/cli.ts && ln -sf /app/src/cli.ts /usr/local/bin/maw
+
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
