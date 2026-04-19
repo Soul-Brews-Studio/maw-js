@@ -501,6 +501,36 @@ describe("from-repo: --force / --from / --track-vault (#588 continuation)", () =
     }
   });
 
+  it("plan reflects --seed + --sync-peers when set", () => {
+    const dir = mkGitRepo();
+    try {
+      const plan = planFromRepoInjection({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: true,
+        from: "parent", seed: true, syncPeers: true,
+      });
+      const kinds = plan.actions.map(a => `${a.kind}:${a.path}`);
+      expect(kinds.some(k => k.includes("ψ/memory/ (seeded from parent)"))).toBe(true);
+      expect(kinds).toContain("write:ψ/peers.json");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("plan shows --seed without --from as a skip", () => {
+    const dir = mkGitRepo();
+    try {
+      const plan = planFromRepoInjection({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: true,
+        seed: true,
+      });
+      const seedAction = plan.actions.find(a => a.path === "ψ/memory/ (seed)");
+      expect(seedAction?.kind).toBe("skip");
+      expect(seedAction?.reason).toContain("--from");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("orchestrator wires registerFleetEntry with stem/target/parent", async () => {
     const before = fleetCalls.length;
     const dir = mkGitRepo();
@@ -515,6 +545,156 @@ describe("from-repo: --force / --from / --track-vault (#588 continuation)", () =
       expect(newCalls[0].parent).toBe("neo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("from-repo: --seed + --sync-peers (file-copy pair)", () => {
+  let prevPeersFile: string | undefined;
+
+  beforeEach(() => {
+    prevPeersFile = process.env.PEERS_FILE;
+  });
+
+  // --seed mocks loadConfig so the parent tree resolves into a tmp ghqRoot.
+  // We must re-import from-repo-seed AFTER installing the mock so the mocked
+  // config is used, then re-import from-repo so its `seedFromParent` binding
+  // points to the mocked module.
+  async function installConfigMock(ghqRoot: string) {
+    mock.module("../../../config", () => ({
+      loadConfig: () => ({ ghqRoot, githubOrg: "Fake-Org" }),
+    }));
+    delete (require.cache as any)[require.resolve("./from-repo-seed")];
+    delete (require.cache as any)[require.resolve("./from-repo")];
+    return await import("./from-repo");
+  }
+
+  it("--seed copies parent's ψ/memory/ into target", async () => {
+    const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
+    const parentMem = join(ghqRoot, "Fake-Org", "parent-oracle", "ψ", "memory");
+    mkdirSync(join(parentMem, "learnings"), { recursive: true });
+    writeFileSync(join(parentMem, "learnings", "a.md"), "hello from parent\n");
+    writeFileSync(join(parentMem, "root.txt"), "root memory\n");
+
+    const dir = mkGitRepo();
+    try {
+      const mod = await installConfigMock(ghqRoot);
+      await mod.cmdBudFromRepo({
+        target: dir, stem: "child", isUrl: false, pr: false, dryRun: false,
+        from: "parent", seed: true,
+      });
+      expect(readFileSync(join(dir, "ψ", "memory", "learnings", "a.md"), "utf-8")).toBe("hello from parent\n");
+      expect(readFileSync(join(dir, "ψ", "memory", "root.txt"), "utf-8")).toBe("root memory\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(ghqRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("--seed is dest-biased: pre-existing target file is NOT overwritten", async () => {
+    const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
+    const parentMem = join(ghqRoot, "Fake-Org", "parent-oracle", "ψ", "memory");
+    mkdirSync(join(parentMem, "learnings"), { recursive: true });
+    writeFileSync(join(parentMem, "learnings", "collide.md"), "parent wins\n");
+
+    const dir = mkGitRepo();
+    try {
+      // Pre-seed the child with conflicting content (simulate prior work)
+      mkdirSync(join(dir, "ψ", "memory", "learnings"), { recursive: true });
+      writeFileSync(join(dir, "ψ", "memory", "learnings", "collide.md"), "child keeps\n");
+
+      const mod = await installConfigMock(ghqRoot);
+      await mod.cmdBudFromRepo({
+        target: dir, stem: "child", isUrl: false, pr: false, dryRun: false,
+        from: "parent", seed: true, force: true,
+      });
+      // Child's pre-existing file wins
+      expect(readFileSync(join(dir, "ψ", "memory", "learnings", "collide.md"), "utf-8")).toBe("child keeps\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(ghqRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("--seed without --from is a no-op (no parent to seed)", async () => {
+    const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
+    const dir = mkGitRepo();
+    try {
+      const mod = await installConfigMock(ghqRoot);
+      await mod.cmdBudFromRepo({
+        target: dir, stem: "child", isUrl: false, pr: false, dryRun: false,
+        seed: true, // no from
+      });
+      // Vault exists (from normal injection) but empty — no parent memory to copy
+      expect(existsSync(join(dir, "ψ", "memory"))).toBe(true);
+      // Spot-check: no files under learnings (only dirs from writeVault)
+      // (The dir is created, just empty of files.)
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(ghqRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("--seed with missing parent vault is a logged skip (no throw)", async () => {
+    const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
+    // Note: no parent tree created
+    const dir = mkGitRepo();
+    try {
+      const mod = await installConfigMock(ghqRoot);
+      await mod.cmdBudFromRepo({
+        target: dir, stem: "child", isUrl: false, pr: false, dryRun: false,
+        from: "ghost-parent", seed: true,
+      });
+      // Injection still succeeds — vault exists
+      expect(existsSync(join(dir, "ψ", "inbox"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(ghqRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("--sync-peers copies host peers.json to <target>/ψ/peers.json", async () => {
+    const peersDir = mkdtempSync(join(tmpdir(), "maw-peers-"));
+    const peersSrc = join(peersDir, "peers.json");
+    const content = JSON.stringify({ version: 1, peers: { alice: { url: "https://a.example", node: "a", addedAt: "2026-04-19T00:00:00Z", lastSeen: null } } }, null, 2) + "\n";
+    writeFileSync(peersSrc, content);
+    process.env.PEERS_FILE = peersSrc;
+
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false,
+        syncPeers: true,
+      });
+      const dst = join(dir, "ψ", "peers.json");
+      expect(existsSync(dst)).toBe(true);
+      expect(readFileSync(dst, "utf-8")).toBe(content);
+    } finally {
+      if (prevPeersFile === undefined) delete process.env.PEERS_FILE;
+      else process.env.PEERS_FILE = prevPeersFile;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(peersDir, { recursive: true, force: true });
+    }
+  });
+
+  it("--sync-peers with no source peers.json is a logged skip", async () => {
+    const peersDir = mkdtempSync(join(tmpdir(), "maw-peers-"));
+    process.env.PEERS_FILE = join(peersDir, "does-not-exist.json");
+
+    const dir = mkGitRepo();
+    try {
+      await cmdBudFromRepo({
+        target: dir, stem: "demo", isUrl: false, pr: false, dryRun: false,
+        syncPeers: true,
+      });
+      expect(existsSync(join(dir, "ψ", "peers.json"))).toBe(false);
+      // Injection still succeeded
+      expect(existsSync(join(dir, "ψ", "inbox"))).toBe(true);
+    } finally {
+      if (prevPeersFile === undefined) delete process.env.PEERS_FILE;
+      else process.env.PEERS_FILE = prevPeersFile;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(peersDir, { recursive: true, force: true });
     }
   });
 });
