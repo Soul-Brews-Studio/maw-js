@@ -24,12 +24,15 @@
 import { parseFlags } from "../../../cli/parse-args";
 import { detectMode, ensureInstallRoot } from "./install-source-detect";
 import { installFromDir, installFromTarball, installFromUrl } from "./install-handlers";
+import { resolvePeerInstall } from "./install-peer-resolver";
 import { basename } from "path";
 
-export { installRoot, detectMode, ensureInstallRoot, removeExisting } from "./install-source-detect";
+export { installRoot, detectMode, parsePeerSpec, ensureInstallRoot, removeExisting } from "./install-source-detect";
 export { extractTarball, downloadTarball, verifyArtifactHash } from "./install-extraction";
 export { readManifest, shortHash, printInstallSuccess } from "./install-manifest-helpers";
 export { installFromDir, installFromTarball, installFromUrl, ensurePluginMawJsLink } from "./install-handlers";
+export { resolvePeerInstall } from "./install-peer-resolver";
+export type { ResolvedPeerSource } from "./install-peer-resolver";
 
 // TODO(phase-b): trust-boundary enforcement. First tarball installed from a
 // non-first-party URL should flip capability enforcement on for that plugin.
@@ -53,7 +56,7 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
   const src = flags._[0];
 
   if (!src || src === "--help" || src === "-h") {
-    throw new Error("usage: maw plugin install <dir | .tgz | URL> [--link] [--force] [--pin] [--category core|standard|extra]");
+    throw new Error("usage: maw plugin install <dir | .tgz | URL | name@peer> [--link] [--force] [--pin] [--category core|standard|extra]");
   }
 
   ensureInstallRoot();
@@ -72,6 +75,15 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
     await installFromDir(mode.src, { force, weight });
   } else if (mode.kind === "tarball") {
     await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force, weight, pin });
+  } else if (mode.kind === "peer") {
+    const resolved = await resolvePeerInstall(mode.name, mode.peer);
+    console.log(
+      `→ ${resolved.peerName}${resolved.peerNode ? ` (${resolved.peerNode})` : ""} advertises: ` +
+      `${mode.name}@${resolved.version}` +
+      (resolved.peerSha256 ? ` (sha256: ${resolved.peerSha256.slice(0, 12)}…)` : ""),
+    );
+    console.log(`→ downloading ${resolved.downloadUrl}…`);
+    await installFromUrl(resolved.downloadUrl, { force, weight, pin });
   } else {
     await installFromUrl(mode.src, { force, weight, pin });
   }
