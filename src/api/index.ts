@@ -21,6 +21,7 @@ import { peerExecApi } from "./peer-exec";
 import { proxyApi } from "./proxy";
 import { pulseApi } from "./pulse";
 import { pluginsRouter } from "./plugins";
+import { pluginListManifestApi } from "./plugin-list-manifest";
 import { uploadApi } from "./upload";
 import { pairApi } from "./pair";
 import { discoverPackages, invokePlugin } from "../plugin/registry";
@@ -59,6 +60,7 @@ export const api = new Elysia({ prefix: "/api" })
   .use(proxyApi)
   .use(pulseApi)
   .use(pluginsRouter)
+  .use(pluginListManifestApi)
   .use(uploadApi)
   .use(pairApi);
 
