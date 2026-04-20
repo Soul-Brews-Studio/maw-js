@@ -2,7 +2,7 @@ import { execSync } from "child_process";
 import {
   existsSync, writeFileSync, mkdirSync, readdirSync,
   lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
-  renameSync,
+  renameSync, rmSync,
 } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
@@ -170,7 +170,55 @@ export async function runUpdate(args: string[]): Promise<void> {
       } catch { /* stash best-effort */ }
 
       try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
+
+      // #697 — evict bun's global lockfiles + any cached maw-js tarballs.
+      // `bun remove` clears the node_modules entry but bun.lock/bun.lockb pin
+      // the *previous* ref's commit SHA, and `~/.bun/install/cache/` may hold
+      // a stale tarball. When an annotated tag's ref points to the tag object
+      // SHA rather than the commit SHA (tag-object polymorphism), bun's
+      // resolver can get stuck re-resolving to the cached/pinned SHA — the
+      // dep-loop. Nuke these so the retry resolves from scratch.
+      try {
+        const bunGlobal = join(homedir(), ".bun", "install", "global");
+        for (const f of ["bun.lock", "bun.lockb"]) {
+          const p = join(bunGlobal, f);
+          try { if (existsSync(p)) unlinkSync(p); } catch {}
+        }
+      } catch {}
+      try {
+        const cacheDir = join(homedir(), ".bun", "install", "cache");
+        if (existsSync(cacheDir)) {
+          for (const entry of readdirSync(cacheDir)) {
+            if (entry.includes("maw-js")) {
+              try { rmSync(join(cacheDir, entry), { recursive: true, force: true }); } catch {}
+            }
+          }
+        }
+      } catch {}
+
       installCode = await spawnInstall().exited;
+
+      if (installCode !== 0) {
+        // #697 — Fallback: download pre-built binary from GitHub release
+        // (bypasses bun's resolver entirely). calver-release.yml attaches `maw`
+        // as a release asset. Works around bun's annotated-tag-SHA dep-loop
+        // bug and any future resolver regressions. Only meaningful when `ref`
+        // is a release tag — for branches/SHAs the curl 404s and we fall
+        // through to the existing error path.
+        console.warn(`\x1b[33m↺\x1b[0m bun add failed — trying release-binary fallback`);
+        const releaseUrl = `https://github.com/${repository}/releases/download/${ref}/maw`;
+        const dl = Bun.spawn(["curl", "-fsSL", "-o", BIN, releaseUrl], { stdout: "inherit", stderr: "inherit" });
+        const dlCode = await dl.exited;
+        if (dlCode === 0) {
+          await Bun.spawn(["chmod", "+x", BIN]).exited;
+          const v = Bun.spawn(["maw", "--version"], { stdout: "pipe" });
+          const versionOk = (await v.exited) === 0;
+          if (versionOk) {
+            console.log(`\x1b[32m✓\x1b[0m installed via release binary (bun resolver bypassed)`);
+            installCode = 0;
+          }
+        }
+      }
 
       if (installCode !== 0 && stashed && existsSync(STASH)) {
         // Retry failed — restore the previous binary so the user isn't stranded.
