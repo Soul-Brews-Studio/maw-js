@@ -2,7 +2,7 @@ import { loadConfig } from "../../config";
 import { tmuxCmd, Tmux } from "./tmux";
 
 const DEFAULT_HOST = process.env.MAW_HOST || loadConfig().host || "local";
-const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost";
+const IS_LOCAL = DEFAULT_HOST === "local" || DEFAULT_HOST === "localhost" || DEFAULT_HOST === "0.0.0.0" || DEFAULT_HOST === "127.0.0.1";
 
 export type HostExecTransport = "local" | "ssh";
 
@@ -25,7 +25,7 @@ export class HostExecError extends Error {
 
 /** Transport — run on oracle host. local → bash -c | remote → ssh */
 export async function hostExec(cmd: string, host = DEFAULT_HOST): Promise<string> {
-  const local = host === "local" || host === "localhost" || IS_LOCAL;
+  const local = host === "local" || host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1" || IS_LOCAL;
   const transport: HostExecTransport = local ? "local" : "ssh";
   const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
