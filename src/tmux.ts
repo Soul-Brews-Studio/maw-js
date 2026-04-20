@@ -291,20 +291,24 @@ export class Tmux {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
       await this.pasteBuffer(target);
-      // Staggered Enter — submit immediately + 2 fallbacks
+      // Initial wait — let interactive UI (Claude Code) render paste before Enter (2026-04-20 Helm patch)
+      await new Promise(r => setTimeout(r, 1500));
+      // Staggered Enter — submit + 2 fallbacks
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 700));
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1200));
       await this.sendKeys(target, "Enter");
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
-      // Staggered Enter — submit immediately + 2 fallbacks
+      // Initial wait — let interactive UI (Claude Code) render paste before Enter (2026-04-20 Helm patch)
+      await new Promise(r => setTimeout(r, 1500));
+      // Staggered Enter — submit + 2 fallbacks
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 700));
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1200));
       await this.sendKeys(target, "Enter");
     }
   }
