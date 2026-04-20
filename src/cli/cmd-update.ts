@@ -169,10 +169,19 @@ export async function runUpdate(args: string[]): Promise<void> {
         }
       } catch { /* stash best-effort */ }
 
+      // #697 — use the PACKAGE name (`maw-js`), not the bin name (`maw`).
+      // `bun remove -g maw` is a silent no-op because bun looks up by package
+      // name in ~/.bun/install/global/package.json, and the package registered
+      // there is `maw-js`. Leaving the old ref in that manifest (e.g. pinning
+      // `maw-js: github:.../#v26.4.19-alpha.15`) was the actual persistent
+      // source of the dep-loop across every retry — bun kept merging the
+      // stale pin into its graph alongside the new resolution. Removing by
+      // package name evicts the pin from global package.json cleanly.
+      try { execSync(`bun remove -g maw-js`, { stdio: "pipe" }); } catch {}
       try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
 
-      // #697 — evict bun's global lockfiles + any cached maw-js tarballs.
-      // `bun remove` clears the node_modules entry but bun.lock/bun.lockb pin
+      // #697 — also evict bun's global lockfiles + any cached maw-js tarballs.
+      // `bun remove` clears the package entry but bun.lock/bun.lockb pin
       // the *previous* ref's commit SHA, and `~/.bun/install/cache/` may hold
       // a stale tarball. When an annotated tag's ref points to the tag object
       // SHA rather than the commit SHA (tag-object polymorphism), bun's
