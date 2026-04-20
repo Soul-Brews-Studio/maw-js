@@ -107,7 +107,7 @@ jobs:
           TAG="${{ steps.ver.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
+          git tag "$TAG"
           git push origin "$TAG"
 
           FLAGS="--generate-notes --title $TAG"
