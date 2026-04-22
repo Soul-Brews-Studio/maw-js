@@ -19,9 +19,10 @@ wasm-vm/
 fleet/*.json
 !fleet/*.example.json
 ψ/
-.claude/skills/
+# Claude Code per-user config + session data — not shared. Hooks, if any,
+# live as regular scripts outside .claude/ so CI/teammates see them.
+.claude/
 *.pem
-.claude/scheduled_tasks.lock
 
 # Team-agents worktrees (parallel fix branches live here)
 agents/
