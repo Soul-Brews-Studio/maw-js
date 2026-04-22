@@ -17,7 +17,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { hostExec } from "../transport/ssh";
-import { tailLatestAssistant, tailLatestUser } from "./claude-transcript";
+import { headFirstUser, tailLatestAssistant, tailLatestUser } from "./claude-transcript";
 
 export type ClaudeTrigger = "maw-wake" | "tmux" | "desktop" | "shell" | "unknown";
 export type ClaudeStatus = "active" | "idle" | "ended";
@@ -36,8 +36,19 @@ export interface ClaudeSession {
   lastActivityAt: string;
   lastUserMessage: string | null;
   lastAssistantMessage: string | null;
+  role: string | null;
   sizeBytes: number;
   jsonlPath: string;
+}
+
+// Matches role declared in opening prompt, e.g. `ในฐานะ tester …` or `#role: tester`.
+// Kept explicit — fuzzier patterns like "as a X" produce false positives.
+const ROLE_RE = /ในฐานะ\s*["']?([A-Za-z][A-Za-z0-9_-]*)["']?|#role\s*:\s*([A-Za-z][A-Za-z0-9_-]*)/;
+
+export function extractRole(firstUserMessage: string | null): string | null {
+  if (!firstUserMessage) return null;
+  const m = firstUserMessage.match(ROLE_RE);
+  return m?.[1] ?? m?.[2] ?? null;
 }
 
 export type Exec = (cmd: string) => Promise<string>;
@@ -103,10 +114,12 @@ export async function listClaudeSessions(opts: DiscoveryOptions = {}): Promise<C
     const trigger = classifyTrigger(chain);
     const repoInfo = cwd ? await resolveRepoAndWorktree(cwd, exec) : null;
 
-    const [lastUser, lastAssistant] = await Promise.all([
+    const [lastUser, lastAssistant, firstUser] = await Promise.all([
       tailLatestUser(latest.path),
       tailLatestAssistant(latest.path),
+      headFirstUser(latest.path),
     ]);
+    const role = extractRole(firstUser);
 
     sessions.push({
       sessionId: latest.sessionId,
@@ -122,6 +135,7 @@ export async function listClaudeSessions(opts: DiscoveryOptions = {}): Promise<C
       lastActivityAt: new Date(latest.mtimeMs).toISOString(),
       lastUserMessage: lastUser,
       lastAssistantMessage: lastAssistant,
+      role,
       sizeBytes: latest.size,
       jsonlPath: latest.path,
     });
