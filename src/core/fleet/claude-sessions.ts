@@ -51,7 +51,7 @@ export interface DiscoveryOptions {
 }
 
 const DEFAULT_PROJECTS_DIR = join(homedir(), ".claude", "projects");
-const CACHE_TTL_MS = 5000;
+const CACHE_TTL_MS = 1500;
 const ACTIVE_WINDOW_MS = 60_000;
 const DEFAULT_RECENT_MS = 60 * 60 * 1000;
 const CLAUDE_BIN_RE = /Library\/Application Support\/Claude\/claude-code\/.*\/claude\.app\/Contents\/MacOS\/claude/;
