@@ -11,14 +11,23 @@
 import { Elysia, t } from "elysia";
 import { listClaudeSessions, invalidateCache } from "../core/fleet/claude-sessions";
 import { readTranscript } from "../core/fleet/claude-transcript";
+import { listFleetJobs } from "../core/fleet/claude-jobs";
 
 export const claudeFleetApi = new Elysia();
 
 claudeFleetApi.get("/fleet/claude", async ({ query, set }) => {
   try {
     if (query.nocache === "true") invalidateCache();
-    const sessions = await listClaudeSessions();
-    return { sessions, total: sessions.length, generatedAt: new Date().toISOString() };
+    const [sessions, jobs] = await Promise.all([
+      listClaudeSessions(),
+      listFleetJobs().catch(() => []),
+    ]);
+    return {
+      sessions,
+      jobs,
+      total: sessions.length,
+      generatedAt: new Date().toISOString(),
+    };
   } catch (e: any) {
     set.status = 500;
     return { error: String(e?.message || e) };
