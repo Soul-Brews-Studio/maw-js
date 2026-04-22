@@ -3,8 +3,9 @@
  *
  * Never loads the full file — tails via `tail -n N` to handle 10MB+ sessions.
  * Filters the noisy internal types (queue-operation, hook_*, skill_listing,
- * deferred_tools_delta, todo_reminder, last-prompt, system) down to the two
- * human-readable turns: `user` (top-level type) and `message` (assistant).
+ * deferred_tools_delta, todo_reminder, last-prompt, system, custom-title,
+ * pr-link, attachment) down to the two human-readable turns: top-level
+ * type="user" and type="assistant" (each wraps a .message with matching role).
  */
 import { hostExec } from "../transport/ssh";
 
@@ -85,8 +86,8 @@ function toEntry(obj: any, maxLen: number, includeAll: boolean): TranscriptEntry
     return { ts, role: "user", text, sessionId };
   }
 
-  // Assistant message: top-level type="message" wrapping message.role="assistant"
-  if (obj.type === "message" && obj.message?.role === "assistant") {
+  // Assistant message: top-level type="assistant" wrapping message.role="assistant"
+  if (obj.type === "assistant" && obj.message?.role === "assistant") {
     const content = obj.message.content;
     const text = extractText(content, maxLen);
     const tools = extractToolNames(content);

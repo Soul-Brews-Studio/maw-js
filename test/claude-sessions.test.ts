@@ -46,7 +46,7 @@ beforeAll(async () => {
   const sessionFile = join(TMP, ENCODED, "sess-1111-2222-3333.jsonl");
   const lines = [
     JSON.stringify({ type: "user", message: { role: "user", content: "hello please help" }, timestamp: new Date(now - 10000).toISOString() }),
-    JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "on it" }] }, timestamp: new Date(now - 5000).toISOString() }),
+    JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "on it" }] }, timestamp: new Date(now - 5000).toISOString() }),
     JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: new Date(now - 1000).toISOString() }),
   ].join("\n") + "\n";
   await writeFile(sessionFile, lines);

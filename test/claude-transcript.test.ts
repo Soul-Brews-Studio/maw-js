@@ -18,7 +18,7 @@ beforeAll(async () => {
     JSON.stringify({ type: "user", message: { role: "user", content: "first user message" }, timestamp: "2026-04-22T00:00:01Z" }),
     JSON.stringify({ type: "hook_success", timestamp: "2026-04-22T00:00:02Z" }),
     JSON.stringify({
-      type: "message",
+      type: "assistant",
       message: { role: "assistant", content: [
         { type: "thinking", thinking: "hmm" },
         { type: "text", text: "here is my answer" },
@@ -28,7 +28,7 @@ beforeAll(async () => {
     }),
     JSON.stringify({ type: "user", message: { role: "user", content: "second user message" }, timestamp: "2026-04-22T00:00:04Z" }),
     JSON.stringify({
-      type: "message",
+      type: "assistant",
       message: { role: "assistant", content: [{ type: "text", text: "final answer" }] },
       timestamp: "2026-04-22T00:00:05Z",
     }),
