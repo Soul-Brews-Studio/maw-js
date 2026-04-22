@@ -19,6 +19,8 @@ const PS_OUT = `
   4321  100 /Users/t/Library/Application Support/Claude/claude-code/2.1.0/claude.app/Contents/MacOS/claude --flag
   4320  99  /Applications/Claude.app/Contents/Helpers/disclaimer /Users/t/Library/Application Support/Claude/claude-code/2.1.0/claude.app/Contents/MacOS/claude --flag
   9999  1   /usr/bin/zsh
+  5555  42  /opt/homebrew/bin/claude --input-format stream-json
+  6666  42  /bin/zsh -c grep claude
 `;
 
 const LSOF_OUT_4321 = `p4321\nfcwd\nn${FAKE_CWD}`;
@@ -94,10 +96,10 @@ describe("classifyTrigger", () => {
 });
 
 describe("listClaudePids", () => {
-  test("filters disclaimer wrapper and shells", async () => {
+  test("catches Claude.app + CLI claude, rejects disclaimer wrapper + shells", async () => {
     const pids = await listClaudePids(fakeExec);
-    expect(pids).toHaveLength(1);
-    expect(pids[0].pid).toBe(4321);
+    const sorted = pids.map(p => p.pid).sort((a, b) => a - b);
+    expect(sorted).toEqual([4321, 5555]);  // desktop + CLI; disclaimer + zsh dropped
   });
 });
 

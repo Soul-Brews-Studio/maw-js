@@ -54,7 +54,10 @@ const DEFAULT_PROJECTS_DIR = join(homedir(), ".claude", "projects");
 const CACHE_TTL_MS = 1500;
 const ACTIVE_WINDOW_MS = 60_000;
 const DEFAULT_RECENT_MS = 60 * 60 * 1000;
-const CLAUDE_BIN_RE = /Library\/Application Support\/Claude\/claude-code\/.*\/claude\.app\/Contents\/MacOS\/claude/;
+// Claude Code can run as macOS desktop binary OR standalone CLI (installed via
+// `bun install -g @anthropic-ai/claude-code` / `brew install claude` / etc).
+// Watcher/maw-wake sessions almost always use the CLI flavour inside tmux.
+const CLAUDE_APP_RE = /Library\/Application Support\/Claude\/claude-code\/.*\/claude\.app\/Contents\/MacOS\/claude/;
 
 let _cache: { ts: number; data: ClaudeSession[] } | null = null;
 
@@ -157,11 +160,23 @@ export async function listClaudePids(exec: Exec): Promise<{ pid: number; ppid: n
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
     if (!m) continue;
     const cmd = m[3];
-    if (!CLAUDE_BIN_RE.test(cmd)) continue;
-    if (cmd.includes("Helpers/disclaimer")) continue;
+    if (!isClaudeProcess(cmd)) continue;
     rows.push({ pid: Number(m[1]), ppid: Number(m[2]), command: cmd });
   }
   return rows;
+}
+
+export function isClaudeProcess(cmd: string): boolean {
+  if (cmd.includes("Helpers/disclaimer")) return false;
+  // Desktop app flavour
+  if (CLAUDE_APP_RE.test(cmd)) return true;
+  // CLI flavour — first token is an executable path ending in /claude, followed
+  // by a space (args) or end-of-line. Filters out shells that mention "claude"
+  // in arguments (e.g. `zsh -c "grep claude"`) since their first token is /bin/zsh.
+  const firstToken = cmd.split(/\s+/, 1)[0] || "";
+  const basename = firstToken.split("/").pop() || "";
+  if (basename === "claude") return true;
+  return false;
 }
 
 export async function pidCwd(pid: number, exec: Exec): Promise<string | null> {
