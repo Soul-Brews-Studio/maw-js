@@ -60,6 +60,24 @@ export async function tailLatestUser(path: string, exec?: Exec): Promise<string 
   return findLatest(path, "user", exec);
 }
 
+/**
+ * First human-readable user message in the session. Used for role extraction
+ * since users state their role in the opening prompt (e.g. "ในฐานะ tester …").
+ */
+export async function headFirstUser(path: string, exec?: Exec): Promise<string | null> {
+  const execFn = exec || hostExec;
+  const esc = path.replace(/'/g, "'\\''");
+  const raw = await execFn(`head -n 50 '${esc}' 2>/dev/null || true`).catch(() => "");
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const parsed = safeParse(line);
+    if (!parsed) continue;
+    const entry = toEntry(parsed, DEFAULT_MAX_TEXT, false);
+    if (entry?.role === "user" && entry.text) return entry.text;
+  }
+  return null;
+}
+
 async function findLatest(path: string, role: "user" | "assistant", exec?: Exec): Promise<string | null> {
   const entries = await readTranscript(path, { tail: 400, exec });
   for (let i = entries.length - 1; i >= 0; i--) {

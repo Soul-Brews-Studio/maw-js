@@ -8,6 +8,7 @@ import {
   classifyTrigger,
   normalizeRemote,
   encodeCwd,
+  extractRole,
   invalidateCache,
 } from "../src/core/fleet/claude-sessions";
 
@@ -47,7 +48,7 @@ beforeAll(async () => {
   const now = Date.now();
   const sessionFile = join(TMP, ENCODED, "sess-1111-2222-3333.jsonl");
   const lines = [
-    JSON.stringify({ type: "user", message: { role: "user", content: "hello please help" }, timestamp: new Date(now - 10000).toISOString() }),
+    JSON.stringify({ type: "user", message: { role: "user", content: "ในฐานะ tester ช่วย audit หน่อย" }, timestamp: new Date(now - 10000).toISOString() }),
     JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "on it" }] }, timestamp: new Date(now - 5000).toISOString() }),
     JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: new Date(now - 1000).toISOString() }),
   ].join("\n") + "\n";
@@ -74,6 +75,24 @@ describe("normalizeRemote", () => {
   });
   test("empty", () => {
     expect(normalizeRemote("")).toBeNull();
+  });
+});
+
+describe("extractRole", () => {
+  test("ในฐานะ X", () => {
+    expect(extractRole("ในฐานะ tester ช่วย audit หน่อย")).toBe("tester");
+  });
+  test("ในฐานะ quoted", () => {
+    expect(extractRole('ในฐานะ "pg-writer" อัปเดต docs')).toBe("pg-writer");
+  });
+  test("#role tag", () => {
+    expect(extractRole("#role: architect\nออกแบบระบบหน่อย")).toBe("architect");
+  });
+  test("no marker → null", () => {
+    expect(extractRole("ช่วย fix bug หน่อย")).toBeNull();
+  });
+  test("null input → null", () => {
+    expect(extractRole(null)).toBeNull();
   });
 });
 
@@ -119,8 +138,9 @@ describe("listClaudeSessions (integration)", () => {
     expect(s!.repo).toBe("github.com/acme/widget");
     expect(s!.worktree).toEqual({ name: "widget", branch: "feat/test" });
     expect(s!.triggeredFrom).toBe("tmux");
-    expect(s!.lastUserMessage).toContain("hello please help");
+    expect(s!.lastUserMessage).toContain("ในฐานะ tester");
     expect(s!.lastAssistantMessage).toBe("on it");
+    expect(s!.role).toBe("tester");
     expect(s!.sessionId).toBe("sess-1111-2222-3333");
   });
 
