@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join, basename } from "path";
 import { hostExec } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { findPeers, findProjectsForOracle, syncOracleVaults, syncProjectVault, reportProjectResult, type SoulSyncResult, type ProjectSyncResult } from "./sync-helpers";
 import { resolveOraclePath, resolveProjectSlug, findOracleForProject } from "./resolve";
 
