@@ -1,8 +1,9 @@
 import { parseFlags } from "../../../cli/parse-args";
-import { validateNodeName, validatePeerUrl, validatePeerName } from "./prompts";
+import { validateNodeName, validatePeerUrl, validatePeerName, validateGhqRoot } from "./prompts";
 
 export interface NonInteractiveOpts {
   node: string;
+  ghqRoot?: string;
   token?: string;
   federate: boolean;
   peers: { name: string; url: string }[];
@@ -16,12 +17,11 @@ export type NonInteractiveResult =
   | { ok: false; error: string };
 
 export function parseNonInteractive(args: string[], homedir: string, defaults: { node: string }): NonInteractiveResult {
-  void homedir; // #680 — retained for signature compat; ghqRoot no longer parsed
   // arg's String type collapses repeated flags; use [String] for arrays.
   const flags = parseFlags(args, {
     "--non-interactive": Boolean,
     "--node": String,
-    // #680 — --ghq-root accepted but ignored (logs deprecation in cmdInit).
+    // #680 — --ghq-root honored as legacy override (validated + persisted); deprecation warn.
     "--ghq-root": String,
     "--token": String,
     "--federate": Boolean,
@@ -36,9 +36,13 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
   const nodeErr = validateNodeName(node);
   if (nodeErr) return { ok: false, error: nodeErr };
 
+  let ghqRoot: string | undefined;
   if (flags["--ghq-root"]) {
+    const ghqV = validateGhqRoot(flags["--ghq-root"], homedir);
+    if (!ghqV.ok) return { ok: false, error: ghqV.err };
+    ghqRoot = ghqV.path;
     process.stderr.write(
-      `[maw init] warning: --ghq-root is deprecated (#680) and ignored — ghq root is resolved on demand.\n`,
+      `[maw init] warning: --ghq-root is deprecated (#680) — honored as legacy override; prefer removing it and letting \`ghq root\` resolve on demand.\n`,
     );
   }
 
@@ -61,6 +65,7 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
     ok: true,
     opts: {
       node,
+      ghqRoot,
       token: flags["--token"],
       federate,
       peers,

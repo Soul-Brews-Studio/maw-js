@@ -419,12 +419,16 @@ describe("maw init --non-interactive — missing required flags", () => {
     }
   });
 
-  test("no --ghq-root → either detected default OR exit 1 with usage hint", () => {
+  test("no --ghq-root → exit 0 (resolved on demand via ghq root, #680) OR exit 1 with usage hint", () => {
     const r = runInit(["--non-interactive", "--node", "alpha"]);
     if (r.code === 0) {
+      // #680 — ghqRoot no longer persisted by default; getGhqRoot() resolves it on demand.
+      // Either behaviour is acceptable: config may or may not include ghqRoot.
       const cfg = readConfig(r.configPath);
-      expect(typeof cfg.ghqRoot).toBe("string");
-      expect(cfg.ghqRoot.length).toBeGreaterThan(0);
+      if (cfg.ghqRoot !== undefined) {
+        expect(typeof cfg.ghqRoot).toBe("string");
+        expect(cfg.ghqRoot.length).toBeGreaterThan(0);
+      }
     } else {
       const combined = (r.stderr + r.stdout).toLowerCase();
       expect(combined).toMatch(/--ghq-root|ghq|usage|required/);

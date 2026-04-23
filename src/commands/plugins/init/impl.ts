@@ -82,6 +82,7 @@ export async function cmdInit(opts: CmdInitOpts): Promise<CmdInitResult> {
 
     const config = buildConfig({
       node: parsed.opts.node,
+      ghqRoot: parsed.opts.ghqRoot,
       token: parsed.opts.token,
       federate: parsed.opts.federate,
       peers: parsed.opts.peers,
