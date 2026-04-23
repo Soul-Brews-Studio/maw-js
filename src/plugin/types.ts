@@ -18,6 +18,8 @@
  */
 export type PluginTarget = "js" | "wasm";
 
+export type PluginTier = "core" | "standard" | "extra";
+
 /**
  * Built-plugin artifact descriptor. Present on compiled plugins written
  * by `maw plugin build`. `sha256: null` means "unbuilt" — the loader
@@ -64,6 +66,7 @@ export interface PluginManifest {
   transport?: {
     peer?: boolean;     // enable maw hey plugin:<name>
   };
+  tier?: PluginTier;
 }
 
 export interface LoadedPlugin {
