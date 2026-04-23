@@ -8,7 +8,10 @@ export const WORKSPACES_DIR = join(
   process.env.MAW_CONFIG_DIR || join(homedir(), ".config", "maw"),
   "workspaces"
 );
-mkdirSync(WORKSPACES_DIR, { recursive: true });
+
+function ensureDir(): void {
+  mkdirSync(WORKSPACES_DIR, { recursive: true });
+}
 
 // ── Types ───────────────────────────────────────────────────────────
 export interface WorkspaceConfig {
@@ -85,11 +88,13 @@ export function loadWorkspace(id: string): WorkspaceConfig | null {
 }
 
 export function saveWorkspace(ws: WorkspaceConfig): void {
+  ensureDir();
   writeFileSync(configPath(ws.id), JSON.stringify(ws, null, 2) + "\n", "utf-8");
 }
 
 export function loadAllWorkspaces(): WorkspaceConfig[] {
   try {
+    ensureDir();
     const files = readdirSync(WORKSPACES_DIR).filter(f => f.endsWith(".json"));
     return files
       .map(f => {
