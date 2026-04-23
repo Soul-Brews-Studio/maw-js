@@ -44,7 +44,11 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   }
 
   const { repoPath, repoName, parentDir } = resolved;
-  console.log(`\x1b[36m→\x1b[0m found ${repoPath}`);
+  // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
+  const ghSlug = repoPath.includes("github.com/")
+    ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
+    : repoName;
+  console.log(`\x1b[36m→\x1b[0m found \x1b[1m${ghSlug}\x1b[0m (${repoPath})`);
   let session = await detectSession(oracle);
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
