@@ -6,7 +6,10 @@ import { CONFIG_DIR } from "../core/paths";
 import type { Workspace } from "./workspace-types";
 
 export const WORKSPACE_DIR = join(CONFIG_DIR, "workspaces");
-mkdirSync(WORKSPACE_DIR, { recursive: true });
+
+function ensureDir(): void {
+  mkdirSync(WORKSPACE_DIR, { recursive: true });
+}
 
 /** In-memory cache, persisted to disk on mutation */
 export const workspaces = new Map<string, Workspace>();
@@ -14,6 +17,7 @@ export const workspaces = new Map<string, Workspace>();
 /** Load all workspaces from disk into memory */
 export function loadAll() {
   if (workspaces.size > 0) return; // already loaded
+  ensureDir();
   try {
     for (const file of readdirSync(WORKSPACE_DIR)) {
       if (!file.endsWith(".json")) continue;
@@ -26,6 +30,7 @@ export function loadAll() {
 }
 
 export function persist(ws: Workspace) {
+  ensureDir();
   writeFileSync(join(WORKSPACE_DIR, `${ws.id}.json`), JSON.stringify(ws, null, 2) + "\n", "utf-8");
 }
 
