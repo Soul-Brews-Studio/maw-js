@@ -161,7 +161,7 @@ export async function cmdView(
 
   const t = new Tmux();
   const host = process.env.MAW_HOST || loadConfig().host || "local";
-  const isLocal = host === "local" || host === "localhost";
+  const isLocal = host === "local" || host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1";
   const socket = resolveSocket();
 
   // If the resolved session is already a view, attach directly — skip the

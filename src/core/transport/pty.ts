@@ -17,7 +17,7 @@ const attaching = new Set<string>();
 
 function isLocalHost(): boolean {
   const host = process.env.MAW_HOST || loadConfig().host || "local";
-  return host === "local" || host === "localhost";
+  return host === "local" || host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1";
 }
 
 function findSession(ws: MawWS): PtySession | undefined {
