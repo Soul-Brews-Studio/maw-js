@@ -1,6 +1,6 @@
 import { hostExec, listSessions } from "../transport/ssh";
 import { tmux } from "../transport/tmux";
-import { getGhqRoot } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";

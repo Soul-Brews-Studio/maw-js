@@ -563,6 +563,9 @@ describe("from-repo: --seed + --sync-peers (file-copy pair)", () => {
   async function installConfigMock(ghqRoot: string) {
     mock.module("../../../config", () => ({
       loadConfig: () => ({ githubOrg: "Fake-Org" }),
+    }));
+    // #680 — getGhqRoot moved to leaf module config/ghq-root.
+    mock.module("../../../config/ghq-root", () => ({
       getGhqRoot: () => ghqRoot,
     }));
     delete (require.cache as any)[require.resolve("./from-repo-seed")];

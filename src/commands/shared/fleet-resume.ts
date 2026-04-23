@@ -1,6 +1,7 @@
 import { join } from "path";
 import { hostExec as ssh, tmux } from "../../sdk";
-import { buildCommand, getGhqRoot } from "../../config";
+import { buildCommand } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import type { FleetSession } from "./fleet-load";
 
 /** After fleet spawn, send /recap to oracles with active Pulse board items */

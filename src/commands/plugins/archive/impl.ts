@@ -1,5 +1,5 @@
 import { hostExec } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { cmdSoulSync } from "../soul-sync/impl";
 import { FLEET_DIR } from "../../../sdk";

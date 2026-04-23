@@ -13,7 +13,8 @@
 
 import { cpSync, copyFileSync, existsSync, mkdirSync, statSync } from "fs";
 import { join } from "path";
-import { loadConfig, getGhqRoot } from "../../../config";
+import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { peersPath } from "../peers/store";
 
 type Log = (msg: string) => void;

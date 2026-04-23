@@ -84,6 +84,8 @@ const _rWakeTarget = await import("../../src/commands/shared/wake-target");
 const realEnsureCloned = _rWakeTarget.ensureCloned;
 const _rSplitImpl = await import("../../src/commands/plugins/split/impl");
 const realCmdSplit = _rSplitImpl.cmdSplit;
+const _rGhqRoot = await import("../../src/config/ghq-root");
+const realGetGhqRoot = _rGhqRoot.getGhqRoot;
 
 // ─── Mocks (registered BEFORE importing bud-wake) ───────────────────────────
 
@@ -210,6 +212,22 @@ mock.module(
   }),
 );
 
+// #680 — getGhqRoot moved to leaf module config/ghq-root. finalizeBud calls
+// getGhqRoot() to resolve reposRoot, so the mock must return the per-test
+// ghqRoot from makeCtx.
+let ghqRootOverride: string | null = null;
+mock.module(
+  join(import.meta.dir, "../../src/config/ghq-root"),
+  () => ({
+    ..._rGhqRoot,
+    getGhqRoot: () => {
+      if (mockActive && ghqRootOverride !== null) return ghqRootOverride;
+      return realGetGhqRoot();
+    },
+    resetGhqRootCache: _rGhqRoot.resetGhqRootCache,
+  }),
+);
+
 const { finalizeBud } = await import("../../src/commands/plugins/bud/bud-wake");
 import type { BudFinalizeCtx } from "../../src/commands/plugins/bud/bud-wake";
 
@@ -242,6 +260,7 @@ beforeEach(() => {
   syncDirCalls = [];
   cmdSplitCalls = [];
   cmdSplitThrow = null;
+  ghqRootOverride = null;
   delete process.env.TMUX;
 });
 afterEach(() => {
@@ -255,11 +274,15 @@ afterAll(() => { console.log = origLog; mockActive = false; fleetEntriesOverride
 
 // ─── Fixture builders ───────────────────────────────────────────────────────
 
-function makeCtx(overrides: Partial<BudFinalizeCtx> = {}): BudFinalizeCtx {
+function makeCtx(overrides: Partial<BudFinalizeCtx & { ghqRoot?: string }> = {}): BudFinalizeCtx {
   const budRepoPath = mkdtempSync(join(tmpBase, "bud-"));
   const psiDir = join(budRepoPath, "ψ");
   mkdirSync(join(psiDir, "memory"), { recursive: true });
-  const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
+  const ghqRoot = overrides.ghqRoot ?? mkdtempSync(join(tmpBase, "ghq-"));
+  // #680 — finalizeBud calls getGhqRoot() instead of reading ctx.ghqRoot,
+  // so we wire the per-test value into the mock override.
+  ghqRootOverride = ghqRoot;
+  const { ghqRoot: _discard, ...rest } = overrides;
   return {
     name: "newbud",
     parentName: "neo",
@@ -267,10 +290,9 @@ function makeCtx(overrides: Partial<BudFinalizeCtx> = {}): BudFinalizeCtx {
     budRepoName: "newbud-oracle",
     budRepoPath,
     psiDir,
-    ghqRoot,
     fleetFile: join(tmpBase, "99-newbud.json"),
     opts: {},
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -568,7 +590,8 @@ describe("finalizeBud — step 8.5 (local ψ/ copy)", () => {
   test("--repo + local ψ/memory exists with all 3 subdirs → syncDir called 3× w/ correct src/dst", async () => {
     const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
     const repoSlug = "theorg/theproj";
-    const localPsi = join(ghqRoot, repoSlug, "ψ", "memory");
+    // #680 — getGhqRoot() returns bare root; finalizeBud appends "github.com".
+    const localPsi = join(ghqRoot, "github.com", repoSlug, "ψ", "memory");
     for (const sub of ["learnings", "retrospectives", "traces"]) {
       mkdirSync(join(localPsi, sub), { recursive: true });
     }
@@ -588,7 +611,8 @@ describe("finalizeBud — step 8.5 (local ψ/ copy)", () => {
   test("--repo + ψ/memory exists but only some subdirs present → syncDir only for present", async () => {
     const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
     const repoSlug = "theorg/partial";
-    const localPsi = join(ghqRoot, repoSlug, "ψ", "memory");
+    // #680 — getGhqRoot() returns bare root; finalizeBud appends "github.com".
+    const localPsi = join(ghqRoot, "github.com", repoSlug, "ψ", "memory");
     mkdirSync(join(localPsi, "learnings"), { recursive: true });
     // retrospectives + traces intentionally absent.
 

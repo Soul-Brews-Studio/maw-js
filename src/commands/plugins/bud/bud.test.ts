@@ -13,6 +13,7 @@ import * as rawBudRepo from "./bud-repo";
 import * as rawBudWake from "./bud-wake";
 import * as rawBudInit from "./bud-init";
 import * as rawConfig from "../../../config";
+import * as rawGhqRoot from "../../../config/ghq-root";
 
 const realCmdBud = rawImpl.cmdBud;
 const realEnsureBudRepo = rawBudRepo.ensureBudRepo;
@@ -22,6 +23,7 @@ const realGenerateClaudeMd = rawBudInit.generateClaudeMd;
 const realConfigureFleet = rawBudInit.configureFleet;
 const realWriteBirthNote = rawBudInit.writeBirthNote;
 const realConfigModule = { ...rawConfig };
+const realGhqRootModule = { ...rawGhqRoot };
 
 let lastOpts: any = null;
 let useReal = false;
@@ -30,10 +32,13 @@ let budRepoPath = "";
 function installMocks() {
   mock.module("../../../config", () => ({
     ...realConfigModule,
-    // #680 — loadConfig no longer owns ghqRoot; getGhqRoot() is the source.
-    // The test never hits disk under ghqRoot (ensureBudRepo is fully mocked),
-    // so "/tmp/nope" is inert — just feeds the predicted-path string.
     loadConfig: () => ({ githubOrg: "Soul-Brews-Studio", env: {}, commands: {}, sessions: {} }),
+  }));
+  // #680 — getGhqRoot moved to leaf module config/ghq-root.
+  // The test never hits disk under ghqRoot (ensureBudRepo is fully mocked),
+  // so "/tmp/nope" is inert — just feeds the predicted-path string.
+  mock.module("../../../config/ghq-root", () => ({
+    ...realGhqRootModule,
     getGhqRoot: () => "/tmp/nope",
   }));
   mock.module("./impl", () => ({
@@ -69,6 +74,7 @@ function restoreMocks() {
   // Re-register the real modules — bun has no "unmock" primitive, so we
   // install passthrough mocks that point back at the real implementations.
   mock.module("../../../config", () => realConfigModule);
+  mock.module("../../../config/ghq-root", () => realGhqRootModule);
   mock.module("./impl", () => ({ cmdBud: realCmdBud }));
   mock.module("./bud-repo", () => ({ ensureBudRepo: realEnsureBudRepo }));
   mock.module("./bud-wake", () => ({ finalizeBud: realFinalizeBud }));

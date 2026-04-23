@@ -49,6 +49,9 @@ const realSyncProjectVault = _rSyncHelpers.syncProjectVault;
 const realReportProjectResult = _rSyncHelpers.reportProjectResult;
 const realSyncDir = _rSyncHelpers.syncDir;
 
+const _rGhqRoot = await import("../../src/config/ghq-root");
+const realGetGhqRoot = _rGhqRoot.getGhqRoot;
+
 const _rResolve = await import("../../src/commands/plugins/soul-sync/resolve");
 const realResolveOraclePath = _rResolve.resolveOraclePath;
 const realResolveProjectSlug = _rResolve.resolveProjectSlug;
@@ -141,6 +144,17 @@ mock.module(
     ..._rConfig,
     loadConfig: (...args: any[]) =>
       mockActive ? configOverride : (realLoadConfig as any)(...args),
+  }),
+);
+
+// #680 — getGhqRoot moved to leaf module config/ghq-root. soul-sync/impl.ts
+// calls getGhqRoot() to resolve reposRoot, so the mock reads configOverride.ghqRoot.
+mock.module(
+  join(import.meta.dir, "../../src/config/ghq-root"),
+  () => ({
+    ..._rGhqRoot,
+    getGhqRoot: () =>
+      mockActive ? configOverride.ghqRoot : realGetGhqRoot(),
   }),
 );
 
@@ -532,10 +546,11 @@ describe("cmdSoulSyncProject — oracle-cwd branch", () => {
   });
 
   test("oracle cwd + project exists → syncProjectVault called (project→oracle)", async () => {
-    // Materialize ghqRoot/theorg/present so existsSync passes
+    // Materialize ghqRoot/github.com/theorg/present so existsSync passes.
+    // #680 — getGhqRoot() returns the BARE root; impl appends "github.com".
     const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
     configOverride = { ghqRoot };
-    const projectPath = join(ghqRoot, "theorg", "present");
+    const projectPath = join(ghqRoot, "github.com", "theorg", "present");
     mkdirSync(projectPath, { recursive: true });
     findProjectsReturn = ["theorg/present"];
     syncProjectVaultReturn = {
@@ -558,7 +573,8 @@ describe("cmdSoulSyncProject — oracle-cwd branch", () => {
   test("oracle cwd + multiple projects (mix of present/absent) → only present sync'd", async () => {
     const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
     configOverride = { ghqRoot };
-    mkdirSync(join(ghqRoot, "a", "present"), { recursive: true });
+    // #680 — getGhqRoot() returns bare root; impl appends "github.com".
+    mkdirSync(join(ghqRoot, "github.com", "a", "present"), { recursive: true });
     findProjectsReturn = ["a/present", "b/absent"];
 
     await cmdSoulSyncProject({ cwd: "/a/b/foo-oracle" });
@@ -570,7 +586,8 @@ describe("cmdSoulSyncProject — oracle-cwd branch", () => {
   test("oracle cwd + totalAll > 0 → 'absorbed' summary line", async () => {
     const ghqRoot = mkdtempSync(join(tmpBase, "ghq-"));
     configOverride = { ghqRoot };
-    mkdirSync(join(ghqRoot, "x", "y"), { recursive: true });
+    // #680 — getGhqRoot() returns bare root; impl appends "github.com".
+    mkdirSync(join(ghqRoot, "github.com", "x", "y"), { recursive: true });
     findProjectsReturn = ["x/y"];
     syncProjectVaultReturn = { project: "x/y", oracle: "foo", synced: {}, total: 4 };
     const logs: string[] = [];

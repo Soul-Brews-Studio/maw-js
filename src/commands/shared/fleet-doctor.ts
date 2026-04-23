@@ -33,7 +33,8 @@ export { checkStalePeers } from "./fleet-doctor-stale-peers";
 export { autoFix } from "./fleet-doctor-fixer";
 
 import { join } from "path";
-import { loadConfig, getGhqRoot } from "../../config";
+import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import { listSessions } from "../../sdk";
 import { loadFleetEntries } from "./fleet-load";
 import {

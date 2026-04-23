@@ -187,7 +187,8 @@ describe("cmdInit interactive (scripted ask)", () => {
     expect(result.ok).toBe(true);
     const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
     expect(cfg.host).toBe("white");
-    expect(cfg.ghqRoot).toBe("/home/nat/Code");
+    // #680 — ghqRoot is no longer prompted/persisted; resolved on demand via getGhqRoot().
+    expect(cfg.ghqRoot).toBeUndefined();
     expect(cfg.env).toEqual({});
     expect(cfg.federationToken).toBeUndefined();
     expect(cfg.namedPeers).toBeUndefined();

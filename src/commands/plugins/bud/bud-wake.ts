@@ -3,7 +3,7 @@ import { cmdSoulSync } from "../soul-sync/impl";
 import { cmdWake } from "../../shared/wake";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { FLEET_DIR } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 

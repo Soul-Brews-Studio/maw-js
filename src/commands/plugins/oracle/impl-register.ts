@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { CONFIG_DIR, FLEET_DIR, listSessions } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import type { OracleEntry } from "../../../sdk";
 
 const CACHE_FILE = join(CONFIG_DIR, "oracles.json");

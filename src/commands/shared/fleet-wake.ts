@@ -1,7 +1,8 @@
 import { readdirSync } from "fs";
 import { join } from "path";
 import { tmux, FLEET_DIR, saveTabOrder, restoreTabOrder } from "../../sdk";
-import { buildCommand, getEnvVars, getGhqRoot } from "../../config";
+import { buildCommand, getEnvVars } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import { ensureSessionRunning } from "./wake";
 import { loadFleet } from "./fleet-load";
 import { respawnMissingWorktrees, resumeActiveItems } from "./fleet-resume";

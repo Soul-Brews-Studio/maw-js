@@ -1,5 +1,5 @@
 import { hostExec, listSessions } from "../transport/ssh";
-import { getGhqRoot } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";

@@ -1,6 +1,6 @@
 import { join } from "path";
 import { listSessions } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { FLEET_DIR } from "../../../sdk";
 import { takeSnapshot } from "../../../sdk";
 import { tmux } from "../../../sdk";

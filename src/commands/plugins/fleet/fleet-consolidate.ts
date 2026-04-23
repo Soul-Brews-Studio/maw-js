@@ -1,7 +1,7 @@
 import { join } from "path";
 import { readdirSync, readFileSync, unlinkSync } from "fs";
 import { hostExec } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { FLEET_DIR } from "../../../sdk";
 
 /**

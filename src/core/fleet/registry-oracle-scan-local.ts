@@ -12,7 +12,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
-import { loadConfig, getGhqRoot } from "../../config";
+import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import type { OracleEntry } from "./registry-oracle-types";
 
 // ---------- Fleet lineage parsing ----------

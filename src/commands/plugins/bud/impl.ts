@@ -1,4 +1,5 @@
-import { loadConfig, getGhqRoot } from "../../../config";
+import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { parseWakeTarget, ensureCloned } from "../../shared/wake-target";
 import { normalizeTarget } from "../../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../../core/fleet/validate";

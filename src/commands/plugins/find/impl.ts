@@ -1,5 +1,5 @@
 import { hostExec } from "../../../sdk";
-import { getGhqRoot } from "../../../config";
+import { getGhqRoot } from "../../../config/ghq-root";
 import { loadFleet } from "../../shared/fleet-load";
 import { join } from "path";
 import { existsSync } from "fs";
