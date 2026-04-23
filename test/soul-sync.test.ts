@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
+// #712 — static import (not require()) to sidestep bun 1.3.x CJS/ESM interop bug.
+import { resolveProjectSlug } from "../src/commands/plugins/soul-sync/impl";
 
 // Test the core sync logic directly (no ssh/tmux mocking needed)
 // We test findParent, findChildren, and the syncDir logic
@@ -116,7 +118,7 @@ describe("soul-sync", () => {
     });
 
     test("resolveProjectSlug handles github.com-rooted ghqRoot (#193)", () => {
-      const { resolveProjectSlug } = require("../src/commands/plugins/soul-sync/impl");
+      // #712 — static import (top of file) instead of require() to sidestep bun 1.3.x CJS/ESM re-export interop
       const ghqRoot = "/home/neo/Code/github.com";
       expect(
         resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio/maw-js", ghqRoot)
@@ -124,7 +126,7 @@ describe("soul-sync", () => {
     });
 
     test("resolveProjectSlug handles bare ghq root (#193 — was dropping repo segment)", () => {
-      const { resolveProjectSlug } = require("../src/commands/plugins/soul-sync/impl");
+      // #712 — static import (top of file) instead of require() to sidestep bun 1.3.x CJS/ESM re-export interop
       const ghqRoot = "/home/neo/Code";
       // Before the fix this returned "github.com/Soul-Brews-Studio" (org-only) —
       // slice(0, 2) was grabbing [host, org] instead of [org, repo].
@@ -134,7 +136,7 @@ describe("soul-sync", () => {
     });
 
     test("resolveProjectSlug strips worktree suffix (#193)", () => {
-      const { resolveProjectSlug } = require("../src/commands/plugins/soul-sync/impl");
+      // #712 — static import (top of file) instead of require() to sidestep bun 1.3.x CJS/ESM re-export interop
       const ghqRoot = "/home/neo/Code/github.com";
       expect(
         resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio/maw-js.wt-issue-193", ghqRoot)
@@ -142,14 +144,14 @@ describe("soul-sync", () => {
     });
 
     test("resolveProjectSlug returns null when repoRoot is outside ghqRoot (#193)", () => {
-      const { resolveProjectSlug } = require("../src/commands/plugins/soul-sync/impl");
+      // #712 — static import (top of file) instead of require() to sidestep bun 1.3.x CJS/ESM re-export interop
       expect(
         resolveProjectSlug("/tmp/somewhere-else", "/home/neo/Code/github.com")
       ).toBeNull();
     });
 
     test("resolveProjectSlug returns null when path has no repo segment (#193)", () => {
-      const { resolveProjectSlug } = require("../src/commands/plugins/soul-sync/impl");
+      // #712 — static import (top of file) instead of require() to sidestep bun 1.3.x CJS/ESM re-export interop
       // Sitting at the org directory, no repo to resolve.
       expect(
         resolveProjectSlug("/home/neo/Code/github.com/Soul-Brews-Studio", "/home/neo/Code/github.com")
