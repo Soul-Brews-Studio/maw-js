@@ -1,5 +1,5 @@
 import { hostExec } from "../../../sdk";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { loadFleet } from "../../shared/fleet-load";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -20,8 +20,7 @@ function shSingleQuote(s: string): string {
  * Searches ψ/memory/ across all oracle repos for learnings, retros, traces.
  */
 export async function cmdFind(keyword: string, opts: { oracle?: string } = {}) {
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const fleet = loadFleet();
 
   console.log(`\n  \x1b[36m🔍 Searching\x1b[0m — "${keyword}"\n`);
@@ -38,7 +37,7 @@ export async function cmdFind(keyword: string, opts: { oracle?: string } = {}) {
     const mainWindow = sess.windows[0];
     if (!mainWindow?.repo) continue;
 
-    const repoPath = join(ghqRoot, mainWindow.repo);
+    const repoPath = join(reposRoot, mainWindow.repo);
     const psiPath = join(repoPath, "ψ", "memory");
     if (existsSync(psiPath)) {
       targets.push({ name: oracleName, psiPath });

@@ -4,3 +4,4 @@ export { D } from "./config/types";
 export { validateConfigShape } from "./config/validate";
 export { loadConfig, resetConfig, saveConfig, configForDisplay, cfgInterval, cfgTimeout, cfgLimit, cfg } from "./config/load";
 export { buildCommand, buildCommandInDir, getEnvVars } from "./config/command";
+export { getGhqRoot, resetGhqRootCache } from "./config/ghq-root";

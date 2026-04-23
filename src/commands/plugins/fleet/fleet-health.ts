@@ -1,7 +1,7 @@
 import { listSessions, hostExec } from "../../../sdk";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { join } from "path";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { FLEET_DIR } from "../../../sdk";
 import { readdirSync as readDir } from "fs";
 
@@ -12,7 +12,7 @@ import { readdirSync as readDir } from "fs";
 export async function cmdFleetHealth() {
   const entries = loadFleetEntries();
   const sessions = await listSessions();
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const now = Date.now();
 
   console.log(`\n  \x1b[36m🔬 Fleet Health\x1b[0m\n`);
@@ -28,7 +28,7 @@ export async function cmdFleetHealth() {
     let daysSinceActivity = -1;
     const mainWindow = entry.session.windows[0];
     if (mainWindow?.repo) {
-      const repoPath = join(ghqRoot, mainWindow.repo);
+      const repoPath = join(reposRoot,mainWindow.repo);
       try {
         const ts = await hostExec(`git -C '${repoPath}' log -1 --format='%ci' 2>/dev/null`);
         if (ts.trim()) {
@@ -95,7 +95,7 @@ export async function cmdFleetHealth() {
         const wins = cfg.windows?.length || 0;
         const repo = cfg.windows?.[0]?.repo || "?";
         const peers = cfg.sync_peers?.length || 0;
-        const repoExists = require("fs").existsSync(join(ghqRoot, repo));
+        const repoExists = require("fs").existsSync(join(reposRoot,repo));
         console.log(`  \x1b[90m  ${num.padStart(2)}  ${dName.padEnd(20)} ${String(wins).padStart(2)} win  repo:${repoExists ? "yes" : "no "}  peers:${peers}\x1b[0m`);
       } catch {
         const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");

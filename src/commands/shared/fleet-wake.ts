@@ -1,6 +1,7 @@
 import { readdirSync } from "fs";
+import { join } from "path";
 import { tmux, FLEET_DIR, saveTabOrder, restoreTabOrder } from "../../sdk";
-import { loadConfig, buildCommand, getEnvVars } from "../../config";
+import { buildCommand, getEnvVars, getGhqRoot } from "../../config";
 import { ensureSessionRunning } from "./wake";
 import { loadFleet } from "./fleet-load";
 import { respawnMissingWorktrees, resumeActiveItems } from "./fleet-resume";
@@ -69,7 +70,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
 
       const first = sess.windows[0];
-      const firstPath = `${loadConfig().ghqRoot}/${first.repo}`;
+      const firstPath = join(getGhqRoot(), "github.com", first.repo);
       await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
       for (const [key, val] of Object.entries(getEnvVars())) {
         await tmux.setEnvironment(sess.name, key, val);
@@ -83,7 +84,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       for (let i = 1; i < sess.windows.length; i++) {
         const win = sess.windows[i];
-        const winPath = `${loadConfig().ghqRoot}/${win.repo}`;
+        const winPath = join(getGhqRoot(), "github.com", win.repo);
         try {
           await tmux.newWindow(sess.name, win.name, { cwd: winPath });
           if (!sess.skip_command) {

@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { ghqFind } from "../../../core/ghq";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { loadFleet } from "../../shared/fleet-load";
 
 /**
@@ -19,12 +19,12 @@ export async function resolveOraclePath(name: string): Promise<string | null> {
   if (out) return out;
 
   // Fallback: check fleet config for repo path
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const fleet = loadFleet();
   for (const sess of fleet) {
     const oracleName = sess.name.replace(/^\d+-/, "");
     if (oracleName === stem && sess.windows.length > 0) {
-      const repoPath = join(ghqRoot, sess.windows[0].repo);
+      const repoPath = join(reposRoot, sess.windows[0].repo);
       if (existsSync(repoPath)) return repoPath;
     }
   }

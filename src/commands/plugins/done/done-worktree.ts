@@ -9,7 +9,7 @@ import { join } from "path";
  */
 export async function removeWorktreeViaConfig(
   windowNameLower: string,
-  ghqRoot: string,
+  reposRoot: string,
 ): Promise<boolean> {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
@@ -17,14 +17,14 @@ export async function removeWorktreeViaConfig(
       const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
       if (!win?.repo) continue;
 
-      const fullPath = join(ghqRoot, win.repo);
+      const fullPath = join(reposRoot, win.repo);
       if (!win.repo.includes(".wt-")) break;
 
       const parts = win.repo.split("/");
       const wtDir = parts.pop()!;
       const org = parts.join("/");
       const mainRepo = wtDir.split(".wt-")[0];
-      const mainPath = join(ghqRoot, org, mainRepo);
+      const mainPath = join(reposRoot, org, mainRepo);
 
       try {
         let branch = "";
@@ -52,12 +52,12 @@ export async function removeWorktreeViaConfig(
  */
 export async function removeWorktreeByGhqScan(
   windowName: string,
-  ghqRoot: string,
+  reposRoot: string,
 ): Promise<boolean> {
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
-    const ghqOut = await hostExec(`find ${ghqRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const ghqOut = await hostExec(`find ${reposRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
       const base = p.split("/").pop()!;

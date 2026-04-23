@@ -1,5 +1,5 @@
 import { hostExec } from "../../../sdk";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { cmdSoulSync } from "../soul-sync/impl";
 import { FLEET_DIR } from "../../../sdk";
@@ -16,8 +16,7 @@ import { existsSync, renameSync } from "fs";
  *   4. Log death in family registry
  */
 export async function cmdArchive(oracleName: string, opts: { dryRun?: boolean } = {}) {
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const entries = loadFleetEntries();
 
   const entry = entries.find(e => e.session.name.replace(/^\d+-/, "") === oracleName);
@@ -27,7 +26,7 @@ export async function cmdArchive(oracleName: string, opts: { dryRun?: boolean } 
 
   const mainWindow = entry.session.windows[0];
   const repoSlug = mainWindow?.repo || "";
-  const repoPath = repoSlug ? join(ghqRoot, repoSlug) : "";
+  const repoPath = repoSlug ? join(reposRoot, repoSlug) : "";
 
   console.log(`\n  \x1b[36m⚰️  Archiving\x1b[0m — ${oracleName}\n`);
 

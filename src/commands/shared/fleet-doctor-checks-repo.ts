@@ -16,23 +16,23 @@ export interface FleetEntryLike {
 /**
  * Check 6 — Fleet entries whose primary repo is not in ghq.
  * #237 added clone-from-GitHub fallback, so this is informational, not fatal.
+ *
+ * `reposRoot` MUST be the nested repos root (e.g. `<ghq-root>/github.com`)
+ * per #680 — callers construct it with `join(getGhqRoot(), "github.com")`.
  */
-export function checkMissingRepos(entries: FleetEntryLike[], ghqRoot: string): DoctorFinding[] {
+export function checkMissingRepos(entries: FleetEntryLike[], reposRoot: string): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
   for (const e of entries) {
     const repo = e.session.windows[0]?.repo;
     if (!repo) continue;
-    // detectGhqRoot() may return the github.com-rooted path OR the bare ghq root.
-    // Probe both to avoid false positives across machines.
-    const direct = join(ghqRoot, repo);
-    const nested = join(ghqRoot, "github.com", repo);
-    if (!existsSync(direct) && !existsSync(nested)) {
+    const repoPath = join(reposRoot, repo);
+    if (!existsSync(repoPath)) {
       findings.push({
         level: "info",
         check: "missing-repo",
         fixable: false,
         message: `fleet '${e.session.name}' references repo '${repo}' not present in ghq — wake will clone from GitHub (#237)`,
-        detail: { session: e.session.name, repo, paths: [direct, nested] },
+        detail: { session: e.session.name, repo, paths: [repoPath] },
       });
     }
   }

@@ -10,7 +10,8 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
-import { CONFIG_DIR, FLEET_DIR, listSessions, loadConfig } from "../../../sdk";
+import { CONFIG_DIR, FLEET_DIR, listSessions } from "../../../sdk";
+import { getGhqRoot } from "../../../config";
 import type { OracleEntry } from "../../../sdk";
 
 const CACHE_FILE = join(CONFIG_DIR, "oracles.json");
@@ -105,11 +106,11 @@ export async function findInTmux(
 
 export function findInFilesystem(
   name: string,
-  ghqRoot: string,
+  reposRoot: string,
 ): DiscoveredOracle | null {
   try {
-    for (const org of readdirSync(ghqRoot)) {
-      const orgPath = join(ghqRoot, org);
+    for (const org of readdirSync(reposRoot)) {
+      const orgPath = join(reposRoot, org);
       try {
         if (!statSync(orgPath).isDirectory()) continue;
       } catch { continue; }
@@ -184,12 +185,11 @@ export async function cmdOracleRegister(
   }
 
   // Discovery — fleet > tmux > filesystem
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot ?? "";
+  const reposRoot = join(getGhqRoot(), "github.com");
 
   const fleetFn = deps.findInFleetFn ?? findInFleet;
   const tmuxFn = deps.findInTmuxFn ?? findInTmux;
-  const fsFn = deps.findInFilesystemFn ?? ((n) => findInFilesystem(n, ghqRoot));
+  const fsFn = deps.findInFilesystemFn ?? ((n) => findInFilesystem(n, reposRoot));
 
   const discovered =
     fleetFn(name) ??

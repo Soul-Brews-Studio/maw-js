@@ -1,6 +1,6 @@
 import { hostExec, listSessions } from "../transport/ssh";
 import { tmux } from "../transport/tmux";
-import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
@@ -11,8 +11,7 @@ import { resolveWorktreeTarget } from "../matcher/resolve-target";
  * Kills tmux window, removes worktree, prunes, deletes branch.
  */
 export async function cleanupWorktree(wtPath: string): Promise<string[]> {
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const fleetDir = FLEET_DIR;
   const log: string[] = [];
 
@@ -24,11 +23,11 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   }
 
   const mainRepoName = parts[0];
-  const relPath = wtPath.replace(ghqRoot + "/", "");
+  const relPath = wtPath.replace(reposRoot + "/", "");
   const parentParts = relPath.split("/");
   parentParts.pop();
   const org = parentParts.join("/");
-  const mainPath = join(ghqRoot, org, mainRepoName);
+  const mainPath = join(reposRoot, org, mainRepoName);
   const repo = `${org}/${dirName}`;
 
   // 1. Find and kill tmux window

@@ -1,7 +1,7 @@
 import { join } from "path";
 import { existsSync } from "fs";
 import { tmux } from "../../sdk";
-import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
 
 export async function cmdFleetValidate() {
@@ -37,10 +37,10 @@ export async function cmdFleetValidate() {
   }
 
   // 3. Config references repo that doesn't exist
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   for (const e of entries) {
     for (const w of e.session.windows) {
-      const repoPath = join(ghqRoot, w.repo);
+      const repoPath = join(reposRoot, w.repo);
       if (!existsSync(repoPath)) {
         issues.push(`\x1b[33mMissing repo\x1b[0m: ${w.repo} (in ${e.file})`);
       }

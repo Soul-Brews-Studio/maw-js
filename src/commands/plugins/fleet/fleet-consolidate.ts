@@ -1,7 +1,7 @@
 import { join } from "path";
 import { readdirSync, readFileSync, unlinkSync } from "fs";
 import { hostExec } from "../../../sdk";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { FLEET_DIR } from "../../../sdk";
 
 /**
@@ -28,7 +28,7 @@ interface ConsolidateResult {
 }
 
 export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boolean } = {}) {
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const disabledFiles = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).sort();
 
   if (disabledFiles.length === 0) {
@@ -55,7 +55,7 @@ export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boo
     }
 
     const repo = cfg.windows?.[0]?.repo || "";
-    const repoPath = repo ? join(ghqRoot, repo) : "";
+    const repoPath = repo ? join(reposRoot, repo) : "";
     const repoExists = repoPath ? require("fs").existsSync(repoPath) : false;
 
     const result: ConsolidateResult = { name: dName, num, repo, repoExists, branches: [], merged: [], pushOk: false, removed: false };

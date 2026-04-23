@@ -1,7 +1,5 @@
 import { homedir, hostname } from "os";
-import { execSync } from "child_process";
 import { existsSync, readdirSync } from "fs";
-import { join } from "path";
 import { CONFIG_FILE, FLEET_DIR } from "../../../core/paths";
 import { runPromptLoop, ttyAsk, type AskFn } from "./prompts";
 import { parseNonInteractive } from "./non-interactive";
@@ -21,19 +19,9 @@ const RED = "\x1b[31m";
 const BOLD = "\x1b[1m";
 const RESET = "\x1b[0m";
 
-function detectGhqRoot(): string {
-  try {
-    const root = execSync("ghq root", { encoding: "utf-8" }).trim();
-    const ghRoot = join(root, "github.com");
-    if (existsSync(ghRoot)) return ghRoot;
-    return root;
-  } catch {
-    return join(homedir(), "Code/github.com");
-  }
-}
-
 function defaults() {
-  return { node: hostname(), ghqRoot: detectGhqRoot() };
+  // #680 — ghqRoot is no longer captured at init; `getGhqRoot()` resolves on demand.
+  return { node: hostname() };
 }
 
 export type ExistingChoice = "overwrite" | "backup" | "abort";
@@ -94,7 +82,6 @@ export async function cmdInit(opts: CmdInitOpts): Promise<CmdInitResult> {
 
     const config = buildConfig({
       node: parsed.opts.node,
-      ghqRoot: parsed.opts.ghqRoot,
       token: parsed.opts.token,
       federate: parsed.opts.federate,
       peers: parsed.opts.peers,
@@ -144,7 +131,6 @@ export async function cmdInit(opts: CmdInitOpts): Promise<CmdInitResult> {
 
   const config = buildConfig({
     node: answers.node,
-    ghqRoot: answers.ghqRoot,
     token: answers.token,
     federate: answers.federate,
     peers: answers.peers,

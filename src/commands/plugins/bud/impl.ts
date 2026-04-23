@@ -1,4 +1,4 @@
-import { loadConfig } from "../../../config";
+import { loadConfig, getGhqRoot } from "../../../config";
 import { parseWakeTarget, ensureCloned } from "../../shared/wake-target";
 import { normalizeTarget } from "../../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../../core/fleet/validate";
@@ -85,7 +85,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   }
 
   const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const org = opts.org || config.githubOrg || "Soul-Brews-Studio";
 
   // Resolve parent oracle (skip for --root)
@@ -109,9 +109,9 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   const budRepoName = `${name}-oracle`;
   const budRepoSlug = `${org}/${budRepoName}`;
   // Predicted path — may drift from ghq's actual landing dir when
-  // config.ghqRoot is stale (#630). ensureBudRepo returns the authoritative
+  // the ghq root is stale (#630, #680). ensureBudRepo returns the authoritative
   // post-clone path; use that for all scaffolding below.
-  const predictedRepoPath = join(ghqRoot, org, budRepoName);
+  const predictedRepoPath = join(reposRoot, org, budRepoName);
 
   const nickSuffix = nicknameValue ? ` (${nicknameValue})` : "";
   if (opts.root) {
@@ -161,13 +161,13 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
 
   // 5-8.5. Soul-sync, commit, sync peers, wake, split, copy
   await finalizeBud({
-    name, parentName, org, budRepoName, budRepoPath, psiDir, ghqRoot, fleetFile,
+    name, parentName, org, budRepoName, budRepoPath, psiDir, fleetFile,
     opts: { seed: opts.seed, issue: opts.issue, repo: opts.repo, split: opts.split, fast: opts.fast },
   });
 
   // Optional: drop birth signal into parent's ψ/
   if (opts.signalOnBirth && parentName) {
-    const parentRepoPath = join(ghqRoot, org, `${parentName}-oracle`);
+    const parentRepoPath = join(reposRoot, org, `${parentName}-oracle`);
     writeSignal(parentRepoPath, name, {
       kind: "info",
       message: `bud born: ${name}`,

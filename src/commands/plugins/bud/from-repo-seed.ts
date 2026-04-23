@@ -13,16 +13,16 @@
 
 import { cpSync, copyFileSync, existsSync, mkdirSync, statSync } from "fs";
 import { join } from "path";
-import { loadConfig } from "../../../config";
+import { loadConfig, getGhqRoot } from "../../../config";
 import { peersPath } from "../peers/store";
 
 type Log = (msg: string) => void;
 
-/** Resolve parent oracle's ψ/memory/ path using loadConfig's ghqRoot. */
+/** Resolve parent oracle's ψ/memory/ path via on-demand ghq root (#680). */
 export function parentMemoryPath(parentStem: string): string {
   const cfg = loadConfig();
   const org = cfg.githubOrg || "Soul-Brews-Studio";
-  return join(cfg.ghqRoot, org, `${parentStem}-oracle`, "ψ", "memory");
+  return join(getGhqRoot(), "github.com", org, `${parentStem}-oracle`, "ψ", "memory");
 }
 
 /**

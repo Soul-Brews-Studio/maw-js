@@ -1,7 +1,7 @@
 import { join } from "path";
 import { existsSync, unlinkSync, symlinkSync, mkdirSync, readdirSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
-import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
 
 export async function cmdFleetSync() {
@@ -9,7 +9,8 @@ export async function cmdFleetSync() {
   let added = 0;
 
   const runningSessions = await getSessionNames();
-  const ghqRoot = loadConfig().ghqRoot;
+  // Derive repo paths from <ghqRoot>/github.com/ — strip that prefix to get org/repo.
+  const reposRoot = join(getGhqRoot(), "github.com");
 
   for (const e of entries) {
     if (!runningSessions.includes(e.session.name)) continue;
@@ -24,10 +25,10 @@ export async function cmdFleetSync() {
         const [winName, cwdPath] = line.split(":");
         if (!winName || registeredNames.has(winName)) continue;
 
-        // Derive repo from cwd (strip ghqRoot prefix)
+        // Derive repo from cwd (strip reposRoot prefix)
         let repo = "";
-        if (cwdPath?.startsWith(ghqRoot + "/")) {
-          repo = cwdPath.slice(ghqRoot.length + 1);
+        if (cwdPath?.startsWith(reposRoot + "/")) {
+          repo = cwdPath.slice(reposRoot.length + 1);
         }
 
         e.session.windows.push({ name: winName, repo });

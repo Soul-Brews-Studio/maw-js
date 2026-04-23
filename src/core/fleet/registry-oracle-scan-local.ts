@@ -12,7 +12,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
-import { loadConfig } from "../../config";
+import { loadConfig, getGhqRoot } from "../../config";
 import type { OracleEntry } from "./registry-oracle-types";
 
 // ---------- Fleet lineage parsing ----------
@@ -68,21 +68,21 @@ export function deriveName(repo: string): string {
  */
 export function scanLocal(verbose = true): OracleEntry[] {
   const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const now = new Date().toISOString();
   const fleetLineage = readFleetLineage();
   const entries: OracleEntry[] = [];
   const seen = new Set<string>();
 
   if (verbose) {
-    console.log(`  \x1b[90m⏳ scanning ghq root: ${ghqRoot}\x1b[0m`);
+    console.log(`  \x1b[90m⏳ scanning repos root: ${reposRoot}\x1b[0m`);
     console.log(`  \x1b[90m  fleet lineage: ${fleetLineage.size} entries from ${FLEET_DIR}\x1b[0m`);
   }
 
-  // Walk ghq root: <ghqRoot>/<org>/<repo>/
+  // Walk reposRoot: <reposRoot>/<org>/<repo>/
   try {
-    for (const org of readdirSync(ghqRoot)) {
-      const orgPath = join(ghqRoot, org);
+    for (const org of readdirSync(reposRoot)) {
+      const orgPath = join(reposRoot, org);
       try {
         if (!statSync(orgPath).isDirectory()) continue;
       } catch { continue; }
@@ -139,7 +139,7 @@ export function scanLocal(verbose = true): OracleEntry[] {
       }
     }
   } catch (e) {
-    console.warn(`[oracle-registry] failed to walk ghq root ${ghqRoot}: ${e}`);
+    console.warn(`[oracle-registry] failed to walk repos root ${reposRoot}: ${e}`);
   }
 
   // Enrich with federation node from the current machine's config

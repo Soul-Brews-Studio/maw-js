@@ -23,7 +23,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (args[0] === "--help" || args[0] === "-h") {
         return {
           ok: true,
-          output: "maw init [--non-interactive --node <name> --ghq-root <path> --token <t> --federate --peer <url> --peer-name <name> --federation-token <hex> --force]\n\nInteractive 4-question wizard. Writes ~/.config/maw/maw.config.json.\nIn non-interactive mode, all required fields fall back to detected defaults\n(hostname, ghq root). Existing config requires --force to overwrite.",
+          output: "maw init [--non-interactive --node <name> --token <t> --federate --peer <url> --peer-name <name> --federation-token <hex> --force]\n\nInteractive 3-question wizard. Writes ~/.config/maw/maw.config.json.\nIn non-interactive mode, all required fields fall back to detected defaults\n(hostname). Existing config requires --force to overwrite. (#680: --ghq-root\nflag accepted but ignored — ghq root is resolved on demand via `ghq root`.)",
         };
       }
       const result = await cmdInit({ args, writer });
@@ -37,7 +37,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const body = (ctx.args ?? {}) as Record<string, unknown>;
       const args: string[] = ["--non-interactive"];
       if (body.node) args.push("--node", String(body.node));
-      if (body.ghqRoot) args.push("--ghq-root", String(body.ghqRoot));
+      // #680 — body.ghqRoot intentionally ignored; resolved on demand.
       if (body.token) args.push("--token", String(body.token));
       if (body.federate) args.push("--federate");
       if (Array.isArray(body.peers)) {

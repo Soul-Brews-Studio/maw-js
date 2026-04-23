@@ -1,9 +1,8 @@
 import { parseFlags } from "../../../cli/parse-args";
-import { validateNodeName, validateGhqRoot, validatePeerUrl, validatePeerName } from "./prompts";
+import { validateNodeName, validatePeerUrl, validatePeerName } from "./prompts";
 
 export interface NonInteractiveOpts {
   node: string;
-  ghqRoot: string;
   token?: string;
   federate: boolean;
   peers: { name: string; url: string }[];
@@ -16,11 +15,13 @@ export type NonInteractiveResult =
   | { ok: true; opts: NonInteractiveOpts }
   | { ok: false; error: string };
 
-export function parseNonInteractive(args: string[], homedir: string, defaults: { node: string; ghqRoot: string }): NonInteractiveResult {
+export function parseNonInteractive(args: string[], homedir: string, defaults: { node: string }): NonInteractiveResult {
+  void homedir; // #680 — retained for signature compat; ghqRoot no longer parsed
   // arg's String type collapses repeated flags; use [String] for arrays.
   const flags = parseFlags(args, {
     "--non-interactive": Boolean,
     "--node": String,
+    // #680 — --ghq-root accepted but ignored (logs deprecation in cmdInit).
     "--ghq-root": String,
     "--token": String,
     "--federate": Boolean,
@@ -35,9 +36,11 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
   const nodeErr = validateNodeName(node);
   if (nodeErr) return { ok: false, error: nodeErr };
 
-  const ghqRaw = flags["--ghq-root"] ?? defaults.ghqRoot;
-  const ghqV = validateGhqRoot(ghqRaw, homedir);
-  if (!ghqV.ok) return { ok: false, error: ghqV.err };
+  if (flags["--ghq-root"]) {
+    process.stderr.write(
+      `[maw init] warning: --ghq-root is deprecated (#680) and ignored — ghq root is resolved on demand.\n`,
+    );
+  }
 
   const peerUrls = (flags["--peer"] ?? []) as string[];
   const peerNames = (flags["--peer-name"] ?? []) as string[];
@@ -58,7 +61,6 @@ export function parseNonInteractive(args: string[], homedir: string, defaults: {
     ok: true,
     opts: {
       node,
-      ghqRoot: ghqV.path,
       token: flags["--token"],
       federate,
       peers,

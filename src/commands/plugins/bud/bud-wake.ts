@@ -3,6 +3,7 @@ import { cmdSoulSync } from "../soul-sync/impl";
 import { cmdWake } from "../../shared/wake";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { FLEET_DIR } from "../../../sdk";
+import { getGhqRoot } from "../../../config";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 
@@ -13,7 +14,6 @@ export interface BudFinalizeCtx {
   budRepoName: string;
   budRepoPath: string;
   psiDir: string;
-  ghqRoot: string;
   fleetFile: string;
   opts: {
     seed?: boolean;
@@ -26,7 +26,8 @@ export interface BudFinalizeCtx {
 
 /** Steps 5-8.5: soul-sync, initial commit, sync_peers update, wake, split, copy ψ/. */
 export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
-  const { name, parentName, org, budRepoName, budRepoPath, psiDir, ghqRoot, opts } = ctx;
+  const { name, parentName, org, budRepoName, budRepoPath, psiDir, opts } = ctx;
+  const reposRoot = join(getGhqRoot(), "github.com");
 
   // 5. Soul-sync: consent-based model.
   // Default: born blank — child pulls memory later via `maw soul-sync <parent> --from`.
@@ -116,7 +117,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
 
   // 8.5. Copy local project ψ/ if --repo was used and it exists
   if (opts.repo) {
-    const localPsi = join(ghqRoot, opts.repo, "ψ", "memory");
+    const localPsi = join(reposRoot, opts.repo, "ψ", "memory");
     if (existsSync(localPsi)) {
       const { syncDir } = await import("../soul-sync/impl");
       for (const sub of ["learnings", "retrospectives", "traces"]) {

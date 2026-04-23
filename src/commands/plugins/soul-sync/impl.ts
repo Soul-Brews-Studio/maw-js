@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join, basename } from "path";
 import { hostExec } from "../../../sdk";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { findPeers, findProjectsForOracle, syncOracleVaults, syncProjectVault, reportProjectResult, type SoulSyncResult, type ProjectSyncResult } from "./sync-helpers";
 import { resolveOraclePath, resolveProjectSlug, findOracleForProject } from "./resolve";
 
@@ -91,7 +91,7 @@ export async function cmdSoulSync(target?: string, opts?: { from?: boolean; cwd?
  */
 export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<ProjectSyncResult[]> {
   const results: ProjectSyncResult[] = [];
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
 
   let cwd = opts?.cwd || "";
   if (!cwd) {
@@ -108,7 +108,7 @@ export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<Proje
     if (top) repoRoot = top;
   } catch { /* not a git repo */ }
 
-  const repoSlug = resolveProjectSlug(repoRoot, ghqRoot);
+  const repoSlug = resolveProjectSlug(repoRoot, reposRoot);
   const repoBase = basename(repoRoot).replace(/\.wt-.*$/, "");
   const isOracle = repoBase.endsWith("-oracle");
 
@@ -123,7 +123,7 @@ export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<Proje
       return results;
     }
     for (const projectRepo of projects) {
-      const projectPath = join(ghqRoot, projectRepo);
+      const projectPath = join(reposRoot, projectRepo);
       if (!existsSync(projectPath)) {
         console.log(`  \x1b[33m⚠\x1b[0m ${projectRepo}: not found at ${projectPath}, skipping`);
         continue;
@@ -134,7 +134,7 @@ export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<Proje
     }
   } else {
     if (!repoSlug) {
-      console.log(`  \x1b[33m⚠\x1b[0m cannot resolve project slug from ${repoRoot} (not under ghq root ${ghqRoot})\n`);
+      console.log(`  \x1b[33m⚠\x1b[0m cannot resolve project slug from ${repoRoot} (not under repos root ${reposRoot})\n`);
       return results;
     }
     const oracleName = findOracleForProject(repoSlug);

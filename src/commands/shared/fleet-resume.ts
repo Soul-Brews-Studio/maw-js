@@ -1,5 +1,6 @@
+import { join } from "path";
 import { hostExec as ssh, tmux } from "../../sdk";
-import { loadConfig, buildCommand } from "../../config";
+import { buildCommand, getGhqRoot } from "../../config";
 import type { FleetSession } from "./fleet-load";
 
 /** After fleet spawn, send /recap to oracles with active Pulse board items */
@@ -63,7 +64,7 @@ export async function resumeActiveItems() {
  * that don't have a corresponding tmux window, and spawn them.
  */
 export async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number> {
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   let spawned = 0;
 
   for (const sess of sessions) {
@@ -75,7 +76,7 @@ export async function respawnMissingWorktrees(sessions: FleetSession[]): Promise
 
     for (const main of mainWindows) {
       const oracleName = main.name.replace(/-oracle$/, "");
-      const repoPath = `${ghqRoot}/${main.repo}`;
+      const repoPath = `${reposRoot}/${main.repo}`;
       const repoName = main.repo.split("/").pop()!;
       const parentDir = repoPath.replace(/\/[^/]+$/, "");
 

@@ -556,13 +556,14 @@ describe("from-repo: --seed + --sync-peers (file-copy pair)", () => {
     prevPeersFile = process.env.PEERS_FILE;
   });
 
-  // --seed mocks loadConfig so the parent tree resolves into a tmp ghqRoot.
-  // We must re-import from-repo-seed AFTER installing the mock so the mocked
-  // config is used, then re-import from-repo so its `seedFromParent` binding
-  // points to the mocked module.
+  // --seed mocks the config barrel so parent tree resolves inside a tmp ghq root.
+  // Post #680 the bud code calls getGhqRoot() + "github.com", so the mock
+  // exports both loadConfig (for githubOrg) and a fake getGhqRoot, and fixtures
+  // live at <ghqRoot>/github.com/<org>/...
   async function installConfigMock(ghqRoot: string) {
     mock.module("../../../config", () => ({
-      loadConfig: () => ({ ghqRoot, githubOrg: "Fake-Org" }),
+      loadConfig: () => ({ githubOrg: "Fake-Org" }),
+      getGhqRoot: () => ghqRoot,
     }));
     delete (require.cache as any)[require.resolve("./from-repo-seed")];
     delete (require.cache as any)[require.resolve("./from-repo")];
@@ -571,7 +572,7 @@ describe("from-repo: --seed + --sync-peers (file-copy pair)", () => {
 
   it("--seed copies parent's ψ/memory/ into target", async () => {
     const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
-    const parentMem = join(ghqRoot, "Fake-Org", "parent-oracle", "ψ", "memory");
+    const parentMem = join(ghqRoot, "github.com", "Fake-Org", "parent-oracle", "ψ", "memory");
     mkdirSync(join(parentMem, "learnings"), { recursive: true });
     writeFileSync(join(parentMem, "learnings", "a.md"), "hello from parent\n");
     writeFileSync(join(parentMem, "root.txt"), "root memory\n");
@@ -593,7 +594,7 @@ describe("from-repo: --seed + --sync-peers (file-copy pair)", () => {
 
   it("--seed is dest-biased: pre-existing target file is NOT overwritten", async () => {
     const ghqRoot = mkdtempSync(join(tmpdir(), "maw-ghq-"));
-    const parentMem = join(ghqRoot, "Fake-Org", "parent-oracle", "ψ", "memory");
+    const parentMem = join(ghqRoot, "github.com", "Fake-Org", "parent-oracle", "ψ", "memory");
     mkdirSync(join(parentMem, "learnings"), { recursive: true });
     writeFileSync(join(parentMem, "learnings", "collide.md"), "parent wins\n");
 

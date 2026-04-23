@@ -27,7 +27,6 @@ export function configExists(filePath: string): boolean {
 
 export interface BuildConfigInput {
   node: string;
-  ghqRoot: string;
   token?: string;
   federate?: boolean;
   peers?: { name: string; url: string }[];
@@ -42,11 +41,11 @@ export function buildConfig(input: BuildConfigInput): Partial<MawConfig> {
   const env: Record<string, string> = {};
   if (input.token) env.CLAUDE_CODE_OAUTH_TOKEN = input.token;
 
+  // #680 — ghqRoot is intentionally NOT written at init; it's resolved on demand.
   const cfg: Partial<MawConfig> = {
     host: input.node,
     node: input.node,
     port: DEFAULT_PORT,
-    ghqRoot: input.ghqRoot,
     oracleUrl: DEFAULT_ORACLE_URL,
     env,
     commands: { default: DEFAULT_COMMAND },

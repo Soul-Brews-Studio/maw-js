@@ -1,5 +1,6 @@
+import { join } from "path";
 import { listSessions } from "../../../sdk";
-import { loadConfig } from "../../../config";
+import { getGhqRoot } from "../../../config";
 import { FLEET_DIR } from "../../../sdk";
 import { takeSnapshot } from "../../../sdk";
 import { tmux } from "../../../sdk";
@@ -24,7 +25,7 @@ export interface DoneOpts {
 export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   let windowName = normalizeTarget(windowName_);
   const sessions = await listSessions();
-  const ghqRoot = loadConfig().ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
@@ -61,9 +62,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   // 2. Remove git worktree
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, ghqRoot);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, ghqRoot);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot);
   }
   if (!removedWorktree) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);

@@ -52,7 +52,13 @@ export interface MawLimits {
 export interface MawConfig {
   host: string;
   port: number;
-  ghqRoot: string;
+  /**
+   * @deprecated (#680) — ghq root is resolved on demand via `ghq root`. If
+   * present, this value is honored as a legacy override (normalized to the
+   * BARE shape — trailing `/github.com` stripped). Prefer removing it from
+   * config and letting `getGhqRoot()` resolve at runtime.
+   */
+  ghqRoot?: string;
   oracleUrl: string;
   env: Record<string, string>;
   commands: Record<string, string>;

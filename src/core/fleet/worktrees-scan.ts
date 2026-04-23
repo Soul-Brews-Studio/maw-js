@@ -1,5 +1,5 @@
 import { hostExec, listSessions } from "../transport/ssh";
-import { loadConfig } from "../../config";
+import { getGhqRoot } from "../../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
@@ -24,14 +24,13 @@ export interface WorktreeInfo {
  *   orphan  — git reports prunable
  */
 export async function scanWorktrees(): Promise<WorktreeInfo[]> {
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot;
+  const reposRoot = join(getGhqRoot(), "github.com");
   const fleetDir = FLEET_DIR;
 
   // 1. Find all .wt- directories
   let wtPaths: string[] = [];
   try {
-    const raw = await hostExec(`find ${ghqRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
+    const raw = await hostExec(`find ${reposRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
     wtPaths = raw.split("\n").filter(Boolean);
   } catch { /* no worktrees */ }
 
@@ -72,7 +71,7 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     const wtName = parts[1];
 
     // Derive org/repo path
-    const relPath = wtPath.replace(ghqRoot + "/", "");
+    const relPath = wtPath.replace(reposRoot + "/", "");
     const parentParts = relPath.split("/");
     parentParts.pop(); // remove wt dir
     const org = parentParts.join("/");
@@ -130,7 +129,7 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   // Collect unique main repos that have worktrees
   const mainRepos = [...new Set(results.map(r => r.mainRepo))];
   for (const mainRepo of mainRepos) {
-    const mainPath = join(ghqRoot, mainRepo);
+    const mainPath = join(reposRoot, mainRepo);
     try {
       const prunable = await hostExec(`git -C '${mainPath}' worktree list --porcelain 2>/dev/null | grep -A1 'prunable' | grep 'worktree' | sed 's/worktree //'`);
       for (const orphanPath of prunable.split("\n").filter(Boolean)) {

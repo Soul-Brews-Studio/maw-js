@@ -35,6 +35,11 @@ export function validateNodeName(name: string): string | null {
   return null;
 }
 
+/**
+ * @deprecated (#680) — `ghqRoot` is no longer asked at init. Retained only so
+ * third-party callers that imported this validator keep compiling. The init
+ * flow resolves ghq root on demand via `getGhqRoot()`.
+ */
 export function validateGhqRoot(input: string, homedir: string): { ok: true; path: string } | { ok: false; err: string } {
   if (!input) return { ok: false, err: "Path must be absolute" };
   if (!input.startsWith("/") && !input.startsWith("~")) {
@@ -64,7 +69,6 @@ export function validatePeerName(name: string): string | null {
 
 export interface PromptAnswers {
   node: string;
-  ghqRoot: string;
   token: string;
   federate: boolean;
   peers: { name: string; url: string }[];
@@ -93,10 +97,12 @@ async function askUntilValid(
 
 export async function runPromptLoop(
   ask: AskFn,
-  defaults: { node: string; ghqRoot: string },
+  defaults: { node: string },
   homedir: string,
   writer: (msg: string) => void,
 ): Promise<PromptAnswers> {
+  // #680 — ghq root is no longer prompted; it's resolved on demand via `ghq root`.
+  void homedir; // kept in signature for backward-compat (callers still pass it)
   const node = await askUntilValid(
     ask,
     "Node name (this machine's identity in the federation)",
@@ -104,18 +110,6 @@ export async function runPromptLoop(
     validateNodeName,
     writer,
   );
-
-  const ghqRoot = await askUntilValid(
-    ask,
-    "Code root (where repos are cloned)",
-    defaults.ghqRoot,
-    (v) => {
-      const r = validateGhqRoot(v, homedir);
-      return r.ok ? null : r.err;
-    },
-    writer,
-  );
-  const ghqExpanded = validateGhqRoot(ghqRoot, homedir) as { ok: true; path: string };
 
   const token = await ask("Claude token (blank = use $CLAUDE_CODE_OAUTH_TOKEN or ~/.claude/credentials)", "");
   if (!token && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
@@ -148,5 +142,5 @@ export async function runPromptLoop(
     }
   }
 
-  return { node, ghqRoot: ghqExpanded.path, token, federate, peers };
+  return { node, token, federate, peers };
 }

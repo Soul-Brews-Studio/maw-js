@@ -30,7 +30,11 @@ let budRepoPath = "";
 function installMocks() {
   mock.module("../../../config", () => ({
     ...realConfigModule,
-    loadConfig: () => ({ ghqRoot: "/tmp/nope", githubOrg: "Soul-Brews-Studio", env: {}, commands: {}, sessions: {} }),
+    // #680 — loadConfig no longer owns ghqRoot; getGhqRoot() is the source.
+    // The test never hits disk under ghqRoot (ensureBudRepo is fully mocked),
+    // so "/tmp/nope" is inert — just feeds the predicted-path string.
+    loadConfig: () => ({ githubOrg: "Soul-Brews-Studio", env: {}, commands: {}, sessions: {} }),
+    getGhqRoot: () => "/tmp/nope",
   }));
   mock.module("./impl", () => ({
     cmdBud: async (name: string, opts: any) => {
