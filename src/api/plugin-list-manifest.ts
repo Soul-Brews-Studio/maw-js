@@ -13,7 +13,8 @@
  * See docs/plugins/search-peers-impl.md for the full spec.
  */
 import { Elysia } from "elysia";
-import { type PluginTier, weightToTier } from "../plugin/types";
+import type { PluginTier } from "../plugin/types";
+import { weightToTier } from "../plugin/tier";
 import { discoverPackages } from "../plugin/registry";
 import { loadConfig } from "../config";
 
