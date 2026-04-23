@@ -68,24 +68,36 @@ export const api = new Elysia({ prefix: "/api" })
   .use(pairApi)
   .use(consentApi);
 
+// Snapshot direct-handler routes before plugin auto-mount (#705)
+const directRoutes = new Set(
+  api.routes.map(r => `${r.method}|${r.path}`),
+);
+
 // Auto-mount plugin API surfaces from manifests
 const bundledPlugins = discoverPackages();
 for (const p of bundledPlugins) {
   if (!p.manifest.api) continue;
-  // Strip /api prefix from manifest path — Elysia already has prefix: "/api"
   const rawPath = p.manifest.api.path;
   const apiPath = rawPath.startsWith("/api") ? rawPath.slice(4) : rawPath;
   const { methods } = p.manifest.api;
-  if (methods.includes("GET")) {
-    api.get(apiPath, async ({ query }) => {
-      const result = await invokePlugin(p, { source: "api", args: query ?? {} });
-      return result;
-    });
-  }
-  if (methods.includes("POST")) {
-    api.post(apiPath, async ({ body }) => {
-      const result = await invokePlugin(p, { source: "api", args: body ?? {} });
-      return result;
-    });
+  for (const method of methods) {
+    if (directRoutes.has(`${method}|${apiPath}`)) {
+      process.stderr.write(
+        `[maw] ⚠ plugin '${p.manifest.name}' declares ${method} ${rawPath} — ` +
+        `collides with direct handler, skipping auto-mount\n`,
+      );
+      continue;
+    }
+    if (method === "GET") {
+      api.get(apiPath, async ({ query }) => {
+        const result = await invokePlugin(p, { source: "api", args: query ?? {} });
+        return result;
+      });
+    } else if (method === "POST") {
+      api.post(apiPath, async ({ body }) => {
+        const result = await invokePlugin(p, { source: "api", args: body ?? {} });
+        return result;
+      });
+    }
   }
 }
