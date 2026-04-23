@@ -3,8 +3,10 @@
  * Each function validates and shapes one optional manifest section.
  */
 
-import type { PluginManifest } from "./types";
+import type { PluginManifest, PluginTier } from "./types";
 import { KNOWN_CAPABILITY_NAMESPACES } from "./manifest-constants";
+
+const VALID_TIERS = new Set<PluginTier>(["core", "standard", "extra"]);
 
 export function parseCli(r: Record<string, unknown>): PluginManifest["cli"] {
   if (r.cli === undefined) return undefined;
@@ -178,4 +180,19 @@ export function parseArtifact(r: Record<string, unknown>): PluginManifest["artif
     throw new Error("plugin.json: artifact.sha256 must be a string or null");
   }
   return { path: a.path, sha256: (a.sha256 as string | null) ?? null };
+}
+
+/**
+ * Parse optional `tier` field (#675).
+ * Must be one of "core" | "standard" | "extra".
+ * Missing → undefined (caller falls back to weightToTier).
+ */
+export function parseTier(r: Record<string, unknown>): PluginManifest["tier"] {
+  if (r.tier === undefined) return undefined;
+  if (typeof r.tier !== "string" || !VALID_TIERS.has(r.tier as PluginTier)) {
+    throw new Error(
+      `plugin.json: tier must be "core", "standard", or "extra" (got ${JSON.stringify(r.tier)})`,
+    );
+  }
+  return r.tier as PluginTier;
 }

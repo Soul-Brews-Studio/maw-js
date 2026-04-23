@@ -13,6 +13,8 @@
  * See docs/plugins/search-peers-impl.md for the full spec.
  */
 import { Elysia } from "elysia";
+import type { PluginTier } from "../plugin/types";
+import { weightToTier } from "../plugin/types";
 import { discoverPackages } from "../plugin/registry";
 import { loadConfig } from "../config";
 
@@ -22,6 +24,8 @@ export interface PeerPluginEntry {
   summary?: string;
   author?: string;
   sha256?: string | null;
+  /** Plugin tier — explicit or inferred from weight (#675). */
+  tier?: PluginTier;
   /**
    * Relative URL to fetch this plugin's tarball from the peer (Task #1).
    * Additive; clients ignore unknown keys, so no schemaVersion bump needed.
@@ -46,6 +50,7 @@ export const pluginListManifestApi = new Elysia().get(
       const entry: PeerPluginEntry = {
         name: m.name,
         version: m.version,
+        tier: m.tier ?? weightToTier(m.weight ?? 50),
         downloadUrl: `/api/plugin/download/${encodeURIComponent(m.name)}`,
       };
       if (m.description) entry.summary = m.description;

@@ -2,9 +2,25 @@
  * plugins seam: doLs + doInfo implementations.
  */
 
-import type { LoadedPlugin } from "../../plugin/types";
+import type { LoadedPlugin, PluginTier } from "../../plugin/types";
+import { weightToTier } from "../../plugin/types";
 import { existsSync } from "fs";
 import { surfaces, shortenHome, printTable } from "./plugins-ui";
+
+/** Resolve effective tier: explicit tier field first, then inferred from weight (#675). */
+function effectiveTier(p: LoadedPlugin): PluginTier {
+  return p.manifest.tier ?? weightToTier(p.manifest.weight ?? 50);
+}
+
+/** Tier color for terminal output. */
+function tierIcon(tier: PluginTier, disabled: boolean): string {
+  if (disabled) return "\x1b[90m○\x1b[0m";
+  switch (tier) {
+    case "core": return "\x1b[32m●\x1b[0m";
+    case "standard": return "\x1b[36m●\x1b[0m";
+    case "extra": return "\x1b[33m●\x1b[0m";
+  }
+}
 
 export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlugin[]): void {
   const allPlugins = discover();
@@ -15,6 +31,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
         allPlugins.map(p => ({
           name: p.manifest.name,
           version: p.manifest.version,
+          tier: effectiveTier(p),
           surfaces: surfaces(p),
           dir: p.dir,
         })),
@@ -42,17 +59,17 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
     return;
   }
 
-  // Group by weight tier
-  const tiers: { label: string; plugins: LoadedPlugin[] }[] = [
+  // Group by effective tier (#675 — explicit tier field, fallback to weight-inferred)
+  const tiers: { label: PluginTier; plugins: LoadedPlugin[] }[] = [
     { label: "core", plugins: [] },
     { label: "standard", plugins: [] },
     { label: "extra", plugins: [] },
   ];
 
   for (const p of plugins) {
-    const w = p.manifest.weight ?? 50;
-    if (w < 10) tiers[0].plugins.push(p);
-    else if (w < 50) tiers[1].plugins.push(p);
+    const t = effectiveTier(p);
+    if (t === "core") tiers[0].plugins.push(p);
+    else if (t === "standard") tiers[1].plugins.push(p);
     else tiers[2].plugins.push(p);
   }
 
@@ -60,10 +77,10 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
     if (tier.plugins.length === 0) continue;
     console.log(`\n\x1b[1m${tier.label}\x1b[0m (${tier.plugins.length})`);
     const rows = tier.plugins.map(p => {
-      const w = p.manifest.weight ?? 50;
+      const t = effectiveTier(p);
       const isDisabled = disabledSet.has(p.manifest.name);
-      const icon = isDisabled ? "\x1b[90m○\x1b[0m" : (w < 10 ? "\x1b[32m●\x1b[0m" : w < 50 ? "\x1b[36m●\x1b[0m" : "\x1b[33m●\x1b[0m");
-      const source = `${icon} ${isDisabled ? "disabled" : (w < 10 ? "core" : w < 50 ? "standard" : "extra")}`;
+      const icon = tierIcon(t, isDisabled);
+      const source = `${icon} ${isDisabled ? "disabled" : t}`;
       return [
         p.manifest.name,
         p.manifest.version,
@@ -72,7 +89,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
         shortenHome(p.dir),
       ];
     });
-    printTable(["name", "version", "source", "surfaces", "dir"], rows);
+    printTable(["name", "version", "tier", "surfaces", "dir"], rows);
   }
 
   if (showAll) {
@@ -93,10 +110,12 @@ export function doInfo(name: string, discover: () => LoadedPlugin[]): void {
   }
 
   const m = p.manifest;
+  const t = effectiveTier(p);
   console.log(`\x1b[1m${m.name}\x1b[0m  ${m.version}`);
   if (m.description) console.log(`  desc:    ${m.description}`);
   if (m.author)      console.log(`  author:  ${m.author}`);
   console.log(`  sdk:     ${m.sdk}`);
+  console.log(`  tier:    ${t}${m.tier ? "" : " (inferred from weight)"}`);
   if (m.cli) {
     const help = m.cli.help ? `  — ${m.cli.help}` : "";
     console.log(`  cli:     ${m.cli.command}${help}`);

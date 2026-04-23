@@ -16,6 +16,7 @@ import {
   parseTarget,
   parseCapabilities,
   parseArtifact,
+  parseTier,
 } from "./manifest-validate";
 
 /**
@@ -93,11 +94,13 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   const target = parseTarget(r);
   const capabilities = parseCapabilities(r);
   const artifact = parseArtifact(r);
+  const tier = parseTier(r);
 
   return {
     name: r.name,
     version: r.version,
     ...(typeof r.weight === "number" ? { weight: r.weight } : {}),
+    ...(tier ? { tier } : {}),
     ...(hasWasm ? { wasm: r.wasm as string } : {}),
     ...(hasEntry ? { entry: r.entry as string } : {}),
     sdk: r.sdk,

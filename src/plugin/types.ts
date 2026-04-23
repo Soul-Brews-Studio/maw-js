@@ -19,6 +19,32 @@
 export type PluginTarget = "js" | "wasm";
 
 /**
+ * Plugin tier — explicit membership contract (#675).
+ *
+ * `tier` is the migration/governance contract. `weight` stays as a
+ * load-order hint only. Missing `tier` falls back to `weightToTier(weight)`
+ * for backward compatibility (one release).
+ *
+ *   "core"     — boot-path / contract / substrate / cant-profile
+ *   "standard" — normal plugins
+ *   "extra"    — optional / experimental
+ */
+export type PluginTier = "core" | "standard" | "extra";
+
+/**
+ * Infer tier from weight (backward-compat fallback).
+ *
+ *   weight 0-9   → "core"
+ *   weight 10-49 → "standard"
+ *   weight 50+   → "extra"
+ */
+export function weightToTier(weight: number): PluginTier {
+  if (weight < 10) return "core";
+  if (weight < 50) return "standard";
+  return "extra";
+}
+
+/**
  * Built-plugin artifact descriptor. Present on compiled plugins written
  * by `maw plugin build`. `sha256: null` means "unbuilt" — the loader
  * refuses such plugins with a "run `maw plugin build`" message.
@@ -32,6 +58,7 @@ export interface PluginManifest {
   name: string;           // unique id, slug-safe /^[a-z0-9-]+$/
   version: string;        // semver e.g. "1.0.0"
   weight?: number;        // execution order: lower = first (default 50, like Drupal)
+  tier?: PluginTier;      // membership contract: "core" | "standard" | "extra" (#675)
   wasm?: string;          // relative path to .wasm (WASM plugin)
   entry?: string;         // relative path to .ts/.js (TS plugin)
   sdk: string;            // semver range e.g. "^1.0.0"
