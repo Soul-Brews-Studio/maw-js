@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { ghqFind } from "../../../core/ghq";
-import { getGhqRoot } from "../../../config/ghq-root";
+import { getGhqRoot } from "../../../config";
 import { loadFleet } from "../../shared/fleet-load";
 
 /**
