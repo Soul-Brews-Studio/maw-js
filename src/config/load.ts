@@ -20,8 +20,27 @@ const DEFAULTS: MawConfig = {
 };
 
 let warnedGhqRoot = false;
+let warnedHostNormalized = false;
 
 let cached: MawConfig | null = null;
+
+/**
+ * Normalize `host` away from bind-address / loopback variants to the canonical
+ * local sentinel `"local"`. Downstream code only needs to recognize one form
+ * for self-connection (see #712: `0.0.0.0` as a target caused slow ssh-to-self
+ * instead of bare local tmux).
+ *
+ * This is a *normalization at read time* — the file on disk is left alone so
+ * the (misnamed) `0.0.0.0` write from bind-host.ts still round-trips, but no
+ * in-memory consumer ever sees it.
+ */
+function normalizeHost(host: string): string {
+  if (host === "0.0.0.0" || host === "::" || host === "" ||
+      host === "127.0.0.1" || host === "localhost") {
+    return "local";
+  }
+  return host;
+}
 
 export function loadConfig(): MawConfig {
   if (cached) return cached;
@@ -31,6 +50,21 @@ export function loadConfig(): MawConfig {
     cached = { ...DEFAULTS, ...validated };
   } catch {
     cached = { ...DEFAULTS };
+  }
+  // #712 — normalize bind-address sentinels to "local" for outbound-target use.
+  if (typeof cached.host === "string") {
+    const normalized = normalizeHost(cached.host);
+    if (normalized !== cached.host) {
+      if (!warnedHostNormalized) {
+        warnedHostNormalized = true;
+        process.stderr.write(
+          `[maw] config.host "${cached.host}" normalized to "local" at load time. ` +
+          `"${cached.host}" is a bind address, not a connection target. ` +
+          `(See #712 — split api.bind from host.)\n`,
+        );
+      }
+      cached.host = normalized;
+    }
   }
   // #680 — warn once if the (deprecated) ghqRoot override is set in config.
   if (!warnedGhqRoot && typeof cached.ghqRoot === "string" && cached.ghqRoot.length > 0) {
@@ -54,6 +88,7 @@ export function loadConfig(): MawConfig {
 export function resetConfig() {
   cached = null;
   warnedGhqRoot = false;
+  warnedHostNormalized = false;
 }
 
 /** Write config to maw.config.json and reset cache */
