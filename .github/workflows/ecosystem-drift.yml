@@ -15,7 +15,7 @@ jobs:
     name: ecosystem-paths
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Verify ecosystem.config.cjs script paths exist
         run: bash scripts/check-ecosystem.sh
@@ -24,7 +24,7 @@ jobs:
     name: rename-regression
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Simulate file rename breaking ecosystem (regression test)
         run: |
