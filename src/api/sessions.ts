@@ -12,6 +12,35 @@ import { WakeBody, SleepBody, SendBody } from "../lib/schemas";
 
 export const sessionsApi = new Elysia();
 
+/**
+ * Dedupe windows within each session by window name (#732).
+ *
+ * When `config.agents` lists the same repo across multiple tmux windows,
+ * `session.windows` can contain repeated entries with the same name. UI
+ * consumers (mawui federation viz) iterate `session.windows` to render
+ * one row per oracle — duplicates cause React key collisions.
+ *
+ * We keep the first occurrence per name, preferring the active window
+ * when present so the "live" one wins. Shape is unchanged.
+ */
+export function dedupeSessionWindows<T extends { windows: { name: string; active?: boolean }[] }>(
+  sessions: T[],
+): T[] {
+  return sessions.map(s => {
+    const seen = new Map<string, typeof s.windows[number]>();
+    for (const w of s.windows) {
+      const existing = seen.get(w.name);
+      if (!existing) {
+        seen.set(w.name, w);
+      } else if (!existing.active && w.active) {
+        // Prefer the active window over an earlier non-active one
+        seen.set(w.name, w);
+      }
+    }
+    return { ...s, windows: [...seen.values()] };
+  });
+}
+
 /** Resolve oracle name → tmux target, same logic as local peek (#273). */
 function resolveCapture(query: string, sessions: { name: string }[]): string {
   const config = loadConfig();
@@ -31,10 +60,10 @@ function resolveCapture(query: string, sessions: { name: string }[]): string {
 sessionsApi.get("/sessions", async ({ query }) => {
   const local = await listSessions();
   if (query.local === "true") {
-    return local.map(s => ({ ...s, source: "local" }));
+    return dedupeSessionWindows(local.map(s => ({ ...s, source: "local" })));
   }
   const aggregated = await getAggregatedSessions(local);
-  return aggregated;
+  return dedupeSessionWindows(aggregated);
 }, {
   query: t.Object({
     local: t.Optional(t.String()),
