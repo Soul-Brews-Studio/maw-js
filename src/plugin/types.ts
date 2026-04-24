@@ -67,7 +67,6 @@ export interface PluginManifest {
   transport?: {
     peer?: boolean;     // enable maw hey plugin:<name>
   };
-  tier?: PluginTier;
 }
 
 export interface LoadedPlugin {
