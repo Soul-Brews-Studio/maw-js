@@ -53,6 +53,16 @@ export interface MawConfig {
   host: string;
   port: number;
   /**
+   * API server bind address (#713). When present, the HTTP/WS server binds to
+   * this address instead of deriving it from `host`. This separates the
+   * "listen on all interfaces for federation" concern from the "outbound
+   * connection target" concern that `host` represents.
+   *
+   * Typical value: `"0.0.0.0"` (federation) or `"127.0.0.1"` (local only).
+   * When absent, the server falls back to `resolveBindHost()` heuristic.
+   */
+  bind?: string;
+  /**
    * @deprecated (#680) — ghq root is resolved on demand via `ghq root`. If
    * present, this value is honored as a legacy override (normalized to the
    * BARE shape — trailing `/github.com` stripped). Prefer removing it from

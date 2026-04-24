@@ -160,8 +160,9 @@ export async function cmdView(
   }
 
   const t = new Tmux();
+  // #713: with bind/host split, config.host is never a bind address (0.0.0.0 etc.)
   const host = process.env.MAW_HOST || loadConfig().host || "local";
-  const isLocal = host === "local" || host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1";
+  const isLocal = host === "local" || host === "localhost";
   const socket = resolveSocket();
 
   // If the resolved session is already a view, attach directly — skip the

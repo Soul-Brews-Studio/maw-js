@@ -184,9 +184,14 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // HTTP server (always)
   // Security: bind to localhost unless federation is active (see resolveBindHost).
+  // #713: config.bind takes precedence over the heuristic — it's the explicit
+  // "I want to listen on this address" knob, separate from config.host (the
+  // outbound connection target).
   const config = loadConfig();
-  const { hostname, reason } = resolveBindHost(config);
-  const hasPeers = reason !== null;
+  const heuristic = resolveBindHost(config);
+  const hostname = config.bind ?? heuristic.hostname;
+  const reason = config.bind ? "config.bind" as const : heuristic.reason;
+  const hasPeers = heuristic.reason !== null;
 
   if (hasPeers && !config.federationToken) {
     console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
