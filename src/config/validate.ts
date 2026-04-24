@@ -15,6 +15,15 @@ export function validateBasicFields(
     }
   }
 
+  // bind: string (#713) — API server bind address, separate from outbound host
+  if ("bind" in raw) {
+    if (typeof raw.bind === "string" && raw.bind.trim().length > 0) {
+      result.bind = raw.bind.trim();
+    } else {
+      warn("bind", "must be a non-empty string");
+    }
+  }
+
   // port: number, 1-65535
   if ("port" in raw) {
     const p = Number(raw.port);
@@ -93,6 +102,7 @@ export function validateConfigShape(config: unknown): string[] {
   const c = config as Record<string, unknown>;
 
   if (c.host !== undefined && typeof c.host !== "string") errors.push("host must be a string");
+  if (c.bind !== undefined && typeof c.bind !== "string") errors.push("bind must be a string");
   if (c.port !== undefined) {
     if (typeof c.port !== "number" || !Number.isInteger(c.port) || c.port < 1 || c.port > 65535)
       errors.push("port must be an integer 1-65535");

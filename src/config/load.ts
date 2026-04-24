@@ -20,27 +20,12 @@ const DEFAULTS: MawConfig = {
 };
 
 let warnedGhqRoot = false;
-let warnedHostNormalized = false;
+let warnedHostMigrated = false;
 
 let cached: MawConfig | null = null;
 
-/**
- * Normalize `host` away from bind-address / loopback variants to the canonical
- * local sentinel `"local"`. Downstream code only needs to recognize one form
- * for self-connection (see #712: `0.0.0.0` as a target caused slow ssh-to-self
- * instead of bare local tmux).
- *
- * This is a *normalization at read time* — the file on disk is left alone so
- * the (misnamed) `0.0.0.0` write from bind-host.ts still round-trips, but no
- * in-memory consumer ever sees it.
- */
-function normalizeHost(host: string): string {
-  if (host === "0.0.0.0" || host === "::" || host === "" ||
-      host === "127.0.0.1" || host === "localhost") {
-    return "local";
-  }
-  return host;
-}
+/** Bind-address values that should never appear as an outbound target (#713). */
+const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
 
 export function loadConfig(): MawConfig {
   if (cached) return cached;
@@ -51,20 +36,22 @@ export function loadConfig(): MawConfig {
   } catch {
     cached = { ...DEFAULTS };
   }
-  // #712 — normalize bind-address sentinels to "local" for outbound-target use.
-  if (typeof cached.host === "string") {
-    const normalized = normalizeHost(cached.host);
-    if (normalized !== cached.host) {
-      if (!warnedHostNormalized) {
-        warnedHostNormalized = true;
-        process.stderr.write(
-          `[maw] config.host "${cached.host}" normalized to "local" at load time. ` +
-          `"${cached.host}" is a bind address, not a connection target. ` +
-          `(See #712 — split api.bind from host.)\n`,
-        );
-      }
-      cached.host = normalized;
+  // #713 — migrate bind-address values out of `host` into `bind`.
+  // If `host` is a bind address (0.0.0.0, ::, 127.0.0.1, localhost, ""),
+  // move it to `bind` (if not already set) and reset `host` to "local".
+  if (typeof cached.host === "string" && BIND_ADDRESSES.has(cached.host)) {
+    if (!cached.bind) {
+      cached.bind = cached.host;
     }
+    if (!warnedHostMigrated) {
+      warnedHostMigrated = true;
+      process.stderr.write(
+        `[maw] config.host "${cached.host}" is a bind address, not a connection target. ` +
+        `Migrated to config.bind; host reset to "local". ` +
+        `(#713 — set "bind" in maw.config.json to silence this warning.)\n`,
+      );
+    }
+    cached.host = "local";
   }
   // #680 — warn once if the (deprecated) ghqRoot override is set in config.
   if (!warnedGhqRoot && typeof cached.ghqRoot === "string" && cached.ghqRoot.length > 0) {
@@ -88,7 +75,7 @@ export function loadConfig(): MawConfig {
 export function resetConfig() {
   cached = null;
   warnedGhqRoot = false;
-  warnedHostNormalized = false;
+  warnedHostMigrated = false;
 }
 
 /** Write config to maw.config.json and reset cache */

@@ -16,8 +16,9 @@ const sessions = new Map<string, PtySession>();
 const attaching = new Set<string>();
 
 function isLocalHost(): boolean {
+  // #713: with bind/host split, config.host is never a bind address (0.0.0.0 etc.)
   const host = process.env.MAW_HOST || loadConfig().host || "local";
-  return host === "local" || host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1";
+  return host === "local" || host === "localhost";
 }
 
 function findSession(ws: MawWS): PtySession | undefined {
