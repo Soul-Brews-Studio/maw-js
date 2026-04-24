@@ -117,6 +117,47 @@ export async function cmdSend(query: string, message: string, force = false) {
     console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts — append ':<window>' to target a specific window (bare name = exact match locally; errors on ambiguity)\x1b[0m`);
   }
 
+  // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
+  if (query.startsWith("team:")) {
+    const teamName = query.slice("team:".length);
+    if (!teamName) {
+      console.error("usage: maw hey team:<team-name> <message>");
+      process.exit(1);
+    }
+    const { getOracleMembers } = await import("../plugins/team/oracle-members");
+    const members = getOracleMembers(teamName);
+    if (members.length === 0) {
+      console.error(`\x1b[31m✗\x1b[0m no oracle members in team '${teamName}'`);
+      console.error(`\x1b[33mhint\x1b[0m: add members with: maw team oracle-invite <oracle-name> --team ${teamName}`);
+      process.exit(1);
+    }
+    console.log(`\x1b[36m⚡\x1b[0m fan-out to ${members.length} oracle(s) in team '${teamName}':`);
+    let delivered = 0;
+    let failed = 0;
+
+    // Fan-out sends individually. cmdSend calls process.exit on failure,
+    // so we override it temporarily to keep iterating (#627 resilient fan-out).
+    const origExit = process.exit;
+    for (const member of members) {
+      let memberFailed = false;
+      process.exit = ((code?: number) => {
+        memberFailed = true;
+      }) as never;
+      try {
+        await cmdSend(member, message, force);
+        if (!memberFailed) delivered++;
+        else failed++;
+      } catch (e: any) {
+        failed++;
+        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${e?.message || "failed"}`);
+      }
+    }
+    process.exit = origExit;
+
+    console.log(`\x1b[36m⚡\x1b[0m fan-out complete: ${delivered} delivered, ${failed} failed`);
+    return;
+  }
+
   // --- Plugin routing: maw hey plugin:<name> <msg> ---
   if (query.startsWith("plugin:")) {
     const name = query.slice("plugin:".length);

@@ -181,9 +181,46 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         lead: flags["--lead"] as string | undefined,
       });
 
+    } else if (sub === "oracle-invite") {
+      // maw team oracle-invite <oracle-name> [--team <team>] [--role <role>]
+      const { cmdOracleInvite } = await import("./oracle-members");
+      const flags = parseFlags(args, {
+        "--team": String,
+        "--role": String,
+      }, 1);
+      const oracleName = flags._[0];
+      if (!oracleName) {
+        logs.push("usage: maw team oracle-invite <oracle-name> [--team <team>] [--role <role>]");
+        return { ok: false, error: "oracle name required", output: logs.join("\n") };
+      }
+      const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
+      const role = flags["--role"] as string | undefined;
+      cmdOracleInvite(team, oracleName, { role });
+
+    } else if (sub === "oracle-remove") {
+      // maw team oracle-remove <oracle-name> [--team <team>]
+      const { cmdOracleRemove } = await import("./oracle-members");
+      const flags = parseFlags(args, { "--team": String }, 1);
+      const oracleName = flags._[0];
+      if (!oracleName) {
+        logs.push("usage: maw team oracle-remove <oracle-name> [--team <team>]");
+        return { ok: false, error: "oracle name required", output: logs.join("\n") };
+      }
+      const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
+      cmdOracleRemove(team, oracleName);
+
+    } else if (sub === "members") {
+      // maw team members [--team <team>]
+      const { cmdOracleMembers } = await import("./oracle-members");
+      const flags = parseFlags(args, { "--team": String }, 1);
+      const team = (flags["--team"] as string | undefined)
+        || flags._[0]
+        || resolveTeamFromContext();
+      cmdOracleMembers(team);
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

@@ -8,7 +8,7 @@
   "cli": {
     "command": "team",
     "aliases": ["t"],
-    "help": "maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete>"
+    "help": "maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members>"
   },
   "weight": 50
 }
