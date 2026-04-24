@@ -26,6 +26,7 @@ import { pluginDownloadApi } from "./plugin-download";
 import { uploadApi } from "./upload";
 import { pairApi } from "./pair";
 import { consentApi } from "./consent";
+import { claudeFleetApi } from "./claude-fleet";
 import { discoverPackages, invokePlugin } from "../plugin/registry";
 import { federationAuth } from "../lib/elysia-auth";
 
@@ -66,7 +67,8 @@ export const api = new Elysia({ prefix: "/api" })
   .use(pluginDownloadApi)
   .use(uploadApi)
   .use(pairApi)
-  .use(consentApi);
+  .use(consentApi)
+  .use(claudeFleetApi);
 
 // Snapshot direct-handler routes before plugin auto-mount (#705)
 const directRoutes = new Set(
