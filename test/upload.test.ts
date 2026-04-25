@@ -16,6 +16,8 @@ import { Elysia } from "elysia";
 // --- Temp home dir (evaluated before the mock factory, captured by closure) ---
 const TEST_HOME = mkdtempSync(join(tmpdir(), "maw-upload-test-"));
 const INBOX = join(TEST_HOME, ".maw", "inbox");
+const WEB = mkdtempSync(join(tmpdir(), "maw-upload-web-"));
+process.env.MAW_UPLOAD_WEB_DIR = WEB;
 
 // Override os.homedir so INBOX_DIR in upload.ts resolves to our temp dir.
 // mock.module is hoisted by Bun, so it runs before any dynamic imports below.
@@ -34,16 +36,17 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(TEST_HOME, { recursive: true, force: true });
+  rmSync(WEB, { recursive: true, force: true });
 });
 
 // --- POST /upload ---
 
 describe("POST /upload", () => {
-  test("valid file → 200 + {ok, path, name, size}", async () => {
+  test("valid image → 200 + {ok, id, url, path, name, size, mime}", async () => {
     const form = new FormData();
     form.append(
       "file",
-      new File(["hello upload content"], "hello.txt", { type: "text/plain" }),
+      new File(["fake png bytes"], "shot.png", { type: "image/png" }),
     );
     const res = await app.handle(
       new Request("http://localhost/upload", { method: "POST", body: form }),
@@ -51,9 +54,38 @@ describe("POST /upload", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.name).toBe("hello.txt");
-    expect(body.path).toInclude(INBOX);
+    expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.url).toMatch(/^\/maw-uploads\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]{36}\.png$/);
+    expect(body.path).toInclude(WEB);
+    expect(body.name).toBe("shot.png");
+    expect(body.mime).toBe("image/png");
     expect(body.size).toBeDefined();
+  });
+
+  test("disallowed mime → 415", async () => {
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["plain text"], "hello.txt", { type: "text/plain" }),
+    );
+    const res = await app.handle(
+      new Request("http://localhost/upload", { method: "POST", body: form }),
+    );
+    expect(res.status).toBe(415);
+    const body = await res.json();
+    expect(body.error).toInclude("unsupported mime");
+  });
+
+  test("oversized file → 413", async () => {
+    const big = new Uint8Array(11 * 1024 * 1024);
+    const form = new FormData();
+    form.append("file", new File([big], "big.png", { type: "image/png" }));
+    const res = await app.handle(
+      new Request("http://localhost/upload", { method: "POST", body: form }),
+    );
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body.error).toInclude("too large");
   });
 
   test("no file field → 400", async () => {
