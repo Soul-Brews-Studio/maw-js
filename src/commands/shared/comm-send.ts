@@ -124,14 +124,26 @@ export async function cmdSend(query: string, message: string, force = false) {
       console.error("usage: maw hey team:<team-name> <message>");
       process.exit(1);
     }
-    const { getOracleMembers } = await import("../plugins/team/oracle-members");
-    const members = getOracleMembers(teamName);
+    const { getOracleMembers, loadOracleRegistry } = await import("../plugins/team/oracle-members");
+    const senderOracle = resolveMyName(config);
+    const members = getOracleMembers(teamName, senderOracle);
     if (members.length === 0) {
-      console.error(`\x1b[31m✗\x1b[0m no oracle members in team '${teamName}'`);
-      console.error(`\x1b[33mhint\x1b[0m: add members with: maw team oracle-invite <oracle-name> --team ${teamName}`);
+      const registry = loadOracleRegistry(teamName);
+      if (registry && registry.members.length > 0) {
+        console.error(`\x1b[31m✗\x1b[0m team '${teamName}' has only the sender ('${senderOracle}') as a member`);
+        console.error(`\x1b[33mhint\x1b[0m: invite more members or set excludeSelf:false in the registry`);
+      } else {
+        console.error(`\x1b[31m✗\x1b[0m no oracle members in team '${teamName}'`);
+        console.error(`\x1b[33mhint\x1b[0m: add members with: maw team oracle-invite <oracle-name> --team ${teamName}`);
+      }
       process.exit(1);
     }
-    console.log(`\x1b[36m⚡\x1b[0m fan-out to ${members.length} oracle(s) in team '${teamName}':`);
+    const totalMembers = (loadOracleRegistry(teamName)?.members.length ?? members.length);
+    if (totalMembers > members.length) {
+      console.log(`\x1b[36m⚡\x1b[0m fan-out to ${members.length} oracle(s) in team '${teamName}' \x1b[90m(self '${senderOracle}' excluded)\x1b[0m:`);
+    } else {
+      console.log(`\x1b[36m⚡\x1b[0m fan-out to ${members.length} oracle(s) in team '${teamName}':`);
+    }
     let delivered = 0;
     let failed = 0;
 

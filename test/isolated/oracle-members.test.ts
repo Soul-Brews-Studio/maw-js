@@ -136,6 +136,62 @@ describe("oracle-members registry", () => {
     expect(existsSync(registryPath)).toBe(false);
   });
 
+  test("filterMembers excludes sender by default (#742 follow-up)", async () => {
+    const { filterMembers } = await import("../../src/commands/plugins/team/oracle-members");
+    const members = [
+      { oracle: "echo", role: "knowledge", addedAt: "2026-04-25T00:00:00.000Z" },
+      { oracle: "labubu", role: "pm", addedAt: "2026-04-25T00:00:00.000Z" },
+      { oracle: "neo", role: "backend", addedAt: "2026-04-25T00:00:00.000Z" },
+      { oracle: "nari", role: "hr", addedAt: "2026-04-25T00:00:00.000Z" },
+      { oracle: "pulse", role: "ops", addedAt: "2026-04-25T00:00:00.000Z" },
+    ];
+
+    // Default (excludeSelf undefined) + sender 'echo' → echo filtered out
+    const filtered = filterMembers(members, undefined, "echo");
+    expect(filtered).not.toContain("echo");
+    expect(filtered).toHaveLength(4);
+    expect(filtered).toEqual(expect.arrayContaining(["labubu", "neo", "nari", "pulse"]));
+
+    // No sender provided → all 5 members returned (back-compat)
+    const all = filterMembers(members, undefined);
+    expect(all).toHaveLength(5);
+    expect(all).toContain("echo");
+  });
+
+  test("filterMembers includes sender when excludeSelf:false (opt-in)", async () => {
+    const { filterMembers } = await import("../../src/commands/plugins/team/oracle-members");
+    const members = [
+      { oracle: "alpha", role: "lead", addedAt: "2026-04-25T00:00:00.000Z" },
+      { oracle: "beta", role: "member", addedAt: "2026-04-25T00:00:00.000Z" },
+    ];
+
+    // excludeSelf: false → sender stays in the list
+    const all = filterMembers(members, false, "alpha");
+    expect(all).toHaveLength(2);
+    expect(all).toContain("alpha");
+
+    // excludeSelf: true (explicit) → sender filtered
+    const filtered = filterMembers(members, true, "alpha");
+    expect(filtered).toHaveLength(1);
+    expect(filtered).not.toContain("alpha");
+  });
+
+  test("registry serializes excludeSelf flag round-trip", () => {
+    const teamsDir = join(testDir, "teams", "with-flag");
+    mkdirSync(teamsDir, { recursive: true });
+    const registryPath = join(teamsDir, "oracle-members.json");
+    const { writeFileSync } = require("fs");
+    writeFileSync(registryPath, JSON.stringify({
+      name: "with-flag",
+      members: [{ oracle: "x", role: "lead", addedAt: "2026-04-25T00:00:00.000Z" }],
+      createdAt: "2026-04-25T00:00:00.000Z",
+      excludeSelf: false,
+    }, null, 2));
+
+    const data = JSON.parse(readFileSync(registryPath, "utf-8"));
+    expect(data.excludeSelf).toBe(false);
+  });
+
   test("registry stores correct shape", () => {
     const teamsDir = join(testDir, "teams", "my-team");
     mkdirSync(teamsDir, { recursive: true });

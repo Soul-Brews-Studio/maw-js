@@ -34,6 +34,12 @@ export interface OracleTeamRegistry {
   members: OracleMember[];
   /** ISO timestamp when registry was created */
   createdAt: string;
+  /**
+   * When true (default), `maw hey team:<name>` fan-out skips the sending
+   * oracle so a broadcast does not re-inject into the sender's own pane.
+   * Set to false to opt back into self-inclusive fan-out.
+   */
+  excludeSelf?: boolean;
 }
 
 // ─── Paths ───
@@ -158,10 +164,33 @@ export function cmdOracleMembers(teamName: string): OracleMember[] {
 }
 
 /**
- * Get all oracle member names for a team (for routing fan-out).
+ * Pure helper: filter member oracle names against the sender, honoring the
+ * registry's `excludeSelf` flag (default true).
+ *
+ * Extracted for unit-testing without going through CONFIG_DIR module caching.
  */
-export function getOracleMembers(teamName: string): string[] {
+export function filterMembers(
+  members: OracleMember[],
+  excludeSelf: boolean | undefined,
+  currentOracle?: string,
+): string[] {
+  const all = members.map(m => m.oracle);
+  // Default true — filter only when explicitly false.
+  if (excludeSelf !== false && currentOracle) {
+    return all.filter(o => o !== currentOracle);
+  }
+  return all;
+}
+
+/**
+ * Get oracle member names for a team (for routing fan-out).
+ *
+ * When `currentOracle` is provided and the registry's `excludeSelf` flag is
+ * not explicitly false, the sending oracle is filtered out so a team
+ * broadcast does not re-inject into its own pane (#742 follow-up).
+ */
+export function getOracleMembers(teamName: string, currentOracle?: string): string[] {
   const registry = loadOracleRegistry(teamName);
   if (!registry) return [];
-  return registry.members.map(m => m.oracle);
+  return filterMembers(registry.members, registry.excludeSelf, currentOracle);
 }
