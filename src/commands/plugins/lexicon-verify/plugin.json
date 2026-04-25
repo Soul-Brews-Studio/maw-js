@@ -1,0 +1,17 @@
+{
+  "name": "lexicon-verify",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Verify files use canonical Oracle lexicon terms (no deprecated words)",
+  "cli": {
+    "command": "lexicon-verify",
+    "help": "maw lexicon-verify [path...] [--glossary <path>] [--fix] [--json]\n       Scan files for deprecated lexicon terms.\n       Default paths: ψ/ .claude/\n       --glossary  path to GLOSSARY.md (default: ψ/GLOSSARY.md)\n       --fix       append correction entries instead of just reporting\n       --json      output as JSON for programmatic use",
+    "flags": {
+      "--glossary": "string",
+      "--fix": "boolean",
+      "--json": "boolean"
+    }
+  },
+  "weight": 50
+}
