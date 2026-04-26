@@ -106,6 +106,7 @@ export const SendBody = Type.Object({
   target: Type.String(),
   text: Type.String(),
   force: Type.Optional(Type.Boolean()),
+  attachments: Type.Optional(Type.Array(Type.String())),
 });
 export type TSendBody = Static<typeof SendBody>;
 

@@ -103,7 +103,10 @@ sessionsApi.get("/mirror", async ({ query, set}) => {
 
 sessionsApi.post("/send", async ({ body, set}) => {
   try {
-    const { target, text, force } = body;
+    const { target, text, force, attachments } = body;
+    const message = attachments?.length
+      ? attachments.join("\n") + "\n" + text
+      : text;
 
     const config = loadConfig();
     const local = await listSessions();
@@ -131,7 +134,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
           }
         }
       }
-      await sendKeys(resolved.target, text);
+      await sendKeys(resolved.target, message);
       await Bun.sleep(150);
       let lastLine = "";
       try { const content = await capture(resolved.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
@@ -142,7 +145,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
     if (resolved?.type === "peer") {
       const res = await curlFetch(`${resolved.peerUrl}/api/send`, {
         method: "POST",
-        body: JSON.stringify({ target: resolved.target, text }),
+        body: JSON.stringify({ target: resolved.target, text: message }),
         timeout: 10000,
       });
       if (res.ok && res.data?.ok) {
@@ -154,7 +157,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
     // Fallback: async peer discovery
     const peerUrl = await findPeerForTarget(target, local);
     if (peerUrl) {
-      const ok = await sendKeysToPeer(peerUrl, target, text);
+      const ok = await sendKeysToPeer(peerUrl, target, message);
       if (ok) return { ok: true, target, text, source: peerUrl };
       set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
     }
