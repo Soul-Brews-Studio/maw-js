@@ -30,25 +30,34 @@ export type ResolveResult =
 export function resolveTarget(
   query: string,
   config: MawConfig,
-  sessions: Session[],
+  sessions: (Session & { source?: string })[],
 ): ResolveResult {
   if (!query) return { type: "error", reason: "empty_query", detail: "no target specified", hint: "usage: maw hey <agent> <message>" };
+
+  // #758: candidates that are never valid send targets must be dropped before
+  // findWindow's ambiguity guard fires (#406). `-view` sessions are read-only
+  // mirrors; non-"local" sources are federated records of other peers' agents
+  // that this node can't deliver to via tmux send-keys.
+  const writable = sessions.filter(s =>
+    !s.name.endsWith("-view") &&
+    (s.source === undefined || s.source === "local"),
+  );
 
   const selfNode = config.node ?? "local";
 
   // --- Step 1: Local findWindow + fleet config ---
-  const localTarget = findWindow(sessions, query);
+  const localTarget = findWindow(writable, query);
   if (localTarget) {
     return { type: "local", target: localTarget };
   }
   // Fleet config: oracle name → session name → findWindow (#281)
   const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
   if (fleetSession) {
-    const fleetTarget = findWindow(sessions.filter(s => s.name === fleetSession), query)
-      || findWindow(sessions.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
+    const fleetTarget = findWindow(writable.filter(s => s.name === fleetSession), query)
+      || findWindow(writable.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
     if (fleetTarget) return { type: "local", target: fleetTarget };
     // Fleet config matched but session not running — try first window of fleet session
-    const fleetSess = sessions.find(s => s.name === fleetSession);
+    const fleetSess = writable.find(s => s.name === fleetSession);
     if (fleetSess?.windows.length) return { type: "local", target: `${fleetSession}:${fleetSess.windows[0].index}` };
   }
 
@@ -61,12 +70,12 @@ export function resolveTarget(
 
     // Self-node check: "white:mawjs" from white → resolve locally
     if (nodeName === selfNode) {
-      const selfTarget = findWindow(sessions, agentName);
+      const selfTarget = findWindow(writable, agentName);
       if (selfTarget) return { type: "self-node", target: selfTarget };
       // Try fleet config resolution (#281)
       const selfFleet = resolveFleetSession(agentName) || resolveFleetSession(agentName.replace(/-oracle$/, ""));
       if (selfFleet) {
-        const fleetSess = sessions.find(s => s.name === selfFleet);
+        const fleetSess = writable.find(s => s.name === selfFleet);
         if (fleetSess?.windows.length) return { type: "self-node", target: `${selfFleet}:${fleetSess.windows[0].index}` };
       }
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
