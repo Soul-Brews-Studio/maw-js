@@ -157,3 +157,53 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "peer", peerUrl: "http://100.120.242.120:3456", target: "boonkeeper", node: "oracle-world" });
   });
 });
+
+// --- #758: filter -view mirrors + non-local sources before ambiguity check ---
+
+describe("resolveTarget — #758 candidate filtering", () => {
+  test("`-view` mirror is dropped: bare name resolves to the writable session", () => {
+    // Repro of #758 on white: 08-mawjs (real) + mawjs-view (read-only mirror).
+    // Pre-fix: AmbiguousMatchError thrown with both candidates. Post-fix:
+    // mawjs-view filtered out → only 08-mawjs:1 remains → routes locally.
+    const sessions: Session[] = [
+      { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
+      { name: "mawjs-view", windows: [{ index: 1, name: "mawjs-oracle", active: false }] },
+    ];
+    const r = resolveTarget("mawjs-oracle", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "08-mawjs:1" });
+  });
+
+  test("non-local source is dropped: federated session does not become a candidate", () => {
+    // Aggregated /api/sessions includes peer records tagged with source URL.
+    // resolveTarget must drop those — this node can't deliver via send-keys
+    // to a remote peer's tmux.
+    const sessions = [
+      { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }], source: "local" },
+      { name: "101-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }], source: "http://oracle-world.wg:3456" },
+    ];
+    const r = resolveTarget("mawjs-oracle", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "08-mawjs:1" });
+  });
+
+  test("both filters compose: -view + federated dropped, single local writable wins", () => {
+    // The full #758 scenario: real local + view mirror + federated peer.
+    const sessions = [
+      { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }], source: "local" },
+      { name: "mawjs-view", windows: [{ index: 1, name: "mawjs-oracle", active: false }], source: "local" },
+      { name: "101-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }], source: "http://oracle-world.wg:3456" },
+    ];
+    const r = resolveTarget("mawjs-oracle", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "08-mawjs:1" });
+  });
+
+  test("genuine ambiguity between two writable local sessions still throws (#406 guard intact)", () => {
+    // Two real local sessions both expose the same window name — this is the
+    // case #406 added the guard for. Filter must NOT collapse this into a
+    // silent route; ambiguity error is the correct outcome.
+    const sessions: Session[] = [
+      { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
+      { name: "09-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: false }] },
+    ];
+    expect(() => resolveTarget("mawjs-oracle", BASE_CONFIG, sessions)).toThrow(/Ambiguous match/);
+  });
+});
