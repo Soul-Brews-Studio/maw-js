@@ -105,16 +105,36 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
   }
 }
 
+/**
+ * Phase 1 of #759 — bare-name deprecation. The bare-name path still resolves,
+ * but every call prints the suggestion shape from #759 so scripts get pushed
+ * onto the canonical `<node>:<agent>` form before Phase 2 makes it a hard
+ * error. Output is on stderr so it does not contaminate piped stdout.
+ */
+export function formatBareNameDeprecation(node: string, query: string): string {
+  const Y = "\x1b[33m"; // yellow — louder than the old gray tip
+  const C = "\x1b[36m"; // cyan — for canonical suggestion lines
+  const D = "\x1b[90m"; // dim — for explanatory tail
+  const R = "\x1b[0m";
+  return [
+    `${Y}⚠ deprecation${R}: bare-name target '${query}' is deprecated and will be removed (#759)`,
+    ``,
+    `  this node:`,
+    `    ${C}maw hey ${node}:${query} "..."${R}`,
+    ``,
+    `  ${D}run \`maw locate ${query}\` to enumerate cross-node candidates${R}`,
+    ``,
+  ].join("\n");
+}
+
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
 
-  // #362b — inform users when they omit the node prefix. Canonical form is
-  // `<node>:<oracle>` (add `:<window>` to target a specific tmux window when
-  // the session has more than one — see #410). Bare name works locally but
-  // scripts should use the prefixed form for fleet portability. Silent when
-  // MAW_QUIET=1.
+  // #759 Phase 1 — every-call deprecation warning when the user omits the
+  // node prefix. Phase 2 will turn this into a hard error. Honors MAW_QUIET=1
+  // as an explicit per-invocation opt-out (e.g. for hot fan-out loops).
   if (!query.includes(":") && !query.includes("/") && !process.env.MAW_QUIET && config.node) {
-    console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts — append ':<window>' to target a specific window (bare name = exact match locally; errors on ambiguity)\x1b[0m`);
+    console.error(formatBareNameDeprecation(config.node, query));
   }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
