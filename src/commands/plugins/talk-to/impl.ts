@@ -1,6 +1,5 @@
 import { loadConfig } from "../../../config";
-import { listSessions, sendKeys, getPaneCommand } from "../../../sdk";
-import { findWindow } from "../../../sdk";
+import { listSessions, sendKeys, getPaneCommand, resolveTarget } from "../../../sdk";
 import { runHook } from "../../../sdk";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir, hostname } from "os";
@@ -135,15 +134,25 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
   }
 
   // Step 3: Send hey with context
+  // Route through resolveTarget so the #758 writable filter (drop -view mirrors
+  // and federated peer records before the ambiguity check) applies to talk-to too.
+  // talk-to is local-only delivery: only "local" / "self-node" results map to a tmux pane.
+  const config = loadConfig();
   const sessions = await listSessions();
-  const tmuxTarget = findWindow(sessions, target);
+  const resolved = resolveTarget(target, config, sessions);
+  const tmuxTarget =
+    resolved?.type === "local" || resolved?.type === "self-node"
+      ? resolved.target
+      : null;
   if (!tmuxTarget) {
     // Thread was posted but target window not found — still useful
     if (threadResult) {
       console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);
-      console.log(`\x1b[33mwarn\x1b[0m: window "${target}" not found — message saved to thread only`);
+      const reason = resolved?.type === "error" ? resolved.detail : `window "${target}" not found`;
+      console.log(`\x1b[33mwarn\x1b[0m: ${reason} — message saved to thread only`);
     } else {
-      throw new Error(`window "${target}" not found`);
+      const reason = resolved?.type === "error" ? resolved.detail : `window "${target}" not found`;
+      throw new Error(reason);
     }
     return;
   }
