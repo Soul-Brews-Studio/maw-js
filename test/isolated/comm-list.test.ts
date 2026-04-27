@@ -698,44 +698,45 @@ describe("resolveOraclePane", () => {
 // comm-send.ts — cmdSend (bare-name tip, local, peer, plugin, error paths)
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("cmdSend — bare-name tip (#362b)", () => {
-  test("bare name + config.node set → tip on stderr", async () => {
+describe("cmdSend — bare-name deprecation (#362b → #759 Phase 1)", () => {
+  test("bare name + config.node set → deprecation warning on stderr", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
     await run(() => cmdSend("mawjs", "hi"));
 
     const joined = errs.join("\n");
-    expect(joined).toContain("tip:");
+    expect(joined).toContain("deprecation");
+    expect(joined).toContain("#759");
     expect(joined).toContain("maw hey white:mawjs");
   });
 
-  test("MAW_QUIET=1 suppresses the tip", async () => {
+  test("MAW_QUIET=1 suppresses the deprecation warning", async () => {
     process.env.MAW_QUIET = "1";
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
     await run(() => cmdSend("mawjs", "hi"));
 
-    expect(errs.some((e) => e.includes("tip:"))).toBe(false);
+    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
   });
 
-  test("query containing ':' → no tip (already canonical)", async () => {
+  test("query containing ':' → no warning (already canonical)", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "unknown_node", detail: "…" };
 
     await run(() => cmdSend("white:mawjs", "hi"));
 
-    expect(errs.some((e) => e.includes("tip:"))).toBe(false);
+    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
   });
 
-  test("no config.node → no tip", async () => {
+  test("no config.node → no warning", async () => {
     configOverride = {};
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
     await run(() => cmdSend("mawjs", "hi"));
 
-    expect(errs.some((e) => e.includes("tip:"))).toBe(false);
+    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
   });
 });
 
