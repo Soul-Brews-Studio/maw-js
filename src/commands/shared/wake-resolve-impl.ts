@@ -16,6 +16,11 @@ import type { Session } from "../../core/runtime/find-window";
  *
  * Returns the resolved repo info, or null if no matching worktree is found
  * or the main repo path cannot be determined.
+ *
+ * @internal — exported for tests only (test/wake-resolve.test.ts).
+ *   The production caller is `resolveOracle` in this same file. Tests use
+ *   injected deps to exercise the fallback in isolation; no other module
+ *   imports this symbol.
  */
 export async function resolveFromWorktrees(
   oracle: string,
