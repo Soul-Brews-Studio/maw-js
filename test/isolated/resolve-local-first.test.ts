@@ -144,7 +144,7 @@ describe("local-first routing (#411)", () => {
       { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
     ];
 
-    await cmdSend("mawjs", "hello local");
+    await cmdSend("white:mawjs", "hello local");
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalled).toBe(true);
@@ -162,7 +162,7 @@ describe("local-first routing (#411)", () => {
       data: { ok: true, target: "homekeeper", lastLine: "" },
     };
 
-    await cmdSend("homekeeper", "hello remote");
+    await cmdSend("mba:homekeeper", "hello remote");
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalled).toBe(false);
@@ -179,7 +179,7 @@ describe("local-first routing (#411)", () => {
     fakeCurlResponse = { ok: false, status: 0, data: null };
 
     await expect(
-      cmdSend("homekeeper", "hello unreachable"),
+      cmdSend("mba:homekeeper", "hello unreachable"),
     ).rejects.toThrow("process.exit");
 
     expect(exitCode).toBe(1);

@@ -200,7 +200,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
       "❯ ", // checkPaneIdle call (idle check)
       "",   // post-send capture for lastLine
     ];
-    await run(() => cmdSend("oracle", "hello world"));
+    await run(() => cmdSend("test-node:oracle", "hello world"));
     expect(sendKeysCalls.length).toBe(1);
     expect(sendKeysCalls[0].text).toBe("hello world");
     expect(exitCode).toBeUndefined();
@@ -212,7 +212,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
       "❯ ",            // second checkPaneIdle after 500ms sleep → idle
       "",              // post-send capture
     ];
-    await run(() => cmdSend("oracle", "hello after retry"));
+    await run(() => cmdSend("test-node:oracle", "hello after retry"));
     expect(sleepCalls).toContain(500);
     expect(sendKeysCalls.length).toBe(1);
     expect(exitCode).toBeUndefined();
@@ -223,7 +223,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
       "❯ git push",   // first checkPaneIdle → not idle
       "❯ git push",   // second checkPaneIdle → still not idle
     ];
-    await run(() => cmdSend("oracle", "injected message"));
+    await run(() => cmdSend("test-node:oracle", "injected message"));
     expect(exitCode).toBe(1);
     expect(sendKeysCalls.length).toBe(0);
     const errText = errs.join("\n");
@@ -236,7 +236,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
       // No idle-check capture should be called; only post-send capture
       "",
     ];
-    await run(() => cmdSend("oracle", "forced message", /* force */ true));
+    await run(() => cmdSend("test-node:oracle", "forced message", /* force */ true));
     expect(sendKeysCalls.length).toBe(1);
     expect(sendKeysCalls[0].text).toBe("forced message");
     expect(exitCode).toBeUndefined();
