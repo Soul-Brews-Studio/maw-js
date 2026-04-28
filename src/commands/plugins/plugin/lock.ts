@@ -179,7 +179,13 @@ export function writeLock(lock: Lock): void {
   renameSync(tmp, path);
 }
 
-/** Compute sha256 of a tarball's declared artifact (matches manifest.artifact.path). */
+/**
+ * Compute sha256 of a tarball's declared artifact (matches manifest.artifact.path).
+ *
+ * #874 path A.3 — for source plugins (no `artifact`, has `entry`), the entry
+ * file's bytes ARE the artifact. Hash that instead so `maw plugin pin` works
+ * uniformly across source and built tarballs.
+ */
 function hashTarballArtifact(tarballPath: string): { ok: true; hash: string; version: string } | { ok: false; error: string } {
   if (!existsSync(tarballPath)) {
     return { ok: false, error: `source not found: ${tarballPath}` };
@@ -188,14 +194,23 @@ function hashTarballArtifact(tarballPath: string): { ok: true; hash: string; ver
   try {
     const ex = extractTarball(tarballPath, staging);
     if (!ex.ok) return { ok: false, error: ex.error };
+    // findPluginRoot reused via the manifest helper if needed — but
+    // pinPlugin's tarballs are produced by `maw plugin build` (flat layout)
+    // OR community-source tarballs (also flat after extraction). Either way
+    // plugin.json sits at the staging root.
     const manifest = readManifest(staging);
     if (!manifest) return { ok: false, error: "failed to read plugin.json from tarball" };
-    if (!manifest.artifact) {
-      return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with 'maw plugin build'" };
+    let relPath: string;
+    if (manifest.artifact) {
+      relPath = manifest.artifact.path;
+    } else if (typeof manifest.entry === "string" && manifest.entry.length > 0) {
+      relPath = manifest.entry;
+    } else {
+      return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with 'maw plugin build' or declare an entry path" };
     }
-    const artifactPath = join(staging, manifest.artifact.path);
+    const artifactPath = join(staging, relPath);
     if (!existsSync(artifactPath)) {
-      return { ok: false, error: `artifact missing at ${manifest.artifact.path}` };
+      return { ok: false, error: `artifact missing at ${relPath}` };
     }
     const hash = hashFile(artifactPath);
     return { ok: true, hash, version: manifest.version };
