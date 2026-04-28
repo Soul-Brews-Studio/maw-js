@@ -183,7 +183,7 @@ describe("#874 path A.3 — source plugin install (no artifact, has entry)", () 
       cmdPluginInstall([fx.tarball, "--pin"]),
     );
     expect(exitCode).toBeUndefined();
-    expect(stderr).not.toContain("tarball manifest has no 'artifact' field");
+    expect(stderr).not.toContain("tarball manifest has no 'artifact'");
     expect(existsSync(join(pluginsDir(), "src-only"))).toBe(true);
     expect(existsSync(join(pluginsDir(), "src-only", "index.ts"))).toBe(true);
     expect(stdout).toContain("src-only@0.1.0 installed");
@@ -238,7 +238,9 @@ describe("#874 path A.3 — source plugin install (no artifact, has entry)", () 
       cmdPluginInstall([tarball, "--pin"]),
     );
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("no 'artifact' field");
+    // #896 — error message now lists BOTH the artifact AND entry remediation
+    // so future filers can tell which branch tripped without diving into source.
+    expect(stderr).toContain("no 'artifact' or 'entry' field");
   });
 
   test("source plugin with tampered entry (lock-mismatch) → refused on re-install", async () => {
