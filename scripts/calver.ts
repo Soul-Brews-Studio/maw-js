@@ -80,6 +80,55 @@ export function dateBase(now: Date): string {
 }
 
 /**
+ * #819: extract the CalVer base (YY.M.D) from a version string. Accepts
+ * `v26.4.29`, `26.4.29`, `v26.4.29-alpha.5`, `26.4.29-alpha.5`, etc.
+ * Returns null if the string does not look like a CalVer base — caller can
+ * then fall back to today's date. Mirrors maxNFromPackageJson's tolerant
+ * accept-with-or-without-leading-v parsing.
+ */
+export function extractBaseFromVersion(version: string): string | null {
+  if (!version) return null;
+  const stripped = version.startsWith("v") ? version.slice(1) : version;
+  // Match leading YY.M.D — terminated by `-`, `+`, end of string, or a dot
+  // that is NOT part of the base (i.e. caller passed a 4-segment thing).
+  const m = stripped.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!m) return null;
+  const [, yy, mo, da] = m;
+  return `${yy}.${mo}.${da}`;
+}
+
+/**
+ * #819: lexicographic-safe compare of two CalVer bases by integer segment.
+ * Returns negative if a < b, 0 if equal, positive if a > b. Accepts only
+ * `YY.M.D` triples — anything else throws (caller validates upstream).
+ */
+export function compareBases(a: string, b: string): number {
+  const pa = a.split(".").map((x) => parseInt(x, 10));
+  const pb = b.split(".").map((x) => parseInt(x, 10));
+  if (pa.length !== 3 || pb.length !== 3) {
+    throw new Error(`compareBases expects YY.M.D, got "${a}" vs "${b}"`);
+  }
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  }
+  return 0;
+}
+
+/**
+ * #819: pick the effective base for the next bump — the later of today's
+ * clock-derived base and the package.json-derived base. This prevents the
+ * post-stable-cut downgrade where package.json carries `YY.M.(D+1)` but the
+ * clock still reads `YY.M.D` (tomorrow's stable already cut, today's clock
+ * still ticking). Without this, the script targets `YY.M.D-alpha.0` — a
+ * downgrade against `YY.M.(D+1)-alpha.N`.
+ */
+export function effectiveBase(todayBase: string, packageVersion: string): string {
+  const pkgBase = extractBaseFromVersion(packageVersion);
+  if (!pkgBase) return todayBase;
+  return compareBases(pkgBase, todayBase) > 0 ? pkgBase : todayBase;
+}
+
+/**
  * Walk git tags matching `v{base}-{channel}.*` and return the max N found,
  * or -1 if no matching tags exist for this date+channel yet.
  *
@@ -141,10 +190,14 @@ async function listChannelTags(base: string, channel: Channel): Promise<string[]
 
 export function computeVersion(args: Args, tags: string[] = [], packageVersion: string = ""): string {
   const now = args.now ?? new Date();
-  const base = dateBase(now);
+  const todayBase = dateBase(now);
+  // #819: if package.json is future-dated (e.g. tomorrow's stable just cut),
+  // bump against that base — never downgrade to today's date.
+  const base = args.stable ? todayBase : effectiveBase(todayBase, packageVersion);
   if (args.stable) return base;
   const channel = args.channel ?? "alpha";
-  // Take max of (tag-walk N, package.json N) — see maxNFromPackageJson (#784).
+  // Take max of (tag-walk N, package.json N) against the effective base —
+  // see maxNFromPackageJson (#784) and effectiveBase (#819).
   const tagMax = maxNFromTags(base, channel, tags);
   const pkgMax = maxNFromPackageJson(base, channel, packageVersion);
   const max = Math.max(tagMax, pkgMax);
@@ -160,12 +213,16 @@ async function tagExists(version: string): Promise<boolean> {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const now = args.now ?? new Date();
-  const base = dateBase(now);
+  const todayBase = dateBase(now);
 
   // #784: read package.json once up front so its version participates in the
   // source-of-truth set for the monotonic counter (see computeVersion).
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+
+  // #819: choose the effective base before fetching tags so we list tags for
+  // the correct date when package.json is future-dated.
+  const base = args.stable ? todayBase : effectiveBase(todayBase, pkg.version ?? "");
 
   const channelForTags: Channel = args.channel ?? "alpha";
   const tags = args.stable ? [] : await listChannelTags(base, channelForTags);

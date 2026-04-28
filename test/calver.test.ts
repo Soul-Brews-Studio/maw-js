@@ -1,7 +1,10 @@
 import { describe, it, expect } from "bun:test";
 import {
+  compareBases,
   computeVersion,
   dateBase,
+  effectiveBase,
+  extractBaseFromVersion,
   maxAlphaFromTags,
   maxNFromPackageJson,
   maxNFromTags,
@@ -225,5 +228,129 @@ describe("calver maxNFromPackageJson — robustness (#784 explorer findings)", (
 
   it("rejects rc/other channels even if structurally similar", () => {
     expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-rc.5")).toBe(-1);
+  });
+});
+
+describe("calver extractBaseFromVersion (#819)", () => {
+  it("strips alpha/beta suffix, returns YY.M.D", () => {
+    expect(extractBaseFromVersion("26.4.29-alpha.5")).toBe("26.4.29");
+    expect(extractBaseFromVersion("26.4.29-beta.0")).toBe("26.4.29");
+  });
+
+  it("accepts bare YY.M.D (post-stable-cut shape)", () => {
+    expect(extractBaseFromVersion("26.4.29")).toBe("26.4.29");
+    expect(extractBaseFromVersion("v26.4.29")).toBe("26.4.29");
+  });
+
+  it("accepts leading v prefix", () => {
+    expect(extractBaseFromVersion("v26.4.29-alpha.5")).toBe("26.4.29");
+  });
+
+  it("returns null for empty/missing", () => {
+    expect(extractBaseFromVersion("")).toBeNull();
+  });
+
+  it("returns null for non-CalVer legacy versions", () => {
+    expect(extractBaseFromVersion("2.0.0-alpha.134")).toBe("2.0.0"); // shape-OK
+    expect(extractBaseFromVersion("not-a-version")).toBeNull();
+    expect(extractBaseFromVersion("26.4")).toBeNull();
+    expect(extractBaseFromVersion("26.4.29.1")).toBeNull();
+  });
+});
+
+describe("calver compareBases (#819)", () => {
+  it("compares by integer segment, not lexicographic", () => {
+    // Lexicographic would say "26.4.30" < "26.4.4" — must compare ints.
+    expect(compareBases("26.4.30", "26.4.4")).toBeGreaterThan(0);
+    expect(compareBases("26.4.4", "26.4.30")).toBeLessThan(0);
+  });
+
+  it("equal bases return 0", () => {
+    expect(compareBases("26.4.28", "26.4.28")).toBe(0);
+  });
+
+  it("year and month dominate", () => {
+    expect(compareBases("27.1.1", "26.12.31")).toBeGreaterThan(0);
+    expect(compareBases("26.5.1", "26.4.99")).toBeGreaterThan(0);
+  });
+
+  it("throws on malformed input", () => {
+    expect(() => compareBases("26.4", "26.4.28")).toThrow();
+    expect(() => compareBases("26.4.28.1", "26.4.28")).toThrow();
+  });
+});
+
+describe("calver effectiveBase (#819)", () => {
+  it("picks package.json base when ahead of today", () => {
+    expect(effectiveBase("26.4.28", "26.4.29-alpha.5")).toBe("26.4.29");
+  });
+
+  it("picks today when package.json is behind", () => {
+    expect(effectiveBase("26.4.28", "26.4.27-alpha.99")).toBe("26.4.28");
+  });
+
+  it("picks today when bases are equal", () => {
+    expect(effectiveBase("26.4.28", "26.4.28-alpha.18")).toBe("26.4.28");
+  });
+
+  it("picks today when package.json is empty/unparseable", () => {
+    expect(effectiveBase("26.4.28", "")).toBe("26.4.28");
+    expect(effectiveBase("26.4.28", "not-a-version")).toBe("26.4.28");
+  });
+
+  it("handles bare future stable (post-cut shape, no suffix)", () => {
+    // Just-cut tomorrow's stable: package.json holds bare 26.4.30 with no suffix.
+    expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
+  });
+});
+
+describe("calver computeVersion future-dated package.json (#819)", () => {
+  const apr28_1200 = new Date(2026, 3, 28, 12, 0);
+  const apr29_0500 = new Date(2026, 3, 29, 5, 0);
+
+  it("future-dated alpha: continues counter on package.json's date (NOT downgrade)", () => {
+    // The exact bug from #819: package.json at 26.4.29-alpha.5, clock at
+    // 2026-04-28. Pre-fix this returned 26.4.28-alpha.0 (a downgrade).
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
+    ).toBe("26.4.29-alpha.6");
+  });
+
+  it("today-dated alpha: existing tag-walk behavior preserved", () => {
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.28-alpha.18"),
+    ).toBe("26.4.28-alpha.19");
+  });
+
+  it("date roll: clock advances past package.json → resets to .0", () => {
+    // Clock is 26.4.29, package.json still at 26.4.28-alpha.18 → .0 fresh day.
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_0500 }, [], "26.4.28-alpha.18"),
+    ).toBe("26.4.29-alpha.0");
+  });
+
+  it("just-cut stable in package.json: bare YY.M.D → alpha.0 on that date", () => {
+    // After --stable cut, package.json holds bare 26.4.30. Today's clock still
+    // 26.4.28 — must NOT regress to 26.4.28-alpha.0; bumps the future date.
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.30"),
+    ).toBe("26.4.30-alpha.0");
+  });
+
+  it("future-dated + tags for that future date: tags also count", () => {
+    // If the stable-cut day already saw alphas before the cut tagged some,
+    // and package.json holds 26.4.29-alpha.3 plus tags up to alpha.7 exist
+    // for 26.4.29 — bump to alpha.8.
+    const tags = ["v26.4.29-alpha.7"];
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, tags, "26.4.29-alpha.3"),
+    ).toBe("26.4.29-alpha.8");
+  });
+
+  it("--stable always uses today's clock, never package.json's future date", () => {
+    // Defensive: if package.json is somehow ahead, --stable still cuts today.
+    expect(
+      computeVersion({ stable: true, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
+    ).toBe("26.4.28");
   });
 });
