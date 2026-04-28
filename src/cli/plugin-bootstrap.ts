@@ -1,30 +1,49 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync } from "fs";
 import { join } from "path";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
 /**
- * Auto-bootstrap plugins into pluginDir if empty.
- * Symlinks bundled plugins and installs from pluginSources config URLs.
+ * Auto-bootstrap plugins into pluginDir.
+ *
+ * Bundled-plugin symlinks are idempotent — walked on every boot so newly
+ * added bundled plugins (e.g. introduced by an update) get linked into
+ * existing installs. Existing destinations (symlinks or user dirs) are
+ * never overwritten.
+ *
+ * The pluginSources URL fetch path is preserved as first-install only:
+ * it makes network calls and has a different cost profile, so it still
+ * runs only when pluginDir is empty.
+ *
+ * Bug: #817 — bootstrap-on-empty caused new bundled plugins to be
+ * silently invisible on every existing host until a manual symlink.
  *
  * @param pluginDir  resolved ~/.maw/plugins/ path
  * @param srcDir     resolved src/ directory (pass import.meta.dir from cli.ts)
  */
 export async function runBootstrap(pluginDir: string, srcDir: string): Promise<void> {
   mkdirSync(pluginDir, { recursive: true });
-  if (readdirSync(pluginDir).length === 0) {
-    // 1. Symlink bundled plugins (symlinks preserve relative imports)
-    const bundled = join(srcDir, "commands", "plugins");
-    if (existsSync(bundled)) {
-      for (const d of readdirSync(bundled)) {
-        if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
-          symlinkSync(join(bundled, d), join(pluginDir, d));
-        }
-      }
-    }
+  const wasEmpty = readdirSync(pluginDir).length === 0;
 
-    // 2. Install from pluginSources URLs in config
+  // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
+  //    runs every boot. Cheap (fs stat + symlink), no network.
+  const bundled = join(srcDir, "commands", "plugins");
+  if (existsSync(bundled)) {
+    for (const d of readdirSync(bundled)) {
+      const src = join(bundled, d);
+      const dest = join(pluginDir, d);
+      const isPlugin =
+        existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
+      if (!isPlugin) continue;
+      if (existsSync(dest)) continue; // already linked / user dir / valid symlink
+      symlinkSync(src, dest);
+    }
+  }
+
+  // 2. Install from pluginSources URLs — first-install only (network calls,
+  //    should not retry every boot).
+  if (wasEmpty) {
     try {
       const { loadConfig } = await import("../config");
       const config = loadConfig();
