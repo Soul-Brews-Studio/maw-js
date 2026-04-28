@@ -116,3 +116,59 @@ export interface MawSdk {
 
 export declare const maw: MawSdk;
 export default maw;
+
+// --- tmux SDK surface (#855) ---
+// Self-contained mirror of src/core/transport/tmux-class.ts. Hand-authored
+// so file:/tarball installs from outside the repo type-check cleanly. Only
+// the most-used methods are surfaced — the runtime class has more, but
+// this is the stable contract plugin authors can rely on.
+
+export interface TmuxPane {
+  id: string;
+  command: string;
+  target: string;
+  title: string;
+  pid?: number;
+  cwd?: string;
+}
+
+export interface TmuxWindow {
+  index: number;
+  name: string;
+  active: boolean;
+  cwd?: string;
+}
+
+export interface TmuxSession {
+  name: string;
+  windows: TmuxWindow[];
+}
+
+export declare class Tmux {
+  constructor(host?: string, socket?: string);
+  run(subcommand: string, ...args: (string | number)[]): Promise<string>;
+  tryRun(subcommand: string, ...args: (string | number)[]): Promise<string>;
+  listSessions(): Promise<TmuxSession[]>;
+  listAll(): Promise<TmuxSession[]>;
+  hasSession(name: string): Promise<boolean>;
+  killSession(name: string): Promise<void>;
+  listWindows(session: string): Promise<TmuxWindow[]>;
+  newWindow(
+    session: string,
+    name: string,
+    opts?: { cwd?: string },
+  ): Promise<void>;
+  selectWindow(target: string): Promise<void>;
+  switchClient(session: string): Promise<void>;
+  killWindow(target: string): Promise<void>;
+  listPanes(): Promise<TmuxPane[]>;
+  killPane(target: string): Promise<void>;
+  getPaneCommand(target: string): Promise<string>;
+  capture(target: string, lines?: number): Promise<string>;
+  sendKeys(target: string, ...keys: string[]): Promise<void>;
+  sendKeysLiteral(target: string, text: string): Promise<void>;
+  sendText(target: string, text: string): Promise<void>;
+}
+
+/** Default tmux instance — use this for the local socket. */
+export declare const tmux: Tmux;

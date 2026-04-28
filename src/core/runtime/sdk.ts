@@ -7,7 +7,7 @@
  *
  * Three layers:
  *   maw.*        — API calls to maw serve (typed responses)
- *   maw.tmux.*   — tmux operations (list, send, capture)
+ *   tmux.*       — tmux operations (list, send, capture) [@maw-js/sdk top-level]
  *   maw.print.*  — colored terminal output helpers
  */
 
