@@ -8,7 +8,7 @@ import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detec
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -49,12 +49,15 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
     : repoName;
   console.log(`\x1b[36m→\x1b[0m found \x1b[1m${ghSlug}\x1b[0m (${repoPath})`);
-  let session = await detectSession(oracle);
+  let session = await detectSession(oracle, opts.urlRepoName);
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
   if (!session) {
-    session = getSessionMap()[oracle] || resolveFleetSession(oracle) || oracle;
+    // #769 — URL input names the new session after the full repo (e.g.
+    // "m5-oracle") so it's distinct from any unrelated sub-token sessions
+    // and immediately disambiguates future `maw wake` calls.
+    session = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
     const mainWindowName = `${oracle}-oracle`;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await setSessionEnv(session);

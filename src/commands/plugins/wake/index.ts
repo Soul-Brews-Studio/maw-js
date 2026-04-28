@@ -57,7 +57,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const wakeOpts: {
         task?: string; wt?: string; prompt?: string;
         incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean;
-        split?: boolean;
+        split?: boolean; urlRepoName?: string;
       } = {};
       let issueNum: number | null = flags["--issue"] ?? null;
       let repo: string | undefined = flags["--repo"];
@@ -67,6 +67,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (parsed) {
         await ensureCloned(parsed.slug);
         if (parsed.issueNum) { issueNum = parsed.issueNum; repo = parsed.slug; }
+        // #769 — pass the FULL repo name through so detectSession resolves on
+        // the explicit URL intent rather than the stripped sub-token.
+        wakeOpts.urlRepoName = parsed.slug.split("/").pop();
       }
 
       if (flags["--wt"]) wakeOpts.wt = flags["--wt"];
