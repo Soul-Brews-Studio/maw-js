@@ -19,7 +19,16 @@
  *
  * Each return shape is `{ wake, reason }` so logging + tests can assert WHY
  * the decision was made, not just the bit.
+ *
+ * Sub-PR 4 of #841 — callers may now pass a `manifest` (OracleManifestEntry)
+ * instead of pre-computing `isFleetKnown` / `isLive`. The helper derives both
+ * from the entry. This keeps wake decisions and oracle facts collocated under
+ * the unified manifest view (#838) and removes the small-but-real bug class
+ * where one site computed "fleet-known" via wake-resolve while another used
+ * config.agents.
  */
+
+import type { OracleManifestEntry } from "../../lib/oracle-manifest";
 
 export type AutoWakeSite =
   | "view"        // maw a / maw view — fleet-known silent wake, unknown prompts (#549)
@@ -53,6 +62,30 @@ export interface ShouldAutoWakeOpts {
    * or misroute. Currently only `hey` consults this.
    */
   isCanonicalTarget?: boolean;
+
+  /**
+   * Optional unified manifest entry for the target oracle (Sub-PR 4 of #841).
+   *
+   * When provided, the helper derives:
+   *   - `isFleetKnown` from `entry.sources.includes("fleet")`
+   *   - `isLive`       from `entry.isLive`
+   *
+   * MANIFEST WINS: if the caller ALSO passes `isFleetKnown` / `isLive`
+   * directly, the manifest values take precedence. The rationale is that
+   * the manifest is the unified view (#838) — once a caller has gone to
+   * the trouble of looking the oracle up via `findOracle()`, the manifest
+   * answer is more reliable than ad-hoc booleans the call site might have
+   * captured from a stale registry. Other flags (`force`, `noWake`,
+   * `isCanonicalTarget`) are NOT derivable from the manifest and continue
+   * to come from the call site.
+   *
+   * When absent, all existing callers continue to work unchanged.
+   *
+   * `undefined` entry — a synonym for "I tried `findOracle()` and the
+   * oracle isn't in any registry" — is treated as `isFleetKnown=false`,
+   * `isLive=false` (the natural unknown-target default).
+   */
+  manifest?: OracleManifestEntry;
 }
 
 export interface ShouldAutoWakeDecision {
@@ -86,6 +119,18 @@ export function shouldAutoWake(
 ): ShouldAutoWakeDecision {
   const { site } = opts;
 
+  // 0. Manifest-derived facts (Sub-PR 4 of #841).
+  //    When the caller hands us an OracleManifestEntry, treat it as the
+  //    source of truth for `isFleetKnown` and `isLive`. This collapses two
+  //    previously-divergent code paths (wake-resolve fleet probe vs. ad-hoc
+  //    config.agents check) into a single read of the unified view.
+  let isFleetKnown = opts.isFleetKnown;
+  let isLive = opts.isLive;
+  if (opts.manifest !== undefined) {
+    isFleetKnown = opts.manifest.sources.includes("fleet");
+    isLive = opts.manifest.isLive;
+  }
+
   // 1. Hard rules — explicit operator flags win on sites that honor them.
   // peek/bud/api-wake intentionally ignore the flags: their semantics are
   // fixed and shouldn't be overridable from the same call site.
@@ -114,7 +159,7 @@ export function shouldAutoWake(
       // Canonical wake is idempotent: `cmdWake` is happy to be called on a
       // live oracle (it'll select the existing window). The helper still
       // returns the truthful answer so callers can log/skip if they want.
-      if (opts.isLive) return { wake: false, reason: "wake-cmd: already live (noop)" };
+      if (isLive) return { wake: false, reason: "wake-cmd: already live (noop)" };
       return { wake: true, reason: "wake-cmd: missing — wake" };
 
     case "view":
@@ -122,8 +167,8 @@ export function shouldAutoWake(
       // Caller handles the unknown-name TTY prompt itself (decideWakePrompt).
       // The helper signals "ask" by returning wake:false with the ask reason
       // — view callers branch on the reason string to drive prompt vs error.
-      if (opts.isLive) return { wake: false, reason: "view: target already running" };
-      if (opts.isFleetKnown) {
+      if (isLive) return { wake: false, reason: "view: target already running" };
+      if (isFleetKnown) {
         return { wake: true, reason: "view: fleet-known and not running" };
       }
       return { wake: false, reason: "view: unknown — caller should ask" };
@@ -136,8 +181,8 @@ export function shouldAutoWake(
       if (opts.isCanonicalTarget) {
         return { wake: false, reason: "hey: canonical target — skip wake" };
       }
-      if (opts.isLive) return { wake: false, reason: "hey: target already running" };
-      if (opts.isFleetKnown) {
+      if (isLive) return { wake: false, reason: "hey: target already running" };
+      if (isFleetKnown) {
         return { wake: true, reason: "hey: fleet-known and not running" };
       }
       return { wake: false, reason: "hey: unknown target — no auto-wake" };
@@ -147,8 +192,8 @@ export function shouldAutoWake(
       // implicit (no session → caller failures cascade). The helper lets the
       // route opt in by passing isLive=false; if the session is already up,
       // we explicitly skip. Mirrors hey's local-scope policy on isFleetKnown.
-      if (opts.isLive) return { wake: false, reason: "api-send: target already running" };
-      if (opts.isFleetKnown) {
+      if (isLive) return { wake: false, reason: "api-send: target already running" };
+      if (isFleetKnown) {
         return { wake: true, reason: "api-send: fleet-known and not running" };
       }
       return { wake: false, reason: "api-send: unknown target — no auto-wake" };

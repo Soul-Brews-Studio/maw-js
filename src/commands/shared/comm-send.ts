@@ -229,14 +229,23 @@ export async function cmdSend(query: string, message: string, force = false) {
         s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
       );
       try {
-        const { resolveFleetSession } = await import("./wake-resolve");
+        // Sub-PR 4 of #841: use the unified OracleManifest as the source of
+        // truth for `isFleetKnown`. We still derive `isLive` from the freshly
+        // captured `listSessions()` because the manifest's loader doesn't
+        // touch tmux (see oracle-manifest.ts file-level docs) — so we enrich
+        // the entry's `isLive` field locally before handing it to the helper.
+        const { findOracle } = await import("../../lib/oracle-manifest");
         const { shouldAutoWake } = await import("./should-auto-wake");
-        const isFleetKnown = Boolean(resolveFleetSession(bareAgent));
+        const entry = findOracle(bareAgent);
+        const enriched = entry ? { ...entry, isLive: hasLocalSession } : undefined;
         const decision = shouldAutoWake(bareAgent, {
           site: "hey",
+          // Fallback for the unknown-oracle (no manifest entry) branch:
+          // preserve existing behavior — unknown ⇒ skip wake.
           isLive: hasLocalSession,
-          isFleetKnown,
+          isFleetKnown: false,
           isCanonicalTarget: false,
+          manifest: enriched,
         });
         if (decision.wake) {
           console.log(`\x1b[36m⚡\x1b[0m '${bareAgent}' is fleet-known — auto-wake`);
