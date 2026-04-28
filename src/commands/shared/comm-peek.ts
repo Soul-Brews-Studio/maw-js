@@ -66,6 +66,21 @@ export async function cmdPeek(query?: string) {
   }
 
   const sessions = await listSessions();
+
+  // #835 — peek's policy is "never auto-wake" (read-only by design). The
+  // unified shouldAutoWake() helper is consulted for transparency: if the
+  // policy ever changes, the call site is already wired in.
+  if (query) {
+    const { shouldAutoWake } = await import("./should-auto-wake");
+    const decision = shouldAutoWake(query, { site: "peek" });
+    if (decision.wake) {
+      // Defensive: site=peek always returns wake=false. If a future helper
+      // change flips this, we'd need to choose how peek handles a wake; for
+      // now we explicitly do nothing (preserve historical behavior) but log.
+      console.error(`\x1b[33mwarn\x1b[0m: shouldAutoWake suggested wake but peek refuses (${decision.reason})`);
+    }
+  }
+
   if (!query) {
     // Peek all — one line per agent
     for (const s of sessions) {

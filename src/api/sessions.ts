@@ -164,6 +164,48 @@ sessionsApi.post("/send", async ({ body, set}) => {
       set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
     }
 
+    // #835 — consult shouldAutoWake for the "implicit wake on send" decision.
+    // Fleet-known target with no local session → wake then retry resolve once.
+    // Unknown targets fall through to the existing 404 (no behavior change).
+    {
+      const isFleetKnown = Boolean(resolveFleetSession(target));
+      const { shouldAutoWake } = await import("../commands/shared/should-auto-wake");
+      const decision = shouldAutoWake(target, {
+        site: "api-send",
+        isLive: false,
+        isFleetKnown,
+      });
+      if (decision.wake) {
+        try {
+          const { cmdWake } = await import("../commands/shared/wake");
+          await cmdWake(target, { noAttach: true });
+          // Retry resolution once, after the wake. If it now resolves locally,
+          // recurse the local-send path. This branch is opt-in via fleet
+          // membership — unknown targets still 404.
+          const refreshed = await listSessions();
+          const retry = resolveTarget(target, config, refreshed);
+          if (retry?.type === "local" || retry?.type === "self-node") {
+            if (!force) {
+              let idleCheck = await checkPaneIdle(retry.target);
+              if (!idleCheck.idle) {
+                await Bun.sleep(500);
+                idleCheck = await checkPaneIdle(retry.target);
+                if (!idleCheck.idle) {
+                  set.status = 409;
+                  return { ok: false, error: "pane not idle", target: retry.target, lastInput: idleCheck.lastInput };
+                }
+              }
+            }
+            await sendKeys(retry.target, message);
+            await Bun.sleep(150);
+            let lastLine = "";
+            try { const content = await capture(retry.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
+            return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target };
+          }
+        } catch { /* wake best-effort — fall through to 404 */ }
+      }
+    }
+
     const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
     set.status = 404; return { error: `target not found: ${target}`, target, ...errDetail };
   } catch (err) {
@@ -309,6 +351,16 @@ sessionsApi.post("/wake", async ({ body, set}) => {
   try {
     const target = body.target ?? body.oracle;
     if (!target) { set.status = 400; return { error: "target required (or 'oracle' for legacy peers)" }; }
+    // #835 — consult unified shouldAutoWake helper. /api/wake's policy is
+    // "always wake" (the endpoint exists for that). The helper makes that
+    // decision explicit and auditable, mirroring the other 6 sites.
+    const { shouldAutoWake } = await import("../commands/shared/should-auto-wake");
+    const decision = shouldAutoWake(target, { site: "api-wake" });
+    if (!decision.wake) {
+      // Defensive — site=api-wake never returns false today, but keep the
+      // branch so future policy changes can't silently no-op the endpoint.
+      set.status = 500; return { error: `wake denied: ${decision.reason}` };
+    }
     const { cmdWake } = await import("../commands/shared/wake");
     await cmdWake(target, { noAttach: true, task: body.task });
     return { ok: true, target };

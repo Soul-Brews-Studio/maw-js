@@ -77,6 +77,17 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   }
 
   // 8. Wake the bud
+  // #835 — consult unified shouldAutoWake helper. bud's policy is "always
+  // wake" — a freshly-cloned bud has no session yet and the whole point of
+  // bud is to spawn one. The helper makes that explicit and auditable.
+  const { shouldAutoWake } = await import("../../shared/should-auto-wake");
+  const decision = shouldAutoWake(name, { site: "bud" });
+  if (!decision.wake) {
+    // Defensive — site=bud never returns wake=false today. Preserve the
+    // future-policy escape hatch with a clear log.
+    console.log(`  \x1b[33m⚠\x1b[0m wake skipped: ${decision.reason}`);
+    return;
+  }
   console.log(`  \x1b[36m⏳\x1b[0m waking ${name}...`);
   // #421 — pass the exact cloned path so wake doesn't re-resolve via ghqFind,
   // which would match any same-named repo in any org (stale-clone bug).
