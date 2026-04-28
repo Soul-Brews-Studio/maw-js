@@ -49,24 +49,60 @@ Exempt: type-definition files, specs/docs, generated/scaffolded boilerplate.
 - **Features**: open a short issue describing the problem first. If we align on the shape, a PR is welcome.
 - **Proposals / design docs**: use GitHub Discussions, not issues. Issues are for work; discussions are for thought.
 
+## Branch model
+
+- **`main`** — stable releases only. No alpha tags, no in-progress work. Every commit is a cut version that someone could install today.
+- **`alpha`** — active development. All feature/bugfix PRs target this branch. Alpha versions accumulate here.
+
+PRs to `main` come from one source: `alpha` itself, on a stable cut.
+
 ## Versioning
 
 **maw-js uses CalVer as of 2026-04-18.**
 
-Scheme: `v{yy}.{m}.{d}[-alpha.{hour}]` — e.g. `v26.4.18` (stable) or `v26.4.18-alpha.19` (alpha cut at 19:xx ICT). Up to 24 alpha cuts per day (one per hour). Spec lives in [umbrella #526](https://github.com/Soul-Brews-Studio/maw-js/issues/526) and the [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18).
+Scheme: `v{yy}.{m}.{d}[-alpha.{N}]` — e.g. `v26.4.18` (stable) or `v26.4.18-alpha.19` (alpha cut). Spec lives in [umbrella #526](https://github.com/Soul-Brews-Studio/maw-js/issues/526) and the [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18). The alpha-counter scheme (hour-bucket vs monotonic) is tracked in [#766](https://github.com/Soul-Brews-Studio/maw-js/issues/766).
 
-### Cut a release
+## Releasing
+
+The day-to-day flow — alphas accumulate on `alpha`, stable cuts roll up to `main`:
+
+1. **Branch from `alpha`.** Name the branch `fix/<issue>-<slug>` or `feat/<issue>-<slug>`.
+   ```bash
+   git fetch origin
+   git checkout -B alpha origin/alpha
+   git checkout -b fix/123-my-bugfix
+   ```
+2. **Open the PR with base `alpha`** (NOT `main`).
+   ```bash
+   gh pr create --base alpha --title "fix: ..."
+   ```
+3. **`/calver --apply` runs on `alpha` only.** Alpha versions accumulate on `alpha`; `main` never receives an alpha bump directly. If you find yourself bumping CalVer on `main`, stop — you're on the wrong branch.
+4. **Cut stable when ready** by opening a PR from `alpha` into `main`:
+   ```bash
+   gh pr create --base main --head alpha --title "release: vYY.M.D"
+   ```
+5. **Merge the stable PR.** Squash-merge or fast-forward, depending on the cut's history. The `.github/workflows/calver-release.yml` workflow auto-tags `v<version>`, cuts a GitHub Release, and attaches the `dist/maw` artifact.
+
+### When to cut stable
+
+Cutting stable is a **discrete decision, not automatic**. Common triggers:
+
+- A coherent batch of fixes/features has settled on `alpha` and tests are green.
+- A user-visible milestone wants a clean version pointer.
+- Time has passed and `alpha` is materially ahead of `main`.
+
+There is no fixed cadence. If `alpha` is quiet, don't cut. If `alpha` has shipped real value, cut.
+
+### Cut commands
 
 ```bash
-TZ=Asia/Bangkok bun scripts/calver.ts            # alpha at current hour, e.g. v26.4.18-alpha.19
-TZ=Asia/Bangkok bun scripts/calver.ts --stable   # stable cut, e.g. v26.4.18
-TZ=Asia/Bangkok bun scripts/calver.ts --hour 14  # alpha at 14:xx
+TZ=Asia/Bangkok bun scripts/calver.ts            # alpha bump (run on `alpha` branch)
+TZ=Asia/Bangkok bun scripts/calver.ts --stable   # stable bump (run on `alpha`, then PR to `main`)
+TZ=Asia/Bangkok bun scripts/calver.ts --hour 14  # alpha pinned to a specific hour bucket
 TZ=Asia/Bangkok bun scripts/calver.ts --check    # dry-run, no writes
 ```
 
-Or via the npm script alias: `bun run calver [--stable|--hour N|--check]` (TZ still recommended).
-
-Then commit + open a PR + merge into `main`. The `.github/workflows/calver-release.yml` workflow auto-tags `v<version>`, cuts a GitHub Release, and attaches the `dist/maw` build artifact. Single job — no cascade gaps.
+Or via the npm-script alias: `bun run calver [--stable|--hour N|--check]` (TZ still recommended).
 
 ### Do NOT manually bump semver
 
