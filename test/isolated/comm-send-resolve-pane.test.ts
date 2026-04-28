@@ -47,7 +47,10 @@ mock.module(join(srcRoot, "src/config"), () =>
 );
 
 // --- Mock sdk (need to stub listSessions etc but not hostExec) ---
+const _rSdk = await import("../../src/sdk");
+
 mock.module(join(srcRoot, "src/sdk"), () => ({
+  ..._rSdk,
   listSessions: async () => [],
   capture: async () => "",
   sendKeys: async () => {},

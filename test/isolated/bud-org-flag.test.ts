@@ -14,6 +14,8 @@ import { join } from "path";
  *      entries can't shadow the freshly-cloned bud.
  */
 
+const _rSdk = await import("../../src/sdk");
+
 describe("maw bud --org — #421 propagation", () => {
   const ghExec: string[] = [];
 
@@ -29,6 +31,7 @@ describe("maw bud --org — #421 propagation", () => {
     const budRepoPath = join(tmp, org, budRepoName);
 
     mock.module("../../src/sdk", () => ({
+      ..._rSdk,
       hostExec: async (cmd: string) => {
         ghExec.push(cmd);
         if (cmd.startsWith("gh repo view")) throw new Error("not found");
@@ -56,6 +59,7 @@ describe("maw bud --org — #421 propagation", () => {
     // This test asserts the loud failure when ghq get "succeeds" but ghq list
     // can't find the repo afterward (broken install / intercepted URL).
     mock.module("../../src/sdk", () => ({
+      ..._rSdk,
       hostExec: async (cmd: string) => {
         if (cmd.startsWith("gh repo view")) throw new Error("not found");
         // ghq list always empty — simulates broken ghq or URL reroute.

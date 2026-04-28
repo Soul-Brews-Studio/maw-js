@@ -52,7 +52,10 @@ function stubGhqListTracking(path: string): ExecResponse {
   return { match: /^ghq list /, result: () => existsSync(path) ? `${path}\n` : "" };
 }
 
+const _rSdk = await import("../../src/sdk");
+
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+  ..._rSdk,
   hostExec: mockExec,
 }));
 

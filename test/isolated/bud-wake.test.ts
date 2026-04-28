@@ -298,6 +298,7 @@ function seedFleetFile(num: number, stem: string, body: Record<string, unknown>)
 
 describe("finalizeBud — step 5 (soul-sync seed)", () => {
   test("--seed with parent → calls cmdSoulSync(parent, { from: true, cwd: budRepoPath })", async () => {
+    fleetEntriesOverride = [];
     const ctx = makeCtx({ parentName: "neo", opts: { seed: true } });
     await finalizeBud(ctx);
 
@@ -307,6 +308,7 @@ describe("finalizeBud — step 5 (soul-sync seed)", () => {
   });
 
   test("--seed with parent, cmdSoulSync throws → swallowed, flow continues to git commit", async () => {
+    fleetEntriesOverride = [];
     cmdSoulSyncThrow = new Error("parent has empty ψ/");
     const ctx = makeCtx({ parentName: "neo", opts: { seed: true } });
     await finalizeBud(ctx);
@@ -316,6 +318,7 @@ describe("finalizeBud — step 5 (soul-sync seed)", () => {
   });
 
   test("parentName without --seed → no cmdSoulSync call (born-blank branch)", async () => {
+    fleetEntriesOverride = [];
     const ctx = makeCtx({ parentName: "neo", opts: {} });
     await finalizeBud(ctx);
 
@@ -335,6 +338,7 @@ describe("finalizeBud — step 5 (soul-sync seed)", () => {
 
 describe("finalizeBud — step 6 (git commit + push)", () => {
   test("runs `git add -A`, `git commit`, `git push -u origin HEAD` in order w/ parent message", async () => {
+    fleetEntriesOverride = [];
     const ctx = makeCtx({ parentName: "neo", opts: {} });
     await finalizeBud(ctx);
 

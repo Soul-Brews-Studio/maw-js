@@ -33,7 +33,10 @@ let cmdSplitCalls: Array<{ target: string; opts: { anchorPane?: string } }> = []
 
 // ─── Mocks (install BEFORE importing the module-under-test) ──────────────────
 
+const _rSdk = await import("../../src/sdk");
+
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+  ..._rSdk,
   listSessions: async () => fakeSessions,
   tmuxCmd: () => "tmux",
   resolveSocket: () => undefined,
@@ -54,7 +57,10 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   },
 }));
 
+const _rConfig = await import("../../src/config");
+
 mock.module(join(import.meta.dir, "../../src/config"), () => ({
+  ..._rConfig,
   loadConfig: () => ({ host: "local" }),
 }));
 
