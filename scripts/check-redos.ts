@@ -48,9 +48,14 @@ const ESCAPE_RE = /\/\/\s*CODEQL_OK\b/;
 
 // Match a JS regex literal: `/pattern/flags`. Conservative — won't catch
 // every literal, but catches the common assignment / replace / test forms.
-// Group 1 = pattern body (no slashes). We deliberately skip escaped slashes
-// inside char classes etc — false negatives are acceptable per scope.
-const REGEX_LITERAL = /\/((?:\\.|\[[^\]]*\]|[^/\n\\])+)\/[gimsuy]*/g;
+// Group 1 = pattern body (no slashes). False negatives are acceptable.
+//
+// Branches MUST start with disjoint characters to avoid the polynomial
+// backtracking shape this script itself flags (CodeQL js/redos):
+//   1. `\\.`              — escape sequence (starts with `\`)
+//   2. `\[[^\]]*\]`       — char class (starts with `[`)
+//   3. `[^/\n\\[]`        — single safe char (starts with anything ELSE)
+const REGEX_LITERAL = /\/((?:\\.|\[[^\]]*\]|[^/\n\\[])+)\/[gimsuy]*/g;
 
 // Pattern A: POSITIVE char-class + `+`/`*` anchored to `$`, no leading `^`,
 // no protective look-behind. Negated classes (`[^…]`) are excluded — their
