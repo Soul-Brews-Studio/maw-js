@@ -216,18 +216,23 @@ export async function cmdSend(query: string, message: string, force = false) {
 
   let sessions = await listSessions();
 
-  // --- #736 Phase 1.2: auto-wake fleet-known targets (parity with maw view) ---
+  // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
-  // no local session exists, silently wake it before sending. No y/N prompt:
-  // fleet membership is sufficient signal that this isn't a typo. Cross-node
-  // targets are skipped here — the remote peer's federation handler wakes its
-  // own fleet (sessions.ts:/api/wake already does cmdWake for inbound peers).
+  // no live session exists, silently wake it before sending. No y/N prompt:
+  // fleet membership is sufficient signal that this isn't a typo.
+  //
+  // Local scope (no node prefix or matches config.node): wake locally via cmdWake.
+  // Cross-node short form (<peer>:<agent>, no third colon): wake remotely via
+  // peer's /api/wake (#791 — Option B from the design RFC). Canonical form
+  // (<peer>:<session>:<window>) skips wake because the session is explicitly
+  // named — wake on a session id would no-op or misroute.
   {
-    const colonIdx = query.indexOf(":");
-    const targetNode = colonIdx >= 0 ? query.slice(0, colonIdx) : null;
-    const bareAgent = colonIdx >= 0 ? query.slice(colonIdx + 1).split(":")[0] : query;
+    const parts = query.split(":");
+    const targetNode = parts.length >= 2 ? parts[0] : null;
+    const bareAgent = parts.length >= 2 ? parts[1] : query;
+    const isCanonical = parts.length >= 3;
     const isLocalScope = !targetNode || targetNode === config.node;
-    if (isLocalScope && bareAgent) {
+    if (isLocalScope && bareAgent && !isCanonical) {
       const hasLocalSession = sessions.some(s =>
         s.name === bareAgent ||
         s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
@@ -244,6 +249,26 @@ export async function cmdSend(query: string, message: string, force = false) {
           }
         } catch { /* fleet/wake best-effort — fall through to existing error path */ }
       }
+    } else if (targetNode && bareAgent && !isCanonical) {
+      // #791: cross-node auto-wake. Sender does explicit /api/wake before
+      // /api/send (Option B). Wake is idempotent on the receiver — if the
+      // session already exists, cmdWake returns quickly. If wake errors,
+      // surface and exit (do NOT silently fall through to send — design
+      // call requires wake errors to be visible).
+      const peer = (config.namedPeers || []).find(p => p.name === targetNode);
+      if (peer) {
+        const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
+          method: "POST",
+          body: JSON.stringify({ target: bareAgent }),
+        });
+        if (!wakeRes.ok || !wakeRes.data?.ok) {
+          const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
+          console.error(`\x1b[31merror\x1b[0m: cross-node wake failed for ${targetNode}:${bareAgent}: ${underlying}`);
+          console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
+          process.exit(1);
+        }
+      }
+      // peer not in namedPeers → fall through; resolveTarget will surface the routing error.
     }
   }
 
