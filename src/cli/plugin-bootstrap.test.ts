@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   mkdirSync,
+  mkdtempSync,
   writeFileSync,
   readdirSync,
   existsSync,
@@ -31,7 +32,10 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   let bundledDir: string;
 
   beforeEach(() => {
-    workDir = join(tmpdir(), `maw-bootstrap-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    // mkdtempSync is atomic — appends 6 random chars + creates the dir in one
+    // syscall. Avoids js/insecure-temporary-file (CodeQL) which flags the
+    // mkdirSync(join(tmpdir(), userControlledName)) pattern as race-prone.
+    workDir = mkdtempSync(join(tmpdir(), "maw-bootstrap-test-"));
     srcDir = join(workDir, "src");
     pluginDir = join(workDir, "plugins");
     bundledDir = join(srcDir, "commands", "plugins");
