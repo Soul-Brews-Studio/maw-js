@@ -1,6 +1,27 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../../../config";
+import {
+  deletePending,
+  loadPending,
+  loadPendingById,
+  updatePending,
+  type PendingMessage,
+} from "../../shared/queue-store";
+
+// Re-export queue-store helpers so callers can import from one place.
+export {
+  loadPending,
+  loadPendingById,
+  savePending,
+  updatePending,
+  deletePending,
+  pendingDir,
+  pendingPath,
+  isExpired,
+  TTL_MS,
+} from "../../shared/queue-store";
+export type { PendingMessage } from "../../shared/queue-store";
 
 // File naming: YYYY-MM-DD_HH-MM_<from>_<slug>.md
 // Frontmatter: from / to / timestamp / read
@@ -148,4 +169,142 @@ export async function cmdInboxWrite(note: string) {
   const config = loadConfig();
   const filename = writeInboxFile(inboxDir, config.node ?? "cli", config.node ?? "local", note);
   console.log(`\x1b[32m✓\x1b[0m wrote \x1b[33m${filename}\x1b[0m`);
+}
+
+// ─── Approval queue (#842 Sub-C) ────────────────────────────────────────────
+//
+// `cmdList` / `cmdApprove` / `cmdReject` / `cmdShow` operate on the
+// per-message JSON files under `<CONFIG_DIR>/pending/` written by
+// `comm-send.ts` when `evaluateAclFromDisk(...) === "queue"`. The plugin
+// dispatcher in `index.ts` peels the verb off and routes here.
+//
+// Approve flow: flip status → re-issue the send via `cmdSend(query, message)`
+// (the same code path operators take with `maw hey`). On a successful send
+// we delete the file (the approval was the gate; the file no longer needs
+// to exist). Reject flow: flip status briefly so observers can see the
+// terminal state, then delete the file unconditionally.
+
+/**
+ * Resolve a partial id (e.g. user types the timestamp prefix) to a full
+ * pending file. Returns the loaded {@link PendingMessage} or `null`. If
+ * multiple pending files match the prefix, the oldest is returned —
+ * mirrors the "oldest first" semantics of `cmdQueueList()`.
+ */
+export function resolvePendingId(idOrPrefix: string): PendingMessage | null {
+  if (!idOrPrefix) return null;
+  // Exact match first — common case after `maw inbox pending` prints the id.
+  const exact = loadPendingById(idOrPrefix);
+  if (exact) return exact;
+  // Fallback: prefix match. List loads + reaps in one pass; the user is
+  // never given a stale id by the list output, so prefix is safe.
+  const list = loadPending();
+  const matches = list.filter(m => m.id.startsWith(idOrPrefix));
+  if (matches.length === 0) return null;
+  return matches[0]; // oldest first
+}
+
+/** List pending messages, oldest first. Pure read — no mutation. */
+export function cmdQueueList(): PendingMessage[] {
+  return loadPending().filter(m => m.status === "pending");
+}
+
+/**
+ * Format the pending list for human consumption. Mirrors `formatList` in
+ * `scope/impl.ts` and `trust/impl.ts` — padded columns, header + divider.
+ */
+export function formatQueueList(rows: PendingMessage[]): string {
+  if (!rows.length) return "no pending messages";
+  const header = ["id", "sender", "target", "sentAt", "preview"];
+  const lines = rows.map(r => [
+    r.id,
+    r.sender,
+    r.target,
+    r.sentAt,
+    r.message.replace(/\s+/g, " ").slice(0, 50),
+  ]);
+  const widths = header.map((h, i) =>
+    Math.max(h.length, ...lines.map(l => l[i].length)),
+  );
+  const fmt = (cols: string[]) =>
+    cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+  return [
+    fmt(header),
+    fmt(widths.map(w => "-".repeat(w))),
+    ...lines.map(fmt),
+  ].join("\n");
+}
+
+/** Show a single pending message in human-readable detail. */
+export function formatQueueDetail(msg: PendingMessage): string {
+  return [
+    `id:      ${msg.id}`,
+    `sender:  ${msg.sender}`,
+    `target:  ${msg.target}`,
+    `query:   ${msg.query ?? "-"}`,
+    `sentAt:  ${msg.sentAt}`,
+    `status:  ${msg.status}`,
+    `message:`,
+    msg.message,
+  ].join("\n");
+}
+
+/**
+ * Approve a queued message → mark status "approved" + execute the send via
+ * `cmdSend(query, message)` (lazy import to avoid a circular module load:
+ * comm-send imports this plugin's loader chain). On successful send we
+ * delete the file. Returns the record that was just approved (status
+ * pre-delete) for caller logging.
+ *
+ * Throws if the id is unknown or the underlying send rejects (the file is
+ * left intact in that case so the operator can retry).
+ */
+export async function cmdApprove(idOrPrefix: string): Promise<PendingMessage> {
+  const found = resolvePendingId(idOrPrefix);
+  if (!found) throw new Error(`pending message not found: ${idOrPrefix}`);
+  if (found.status !== "pending") {
+    throw new Error(`message ${found.id} is already ${found.status}`);
+  }
+  const updated = updatePending(found.id, { status: "approved" });
+  // Re-issue the send. Use the original query string when present (preserves
+  // node prefix routing); fall back to target name otherwise.
+  const query = updated.query ?? updated.target;
+  const { cmdSend } = await import("../../shared/comm-send");
+  // Pass `force=true` plus a sentinel to bypass ACL on the second pass:
+  // the human approval IS the gate — re-checking here would loop forever.
+  process.env.MAW_ACL_BYPASS = "1";
+  try {
+    await cmdSend(query, updated.message);
+  } finally {
+    delete process.env.MAW_ACL_BYPASS;
+  }
+  // Successful send → file's job is done. Delete it.
+  deletePending(updated.id);
+  return updated;
+}
+
+/**
+ * Reject a queued message → mark status "rejected" + delete the file.
+ * Returns the record (with status flipped) so the caller can log the
+ * rejection. Throws on unknown id.
+ */
+export function cmdReject(idOrPrefix: string): PendingMessage {
+  const found = resolvePendingId(idOrPrefix);
+  if (!found) throw new Error(`pending message not found: ${idOrPrefix}`);
+  if (found.status === "rejected") {
+    // Idempotent — already rejected. Still delete in case the file was left
+    // behind by a partial earlier reject.
+    deletePending(found.id);
+    return found;
+  }
+  const updated = updatePending(found.id, { status: "rejected" });
+  deletePending(updated.id);
+  return updated;
+}
+
+/**
+ * Show a single pending message by id. Returns `null` if not found —
+ * the dispatcher converts that to a CLI error. Pure read.
+ */
+export function cmdShow(idOrPrefix: string): PendingMessage | null {
+  return resolvePendingId(idOrPrefix);
 }

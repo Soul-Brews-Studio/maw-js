@@ -123,7 +123,29 @@ export function formatBareNameError(query: string): string {
   ].join("\n");
 }
 
-export async function cmdSend(query: string, message: string, force = false) {
+/**
+ * Caller-supplied options for `cmdSend`. Backward compatible — the field
+ * is optional and the legacy 3-arg signature still works (positional
+ * `force` second-to-last).
+ *
+ * - `approve` (#842 Sub-C): bypass the ACL queue gate for THIS send.
+ *   Operator opted in explicitly via `maw hey --approve`. Equivalent to
+ *   the human-approval path that drives `maw inbox approve <id>`.
+ * - `trust` (#842 Sub-C): paired with `approve` — also append the
+ *   sender↔target pair to the on-disk trust list so subsequent sends in
+ *   either direction skip the gate without operator intervention.
+ */
+export interface CmdSendOptions {
+  approve?: boolean;
+  trust?: boolean;
+}
+
+export async function cmdSend(
+  query: string,
+  message: string,
+  force = false,
+  opts: CmdSendOptions = {},
+) {
   const config = loadConfig();
 
   // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
@@ -296,6 +318,89 @@ export async function cmdSend(query: string, message: string, force = false) {
 
   // --- Unified resolution via resolveTarget (#201) ---
   const result = resolveTarget(query, config, sessions);
+
+  // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
+  //
+  // When the resolved target is on a different oracle/node, consult the
+  // scope + trust lists via `evaluateAclFromDisk`. A "queue" verdict means
+  // the operator hasn't pre-approved this sender↔target pair and the
+  // message is persisted under `<CONFIG_DIR>/pending/` for later
+  // `maw inbox approve <id>`. Default-allow when no scopes are defined
+  // (loadAllScopes returns []) — otherwise this would silently break every
+  // existing setup that hasn't migrated to scopes yet.
+  //
+  // Bypass paths:
+  //   1. `--approve` flag on `maw hey` (operator-explicit opt-in for THIS
+  //      message; optionally `--trust` to also persist the pair)
+  //   2. `MAW_ACL_BYPASS=1` env (set by `maw inbox approve <id>` when it
+  //      re-issues the queued send — the human approval IS the gate)
+  //
+  // Queue conditions:
+  //   - `result.type === "peer"` (genuine cross-node)
+  //   - At least one scope defined on disk (default-allow when empty)
+  //   - `evaluateAclFromDisk(sender, target) === "queue"`
+  //
+  // NOTE: self-node and local results bypass the ACL gate. Same-node
+  // sends across oracle names are rare (most operators run one oracle
+  // per node) and Phase 2's threat model targets cross-NODE delivery —
+  // the federation HTTP boundary is where untrusted-by-default applies.
+  if (result?.type === "peer" && !opts.approve && process.env.MAW_ACL_BYPASS !== "1") {
+    try {
+      const { evaluateAclFromDisk, loadAllScopes } = await import("./scope-acl");
+      const scopes = loadAllScopes();
+      // Default-allow when no scopes are defined — keeps existing
+      // pre-#642 setups working unchanged. Operators opt in to the gate
+      // by creating their first scope via `maw scope create`.
+      if (scopes.length > 0) {
+        const senderOracle = config.oracle ?? "mawjs";
+        const targetOracle = result.target; // agent name from `<node>:<agent>`
+        const decision = evaluateAclFromDisk(senderOracle, targetOracle);
+        if (decision === "queue") {
+          const { savePending } = await import("./queue-store");
+          const record = savePending({
+            sender: senderOracle,
+            target: targetOracle,
+            message,
+            query,
+          });
+          console.log(
+            `\x1b[33mqueued for approval\x1b[0m ${record.id} ${senderOracle} → ${targetOracle}`,
+          );
+          console.log(
+            `\x1b[90m  review: maw inbox show-pending ${record.id}\x1b[0m`,
+          );
+          console.log(
+            `\x1b[90m  approve: maw inbox approve ${record.id}\x1b[0m`,
+          );
+          return;
+        }
+      }
+    } catch (e: any) {
+      // Forgiving: ACL eval errors must not break delivery. Phase 2 is
+      // additive — log + fall through to existing behavior.
+      console.error(`\x1b[90mwarn: ACL evaluation failed (${e?.message ?? e}); allowing send\x1b[0m`);
+    }
+  }
+
+  // --- `--approve --trust` side effect (#842 Sub-C) ---
+  // Operator explicitly trusts this pair from now on. Append BEFORE
+  // delivery so a subsequent same-pair send (even in a parallel process)
+  // skips the gate immediately. Idempotent in `cmdAdd`.
+  if (opts.approve && opts.trust && result?.type === "peer") {
+    try {
+      const { cmdAdd } = await import("../plugins/trust/impl");
+      const senderOracle = config.oracle ?? "mawjs";
+      const targetOracle = result.target;
+      cmdAdd(senderOracle, targetOracle);
+      console.log(
+        `\x1b[36m+\x1b[0m trusted ${senderOracle} ↔ ${targetOracle}`,
+      );
+    } catch (e: any) {
+      // Same forgiving stance — trust persistence failure shouldn't
+      // block the send the operator just approved.
+      console.error(`\x1b[90mwarn: trust persistence failed (${e?.message ?? e})\x1b[0m`);
+    }
+  }
 
   // --- Consent gate (#644 Phase 1, opt-in via MAW_CONSENT=1) ---
   // Local + self-node sends are never gated. Cross-node hey to a peer that
