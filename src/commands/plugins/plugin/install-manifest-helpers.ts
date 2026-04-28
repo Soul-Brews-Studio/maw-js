@@ -3,10 +3,36 @@
  */
 
 import type { PluginManifest } from "../../../plugin/types";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { parseManifest } from "../../../plugin/manifest";
 import { runtimeSdkVersion } from "../../../plugin/registry";
+
+/**
+ * #864 — Resolve the plugin root inside an extracted staging dir.
+ *
+ * `maw plugin build` produces flat tarballs (plugin.json at root). But
+ * GitHub-archive tarballs (`github:OWNER/REPO#REF` registry sources, used by
+ * shellenv/bg/rename/park) extract with a wrapping `<repo>-<ref>/` directory,
+ * and npm tarballs likewise wrap in `package/`. Both leave plugin.json one
+ * level down, breaking root-only manifest discovery.
+ *
+ * Walks at most one level: if plugin.json exists at root, returns root; else
+ * if root contains exactly one entry — a directory — with plugin.json inside,
+ * returns that subdir; else returns null. The extractTarball() path-traversal
+ * guard ensures every entry lives under the staging dir, so walking one level
+ * is safe.
+ */
+export function findPluginRoot(stagingDir: string): string | null {
+  if (existsSync(join(stagingDir, "plugin.json"))) return stagingDir;
+  let entries: string[];
+  try { entries = readdirSync(stagingDir); } catch { return null; }
+  if (entries.length !== 1) return null;
+  const inner = join(stagingDir, entries[0]!);
+  try { if (!statSync(inner).isDirectory()) return null; } catch { return null; }
+  if (existsSync(join(inner, "plugin.json"))) return inner;
+  return null;
+}
 
 /**
  * Read + parse plugin.json from an unpacked dir. Returns null + logs if missing.

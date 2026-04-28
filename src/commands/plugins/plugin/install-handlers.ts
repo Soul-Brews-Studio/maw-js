@@ -10,7 +10,7 @@ import { basename, join, resolve } from "path";
 import { formatSdkMismatchError, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
 import { installRoot, removeExisting } from "./install-source-detect";
 import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst } from "./install-extraction";
-import { readManifest, printInstallSuccess } from "./install-manifest-helpers";
+import { findPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
 import { readLock, recordInstall } from "./lock";
 import { createHash } from "crypto";
 
@@ -180,7 +180,15 @@ export async function installFromTarball(
     throw new Error(extractResult.error);
   }
 
-  const manifest = readManifest(staging);
+  // #864 — github-archive and npm tarballs wrap contents in a single top-level
+  // directory (`<repo>-<ref>/` or `package/`). Walk one level if needed.
+  const pluginRoot = findPluginRoot(staging);
+  if (!pluginRoot) {
+    rmSync(staging, { recursive: true, force: true });
+    throw new Error(`failed to read plugin manifest: no plugin.json at ${staging} or in single top-level subdir`);
+  }
+
+  const manifest = readManifest(pluginRoot);
   if (!manifest) {
     rmSync(staging, { recursive: true, force: true });
     throw new Error("failed to read plugin manifest");
@@ -195,7 +203,7 @@ export async function installFromTarball(
   // Defense-in-depth fencepost (#487 §8 Phase 1): manifest-embedded hash still
   // catches transport corruption and hand-edited tarballs before we touch
   // ~/.maw/plugins. It is NOT the adversarial check — plugins.lock is.
-  const selfHashResult = verifyArtifactHash(staging, manifest!);
+  const selfHashResult = verifyArtifactHash(pluginRoot, manifest!);
   if (!selfHashResult.ok) {
     rmSync(staging, { recursive: true, force: true });
     throw new Error(selfHashResult.error);
@@ -228,7 +236,7 @@ export async function installFromTarball(
         `plugin '${manifest!.name}' version mismatch: plugins.lock=${pinned.version} tarball=${manifest!.version}`,
       );
     }
-    const pinnedResult = verifyArtifactHashAgainst(staging, manifest!, pinned.sha256);
+    const pinnedResult = verifyArtifactHashAgainst(pluginRoot, manifest!, pinned.sha256);
     if (!pinnedResult.ok) {
       if (!opts.force && !opts.pin) {
         rmSync(staging, { recursive: true, force: true });
@@ -260,14 +268,19 @@ export async function installFromTarball(
 
   removeExisting(dest);
   // Use rename when the staging dir is on the same fs; otherwise copy-then-rm.
+  // #864 — rename pluginRoot (not staging): when github/npm wrapped in a
+  // single subdir, pluginRoot points at the subdir and staging is its parent.
   try {
     const { renameSync } = require("fs");
-    renameSync(staging, dest);
+    renameSync(pluginRoot, dest);
   } catch {
     // Cross-device fallback (rare). Fall back to cp -a then rm -rf.
-    spawnSync("cp", ["-a", staging + "/.", dest], { encoding: "utf8" });
-    rmSync(staging, { recursive: true, force: true });
+    spawnSync("cp", ["-a", pluginRoot + "/.", dest], { encoding: "utf8" });
   }
+  // Clean up the staging tmpdir. When pluginRoot === staging this no-ops
+  // (already moved); when pluginRoot was a subdir, staging is now empty
+  // (or has the cp leftovers in the cross-device case).
+  rmSync(staging, { recursive: true, force: true });
 
   // #680 — persist lock entry on every successful tarball install. TOFU on
   // first install; overwrites on --force/--pin re-trust.
