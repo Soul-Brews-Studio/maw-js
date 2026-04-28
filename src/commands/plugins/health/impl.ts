@@ -14,17 +14,25 @@ export async function cmdHealth() {
     checks.push({ name: "tmux server", status: "fail", detail: "not running" });
   }
 
-  // 2. maw server
+  // 2. maw server — POST /api/probe (#804 Step 5)
+  // We POST /api/probe (not GET /api/sessions or /api/identity) because the
+  // probe walks the same code path as /api/send. If probe is green, /send
+  // is green; a green /sessions or /identity could coexist with broken /send
+  // (the #795 schema-drift incident). No body → bare healthcheck mode.
   try {
-    const config = loadConfig();
     const port = loadConfig().port;
-    const res = await fetch(`http://localhost:${port}/api/sessions`, { signal: AbortSignal.timeout(cfgTimeout("health")) });
+    const res = await fetch(`http://localhost:${port}/api/probe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(cfgTimeout("health")),
+    });
     if (res.ok) {
-      const data = await res.json();
-      const count = Array.isArray(data) ? data.length : (data.sessions?.length || 0);
-      checks.push({ name: "maw server", status: "ok", detail: `online (:${port}, ${count} sessions)` });
+      const data: any = await res.json().catch(() => ({}));
+      const count = typeof data?.sessions === "number" ? data.sessions : "?";
+      checks.push({ name: "maw server", status: "ok", detail: `online (:${port}, ${count} sessions, probe ok)` });
     } else {
-      checks.push({ name: "maw server", status: "warn", detail: `HTTP ${res.status}` });
+      checks.push({ name: "maw server", status: "warn", detail: `HTTP ${res.status} (probe)` });
     }
   } catch {
     checks.push({ name: "maw server", status: "fail", detail: "offline" });
