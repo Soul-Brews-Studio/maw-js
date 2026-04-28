@@ -13,6 +13,7 @@
  */
 import { loadPeers, mutatePeers, type Peer, type LastError } from "./store";
 import { probePeer } from "./probe";
+import { evaluatePeerIdentity, applyTofuDecision, PeerPubkeyMismatchError } from "./tofu";
 
 const ALIAS_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -54,6 +55,8 @@ export interface AddResult {
   peer: Peer;
   /** Probe error, if the /info handshake failed. Caller prints a loud warning. */
   probeError?: LastError;
+  /** Set when the cached pubkey did not match the peer's advertised pubkey (#804 Step 2). */
+  pubkeyMismatch?: PeerPubkeyMismatchError;
 }
 
 export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
@@ -67,6 +70,27 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   const probe = await probePeer(opts.url);
   const resolvedNode = opts.node ?? probe.node ?? null;
 
+  // TOFU evaluation against any pre-existing cache entry for this alias.
+  // Decided BEFORE we overwrite so a re-`add` of the same alias against a
+  // peer whose key changed is refused at the cache layer (operator must
+  // `maw peers forget` first). Bootstrap path stamps the pubkey on the
+  // freshly-written entry, so we evaluate now but apply after the write.
+  const existingForTofu = loadPeers().peers[opts.alias];
+  const tofuDecision = evaluatePeerIdentity(opts.alias, existingForTofu, probe.pubkey);
+  if (tofuDecision.kind === "mismatch") {
+    return {
+      alias: opts.alias,
+      overwrote: Boolean(existingForTofu),
+      peer: existingForTofu!, // unchanged on disk — we refuse the write
+      probeError: probe.error,
+      pubkeyMismatch: new PeerPubkeyMismatchError(
+        opts.alias,
+        tofuDecision.cached!,
+        tofuDecision.observed!,
+      ),
+    };
+  }
+
   const peer: Peer = {
     url: opts.url,
     node: resolvedNode,
@@ -75,12 +99,29 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   };
   if (probe.error) peer.lastError = probe.error;
   if (probe.nickname) peer.nickname = probe.nickname;
+  // Preserve cached pubkey across re-adds — TOFU has already certified it
+  // matches (or is absent). On bootstrap, stamp the new pubkey now so the
+  // returned AddResult.peer reflects on-disk state in one go.
+  if (existingForTofu?.pubkey) {
+    peer.pubkey = existingForTofu.pubkey;
+    peer.pubkeyFirstSeen = existingForTofu.pubkeyFirstSeen;
+  } else if (tofuDecision.kind === "tofu-bootstrap") {
+    peer.pubkey = tofuDecision.observed!;
+    peer.pubkeyFirstSeen = new Date().toISOString();
+  }
 
   let existed = false;
   mutatePeers((data) => {
     existed = Boolean(data.peers[opts.alias]);
     data.peers[opts.alias] = peer;
   });
+
+  // applyTofuDecision is a no-op for match / legacy-*; for tofu-bootstrap
+  // we already stamped the pubkey above, so the call is defensive (it
+  // checks `if (p.pubkey) return` and bails). Keeping the call documents
+  // the contract: every probePeer response goes through TOFU exactly once.
+  applyTofuDecision(tofuDecision);
+
   return { alias: opts.alias, overwrote: existed, peer, probeError: probe.error };
 }
 
@@ -96,6 +137,8 @@ export interface ProbeResult {
   node: string | null;
   ok: boolean;
   error?: LastError;
+  /** Set when the peer's advertised pubkey did not match the cached one (#804 Step 2). */
+  pubkeyMismatch?: PeerPubkeyMismatchError;
 }
 
 export async function cmdProbe(alias: string): Promise<ProbeResult> {
@@ -105,6 +148,26 @@ export async function cmdProbe(alias: string): Promise<ProbeResult> {
 
   const probe = await probePeer(existing.url);
   const now = new Date().toISOString();
+
+  // TOFU first — if the peer rotated its key without operator approval, the
+  // probe's "ok" status is misleading: their /info answered, but their
+  // identity changed. Surface as `pubkeyMismatch` and *do not* update
+  // lastSeen — operator must run `maw peers forget` to re-TOFU.
+  const tofuDecision = evaluatePeerIdentity(alias, existing, probe.pubkey);
+  if (tofuDecision.kind === "mismatch") {
+    return {
+      alias,
+      url: existing.url,
+      node: probe.node ?? existing.node,
+      ok: false,
+      error: probe.error,
+      pubkeyMismatch: new PeerPubkeyMismatchError(
+        alias,
+        tofuDecision.cached!,
+        tofuDecision.observed!,
+      ),
+    };
+  }
 
   mutatePeers((d) => {
     const p = d.peers[alias];
@@ -120,6 +183,9 @@ export async function cmdProbe(alias: string): Promise<ProbeResult> {
       else if (probe.nickname === null) delete p.nickname;
     }
   });
+
+  // Persist the bootstrap (only on first sight, after the peer entry exists).
+  applyTofuDecision(tofuDecision);
 
   return {
     alias,
@@ -152,6 +218,28 @@ export function cmdRemove(alias: string): boolean {
     }
   });
   return existed;
+}
+
+/**
+ * Clear the TOFU-cached pubkey for an alias so the next /api/identity
+ * contact re-TOFUs (#804 Step 2).
+ *
+ * Use cases:
+ *   - Legitimate operator-initiated key rotation on the peer side.
+ *   - Factory reset / key loss recovery.
+ *   - Resolving a `peer pubkey changed` refusal after the operator has
+ *     verified out-of-band that the change is intentional.
+ *
+ * Does NOT remove the alias itself — `maw peers remove` is the destructive
+ * one. Forget is a re-TOFU primitive, not a delete.
+ */
+export type ForgetOutcome = "cleared" | "no-pubkey" | "not-found";
+
+export async function cmdForget(alias: string): Promise<ForgetOutcome> {
+  const aliasErr = validateAlias(alias);
+  if (aliasErr) throw new Error(aliasErr);
+  const { forgetPeerPubkey } = await import("./tofu");
+  return forgetPeerPubkey(alias);
 }
 
 export function formatList(rows: Array<{ alias: string } & Peer>): string {

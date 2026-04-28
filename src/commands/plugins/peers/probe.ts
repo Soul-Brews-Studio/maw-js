@@ -16,6 +16,15 @@ export interface ProbeResult {
   node: string | null;
   /** Peer's self-reported nickname from /info (#643 Phase 2). Null means peer did not advertise one. */
   nickname?: string | null;
+  /**
+   * Peer's pubkey from /api/identity (#804 Step 2). Undefined when:
+   *   - the /info handshake itself failed (no second fetch attempted), OR
+   *   - the peer is pre-Step-1 and does not expose /api/identity, OR
+   *   - /api/identity responded but did not advertise a pubkey field.
+   *
+   * Caller passes this through `tofuRecordPeerIdentity` to pin / validate.
+   */
+  pubkey?: string;
   error?: LastError;
 }
 
@@ -202,7 +211,43 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
     ? body.nickname
     : null;
 
-  return { node, nickname };
+  // Best-effort pubkey fetch (#804 Step 2). Pre-Step-1 peers don't expose
+  // /api/identity at all; we tolerate that and return without a pubkey
+  // field — TOFU layer treats the result as a legacy peer.
+  const pubkey = await fetchPeerPubkey(url, timeoutMs);
+
+  return pubkey ? { node, nickname, pubkey } : { node, nickname };
+}
+
+/**
+ * Best-effort second fetch — `/api/identity`'s `pubkey` field (#804 Step 2).
+ *
+ * Keep this *separate* from the /info handshake so a missing/older endpoint
+ * does not poison the primary probe. We swallow every failure here: TOFU
+ * only acts on a confirmed pubkey value, and the caller already classified
+ * /info errors elsewhere.
+ *
+ * Returns the pubkey string when the response advertises one, `undefined`
+ * otherwise (legacy peer, network blip on the second fetch, malformed body).
+ */
+async function fetchPeerPubkey(url: string, timeoutMs: number): Promise<string | undefined> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(new URL("/api/identity", url), { signal: ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { pubkey?: unknown };
+    if (typeof body.pubkey === "string" && body.pubkey.length > 0) return body.pubkey;
+  } catch {
+    // Pre-Step-1 peers: no /api/identity yet. Step 4 will reject this — for
+    // now (alpha migration window) we silently accept.
+  }
+  return undefined;
 }
 
 /**
