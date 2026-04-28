@@ -34,7 +34,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   const out = () => logs.join("\n");
   const help = () => [
-    "usage: maw peers <add|list|info|probe|probe-all|remove> [...]",
+    "usage: maw peers <add|list|info|probe|probe-all|remove|forget> [...]",
     "  add       <alias> <url> [--node <name>] [--allow-unreachable]",
     "            — register alias (auto-probes /info). Exits non-zero on handshake failure:",
     "              2=UNKNOWN/BAD_BODY/TLS  3=DNS  4=REFUSED  5=TIMEOUT  6=HTTP_4XX/5XX",
@@ -45,6 +45,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     "  probe-all [--timeout <ms>] [--allow-unreachable]",
     "            — probe every peer in parallel; prints liveness table. Exit = worst PROBE_EXIT_CODE (#669).",
     "  remove    <alias>                         — remove (idempotent)",
+    "  forget    <alias>                         — clear cached pubkey so next contact re-TOFUs (#804 Step 2)",
     "",
     "storage: ~/.maw/peers.json (v1)",
   ].join("\n");
@@ -70,6 +71,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const node = nodeIdx >= 0 ? args[nodeIdx + 1] : undefined;
         const allowUnreachable = args.includes("--allow-unreachable");
         const res = await impl.cmdAdd({ alias, url, node });
+        // TOFU mismatch refusal — fail loud, do not write. Operator must
+        // `maw peers forget <alias>` first to re-pin (#804 Step 2).
+        if (res.pubkeyMismatch) {
+          console.error(`\x1b[31m✗\x1b[0m ${res.pubkeyMismatch.message}`);
+          return {
+            ok: false,
+            output: out(),
+            error: res.pubkeyMismatch.message,
+            exitCode: 7,
+          };
+        }
         if (res.overwrote) console.log(`warning: alias "${alias}" already existed — overwriting`);
         console.log(`added ${alias} → ${url}${res.peer.node ? ` (${res.peer.node})` : ""}`);
         if (res.probeError) {
@@ -94,6 +106,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         if (!existing) return { ok: false, error: `peer "${alias}" not found` };
         console.log(`probing ${alias} → ${existing.url} ...`);
         const r = await impl.cmdProbe(alias);
+        // TOFU mismatch — fail loud, separate from network-level probe errors.
+        if (r.pubkeyMismatch) {
+          console.error(`\x1b[31m✗\x1b[0m ${r.pubkeyMismatch.message}`);
+          return {
+            ok: false,
+            output: out(),
+            error: r.pubkeyMismatch.message,
+            exitCode: 7,
+          };
+        }
         if (r.ok) {
           console.log(`\x1b[32m✓\x1b[0m reached ${alias}${r.node ? ` (${r.node})` : ""}`);
           return { ok: true, output: out() };
@@ -148,11 +170,27 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(removed ? `removed ${alias}` : `no-op: ${alias} not present`);
         return { ok: true, output: out() };
       }
+      case "forget": {
+        const alias = positional[1];
+        if (!alias) return { ok: false, error: "usage: maw peers forget <alias>" };
+        const outcome = await impl.cmdForget(alias);
+        switch (outcome) {
+          case "cleared":
+            console.log(`forgot pubkey for ${alias} — next contact will re-TOFU`);
+            return { ok: true, output: out() };
+          case "no-pubkey":
+            console.log(`no-op: ${alias} has no cached pubkey (legacy peer)`);
+            return { ok: true, output: out() };
+          case "not-found":
+            return { ok: false, error: `peer "${alias}" not found`, output: out() };
+        }
+        return { ok: true, output: out() };
+      }
       default: {
         console.log(help());
         return {
           ok: false,
-          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|probe|probe-all|remove)`,
+          error: `maw peers: unknown subcommand "${sub}" (expected add|list|info|probe|probe-all|remove|forget)`,
           output: out() || help(),
         };
       }

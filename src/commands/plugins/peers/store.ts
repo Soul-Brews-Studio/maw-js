@@ -8,7 +8,10 @@
  * is still valid; the tmp is leftover from a crashed writer).
  *
  * Schema v1:
- *   { version: 1, peers: { <alias>: { url, node, addedAt, lastSeen } } }
+ *   { version: 1, peers: { <alias>: { url, node, addedAt, lastSeen,
+ *                                     [lastError, nickname, pubkey, pubkeyFirstSeen] } } }
+ *   — fields in brackets are optional. `pubkey` / `pubkeyFirstSeen` were
+ *   added in #804 Step 2 for TOFU peer-identity pinning.
  *
  * Path resolution is a function (not a const) so tests can override
  * `HOME` / the path via `PEERS_FILE` and get a fresh value each call.
@@ -52,6 +55,18 @@ export interface Peer {
   lastError?: LastError;
   /** Optional human-friendly nickname, propagated from peer's /info (#643 Phase 2). */
   nickname?: string | null;
+  /**
+   * TOFU-cached pubkey from the peer's /api/identity response (#804 Step 2).
+   *
+   * Absent until the first successful identity fetch that returned a `pubkey`
+   * field. Once cached, every subsequent identity check validates the response
+   * against this value — mismatch is treated as either rotation or
+   * impersonation and is refused (see ADR docs/federation/0001-peer-identity.md
+   * O6 table). Operator clears via `maw peers forget <alias>` to re-TOFU.
+   */
+  pubkey?: string;
+  /** ISO timestamp when the pubkey was first cached (TOFU). */
+  pubkeyFirstSeen?: string;
 }
 
 export interface PeersFile {

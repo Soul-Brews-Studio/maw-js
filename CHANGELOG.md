@@ -34,6 +34,7 @@ Pre-1.0 alpha releases may still introduce breaking changes at any time.
 ### Added
 - `maw update`: serialize concurrent invocations via `~/.maw/update.lock` (#551)
 - `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause fixed by package rename above)
+- `peers.json` schema gains `pubkey` + `pubkeyFirstSeen` fields. Federation peer pubkey caching with TOFU semantics (Trust On First Use): first sight pins, mismatches are refused with a fail-loud message pointing operators to `maw peers forget`. Legacy peers with no pubkey are accepted during the v26.5.x alpha migration window (will hard-cut at v27 — see ADR `docs/federation/0001-peer-identity.md` Step 6). New `maw peers forget <alias>` clears a pinned pubkey to allow re-TOFU after legitimate key rotation. Step 2 of #804.
 
 ### Fixed
 - `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — defensive belt-and-suspenders; package rename above is the root-cause fix)
