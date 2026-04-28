@@ -24,7 +24,8 @@
     "ci:local": "docker compose -f docker-compose.ci.yml run --rm ci",
     "ship:alpha": "bash scripts/ship-alpha.sh",
     "ship:alpha:dry": "bash scripts/ship-alpha.sh --dry-run",
-    "calver": "bun scripts/calver.ts"
+    "calver": "bun scripts/calver.ts",
+    "check:redos": "bun scripts/check-redos.ts"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
