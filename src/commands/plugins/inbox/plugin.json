@@ -3,11 +3,11 @@
   "version": "2.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "List and manage agent inbox messages (ψ/inbox/ thread-backed).",
+  "description": "Inbox messages + cross-scope approval queue (#842 Sub-C).",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "inbox",
-    "help": "maw inbox [--unread] [--from <peer>] [--last N] | read <id> | show [N] | write <msg>"
+    "help": "maw inbox [--unread] [--from <peer>] [--last N] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
   },
   "weight": 50
 }

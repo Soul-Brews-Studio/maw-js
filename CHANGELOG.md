@@ -32,6 +32,7 @@ Pre-1.0 alpha releases may still introduce breaking changes at any time.
 - **Renamed npm package** `maw` → `maw-js` to eliminate bun `DependencyLoop` caused by collision with unrelated stale `maw@0.6.0` on npm. Binary name unchanged — users still run `maw`. Fixes #554, closes #555, eliminates root cause of #531.
 
 ### Added
+- `scope-acl` — pure ACL evaluation module at `src/commands/shared/scope-acl.ts` deciding `allow` vs `queue` for cross-oracle messages based on shared scope membership (Phase 1 #829), with optional pairwise trust list (Sub-B reserved). Self-messages always allowed; default-deny otherwise. Ships filesystem helper `loadAllScopes()` mirroring `cmdList()`. NOT yet wired into `comm-send.ts` — caller integration is Sub-B/C of #842. Sub-A of #842.
 - `maw update`: serialize concurrent invocations via `~/.maw/update.lock` (#551)
 - `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause fixed by package rename above)
 - `peers.json` schema gains `pubkey` + `pubkeyFirstSeen` fields. Federation peer pubkey caching with TOFU semantics (Trust On First Use): first sight pins, mismatches are refused with a fail-loud message pointing operators to `maw peers forget`. Legacy peers with no pubkey are accepted during the v26.5.x alpha migration window (will hard-cut at v27 — see ADR `docs/federation/0001-peer-identity.md` Step 6). New `maw peers forget <alias>` clears a pinned pubkey to allow re-TOFU after legitimate key rotation. Step 2 of #804.
