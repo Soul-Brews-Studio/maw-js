@@ -31,7 +31,7 @@ function stripOracleSuffix(repoName: string): string {
   return repoName.replace(/-oracle$/, "");
 }
 
-export interface ParsedWakeTarget {
+interface ParsedWakeTarget {
   /** Oracle name derived from repo (e.g. "mawjs" from "mawjs-oracle") */
   oracle: string;
   /** org/repo slug for ghq clone (e.g. "Soul-Brews-Studio/mawjs-oracle") */

@@ -9,7 +9,7 @@ export interface OrgEntry {
   source: string;
 }
 
-export interface ScanSuggestDeps {
+interface ScanSuggestDeps {
   /** Synchronous exec — used for ghq list, gh repo view, gh --version */
   execFn?: (cmd: string) => string;
   /**
@@ -33,7 +33,7 @@ export interface ScanSuggestDeps {
  * actually own a repo in. `ok: false` triggers a graceful fallback to the
  * unfiltered (all-local) scan with a warning.
  */
-export type AllowedOrgs =
+type AllowedOrgs =
   | { ok: true; user: string; orgs: Set<string> }
   | { ok: false; reason: string };
 

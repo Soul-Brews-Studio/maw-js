@@ -22,7 +22,7 @@ export function timePeriod(): string {
   return "midnight";
 }
 
-export const PERIODS = [
+const PERIODS = [
   { key: "morning", label: "🌅 Morning (06:00-12:00)", hours: [6, 12] },
   { key: "afternoon", label: "☀️ Afternoon (12:00-18:00)", hours: [12, 18] },
   { key: "evening", label: "🌆 Evening (18:00-24:00)", hours: [18, 24] },
@@ -54,7 +54,7 @@ export async function findOrCreateDailyThread(repo: string): Promise<{ url: stri
   return { url, num, isNew: true };
 }
 
-export async function ensurePeriodComments(repo: string, threadNum: number): Promise<Record<string, { id: string; body: string }>> {
+async function ensurePeriodComments(repo: string, threadNum: number): Promise<Record<string, { id: string; body: string }>> {
   // Fetch existing comments
   const commentsJson = (await hostExec(
     `gh api repos/${repo}/issues/${threadNum}/comments --jq '[.[] | {id: .id, body: .body}]'`
