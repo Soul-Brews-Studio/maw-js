@@ -64,7 +64,7 @@ export async function resolveOracle(
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle`);
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
       if (win?.repo) {
         const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
