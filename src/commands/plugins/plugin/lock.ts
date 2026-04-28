@@ -200,11 +200,19 @@ function hashTarballArtifact(tarballPath: string): { ok: true; hash: string; ver
     // plugin.json sits at the staging root.
     const manifest = readManifest(staging);
     if (!manifest) return { ok: false, error: "failed to read plugin.json from tarball" };
+    // #896 — entry-first when source-shaped (covers no-artifact AND half-built
+    // artifact.sha256=null shapes). Mirrors `verifyArtifactHashAgainst` so
+    // `maw plugin pin` and `maw plugin install` both accept the same set of
+    // tarballs uniformly.
+    const hasEntry = typeof manifest.entry === "string" && manifest.entry.length > 0;
+    const isSourceShaped = hasEntry && (!manifest.artifact || manifest.artifact.sha256 === null);
     let relPath: string;
-    if (manifest.artifact) {
+    if (isSourceShaped) {
+      relPath = manifest.entry!;
+    } else if (manifest.artifact) {
       relPath = manifest.artifact.path;
-    } else if (typeof manifest.entry === "string" && manifest.entry.length > 0) {
-      relPath = manifest.entry;
+    } else if (hasEntry) {
+      relPath = manifest.entry!;
     } else {
       return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with 'maw plugin build' or declare an entry path" };
     }
