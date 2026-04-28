@@ -17,17 +17,16 @@ import { join } from "path";
 
 let hostExecCalls: string[] = [];
 
+const _rSdk = await import("../../src/sdk");
+
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+  ..._rSdk,
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     return "";
   },
   listSessions: async () => [],
   withPaneLock: async (fn: () => Promise<void>) => fn(),
-  // Re-export stubs for symbols imported by sibling modules that may load
-  // in the same bun-test process — mock.module is process-wide, so missing
-  // exports here surface as "Export named X not found" when cmdView's test
-  // file is loaded after this one.
   tmuxCmd: () => "tmux",
   resolveSocket: () => undefined,
   Tmux: class TmuxStub {

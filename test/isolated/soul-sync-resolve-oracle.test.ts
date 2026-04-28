@@ -26,8 +26,14 @@ const mockExec = async (cmd: string, _host?: string) => {
 };
 
 mock.module("../../src/config", () =>
-  mockConfigModule(() => ({ host: "local" })),
+  mockConfigModule(() => ({ host: "local", ghqRoot: "/home/test/Code/github.com" })),
 );
+
+mock.module("../../src/commands/shared/fleet-load", () => ({
+  loadFleet: () => [],
+  loadFleetEntries: () => [],
+  getSessionNames: async () => [],
+}));
 import { mockSshModule } from "../helpers/mock-ssh";
 mock.module("../../src/core/transport/ssh", () => mockSshModule({
   hostExec: mockExec,

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, realpathSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { resolvePsi } from "../../src/commands/plugins/team/team-helpers";
@@ -13,7 +13,7 @@ let originalCwd: string;
 
 beforeEach(() => {
   originalCwd = process.cwd();
-  oracleRoot = mkdtempSync(join(tmpdir(), "maw-resolvepsi-test-"));
+  oracleRoot = realpathSync(mkdtempSync(join(tmpdir(), "maw-resolvepsi-test-")));
   mkdirSync(join(oracleRoot, "ψ", "memory", "mailbox"), { recursive: true });
   writeFileSync(join(oracleRoot, "CLAUDE.md"), "# test oracle\n");
 });
@@ -54,7 +54,7 @@ describe("resolvePsi — walks up from cwd (#393 Bug A)", () => {
   });
 
   test("fallback — no oracle root up the tree returns cwd/ψ", () => {
-    const orphan = mkdtempSync(join(tmpdir(), "maw-orphan-"));
+    const orphan = realpathSync(mkdtempSync(join(tmpdir(), "maw-orphan-")));
     try {
       process.chdir(orphan);
       expect(resolvePsi()).toBe(join(orphan, "ψ"));
@@ -64,7 +64,7 @@ describe("resolvePsi — walks up from cwd (#393 Bug A)", () => {
   });
 
   test("requires BOTH markers: ψ/ alone without CLAUDE.md falls through", () => {
-    const fakeOracle = mkdtempSync(join(tmpdir(), "maw-fake-"));
+    const fakeOracle = realpathSync(mkdtempSync(join(tmpdir(), "maw-fake-")));
     mkdirSync(join(fakeOracle, "ψ"), { recursive: true });
     // no CLAUDE.md written
     const sub = join(fakeOracle, "ψ", "writing");

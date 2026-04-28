@@ -51,7 +51,10 @@ mock.module("../../src/core/transport/ssh", () => ({
   hostExec: async (_cmd: string) => "[]",
 }));
 
+const _rConfig = await import("../../src/config");
+
 mock.module("../../src/config", () => ({
+  ..._rConfig,
   loadConfig: () => ({ pulseRepo: "test-org/test-repo" }),
 }));
 
