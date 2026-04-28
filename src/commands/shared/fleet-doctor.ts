@@ -49,7 +49,7 @@ import { checkStalePeers } from "./fleet-doctor-stale-peers";
 import { autoFix, C, colorFor, iconFor } from "./fleet-doctor-fixer";
 import type { DoctorFinding, Level } from "./fleet-doctor-checks";
 
-export interface DoctorOptions {
+interface DoctorOptions {
   fix?: boolean;
   json?: boolean;
 }

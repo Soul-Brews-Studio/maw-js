@@ -2,7 +2,7 @@ import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import type { Signal } from "../../core/fleet/leaf";
 
-export interface ScanOptions {
+interface ScanOptions {
   days?: number;
 }
 

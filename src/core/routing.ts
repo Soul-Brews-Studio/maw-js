@@ -7,12 +7,37 @@
  *   3. Agents map → peer URL → { type: 'peer' } (skip if self-node)
  *   4. null (caller handles peer discovery fallback separately — it's async/network)
  *
- * See: Soul-Brews-Studio/maw-js#201
+ * Sub-PR 3 of #841 — manifest as primary lookup
+ * ─────────────────────────────────────────────
+ * Before falling through to the legacy agents-map step (Step 3), we now consult
+ * the unified `OracleManifest` (#838 + #863) via `loadManifestCached()` (30s TTL,
+ * fully synchronous). If the manifest carries a node mapping for the bare name
+ * AND the passed `config` exposes a peer URL for that node, we route to the peer
+ * directly — letting the manifest cover the cross-source cases the agents map
+ * alone misses (fleet-only, oracles-json-only, session-only registrations).
+ *
+ * Critical contract — additive, not replacement:
+ *   - Local resolution (Step 1) and node:prefix syntax (Step 2) ALWAYS run first.
+ *     The manifest never overrides a local hit or an explicit node:agent route.
+ *   - When the manifest misses, has no `node`, points at `selfNode`, or names a
+ *     node with no peer URL in the passed config → we fall through to Step 3
+ *     (agents map) unchanged. Existing routing tests remain green.
+ *   - Manifest read failures are swallowed (try/catch) — the loader can throw
+ *     on filesystem races; the hot path must not brick.
+ *
+ * Performance — manifest is cached at 30s, so steady-state hot-path cost is a
+ * single in-memory Map lookup. Cold-start cost is ~one config read + one fleet
+ * dir scan + one oracles.json read, all sync. We deliberately do NOT use the
+ * async `loadManifestCachedAsync()` variant here — `resolveTarget` is on every
+ * `maw hey` / `/api/send` path and must stay sync to avoid promise-chain churn.
+ *
+ * See: Soul-Brews-Studio/maw-js#201, #841 (sub-PR 3 of 5).
  */
 
 import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
 import { resolveFleetSession } from "../commands/shared/wake";
+import { loadManifestCached, type OracleManifestEntry } from "../lib/oracle-manifest";
 
 export type { Session };
 
@@ -91,7 +116,21 @@ export function resolveTarget(
     return { type: "error", reason: "unknown_node", detail: `node '${nodeName}' not in namedPeers or peers`, hint: "add to maw.config.json namedPeers" };
   }
 
-  // --- Step 3: Agents map (bare name, e.g. "homekeeper") ---
+  // --- Step 3a (NEW, Sub-PR 3 of #841): OracleManifest as primary lookup ---
+  // The manifest unifies the 5 oracle registries (fleet/session/agent/oracles-json/worktree)
+  // — when the agents map alone would miss (fleet-only or oracles-json-only entries),
+  // the manifest still resolves the routing. We only short-circuit when the manifest
+  // produces a REMOTE node AND the passed config exposes a peer URL for it: every
+  // other case (no entry, self-node, no peer URL) falls through to Step 3b unchanged.
+  const manifestEntry = lookupManifestEntry(query);
+  if (manifestEntry?.node && manifestEntry.node !== selfNode && manifestEntry.node !== "local") {
+    const peerUrl = findPeerUrl(manifestEntry.node, config);
+    if (peerUrl) {
+      return { type: "peer", peerUrl, target: query, node: manifestEntry.node };
+    }
+  }
+
+  // --- Step 3b: Agents map (bare name, e.g. "homekeeper") ---
   const agentNode =
     config.agents?.[query] ||
     config.agents?.[query.replace(/-oracle$/, "")];
@@ -119,4 +158,27 @@ function findPeerUrl(nodeName: string, config: MawConfig): string | undefined {
   const peer = config.namedPeers?.find((p) => p.name === nodeName);
   if (peer) return peer.url;
   return config.peers?.find((p) => p.includes(nodeName));
+}
+
+/**
+ * Look up an oracle short-name in the cached `OracleManifest` (Sub-PR 3 of #841).
+ *
+ * Tries the raw query first, then the `-oracle`-stripped variant — mirrors the
+ * normalization the agents-map step uses. Failures swallowed: a filesystem race
+ * on the manifest loader must NOT brick `resolveTarget`. The 30s TTL keeps the
+ * hot path on a single in-memory Map lookup in steady state.
+ */
+function lookupManifestEntry(query: string): OracleManifestEntry | undefined {
+  if (query.includes(":") || query.includes("/")) return undefined;
+  let manifest: OracleManifestEntry[];
+  try {
+    manifest = loadManifestCached();
+  } catch {
+    return undefined;
+  }
+  const stripped = query.replace(/-oracle$/, "");
+  return (
+    manifest.find((e) => e.name === query) ||
+    (stripped !== query ? manifest.find((e) => e.name === stripped) : undefined)
+  );
 }

@@ -32,11 +32,20 @@
  * `maw oracle ls`. Each contributing source is exercised independently by
  * the test suite (test/isolated/oracle-manifest.test.ts).
  *
+ * Async variant
+ * ─────────────
+ * `loadManifestAsync()` (Sub-PR 5 of #841) extends `loadManifest()` with the
+ * 6th source — `scanWorktrees()` from `core/fleet/worktrees-scan.ts`. It is
+ * factored as a separate function (not a flag on the sync loader) because the
+ * worktree scan is genuinely async (SSH-y `hostExec` + tmux walks). Existing
+ * sync callers stay sync; opt-in consumers pick the async variant.
+ *
+ * The async variant has its own TTL cache (`loadManifestCachedAsync`) — kept
+ * separate from the sync cache because the return shape is async (Promise)
+ * and most consumers prefer to not pay the worktree-scan cost on hot paths.
+ * `invalidateManifest()` resets BOTH caches.
+ *
  * NOT in scope here:
- *   - Worktree scan integration: `scanWorktrees()` is async + does SSH-y
- *     `hostExec` walks. Pulling that into the synchronous loader path would
- *     change every caller's signature. The fallback hook is wired via
- *     `loadManifestWithWorktrees()` for callers that explicitly opt in.
  *   - Federation peers (~/.maw/peers/...) — those describe peer NODES, not
  *     oracles. A future sub-issue will fold peer pubkeys here.
  *
@@ -44,6 +53,7 @@
  *   - src/commands/shared/should-auto-wake.ts — Sub-issue 1 (#835).
  *   - src/config/fleet-merge.ts                — load-time fleet→agents merge (#736 Phase 1.1).
  *   - src/core/fleet/oracle-registry.ts        — registry cache producer.
+ *   - src/core/fleet/worktrees-scan.ts         — async worktree scanner.
  */
 
 import { existsSync, readdirSync, readFileSync } from "fs";
@@ -325,7 +335,150 @@ export function loadManifestCached(ttlMs: number = DEFAULT_TTL_MS): OracleManife
 }
 
 /** Manual cache reset — for tests and post-mutation callers (e.g., after
- *  a fresh `maw oracle scan` rewrites oracles.json). */
+ *  a fresh `maw oracle scan` rewrites oracles.json). Resets BOTH the sync
+ *  and async caches. */
 export function invalidateManifest(): void {
   cacheState = null;
+  asyncCacheState = null;
+}
+
+// ─── Async variant — adds worktree scan as 6th source ────────────────────────
+
+/**
+ * Lite shape of `WorktreeInfo` — the fields we actually consume. We avoid
+ * importing the `WorktreeInfo` type from `core/fleet/worktrees-scan` directly
+ * here so the test suite can fabricate fixtures without pulling in the SSH
+ * transport layer that real `scanWorktrees` depends on.
+ */
+export interface WorktreeLite {
+  /** Local checkout path of the worktree on this machine. */
+  path?: string;
+  /** Bound tmux window, e.g. `"neo-oracle"` when active. */
+  tmuxWindow?: string;
+  /** Main repo (org/repo), e.g. `"Soul-Brews-Studio/neo-oracle"`. */
+  mainRepo?: string;
+}
+
+/** A scan function with the same external contract as `scanWorktrees()`. */
+export type ScanWorktreesFn = () => Promise<WorktreeLite[]>;
+
+/**
+ * Derive the oracle short-name from a worktree, or return `null` if the
+ * worktree is not bindable to an oracle (e.g. its main repo doesn't follow
+ * the `<name>-oracle` convention and there's no tmux window to read from).
+ *
+ * Precedence:
+ *   1. tmuxWindow ending in `-oracle` (most reliable — explicit binding)
+ *   2. mainRepo basename ending in `-oracle` (filesystem fallback)
+ */
+export function oracleNameFromWorktree(wt: WorktreeLite): string | null {
+  // 1. Bound tmux window — `neo-oracle` → `neo`.
+  const fromWindow = nameFromWindow(wt?.tmuxWindow);
+  if (fromWindow) return fromWindow;
+
+  // 2. Main repo basename — `Soul-Brews-Studio/neo-oracle` → `neo`.
+  if (wt?.mainRepo) {
+    const basename = wt.mainRepo.split("/").pop() || "";
+    if (basename.endsWith("-oracle")) return basename.replace(/-oracle$/, "");
+  }
+  return null;
+}
+
+/**
+ * Async variant of `loadManifest()` — same return type, with the 6th source
+ * (worktree scan) folded in.
+ *
+ * Behavior for worktree contributions:
+ *   - **New oracle** (not in any other source) → added with `source: "worktree"`,
+ *     `localPath = wt.path` if available.
+ *   - **Existing oracle** (already surfaced by fleet/session/agent/oracles-json)
+ *     → merge `localPath` if not already set; do NOT create a duplicate entry.
+ *     The `worktree` source is appended so consumers can see it contributed.
+ *
+ * Failure isolation matches the sync loader: if `scanWorktrees()` rejects, the
+ * async loader still returns the sync result — a flaky tmux/SSH must NOT brick
+ * a `maw oracle ls --with-worktrees` command. Errors are swallowed silently;
+ * callers wanting visibility into scan failures should call `scanWorktrees()`
+ * themselves.
+ *
+ * @param scanFn Optional scan function injection — defaults to the real
+ *               `scanWorktrees()`. Tests pass a synchronous mock here.
+ */
+export async function loadManifestAsync(
+  scanFn?: ScanWorktreesFn,
+): Promise<OracleManifestEntry[]> {
+  // Start from the synchronous merge — we never want to duplicate that work.
+  const base = loadManifest();
+  const byName = new Map(base.map((e) => [e.name, e]));
+
+  // Resolve the scan function lazily so importing this module doesn't pay the
+  // SSH-transport cost up front, and so the default path is fully optional.
+  let scan: ScanWorktreesFn;
+  if (scanFn) {
+    scan = scanFn;
+  } else {
+    try {
+      const mod = await import("../core/fleet/worktrees-scan");
+      scan = mod.scanWorktrees as ScanWorktreesFn;
+    } catch {
+      // Worktree scanner unavailable — return the sync manifest unchanged.
+      return base;
+    }
+  }
+
+  let worktrees: WorktreeLite[];
+  try {
+    worktrees = await scan();
+  } catch {
+    // scanWorktrees() can throw on ssh/tmux failure — fall through to base.
+    return base;
+  }
+
+  for (const wt of worktrees) {
+    const name = oracleNameFromWorktree(wt);
+    if (!name) continue;
+
+    let e = byName.get(name);
+    if (!e) {
+      // Worktree-only oracle — not surfaced by any other registry.
+      e = { name, sources: [], isLive: false };
+      byName.set(name, e);
+    }
+    if (!e.sources.includes("worktree")) e.sources.push("worktree");
+    // localPath: oracles-json had first dibs; only fill if absent.
+    if (e.localPath === undefined && wt?.path) e.localPath = wt.path;
+  }
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ─── Async TTL cache ─────────────────────────────────────────────────────────
+
+interface AsyncCacheState {
+  manifest: OracleManifestEntry[];
+  loadedAt: number;
+}
+
+let asyncCacheState: AsyncCacheState | null = null;
+
+/**
+ * Cached `loadManifestAsync()` — re-uses the in-process result for `ttlMs` ms.
+ *
+ * Separate from `loadManifestCached` because the return shape is async and
+ * including the worktree scan is opt-in. Most consumers don't need it.
+ *
+ * @param ttlMs  Cache lifetime in ms (default 30s).
+ * @param scanFn Optional scan injection — primarily for tests.
+ */
+export async function loadManifestCachedAsync(
+  ttlMs: number = DEFAULT_TTL_MS,
+  scanFn?: ScanWorktreesFn,
+): Promise<OracleManifestEntry[]> {
+  const now = Date.now();
+  if (asyncCacheState && now - asyncCacheState.loadedAt < ttlMs) {
+    return asyncCacheState.manifest;
+  }
+  const manifest = await loadManifestAsync(scanFn);
+  asyncCacheState = { manifest, loadedAt: now };
+  return manifest;
 }

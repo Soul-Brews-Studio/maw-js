@@ -43,7 +43,8 @@ function expandAction(action: string, event: TriggerEvent, ctx: TriggerContext):
   result = result.replace(/\{event\}/g, event);
   for (const [key, value] of Object.entries(ctx)) {
     if (value !== undefined) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+      // Use split/join — no dynamic RegExp, so no ReDoS surface from arbitrary ctx keys.
+      result = result.split(`{${key}}`).join(value);
     }
   }
   return result;

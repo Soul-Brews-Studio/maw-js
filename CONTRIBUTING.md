@@ -18,7 +18,42 @@ Bun v1.3+ is required. tmux is needed for multi-agent features. On Linux, `ssh` 
 2. New code has tests. If the code path is integration-only (spawns a subprocess, sets a timer, listens for a signal), document why in the test file.
 3. New `mock.module(...)` calls live in `test/isolated/` or `test/helpers/` (see `scripts/check-mock-boundary.sh`).
 4. If you added a new export to `src/core/transport/ssh.ts` or `src/config/*`, update the canonical mock in `test/helpers/mock-*.ts` (see `scripts/check-mock-export-sync.sh`).
-5. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
+5. **Run `bun run check:redos`** — pre-flight ReDoS scan that catches the most common polynomial-backtracking shapes before CI's CodeQL job does. See [ReDoS pre-flight](#redos-pre-flight) below.
+6. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
+
+## ReDoS pre-flight
+
+`scripts/check-redos.ts` is a lightweight rules-based scanner that catches the regex shapes most likely to trip GitHub CodeQL's `js/polynomial-redos` alert. It's not a CodeQL replacement — CodeQL still runs in CI and is the authoritative gate. This script just shaves the ~5 min CI round-trip when a fixable ReDoS slips into a PR.
+
+Run it manually:
+
+```bash
+bun run check:redos                    # scan all of src/
+bun scripts/check-redos.ts <files>...  # scan specific files (hook-friendly)
+```
+
+It exits **non-zero** when it finds a high-severity match. Patterns:
+
+| Rule | Shape | Severity | Fix |
+|---|---|---|---|
+| **A** | `/[chars]+$/` (positive char class, `+`/`*`, anchored to `$` only — no `^`) | high | Anchor with `^...$`, or prefix `(?<![chars])` look-behind. |
+| **B** | `/(a\|b\|c)[+*]/` (alternation with unbounded quantifier, no `^` anchor) | high | Factor the alternation out, or use atomic groups. |
+| **D** | `/(.+)+/` (nested unbounded quantifiers) | high | Collapse — `(.+)+` ≡ `.+`. |
+| **C** | `new RegExp(<dynamic>)` (concat / template literal) | info | Verify the source is regex-quoted. |
+
+### Escape hatch — `// CODEQL_OK`
+
+If you've verified a flagged regex is genuinely safe (small bounded input, etc.), append `// CODEQL_OK: <reason>` to the line. The detector will skip it.
+
+```ts
+.replace(/[-.]+$/, "")  // CODEQL_OK: input length-capped to 50, no backtracking risk
+```
+
+Use sparingly — every escape is something CI's CodeQL might still flag.
+
+### When to use the CodeQL CLI
+
+For deeper analysis (data-flow, taint tracking), run the full CodeQL CLI locally — `gh codeql database create && gh codeql analyze`. Reserve this for security-sensitive PRs; the lightweight scanner is enough for day-to-day work.
 
 ## PR size
 

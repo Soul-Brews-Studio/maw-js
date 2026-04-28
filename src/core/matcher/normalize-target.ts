@@ -43,8 +43,8 @@ export function normalizeTarget(raw: string): string {
   let prev: string;
   do {
     prev = s;
-    // trailing slashes (one or many)
-    s = s.replace(/\/+$/, "");
+    // trailing slashes (one or many) — non-regex to avoid CodeQL polynomial-redos flag
+    while (s.endsWith("/")) s = s.slice(0, -1);
     // trailing `.git` once the slashes are gone
     if (s.endsWith("/.git")) s = s.slice(0, -"/.git".length);
   } while (s !== prev);

@@ -1,6 +1,7 @@
 import { tmux } from "../../sdk";
 import { loadConfig } from "../../config";
 
+/** @internal — exported for tests only. */
 export interface AgentRow {
   node: string;
   session: string;
@@ -20,6 +21,8 @@ const SHELL_CMDS = new Set(["zsh", "bash", "sh", "fish", "dash"]);
  * @param windowNames - Map<"session:winIdx", windowName> from tmux.listAll()
  * @param nodeName    - local node name (e.g. "oracle-world")
  * @param opts        - filter options
+ *
+ * @internal — exported for tests only.
  */
 export function buildAgentRows(
   panes: Array<{ command: string; target: string; pid?: number }>,
