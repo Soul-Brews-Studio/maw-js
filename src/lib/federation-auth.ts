@@ -37,6 +37,7 @@ import type { MiddlewareHandler } from "hono";
 import { loadConfig } from "../config";
 
 const WINDOW_SEC = 300; // ±5 minutes
+const FROM_SIG_WINDOW_SEC = 300; // ±5 minutes for #804 Step 4 from-signing
 
 /** Stable body-hash for the signed payload. Empty body → empty string. */
 export function hashBody(body: string | Uint8Array | undefined | null): string {
@@ -332,4 +333,196 @@ export function federationAuth(): MiddlewareHandler {
 
     return next();
   };
+}
+
+// ===========================================================================
+// #804 Step 4 VERIFY — Per-peer "from:" signature verification + O6 enforcement
+// ===========================================================================
+//
+// Companion to signRequest() above (Step 4 SIGN). Layer 2 on top of the
+// fleet HMAC: HMAC gates *fleet membership*; from-signing gates *per-peer
+// continuity* — "are you the peer I last spoke with?". Both layers can ride
+// the same request; the wire-shared `x-maw-signature` slot is interpreted as
+// from-sig when `x-maw-from` is present and as fleet-HMAC otherwise. The
+// elysia plugins are arranged so each layer skips itself when the other owns
+// the request — see src/lib/elysia-auth.ts.
+//
+// Wire format (matches signRequest above exactly):
+//   x-maw-from        : "<oracle>:<node>" — sender's canonical identity
+//   x-maw-signed-at   : ISO 8601 UTC timestamp (e.g. 2026-04-28T17:42:00.000Z)
+//   x-maw-signature   : HMAC-SHA256(peerKey, payload), lowercase hex
+//
+// Canonical signed payload (matches signRequest):
+//   `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+//
+// `bodyHashHex` = hashBody(body) — empty string for empty body.
+//
+// O6 truth table (ADR docs/federation/0001-peer-identity.md):
+//   | Cached pubkey? | Sender signed? | Outcome
+//   | no             | no             | accept (legacy TOFU bootstrap)
+//   | no             | yes            | accept (TOFU record-only — alpha)
+//   | yes            | no             | REFUSE ("you used to sign")
+//   | yes            | yes valid      | accept
+//   | yes            | yes mismatch   | REFUSE + alert
+//
+// The cached "pubkey" in this scheme is — symmetric — the same long-lived
+// per-peer secret the sender signed with. Step 1 publishes it via
+// /api/identity (this is intentional today; v27 may switch to asymmetric
+// ed25519 derived from a seed, in which case both signRequest and
+// verifyRequest swap their crypto primitive — the wire format above is
+// stable). See peer-key.ts for the seed lifecycle.
+//
+// Hard cuts at v27.0.0: see ADR migration section.
+
+/** Decision returned by verifyRequest — five O6 outcomes + skew + malformed. */
+export type FromVerifyDecision =
+  | { kind: "accept-legacy"; reason: "no-cache-no-sig" }
+  | { kind: "accept-tofu-record"; reason: "no-cache-signed"; from: string }
+  | { kind: "accept-verified"; reason: "cache-sig-valid"; from: string }
+  | { kind: "refuse-unsigned"; reason: "cache-no-sig"; from?: string }
+  | { kind: "refuse-mismatch"; reason: "signature-invalid"; from: string }
+  | { kind: "refuse-skew"; reason: "timestamp-out-of-window"; from?: string; delta: number }
+  | { kind: "refuse-malformed"; reason: string };
+
+/** Headers shape accepted by verifyRequest — case-insensitive lookup. */
+export interface VerifyHeaders {
+  /** Case-insensitive `get`, matches Bun/Web Fetch `Headers` and Node's lowercase Record. */
+  get(name: string): string | null | undefined;
+}
+
+/**
+ * Adapter so callers can pass a plain Record (tests) or `request.headers`
+ * (Elysia / Bun fetch — these already implement .get(), so they pass through).
+ */
+export function asVerifyHeaders(h: Record<string, string | undefined> | VerifyHeaders): VerifyHeaders {
+  if (typeof (h as VerifyHeaders).get === "function") return h as VerifyHeaders;
+  const lc: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(h as Record<string, string | undefined>)) {
+    lc[k.toLowerCase()] = v;
+  }
+  return { get: (name: string) => lc[name.toLowerCase()] ?? null };
+}
+
+/**
+ * Build the canonical signed payload. MUST match signRequest's layout:
+ *   `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+ * (Field order is load-bearing — drift here = silent verification failure.)
+ */
+export function buildFromSignPayload(
+  from: string,
+  signedAt: string,
+  method: string,
+  path: string,
+  bodyHash: string,
+): string {
+  return `${from}\n${signedAt}\n${method.toUpperCase()}\n${path}\n${bodyHash}`;
+}
+
+/**
+ * HMAC-SHA256 verify with constant-time comparison. Returns true iff the
+ * provided hex signature equals HMAC(secret, payload).
+ */
+export function verifyHmacSig(secret: string, payload: string, signatureHex: string): boolean {
+  if (!signatureHex || !/^[0-9a-fA-F]+$/.test(signatureHex)) return false;
+  const expected = createHmac("sha256", secret).update(payload).digest("hex");
+  if (expected.length !== signatureHex.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signatureHex, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+/** Lookup of cached secret/pubkey for a given `from` identity (e.g. peers store). */
+export type FromPubkeyLookup = (from: string) => string | undefined | null;
+
+/**
+ * Parse an ISO 8601 timestamp into unix seconds. Returns null on malformed.
+ * Accepts the format produced by `new Date().toISOString()` (the SIGN side).
+ */
+function parseIsoSeconds(iso: string): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 1000);
+}
+
+/**
+ * Verify the per-peer `from:` signing layer on an incoming request.
+ *
+ * Inputs:
+ *   - method, path: HTTP method + URL pathname (path is what the sender signed)
+ *   - headers: incoming request headers (case-insensitive .get())
+ *   - body: the raw request body bytes/string used for the body-hash binding;
+ *           empty string / Uint8Array(0) is allowed (e.g. GET-style writes).
+ *   - lookupPubkey: returns the cached pubkey (hex) for a peer, or undefined.
+ *
+ * Returns a tagged decision the caller acts on. The function does not throw —
+ * `refuse-*` kinds carry a reason; `accept-*` kinds carry the verified `from`
+ * when applicable. Caller is responsible for translating refuse into HTTP 401.
+ *
+ * Clock skew: rejects |signed_at - now| > 300s. Symmetric (past + future).
+ * Default 5 min (not 60s) accommodates real-world heterogeneous fleets per ADR.
+ */
+export function verifyRequest(args: {
+  method: string;
+  path: string;
+  headers: VerifyHeaders | Record<string, string | undefined>;
+  body: string | Uint8Array | undefined | null;
+  lookupPubkey: FromPubkeyLookup;
+  /** Override "now" in seconds (test seam). Defaults to Date.now()/1000. */
+  now?: number;
+}): FromVerifyDecision {
+  const headers = asVerifyHeaders(args.headers);
+  const from = (headers.get("x-maw-from") ?? "").trim();
+  const sig = (headers.get("x-maw-signature") ?? "").trim();
+  const signedAtIso = (headers.get("x-maw-signed-at") ?? "").trim();
+
+  const cached = from ? (args.lookupPubkey(from) ?? undefined) : undefined;
+  // "Signed" means the from-signing trio is present. The fleet-HMAC layer
+  // also produces an x-maw-signature, but it's accompanied by x-maw-timestamp,
+  // not x-maw-from. We key on x-maw-from to disambiguate the two layers.
+  const signed = !!from && !!sig && !!signedAtIso;
+
+  // --- O6 row 1: no cache + unsigned → accept (legacy bootstrap) ---
+  if (!cached && !signed) {
+    return { kind: "accept-legacy", reason: "no-cache-no-sig" };
+  }
+
+  // --- O6 row 2: no cache + signed → accept (record-only; alpha) ---
+  if (!cached && signed) {
+    return { kind: "accept-tofu-record", reason: "no-cache-signed", from };
+  }
+
+  // --- O6 row 3: cached + unsigned → REFUSE ("you used to sign") ---
+  if (cached && !signed) {
+    return { kind: "refuse-unsigned", reason: "cache-no-sig", from: from || undefined };
+  }
+
+  // --- O6 rows 4 & 5: cached + signed → verify ---
+  // Defensive: cached + signed should mean the trio is present, but malformed
+  // headers can land us here with a partial trio — bail on missing pieces.
+  if (!from) return { kind: "refuse-malformed", reason: "missing-from" };
+  if (!sig) return { kind: "refuse-malformed", reason: "missing-signature" };
+
+  const signedAtSec = parseIsoSeconds(signedAtIso);
+  if (signedAtSec === null) {
+    return { kind: "refuse-malformed", reason: "invalid-signed-at" };
+  }
+  const now = args.now ?? Math.floor(Date.now() / 1000);
+  const delta = Math.abs(now - signedAtSec);
+  if (delta > FROM_SIG_WINDOW_SEC) {
+    return { kind: "refuse-skew", reason: "timestamp-out-of-window", from, delta };
+  }
+  const bodyHash = hashBody(args.body);
+  const payload = buildFromSignPayload(from, signedAtIso, args.method, args.path, bodyHash);
+  if (!verifyHmacSig(cached!, payload, sig)) {
+    return { kind: "refuse-mismatch", reason: "signature-invalid", from };
+  }
+  return { kind: "accept-verified", reason: "cache-sig-valid", from };
+}
+
+/** True if the decision should result in HTTP 401 (refuse). */
+export function isRefuseDecision(d: FromVerifyDecision): boolean {
+  return d.kind.startsWith("refuse-");
 }

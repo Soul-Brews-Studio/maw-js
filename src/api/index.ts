@@ -28,11 +28,14 @@ import { pairApi } from "./pair";
 import { consentApi } from "./consent";
 import { claudeFleetApi } from "./claude-fleet";
 import { discoverPackages, invokePlugin } from "../plugin/registry";
-import { federationAuth } from "../lib/elysia-auth";
+import { federationAuth, fromSigningAuth } from "../lib/elysia-auth";
 
 export const api = new Elysia({ prefix: "/api" })
   .use(cors())
   .use(federationAuth)
+  // #804 Step 4 — per-peer "from:" + ed25519 signature verification.
+  // Layered AFTER HMAC: fleet membership first, then peer continuity (O6).
+  .use(fromSigningAuth)
   .onAfterHandle(({ set }) => {
     set.headers["Access-Control-Allow-Private-Network"] = "true";
   })
