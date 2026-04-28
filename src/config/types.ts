@@ -118,6 +118,9 @@ export interface MawConfig {
    * is the mawjs lineage). Multi-oracle-per-node is a naming convention, not
    * a protocol concern: oracle names must be unique within a node — the
    * doctor + boot-time check (#804 Step 3) enforces operator awareness.
+   *
+   * Consumed by v3 from-signing (#804 Step 4) — see DEFAULT_ORACLE in
+   * src/lib/federation-auth.ts.
    */
   oracle?: string;
   /** Named peers with URLs */

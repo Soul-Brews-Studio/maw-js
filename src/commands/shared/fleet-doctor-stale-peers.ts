@@ -22,7 +22,7 @@ export async function checkStalePeers(
   await Promise.all(
     peers.map(async (p) => {
       try {
-        const res = await curlFetch(`${p.url}/api/identity`, { timeout });
+        const res = await curlFetch(`${p.url}/api/identity`, { timeout, from: "auto" /* #804 Step 4 SIGN — v3-sign cross-node /api/identity stale-check */ });
         if (!res.ok || !res.data) {
           findings.push({
             level: "warn",

@@ -61,7 +61,7 @@ async function checkPeerReachable(url: string): Promise<{
     let clockDeltaMs: number | undefined;
     try {
       const beforeId = Date.now();
-      const id = await curlFetch(`${url}/api/identity`, { timeout: cfgTimeout("http") });
+      const id = await curlFetch(`${url}/api/identity`, { timeout: cfgTimeout("http"), from: "auto" /* #804 Step 4 SIGN — v3-sign cross-node /api/identity probe */ });
       const afterId = Date.now();
       if (id.ok && id.data) {
         node = id.data.node;

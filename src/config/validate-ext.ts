@@ -97,6 +97,15 @@ function validateExtFields(
     }
   }
 
+  // oracle: string if present (#804 Step 4 SIGN — v3 from-address prefix)
+  if ("oracle" in raw) {
+    if (typeof raw.oracle === "string" && raw.oracle.trim().length > 0) {
+      result.oracle = raw.oracle.trim();
+    } else {
+      warn("oracle", "must be a non-empty string");
+    }
+  }
+
   // namedPeers: array of {name, url} objects
   if ("namedPeers" in raw) {
     if (Array.isArray(raw.namedPeers)) {

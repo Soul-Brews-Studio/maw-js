@@ -20,7 +20,7 @@ export async function fetchPeerIdentities(
   return Promise.all(
     peers.map(async (p): Promise<PeerIdentity> => {
       try {
-        const res = await curlFetch(`${p.url}/api/identity`, { timeout: t });
+        const res = await curlFetch(`${p.url}/api/identity`, { timeout: t, from: "auto" /* #804 Step 4 SIGN — v3-sign cross-node /api/identity health */ });
         if (!res.ok || !res.data) {
           return {
             peerName: p.name,

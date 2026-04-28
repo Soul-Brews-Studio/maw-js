@@ -321,7 +321,10 @@ describe("fetchPeerIdentities — timeout plumbing", () => {
 
     await fetchPeerIdentities([{ name: "x", url: "https://x.example" }], 2500);
 
-    expect(curlFetchCalls[0].opts).toEqual({ timeout: 2500 });
+    // `from: "auto"` is added by #804 Step 4 SIGN so v3 from-signing rides
+    // the /api/identity probe. Verifier (Step 4 VERIFY) tolerates uncached
+    // peers via O6 row 1 — we only assert the timeout value here.
+    expect(curlFetchCalls[0].opts).toEqual({ timeout: 2500, from: "auto" });
     expect(cfgTimeoutCalls).toEqual([]);
   });
 
@@ -335,7 +338,7 @@ describe("fetchPeerIdentities — timeout plumbing", () => {
     await fetchPeerIdentities([{ name: "x", url: "https://x.example" }]);
 
     expect(cfgTimeoutCalls).toEqual(["http"]);
-    expect(curlFetchCalls[0].opts).toEqual({ timeout: 8888 });
+    expect(curlFetchCalls[0].opts).toEqual({ timeout: 8888, from: "auto" });
   });
 
   test("timeout=0 (falsy but provided) → ?? still uses explicit 0, not cfgTimeout", async () => {
@@ -347,7 +350,7 @@ describe("fetchPeerIdentities — timeout plumbing", () => {
     await fetchPeerIdentities([{ name: "x", url: "https://x.example" }], 0);
 
     // `timeout ?? cfgTimeout("http")` — nullish coalescing preserves 0.
-    expect(curlFetchCalls[0].opts).toEqual({ timeout: 0 });
+    expect(curlFetchCalls[0].opts).toEqual({ timeout: 0, from: "auto" });
     expect(cfgTimeoutCalls).toEqual([]);
   });
 });
