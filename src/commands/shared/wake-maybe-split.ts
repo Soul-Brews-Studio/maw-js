@@ -1,5 +1,6 @@
 import { hostExec } from "../../sdk";
 
+/** @internal — exported for tests only. */
 export async function probeTmuxServer(): Promise<boolean> {
   try {
     await hostExec("tmux display-message -p '#S'");

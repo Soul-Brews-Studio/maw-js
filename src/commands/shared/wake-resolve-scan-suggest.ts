@@ -37,7 +37,10 @@ export type AllowedOrgs =
   | { ok: true; user: string; orgs: Set<string> }
   | { ok: false; reason: string };
 
-/** Extract unique org names from `ghq list` output (github.com/<org>/<repo> format). */
+/**
+ * Extract unique org names from `ghq list` output (github.com/<org>/<repo> format).
+ * @internal — exported for tests only.
+ */
 export function extractGhqOrgs(ghqOutput: string): string[] {
   const orgs = new Set<string>();
   for (const line of ghqOutput.split("\n")) {
@@ -62,6 +65,8 @@ export function _resetAllowedOrgsCache(): void { _allowedOrgsCache = null; }
  * actually host a repo in. Cached on first call. On any failure (no auth,
  * offline, gh missing) returns `ok: false` so the caller can fall back to the
  * legacy all-local scan with a warning rather than silently empty out.
+ *
+ * @internal — exported for tests only.
  */
 export function fetchAllowedOrgs(execFn: (cmd: string) => string): AllowedOrgs {
   if (_allowedOrgsCache) return _allowedOrgsCache;
@@ -90,13 +95,19 @@ export function fetchAllowedOrgs(execFn: (cmd: string) => string): AllowedOrgs {
   return (_allowedOrgsCache = { ok: true, user, orgs });
 }
 
-/** Keep only orgs that match `allowed.orgs` (case-sensitive — GitHub org slugs). */
+/**
+ * Keep only orgs that match `allowed.orgs` (case-sensitive — GitHub org slugs).
+ * @internal — exported for tests only.
+ */
 export function filterOrgsByAllowed(orgs: OrgEntry[], allowed: AllowedOrgs): OrgEntry[] {
   if (!allowed.ok) return orgs;
   return orgs.filter(o => allowed.orgs.has(o.name));
 }
 
-/** Combine orgs from ghq list + config, deduped, sorted case-insensitively. */
+/**
+ * Combine orgs from ghq list + config, deduped, sorted case-insensitively.
+ * @internal — exported for tests only.
+ */
 export function buildOrgList(ghqOutput: string, cfg: any): OrgEntry[] {
   const ghqOrgs = extractGhqOrgs(ghqOutput);
   const result: OrgEntry[] = ghqOrgs.map(name => ({ name, source: "local" }));
@@ -139,6 +150,8 @@ function defaultTtyReader(): ReturnType<TtyReader> {
  * prompt (e.g. inquirer). If the first read yields whitespace-only with n>0,
  * loop and read again — up to 3 attempts. Returns null if TTY unavailable or
  * all attempts were empty.
+ *
+ * @internal — exported for tests only.
  */
 export function readTtyAnswer(reader: TtyReader = defaultTtyReader): string | null {
   for (let i = 0; i < 3; i++) {
@@ -153,7 +166,7 @@ export function readTtyAnswer(reader: TtyReader = defaultTtyReader): string | nu
 }
 
 /** TTY y/N prompt. Returns true/false/null (null = /dev/tty unavailable or empty). */
-export function defaultPromptFn(msg: string): boolean | null {
+function defaultPromptFn(msg: string): boolean | null {
   try {
     process.stdout.write(msg);
     const answer = readTtyAnswer();
@@ -166,7 +179,7 @@ export function defaultPromptFn(msg: string): boolean | null {
 }
 
 /** Check if a repo exists on GitHub. Returns its URL or null. */
-export function checkGhRepo(slug: string, execFn: (cmd: string) => string): string | null {
+function checkGhRepo(slug: string, execFn: (cmd: string) => string): string | null {
   try {
     const out = execFn(`gh repo view '${slug}' --json url 2>/dev/null`);
     const parsed = JSON.parse(out || "{}");
@@ -176,7 +189,10 @@ export function checkGhRepo(slug: string, execFn: (cmd: string) => string): stri
   }
 }
 
-/** Scan orgs for <oracle>-oracle, stop on first match. Returns URL or null. */
+/**
+ * Scan orgs for <oracle>-oracle, stop on first match. Returns URL or null.
+ * @internal — exported for tests only.
+ */
 export function scanOrgs(
   oracle: string,
   orgs: OrgEntry[],
