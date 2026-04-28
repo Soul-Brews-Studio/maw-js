@@ -1,6 +1,7 @@
 import { loadConfig } from "../../../config";
 import { listSessions, sendKeys, getPaneCommand, resolveTarget } from "../../../sdk";
 import { runHook } from "../../../sdk";
+import { resolveOraclePane } from "../../shared/comm-send";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir, hostname } from "os";
 import { join } from "path";
@@ -140,9 +141,13 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
   const config = loadConfig();
   const sessions = await listSessions();
   const resolved = resolveTarget(target, config, sessions);
+  // Resolve to a specific pane: when the oracle window has multiple panes
+  // (team-agents spawned beside it), `send-keys -t session:window` would
+  // otherwise land in whichever pane is currently active, not the oracle's
+  // claude pane. Mirrors comm-send (#764).
   const tmuxTarget =
     resolved?.type === "local" || resolved?.type === "self-node"
-      ? resolved.target
+      ? await resolveOraclePane(resolved.target)
       : null;
   if (!tmuxTarget) {
     // Thread was posted but target window not found — still useful
