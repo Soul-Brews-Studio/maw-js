@@ -107,6 +107,27 @@ export const SleepBody = Type.Object({
 });
 export type TSleepBody = Static<typeof SleepBody>;
 
+/**
+ * POST /api/probe (#804 Step 5).
+ *
+ * Real-write-path health check: exercises the same resolution code path as
+ * /api/send (resolveTarget + tmux session existence) without delivering. If
+ * `target` is omitted, the server only confirms it can run the write code
+ * path at all (process up + config readable). When `target` is supplied, the
+ * server validates it resolves and reports the transport that would be used.
+ *
+ * Why a dedicated probe (vs. reusing /api/identity)? The two endpoints take
+ * disjoint code paths — /api/identity reads package.json + peer-key and
+ * passes through near-zero handler logic, so it can answer 200 OK while
+ * /api/send is broken (the schema-drift incident on #795 was exactly this).
+ * /api/probe shares the actual write-path branches so a "green" probe means
+ * the receiver can deliver, not just that its HTTP server is alive.
+ */
+export const ProbeBody = Type.Object({
+  target: Type.Optional(Type.String()),
+});
+export type TProbeBody = Static<typeof ProbeBody>;
+
 /** POST /api/send */
 export const SendBody = Type.Object({
   target: Type.String(),

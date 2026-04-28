@@ -8,7 +8,7 @@ import { curlFetch } from "../core/transport/curl-fetch";
 import { resolveTarget } from "../core/routing";
 import { processMirror } from "../commands/plugins/overview/impl";
 import { resolveFleetSession } from "../commands/shared/wake";
-import { WakeBody, SleepBody, SendBody, PaneKeysBody } from "../lib/schemas";
+import { WakeBody, SleepBody, SendBody, PaneKeysBody, ProbeBody } from "../lib/schemas";
 import { Tmux } from "../core/transport/tmux";
 
 export const sessionsApi = new Elysia();
@@ -201,6 +201,99 @@ sessionsApi.post("/pane-keys", async ({ body, set }) => {
   }
 }, {
   body: PaneKeysBody,
+});
+
+/**
+ * POST /api/probe — real-write-path health check (#804 Step 5).
+ *
+ * Walks the same resolveTarget/tmux-session-exists branches as /api/send but
+ * stops short of `sendKeys` — never mutates a pane. With no `target`, only
+ * proves the handler can run (config loads, listSessions returns) so peers
+ * can confirm reachability without naming a deliverable agent.
+ *
+ * Auth: federationAuth + fromSigningAuth (it's a write-path endpoint — same
+ * surface as /send, /wake). Loopback is exempted via the same gate. Callers
+ * sign with `from: "auto"` so peer continuity (Step 4) is exercised too.
+ *
+ * Response shape:
+ *   - { ok: true, target?, transport: "local"|"ssh", source }
+ *   - { ok: false, error, target? } with HTTP 4xx/5xx
+ *
+ * Lesson banked from #795 schema-drift: /api/identity returning 200 doesn't
+ * mean /api/send works — different code paths fail independently. /probe
+ * exercises the same writer-side branches /send does, so green here means
+ * green for delivery (modulo the actual sendKeys, which is the only step we
+ * skip). See ADR docs/federation/0001-peer-identity.md.
+ */
+sessionsApi.post("/probe", async ({ body, set }) => {
+  try {
+    const target = body?.target;
+
+    // Bare healthcheck — no target. Just prove we can walk the write path
+    // setup (loadConfig + listSessions). If either throws, /send would too.
+    if (!target) {
+      const config = loadConfig();
+      const local = await listSessions();
+      return {
+        ok: true,
+        transport: "local" as const,
+        source: config.node ?? "local",
+        sessions: local.length,
+      };
+    }
+
+    const config = loadConfig();
+    const local = await listSessions();
+
+    // Same resolution as /send — including the -oracle stripped retry — so a
+    // probe failure here means /send would fail with the same reason.
+    const result = resolveTarget(target, config, local);
+    const isResolved = result && result.type !== "error";
+    const altResult = !isResolved ? resolveTarget(target.replace(/-oracle$/, ""), config, local) : null;
+    const altResolved = altResult && altResult.type !== "error";
+    const resolved = isResolved ? result : altResolved ? altResult : (result || altResult);
+
+    if (resolved?.type === "local" || resolved?.type === "self-node") {
+      // Validate the tmux session in `<session>:<window>` actually exists.
+      // resolveTarget already implies the window resolved, but a probe should
+      // confirm the tmux server still answers (the #795-style failure mode).
+      const sessionName = resolved.target.split(":")[0] ?? "";
+      const sessionExists = local.some(s => s.name === sessionName);
+      if (!sessionExists) {
+        set.status = 404;
+        return { ok: false, error: `tmux session not found: ${sessionName}`, target };
+      }
+      return {
+        ok: true,
+        target: resolved.target,
+        transport: "local" as const,
+        source: config.node ?? "local",
+      };
+    }
+
+    if (resolved?.type === "peer") {
+      // We don't forward the probe further — that's the caller's job. Report
+      // that this node would forward to <peerUrl> if /send were called.
+      return {
+        ok: true,
+        target: resolved.target,
+        transport: "ssh" as const,
+        source: resolved.peerUrl,
+        node: resolved.node,
+      };
+    }
+
+    const errDetail = resolved?.type === "error"
+      ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint }
+      : {};
+    set.status = 404;
+    return { ok: false, error: `target not found: ${target}`, target, ...errDetail };
+  } catch (err) {
+    set.status = 500;
+    return { ok: false, error: String(err) };
+  }
+}, {
+  body: ProbeBody,
 });
 
 sessionsApi.post("/select", async ({ body, set}) => {
