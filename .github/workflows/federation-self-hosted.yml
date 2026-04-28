@@ -1,0 +1,115 @@
+name: Federation (self-hosted) integration
+
+# Self-hosted runner workflow for federation tests + curlFetch + buildCommand
+# cross-check. Implements #763.
+#
+# WHY THIS EXISTS
+# ---------------
+# 1. Federation tests need a real second peer — multi-node behavior is hard
+#    to fake inside a single GH-hosted VM. A persistent self-hosted runner
+#    can keep a peer warm or talk to the fleet directly.
+# 2. The 14 known-flaky tests in curlFetch (6) + buildCommand (8) — see
+#    #786 for the calver fix that exposed them — may be GH-Actions
+#    sandbox quirks (Bun fetch / /usr/bin/curl path / sandboxed exec).
+#    Re-running them on a real Linux host tells us if they are universal
+#    or environment-specific.
+# 3. Real-peer round-trip for #832 (federation 2-port flake) — the local
+#    ephemeral-port race vanishes when one peer is on a different host.
+#
+# SECURITY — TRIGGER RESTRICTION (DO NOT RELAX)
+# ---------------------------------------------
+# `Soul-Brews-Studio/maw-js` is a PUBLIC repository. GitHub explicitly
+# warns against self-hosted runners on public repos because any forked
+# pull request can run arbitrary code on the runner host
+# (https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners#self-hosted-runner-security).
+#
+# This workflow MUST therefore only fire on `push` to protected branches
+# we control — never on `pull_request`. Forked PRs continue to run via
+# `ci.yml` on GH-hosted runners (sandboxed, ephemeral, safe by default).
+#
+# If you ever add a `pull_request:` trigger here, add an explicit
+# `if: github.event.pull_request.head.repo.full_name == github.repository`
+# guard or you will hand attackers a shell on the runner host.
+#
+# OPERATOR PREREQUISITES
+# ----------------------
+# A runner host with the labels `self-hosted` AND `federation` must be
+# registered against the repo before this workflow can fire. Until then
+# pushes to `main` will queue and time out. See `docs/ci/self-hosted-runner.md`
+# for setup steps.
+
+on:
+  push:
+    branches:
+      # Protected branches only. Adding `alpha` here would expose the
+      # runner to anything merged to alpha; keep alpha on GH-hosted CI
+      # until we have approval gates wired.
+      - main
+
+# Run one job at a time on the self-hosted runner. Federation tests
+# bind ports and stand up peers; concurrent runs would race each other.
+concurrency:
+  group: federation-self-hosted
+  cancel-in-progress: false
+
+jobs:
+  federation:
+    name: federation + flake cross-check (self-hosted)
+    # Both labels required. The runner host must be registered with both.
+    runs-on: [self-hosted, federation]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show runner identity
+        run: |
+          echo "host: $(hostname)"
+          echo "user: $(id -un)"
+          echo "bun:  $(command -v bun || echo 'MISSING')"
+          echo "curl: $(command -v curl || echo 'MISSING')"
+          bun --version || true
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Federation tests that benefit from a real peer / real network stack.
+      # These are the existing files under test/ that exercise the federation
+      # transports + auth + sync + 2-port round-trip (#832). Listed
+      # explicitly so the set is auditable and we don't silently pick up
+      # unrelated tests when new files land.
+      #
+      # NOTE: MAW_SKIP_FLAKY is intentionally NOT set for this job — the
+      # whole point of the self-hosted runner is to exercise the real
+      # path that ci.yml has to skip.
+      - name: Federation tests (real peer / real network)
+        env:
+          MAW_TEST_MODE: "1"
+        run: |
+          bun test \
+            test/federation-auth.test.ts \
+            test/federation-symmetric.test.ts \
+            test/federation-sync.test.ts \
+            test/integration/federation-local.test.ts \
+            test/integration/search-peers-2port.test.ts
+
+      # Cross-check the 14 GH-Actions flakes — curlFetch (6) + buildCommand
+      # (8). If these pass here but fail on ubuntu-latest, the failures
+      # are environment-specific (Bun fetch behavior / sandboxed exec /
+      # /usr/bin/curl path). See #786.
+      - name: Flake cross-check (curlFetch + buildCommand)
+        env:
+          MAW_TEST_MODE: "1"
+        run: |
+          bun test \
+            test/curl-fetch.test.ts \
+            test/build-command-cwd.test.ts
+
+      - name: Federation log dump on failure
+        if: failure()
+        run: |
+          echo "::group::recent maw logs"
+          ls -lah ~/.maw/logs 2>/dev/null | tail -40 || echo "no ~/.maw/logs"
+          echo "::endgroup::"
+          echo "::group::open ports"
+          ss -tlnp 2>/dev/null | head -40 || true
+          echo "::endgroup::"
