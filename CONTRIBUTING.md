@@ -149,6 +149,51 @@ Or via the npm-script alias: `bun run calver [--stable|--hour N|--check]` (TZ st
 
 Pre-CalVer alphas shipped from `main` via `bun run ship:alpha`. See `scripts/ship-alpha.sh`. Kept for historical reference; prefer the CalVer flow above.
 
+## Adding a plugin
+
+`maw-js` ships plugins in three tiers. Tier is declared in each plugin's `plugin.json` and decides whether the plugin loads on every install, on most installs, or only when an operator opts in. The full philosophy lives in [docs/lean-core/0001-plugin-tier-philosophy.md](./docs/lean-core/0001-plugin-tier-philosophy.md); the short version follows.
+
+### Pick a tier
+
+```
+Does every install need this plugin?
+├── Yes → tier: "core"
+└── No → Does most installs benefit?
+    ├── Yes → tier: "standard"
+    └── No → tier: "extra" (consider extracting to a community repo)
+```
+
+- **`core`** — federation primitives, the plugin manager, identity, config, dispatch. Stays in the binary forever.
+- **`standard`** — the canonical send-loop (`send`, `run`), lifecycle (`wake`, `sleep`), federation read (`peek`, `view`), health (`doctor`). Ships in the default profile.
+- **`extra`** — workflow-specific plugins (fleet, oracle, team, costs, etc.). Opt-in via profile; eventually extracted to a community repo via the marketplace registry ([#874](https://github.com/Soul-Brews-Studio/maw-js/issues/874)).
+
+When in doubt: **`standard`**. It is the conservative choice — most operators get the plugin, no one is forced to load it.
+
+### Declare tier in `plugin.json`
+
+```jsonc
+{
+  "name": "my-plugin",
+  "tier": "extra",
+  // ... rest of manifest
+}
+```
+
+The `tier` field is optional for backwards compatibility — plugins shipped before [ADR 0001](./docs/lean-core/0001-plugin-tier-philosophy.md) have no tier and the loader treats them as `core` by default. **New plugins must declare `tier` explicitly.**
+
+### Where the tier is read
+
+- `src/lib/profile-loader.ts` ([#889](https://github.com/Soul-Brews-Studio/maw-js/pull/889)) — resolves the active profile (a name → set of plugins or set of tiers).
+- `src/plugin/registry.ts` ([#891](https://github.com/Soul-Brews-Studio/maw-js/pull/891)) — applies the active-profile filter in `discoverPackages()`. Plugins outside the resolved set never reach the command surface.
+
+You don't need to wire anything yourself — declaring `tier` is enough.
+
+### Considering extra? Consider extracting
+
+If your plugin is `extra` and reaches only into the SDK + `plugin/types`, it is a strong candidate for a standalone community repo. The audit ([docs/lean-core/plugin-audit.md](./docs/lean-core/plugin-audit.md)) marks plugins as `clean` or `tangled` based on internal-import count. Clean plugins follow the same shape as [`shellenv`](https://github.com/Soul-Brews-Studio/maw-js/pull/816) and [`rename`](https://github.com/Soul-Brews-Studio/maw-js/pull/859) — see those PRs for the canonical extraction recipe.
+
+Tangled plugins (those reaching into `core/fleet`, `core/matcher`, peer plugins, or shared helpers) need an SDK widening ([#626](https://github.com/Soul-Brews-Studio/maw-js/issues/626)) before extraction. File an issue against the lean-core epic ([#640](https://github.com/Soul-Brews-Studio/maw-js/issues/640)) describing what your plugin needs from the SDK.
+
 ## Code of Conduct
 
 See [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md). In short: be kind, assume good faith, name the behavior not the person.
