@@ -16,6 +16,7 @@ const WINDOW_SEC = D.hmacWindowSeconds;
 /** Protected paths — write/control operations, require auth from non-loopback clients */
 const PROTECTED = new Set([
   "/send",
+  "/pane-keys",
   "/talk",
   "/transport/send",
   "/triggers/fire",

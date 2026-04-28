@@ -8,7 +8,8 @@ import { curlFetch } from "../core/transport/curl-fetch";
 import { resolveTarget } from "../core/routing";
 import { processMirror } from "../commands/plugins/overview/impl";
 import { resolveFleetSession } from "../commands/shared/wake";
-import { WakeBody, SleepBody, SendBody } from "../lib/schemas";
+import { WakeBody, SleepBody, SendBody, PaneKeysBody } from "../lib/schemas";
+import { Tmux } from "../core/transport/tmux";
 
 export const sessionsApi = new Elysia();
 
@@ -169,6 +170,36 @@ sessionsApi.post("/send", async ({ body, set}) => {
   }
 }, {
   body: SendBody,
+});
+
+/**
+ * POST /api/pane-keys — raw send-keys to any tmux pane (#757).
+ *
+ * Body: { target, text, enter? }
+ *   - text is sent literally via `tmux send-keys -l` (no paste-mode, no
+ *     interpretation of special chars like |). Empty text is allowed.
+ *   - enter=true appends `tmux send-keys Enter` after the text.
+ *
+ * No readiness guard, no paste delay — this is the dual of `maw send-enter`.
+ * Used by `maw send` (enter=false) and `maw run` (enter=true) cross-node.
+ */
+sessionsApi.post("/pane-keys", async ({ body, set }) => {
+  try {
+    const { target, text, enter } = body;
+    if (!target) { set.status = 400; return { error: "target required" }; }
+    const t = new Tmux();
+    if (text && text.length > 0) {
+      await t.sendKeysLiteral(target, text);
+    }
+    if (enter) {
+      await t.sendKeys(target, "Enter");
+    }
+    return { ok: true, target, enter: !!enter };
+  } catch (err) {
+    set.status = 500; return { error: String(err) };
+  }
+}, {
+  body: PaneKeysBody,
 });
 
 sessionsApi.post("/select", async ({ body, set}) => {

@@ -110,6 +110,20 @@ export const SendBody = Type.Object({
 });
 export type TSendBody = Static<typeof SendBody>;
 
+/**
+ * POST /api/pane-keys (#757)
+ *
+ * Raw tmux send-keys to any pane (bash, claude, anything). No paste-mode,
+ * no readiness guard. Used by `maw send` (enter=false) and `maw run`
+ * (enter=true) for cross-node pane control.
+ */
+export const PaneKeysBody = Type.Object({
+  target: Type.String(),
+  text: Type.String(),
+  enter: Type.Optional(Type.Boolean()),
+});
+export type TPaneKeysBody = Static<typeof PaneKeysBody>;
+
 /** POST /api/config-file (save) */
 export const ConfigFileBody = Type.Object({
   content: Type.String(),

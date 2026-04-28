@@ -2,8 +2,11 @@ import { cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
 export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
-  // hey stays core — it's the transport layer
-  if (cmd === "hey" || cmd === "send" || cmd === "tell") {
+  // hey stays core — it's the transport layer.
+  // Note: `send` and `tell` were previously aliases here; `send` is now the
+  // raw-text plugin (#757), and `tell` was undocumented. Use `maw hey` for
+  // agent messaging.
+  if (cmd === "hey") {
     const force = args.includes("--force");
     const target = args[1];
     const msgArgs = args.slice(2).filter(a => a !== "--force");
