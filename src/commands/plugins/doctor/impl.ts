@@ -251,7 +251,7 @@ function checkCrossSourceConsistency(): DoctorResult["checks"][number] {
 
   const { headline, lines } = summarizeGaps(gaps);
   for (const line of lines) {
-    console.log(`    ${YELLOW}⚠${RESET} ${line}`);
+    console.log(`    ${C.yellow}⚠${C.reset} ${line}`);
   }
   return {
     name: "manifest:cross-source",

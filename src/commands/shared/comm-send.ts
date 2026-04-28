@@ -104,6 +104,10 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
  * as literal placeholders — the user is meant to run `maw locate <agent>`
  * to enumerate concrete candidates across the federation. Only `<agent>`
  * is substituted with the bare query the user actually typed.
+ *
+ * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts).
+ *   The production caller is `cmdSend` in this same file. No other module
+ *   imports this symbol.
  */
 export function formatBareNameError(query: string): string {
   const RED = "\x1b[31m"; // error marker
