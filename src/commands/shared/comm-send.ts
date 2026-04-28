@@ -202,7 +202,38 @@ export async function cmdSend(query: string, message: string, force = false) {
     process.exit(1);
   }
 
-  const sessions = await listSessions();
+  let sessions = await listSessions();
+
+  // --- #736 Phase 1.2: auto-wake fleet-known targets (parity with maw view) ---
+  // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
+  // no local session exists, silently wake it before sending. No y/N prompt:
+  // fleet membership is sufficient signal that this isn't a typo. Cross-node
+  // targets are skipped here — the remote peer's federation handler wakes its
+  // own fleet (sessions.ts:/api/wake already does cmdWake for inbound peers).
+  {
+    const colonIdx = query.indexOf(":");
+    const targetNode = colonIdx >= 0 ? query.slice(0, colonIdx) : null;
+    const bareAgent = colonIdx >= 0 ? query.slice(colonIdx + 1).split(":")[0] : query;
+    const isLocalScope = !targetNode || targetNode === config.node;
+    if (isLocalScope && bareAgent) {
+      const hasLocalSession = sessions.some(s =>
+        s.name === bareAgent ||
+        s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
+      );
+      if (!hasLocalSession) {
+        try {
+          const { resolveFleetSession } = await import("./wake-resolve");
+          if (resolveFleetSession(bareAgent)) {
+            console.log(`\x1b[36m⚡\x1b[0m '${bareAgent}' is fleet-known — auto-wake`);
+            const { cmdWake } = await import("./wake-cmd");
+            await cmdWake(bareAgent, {});
+            // Refresh after wake — resolver needs the new tmux session visible.
+            sessions = await listSessions();
+          }
+        } catch { /* fleet/wake best-effort — fall through to existing error path */ }
+      }
+    }
+  }
 
   // --- Unified resolution via resolveTarget (#201) ---
   const result = resolveTarget(query, config, sessions);
