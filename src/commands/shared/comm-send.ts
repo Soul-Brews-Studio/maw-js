@@ -260,6 +260,7 @@ export async function cmdSend(query: string, message: string, force = false) {
         const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
           method: "POST",
           body: JSON.stringify({ target: bareAgent }),
+          from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
         });
         if (!wakeRes.ok || !wakeRes.data?.ok) {
           const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
@@ -336,6 +337,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: result.target, text: message }),
+      from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
       const agentName = resolveMyName(config);
@@ -360,6 +362,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: query, text: message }),
+      from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);

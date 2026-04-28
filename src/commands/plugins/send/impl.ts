@@ -44,6 +44,7 @@ export async function cmdSend(opts: SendOpts): Promise<void> {
     const res = await curlFetch(`${result.peerUrl}/api/pane-keys`, {
       method: "POST",
       body: JSON.stringify({ target: result.target, text, enter: false }),
+      from: "auto", // #804 Step 4 SIGN — sign cross-node /api/pane-keys
     });
     if (!res.ok || !res.data?.ok) {
       const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");

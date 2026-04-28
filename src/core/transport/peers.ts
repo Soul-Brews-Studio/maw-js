@@ -374,6 +374,7 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
       method: "POST",
       body: JSON.stringify({ target, text }),
       timeout: cfgTimeout("http"),
+      from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send via TransportManager
     });
     if (!res.ok) {
       const bodySnippet = res.data != null

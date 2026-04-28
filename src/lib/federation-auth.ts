@@ -16,6 +16,22 @@
  *     binds the signature to the exact bytes sent. Body-swap replay is 401.
  *   - Version is signaled via `X-Maw-Auth-Version: v2` header. Absent header
  *     = v1 (for outbound: signHeaders without body; for inbound: legacy peer).
+ *
+ * From-signing (Step 4 SIGN of #804):
+ *   - Per-peer keyed signatures replace the shared `federationToken`. Each
+ *     node holds a long-lived secret (see src/lib/peer-key.ts). Outgoing
+ *     requests publish the sender as `<oracle>:<node>` and HMAC-sign with
+ *     the local peer-key. Verifier (Step 4 VERIFY) looks up the sender's
+ *     pinned pubkey from the TOFU cache (Step 2) and verifies.
+ *   - Headers: `x-maw-from`, `x-maw-signature`, `x-maw-signed-at` (ISO 8601).
+ *   - Payload: `<from>\n<signed-at>\n<METHOD>\n<path>\n<body-sha256-hex>`.
+ *     Body hash is empty string when no body. Method uppercased. Path is
+ *     `URL.pathname` (no query). Newline separator avoids ambiguity that
+ *     a colon-joined payload can produce when fields contain colons.
+ *   - The from-signing layer REPLACES the `X-Maw-Timestamp`/`X-Maw-Signature`
+ *     emitted by signHeaders for callers that opt in (curlFetch `from`
+ *     option). Until verifiers across the fleet ship, callers MAY still
+ *     fall through to the legacy token path — this is why we keep both.
  */
 
 import { createHash, createHmac, timingSafeEqual } from "crypto";
@@ -120,6 +136,80 @@ export function signHeaders(
   };
   if (bh) headers["X-Maw-Auth-Version"] = "v2";
   return headers;
+}
+
+// --- From-signing (#804 Step 4 SIGN) ---
+
+/**
+ * Sign a cross-node request with the per-peer key (#804). Returns the three
+ * outbound headers the verifier (Step 4 VERIFY) consumes:
+ *
+ *   - `x-maw-from`        sender identity, `<oracle>:<node>`
+ *   - `x-maw-signed-at`   ISO 8601 timestamp (UTC) — verifier enforces ±5 min
+ *   - `x-maw-signature`   HMAC-SHA256(peerKey, payload), lowercase hex
+ *
+ * Payload construction:
+ *
+ *   `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+ *
+ * Each field on its own line keeps the boundary unambiguous even when fields
+ * contain colons (oracles often have colons in their name on multi-tenant
+ * nodes). `bodyHashHex` is the empty string for body-less requests; method
+ * is uppercased; path is the URL pathname (no query/fragment) so middleware
+ * matching stays consistent on the verifier side.
+ *
+ * The peerKey here is the *sender's own* peer-key (see getPeerKey()). The
+ * verifier looks the sender up in its TOFU pubkey cache by `<from>` and
+ * checks the HMAC against the pinned key. First-contact peers are TOFU-pinned
+ * by Step 2's pubkey cache.
+ */
+export function signRequest(opts: {
+  from: string;
+  peerKey: string;
+  method: string;
+  path: string;
+  body?: string | Uint8Array;
+}): Record<string, string> {
+  if (!opts.from) throw new Error("signRequest: from is required (<oracle>:<node>)");
+  if (!opts.peerKey) throw new Error("signRequest: peerKey is required");
+  const signedAt = new Date().toISOString();
+  const method = (opts.method || "GET").toUpperCase();
+  const bodyHash = opts.body != null ? hashBody(opts.body) : "";
+  const payload = `${opts.from}\n${signedAt}\n${method}\n${opts.path}\n${bodyHash}`;
+  const signature = createHmac("sha256", opts.peerKey).update(payload).digest("hex");
+  return {
+    "x-maw-from": opts.from,
+    "x-maw-signed-at": signedAt,
+    "x-maw-signature": signature,
+  };
+}
+
+/**
+ * Derive the sender's `<oracle>:<node>` from-address. Mirrors the contract
+ * shared by send-keys logging (resolveMyName in comm-send.ts) but lives here
+ * so curl-fetch can derive without importing CLI code.
+ *
+ * Precedence:
+ *   1. CLAUDE_AGENT_NAME env var (set by `maw wake` for the agent's pane)
+ *   2. tmux `display-message` session name (strip leading numeric prefix)
+ *   3. config.node (fallback so cross-process CLI calls still produce a tag)
+ *
+ * Returns null when no node is configured — callers should NOT sign in that
+ * posture (single-node, no federation; verifiers will reject anyway).
+ */
+export function resolveFromAddress(node: string | undefined | null): string | null {
+  if (!node) return null;
+  let oracle: string | undefined = process.env.CLAUDE_AGENT_NAME;
+  if (!oracle) {
+    try {
+      const tmuxSession = require("child_process")
+        .execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] })
+        .trim();
+      if (tmuxSession) oracle = tmuxSession.replace(/^\d+-/, "");
+    } catch { /* not in tmux — fall through */ }
+  }
+  if (!oracle) oracle = "cli";
+  return `${oracle}:${node}`;
 }
 
 // --- Hono middleware ---

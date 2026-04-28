@@ -6,9 +6,17 @@
  * (Apple's Local Network Privacy blocks Bun/Node fetch).
  *
  * Auto-signs requests with HMAC-SHA256 when federationToken is configured.
+ *
+ * From-signing (#804 Step 4 SIGN): callers pass `from: "<oracle>:<node>"`
+ * (or `from: "auto"` to derive from config + tmux/env). When set, the
+ * request is additionally signed with the per-peer key and emits the
+ * `x-maw-from` / `x-maw-signed-at` / `x-maw-signature` header trio. Both
+ * signing layers can coexist on a single request — verifiers ship in
+ * Step 4 VERIFY and consume whichever header the peer trusts.
  */
 
-import { signHeaders } from "../../lib/federation-auth";
+import { signHeaders, signRequest, resolveFromAddress } from "../../lib/federation-auth";
+import { getPeerKey } from "../../lib/peer-key";
 import { loadConfig } from "../../config";
 
 const IS_MACOS = process.platform === "darwin";
@@ -30,16 +38,47 @@ export async function curlFetch(url: string, opts?: {
   body?: string;
   timeout?: number;
   maxBytes?: number;
+  /**
+   * From-signing (#804 Step 4 SIGN). When set, the call is signed with the
+   * local peer-key and emits `x-maw-from` / `x-maw-signed-at` /
+   * `x-maw-signature`. Pass an explicit `<oracle>:<node>` string for tests
+   * and call sites that already know the sender, or `"auto"` to derive
+   * from `config.node` + CLAUDE_AGENT_NAME / tmux session.
+   *
+   * Independent of the legacy token signing — both can ride the same
+   * request during the cross-fleet rollout. When `from` is `"auto"` and
+   * no `node` is configured, from-signing is silently skipped (no sender
+   * identity is producible, and unsigned legacy is the safer default for
+   * single-node operators).
+   */
+  from?: string | "auto";
 }): Promise<CurlResponse> {
   // Build auth headers
   const headers: Record<string, string> = {};
   if (opts?.body) headers["Content-Type"] = "application/json";
   try {
-    const token = loadConfig().federationToken;
+    const config = loadConfig();
+    const token = config.federationToken;
+    const urlObj = new URL(url);
     if (token) {
-      const urlObj = new URL(url);
       const signed = signHeaders(token, opts?.method || "GET", urlObj.pathname);
       Object.assign(headers, signed);
+    }
+    // From-signing layer (#804 Step 4 SIGN). Runs on top of legacy signHeaders
+    // when both are active; verifier picks the scheme by header presence.
+    if (opts?.from) {
+      const from = opts.from === "auto" ? resolveFromAddress(config.node) : opts.from;
+      if (from) {
+        const peerKey = getPeerKey();
+        const fromSigned = signRequest({
+          from,
+          peerKey,
+          method: opts?.method || "GET",
+          path: urlObj.pathname,
+          body: opts?.body,
+        });
+        Object.assign(headers, fromSigned);
+      }
     }
   } catch (err) {
     // Fail closed: if a token is configured but signing throws (config load

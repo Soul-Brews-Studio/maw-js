@@ -148,6 +148,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
         method: "POST",
         body: JSON.stringify({ target: resolved.target, text: message }),
         timeout: 10000,
+        from: "auto", // #804 Step 4 SIGN — sign cross-node forwarded /api/send
       });
       if (res.ok && res.data?.ok) {
         return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "" };
