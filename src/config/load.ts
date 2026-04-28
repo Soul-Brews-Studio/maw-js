@@ -1,4 +1,6 @@
 import { readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { CONFIG_FILE } from "../core/paths";
 import { refreshContext } from "../lib/context";
 import { verbose, info } from "../cli/verbosity";
@@ -91,8 +93,29 @@ export function resetConfig() {
   warnedHostMigrated = false;
 }
 
-/** Write config to maw.config.json and reset cache */
+/**
+ * #820 — Refuse to write to the real ~/.config/maw/ when MAW_TEST_MODE is set.
+ *
+ * Background: a regression in test/isolated/fleet-doctor.test.ts (the autoFix
+ * suite) mocked `loadConfig` but not `saveConfig`, so the lazy-required real
+ * `saveConfig` corrupted the developer's `~/.config/maw/maw.config.json` with
+ * test fixture content (markers: `https://mba.example`, `/tmp/nope`).
+ *
+ * Guard rule: when running under test mode (`MAW_TEST_MODE=1`), `saveConfig`
+ * MUST refuse to write to the real homedir config path. The test harness is
+ * expected to set `MAW_HOME` or `MAW_CONFIG_DIR` to a tmpdir; if that's not
+ * done, throw loudly rather than silently corrupting state.
+ */
+const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
+
 export function saveConfig(update: Partial<MawConfig>) {
+  if (process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG) {
+    throw new Error(
+      `[maw] saveConfig refused: MAW_TEST_MODE=1 but CONFIG_FILE points at the real homedir ` +
+      `(${CONFIG_FILE}). Set MAW_HOME or MAW_CONFIG_DIR to a sandbox before any state-touching ` +
+      `import is resolved (see src/core/paths.ts). (#820)`,
+    );
+  }
   const current = loadConfig();
   const merged = { ...current, ...update };
   writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");

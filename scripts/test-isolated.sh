@@ -17,6 +17,11 @@ set -eo pipefail
 
 cd "$(dirname "$0")/.."
 
+# #820 — Tell the source guard in src/config/load.ts that we're running tests.
+# saveConfig() refuses to write to the real ~/.config/maw/ when this is set,
+# preventing fixture leaks into developer config mid-session.
+export MAW_TEST_MODE=1
+
 IGNORE_ARGS=(
   --path-ignore-patterns '**/agents/**'
 )
