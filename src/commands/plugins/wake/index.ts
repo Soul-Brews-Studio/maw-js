@@ -50,7 +50,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--wt": String, "--new": "--wt",
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
-        "--fresh": Boolean, "--attach": Boolean, "-a": "--attach", "--list": Boolean, "--ls": "--list",
+        "--fresh": Boolean, "--attach": Boolean, "-a": "--attach",
+        "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
+        "--list": Boolean, "--ls": "--list",
         "--split": Boolean,
         "--all-local": Boolean,
       }, 1);
@@ -77,6 +79,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
       if (flags["--fresh"]) wakeOpts.fresh = true;
       if (flags["--attach"]) wakeOpts.attach = true;
+      if (flags["--no-attach"]) wakeOpts.attach = false; // #823 Bug B — explicit opt-out; preserves default when neither flag is set
       if (flags["--list"]) wakeOpts.listWt = true;
       if (flags["--split"]) wakeOpts.split = true;
       if (flags["--all-local"]) wakeOpts.allLocal = true;

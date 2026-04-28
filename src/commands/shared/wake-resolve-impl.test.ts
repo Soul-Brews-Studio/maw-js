@@ -30,7 +30,36 @@ mock.module(join(root, "config"), () => mockConfigModule(() => ({
   peers: [],
 })));
 
-const { detectSession } = await import("./wake-resolve-impl");
+const { detectSession, sanitizeBranchName } = await import("./wake-resolve-impl");
+
+describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
+  it("strips ALL leading dashes (--no-attach → no-attach)", () => {
+    // Pre-#823: `/^[-.]|[-.]$/g` only stripped one leading dash, leaving
+    // "-no-attach" which then became corrupted worktree name "1--no-attach".
+    expect(sanitizeBranchName("--no-attach")).toBe("no-attach");
+  });
+
+  it("strips ALL trailing dashes/dots", () => {
+    expect(sanitizeBranchName("foo--")).toBe("foo");
+    expect(sanitizeBranchName("foo..")).toBe("foo");
+    expect(sanitizeBranchName("--foo--")).toBe("foo");
+  });
+
+  it("collapses pure-junk input (`--`) to empty string", () => {
+    // Edge case — caller responsible for treating empty as malformed input.
+    expect(sanitizeBranchName("--")).toBe("");
+    expect(sanitizeBranchName("...")).toBe("");
+  });
+
+  it("preserves valid branch names unchanged", () => {
+    expect(sanitizeBranchName("feature-x")).toBe("feature-x");
+    expect(sanitizeBranchName("issue-823")).toBe("issue-823");
+  });
+
+  it("lowercases and replaces whitespace with dashes (existing behavior)", () => {
+    expect(sanitizeBranchName("My Task Name")).toBe("my-task-name");
+  });
+});
 
 describe("detectSession (#769) — URL-aware resolution", () => {
   it("URL with `<name>-oracle` repo resolves to exact full-name session", async () => {

@@ -91,7 +91,12 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     // Try to find matching window by name pattern
     // Window names like "neo-freelance" match wt name "1-freelance"
     const taskPart = wtName.replace(/^\d+-/, "");
-    const allWindows = sessions.flatMap(s => s.windows);
+    // #823 Bug C — dedupe windows by name across sessions. Without this, a
+    // window named X that exists in 2 sessions surfaces as 2 candidates in
+    // the ambiguous-match list, manufacturing phantom duplicates.
+    const allWindows = [
+      ...new Map(sessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
+    ];
     const resolved = resolveWorktreeTarget(taskPart, allWindows);
     switch (resolved.kind) {
       case "exact":
