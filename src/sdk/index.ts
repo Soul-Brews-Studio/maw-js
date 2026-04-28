@@ -68,6 +68,14 @@ export {
   readCache, isCacheStale,
 } from "../core/fleet/oracle-registry";
 export type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
+// Sub-issue 2 of #736 Phase 2 / #836 — unified read-only view across the 5
+// oracle registries. Consumer-side rollouts (oracle ls, doctor, resolveTarget)
+// land in follow-up PRs.
+export {
+  loadManifest, findOracle, loadManifestCached, invalidateManifest,
+  DEFAULT_TTL_MS as ORACLE_MANIFEST_DEFAULT_TTL_MS,
+} from "../lib/oracle-manifest";
+export type { OracleManifestEntry, OracleManifestSource } from "../lib/oracle-manifest";
 
 // ─── Artifacts ───────────────────────────────────────────────────────────────
 
