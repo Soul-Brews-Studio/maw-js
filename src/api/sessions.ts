@@ -213,9 +213,10 @@ sessionsApi.post("/select", async ({ body, set}) => {
 
 sessionsApi.post("/wake", async ({ body, set}) => {
   try {
-    const { target, task } = body;
+    const target = body.target ?? body.oracle;
+    if (!target) { set.status = 400; return { error: "target required (or 'oracle' for legacy peers)" }; }
     const { cmdWake } = await import("../commands/shared/wake");
-    await cmdWake(target, { noAttach: true, task });
+    await cmdWake(target, { noAttach: true, task: body.task });
     return { ok: true, target };
   } catch (err) {
     set.status = 500; return { error: String(err) };
