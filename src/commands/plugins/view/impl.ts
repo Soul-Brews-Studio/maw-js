@@ -104,11 +104,22 @@ export async function cmdView(
     // Fleet-known oracles skip the y/N prompt — if the user typed `maw a <x>`
     // and fleet configs pin <x>, we're confident this isn't a typo. Typos
     // (unknown names) still hit the prompt as a guard against accidental wake.
+    //
+    // #835 — the fleet-known decision is now delegated to the unified
+    // shouldAutoWake() helper. View's policy: --wake force / --no-wake skip /
+    // fleet-known silent wake / unknown ⇒ caller ask via decideWakePrompt.
     let autoWake = extraOpts.wake;
     if (!autoWake && !extraOpts.noWake) {
       try {
         const { resolveFleetSession } = await import("../../shared/wake-resolve");
-        if (resolveFleetSession(agent)) {
+        const { shouldAutoWake } = await import("../../shared/should-auto-wake");
+        const isFleetKnown = Boolean(resolveFleetSession(agent));
+        const decision = shouldAutoWake(agent, {
+          site: "view",
+          isLive: false, // we already know sessionName is null
+          isFleetKnown,
+        });
+        if (decision.wake) {
           console.log(`\x1b[36m⚡\x1b[0m '${agent}' is fleet-known — auto-wake`);
           autoWake = true;
         }

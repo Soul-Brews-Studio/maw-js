@@ -226,6 +226,9 @@ export async function cmdSend(query: string, message: string, force = false) {
   // peer's /api/wake (#791 — Option B from the design RFC). Canonical form
   // (<peer>:<session>:<window>) skips wake because the session is explicitly
   // named — wake on a session id would no-op or misroute.
+  //
+  // #835 — decision routed through shouldAutoWake(); the wake CALL itself
+  // (cmdWake, /api/wake POST) is unchanged.
   {
     const parts = query.split(":");
     const targetNode = parts.length >= 2 ? parts[0] : null;
@@ -237,36 +240,57 @@ export async function cmdSend(query: string, message: string, force = false) {
         s.name === bareAgent ||
         s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
       );
-      if (!hasLocalSession) {
-        try {
-          const { resolveFleetSession } = await import("./wake-resolve");
-          if (resolveFleetSession(bareAgent)) {
-            console.log(`\x1b[36m⚡\x1b[0m '${bareAgent}' is fleet-known — auto-wake`);
-            const { cmdWake } = await import("./wake-cmd");
-            await cmdWake(bareAgent, {});
-            // Refresh after wake — resolver needs the new tmux session visible.
-            sessions = await listSessions();
-          }
-        } catch { /* fleet/wake best-effort — fall through to existing error path */ }
-      }
+      try {
+        const { resolveFleetSession } = await import("./wake-resolve");
+        const { shouldAutoWake } = await import("./should-auto-wake");
+        const isFleetKnown = Boolean(resolveFleetSession(bareAgent));
+        const decision = shouldAutoWake(bareAgent, {
+          site: "hey",
+          isLive: hasLocalSession,
+          isFleetKnown,
+          isCanonicalTarget: false,
+        });
+        if (decision.wake) {
+          console.log(`\x1b[36m⚡\x1b[0m '${bareAgent}' is fleet-known — auto-wake`);
+          const { cmdWake } = await import("./wake-cmd");
+          await cmdWake(bareAgent, {});
+          // Refresh after wake — resolver needs the new tmux session visible.
+          sessions = await listSessions();
+        }
+      } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
       // #791: cross-node auto-wake. Sender does explicit /api/wake before
       // /api/send (Option B). Wake is idempotent on the receiver — if the
       // session already exists, cmdWake returns quickly. If wake errors,
       // surface and exit (do NOT silently fall through to send — design
       // call requires wake errors to be visible).
+      //
+      // #835 — decision routed through shouldAutoWake(). For cross-node hey
+      // we don't know the remote isLive locally; the receiver's /api/wake
+      // is idempotent, so we always ask. shouldAutoWake gives us
+      // wake=true on hey + !isLive + isFleetKnown=true. We model the
+      // cross-node target as fleet-known (peer is configured) and not-live.
       const peer = (config.namedPeers || []).find(p => p.name === targetNode);
       if (peer) {
-        const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
-          method: "POST",
-          body: JSON.stringify({ target: bareAgent }),
-          from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
+        const { shouldAutoWake } = await import("./should-auto-wake");
+        const decision = shouldAutoWake(bareAgent, {
+          site: "hey",
+          isLive: false,
+          isFleetKnown: true, // peer-configured target — treat as fleet-known
+          isCanonicalTarget: false,
         });
-        if (!wakeRes.ok || !wakeRes.data?.ok) {
-          const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
-          console.error(`\x1b[31merror\x1b[0m: cross-node wake failed for ${targetNode}:${bareAgent}: ${underlying}`);
-          console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
-          process.exit(1);
+        if (decision.wake) {
+          const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
+            method: "POST",
+            body: JSON.stringify({ target: bareAgent }),
+            from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
+          });
+          if (!wakeRes.ok || !wakeRes.data?.ok) {
+            const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
+            console.error(`\x1b[31merror\x1b[0m: cross-node wake failed for ${targetNode}:${bareAgent}: ${underlying}`);
+            console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
+            process.exit(1);
+          }
         }
       }
       // peer not in namedPeers → fall through; resolveTarget will surface the routing error.

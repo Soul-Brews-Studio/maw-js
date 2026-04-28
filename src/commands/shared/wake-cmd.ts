@@ -53,7 +53,17 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
-  if (!session) {
+  // #835 — consult unified shouldAutoWake. cmdWake is idempotent: if the
+  // session already exists, the helper returns wake=false and we skip the
+  // session-create branch (we still proceed to attach/select-window below).
+  // This makes the "wakes if missing" decision explicit + auditable.
+  const { shouldAutoWake } = await import("./should-auto-wake");
+  const wakeDecision = shouldAutoWake(oracle, {
+    site: "wake-cmd",
+    isLive: Boolean(session),
+  });
+
+  if (!session && wakeDecision.wake) {
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
