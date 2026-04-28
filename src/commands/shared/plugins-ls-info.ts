@@ -119,16 +119,33 @@ export function doInfo(name: string, discover: () => LoadedPlugin[]): void {
   if (m.cli) {
     const help = m.cli.help ? `  — ${m.cli.help}` : "";
     console.log(`  cli:     ${m.cli.command}${help}`);
+  } else if (p.kind === "ts" && p.entryPath) {
+    // #899 — community plugins without an explicit `cli` field still
+    // dispatch as `maw <name>` via the default-name path in dispatch-match.
+    console.log(`  cli:     ${m.name}  (default — no explicit cli field)`);
   }
   if (m.api) {
     console.log(`  api:     ${m.api.path}  [${m.api.methods.join(", ")}]`);
   }
   console.log(`  dir:     ${p.dir}`);
 
-  const wasmExists = existsSync(p.wasmPath);
-  const wasmMark = wasmExists ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗ missing\x1b[0m";
-  console.log(`  wasm:    ${p.wasmPath}  ${wasmMark}`);
-  if (!wasmExists) {
-    console.warn(`\x1b[33mwarn:\x1b[0m wasm file missing — plugin will not execute`);
+  // #899 — TS plugins execute via Bun import of `entry`, not WASM. Showing a
+  // "wasm missing — will not execute" warning for a healthy `target:js` plugin
+  // produced false-alarm reports during the source-plugin install cascade.
+  // Only warn about wasm when the plugin is actually a WASM kind.
+  if (p.kind === "ts" && p.entryPath) {
+    const entryExists = existsSync(p.entryPath);
+    const mark = entryExists ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗ missing\x1b[0m";
+    console.log(`  entry:   ${p.entryPath}  ${mark}`);
+    if (!entryExists) {
+      console.warn(`\x1b[33mwarn:\x1b[0m entry file missing — plugin will not execute`);
+    }
+  } else {
+    const wasmExists = existsSync(p.wasmPath);
+    const wasmMark = wasmExists ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗ missing\x1b[0m";
+    console.log(`  wasm:    ${p.wasmPath}  ${wasmMark}`);
+    if (!wasmExists) {
+      console.warn(`\x1b[33mwarn:\x1b[0m wasm file missing — plugin will not execute`);
+    }
   }
 }

@@ -14,6 +14,12 @@ export function archiveToTmp(name: string, dir: string): void {
 export function surfaces(p: LoadedPlugin): string {
   const parts: string[] = [];
   if (p.manifest.cli) parts.push(`cli:${p.manifest.cli.command}`);
+  // #899 — surfaces the default-cli-name for community plugins that omit
+  // the `cli` field but still dispatch as `maw <name>` via dispatch-match's
+  // pluginCliNames(). Listing was reporting "—" for these, masking the
+  // surface they actually expose at runtime.
+  else if (p.kind === "ts" && p.entryPath) parts.push(`cli:${p.manifest.name}`);
+  else if (p.kind === "wasm" && p.wasmPath) parts.push(`cli:${p.manifest.name}`);
   if (p.manifest.api) parts.push(`api:${p.manifest.api.path}`);
   return parts.join(", ") || "—";
 }

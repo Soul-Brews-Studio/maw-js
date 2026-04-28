@@ -33,8 +33,14 @@ export async function invokePlugin(
 
     // -v / --version — show plugin metadata
     if (flag === "-v" || flag === "--version" || flag === "-version") {
+      // #899 — derive the effective CLI surface so plugins without an
+      // explicit `cli` field still report their default-name dispatch
+      // (community-plugin shape: shellenv, bg, rename, cross-team-queue, park).
+      const effectiveCli = m.cli?.command
+        ?? (plugin.kind === "ts" && plugin.entryPath ? m.name : undefined)
+        ?? (plugin.kind === "wasm" && plugin.wasmPath ? m.name : undefined);
       const surfaces = [
-        m.cli ? `cli:${m.cli.command}` : null,
+        effectiveCli ? `cli:${effectiveCli}` : null,
         m.api ? `api:${m.api.path}` : null,
         m.hooks ? "hooks" : null,
         m.transport?.peer ? "peer" : null,
@@ -54,8 +60,14 @@ export async function invokePlugin(
       lines.push(`${m.name} v${m.version}`);
       if (m.description) lines.push(`  ${m.description}`);
       lines.push("");
+      // #899 — fall back to default-name dispatch when `cli` is omitted but
+      // the plugin is dispatchable. Mirrors pluginCliNames() in dispatch-match.
+      const defaultCli = (plugin.kind === "ts" && plugin.entryPath) || (plugin.kind === "wasm" && plugin.wasmPath)
+        ? m.name
+        : null;
+      const effectiveCmd = m.cli?.command ?? defaultCli;
       if (m.cli?.help) lines.push(`  usage: ${m.cli.help}`);
-      else if (m.cli) lines.push(`  usage: maw ${m.cli.command}`);
+      else if (effectiveCmd) lines.push(`  usage: maw ${effectiveCmd}`);
       if (m.cli?.aliases?.length) lines.push(`  aliases: ${m.cli.aliases.join(", ")}`);
       if (m.cli?.flags) {
         lines.push("  flags:");
@@ -63,7 +75,7 @@ export async function invokePlugin(
       }
       lines.push("");
       lines.push("  surfaces:");
-      if (m.cli) lines.push(`    cli: maw ${m.cli.command}`);
+      if (effectiveCmd) lines.push(`    cli: maw ${effectiveCmd}`);
       if (m.api) lines.push(`    api: ${m.api.methods.join("/")} ${m.api.path}`);
       if (m.transport?.peer) lines.push(`    peer: maw hey plugin:${m.name}`);
       if (m.hooks) lines.push(`    hooks: ${Object.keys(m.hooks).join(", ")}`);

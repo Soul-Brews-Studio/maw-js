@@ -42,6 +42,7 @@ Pre-1.0 alpha releases may still introduce breaking changes at any time.
 ### Fixed
 - `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — defensive belt-and-suspenders; package rename above is the root-cause fix)
 - `withUpdateLock`: fd-based read/write on lock file to prevent path TOCTOU from symlink substitution between openSync and the path-based follow-up
+- `runtime`: source-plugin execution dispatch — community plugins installed into `~/.maw/plugins/<name>/` without an explicit `cli` field in plugin.json now dispatch as `maw <name>` via a default-name fallback in `dispatch-match.ts` (`pluginCliNames`). The fallback only applies to plugins that are actually dispatchable (have an `entry` or `wasm` surface) so headless API/hooks/cron plugins still route to the unknown-command path. The unknown-command guard in `cli.ts` and the `--help` / `--version` / `plugin info` / `plugin ls` surfaces are all updated in lockstep, so the default name shows up consistently across the CLI. Closes the runtime gap that survived the install cascade (#857 + #861 + #866 + #870 + #880 + #897). Fixes #899.
 
 ## [v2.0.0-alpha.134] - 2026-04-18
 

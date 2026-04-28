@@ -70,7 +70,7 @@ async function main(): Promise<void> {
         // Also: slice by the MATCHED name (alias or command), not always command,
         // so remaining args are computed correctly when an alias fires.
         const { discoverPackages, invokePlugin } = await import("./plugin/registry");
-        const { resolvePluginMatch } = await import("./cli/dispatch-match");
+        const { resolvePluginMatch, pluginCliNames } = await import("./cli/dispatch-match");
         const plugins = discoverPackages();
         // #393 Bug H: use lowercased cmdName ONLY for plugin-name matching.
         // Pass the ORIGINAL-case args to the plugin. Previously remaining was
@@ -103,9 +103,15 @@ async function main(): Promise<void> {
         ];
         const knownCommands: string[] = [...CORE_ROUTES];
         for (const p of plugins) {
-          if (!p.manifest.cli) continue;
-          knownCommands.push(p.manifest.cli.command);
-          for (const a of p.manifest.cli.aliases ?? []) knownCommands.push(a);
+          // #899 — mirror dispatch-match's default-name behavior: plugins
+          // without `cli` but with a dispatchable entry surface as
+          // `manifest.name`. Keeps the unknown-command guard in sync with
+          // the dispatcher so source-installed community plugins don't
+          // trigger "did you mean" suggestions for their own command.
+          const cliNames = pluginCliNames(p);
+          if (!cliNames) continue;
+          knownCommands.push(cliNames.command);
+          for (const a of cliNames.aliases) knownCommands.push(a);
         }
         const { listCommands } = await import("./cli/command-registry");
         for (const c of listCommands()) {

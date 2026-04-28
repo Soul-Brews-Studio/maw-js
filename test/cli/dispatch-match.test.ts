@@ -84,7 +84,10 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(out.kind).toBe("none");
   });
 
-  test("plugins without cli field are skipped", () => {
+  test("non-dispatchable plugins (no cli, no entry, no wasm) are skipped", () => {
+    // #899 — pure-hooks/api/cron plugins still get filtered out: no `cli`
+    // field AND no entry/wasm to default to. The default-name fallback
+    // requires a dispatchable surface so unknown commands still error.
     const noCli: LoadedPlugin = {
       manifest: { name: "headless", version: "1.0.0", sdk: "^1.0.0" } as LoadedPlugin["manifest"],
       dir: "/tmp/headless",
@@ -95,6 +98,10 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     const out = resolvePluginMatch([noCli, art], "art");
     expect(out.kind).toBe("match");
     if (out.kind === "match") expect(out.plugin.manifest.name).toBe("artifact-manager");
+
+    // The headless plugin's name MUST NOT match — it has no executable surface.
+    const miss = resolvePluginMatch([noCli, art], "headless");
+    expect(miss.kind).toBe("none");
   });
 
   test("two plugins sharing same exact command → ambiguous", () => {
