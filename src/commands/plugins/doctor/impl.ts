@@ -6,6 +6,8 @@ import { loadPeers } from "../peers/store";
 import { findDuplicateIdentities, formatDuplicate } from "../peers/duplicate-detect";
 import { loadConfig } from "../../../config";
 import { C } from "../../shared/fleet-doctor-fixer";
+import { loadManifestCached, invalidateManifest } from "../../../lib/oracle-manifest";
+import { findGaps, summarizeGaps } from "./cross-source-detect";
 
 export interface DoctorResult {
   ok: boolean;
@@ -28,6 +30,9 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   }
   if (!only || only === "peers" || only === "all") {
     checks.push(checkPeerDuplicates());
+  }
+  if (!only || only === "manifest" || only === "all") {
+    checks.push(checkCrossSourceConsistency());
   }
 
   const hardOk = checks.every(c => c.ok);
@@ -210,6 +215,48 @@ function checkPeerDuplicates(): DoctorResult["checks"][number] {
     name: "peers:duplicates",
     ok: false,
     message: dups.map(formatDuplicate).join("; "),
+  };
+}
+
+/**
+ * Cross-source consistency via OracleManifest (Sub-PR 2 of #841).
+ *
+ * Loads the unified manifest (#838 — fleet, sessions, agents, oracles.json)
+ * and runs `findGaps()` over it to surface inconsistencies between the
+ * registries. All gaps are warnings, never hard failures: operators
+ * legitimately keep registries partly aligned during migrations, so
+ * gating exit codes on these would force `--allow-drift` for normal
+ * mid-flight states. Surface as `ok:true` with a message body that
+ * counts the gaps and breaks them down by kind; the per-gap detail
+ * lines are written to console for human inspection.
+ *
+ * Uses `loadManifestCached()` so this check shares the in-process
+ * manifest with any other consumer running in the same `maw doctor`
+ * invocation. We invalidate first to avoid serving a stale view if
+ * `loadConfig`-touching work happened earlier in the same process.
+ */
+function checkCrossSourceConsistency(): DoctorResult["checks"][number] {
+  let gaps: ReturnType<typeof findGaps>;
+  try {
+    invalidateManifest();
+    const manifest = loadManifestCached();
+    gaps = findGaps(manifest);
+  } catch (e: any) {
+    return {
+      name: "manifest:cross-source",
+      ok: true,
+      message: `manifest unreadable (${e?.message || e}) — skipping cross-source check`,
+    };
+  }
+
+  const { headline, lines } = summarizeGaps(gaps);
+  for (const line of lines) {
+    console.log(`    ${YELLOW}⚠${RESET} ${line}`);
+  }
+  return {
+    name: "manifest:cross-source",
+    ok: true,
+    message: headline,
   };
 }
 
