@@ -266,8 +266,13 @@ export function sanitizeBranchName(name: string): string {
   // flags that leak into the positional slot (e.g. "--no-attach") sanitize to
   // "no-attach" rather than the half-stripped "-no-attach", which then
   // becomes a corrupted worktree name "1--no-attach" downstream.
+  //
+  // Two separate anchored replace() calls instead of `/^[-.]+|[-.]+$/g` —
+  // CodeQL's js/polynomial-redos flagged the alternation form as
+  // backtrack-prone on long all-dash input. Anchored single-pass strips
+  // are linear (no alternation, no backtracking).
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._\-]/g, "")
-    .replace(/\.{2,}/g, ".").replace(/^[-.]+|[-.]+$/g, "").slice(0, 50);
+    .replace(/\.{2,}/g, ".").replace(/^[-.]+/, "").replace(/[-.]+$/, "").slice(0, 50);
 }
 
 // Wake target parsing (parseWakeTarget, ensureCloned) is in wake-target.ts
