@@ -259,6 +259,77 @@ export function resolveProfilePlugins(
   return allPlugins.map((p) => p.name).filter((n) => accept.has(n));
 }
 
+// ─── Per-process profile resolution cache (Phase 2 / #890) ──────────────────
+
+/**
+ * In-process cache of the active profile's resolved plugin set. The plugin
+ * registry calls `resolveActiveProfileFilter()` once on first
+ * `discoverPackages()`; subsequent calls in the same `maw` invocation reuse
+ * the result. Mirrors `_discoverCache` in src/plugin/registry.ts.
+ *
+ * The cache key is the (active profile name + plugin-name fingerprint) so
+ * adding/removing plugins between calls in the same process forces a refresh
+ * (rare path — install flows already call resetDiscoverCache()).
+ */
+let _filterCache: { key: string; allowed: Set<string> | null } | null = null;
+
+/** Reset the profile-resolution cache. Use after `setActiveProfile()` and
+ *  in tests that mutate MAW_CONFIG_DIR mid-process. */
+export function resetProfileFilterCache(): void {
+  _filterCache = null;
+}
+
+/**
+ * Resolve the active profile to a plugin-name allowlist, or `null` when the
+ * profile is "all" / empty (== load everything, identical to pre-Phase-2
+ * behavior).
+ *
+ * Hot path — every `maw` invocation hits this exactly once. Designed to be
+ * cheap on the "all" branch (single file stat, no JSON parse).
+ *
+ * @returns `null` to mean "no filter, load all plugins". A `Set<string>` of
+ *          allowed plugin names otherwise. Callers MUST treat `null` as the
+ *          identity filter, not as "load nothing".
+ */
+export function resolveActiveProfileFilter(
+  allPlugins: PluginNameAndTier[],
+): Set<string> | null {
+  const activeName = getActiveProfile();
+  // "all" is the documented passthrough — short-circuit before any disk read
+  // so the default install pays nothing for Phase 2.
+  if (activeName === "all") return null;
+
+  // Cache key folds in the plugin-name set so adding a plugin between two
+  // calls in the same process still produces the right answer.
+  const fingerprint = allPlugins
+    .map((p) => `${p.name}:${p.tier ?? "core"}`)
+    .sort()
+    .join("|");
+  const key = `${activeName}::${fingerprint}`;
+  if (_filterCache && _filterCache.key === key) return _filterCache.allowed;
+
+  const profile = loadProfile(activeName);
+  if (!profile) {
+    // Active profile points at a missing/corrupt file — fail open (load all)
+    // and let `maw profile` surface the error. Bricking the CLI on a stray
+    // active-profile pointer would be far worse than a permissive fallback.
+    _filterCache = { key, allowed: null };
+    return null;
+  }
+
+  const hasPlugins = Array.isArray(profile.plugins) && profile.plugins.length > 0;
+  const hasTiers = Array.isArray(profile.tiers) && profile.tiers.length > 0;
+  if (!hasPlugins && !hasTiers) {
+    // Empty profile → "all" semantics, same as the "all" pointer above.
+    _filterCache = { key, allowed: null };
+    return null;
+  }
+
+  const allowed = new Set(resolveProfilePlugins(profile, allPlugins));
+  _filterCache = { key, allowed };
+  return allowed;
+}
+
 // ─── Active profile pointer ──────────────────────────────────────────────────
 
 /**
@@ -292,4 +363,8 @@ export function setActiveProfile(name: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, name + "\n", "utf-8");
   renameSync(tmp, path);
+  // Phase 2 (#890): pointer change must invalidate the resolved-filter cache
+  // so the next discoverPackages() call re-reads. Same pattern as
+  // resetDiscoverCache() in src/plugin/registry.ts.
+  resetProfileFilterCache();
 }
