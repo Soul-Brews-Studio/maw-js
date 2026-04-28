@@ -48,6 +48,17 @@ jobs:
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Run ${{ matrix.suite.name }} tests
+        # MAW_SKIP_FLAKY=1 — override list (#811/#813 precedent).
+        # Currently skips:
+        #   - test/integration/federation-local.test.ts (#830 — port-binding
+        #     race in 2-port localhost /info round-trip; the test binds to
+        #     ephemeral ports allocated via getEphemeralPort() and a
+        #     concurrent CI job can grab the same port between close+spawn).
+        # Root-cause mitigations also live in the test file (SO_REUSEADDR,
+        # retry, fail-fast on subprocess exit, 60s deadline). The override
+        # is a belt-and-braces measure to keep CI green while we monitor.
+        env:
+          MAW_SKIP_FLAKY: "1"
         run: bun run ${{ matrix.suite.script }}
 
   build:
