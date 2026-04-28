@@ -76,6 +76,23 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () 
   resolveFleetSession: (oracle: string) => fleetKnown.has(oracle) ? `${oracle}-session` : null,
 }));
 
+// Sub-PR 4 of #841: comm-send now consults OracleManifest's `findOracle()`
+// for the local-scope auto-wake branch. Mock it to mirror the same fleetKnown
+// set the legacy wake-resolve mock above used.
+mock.module(join(import.meta.dir, "../../src/lib/oracle-manifest"), () => ({
+  findOracle: (oracle: string) => {
+    if (!fleetKnown.has(oracle)) return undefined;
+    return {
+      name: oracle,
+      sources: ["fleet"],
+      isLive: false,
+      hasFleetConfig: true,
+      session: `${oracle}-session`,
+      window: `${oracle}-oracle`,
+    };
+  },
+}));
+
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => ({
   cmdWake: async (oracle: string, opts: unknown) => {
     cmdWakeCalls.push({ oracle, opts });
