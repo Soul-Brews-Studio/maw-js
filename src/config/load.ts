@@ -59,7 +59,7 @@ export function loadConfig(): MawConfig {
   // before their first wake. Additive only: hand-tuned config.agents entries
   // are preserved. Failure swallowed: a fleet read glitch must not brick load.
   try {
-    const merged = loadFleetAgents(cached.agents || {});
+    const merged = loadFleetAgents(cached.agents || {}, cached.node);
     if (Object.keys(merged).length > 0) cached.agents = merged;
   } catch {
     // Defensive — loadFleetAgents already swallows IO/parse errors, but if

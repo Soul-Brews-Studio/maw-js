@@ -157,4 +157,22 @@ describe("loadFleetAgents (#736 Phase 1.1)", () => {
     expect(result["extra-oracle"]).toBe("mba");
     expect(result["neo-oracle"]).toBe("local");
   });
+
+  test("fleet-merged entries use config.node, not literal 'local' (#790)", () => {
+    // Regression: load.ts:62 was calling loadFleetAgents(cached.agents || {})
+    // without passing cached.node — so on a node named "m5", fleet-merged
+    // entries got the literal string "local", which resolveTarget() then
+    // failed to recognize as self. This test pins the contract: when the
+    // caller passes config.node ("m5"), every fleet-merged window must map
+    // to "m5", never to "local".
+    writeFileSync(join(dir, "08-mawjs.json"), JSON.stringify({
+      name: "08-mawjs",
+      windows: [{ name: "mawjs-oracle" }, { name: "neo-oracle" }],
+    }));
+    const result = loadFleetAgents({}, "m5", dir);
+    expect(result["mawjs-oracle"]).toBe("m5");
+    expect(result["neo-oracle"]).toBe("m5");
+    // And specifically NOT the buggy literal:
+    expect(result["mawjs-oracle"]).not.toBe("local");
+  });
 });
