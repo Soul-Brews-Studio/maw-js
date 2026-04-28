@@ -28,10 +28,21 @@ import {
   describe, test, expect, mock, beforeEach, afterEach, afterAll,
 } from "bun:test";
 import { join } from "path";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+
+// ─── #820 sandbox: route MAW_HOME at a tmpdir BEFORE any state-touching import.
+// Defense-in-depth: even if a transitive `saveConfig` slips through the mock,
+// it lands in this throwaway dir instead of the developer's real
+// ~/.config/maw/maw.config.json. Combined with the saveConfig stub below.
+const SANDBOX = mkdtempSync(join(tmpdir(), "maw-test-fleet-doctor-"));
+process.env.MAW_HOME = SANDBOX;
+process.env.MAW_TEST_MODE = "1";
 
 // ─── Gate ───────────────────────────────────────────────────────────────────
 
 let mockActive = false;
+let saveConfigCalls: Array<Partial<unknown>> = [];
 
 // ─── Capture real module refs BEFORE any mock.module installs ───────────────
 
@@ -93,6 +104,15 @@ mock.module(
     ..._rConfig,
     loadConfig: (...args: unknown[]) =>
       mockActive ? configOverride : (realLoadConfig as (...a: unknown[]) => unknown)(...args),
+    // #820 — Critical: stub saveConfig so cmdFleetDoctor({ fix: true }) →
+    // autoFix(...) → defaultSave(...) → require("../../config").saveConfig
+    // resolves through this mock and NEVER reaches the real
+    // ~/.config/maw/maw.config.json. Previously the spread `..._rConfig`
+    // carried the real saveConfig and the autoFix test corrupted real state.
+    saveConfig: (update: unknown) => {
+      saveConfigCalls.push(update as Partial<unknown>);
+      return mockActive ? configOverride : {};
+    },
   }),
 );
 
@@ -144,6 +164,7 @@ beforeEach(() => {
   configOverride = {};
   loadFleetEntriesReturn = [];
   loadFleetEntriesThrows = false;
+  saveConfigCalls = [];
 });
 
 afterEach(() => { mockActive = false; });
@@ -466,13 +487,15 @@ describe("cmdFleetDoctor — failure exit codes", () => {
 
 describe("cmdFleetDoctor — autofix path", () => {
   test("opts.fix=true with fixable finding → applies and prints applied-list", async () => {
+    // #820 — saveConfig is stubbed in the src/config mock above; autoFix's
+    // lazy `require("../../config").saveConfig` resolves through that stub
+    // (recorded in saveConfigCalls), so this test never touches real disk.
     configOverride = {
       node: "white",
       namedPeers: [{ name: "mba", url: "https://mba.example" }],
       agents: {},
       port: 3456,
       ghqRoot: "/tmp/nope",
-      save: () => {/* no-op — autoFix defaults to defaultSave which lazy-requires config */ },
     };
     curlFetchResponses = [{
       match: /mba\.example/,
@@ -484,6 +507,9 @@ describe("cmdFleetDoctor — autofix path", () => {
     const joined = outs.join("\n");
     expect(joined).toContain("Applied");
     expect(joined).toContain("config.agents['mawjs']");
+    // #820 — verify the stub captured the write (and the real disk path was
+    // not touched). The stub records every saveConfig invocation.
+    expect(saveConfigCalls.length).toBeGreaterThan(0);
   });
 
   test("opts.fix=true with no fixable findings → prints 'need a human' hint", async () => {
