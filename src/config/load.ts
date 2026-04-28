@@ -5,6 +5,7 @@ import { verbose, info } from "../cli/verbosity";
 import type { MawConfig } from "./types";
 import { D } from "./types";
 import { validateConfig } from "./validate-ext";
+import { loadFleetAgents } from "./fleet-merge";
 
 // #680 — ghqRoot is no longer resolved at config-load time. Callers that need
 // a filesystem path go through `getGhqRoot()` (src/config/ghq-root.ts), which
@@ -52,6 +53,18 @@ export function loadConfig(): MawConfig {
       );
     }
     cached.host = "local";
+  }
+  // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
+  // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
+  // before their first wake. Additive only: hand-tuned config.agents entries
+  // are preserved. Failure swallowed: a fleet read glitch must not brick load.
+  try {
+    const merged = loadFleetAgents(cached.agents || {}, cached.node);
+    if (Object.keys(merged).length > 0) cached.agents = merged;
+  } catch {
+    // Defensive — loadFleetAgents already swallows IO/parse errors, but if
+    // anything unexpected escapes we'd rather load with the raw config than
+    // fail to start at all.
   }
   // #680 — warn once if the (deprecated) ghqRoot override is set in config.
   if (!warnedGhqRoot && typeof cached.ghqRoot === "string" && cached.ghqRoot.length > 0) {

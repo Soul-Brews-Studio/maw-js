@@ -106,35 +106,47 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
 }
 
 /**
- * Phase 1 of #759 — bare-name deprecation. The bare-name path still resolves,
- * but every call prints the suggestion shape from #759 so scripts get pushed
- * onto the canonical `<node>:<agent>` form before Phase 2 makes it a hard
- * error. Output is on stderr so it does not contaminate piped stdout.
+ * Phase 2 of #759 — bare-name hard rejection. The bare-name path is removed
+ * outright: cmdSend prints this error to stderr and exits non-zero before
+ * any resolution attempt. Replaces the Phase 1 `formatBareNameDeprecation`
+ * warning. Shape is fixed per the issue and exercised by
+ * test/isolated/hey-bare-name-rejection.test.ts.
+ *
+ * The triple `<node>:<session>:<agent>` form keeps `<node>` and `<session>`
+ * as literal placeholders — the user is meant to run `maw locate <agent>`
+ * to enumerate concrete candidates across the federation. Only `<agent>`
+ * is substituted with the bare query the user actually typed.
  */
-export function formatBareNameDeprecation(node: string, query: string): string {
-  const Y = "\x1b[33m"; // yellow — louder than the old gray tip
-  const C = "\x1b[36m"; // cyan — for canonical suggestion lines
-  const D = "\x1b[90m"; // dim — for explanatory tail
+export function formatBareNameError(query: string): string {
+  const RED = "\x1b[31m"; // error marker
+  const C = "\x1b[36m";   // cyan — for canonical suggestion lines
+  const D = "\x1b[90m";   // dim — for explanatory tail
   const R = "\x1b[0m";
   return [
-    `${Y}⚠ deprecation${R}: bare-name target '${query}' is deprecated and will be removed (#759)`,
+    `${RED}error${R}: bare-name target removed — node prefix required`,
     ``,
     `  this node:`,
-    `    ${C}maw hey ${node}:${query} "..."${R}`,
+    `    ${C}maw hey local:${query} "..."${R}`,
     ``,
-    `  ${D}run \`maw locate ${query}\` to enumerate cross-node candidates${R}`,
+    `  cross-node candidates:`,
+    `    ${C}maw hey <node>:<session>:${query} "..."${R}`,
     ``,
+    `  ${D}run \`maw locate ${query}\` to enumerate across federation${R}`,
   ].join("\n");
 }
 
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
 
-  // #759 Phase 1 — every-call deprecation warning when the user omits the
-  // node prefix. Phase 2 will turn this into a hard error. Honors MAW_QUIET=1
-  // as an explicit per-invocation opt-out (e.g. for hot fan-out loops).
-  if (!query.includes(":") && !query.includes("/") && !process.env.MAW_QUIET && config.node) {
-    console.error(formatBareNameDeprecation(config.node, query));
+  // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
+  // resolution work so users get a fast, deterministic failure pushing them
+  // onto the canonical `<node>:<agent>` form. `team:` and `plugin:` prefixes
+  // are special-cased downstream and have their own colon, so they pass.
+  // `/` is reserved for path-style targets. MAW_QUIET no longer suppresses —
+  // Phase 1's quiet-opt-out was a deprecation-window concession only.
+  if (!query.includes(":") && !query.includes("/")) {
+    console.error(formatBareNameError(query));
+    process.exit(1);
   }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
@@ -202,7 +214,63 @@ export async function cmdSend(query: string, message: string, force = false) {
     process.exit(1);
   }
 
-  const sessions = await listSessions();
+  let sessions = await listSessions();
+
+  // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
+  // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
+  // no live session exists, silently wake it before sending. No y/N prompt:
+  // fleet membership is sufficient signal that this isn't a typo.
+  //
+  // Local scope (no node prefix or matches config.node): wake locally via cmdWake.
+  // Cross-node short form (<peer>:<agent>, no third colon): wake remotely via
+  // peer's /api/wake (#791 — Option B from the design RFC). Canonical form
+  // (<peer>:<session>:<window>) skips wake because the session is explicitly
+  // named — wake on a session id would no-op or misroute.
+  {
+    const parts = query.split(":");
+    const targetNode = parts.length >= 2 ? parts[0] : null;
+    const bareAgent = parts.length >= 2 ? parts[1] : query;
+    const isCanonical = parts.length >= 3;
+    const isLocalScope = !targetNode || targetNode === config.node;
+    if (isLocalScope && bareAgent && !isCanonical) {
+      const hasLocalSession = sessions.some(s =>
+        s.name === bareAgent ||
+        s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
+      );
+      if (!hasLocalSession) {
+        try {
+          const { resolveFleetSession } = await import("./wake-resolve");
+          if (resolveFleetSession(bareAgent)) {
+            console.log(`\x1b[36m⚡\x1b[0m '${bareAgent}' is fleet-known — auto-wake`);
+            const { cmdWake } = await import("./wake-cmd");
+            await cmdWake(bareAgent, {});
+            // Refresh after wake — resolver needs the new tmux session visible.
+            sessions = await listSessions();
+          }
+        } catch { /* fleet/wake best-effort — fall through to existing error path */ }
+      }
+    } else if (targetNode && bareAgent && !isCanonical) {
+      // #791: cross-node auto-wake. Sender does explicit /api/wake before
+      // /api/send (Option B). Wake is idempotent on the receiver — if the
+      // session already exists, cmdWake returns quickly. If wake errors,
+      // surface and exit (do NOT silently fall through to send — design
+      // call requires wake errors to be visible).
+      const peer = (config.namedPeers || []).find(p => p.name === targetNode);
+      if (peer) {
+        const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
+          method: "POST",
+          body: JSON.stringify({ target: bareAgent }),
+        });
+        if (!wakeRes.ok || !wakeRes.data?.ok) {
+          const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
+          console.error(`\x1b[31merror\x1b[0m: cross-node wake failed for ${targetNode}:${bareAgent}: ${underlying}`);
+          console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
+          process.exit(1);
+        }
+      }
+      // peer not in namedPeers → fall through; resolveTarget will surface the routing error.
+    }
+  }
 
   // --- Unified resolution via resolveTarget (#201) ---
   const result = resolveTarget(query, config, sessions);

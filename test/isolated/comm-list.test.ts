@@ -242,6 +242,20 @@ mock.module(
   }),
 );
 
+// #759 Phase 2: bare names rejected — tests now use prefixed forms like
+// "white:mawjs". The #736 auto-wake block fires on self-node prefixed forms
+// when there's no local session, which would invoke real wake-resolve and
+// real cmdWake. Stub both to no-op so cmdSend reaches the resolveTarget mock
+// without side effects.
+mock.module(
+  join(import.meta.dir, "../../src/commands/shared/wake-resolve"),
+  () => ({ resolveFleetSession: () => null }),
+);
+mock.module(
+  join(import.meta.dir, "../../src/commands/shared/wake-cmd"),
+  () => ({ cmdWake: async () => null }),
+);
+
 // NB: import targets AFTER mocks so their import graph resolves through our stubs.
 const { cmdList, renderSessionName } = await import("../../src/commands/shared/comm-list");
 const { cmdSend, resolveOraclePane, resolveMyName } = await import("../../src/commands/shared/comm-send");
@@ -698,45 +712,46 @@ describe("resolveOraclePane", () => {
 // comm-send.ts — cmdSend (bare-name tip, local, peer, plugin, error paths)
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("cmdSend — bare-name deprecation (#362b → #759 Phase 1)", () => {
-  test("bare name + config.node set → deprecation warning on stderr", async () => {
+describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
+  // History: Phase 1 emitted a deprecation warning on bare-name targets but
+  // still resolved them. Phase 2 (#759) removes the bare-name path entirely
+  // — cmdSend now exits non-zero with a hard error before any resolution.
+  // The Phase 1 warning + MAW_QUIET escape hatch are gone. Coverage of the
+  // new error-shape lives in test/isolated/hey-bare-name-rejection.test.ts.
+
+  test("bare name → hard error + exit 1, no deprecation phrasing", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
     await run(() => cmdSend("mawjs", "hi"));
 
+    expect(exitCode).toBe(1);
     const joined = errs.join("\n");
-    expect(joined).toContain("deprecation");
-    expect(joined).toContain("#759");
-    expect(joined).toContain("maw hey white:mawjs");
+    // New Phase 2 shape — no longer the yellow ⚠ deprecation
+    expect(joined).toContain("bare-name target removed");
+    expect(joined).toContain("node prefix required");
+    expect(joined).not.toContain("deprecation");
   });
 
-  test("MAW_QUIET=1 suppresses the deprecation warning", async () => {
+  test("query containing ':' → passes the bare-name guard", async () => {
+    configOverride = { node: "white" };
+    resolveTargetReturn = { type: "error", reason: "unknown_node", detail: "…" };
+
+    await run(() => cmdSend("white:mawjs", "hi"));
+
+    // Bare-name guard does not fire on prefixed queries
+    expect(errs.some((e) => e.includes("bare-name target removed"))).toBe(false);
+  });
+
+  test("MAW_QUIET=1 does NOT bypass the rejection — Phase 1 escape hatch is gone", async () => {
     process.env.MAW_QUIET = "1";
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
     await run(() => cmdSend("mawjs", "hi"));
 
-    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
-  });
-
-  test("query containing ':' → no warning (already canonical)", async () => {
-    configOverride = { node: "white" };
-    resolveTargetReturn = { type: "error", reason: "unknown_node", detail: "…" };
-
-    await run(() => cmdSend("white:mawjs", "hi"));
-
-    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
-  });
-
-  test("no config.node → no warning", async () => {
-    configOverride = {};
-    resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
-
-    await run(() => cmdSend("mawjs", "hi"));
-
-    expect(errs.some((e) => e.includes("deprecation"))).toBe(false);
+    expect(exitCode).toBe(1);
+    expect(errs.join("\n")).toContain("bare-name target removed");
   });
 });
 
@@ -747,13 +762,13 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     getPaneCommandMap = { "08-mawjs:0": "claude" };
     captureResponses = [{ match: /08-mawjs:0/, result: "prompt $\nhello back" }];
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls).toHaveLength(1);
     expect(logMessageCalls[0]).toMatchObject({
-      from: "test-oracle", to: "mawjs", msg: "ping", route: "local",
+      from: "test-oracle", to: "white:mawjs", msg: "ping", route: "local",
     });
     expect(emitFeedCalls).toHaveLength(1);
     expect(emitFeedCalls[0]).toMatchObject({
@@ -768,14 +783,14 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
     const joined = errs.join("\n");
     expect(joined).toContain("no active Claude session in 08-mawjs:0");
     expect(joined).toContain("running: zsh");
-    expect(joined).toContain("maw wake mawjs");
+    expect(joined).toContain("maw wake white:mawjs");
   });
 
   test("local target + non-agent pane WITH --force → sends anyway", async () => {
@@ -784,7 +799,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
     captureResponses = [{ match: /08-mawjs:0/, result: "shell\n" }];
 
-    await run(() => cmdSend("mawjs", "ping", true));
+    await run(() => cmdSend("white:mawjs", "ping", true));
 
     expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
     expect(exitCode).toBeUndefined();
@@ -796,7 +811,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     getPaneCommandMap = { "08-mawjs:0": "claude" };
     captureResponses = [{ match: /08-mawjs:0/, result: "\n\n  \n" }];
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(outs.some((o) => o.includes("delivered"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷"))).toBe(false);
@@ -808,7 +823,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     getPaneCommandMap = { "08-mawjs:0": "claude" };
     captureResponses = [{ match: /08-mawjs:0/, error: "capture refused" }];
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(outs.some((o) => o.includes("delivered"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷"))).toBe(false);
@@ -832,7 +847,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     let caught: unknown;
     try {
-      await cmdSend("mawjs", "ping");
+      await cmdSend("white:mawjs", "ping");
     } catch (e) {
       caught = e;
     }
@@ -849,7 +864,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     }];
     getPaneCommandMap = { "08-mawjs:0.1": "claude" };
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0.1", text: "ping" }]);
   });
@@ -942,7 +957,7 @@ describe("cmdSend — async peer discovery fallback", () => {
       response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo" } },
     }];
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(curlFetchCalls).toHaveLength(1);
     expect(curlFetchCalls[0].url).toBe("https://discovered.example/api/send");
@@ -959,7 +974,7 @@ describe("cmdSend — async peer discovery fallback", () => {
       response: { ok: false, status: 503, data: null },
     }];
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(exitCode).toBe(1);
     // #411: must surface the remote failure, not the local-miss message
@@ -978,7 +993,7 @@ describe("cmdSend — error paths (no match)", () => {
       hint: "maw wake mawjs",
     };
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -990,7 +1005,7 @@ describe("cmdSend — error paths (no match)", () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "x", detail: "just a detail" };
 
-    await run(() => cmdSend("mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping"));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("just a detail");
@@ -1001,11 +1016,11 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping"));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
-    expect(joined).toContain("window not found: ghost");
+    expect(joined).toContain("window not found: white:ghost");
     expect(joined).toContain("known agents:");
     expect(joined).toContain("foo");
     expect(joined).toContain("bar");
@@ -1016,10 +1031,10 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("window not found: ghost");
+    expect(errs.join("\n")).toContain("window not found: white:ghost");
     expect(errs.some((e) => e.includes("known agents:"))).toBe(false);
   });
 });

@@ -96,7 +96,7 @@ async function main(): Promise<void> {
         // NOT strictly match an oracle session name. Preserves `maw mawjs`
         // shorthand while catching `maw hek` / `maw oracl` / typos.
         const CORE_ROUTES = [
-          "hey", "send", "tell",
+          "hey",
           "plugins", "plugin", "artifacts", "artifact",
           "agents", "agent", "audit", "serve",
           "update", "upgrade", "version",

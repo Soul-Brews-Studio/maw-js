@@ -28,9 +28,9 @@ jobs:
           VERSION="${TAG#v}"
           echo "Validating: $TAG ($VERSION)"
 
-          REGEX='^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(-alpha\.[0-9]{1,2}[a-z]?)?$'
+          REGEX='^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(-(alpha|beta)\.[0-9]+)?$'
           if [[ ! "$VERSION" =~ $REGEX ]]; then
-            echo "::error title=CalVer violation::Tag '$TAG' does not match v{yy}.{m}.{d}[-alpha.{hour}]"
+            echo "::error title=CalVer violation::Tag '$TAG' does not match v{yy}.{m}.{d}[-(alpha|beta).{N}]"
             echo "::error::Spec: https://github.com/Soul-Brews-Studio/mawjs-oracle/blob/main/%CF%88/inbox/2026-04-18_proposal-calver-skills-cli.md"
             exit 1
           fi
@@ -47,11 +47,15 @@ jobs:
             exit 1
           fi
 
-          if [[ "$VERSION" == *-alpha.* ]]; then
-            HOUR_RAW="${VERSION##*-alpha.}"
-            HOUR="${HOUR_RAW%%[a-z]*}"
-            if (( HOUR < 0 || HOUR > 23 )); then
-              echo "::error::Hour must be 0-23, got $HOUR"
+          # Post-#775: monotonic counter — N can be any non-negative integer.
+          # Pre-release suffix shape (-alpha.N / -beta.N) is validated by the
+          # regex in scripts/calver.ts; this workflow only sanity-checks it
+          # exists and is digit-shaped.
+          if [[ "$VERSION" =~ -(alpha|beta)\. ]]; then
+            CHANNEL_RAW="${VERSION##*-}"
+            N_RAW="${CHANNEL_RAW#*.}"
+            if [[ ! "$N_RAW" =~ ^[0-9]+$ ]]; then
+              echo "::error::Pre-release counter must be a non-negative integer, got $N_RAW"
               exit 1
             fi
           fi

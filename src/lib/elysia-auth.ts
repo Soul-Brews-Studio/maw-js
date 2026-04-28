@@ -16,6 +16,9 @@ const WINDOW_SEC = D.hmacWindowSeconds;
 /** Protected paths — write/control operations, require auth from non-loopback clients */
 const PROTECTED = new Set([
   "/send",
+  "/pane-keys",
+  "/wake",            // #798 — clones repos, spawns tmux + agent processes
+  "/sleep",           // #798 — kills tmux sessions
   "/talk",
   "/transport/send",
   "/triggers/fire",
@@ -31,7 +34,7 @@ const PROTECTED_POST = new Set([
 // are intentionally public — the Office UI on LAN needs them.
 // HMAC protects write operations from unauthenticated remote peers.
 
-function isProtected(path: string, method: string): boolean {
+export function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation

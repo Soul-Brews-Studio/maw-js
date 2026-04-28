@@ -88,9 +88,10 @@ export type TPluginInfo = Static<typeof PluginInfo>;
 // Request body schemas (POST endpoints)
 // ---------------------------------------------------------------------------
 
-/** POST /api/wake */
+/** POST /api/wake — accepts `target` (current) or `oracle` (legacy pre-rename) */
 export const WakeBody = Type.Object({
-  target: Type.String(),
+  target: Type.Optional(Type.String()),
+  oracle: Type.Optional(Type.String()),
   task: Type.Optional(Type.String()),
 });
 export type TWakeBody = Static<typeof WakeBody>;
@@ -109,6 +110,20 @@ export const SendBody = Type.Object({
   attachments: Type.Optional(Type.Array(Type.String())),
 });
 export type TSendBody = Static<typeof SendBody>;
+
+/**
+ * POST /api/pane-keys (#757)
+ *
+ * Raw tmux send-keys to any pane (bash, claude, anything). No paste-mode,
+ * no readiness guard. Used by `maw send` (enter=false) and `maw run`
+ * (enter=true) for cross-node pane control.
+ */
+export const PaneKeysBody = Type.Object({
+  target: Type.String(),
+  text: Type.String(),
+  enter: Type.Optional(Type.Boolean()),
+});
+export type TPaneKeysBody = Static<typeof PaneKeysBody>;
 
 /** POST /api/config-file (save) */
 export const ConfigFileBody = Type.Object({

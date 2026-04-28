@@ -34,6 +34,7 @@ export function hashBody(body: string | Uint8Array | undefined | null): string {
 /** Protected paths — write/control operations, require auth from non-loopback clients */
 const PROTECTED = new Set([
   "/api/send",
+  "/api/pane-keys",
   "/api/talk",
   "/api/transport/send",
   "/api/triggers/fire",
