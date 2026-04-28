@@ -25,6 +25,9 @@ Pre-1.0 alpha releases may still introduce breaking changes at any time.
 
 ## [Unreleased]
 
+### Security
+- `auth`: replace predictable JWT secret default (`"maw-" + node`) with a 32-byte random secret persisted to `<CONFIG_DIR>/auth-secret` (mode 0600), generated on first run like an SSH host key. `MAW_JWT_SECRET` env var still takes precedence. Operators see a one-time `[auth] generated random JWT secret → …` line on creation. Fixes #801.
+
 ### Changed
 - **Renamed npm package** `maw` → `maw-js` to eliminate bun `DependencyLoop` caused by collision with unrelated stale `maw@0.6.0` on npm. Binary name unchanged — users still run `maw`. Fixes #554, closes #555, eliminates root cause of #531.
 
