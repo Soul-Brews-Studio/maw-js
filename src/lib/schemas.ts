@@ -21,6 +21,11 @@ export const Identity = Type.Object({
   agents: Type.Array(Type.String()),
   clockUtc: Type.String(),
   uptime: Type.Number(),
+  // #804 Step 1 — federation peer identity (ADR docs/federation/0001-peer-identity.md).
+  // `endpoints` lets peers discover supported API surfaces in one round-trip;
+  // `pubkey` is the per-peer identity used for TOFU pinning + future signing.
+  endpoints: Type.Array(Type.String()),
+  pubkey: Type.String(),
 });
 export type TIdentity = Static<typeof Identity>;
 

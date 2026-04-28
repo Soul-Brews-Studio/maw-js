@@ -63,9 +63,17 @@ async function typedFetch<T>(path: string, init?: RequestInit & { timeout?: numb
 
 // --- API layer ---
 
-/** Node identity: name, version, agents, clock */
+/** Node identity: name, version, agents, clock, endpoints, pubkey (#804 Step 1) */
 async function identity(): Promise<Identity> {
-  return api<Identity>("/api/identity", { node: "unknown", version: "?", agents: [], clockUtc: "", uptime: 0 });
+  return api<Identity>("/api/identity", {
+    node: "unknown",
+    version: "?",
+    agents: [],
+    clockUtc: "",
+    uptime: 0,
+    endpoints: [],
+    pubkey: "",
+  });
 }
 
 /** Federation status: peers, latency, clock drift */

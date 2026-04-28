@@ -7,6 +7,23 @@ import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../core/paths";
+import { getPeerKey } from "../lib/peer-key";
+
+/**
+ * Endpoints advertised by /api/identity (#804 Step 1).
+ *
+ * Lets peers discover supported API surfaces in one round-trip instead of
+ * probing each path individually. Keep alphabetised + in sync with the actual
+ * mounted routes — this is a contract, not documentation.
+ */
+const ADVERTISED_ENDPOINTS: string[] = [
+  "/api/identity",
+  "/api/pane-keys",
+  "/api/probe",
+  "/api/send",
+  "/api/sleep",
+  "/api/wake",
+];
 
 // Re-export so existing importers (and any future code) can still reach
 // hostedAgents via the API module. The canonical home is federation-sync.ts.
@@ -33,7 +50,15 @@ federationApi.get("/snapshots/:id", ({ params, set}) => {
   return snap;
 });
 
-/** Node identity — public endpoint for federation dedup (#192) + clock health (#268). */
+/**
+ * Node identity — public endpoint for federation dedup (#192) + clock health (#268).
+ *
+ * #804 Step 1 (ADR docs/federation/0001-peer-identity.md): also advertises
+ *   - `endpoints`: supported API paths so peers can discover capabilities
+ *     in one round-trip (closes the version-skew pressure).
+ *   - `pubkey`: per-peer identity for TOFU pinning + Step 4 signing. Persisted
+ *     at <CONFIG_DIR>/peer-key (SSH host-key model).
+ */
 federationApi.get("/identity", async () => {
   const config = loadConfig();
   const node = config.node ?? "local";
@@ -45,6 +70,8 @@ federationApi.get("/identity", async () => {
     agents,
     uptime: Math.floor(process.uptime()),
     clockUtc: new Date().toISOString(),
+    endpoints: ADVERTISED_ENDPOINTS,
+    pubkey: getPeerKey(),
   };
 });
 
