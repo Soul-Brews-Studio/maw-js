@@ -28,7 +28,10 @@ export async function cmdSoulSync(target?: string, opts?: { from?: boolean; cwd?
 
   const cwdParts = cwd.split("/");
   const repoName = cwdParts.pop() || "";
-  const oracleName = repoName.replace(/-oracle$/, "").replace(/\.wt-.*$/, "");
+  // Strip `.wt-…` worktree suffix via indexOf — non-regex to avoid CodeQL polynomial-redos flag.
+  const wtIdx = repoName.indexOf(".wt-");
+  const baseRepo = wtIdx >= 0 ? repoName.slice(0, wtIdx) : repoName;
+  const oracleName = baseRepo.replace(/-oracle$/, "");
 
   let oraclePath = cwd;
   try {
