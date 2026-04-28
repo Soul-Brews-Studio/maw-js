@@ -289,8 +289,15 @@ export async function installFromTarball(
   // the entry file's bytes instead so plugins.lock has a stable identity to
   // verify against on subsequent installs. The entry file IS the artifact for
   // source plugins (Bun executes .ts/.js source directly).
-  const recordedSha = manifest!.artifact?.sha256
-    ?? hashFile(join(dest, manifest!.entry!));
+  //
+  // #896 — defensive: prefer source-plugin path when manifest is source-shaped
+  // (covers no-artifact AND half-built artifact.sha256=null). Avoids recording
+  // a null sha into the lockfile when the manifest is mid-build but ships a
+  // valid entry.
+  const recordedSha = isSourcePluginManifest(manifest!)
+    ? hashFile(join(dest, manifest!.entry!))
+    : manifest!.artifact?.sha256
+      ?? hashFile(join(dest, manifest!.entry!));
   recordInstall({
     name: manifest!.name,
     version: manifest!.version,

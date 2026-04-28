@@ -90,18 +90,38 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
 }
 
 /**
- * Source-plugin detector (#874 path A.3).
+ * Source-plugin detector (#874 path A.3, hardened in #896).
  *
- * A "source plugin" is a tarball that declares `entry` (e.g. `./src/index.ts`
- * or `./index.js`) but no `artifact` — typical of community repos that ship
- * source rather than a pre-built `dist/index.js`. Bun runs source entries
- * transparently, so the install path can accept them directly without a build
- * step. We still hash the entry file's bytes for plugins.lock parity — that
- * way `recordInstall` / `--pin` / hash-mismatch checks all keep working
- * uniformly across source and built tarballs.
+ * A "source plugin" is one that ships executable source rather than a
+ * pre-built bundle — typical of community repos with `src/index.ts` +
+ * `plugin.json` and no `dist/`. Bun runs `.ts`/`.js` source transparently,
+ * so the install path can accept them without an ahead-of-time build. We
+ * still hash the entry file's bytes for plugins.lock parity so
+ * `recordInstall` / `--pin` / hash-mismatch all work uniformly.
+ *
+ * #896 — hardened to accept EITHER of:
+ *   • no `artifact` + has `entry`         (canonical source shape, #874 A.3)
+ *   • has `artifact.sha256 === null` + has `entry`  (half-built — entry is
+ *     authoritative because the artifact has no committed bytes to verify)
+ *
+ * The second branch matters because parseManifest accepts `artifact.sha256
+ * = null` as valid (a manifest mid-build). Pre-#896 those tarballs hit the
+ * `manifest.artifact` truthy branch, fell through `verifyArtifactHash`'s
+ * sha256-null fencepost, and never tried the perfectly valid `entry`. The
+ * symptom looked like a stale-binary regression (#896): the user filed
+ * `tarball manifest has no 'artifact' field` even on tarballs whose
+ * plugin.json clearly had `entry: "./src/index.ts"` — the artifact branch
+ * was rejecting them before the entry branch could rescue.
  */
 export function isSourcePluginManifest(manifest: PluginManifest): boolean {
-  return !manifest.artifact && typeof manifest.entry === "string" && manifest.entry.length > 0;
+  const hasEntry = typeof manifest.entry === "string" && manifest.entry.length > 0;
+  if (!hasEntry) return false;
+  // Canonical source shape: no artifact at all.
+  if (!manifest.artifact) return true;
+  // Half-built: artifact declared but sha256 not yet computed. Entry is the
+  // authoritative byte source.
+  if (manifest.artifact.sha256 === null) return true;
+  return false;
 }
 
 /**
@@ -113,6 +133,11 @@ export function isSourcePluginManifest(manifest: PluginManifest): boolean {
  *
  * #874 path A.3 — for source plugins (no `artifact`, has `entry`), the entry
  * file's bytes ARE the artifact. Hash that instead.
+ *
+ * #896 — when `manifest.artifact.path` doesn't exist on disk but the
+ * manifest also declares `entry`, fall back to entry. Defensive against
+ * tarballs whose artifact path got out of sync with their actual contents
+ * (e.g. registry source republished with a stale dist reference).
  */
 export function verifyArtifactHashAgainst(
   dir: string,
@@ -120,12 +145,18 @@ export function verifyArtifactHashAgainst(
   expected: string,
 ): { ok: true } | { ok: false; error: string } {
   let relPath: string;
-  if (manifest.artifact) {
-    relPath = manifest.artifact.path;
-  } else if (isSourcePluginManifest(manifest)) {
+  // #896: entry-first when source-shaped — covers no-artifact AND
+  // half-built (sha256:null) shapes uniformly.
+  if (isSourcePluginManifest(manifest)) {
     relPath = manifest.entry!;
+  } else if (manifest.artifact) {
+    relPath = manifest.artifact.path;
+    // #896: artifact declared but missing on disk — try entry rescue.
+    if (!existsSync(join(dir, relPath)) && typeof manifest.entry === "string" && manifest.entry.length > 0) {
+      relPath = manifest.entry;
+    }
   } else {
-    return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
+    return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with `maw plugin build` or declare an entry path" };
   }
   const artifactPath = join(dir, relPath);
   if (!existsSync(artifactPath)) {
@@ -152,6 +183,10 @@ export function verifyArtifactHashAgainst(
  * fencepost: there is no embedded hash to check against, so the registry-
  * pinned hash in plugins.lock is the only authoritative source. Tampering
  * is still detected at the pinned-hash check in `installFromTarball`.
+ *
+ * #896 — `isSourcePluginManifest` now accepts both no-artifact and
+ * half-built (artifact.sha256===null) shapes when entry is present. Both
+ * fall through to entry-only existence verification.
  */
 export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok: true } | { ok: false; error: string } {
   if (isSourcePluginManifest(manifest)) {
@@ -164,10 +199,12 @@ export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok:
     return { ok: true };
   }
   if (!manifest.artifact) {
-    return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
+    return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with `maw plugin build` or declare an entry path" };
   }
   if (manifest.artifact.sha256 === null) {
-    return { ok: false, error: "tarball manifest has artifact.sha256=null (unbuilt) — rebuild with `maw plugin build`" };
+    // Should be unreachable thanks to #896 isSourcePluginManifest covering
+    // half-built + entry. Kept as a fencepost for the no-entry case.
+    return { ok: false, error: "tarball manifest has artifact.sha256=null (unbuilt) and no entry fallback — rebuild with `maw plugin build`" };
   }
   return verifyArtifactHashAgainst(dir, manifest, manifest.artifact.sha256);
 }
