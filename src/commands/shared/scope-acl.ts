@@ -35,6 +35,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { scopesDir } from "../plugins/scope/impl";
+import { loadTrust as loadTrustStore } from "../plugins/trust/store";
 import type { TScope } from "../../lib/schemas";
 
 /**
@@ -157,4 +158,45 @@ export function loadAllScopes(): TScope[] {
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
+}
+
+/**
+ * Read the on-disk pairwise trust list from `<CONFIG_DIR>/trust.json`.
+ *
+ * Thin wrapper around `loadTrust()` in `plugins/trust/store.ts` so that
+ * callers wiring the ACL evaluator don't need to know which plugin owns
+ * the file. Mirrors the relationship between `loadAllScopes()` (this
+ * module) and `cmdList()` (the scope plugin).
+ *
+ * Returns `[]` when the file is missing, malformed, or unreadable —
+ * forgiving semantics so an operator who's never written a trust entry
+ * still gets a working ACL evaluator. The on-disk shape carries an
+ * `addedAt` field that this function strips before returning, so the
+ * result is assignable to `TrustList` (which only requires
+ * `sender` / `target`). TypeScript's structural typing accepts the
+ * extra field, but stripping keeps the in-memory shape minimal.
+ *
+ * Sub-B of #842 — Sub-C will replace `evaluateAcl(...)` callers in
+ * `comm-send.ts` with the convenience wrapper {@link evaluateAclFromDisk}
+ * below, which composes both loaders.
+ */
+export function loadTrustFromDisk(): TrustList {
+  return loadTrustStore().map(e => ({ sender: e.sender, target: e.target }));
+}
+
+/**
+ * Convenience wrapper: load scopes + trust from disk and evaluate ACL.
+ *
+ * Composition of {@link loadAllScopes}, {@link loadTrustFromDisk}, and
+ * {@link evaluateAcl}. Most production callers want this — the pure
+ * `evaluateAcl` is exposed separately so unit tests can inject inputs
+ * directly without a temp filesystem dance.
+ *
+ * Sub-B introduces this wrapper. Sub-C wires it into the send hot path.
+ */
+export function evaluateAclFromDisk(
+  sender: string,
+  target: string,
+): AclDecision {
+  return evaluateAcl(sender, target, loadAllScopes(), loadTrustFromDisk());
 }
