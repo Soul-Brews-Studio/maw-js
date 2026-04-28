@@ -6,15 +6,61 @@
  *
  * Uses Bun.CryptoHasher for HMAC — no jsonwebtoken, no jose, no deps.
  *
- * Security: signature comparison is constant-time via crypto.timingSafeEqual
- * (#800). Cousin module src/lib/federation-auth.ts uses the same pattern.
+ * Security:
+ *   - Signature comparison is constant-time via crypto.timingSafeEqual (#800)
+ *   - Secret resolution: when MAW_JWT_SECRET is unset, generate a 32-byte
+ *     random secret on first run + persist to <CONFIG_DIR>/auth-secret
+ *     (mode 0600), like SSH host keys. (#801)
+ *
+ * Cousin module src/lib/federation-auth.ts uses the same patterns.
  */
 
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomBytes } from "crypto";
+import { readFileSync, writeFileSync, chmodSync } from "fs";
+import { join } from "path";
+import { CONFIG_DIR } from "../core/paths";
+import { info } from "../cli/verbosity";
 import { loadConfig } from "../config";
 
-const JWT_SECRET = process.env.MAW_JWT_SECRET || "maw-" + ((loadConfig() as any).node || "local");
 const TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Path to the persisted random secret (mode 0600). */
+export const AUTH_SECRET_FILE = join(CONFIG_DIR, "auth-secret");
+
+let cachedSecret: string | null = null;
+
+/**
+ * Resolve the JWT/HMAC secret.
+ *
+ * Precedence:
+ *   1. MAW_JWT_SECRET env var (operator override) — file is not read.
+ *   2. <CONFIG_DIR>/auth-secret if it exists.
+ *   3. Generate a fresh 32-byte (64-char hex) secret, persist with mode 0600,
+ *      and log a one-time creation notice.
+ */
+export function getJwtSecret(): string {
+  if (process.env.MAW_JWT_SECRET) return process.env.MAW_JWT_SECRET;
+  if (cachedSecret) return cachedSecret;
+  try {
+    cachedSecret = readFileSync(AUTH_SECRET_FILE, "utf-8").trim();
+    if (cachedSecret) return cachedSecret;
+  } catch {
+    // file missing or unreadable — fall through to generate
+  }
+  const fresh = randomBytes(32).toString("hex");
+  writeFileSync(AUTH_SECRET_FILE, fresh, { mode: 0o600, flag: "w" });
+  // chmod is a belt-and-suspenders for filesystems where the open-time mode
+  // isn't honored (umask-stripped, NFS, etc).
+  try { chmodSync(AUTH_SECRET_FILE, 0o600); } catch { /* best-effort */ }
+  cachedSecret = fresh;
+  info(`[auth] generated random JWT secret → ${AUTH_SECRET_FILE} (mode 0600)`);
+  return fresh;
+}
+
+/** Reset the in-memory secret cache (test seam). */
+export function resetJwtSecretCache(): void {
+  cachedSecret = null;
+}
 
 interface TokenPayload {
   iat: number;
@@ -25,7 +71,7 @@ interface TokenPayload {
 /** HMAC-SHA256 sign a payload string */
 function hmacSign(payload: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(JWT_SECRET + "." + payload);
+  hasher.update(getJwtSecret() + "." + payload);
   return hasher.digest("base64url");
 }
 
