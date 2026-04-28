@@ -4,6 +4,7 @@ import {
   dateBase,
   maxAlphaFromTags,
   maxNFromPackageJson,
+  maxNFromTags,
 } from "../scripts/calver";
 
 describe("calver dateBase", () => {
@@ -71,7 +72,53 @@ describe("calver computeVersion", () => {
 
   it("--stable ignores tags entirely", () => {
     const tags = ["v26.4.27-alpha.99"];
-    expect(computeVersion({ stable: true, check: false, now: apr27_1200 }, tags)).toBe("26.4.27");
+    expect(computeVersion({ stable: true, channel: "alpha", check: false, now: apr27_1200 }, tags)).toBe("26.4.27");
+  });
+});
+
+describe("calver beta channel (#754)", () => {
+  const apr28 = new Date(2026, 3, 28, 12, 0);
+
+  it("maxNFromTags isolates alpha and beta counters", () => {
+    const tags = [
+      "v26.4.28-alpha.0",
+      "v26.4.28-alpha.1",
+      "v26.4.28-beta.0",
+    ];
+    expect(maxNFromTags("26.4.28", "alpha", tags)).toBe(1);
+    expect(maxNFromTags("26.4.28", "beta", tags)).toBe(0);
+  });
+
+  it("maxAlphaFromTags is a back-compat alias for alpha channel", () => {
+    const tags = ["v26.4.28-alpha.5", "v26.4.28-beta.99"];
+    expect(maxAlphaFromTags("26.4.28", tags)).toBe(5);
+  });
+
+  it("--beta computes next beta version with independent counter", () => {
+    const tags = ["v26.4.28-alpha.21", "v26.4.28-beta.2"];
+    expect(
+      computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags)
+    ).toBe("26.4.28-beta.3");
+  });
+
+  it("--beta starts at 0 when no beta tags exist for today", () => {
+    const tags = ["v26.4.28-alpha.50"];
+    expect(
+      computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags)
+    ).toBe("26.4.28-beta.0");
+  });
+
+  it("alpha and beta on the same day do not collide", () => {
+    const tags = ["v26.4.28-alpha.5"];
+    const alpha = computeVersion({ stable: false, channel: "alpha", check: false, now: apr28 }, tags);
+    const beta = computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags);
+    expect(alpha).toBe("26.4.28-alpha.6");
+    expect(beta).toBe("26.4.28-beta.0");
+  });
+
+  it("beta tag walk rejects two-tier suffixes (e.g. beta.12.0)", () => {
+    const tags = ["v26.4.28-beta.5", "v26.4.28-beta.12.0"];
+    expect(maxNFromTags("26.4.28", "beta", tags)).toBe(5);
   });
 });
 

@@ -1,17 +1,20 @@
 #!/usr/bin/env bun
 // CalVer bump for maw-js
 //
-// Scheme: v{yy}.{m}.{d}[-alpha.{N}]
+// Scheme: v{yy}.{m}.{d}[-(alpha|beta).{N}]
 // Spec:   https://github.com/Soul-Brews-Studio/mawjs-oracle/blob/main/%CF%88/inbox/2026-04-18_proposal-calver-skills-cli.md
 // Ported from: Soul-Brews-Studio/arra-oracle-skills-cli (PR #262)
 // Umbrella: #526
 // Option A (#766): monotonic running counter — N starts at 0 each day,
-// counts up per release. Walk existing tags for today's date and pick max+1.
-// No timestamp encoded in the alpha number; pure ordering.
+// counts up per release. Walk existing tags AND package.json (#784) for
+// today's date and pick max+1.
+// Beta channel (#754): parallel hourly channel, independent counter.
+// No timestamp encoded in the alpha/beta number; pure ordering.
 // Timezone comes from the shell — set TZ=Asia/Bangkok in CI if needed.
 //
 // Usage:
 //   bun scripts/calver.ts                  → 26.4.18-alpha.{next-N}
+//   bun scripts/calver.ts --beta           → 26.4.18-beta.{next-N}
 //   bun scripts/calver.ts --stable         → 26.4.18
 //   bun scripts/calver.ts --check          → dry-run (no writes)
 
@@ -19,13 +22,15 @@ import { $ } from "bun";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-type Args = { stable: boolean; check: boolean; now?: Date };
+export type Channel = "alpha" | "beta";
+type Args = { stable: boolean; channel?: Channel; check: boolean; now?: Date };
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { stable: false, check: false };
+  const args: Args = { stable: false, channel: "alpha", check: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--stable") args.stable = true;
+    else if (a === "--beta") args.channel = "beta";
     else if (a === "--check" || a === "--dry-run") args.check = true;
     else if (a === "--hour") {
       console.error("--hour deprecated as of #766; CalVer now uses tag-walk monotonic counter");
@@ -40,6 +45,10 @@ function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
   }
+  if (args.stable && args.channel === "beta") {
+    console.error("--stable and --beta are mutually exclusive");
+    process.exit(2);
+  }
   return args;
 }
 
@@ -47,16 +56,19 @@ const HELP = `Usage: bun scripts/calver.ts [options]
 
 Compute next CalVer version and bump package.json.
 
-Scheme: v{yy}.{m}.{d}[-alpha.{N}] — N is a monotonic running counter that
-starts at 0 each day and counts up per release (Option A from #766).
+Scheme: v{yy}.{m}.{d}[-(alpha|beta).{N}] — N is a monotonic running counter
+that starts at 0 each day and counts up per release (Option A from #766).
+Alpha and beta are independent channels with their own counters (#754).
 
 Options:
-  --stable         Cut stable (no alpha suffix)
+  --stable         Cut stable (no alpha/beta suffix)
+  --beta           Cut beta instead of alpha (separate counter)
   --check          Dry-run: print target, don't modify files
   -h, --help       Show help
 
 Examples:
   bun scripts/calver.ts                  next alpha → 26.4.18-alpha.{next-N}
+  bun scripts/calver.ts --beta           next beta  → 26.4.18-beta.{next-N}
   bun scripts/calver.ts --stable         stable cut → 26.4.18
   bun scripts/calver.ts --check          print only, no write`;
 
@@ -70,8 +82,10 @@ export function dateBase(now: Date): string {
 /**
  * Walk git tags matching `v{base}-{channel}.*` and return the max N found,
  * or -1 if no matching tags exist for this date+channel yet.
+ *
+ * Backwards-compatible alias `maxAlphaFromTags(base, tags)` defaults to alpha.
  */
-export function maxNFromTags(base: string, channel: "alpha" | "beta", tags: string[]): number {
+export function maxNFromTags(base: string, channel: Channel, tags: string[]): number {
   const prefix = `v${base}-${channel}.`;
   let max = -1;
   for (const tag of tags) {
@@ -105,7 +119,7 @@ export function maxAlphaFromTags(base: string, tags: string[]): number {
  */
 export function maxNFromPackageJson(
   base: string,
-  channel: "alpha" | "beta",
+  channel: Channel,
   packageVersion: string,
 ): number {
   if (!packageVersion) return -1;
@@ -119,8 +133,8 @@ export function maxNFromPackageJson(
   return Number.isInteger(n) ? n : -1;
 }
 
-async function listAlphaTags(base: string): Promise<string[]> {
-  const res = await $`git tag --list ${`v${base}-alpha.*`}`.nothrow().quiet();
+async function listChannelTags(base: string, channel: Channel): Promise<string[]> {
+  const res = await $`git tag --list ${`v${base}-${channel}.*`}`.nothrow().quiet();
   if (res.exitCode !== 0) return [];
   return res.stdout.toString().split("\n").map(s => s.trim()).filter(Boolean);
 }
@@ -129,12 +143,13 @@ export function computeVersion(args: Args, tags: string[] = [], packageVersion: 
   const now = args.now ?? new Date();
   const base = dateBase(now);
   if (args.stable) return base;
-  // #784: take max of (tag-walk N, package.json N) — see maxNFromPackageJson.
-  const tagMax = maxNFromTags(base, "alpha", tags);
-  const pkgMax = maxNFromPackageJson(base, "alpha", packageVersion);
+  const channel = args.channel ?? "alpha";
+  // Take max of (tag-walk N, package.json N) — see maxNFromPackageJson (#784).
+  const tagMax = maxNFromTags(base, channel, tags);
+  const pkgMax = maxNFromPackageJson(base, channel, packageVersion);
   const max = Math.max(tagMax, pkgMax);
   const next = max + 1; // -1 → 0 if none yet today
-  return `${base}-alpha.${next}`;
+  return `${base}-${channel}.${next}`;
 }
 
 async function tagExists(version: string): Promise<boolean> {
@@ -152,9 +167,10 @@ async function main() {
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
-  const tags = args.stable ? [] : await listAlphaTags(base);
+  const channelForTags: Channel = args.channel ?? "alpha";
+  const tags = args.stable ? [] : await listChannelTags(base, channelForTags);
   const version = computeVersion(args, tags, pkg.version ?? "");
-  const channel = args.stable ? "stable" : "alpha";
+  const channel = args.stable ? "stable" : channelForTags;
 
   console.log(`Target: v${version}  [${channel}]`);
 
