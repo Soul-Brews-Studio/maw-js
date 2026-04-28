@@ -5,8 +5,12 @@
  * Cherry-picked from natman95's PR #188 (Dashboard Pro).
  *
  * Uses Bun.CryptoHasher for HMAC — no jsonwebtoken, no jose, no deps.
+ *
+ * Security: signature comparison is constant-time via crypto.timingSafeEqual
+ * (#800). Cousin module src/lib/federation-auth.ts uses the same pattern.
  */
 
+import { timingSafeEqual } from "crypto";
 import { loadConfig } from "../config";
 
 const JWT_SECRET = process.env.MAW_JWT_SECRET || "maw-" + ((loadConfig() as any).node || "local");
@@ -42,7 +46,13 @@ export function verifyToken(token: string): TokenPayload | null {
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
-  if (sig !== hmacSign(data)) return null;
+  // #800: constant-time signature comparison to prevent timing-channel
+  // byte-by-byte recovery. Length-check first because timingSafeEqual
+  // throws on length mismatch.
+  const expected = Buffer.from(hmacSign(data));
+  const provided = Buffer.from(sig);
+  if (provided.length !== expected.length) return null;
+  if (!timingSafeEqual(provided, expected)) return null;
   try {
     const payload: TokenPayload = JSON.parse(Buffer.from(data, "base64url").toString());
     if (Date.now() > payload.exp) return null;
