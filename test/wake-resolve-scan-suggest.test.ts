@@ -4,16 +4,23 @@
  *
  * All tests use injected deps — no real gh/ghq calls, no /dev/tty access.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   extractGhqOrgs,
   buildOrgList,
   scanOrgs,
   scanSuggestOracle,
   readTtyAnswer,
+  fetchAllowedOrgs,
+  filterOrgsByAllowed,
+  _resetAllowedOrgsCache,
   type OrgEntry,
   type TtyReader,
 } from "../src/commands/shared/wake-resolve-scan-suggest";
+
+// #770 — every test that exercises the org-scope filter must start from a
+// clean cache; otherwise a prior test's mocked execFn leaks across cases.
+beforeEach(() => { _resetAllowedOrgsCache(); });
 
 // ---------------------------------------------------------------------------
 // extractGhqOrgs — unit tests
@@ -219,5 +226,236 @@ describe("scanSuggestOracle — non-TTY fallback", () => {
     });
 
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #770 — owned/member org scope filter
+// ---------------------------------------------------------------------------
+
+describe("fetchAllowedOrgs (#770)", () => {
+  test("returns user + orgs when both api calls succeed", () => {
+    const execFn = (cmd: string): string => {
+      if (cmd.startsWith("gh api user --jq .login")) return "nazt\n";
+      if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\nlaris-co\n";
+      throw new Error(`unexpected: ${cmd}`);
+    };
+    const result = fetchAllowedOrgs(execFn);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.user).toBe("nazt");
+    expect([...result.orgs].sort()).toEqual(["Soul-Brews-Studio", "laris-co", "nazt"].sort());
+  });
+
+  test("falls back to ok:false when gh api user fails (unauthenticated)", () => {
+    const execFn = (cmd: string): string => {
+      if (cmd.startsWith("gh api user --jq")) throw new Error("401 Bad credentials");
+      return "";
+    };
+    const result = fetchAllowedOrgs(execFn);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain("gh api user failed");
+  });
+
+  test("returns just the user when user/orgs fails (e.g. token lacks read:org)", () => {
+    const execFn = (cmd: string): string => {
+      if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+      if (cmd.startsWith("gh api user/orgs")) throw new Error("403 Resource not accessible");
+      throw new Error(`unexpected: ${cmd}`);
+    };
+    const result = fetchAllowedOrgs(execFn);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect([...result.orgs]).toEqual(["nazt"]);
+  });
+
+  test("caches across calls — second invocation does not hit execFn", () => {
+    let calls = 0;
+    const execFn = (cmd: string): string => {
+      calls++;
+      if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+      if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\n";
+      throw new Error(`unexpected: ${cmd}`);
+    };
+    fetchAllowedOrgs(execFn);
+    const callsAfterFirst = calls;
+    fetchAllowedOrgs(execFn);
+    expect(calls).toBe(callsAfterFirst);
+  });
+});
+
+describe("filterOrgsByAllowed (#770)", () => {
+  const ghqOrgs: OrgEntry[] = [
+    { name: "anthropics", source: "local" },        // read-only upstream — out
+    { name: "NousResearch", source: "local" },      // read-only upstream — out
+    { name: "Soul-Brews-Studio", source: "local" }, // owned — in
+    { name: "nazt", source: "local" },              // user — in
+    { name: "laris-co", source: "local" },          // member — in
+    { name: "arthur-oracle.wt", source: "local" },  // worktree artifact — out
+  ];
+
+  test("(a) read-only upstream orgs are filtered out", () => {
+    const allowed = { ok: true as const, user: "nazt", orgs: new Set(["nazt", "Soul-Brews-Studio", "laris-co"]) };
+    const filtered = filterOrgsByAllowed(ghqOrgs, allowed);
+    const names = filtered.map(o => o.name);
+    expect(names).not.toContain("anthropics");
+    expect(names).not.toContain("NousResearch");
+    expect(names).not.toContain("arthur-oracle.wt");
+  });
+
+  test("(b) owned org is included", () => {
+    const allowed = { ok: true as const, user: "nazt", orgs: new Set(["nazt", "Soul-Brews-Studio"]) };
+    const names = filterOrgsByAllowed(ghqOrgs, allowed).map(o => o.name);
+    expect(names).toContain("Soul-Brews-Studio");
+  });
+
+  test("(c) member org is included", () => {
+    const allowed = { ok: true as const, user: "nazt", orgs: new Set(["nazt", "laris-co"]) };
+    const names = filterOrgsByAllowed(ghqOrgs, allowed).map(o => o.name);
+    expect(names).toContain("laris-co");
+  });
+
+  test("(e) when allowed.ok is false, filter is a passthrough (graceful fallback)", () => {
+    const allowed = { ok: false as const, reason: "gh api user failed: 401" };
+    const result = filterOrgsByAllowed(ghqOrgs, allowed);
+    expect(result).toEqual(ghqOrgs);
+  });
+});
+
+describe("scanSuggestOracle scope filter (#770)", () => {
+  test("(a-c) filters scan to owned + member orgs by default", async () => {
+    const probed: string[] = [];
+    const result = await scanSuggestOracle("liquid", {
+      execFn: (cmd) => {
+        if (cmd.includes("gh --version")) return "gh version 2.0.0";
+        if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) {
+          return [
+            "github.com/anthropics/claude-code",       // upstream
+            "github.com/NousResearch/some-tool",       // upstream
+            "github.com/Soul-Brews-Studio/maw-js",     // owned
+            "github.com/nazt/dotfiles",                // user
+            "github.com/laris-co/neo-oracle",          // member
+          ].join("\n");
+        }
+        if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+        if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\nlaris-co\n";
+        if (cmd.startsWith("gh repo view ")) {
+          const m = cmd.match(/gh repo view '([^']+)'/);
+          if (m) probed.push(m[1]!);
+          throw new Error("not found");
+        }
+        throw new Error(`unexpected: ${cmd}`);
+      },
+      promptFn: () => true,
+      configFn: () => ({}),
+      hostExecFn: async () => "",
+    });
+
+    expect(result).toBeNull();
+    // Read-only upstream orgs must NOT be probed
+    expect(probed).not.toContain("anthropics/liquid-oracle");
+    expect(probed).not.toContain("NousResearch/liquid-oracle");
+    // Allowed orgs MUST be probed
+    expect(probed).toContain("Soul-Brews-Studio/liquid-oracle");
+    expect(probed).toContain("nazt/liquid-oracle");
+    expect(probed).toContain("laris-co/liquid-oracle");
+    expect(probed.length).toBe(3);
+  });
+
+  test("(d) --all-local bypasses filter and scans every org", async () => {
+    const probed: string[] = [];
+    const result = await scanSuggestOracle("liquid", {
+      execFn: (cmd) => {
+        if (cmd.includes("gh --version")) return "gh version 2.0.0";
+        if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) {
+          return [
+            "github.com/anthropics/claude-code",
+            "github.com/Soul-Brews-Studio/maw-js",
+          ].join("\n");
+        }
+        if (cmd.startsWith("gh api")) {
+          throw new Error("gh api MUST NOT be called when --all-local is set");
+        }
+        if (cmd.startsWith("gh repo view ")) {
+          const m = cmd.match(/gh repo view '([^']+)'/);
+          if (m) probed.push(m[1]!);
+          throw new Error("not found");
+        }
+        throw new Error(`unexpected: ${cmd}`);
+      },
+      promptFn: () => true,
+      configFn: () => ({}),
+      hostExecFn: async () => "",
+      allLocal: true,
+    });
+
+    expect(result).toBeNull();
+    expect(probed).toContain("anthropics/liquid-oracle");
+    expect(probed).toContain("Soul-Brews-Studio/liquid-oracle");
+  });
+
+  test("(e) gh api user failure falls back to all-local with warning (does not abort)", async () => {
+    const probed: string[] = [];
+    const warnings: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: any[]) => { warnings.push(a.map(String).join(" ")); };
+    try {
+      const result = await scanSuggestOracle("liquid", {
+        execFn: (cmd) => {
+          if (cmd.includes("gh --version")) return "gh version 2.0.0";
+          if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) {
+            return [
+              "github.com/anthropics/claude-code",
+              "github.com/Soul-Brews-Studio/maw-js",
+            ].join("\n");
+          }
+          if (cmd.startsWith("gh api user --jq")) throw new Error("401 Bad credentials");
+          if (cmd.startsWith("gh repo view ")) {
+            const m = cmd.match(/gh repo view '([^']+)'/);
+            if (m) probed.push(m[1]!);
+            throw new Error("not found");
+          }
+          throw new Error(`unexpected: ${cmd}`);
+        },
+        promptFn: () => true,
+        configFn: () => ({}),
+        hostExecFn: async () => "",
+      });
+      expect(result).toBeNull();
+      // Both orgs probed — fallback retains legacy behavior on api failure
+      expect(probed).toContain("anthropics/liquid-oracle");
+      expect(probed).toContain("Soul-Brews-Studio/liquid-oracle");
+      // Warning surfaced so the user understands why the scope wasn't narrowed
+      expect(warnings.some(w => w.includes("org-scope filter unavailable"))).toBe(true);
+    } finally {
+      console.error = origErr;
+    }
+  });
+
+  test("returns null with a hint when filter empties the org list", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: any[]) => { errors.push(a.map(String).join(" ")); };
+    try {
+      const result = await scanSuggestOracle("liquid", {
+        execFn: (cmd) => {
+          if (cmd.includes("gh --version")) return "gh version 2.0.0";
+          if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) {
+            return "github.com/anthropics/claude-code\ngithub.com/NousResearch/some-tool\n";
+          }
+          if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+          if (cmd.startsWith("gh api user/orgs")) return "";
+          throw new Error(`unexpected: ${cmd}`);
+        },
+        promptFn: () => true,
+        configFn: () => ({}),
+        hostExecFn: async () => "",
+      });
+      expect(result).toBeNull();
+      expect(errors.some(e => e.includes("--all-local"))).toBe(true);
+    } finally {
+      console.error = origErr;
+    }
   });
 });

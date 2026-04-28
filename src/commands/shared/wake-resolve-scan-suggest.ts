@@ -21,7 +21,21 @@ export interface ScanSuggestDeps {
   hostExecFn?: (cmd: string) => Promise<string>;
   /** Load maw config (injectable for tests) */
   configFn?: () => any;
+  /**
+   * #770 — bypass owned/member-org filter and scan every locally-cloned org.
+   * Rare third-party-org case (oracle spawned into someone else's org).
+   */
+  allLocal?: boolean;
 }
+
+/**
+ * #770 — Result of probing GitHub for the orgs the authenticated user can
+ * actually own a repo in. `ok: false` triggers a graceful fallback to the
+ * unfiltered (all-local) scan with a warning.
+ */
+export type AllowedOrgs =
+  | { ok: true; user: string; orgs: Set<string> }
+  | { ok: false; reason: string };
 
 /** Extract unique org names from `ghq list` output (github.com/<org>/<repo> format). */
 export function extractGhqOrgs(ghqOutput: string): string[] {
@@ -32,6 +46,54 @@ export function extractGhqOrgs(ghqOutput: string): string[] {
     if (parts.length >= 3 && parts[1]) orgs.add(parts[1]);
   }
   return [...orgs].sort();
+}
+
+/**
+ * Process-lifetime cache for the user's owned + member orgs. Single `gh api
+ * user/orgs` per maw invocation; reset between tests via `_resetAllowedOrgsCache`.
+ */
+let _allowedOrgsCache: AllowedOrgs | null = null;
+
+/** @internal — exported only so tests can isolate cases. */
+export function _resetAllowedOrgsCache(): void { _allowedOrgsCache = null; }
+
+/**
+ * Probe `gh api user` and `gh api user/orgs` to derive the orgs the user can
+ * actually host a repo in. Cached on first call. On any failure (no auth,
+ * offline, gh missing) returns `ok: false` so the caller can fall back to the
+ * legacy all-local scan with a warning rather than silently empty out.
+ */
+export function fetchAllowedOrgs(execFn: (cmd: string) => string): AllowedOrgs {
+  if (_allowedOrgsCache) return _allowedOrgsCache;
+
+  let user: string;
+  try {
+    user = execFn("gh api user --jq .login 2>/dev/null").trim();
+    if (!user) throw new Error("empty login");
+  } catch (e: any) {
+    const reason = `gh api user failed: ${String(e?.message || e).split("\n")[0]}`;
+    return (_allowedOrgsCache = { ok: false, reason });
+  }
+
+  const orgs = new Set<string>([user]);
+  try {
+    const raw = execFn("gh api user/orgs --jq '.[].login' 2>/dev/null");
+    for (const line of raw.split("\n")) {
+      const t = line.trim();
+      if (t) orgs.add(t);
+    }
+  } catch {
+    // user lookup worked but org listing failed (e.g. token without `read:org`).
+    // Falling through with just the user is still better than scanning all-local.
+  }
+
+  return (_allowedOrgsCache = { ok: true, user, orgs });
+}
+
+/** Keep only orgs that match `allowed.orgs` (case-sensitive — GitHub org slugs). */
+export function filterOrgsByAllowed(orgs: OrgEntry[], allowed: AllowedOrgs): OrgEntry[] {
+  if (!allowed.ok) return orgs;
+  return orgs.filter(o => allowed.orgs.has(o.name));
 }
 
 /** Combine orgs from ghq list + config, deduped, sorted case-insensitively. */
@@ -159,11 +221,31 @@ export async function scanSuggestOracle(
   let ghqOutput = "";
   try { ghqOutput = execFn("ghq list"); } catch { /* no ghq or empty */ }
 
-  const orgs = buildOrgList(ghqOutput, cfg);
+  const allOrgs = buildOrgList(ghqOutput, cfg);
 
-  if (orgs.length === 0) {
+  if (allOrgs.length === 0) {
     console.error(`\x1b[90mno orgs configured; set githubOrg in config or: ghq get <url>  then re-run\x1b[0m`);
     return null;
+  }
+
+  // #770 — filter to owned/member orgs unless --all-local was passed.
+  // Read-only clones of upstream code (anthropics, NousResearch, etc.) can never
+  // host the user's oracle, so probing them wastes API budget and clutters the prompt.
+  let orgs = allOrgs;
+  let scopeNote = "scope: --all-local (no filter)";
+  if (!deps?.allLocal) {
+    const allowed = fetchAllowedOrgs(execFn);
+    if (allowed.ok) {
+      orgs = filterOrgsByAllowed(allOrgs, allowed);
+      scopeNote = "scope: owned + member orgs only";
+      if (orgs.length === 0) {
+        console.error(`\x1b[33m⚠\x1b[0m no locally-cloned orgs are owned by or shared with @${allowed.user}; pass --all-local to override`);
+        return null;
+      }
+    } else {
+      console.error(`\x1b[33m⚠\x1b[0m org-scope filter unavailable (${allowed.reason}); falling back to all local`);
+      scopeNote = "scope: all local (org-fetch failed)";
+    }
   }
 
   // Strip -oracle suffix if caller passed it (we always append exactly once)
@@ -176,7 +258,7 @@ export async function scanSuggestOracle(
     return `  ${tlink(ghUrl, o.name.padEnd(24))} (${o.source})`;
   }).join("\n");
   console.log(`\n\x1b[36m🔍 Scan for ${stem}?\x1b[0m\n`);
-  console.log(`Provider: github.com`);
+  console.log(`Provider: github.com (${scopeNote})`);
   console.log(`Orgs (${orgs.length}, sorted):\n${orgLines}\n`);
   console.log(`Will check: gh repo view <org>/${stem}  (${orgs.length} request${orgs.length !== 1 ? "s" : ""})\n`);
 

@@ -49,7 +49,10 @@ export async function resolveFromWorktrees(
   };
 }
 
-export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
+export async function resolveOracle(
+  oracle: string,
+  opts?: { allLocal?: boolean },
+): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   const ghqHit = await ghqFind(`/${oracle}-oracle`);
   if (ghqHit) {
     const repoPath = ghqHit;
@@ -159,7 +162,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
 
   // Scan suggest: offer interactive org scan when all silent resolution paths fail
   try {
-    const scanned = await scanSuggestOracle(oracle);
+    const scanned = await scanSuggestOracle(oracle, { allLocal: opts?.allLocal });
     if (scanned) return scanned;
   } catch { /* scan suggest failed — fall through to original error */ }
 

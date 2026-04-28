@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list]\n       maw wake all [--kill]\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--all-local]\n       maw wake all [--kill]\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
         };
       }
 
@@ -52,12 +52,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--pr": Number, "--repo": String, "--task": String,
         "--fresh": Boolean, "--attach": Boolean, "-a": "--attach", "--list": Boolean, "--ls": "--list",
         "--split": Boolean,
+        "--all-local": Boolean,
       }, 1);
 
       const wakeOpts: {
         task?: string; wt?: string; prompt?: string;
         incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean;
-        split?: boolean; urlRepoName?: string;
+        split?: boolean; urlRepoName?: string; allLocal?: boolean;
       } = {};
       let issueNum: number | null = flags["--issue"] ?? null;
       let repo: string | undefined = flags["--repo"];
@@ -78,6 +79,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (flags["--attach"]) wakeOpts.attach = true;
       if (flags["--list"]) wakeOpts.listWt = true;
       if (flags["--split"]) wakeOpts.split = true;
+      if (flags["--all-local"]) wakeOpts.allLocal = true;
 
       const positionals = flags._;
       if (positionals.length > 0) wakeOpts.task = positionals[0];
