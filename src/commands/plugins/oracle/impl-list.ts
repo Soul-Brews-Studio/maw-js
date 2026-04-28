@@ -2,9 +2,17 @@
  * maw oracle ls — cached grouped inventory enriched with source-lineage
  * and runtime awake state. Replaces the old awake-only list + fleet view.
  *
- * Reads the oracle registry cache (~/.config/maw/oracles.json) so it shows
- * ALL oracles the user has, not just the ones currently running in tmux.
- * Auto-bootstraps the cache on first use.
+ * Source of truth: `OracleManifest` (#838) — a unified read-only view that
+ * aggregates the 5 oracle registries (fleet windows, config.sessions,
+ * config.agents, oracles.json, worktree). Sub-PR 1 of #841.
+ *
+ * Why manifest > raw oracles.json: an oracle that lives only in `config.sessions`
+ * (e.g. just-budded, not yet filesystem-scanned) or only in fleet config (no
+ * local checkout) used to be invisible to `maw oracle ls`. Now they all show up.
+ *
+ * `oracles.json` cache is still read — it's the only source for `local_path`,
+ * `org`, `repo` (split form), and lineage timestamps. We auto-refresh the cache
+ * on stale/missing as before so first-run UX stays unchanged.
  *
  * Flags:
  *   --awake   filter to running tmux sessions only
@@ -23,6 +31,11 @@ import {
   loadConfig,
   type OracleEntry,
 } from "../../../sdk";
+import {
+  loadManifestCached,
+  invalidateManifest,
+  type OracleManifestEntry,
+} from "../../../lib/oracle-manifest";
 import { lineageOf, timeSince, type OracleLineage } from "./impl-helpers";
 import { resolveNickname } from "../../../core/fleet/nicknames";
 
@@ -40,6 +53,58 @@ interface EnrichedEntry {
   awake: boolean;
   session: string | null;
   lineage: OracleLineage;
+  /** Manifest-source labels — useful for future debugging / future flag. */
+  sources: string[];
+}
+
+/**
+ * Build a renderer-compatible `OracleEntry` from a manifest entry, layering
+ * any oracles.json metadata we already have on top. Manifest covers the
+ * "this oracle exists" fact; `cache.oracles` covers the org/repo/local_path
+ * detail (only registry that knows the filesystem path).
+ */
+function buildEntryFromManifest(
+  m: OracleManifestEntry,
+  cacheByName: Map<string, OracleEntry>,
+  fallbackNode: string | null,
+  detectedAt: string,
+): OracleEntry {
+  const cached = cacheByName.get(m.name);
+  if (cached) {
+    // oracles.json had this — preserve full metadata, but let manifest
+    // contribute a federation_node when oracles.json didn't carry one.
+    if (!cached.federation_node && m.node) {
+      return { ...cached, federation_node: m.node };
+    }
+    return cached;
+  }
+
+  // Manifest-only oracle (lives in fleet/sessions/agents but not oracles.json).
+  // Synthesize a minimal OracleEntry the renderer can format. Repo from
+  // manifest may be `org/repo` (fleet) or just `name-oracle` — handle both.
+  let org = "(unregistered)";
+  let repo = `${m.name}-oracle`;
+  if (m.repo) {
+    const slash = m.repo.indexOf("/");
+    if (slash > 0) {
+      org = m.repo.slice(0, slash);
+      repo = m.repo.slice(slash + 1);
+    } else {
+      repo = m.repo;
+    }
+  }
+  return {
+    org,
+    repo,
+    name: m.name,
+    local_path: m.localPath ?? "",
+    has_psi: m.hasPsi ?? false,
+    has_fleet_config: m.hasFleetConfig ?? false,
+    budded_from: m.buddedFrom ?? null,
+    budded_at: m.buddedAt ?? null,
+    federation_node: m.node ?? fallbackNode,
+    detected_at: detectedAt,
+  };
 }
 
 export async function cmdOracleList(opts: OracleListOpts = {}) {
@@ -59,10 +124,13 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
       );
     }
     cache = scanAndCache("local");
+    // The cache changed under us — drop any stale manifest TTL view so we
+    // reflect the freshly-scanned oracles.json contribution.
+    invalidateManifest();
   }
 
   // 2. Live tmux snapshot — used for awake state + surfacing just-budded
-  //    oracles that haven't landed in the cache yet.
+  //    oracles that haven't landed in the manifest's filesystem sources.
   const sessions = await listSessions().catch(() => []);
   const awakeByName = new Map<string, string>(); // name → session
   for (const s of sessions) {
@@ -74,12 +142,32 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
     }
   }
 
-  // 3. Merge in tmux-only oracles (just budded, not yet in cache)
-  const entries: OracleEntry[] = [...cache!.oracles];
-  const entryNames = new Set(entries.map((e) => e.name));
+  // 3. Aggregate via OracleManifest — single source of "what oracles exist"
+  //    spanning fleet/sessions/agents/oracles-json. Replaces the old direct
+  //    `cache.oracles` enumeration (which missed sessions/agents-only entries).
+  const manifest = loadManifestCached();
+  const cacheByName = new Map<string, OracleEntry>(
+    (cache?.oracles ?? []).map((e) => [e.name, e]),
+  );
   const now = new Date().toISOString();
+
+  // Build entries from manifest (cross-source visibility).
+  const manifestNames = new Set<string>();
+  const entries: OracleEntry[] = [];
+  const sourcesByName = new Map<string, string[]>();
+  for (const m of manifest) {
+    manifestNames.add(m.name);
+    sourcesByName.set(m.name, [...m.sources]);
+    entries.push(
+      buildEntryFromManifest(m, cacheByName, config.node || null, now),
+    );
+  }
+
+  // Edge case: tmux has an oracle window the manifest doesn't know about
+  // (e.g., a stray window with no fleet/session/agent/oracles-json record).
+  // Surface it so the operator can see it. Tag source as "tmux" for clarity.
   for (const [name] of awakeByName) {
-    if (!entryNames.has(name)) {
+    if (!manifestNames.has(name)) {
       entries.push({
         org: "(unregistered)",
         repo: `${name}-oracle`,
@@ -92,6 +180,7 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
         federation_node: config.node || null,
         detected_at: now,
       });
+      sourcesByName.set(name, ["tmux"]);
     }
   }
 
@@ -108,6 +197,7 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
       awake,
       session,
       lineage: lineageOf(entry, awake, agents),
+      sources: sourcesByName.get(entry.name) ?? [],
     };
   });
 
@@ -135,6 +225,9 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
         awake: x.awake,
         session: x.session,
         lineage: x.lineage,
+        // Manifest source labels — helps consumers see why this oracle
+        // shows up (fleet/session/agent/oracles-json/tmux).
+        sources: x.sources,
       })),
     };
     console.log(JSON.stringify(out, null, 2));
