@@ -33,6 +33,7 @@ import {
   isDevModeInstall,
   warnLegacyOnce,
 } from "./registry-helpers";
+import { resolveActiveProfileFilter, resetProfileFilterCache } from "../lib/profile-loader";
 
 // Re-export everything that external callers import from this module
 export { satisfies, formatSdkMismatchError } from "./registry-semver";
@@ -59,9 +60,12 @@ export { invokePlugin } from "./registry-invoke";
  */
 let _discoverCache: LoadedPlugin[] | null = null;
 
-/** Clear the discovery cache. For install-flow + tests. */
+/** Clear the discovery cache. For install-flow + tests. Also flushes the
+ *  profile-resolver cache so a re-scan picks up new plugins under the
+ *  active profile filter (#890). */
 export function resetDiscoverCache(): void {
   _discoverCache = null;
+  resetProfileFilterCache();
 }
 
 /**
@@ -194,6 +198,29 @@ export function discoverPackages(): LoadedPlugin[] {
   // Sort by weight (lower = first, default 50) — like Drupal module weight
   plugins.sort((a, b) => (a.manifest.weight ?? 50) - (b.manifest.weight ?? 50));
 
-  _discoverCache = plugins;
-  return plugins;
+  // Phase 2 (#890) — apply active-profile filter. Resolution happens at most
+  // once per process via the cache in profile-loader.ts. The "all" profile
+  // (default for fresh installs) returns null = passthrough, so the hot path
+  // pays only one stat() call. Non-"all" profiles narrow the registry to the
+  // resolved name set; everything outside is dropped silently here so it
+  // never reaches the command surface.
+  //
+  // Tier defaulting (#890 spec): plugins missing the `tier` field are
+  // treated as "core" at the loader layer so untiered legacy plugins stay
+  // visible under conservative tier filters (e.g. profile.tiers === ["core"]).
+  // The pure resolver in profile-loader.ts keeps its Phase-1 contract
+  // (untiered = excluded); the default lives here in the wiring layer where
+  // the audit doc's "missing → core" convention applies.
+  const filter = resolveActiveProfileFilter(
+    plugins.map((p) => ({
+      name: p.manifest.name,
+      tier: p.manifest.tier ?? "core",
+    })),
+  );
+  const filtered = filter === null
+    ? plugins
+    : plugins.filter((p) => filter.has(p.manifest.name));
+
+  _discoverCache = filtered;
+  return filtered;
 }

@@ -22,6 +22,27 @@ export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "shell",  // shell-eval / stdout-writing plugins (shellenv-style)
 ]);
 
+/**
+ * Plugin membership tiers (#675 / #890). Same shape as KNOWN_CAPABILITY_NAMESPACES
+ * — a single source of truth for the validator and the profile resolver. Tier is
+ * an OPTIONAL field on plugin.json: missing → treated as "core" by the loader's
+ * profile filter (Phase 2 of #640). The TypeBox schema in src/lib/schemas.ts
+ * mirrors this list.
+ *
+ *   - core      essential primitives (scope, trust, inbox, ls, hey, help, …)
+ *   - standard  daily drivers that aren't strictly required
+ *   - extra     opt-in / experimental plugins
+ *
+ * See docs/lean-core/plugin-audit.md (#887) for the per-plugin classification.
+ */
+export const KNOWN_TIERS = ["core", "standard", "extra"] as const;
+export type KnownTier = typeof KNOWN_TIERS[number];
+
+/** Default tier when plugin.json omits the field. Used by the profile loader's
+ *  tier filter so untiered plugins ride along with the most conservative
+ *  profile (matches the audit doc — missing tier → assumed core / always-on). */
+export const DEFAULT_TIER: KnownTier = "core";
+
 export const NAME_RE = /^[a-z0-9-]+$/;
 
 // Semver: N.N.N with optional pre-release (-alpha.1) and build metadata (+001)

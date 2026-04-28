@@ -117,6 +117,47 @@ export const Scope = Type.Object({
 });
 export type TScope = Static<typeof Scope>;
 
+/**
+ * Profile — a named bundle of plugins (#640 lean-core / Phase 1 of #888).
+ *
+ * Profiles let an operator pick which plugins activate without editing
+ * config-level disable lists. Phase 1 is ADDITIVE only: this schema and the
+ * accompanying loader exist alongside the current plugin loader without
+ * changing it. Phase 2 (#640 follow-up) wires the profile into the registry.
+ *
+ * A profile file lives at:
+ *   <CONFIG_DIR>/profiles/<name>.json
+ *
+ * The active profile name lives at:
+ *   <CONFIG_DIR>/profile-active   (single-line text file; "all" by default)
+ *
+ * Resolution rules (see `resolveProfilePlugins` in src/lib/profile-loader.ts):
+ *   - If `plugins` is set → use that explicit allowlist verbatim.
+ *   - If `tiers` is set → include any plugin whose `plugin.json#tier` is in
+ *     the list. Plugins without a `tier` field map to the audit doc
+ *     (docs/lean-core/plugin-audit.md) — Phase 1 falls back to "all" for
+ *     untiered plugins so the loader is conservative.
+ *   - If both fields are set → UNION (allowlist ∪ tier-filter).
+ *   - If neither field is set → empty resolution (caller should treat as "all").
+ *
+ * Fields:
+ *   - `name`     slug-safe identifier; mirrors the file name
+ *   - `plugins`  optional explicit plugin-name allowlist
+ *   - `tiers`    optional tier filter ("core" | "standard" | "extra")
+ *   - `description` optional human-readable note (Phase 1 ignores it)
+ */
+export const Profile = Type.Object({
+  name: Type.String(),
+  plugins: Type.Optional(Type.Array(Type.String())),
+  tiers: Type.Optional(Type.Array(Type.Union([
+    Type.Literal("core"),
+    Type.Literal("standard"),
+    Type.Literal("extra"),
+  ]))),
+  description: Type.Optional(Type.String()),
+});
+export type TProfile = Static<typeof Profile>;
+
 // ---------------------------------------------------------------------------
 // Request body schemas (POST endpoints)
 // ---------------------------------------------------------------------------
