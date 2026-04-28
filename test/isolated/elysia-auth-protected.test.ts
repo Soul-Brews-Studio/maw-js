@@ -28,6 +28,10 @@ describe("elysia-auth — isProtected (#798)", () => {
     expect(isProtected("/talk", "POST")).toBe(true);
   });
 
+  test("/probe POST is protected (#804 Step 5 — same auth surface as /send)", () => {
+    expect(isProtected("/probe", "POST")).toBe(true);
+  });
+
   test("read endpoints remain public", () => {
     expect(isProtected("/sessions", "GET")).toBe(false);
     expect(isProtected("/capture", "GET")).toBe(false);

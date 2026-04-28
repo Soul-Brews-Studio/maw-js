@@ -23,6 +23,7 @@ const WINDOW_SEC = D.hmacWindowSeconds;
 const PROTECTED = new Set([
   "/send",
   "/pane-keys",
+  "/probe",           // #804 Step 5 — walks the /send write path; same auth surface
   "/wake",            // #798 — clones repos, spawns tmux + agent processes
   "/sleep",           // #798 — kills tmux sessions
   "/talk",
