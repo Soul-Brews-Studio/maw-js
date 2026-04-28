@@ -105,6 +105,15 @@ jobs:
 
       - name: Install + test + build
         if: steps.ver.outputs.skip != 'true'
+        # #830 — skip the federation 2-port localhost integration test on this
+        # runner. It hits a kernel port-race between getEphemeralPort()→close
+        # and Bun.spawn()→listen that's been flaking nightly on alpha cuts:
+        # 10 alpha bumps (.12 → .21) failed to publish here on 2026-04-28,
+        # leaving the proximate user-facing fix #857 unreachable to users.
+        # Same override pattern as test-unit shard (#811/#813 precedent).
+        # Root-cause port-race fix is tracked separately in #830.
+        env:
+          MAW_SKIP_FLAKY: "1"
         run: |
           bun install --frozen-lockfile
           bun run test
