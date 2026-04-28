@@ -109,6 +109,14 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     peer.pubkey = tofuDecision.observed!;
     peer.pubkeyFirstSeen = new Date().toISOString();
   }
+  // Identity (#804 Step 3): capture from probe when available; fall back to
+  // any previously-cached identity so a transient /api/identity blip on
+  // re-add doesn't lose what we already know about this peer.
+  if (probe.identity) {
+    peer.identity = probe.identity;
+  } else if (existingForTofu?.identity) {
+    peer.identity = existingForTofu.identity;
+  }
 
   let existed = false;
   mutatePeers((data) => {
@@ -181,6 +189,9 @@ export async function cmdProbe(alias: string): Promise<ProbeResult> {
       // Refresh nickname on success: string updates, null clears.
       if (probe.nickname) p.nickname = probe.nickname;
       else if (probe.nickname === null) delete p.nickname;
+      // Refresh identity on success (#804 Step 3) — only updates, never clears,
+      // so a transient /api/identity blip won't drop a known-good pin.
+      if (probe.identity) p.identity = probe.identity;
     }
   });
 

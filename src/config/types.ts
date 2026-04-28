@@ -110,6 +110,16 @@ export interface MawConfig {
   triggers?: TriggerConfig[];
   /** Node identity (e.g. "white", "mba") */
   node?: string;
+  /**
+   * Oracle name (e.g. "mawjs", "neo", "colab") — the family identity component
+   * of `<oracle>:<node>` per ADR docs/federation/0001-peer-identity.md.
+   *
+   * Optional; defaults to `"mawjs"` everywhere it is consumed (this codebase
+   * is the mawjs lineage). Multi-oracle-per-node is a naming convention, not
+   * a protocol concern: oracle names must be unique within a node — the
+   * doctor + boot-time check (#804 Step 3) enforces operator awareness.
+   */
+  oracle?: string;
   /** Named peers with URLs */
   namedPeers?: PeerConfig[];
   /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */

@@ -62,10 +62,12 @@ federationApi.get("/snapshots/:id", ({ params, set}) => {
 federationApi.get("/identity", async () => {
   const config = loadConfig();
   const node = config.node ?? "local";
+  const oracle = config.oracle ?? "mawjs";
   const agents = hostedAgents(config.agents || {}, node);
   const pkg = require("../../package.json");
   return {
     node,
+    oracle,
     version: pkg.version,
     agents,
     uptime: Math.floor(process.uptime()),

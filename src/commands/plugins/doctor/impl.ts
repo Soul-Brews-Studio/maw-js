@@ -2,6 +2,9 @@ import { existsSync, readFileSync, readlinkSync } from "fs";
 import { execSync } from "child_process";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
+import { loadPeers } from "../peers/store";
+import { findDuplicateIdentities, formatDuplicate } from "../peers/duplicate-detect";
+import { loadConfig } from "../../../config";
 
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
@@ -27,6 +30,9 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   if (!only || only === "version" || only === "all") {
     const vChecks = await checkVersionDrift();
     for (const c of vChecks) checks.push(c);
+  }
+  if (!only || only === "peers" || only === "all") {
+    checks.push(checkPeerDuplicates());
   }
 
   const hardOk = checks.every(c => c.ok);
@@ -156,6 +162,60 @@ function listPm2MawProcs(): Pm2Proc[] | null {
     });
   }
   return out;
+}
+
+/**
+ * Peer cache duplicate `<oracle>:<node>` check (#804 Step 3).
+ *
+ * Loads `~/.maw/peers.json` (or `$PEERS_FILE` in tests) plus the local
+ * `(oracle, node)` from config and reports any collisions. This is a
+ * read-only check — duplicates surface as a `peers:duplicates` line with
+ * `ok:false` so the doctor exits non-zero, but we never auto-prune.
+ *
+ * Empty cache, missing-identity peers, and zero-collisions all return
+ * `ok:true`. Any peer without an `identity` field is silently skipped (legacy
+ * peers from pre-Step-3 captures — re-probing them via `maw peers probe`
+ * will populate identity and bring them under the dedup umbrella).
+ */
+function checkPeerDuplicates(): DoctorResult["checks"][number] {
+  let peers: Record<string, import("../peers/store").Peer> = {};
+  try {
+    peers = loadPeers().peers;
+  } catch (e: any) {
+    return {
+      name: "peers:duplicates",
+      ok: true,
+      message: `peer cache unreadable (${e?.message || e}) — skipping dedup check`,
+    };
+  }
+
+  let local: { oracle: string; node: string } | undefined;
+  try {
+    const cfg = loadConfig();
+    if (cfg.node) {
+      local = { oracle: cfg.oracle ?? "mawjs", node: cfg.node };
+    }
+  } catch {
+    // Config unreadable in this environment — skip the local-vs-cache check
+    // but still scan peer-vs-peer collisions below.
+  }
+
+  const dups = findDuplicateIdentities(peers, local);
+  if (dups.length === 0) {
+    const n = Object.keys(peers).length;
+    return {
+      name: "peers:duplicates",
+      ok: true,
+      message: n === 0
+        ? "no peers cached"
+        : `no <oracle>:<node> collisions across ${n} peer${n === 1 ? "" : "s"}`,
+    };
+  }
+  return {
+    name: "peers:duplicates",
+    ok: false,
+    message: dups.map(formatDuplicate).join("; "),
+  };
 }
 
 async function fetchInfoVersion(port: number): Promise<string | null> {

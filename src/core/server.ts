@@ -199,6 +199,21 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     console.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
   }
 
+  // Duplicate <oracle>:<node> warn (#804 Step 3, ADR docs/federation/0001-peer-identity.md).
+  // Boot-time scan of the peer cache + the local identity. Non-blocking — per
+  // the ADR, "Crypto solves can't-fake; doctor + boot-time check solves
+  // operator confusion" — so we just warn loudly and let serve continue.
+  try {
+    const { loadPeers } = require("../commands/plugins/peers/store");
+    const { warnDuplicatesAtBoot } = require("../commands/plugins/peers/duplicate-detect");
+    const peers = loadPeers().peers;
+    const local = config.node ? { oracle: config.oracle ?? "mawjs", node: config.node } : undefined;
+    warnDuplicatesAtBoot({ peers, local });
+  } catch (e: any) {
+    // Never fail boot on a dedup-scan glitch — log and move on.
+    console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
+  }
+
   const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
   setBunServer(server);
   const bindNote = reason ? ` (${reason})` : "";
