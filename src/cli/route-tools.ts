@@ -37,15 +37,28 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     if (sub === "init" || sub === "build" || sub === "install") {
       const { loadManifestFromDir } = await import("../plugin/manifest");
       const { invokePlugin } = await import("../plugin/registry");
-      const { resolve } = await import("path");
-      const pluginDir = resolve(import.meta.dir, "..", "commands", "plugins", "plugin");
-      const loaded = loadManifestFromDir(pluginDir);
-      if (loaded) {
-        const result = await invokePlugin(loaded, { source: "cli", args: args.slice(1) });
-        if (result.ok && result.output) console.log(result.output);
-        if (!result.ok && result.error) console.error(result.error);
-        if (!result.ok) process.exit(1);
-        return true;
+      const { resolve, join } = await import("path");
+      const { existsSync } = await import("fs");
+      const { homedir } = await import("os");
+      // #853 — `import.meta.dir` resolves to the source tree in dev but to
+      // `~/.local/bin/` in the bundled binary, where there's no
+      // commands/plugins/ subtree. Try the dev path first, then fall back to
+      // the bootstrapped symlink at ~/.maw/plugins/plugin (populated by
+      // runBootstrap on every CLI start).
+      const candidates = [
+        resolve(import.meta.dir, "..", "commands", "plugins", "plugin"),
+        join(homedir(), ".maw", "plugins", "plugin"),
+      ];
+      const pluginDir = candidates.find(p => existsSync(join(p, "plugin.json")));
+      if (pluginDir) {
+        const loaded = loadManifestFromDir(pluginDir);
+        if (loaded) {
+          const result = await invokePlugin(loaded, { source: "cli", args: args.slice(1) });
+          if (result.ok && result.output) console.log(result.output);
+          if (!result.ok && result.error) console.error(result.error);
+          if (!result.ok) process.exit(1);
+          return true;
+        }
       }
     }
     // "maw plugin ls/info/remove" → forward to plugins (plural) legacy handler.
