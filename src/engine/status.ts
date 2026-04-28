@@ -1,4 +1,4 @@
-import { capture } from "../core/transport/ssh";
+import { capture, isAgentCommand } from "../core/transport/ssh";
 import { tmux } from "../core/transport/tmux";
 import type { FeedEvent } from "../lib/feed";
 import type { MawWS } from "../core/types";
@@ -76,7 +76,7 @@ export class StatusDetector {
     // Claude agents get status from real hooks — no capture needed.
     const needsCapture = agents.filter(a => {
       const cmd = (cmds[`${a.session}:${a.target.split(":")[1]}`] || cmds[a.target] || "").toLowerCase();
-      return !/claude|codex|node/i.test(cmd);
+      return !isAgentCommand(cmd);
     });
     const captures = await Promise.allSettled(
       needsCapture.map(async a => ({ target: a.target, content: await capture(a.target, 20) }))
@@ -89,7 +89,7 @@ export class StatusDetector {
     const now = Date.now();
     for (const { target, name, session } of agents) {
       const cmd = (cmds[target] || "").toLowerCase();
-      const isAgent = /claude|codex|node/i.test(cmd);
+      const isAgent = isAgentCommand(cmd);
       const isShell = /^(zsh|bash|sh|fish)$/.test(cmd.trim());
 
       // Skip ALL agents running Claude — real hooks handle their status.
