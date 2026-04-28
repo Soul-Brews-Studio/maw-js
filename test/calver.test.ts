@@ -131,4 +131,52 @@ describe("calver computeVersion package.json walk (#784)", () => {
       computeVersion({ stable: false, check: false, now: apr28_1200 }, tags, "26.4.28-alpha.5"),
     ).toBe("26.4.28-alpha.6");
   });
+
+  it("daily rollover: yesterday's package.json + no today-tags → .0", () => {
+    // Critical: without date-gating, every day would start at yesterday's N+1
+    // instead of resetting to 0. Verifies date-mismatch returns -1 from pkg-walk.
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.27-alpha.50"),
+    ).toBe("26.4.28-alpha.0");
+  });
+
+  it("yesterday's stable in package.json + today's no-tags → .0", () => {
+    // After a stable cut, package.json holds bare YY.M.D. Next-day alpha
+    // starts at .0, not at the stable's "version".
+    expect(
+      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.27"),
+    ).toBe("26.4.28-alpha.0");
+  });
+});
+
+describe("calver maxNFromPackageJson — robustness (#784 explorer findings)", () => {
+  it("rejects non-CalVer legacy version (e.g. 2.0.0-alpha.134)", () => {
+    // Pre-CalVer migration shape — the trailing 134 must NOT match.
+    expect(maxNFromPackageJson("26.4.28", "alpha", "2.0.0-alpha.134")).toBe(-1);
+  });
+
+  it("substring trap: base 26.4.2 must not match 26.4.28-alpha.N", () => {
+    // The dash boundary in `${base}-${channel}.` should anchor the match
+    // so a shorter base doesn't fall through into a longer date.
+    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.28-alpha.5")).toBe(-1);
+    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.20-alpha.5")).toBe(-1);
+    // Genuine match still works for the actual base 26.4.2:
+    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.2-alpha.5")).toBe(5);
+  });
+
+  it("rejects malformed alpha suffix in package.json", () => {
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.")).toBe(-1);
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha")).toBe(-1);
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.bogus")).toBe(-1);
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.12b")).toBe(-1);
+  });
+
+  it("zero-padded N parses as decimal (parity with parseInt)", () => {
+    // Mirrors maxNFromTags's parseInt behavior — `05` → 5, not octal.
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.05")).toBe(5);
+  });
+
+  it("rejects rc/other channels even if structurally similar", () => {
+    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-rc.5")).toBe(-1);
+  });
 });
