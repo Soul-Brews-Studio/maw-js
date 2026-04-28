@@ -145,7 +145,9 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsAfterWake = [{ name: "volt-session", windows: [{ index: 0, name: "volt-oracle", active: true }] }];
     resolveTargetReturn = { type: "local", target: "volt-session:volt-oracle.0" };
 
-    await run(() => cmdSend("volt", "hello"));
+    // #759 Phase 2: bare names rejected — use self-node prefix to exercise
+    // the auto-wake path on a target the resolver still treats as local-scope.
+    await run(() => cmdSend("test-node:volt", "hello"));
 
     expect(cmdWakeCalls.length).toBe(1);
     expect(cmdWakeCalls[0].oracle).toBe("volt");
@@ -161,7 +163,8 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsReturn = [{ name: "mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] }];
     resolveTargetReturn = { type: "local", target: "mawjs:mawjs-oracle.0" };
 
-    await run(() => cmdSend("mawjs", "hi"));
+    // #759 Phase 2: bare names rejected — use self-node prefix.
+    await run(() => cmdSend("test-node:mawjs", "hi"));
 
     expect(cmdWakeCalls.length).toBe(0);
     expect(sendKeysCalls.length).toBe(1);
@@ -172,7 +175,10 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsReturn = [];
     resolveTargetReturn = { type: "error", target: "typo", detail: "not found", hint: "" } as any;
 
-    await run(() => cmdSend("typo", "hi"));
+    // #759 Phase 2: bare names rejected — use self-node prefix so the
+    // assertion exercises the auto-wake skip-on-unknown path, not the
+    // bare-name guard.
+    await run(() => cmdSend("test-node:typo", "hi"));
 
     expect(cmdWakeCalls.length).toBe(0);
     // resolveTarget returned error → cmdSend exits 1 via the error branch
@@ -208,7 +214,8 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsAfterWake = [{ name: "colab-session", windows: [{ index: 0, name: "colab-oracle", active: true }] }];
     resolveTargetReturn = { type: "local", target: "colab-session:colab-oracle.0" };
 
-    await run(() => cmdSend("colab", "msg"));
+    // #759 Phase 2: bare names rejected — use self-node prefix.
+    await run(() => cmdSend("test-node:colab", "msg"));
 
     // No prompt-style strings should appear in stderr
     const allErr = errs.join("\n");
