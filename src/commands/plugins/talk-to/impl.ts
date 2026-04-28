@@ -1,5 +1,5 @@
 import { loadConfig } from "../../../config";
-import { listSessions, sendKeys, getPaneCommand, resolveTarget } from "../../../sdk";
+import { listSessions, sendKeys, getPaneCommand, isAgentCommand, resolveTarget } from "../../../sdk";
 import { runHook } from "../../../sdk";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir, hostname } from "os";
@@ -160,7 +160,7 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
   // Check if agent is running
   if (!force) {
     const cmd = await getPaneCommand(tmuxTarget);
-    const isAgent = /claude|codex|node/i.test(cmd);
+    const isAgent = isAgentCommand(cmd);
     if (!isAgent) {
       if (threadResult) {
         console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);

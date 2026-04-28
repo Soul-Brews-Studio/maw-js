@@ -3,7 +3,7 @@
  */
 
 import {
-  listSessions, capture, sendKeys, getPaneCommand, findPeerForTarget, resolveTarget,
+  listSessions, capture, sendKeys, getPaneCommand, isAgentCommand, findPeerForTarget, resolveTarget,
   curlFetch, runHook,
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
@@ -56,7 +56,7 @@ export async function resolveOraclePane(target: string): Promise<string> {
       if (spaceIdx < 0) continue;
       const idx = parseInt(line.slice(0, spaceIdx), 10);
       const cmd = line.slice(spaceIdx + 1);
-      if (Number.isFinite(idx) && /claude|codex|node/i.test(cmd)) {
+      if (Number.isFinite(idx) && isAgentCommand(cmd)) {
         agentIndexes.push(idx);
       }
     }
@@ -231,7 +231,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     const target = await resolveOraclePane(result.target);
     if (!force) {
       const cmd = await getPaneCommand(target);
-      const isAgent = /claude|codex|node/i.test(cmd);
+      const isAgent = isAgentCommand(cmd);
       if (!isAgent) {
         console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
         console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);

@@ -79,6 +79,16 @@ export async function getPaneCommand(target: string, host?: string): Promise<str
   return t.getPaneCommand(target);
 }
 
+/** Pane command looks like an AI agent — name match (claude/codex/node) or
+ *  Claude Code 2.1+ versioned-binary signature (e.g. "2.1.121"). */
+export function isAgentCommand(cmd: string | null | undefined): boolean {
+  const c = (cmd ?? "").trim();
+  if (!c) return false;
+  if (/claude|codex|node/i.test(c)) return true;
+  if (/^\d+\.\d+\.\d+$/.test(c)) return true;
+  return false;
+}
+
 /** Batch-check which panes are running what command. */
 export async function getPaneCommands(targets: string[], host?: string): Promise<Record<string, string>> {
   const { Tmux } = await import("./tmux");

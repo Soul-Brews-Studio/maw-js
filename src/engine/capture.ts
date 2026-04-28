@@ -1,4 +1,4 @@
-import { capture } from "../core/transport/ssh";
+import { capture, isAgentCommand } from "../core/transport/ssh";
 import { tmux } from "../core/transport/tmux";
 import type { MawWS } from "../core/types";
 
@@ -79,7 +79,7 @@ export async function sendBusyAgents(ws: MawWS, sessions: SessionInfo[]) {
   const allTargets = sessions.flatMap(s => s.windows.map(w => `${s.name}:${w.index}`));
   const cmds = await tmux.getPaneCommands(allTargets);
   const busy = allTargets
-    .filter(t => /claude|codex|node/i.test(cmds[t] || ""))
+    .filter(t => isAgentCommand(cmds[t]))
     .map(t => {
       const [session] = t.split(":");
       const s = sessions.find(x => x.name === session);
