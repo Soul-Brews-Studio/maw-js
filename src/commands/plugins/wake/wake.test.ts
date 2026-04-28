@@ -138,4 +138,21 @@ describe("wake plugin", () => {
     expect(lastWakeCall?.opts.wt).toBe(wtValue);
     expect(lastWakeCall?.opts.wt).toBe("foo");
   });
+
+  // #823 Bug B — --no-attach must be a registered Boolean flag, not fall
+  // through to flags._ where it would be consumed as wakeOpts.task and then
+  // sanitized into a corrupted worktree name (see sanitizeBranchName tests
+  // and worktrees-scan dedupe test for the rest of the cascade).
+  it("CLI --no-attach: populates wakeOpts.attach=false, NOT wakeOpts.task", async () => {
+    const result = await handler({ source: "cli", args: ["neo", "--no-attach"] });
+    expect(result.ok).toBe(true);
+    expect(lastWakeCall?.opts.attach).toBe(false);
+    expect(lastWakeCall?.opts.task).toBeUndefined();
+  });
+
+  it("CLI no flag: wakeOpts.attach stays undefined (preserves default behavior)", async () => {
+    const result = await handler({ source: "cli", args: ["neo"] });
+    expect(result.ok).toBe(true);
+    expect(lastWakeCall?.opts.attach).toBeUndefined();
+  });
 });

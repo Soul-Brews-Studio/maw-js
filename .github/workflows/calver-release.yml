@@ -5,10 +5,19 @@ name: CalVer Release
 # Ported from: Soul-Brews-Studio/arra-oracle-skills-cli (PR #264)
 # Umbrella: #526 · Design review: mother-roots (white)
 #
-# Triggered when package.json is modified on main. All steps run in ONE
-# job so there is no workflow-cascade gap (GITHUB_TOKEN-created tags/
-# releases deliberately don't trigger downstream workflows; doing it
+# Triggered when package.json is modified on main or alpha. All steps run
+# in ONE job so there is no workflow-cascade gap (GITHUB_TOKEN-created
+# tags/releases deliberately don't trigger downstream workflows; doing it
 # inline sidesteps that rule entirely).
+#
+# Branch ↔ channel mapping (#818):
+#   - main  → stable cut       → tag vX.Y.Z          (marked latest)
+#   - alpha → pre-release cut  → tag vX.Y.Z-alpha.N  (prerelease=true,
+#                                                     NOT marked latest)
+# The prerelease flag is derived from the version string (-alpha./-beta.
+# suffix) — branch is just the trigger; version is the source of truth.
+# Concurrency group `calver-release` serializes simultaneous main+alpha
+# pushes so two runs cannot race on tag creation.
 #
 # Note: maw-js is NOT published to npm for the main package. Install flow
 # is `bun add github:Soul-Brews-Studio/maw-js#vX.Y.Z`. This workflow only
@@ -19,7 +28,7 @@ name: CalVer Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, alpha]
     paths:
       - package.json
 
