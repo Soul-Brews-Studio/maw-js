@@ -119,15 +119,16 @@ describe("manifest v1 — legacy manifests still parse", () => {
     }
   });
 
-  test("still requires wasm, entry, or artifact (at least one)", () => {
+  test("#869 — wasm/entry/artifact all optional; build-impl falls back to ./src/index.ts", () => {
     const dir = makeTempDir();
     try {
-      expect(() =>
-        parseManifest(
-          JSON.stringify({ name: "bare", version: "1.0.0", sdk: "*" }),
-          dir,
-        ),
-      ).toThrow(/wasm.*entry.*artifact/);
+      const m = parseManifest(
+        JSON.stringify({ name: "bare", version: "1.0.0", sdk: "*" }),
+        dir,
+      );
+      expect(m.wasm).toBeUndefined();
+      expect(m.entry).toBeUndefined();
+      expect(m.artifact).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true });
     }
