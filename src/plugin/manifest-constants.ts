@@ -3,7 +3,14 @@
  */
 
 /** Capability namespaces seeded in Phase A. Unknown namespaces emit a
- * validation warning (not a hard fail). New namespaces need an ADR. */
+ * validation warning (not a hard fail). New namespaces need an ADR.
+ *
+ * #874 — added `tmux` and `shell` after community plugins (bg, rename, park,
+ * shellenv) declared them. `tmux` covers tmux-socket spawning via the SDK's
+ * tmux/Tmux helpers (src/core/transport/tmux). `shell` covers shell-eval style
+ * stdout writes for shell-environment plugins. Both are advisory in Phase A —
+ * mirroring the rest of this list — and gate-able once the runtime grows real
+ * capability enforcement (#487 follow-up). */
 export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "net",    // network (fetch, sockets)
   "fs",     // filesystem
@@ -11,6 +18,8 @@ export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "sdk",    // maw SDK calls (identity, federation, …)
   "proc",   // child processes
   "ffi",    // native FFI (bun:ffi)
+  "tmux",   // tmux socket interaction (spawnSync("tmux", …) + SDK tmux helpers)
+  "shell",  // shell-eval / stdout-writing plugins (shellenv-style)
 ]);
 
 export const NAME_RE = /^[a-z0-9-]+$/;

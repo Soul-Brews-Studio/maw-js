@@ -7,9 +7,9 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
-import { formatSdkMismatchError, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
+import { formatSdkMismatchError, hashFile, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
 import { installRoot, removeExisting } from "./install-source-detect";
-import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst } from "./install-extraction";
+import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst, isSourcePluginManifest } from "./install-extraction";
 import { findPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
 import { readLock, recordInstall } from "./lock";
 import { createHash } from "crypto";
@@ -284,10 +284,17 @@ export async function installFromTarball(
 
   // #680 — persist lock entry on every successful tarball install. TOFU on
   // first install; overwrites on --force/--pin re-trust.
+  //
+  // #874 path A.3 — source plugins have no `artifact.sha256` to record. Hash
+  // the entry file's bytes instead so plugins.lock has a stable identity to
+  // verify against on subsequent installs. The entry file IS the artifact for
+  // source plugins (Bun executes .ts/.js source directly).
+  const recordedSha = manifest!.artifact?.sha256
+    ?? hashFile(join(dest, manifest!.entry!));
   recordInstall({
     name: manifest!.name,
     version: manifest!.version,
-    sha256: manifest!.artifact!.sha256!,
+    sha256: recordedSha,
     source: opts.source,
   });
 
@@ -295,7 +302,7 @@ export async function installFromTarball(
   printInstallSuccess(
     manifest!,
     dest,
-    { sha256: manifest!.artifact!.sha256! },
+    { sha256: recordedSha },
     sourceNote || undefined,
   );
 }

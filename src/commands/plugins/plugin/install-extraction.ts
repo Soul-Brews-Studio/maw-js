@@ -90,23 +90,46 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
 }
 
 /**
+ * Source-plugin detector (#874 path A.3).
+ *
+ * A "source plugin" is a tarball that declares `entry` (e.g. `./src/index.ts`
+ * or `./index.js`) but no `artifact` — typical of community repos that ship
+ * source rather than a pre-built `dist/index.js`. Bun runs source entries
+ * transparently, so the install path can accept them directly without a build
+ * step. We still hash the entry file's bytes for plugins.lock parity — that
+ * way `recordInstall` / `--pin` / hash-mismatch checks all keep working
+ * uniformly across source and built tarballs.
+ */
+export function isSourcePluginManifest(manifest: PluginManifest): boolean {
+  return !manifest.artifact && typeof manifest.entry === "string" && manifest.entry.length > 0;
+}
+
+/**
  * Verify sha256 of `manifest.artifact.path` (relative to `dir`) matches
  * `expected`. If `expected` is null/undefined, the manifest's embedded hash is
  * used as the expected value — this is the legacy (circular) check kept as a
  * defense-in-depth fencepost for transport corruption. See #487 / plugins.lock
  * for the real adversarial check (registry-pinned hashes).
+ *
+ * #874 path A.3 — for source plugins (no `artifact`, has `entry`), the entry
+ * file's bytes ARE the artifact. Hash that instead.
  */
 export function verifyArtifactHashAgainst(
   dir: string,
   manifest: PluginManifest,
   expected: string,
 ): { ok: true } | { ok: false; error: string } {
-  if (!manifest.artifact) {
+  let relPath: string;
+  if (manifest.artifact) {
+    relPath = manifest.artifact.path;
+  } else if (isSourcePluginManifest(manifest)) {
+    relPath = manifest.entry!;
+  } else {
     return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
   }
-  const artifactPath = join(dir, manifest.artifact.path);
+  const artifactPath = join(dir, relPath);
   if (!existsSync(artifactPath)) {
-    return { ok: false, error: `artifact missing at ${manifest.artifact.path}` };
+    return { ok: false, error: `artifact missing at ${relPath}` };
   }
   const observed = hashFile(artifactPath);
   if (observed !== expected) {
@@ -121,8 +144,25 @@ export function verifyArtifactHashAgainst(
   return { ok: true };
 }
 
-/** Legacy manifest-only hash check. Kept as defense-in-depth fencepost per #487 §8 Phase 1. */
+/**
+ * Legacy manifest-only hash check. Kept as defense-in-depth fencepost per
+ * #487 §8 Phase 1.
+ *
+ * #874 path A.3 — source plugins (no `artifact`, has `entry`) skip this
+ * fencepost: there is no embedded hash to check against, so the registry-
+ * pinned hash in plugins.lock is the only authoritative source. Tampering
+ * is still detected at the pinned-hash check in `installFromTarball`.
+ */
 export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok: true } | { ok: false; error: string } {
+  if (isSourcePluginManifest(manifest)) {
+    // Source plugins have no embedded sha256 to fencepost against. Verify the
+    // entry file at least exists; the real adversarial check is plugins.lock.
+    const entryPath = join(dir, manifest.entry!);
+    if (!existsSync(entryPath)) {
+      return { ok: false, error: `source entry missing at ${manifest.entry}` };
+    }
+    return { ok: true };
+  }
   if (!manifest.artifact) {
     return { ok: false, error: "tarball manifest has no 'artifact' field — rebuild with `maw plugin build`" };
   }
