@@ -49,15 +49,13 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
       `plugin.json: version must be semver N.N.N (got ${JSON.stringify(r.version)})`,
     );
   }
-  // Must have either wasm, entry, or a built artifact (at least one).
+  // #869 — wasm / entry / artifact are all optional. When none are declared,
+  // build-impl.ts:173 falls back to `./src/index.ts` — the shape every community
+  // plugin in the registry follows (cross-team-queue, shellenv, bg, rename,
+  // park). Strictness here gated a manifest the rest of the system handles fine.
+  // File-existence checks below still apply when these fields ARE declared.
   const hasWasm = typeof r.wasm === "string" && r.wasm.length > 0;
   const hasEntry = typeof r.entry === "string" && (r.entry as string).length > 0;
-  const hasArtifact = r.artifact !== undefined;
-  if (!hasWasm && !hasEntry && !hasArtifact) {
-    throw new Error(
-      "plugin.json: must have 'wasm' (WASM plugin), 'entry' (TS plugin), or 'artifact' (built plugin)",
-    );
-  }
 
   // Optional weight (execution order: 0=first, 50=default, 99=last)
   if (r.weight !== undefined && (typeof r.weight !== "number" || r.weight < 0 || r.weight > 99)) {
