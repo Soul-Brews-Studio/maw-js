@@ -89,6 +89,34 @@ export const PluginInfo = Type.Object({
 });
 export type TPluginInfo = Static<typeof PluginInfo>;
 
+/**
+ * Scope — a named routing namespace (#642 Phase 1, primitive only).
+ *
+ * Scopes group oracles that may message each other freely. Phase 1 ships
+ * just the data primitive + CLI to create / list / show / delete; ACL
+ * evaluation, the trust list, and the cross-scope approval queue are
+ * follow-up issues. A scope file lives at:
+ *   <CONFIG_DIR>/scopes/<name>.json
+ *
+ * Fields:
+ *   - `name`     slug-safe identifier; mirrors the file name
+ *   - `members`  oracle names allowed to route within the scope
+ *   - `lead`     optional designated owner (one of `members` by convention,
+ *                but not enforced at the schema layer — operators can
+ *                experiment with shapes before Phase 2 nails it down)
+ *   - `created`  ISO-8601 timestamp at first write
+ *   - `ttl`      optional ISO date for auto-expire; null means no expiry.
+ *                Phase 1 stores it; Phase 2 enforces it.
+ */
+export const Scope = Type.Object({
+  name: Type.String(),
+  members: Type.Array(Type.String()),
+  lead: Type.Optional(Type.String()),
+  created: Type.String(),
+  ttl: Type.Union([Type.String(), Type.Null()]),
+});
+export type TScope = Static<typeof Scope>;
+
 // ---------------------------------------------------------------------------
 // Request body schemas (POST endpoints)
 // ---------------------------------------------------------------------------
