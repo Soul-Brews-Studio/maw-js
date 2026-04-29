@@ -31,6 +31,13 @@ let cached: MawConfig | null = null;
 /** Bind-address values that should never appear as an outbound target (#713). */
 const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
 
+/**
+ * #820 — sentinel: the real homedir config path. Both `saveConfig` and the
+ * #913 migration-persist path use this to refuse disk writes when the test
+ * harness forgot to set MAW_HOME / MAW_CONFIG_DIR.
+ */
+const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
+
 export function loadConfig(): MawConfig {
   if (cached) return cached;
   try {
@@ -69,6 +76,15 @@ export function loadConfig(): MawConfig {
   // already a known-good target ("local"/"localhost"), reset to "local".
   // We deliberately do NOT touch configs where the operator hand-set
   // `host` to something other than node — that's a real SSH target.
+  //
+  // #913 — persist the migration to disk. #912 only mutated the in-memory
+  // `cached` object, which left the broken value on disk for any future
+  // process to re-load. In production this manifested as the warning
+  // printing every wake AND the clone still failing in subtle module-load
+  // order paths (e.g. ssh.ts's module-level `DEFAULT_HOST` captured before
+  // migration in some import graphs). Persisting on detection makes the
+  // heal one-shot: first run prints the warning + writes "local" to disk;
+  // every subsequent run loads a clean config, no warning, no surprise.
   if (
     typeof cached.host === "string" &&
     typeof cached.node === "string" &&
@@ -85,6 +101,25 @@ export function loadConfig(): MawConfig {
       );
     }
     cached.host = "local";
+    // #913 — persist heal to disk so the next process / subprocess loads
+    // clean state. Skip when MAW_TEST_MODE=1 AND the config path resolves
+    // to the real homedir — that combination signals a test harness that
+    // forgot to sandbox MAW_HOME (mirrors the #820 saveConfig guard).
+    // Tests that DO sandbox via MAW_HOME=<tmpdir> still get the persist
+    // (which is exactly what we want — they verify the disk write).
+    if (!(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG)) {
+      try {
+        writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
+      } catch (e) {
+        // Defensive — a persist failure (read-only FS, perms) must NOT
+        // break loadConfig. The in-memory heal still applies for this
+        // process; the warning will fire again next boot.
+        process.stderr.write(
+          `[maw] config.host migration: in-memory heal applied but disk persist failed: ` +
+          `${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
+    }
   }
   // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
   // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
@@ -136,8 +171,10 @@ export function resetConfig() {
  * MUST refuse to write to the real homedir config path. The test harness is
  * expected to set `MAW_HOME` or `MAW_CONFIG_DIR` to a tmpdir; if that's not
  * done, throw loudly rather than silently corrupting state.
+ *
+ * The `REAL_HOME_CONFIG` sentinel is declared at module-top so the #913
+ * migration-persist path in `loadConfig` can share the same guard.
  */
-const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
 
 export function saveConfig(update: Partial<MawConfig>) {
   if (process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG) {
