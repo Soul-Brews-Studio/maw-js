@@ -98,7 +98,7 @@ PRs to `main` come from one source: `alpha` itself, on a stable cut.
 
 **maw-js uses CalVer as of 2026-04-18.**
 
-Scheme: `v{yy}.{m}.{d}[-alpha.{N}]` — e.g. `v26.4.18` (stable) or `v26.4.18-alpha.19` (alpha cut). Spec lives in [umbrella #526](https://github.com/Soul-Brews-Studio/maw-js/issues/526) and the [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18). The alpha-counter scheme (hour-bucket vs monotonic) is tracked in [#766](https://github.com/Soul-Brews-Studio/maw-js/issues/766).
+Scheme: `v{yy}.{m}.{d}[-alpha.{HMM}]` — e.g. `v26.4.18` (stable) or `v26.4.18-alpha.937` (alpha cut at 09:37). The HMM suffix is the integer `H*100 + M` rendered with no leading zeros (09:37 → 937, 10:01 → 1001, 23:59 → 2359). Each minute is a unique slot. Spec lives in [umbrella #526](https://github.com/Soul-Brews-Studio/maw-js/issues/526) and the [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18). HMM replaced the prior monotonic counter in [#923](https://github.com/Soul-Brews-Studio/maw-js/pull/923); see [#766](https://github.com/Soul-Brews-Studio/maw-js/issues/766) for the original counter design.
 
 ## Releasing
 
