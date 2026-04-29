@@ -44,8 +44,19 @@ export function buildConfig(input: BuildConfigInput): Partial<MawConfig> {
 
   // #680 — ghqRoot is resolved on demand; only persist when caller explicitly
   // passes it (legacy override path; logs deprecation in cmdInit).
+  //
+  // #906 — `host` is the SSH connection target for hostExec, NOT the node
+  // identity. Pre-#906 we wrote `host: input.node`, which made hostExec try
+  // to `ssh <node-name> <cmd>` for every fleet-pinned clone. Concrete blast
+  // radius: any user who ran `maw init --node mba` (or the prompt's default
+  // os.hostname()) had `config.host = "mba"` → wake-resolve-impl's
+  // `hostExec("ghq get …")` failed with `[ssh:mba] ssh: Could not resolve
+  // hostname mba`. The fix is small + surgical: `host` defaults to "local"
+  // (the same fallback DEFAULT_HOST uses when the field is absent), and
+  // `node` keeps the identity. Existing broken configs are healed at load
+  // time — see config/load.ts (#906 migration sibling).
   const cfg: Partial<MawConfig> = {
-    host: input.node,
+    host: "local",
     node: input.node,
     port: DEFAULT_PORT,
     oracleUrl: DEFAULT_ORACLE_URL,

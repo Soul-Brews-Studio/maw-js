@@ -24,6 +24,7 @@ const DEFAULTS: MawConfig = {
 
 let warnedGhqRoot = false;
 let warnedHostMigrated = false;
+let warnedHostNodeConflated = false;
 
 let cached: MawConfig | null = null;
 
@@ -52,6 +53,35 @@ export function loadConfig(): MawConfig {
         `[maw] config.host "${cached.host}" is a bind address, not a connection target. ` +
         `Migrated to config.bind; host reset to "local". ` +
         `(#713 — set "bind" in maw.config.json to silence this warning.)\n`,
+      );
+    }
+    cached.host = "local";
+  }
+  // #906 — heal the host=node conflation bug shipped by `maw init` pre-fix.
+  // Pre-#906 buildConfig wrote `host: input.node`, conflating the SSH
+  // connection target with the node identity. Anyone who ran `maw init`
+  // ended up with `host: "<their-machine-name>"`, which made `hostExec`
+  // attempt `ssh <node-name> <cmd>` on every fleet-pinned clone (the
+  // `lock-trust-node` cryptic error in the wild). The fix in
+  // commands/plugins/init/write-config.ts now writes `host: "local"` for
+  // fresh installs; this migration heals existing broken configs at load
+  // time without operator action: when host === node and host is NOT
+  // already a known-good target ("local"/"localhost"), reset to "local".
+  // We deliberately do NOT touch configs where the operator hand-set
+  // `host` to something other than node — that's a real SSH target.
+  if (
+    typeof cached.host === "string" &&
+    typeof cached.node === "string" &&
+    cached.host === cached.node &&
+    cached.host !== "local" &&
+    cached.host !== "localhost"
+  ) {
+    if (!warnedHostNodeConflated) {
+      warnedHostNodeConflated = true;
+      process.stderr.write(
+        `[maw] config.host "${cached.host}" matches config.node — legacy init bug (#906). ` +
+        `host is the SSH target, not the node identity. Resetting host to "local". ` +
+        `Edit maw.config.json to silence this warning.\n`,
       );
     }
     cached.host = "local";
@@ -91,6 +121,7 @@ export function resetConfig() {
   cached = null;
   warnedGhqRoot = false;
   warnedHostMigrated = false;
+  warnedHostNodeConflated = false;
 }
 
 /**
