@@ -1,0 +1,13 @@
+{
+  "name": "run",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Type text into a tmux pane and submit with Enter — idiomatic for shells (#757).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "run",
+    "help": "maw run <target> \"<cmd>\" — type text into a tmux pane and press Enter"
+  },
+  "weight": 0
+}
