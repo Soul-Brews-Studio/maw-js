@@ -1,6 +1,7 @@
 import { sendKeys, selectWindow, hostExec, getPaneCommand } from "../transport/ssh";
 import { tmux } from "../transport/tmux";
 import { buildCommand } from "../../config";
+import { extractOracleName, resolveTargetCwd, shellQuote } from "../../commands/shared/target-cwd";
 import type { MawWS, Handler, MawEngine } from "../types";
 
 /** Run an async action with standard ok/error response */
@@ -67,14 +68,36 @@ const stop: Handler = (ws, data) => {
   runAction(ws, "stop", data.target, () => tmux.killWindow(data.target));
 };
 
+/**
+ * Re-spawn claude in an existing pane. Two cases the bare `target.split(":").pop()`
+ * extraction missed (Boss-flagged 2026-04-29 — pane spawned with the wrong
+ * oracle's CLAUDE.md identity):
+ *   1. `pop()` returns the window index ("0"), not the oracle name → `buildCommand`
+ *      falls back to default rather than the oracle-specific command.
+ *   2. `sendKeys` runs at the pane's *current* cwd; if the pane drifted
+ *      (manual cd, tmux server reboot, kill+respawn) claude loads whatever
+ *      CLAUDE.md is at that cwd instead of the intended oracle's.
+ *
+ * Fix:
+ *   • Resolve oracle name from the session (`05-nari` → `nari`) for `buildCommand`.
+ *   • Resolve the canonical cwd from fleet config and prepend `cd '<cwd>' && `
+ *     when known. Non-fleet targets fall back to the bare cmd (pre-fix behavior).
+ */
+function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
+  const target = data.target || "";
+  const oracle = extractOracleName(target);
+  const baseCmd = data.command || buildCommand(oracle);
+  const cwd = data.cwd || resolveTargetCwd(target);
+  return cwd ? `cd ${shellQuote(cwd)} && ${baseCmd}` : baseCmd;
+}
+
 const wake: Handler = (ws, data) => {
-  // Use client command if provided, otherwise resolve from config
-  const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
+  const cmd = buildSpawnCmd(data);
   runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
 };
 
 const restart: Handler = (ws, data) => {
-  const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
+  const cmd = buildSpawnCmd(data);
   runAction(ws, "restart", data.target, async () => {
     await sendKeys(data.target, "\x03"); // Ctrl+C
     await new Promise(r => setTimeout(r, 2000));
