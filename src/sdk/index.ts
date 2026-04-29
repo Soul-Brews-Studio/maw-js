@@ -111,20 +111,9 @@ export type {
   TransportResult, TransportFailureReason,
 } from "../core/transport/transport";
 
-// ─── Bud (create a new oracle) ───────────────────────────────────────────────
-
-export { cmdBud } from "../commands/plugins/bud/impl";
-export type { BudOpts } from "../commands/plugins/bud/impl";
-export {
-  cmdBudFromRepo, looksLikeUrl, planFromRepoInjection, formatPlan,
-} from "../commands/plugins/bud/from-repo";
-export {
-  initVault, generateClaudeMd, configureFleet, writeBirthNote,
-} from "../commands/plugins/bud/bud-init";
-export { finalizeBud } from "../commands/plugins/bud/bud-wake";
-export type { BudFinalizeCtx } from "../commands/plugins/bud/bud-wake";
-export { ensureBudRepo } from "../commands/plugins/bud/bud-repo";
-export type { FromRepoOpts, InjectionPlan, InjectionAction } from "../commands/plugins/bud/types";
+// ─── Bud — moved to community plugin (registry: maw-bud) ────────────────────
+// SDK no longer re-exports bud internals; community plugins consume @maw-js/sdk
+// rather than being part of it. Imports are now: registry install + plugin runtime.
 
 // ─── Oracle management ───────────────────────────────────────────────────────
 

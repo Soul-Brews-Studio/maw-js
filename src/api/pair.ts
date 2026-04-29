@@ -10,7 +10,7 @@
 import { Elysia } from "elysia";
 import { randomBytes } from "crypto";
 import { loadConfig } from "../config";
-import { register, lookup, consume, isValidShape, normalize, pretty, generateCode } from "../commands/plugins/pair/codes";
+import { register, lookup, consume, isValidShape, normalize, pretty, generateCode } from "../lib/pair-codes";
 import { cmdAdd } from "../lib/peers/impl";
 
 export const pairApi = new Elysia();

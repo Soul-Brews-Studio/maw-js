@@ -7,7 +7,7 @@
  * filesystem read access doesn't grant approval power.
  */
 import { createHash } from "crypto";
-import { generateCode, isValidShape, normalize, pretty } from "../../commands/plugins/pair/codes";
+import { generateCode, isValidShape, normalize, pretty } from "../../lib/pair-codes";
 
 export function generatePin(): string {
   return generateCode();

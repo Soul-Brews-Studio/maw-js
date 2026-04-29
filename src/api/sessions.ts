@@ -6,7 +6,7 @@ import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../cor
 import { loadConfig } from "../config";
 import { curlFetch } from "../core/transport/curl-fetch";
 import { resolveTarget } from "../core/routing";
-import { processMirror } from "../commands/plugins/overview/impl";
+import { processMirror } from "../lib/process-mirror";
 import { resolveFleetSession } from "../commands/shared/wake";
 import { WakeBody, SleepBody, SendBody, PaneKeysBody, ProbeBody } from "../lib/schemas";
 import { Tmux } from "../core/transport/tmux";
