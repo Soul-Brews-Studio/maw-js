@@ -1,0 +1,13 @@
+{
+  "name": "shellenv",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Emit shell init code for eval-style installation — adds 'maw warp' to zsh/bash. Pattern from direnv/zoxide/starship/brew/rbenv.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "shellenv",
+    "help": "maw shellenv <shell> — emit shell init code (zsh|bash). Install: eval \"$(maw shellenv zsh)\""
+  },
+  "weight": 20
+}
