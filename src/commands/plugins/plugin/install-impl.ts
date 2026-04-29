@@ -23,14 +23,14 @@
 
 import { parseFlags } from "../../../cli/parse-args";
 import { detectMode, ensureInstallRoot } from "./install-source-detect";
-import { installFromDir, installFromTarball, installFromUrl, installFromMonorepo } from "./install-handlers";
+import { installFromDir, installFromTarball, installFromUrl, installFromMonorepo, installFromGithub } from "./install-handlers";
 import { resolvePeerInstall } from "./install-peer-resolver";
 import { basename } from "path";
 
-export { installRoot, detectMode, parsePeerSpec, parseMonorepoRef, ensureInstallRoot, removeExisting } from "./install-source-detect";
+export { installRoot, detectMode, parsePeerSpec, parseMonorepoRef, parseGithubRef, ensureInstallRoot, removeExisting } from "./install-source-detect";
 export { extractTarball, downloadTarball, verifyArtifactHash } from "./install-extraction";
 export { readManifest, shortHash, printInstallSuccess, findMonorepoPluginRoot } from "./install-manifest-helpers";
-export { installFromDir, installFromTarball, installFromUrl, installFromMonorepo, ensurePluginMawJsLink, monorepoTarballUrl, monorepoRepoSlug } from "./install-handlers";
+export { installFromDir, installFromTarball, installFromUrl, installFromMonorepo, installFromGithub, ensurePluginMawJsLink, monorepoTarballUrl, monorepoRepoSlug, githubTarballUrl, githubBaseUrl } from "./install-handlers";
 export { resolvePeerInstall } from "./install-peer-resolver";
 export type { ResolvedPeerSource } from "./install-peer-resolver";
 
@@ -56,7 +56,7 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
   const src = flags._[0];
 
   if (!src || src === "--help" || src === "-h") {
-    throw new Error("usage: maw plugin install <dir | .tgz | URL | name@peer | monorepo:plugins/<name>@<tag>> [--link] [--force] [--pin] [--category core|standard|extra]");
+    throw new Error("usage: maw plugin install <dir | .tgz | URL | name@peer | monorepo:plugins/<name>@<tag> | owner/repo[/name][@ref]> [--link] [--force] [--pin] [--category core|standard|extra]");
   }
 
   ensureInstallRoot();
@@ -77,6 +77,16 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
     await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force, weight, pin });
   } else if (mode.kind === "monorepo") {
     await installFromMonorepo(mode.subpath, mode.tag, { force, weight, pin });
+  } else if (mode.kind === "github") {
+    // #939 — GitHub source format. Reuses tarball install path; auto-prefixes
+    // single-name subpath to plugins/<name>/ for monorepo convenience.
+    await installFromGithub(mode.owner, mode.repo, {
+      name: mode.name,
+      ref: mode.ref,
+      force,
+      weight,
+      pin,
+    });
   } else if (mode.kind === "peer") {
     const resolved = await resolvePeerInstall(mode.name, mode.peer);
     console.log(

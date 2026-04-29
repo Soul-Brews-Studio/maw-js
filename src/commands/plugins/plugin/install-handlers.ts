@@ -366,6 +366,95 @@ export function monorepoTarballUrl(tag: string, repo?: string): string {
 }
 
 /**
+ * Default GitHub host for `github:` source resolution (#939). Override via
+ * `MAW_GITHUB_BASE_URL` for tests / mirrors / local fixture servers (parallel
+ * to MAW_MONOREPO_BASE_URL).
+ */
+const DEFAULT_GITHUB_BASE_URL = "https://github.com";
+
+export function githubBaseUrl(): string {
+  return process.env.MAW_GITHUB_BASE_URL || DEFAULT_GITHUB_BASE_URL;
+}
+
+/**
+ * Build the GitHub archive tarball URL for a given owner/repo[@ref] (#939).
+ *
+ * - `<base>/<owner>/<repo>/archive/refs/tags/<ref>.tar.gz` when ref is a
+ *   tag-shaped string (starts with `v` followed by a digit, e.g. `v0.1.2`)
+ *   — matches how monorepoTarballUrl already shapes URLs and lets users
+ *   pin to a release.
+ * - `<base>/<owner>/<repo>/archive/<ref>.tar.gz` for any other ref (branch
+ *   names, commit shas, channel placeholders) — GitHub serves both `refs/
+ *   heads/<branch>` AND bare-name forms from the same archive endpoint.
+ * - `<base>/<owner>/<repo>/archive/HEAD.tar.gz` when no ref is given —
+ *   default branch, latest commit.
+ */
+export function githubTarballUrl(owner: string, repo: string, ref?: string): string {
+  const base = githubBaseUrl();
+  if (!ref) return `${base}/${owner}/${repo}/archive/HEAD.tar.gz`;
+  if (/^v\d/.test(ref)) {
+    return `${base}/${owner}/${repo}/archive/refs/tags/${ref}.tar.gz`;
+  }
+  return `${base}/${owner}/${repo}/archive/${ref}.tar.gz`;
+}
+
+/**
+ * Install a plugin from a GitHub `owner/repo[/name][@ref]` source (#939).
+ *
+ * Resolves to a github archive tarball, then reuses the existing tarball
+ * install path. When `name` is supplied it is interpreted as a subpath
+ * inside the repo:
+ *   • single segment (no `/`)  → auto-prefix `plugins/<name>/` for monorepo
+ *     convenience (matches the `maw-plugin-registry` layout)
+ *   • multi-segment            → treated as literal path
+ *
+ * `ref` is optional — without it, we fetch the default branch's HEAD.
+ *
+ * Reuses the installFromTarball flow (sdk gate, sha256 verify, plugins.lock,
+ * --pin/--force semantics) — the only delta is the URL builder + optional
+ * subpath walk performed by findMonorepoPluginRoot.
+ */
+export async function installFromGithub(
+  owner: string,
+  repo: string,
+  opts: { name?: string; ref?: string; force?: boolean; weight?: number; pin?: boolean } = {},
+): Promise<void> {
+  const url = githubTarballUrl(owner, repo, opts.ref);
+  const dl = await downloadTarball(url);
+  if (!dl.ok) {
+    throw new Error(dl.error);
+  }
+  // Build the canonical source string for plugins.lock — round-trippable
+  // through parseGithubRef. owner/repo are already lowercased by the parser.
+  const sourceParts = [`${owner}/${repo}`];
+  if (opts.name) sourceParts[0] += `/${opts.name}`;
+  if (opts.ref) sourceParts[0] += `@${opts.ref}`;
+  const source = sourceParts[0]!;
+
+  // Resolve the in-tarball subpath: single-name → `plugins/<name>/`, else literal.
+  let subpath: string | undefined;
+  if (opts.name) {
+    subpath = opts.name.includes("/") ? opts.name : `plugins/${opts.name}`;
+  }
+
+  try {
+    await installFromTarball(dl.path, {
+      source,
+      subpath,
+      force: opts.force,
+      weight: opts.weight,
+      pin: opts.pin,
+    });
+  } finally {
+    try {
+      rmSync(join(dl.path, ".."), { recursive: true, force: true });
+    } catch {
+      // Non-fatal.
+    }
+  }
+}
+
+/**
  * Install a plugin from the maw-plugin-registry monorepo (registry#2).
  *
  * Source format: `monorepo:plugins/<name>@<tag>` — the subpath identifies
