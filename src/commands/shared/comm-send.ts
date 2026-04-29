@@ -310,7 +310,9 @@ export async function cmdSend(
           });
           if (!wakeRes.ok || !wakeRes.data?.ok) {
             const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
-            console.error(`\x1b[31merror\x1b[0m: cross-node wake failed for ${targetNode}:${bareAgent}: ${underlying}`);
+            // #942 — surface as "Remote fetch failed for peer" so callers see a
+            // consistent network-failure shape across wake + send (#411 contract).
+            console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peer.url} (${targetNode}): cross-node wake failed for ${bareAgent}: ${underlying}`);
             console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
             process.exit(1);
           }
