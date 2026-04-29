@@ -49,20 +49,39 @@ describe("calver maxAlphaFromTags", () => {
   });
 });
 
-describe("calver hhmmStamp (HHMM scheme)", () => {
-  it("zero-pads single-digit hours and minutes to 4 chars", () => {
-    expect(hhmmStamp(new Date(2026, 3, 18, 0, 0))).toBe("0000");
-    expect(hhmmStamp(new Date(2026, 3, 18, 9, 5))).toBe("0905");
-    expect(hhmmStamp(new Date(2026, 3, 18, 9, 37))).toBe("0937");
+describe("calver hhmmStamp (HMM integer scheme — no leading zeros)", () => {
+  it("midnight hour drops the leading zero", () => {
+    expect(hhmmStamp(new Date(2026, 3, 18, 0, 0))).toBe("0");
+    expect(hhmmStamp(new Date(2026, 3, 18, 0, 5))).toBe("5");
+    expect(hhmmStamp(new Date(2026, 3, 18, 0, 30))).toBe("30");
+    expect(hhmmStamp(new Date(2026, 3, 18, 0, 59))).toBe("59");
   });
 
-  it("preserves multi-digit values without padding", () => {
+  it("single-digit hour: H*100 + MM", () => {
+    expect(hhmmStamp(new Date(2026, 3, 18, 1, 0))).toBe("100");
+    expect(hhmmStamp(new Date(2026, 3, 18, 9, 29))).toBe("929");
+    expect(hhmmStamp(new Date(2026, 3, 18, 9, 0))).toBe("900");
+  });
+
+  it("double-digit hour: H*100 + MM", () => {
+    expect(hhmmStamp(new Date(2026, 3, 18, 10, 1))).toBe("1001");
     expect(hhmmStamp(new Date(2026, 3, 18, 12, 34))).toBe("1234");
+    expect(hhmmStamp(new Date(2026, 3, 18, 23, 1))).toBe("2301");
     expect(hhmmStamp(new Date(2026, 3, 18, 23, 59))).toBe("2359");
+  });
+
+  it("numeric chronological order is preserved (semver numeric IDs)", () => {
+    // No leading zeros => semver-numeric => numeric compare. Spot-check
+    // that successive minutes monotonically increase as integers.
+    const t = (h: number, m: number) => parseInt(hhmmStamp(new Date(2026, 3, 18, h, m)), 10);
+    expect(t(0, 0)).toBeLessThan(t(0, 1));
+    expect(t(0, 59)).toBeLessThan(t(1, 0));   // 59 < 100
+    expect(t(9, 59)).toBeLessThan(t(10, 0));  // 959 < 1000
+    expect(t(23, 58)).toBeLessThan(t(23, 59)); // 2358 < 2359
   });
 });
 
-describe("calver computeVersion (HHMM scheme)", () => {
+describe("calver computeVersion (HMM scheme)", () => {
   const apr18_0937 = new Date(2026, 3, 18, 9, 37);
   const apr27_1200 = new Date(2026, 3, 27, 12, 0);
   const jan1_0005  = new Date(2027, 0, 1, 0, 5);
@@ -72,12 +91,12 @@ describe("calver computeVersion (HHMM scheme)", () => {
     expect(computeVersion({ stable: true, check: false, now: jan1_0005 })).toBe("27.1.1");
   });
 
-  it("alpha: yy.m.d-alpha.HHMM regardless of tag state", () => {
-    expect(computeVersion({ stable: false, check: false, now: apr18_0937 }, [])).toBe("26.4.18-alpha.0937");
-    expect(computeVersion({ stable: false, check: false, now: jan1_0005 }, [])).toBe("27.1.1-alpha.0005");
+  it("alpha: yy.m.d-alpha.HMM regardless of tag state", () => {
+    expect(computeVersion({ stable: false, check: false, now: apr18_0937 }, [])).toBe("26.4.18-alpha.937");
+    expect(computeVersion({ stable: false, check: false, now: jan1_0005 }, [])).toBe("27.1.1-alpha.5");
   });
 
-  it("alpha: ignores tags entirely (HHMM is unique-per-minute)", () => {
+  it("alpha: ignores tags entirely (HMM is unique-per-minute)", () => {
     const tags = ["v26.4.27-alpha.11", "v26.4.27-alpha.12"];
     expect(computeVersion({ stable: false, check: false, now: apr27_1200 }, tags)).toBe("26.4.27-alpha.1200");
   });
@@ -93,7 +112,7 @@ describe("calver computeVersion (HHMM scheme)", () => {
     expect(computeVersion({ stable: true, channel: "alpha", check: false, now: apr27_1200 }, tags)).toBe("26.4.27");
   });
 
-  it("alpha and beta in same minute share HHMM, differ by channel", () => {
+  it("alpha and beta in same minute share HMM, differ by channel", () => {
     const alpha = computeVersion({ stable: false, channel: "alpha", check: false, now: apr27_1200 });
     const beta  = computeVersion({ stable: false, channel: "beta",  check: false, now: apr27_1200 });
     expect(alpha).toBe("26.4.27-alpha.1200");
@@ -261,12 +280,12 @@ describe("calver effectiveBase (#819)", () => {
   });
 });
 
-describe("calver computeVersion future-dated package.json (#819, HHMM-adapted)", () => {
+describe("calver computeVersion future-dated package.json (#819, HMM-adapted)", () => {
   const apr28_1200 = new Date(2026, 3, 28, 12, 0);
   const apr29_0500 = new Date(2026, 3, 29, 5, 0);
 
-  it("future-dated alpha: bumps to package.json's date with current HHMM (no downgrade)", () => {
-    // The #819 anti-downgrade guard still fires under HHMM: package.json at
+  it("future-dated alpha: bumps to package.json's date with current HMM (no downgrade)", () => {
+    // The #819 anti-downgrade guard still fires under HMM: package.json at
     // 26.4.29-alpha.5, clock at 2026-04-28 12:00 → bump to 26.4.29-alpha.1200,
     // NOT 26.4.28-alpha.1200 (which would be a base downgrade).
     expect(
@@ -274,14 +293,13 @@ describe("calver computeVersion future-dated package.json (#819, HHMM-adapted)",
     ).toBe("26.4.29-alpha.1200");
   });
 
-  it("date roll: clock advances past package.json → fresh date with current HHMM", () => {
+  it("date roll: clock advances past package.json → fresh date with current HMM", () => {
     expect(
       computeVersion({ stable: false, check: false, now: apr29_0500 }, [], "26.4.28-alpha.18"),
-    ).toBe("26.4.29-alpha.0500");
+    ).toBe("26.4.29-alpha.500");
   });
 
   it("just-cut stable in package.json: bare YY.M.D base preserved", () => {
-    // package.json holds bare 26.4.30; clock 2026-04-28 12:00.
     expect(
       computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.30"),
     ).toBe("26.4.30-alpha.1200");

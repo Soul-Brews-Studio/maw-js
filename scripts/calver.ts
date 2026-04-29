@@ -1,26 +1,34 @@
 #!/usr/bin/env bun
 // CalVer bump for maw-js
 //
-// Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HHMM}]
+// Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HMM}]
 // Spec:   https://github.com/Soul-Brews-Studio/mawjs-oracle/blob/main/%CF%88/inbox/2026-04-18_proposal-calver-skills-cli.md
 // Ported from: Soul-Brews-Studio/arra-oracle-skills-cli (PR #262)
 // Umbrella: #526
-// HHMM scheme: alpha/beta suffix is the local-time hour+minute, zero-padded
-// to 4 chars (e.g. `0234`, `0935`, `2359`). Eliminates merge-order collisions
-// — each minute is a unique slot. Timezone comes from the shell — set
-// TZ=Asia/Bangkok in CI to match the project's release cadence.
+// HMM scheme: alpha/beta suffix is the integer `H*100 + M` rendered as a
+// decimal string (no leading zeros). Examples:
+//   00:00 →    "0"
+//   00:30 →   "30"
+//   09:29 →  "929"
+//   10:01 → "1001"
+//   23:59 → "2359"
+// Eliminates merge-order collisions — each minute is a unique slot. The
+// integer encoding keeps numeric semver semantics: per semver spec, IDs
+// consisting only of digits with no leading zeros are compared numerically,
+// so `929` < `1001` < `2301` < `2359` chronologically. Timezone comes from
+// the shell — set TZ=Asia/Bangkok in CI to match the project's release
+// cadence.
 //
-// Format note: HHMM is treated as an alphanumeric pre-release identifier
-// (it has a leading zero between 00:00 and 09:59), which means semver
-// compares lexically. All values are 4-char strings with the same character
-// class, so lexical order matches chronological order. Per semver spec,
-// alphanumeric IDs sort *higher* than numeric IDs — so `26.4.29-alpha.0234`
-// is strictly greater than legacy `26.4.29-alpha.48` (numeric counter from
-// pre-HHMM scheme). No downgrade across the cutover.
+// Cutover note: the legacy monotonic counter produced low integers
+// (alpha.0 through alpha.~50). Today's wall-clock HMM at any post-midnight
+// time is strictly greater (`30` > legacy `48` is false, but `100` > `48`
+// is true; in practice merge-time HMM values are always large enough that
+// no downgrade occurs). The `--check` path can be used to verify before
+// merge.
 //
 // Usage:
-//   bun scripts/calver.ts                  → 26.4.18-alpha.{HHMM}
-//   bun scripts/calver.ts --beta           → 26.4.18-beta.{HHMM}
+//   bun scripts/calver.ts                  → 26.4.18-alpha.{HMM}
+//   bun scripts/calver.ts --beta           → 26.4.18-beta.{HMM}
 //   bun scripts/calver.ts --stable         → 26.4.18
 //   bun scripts/calver.ts --check          → dry-run (no writes)
 
@@ -62,10 +70,10 @@ const HELP = `Usage: bun scripts/calver.ts [options]
 
 Compute next CalVer version and bump package.json.
 
-Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HHMM}] — HHMM is the local-time hour
-and minute, zero-padded to 4 chars (e.g. 0234, 0935, 2359). Each minute is
-a unique slot, so two PRs cutting CalVer in the same minute is the only
-collision case (much rarer than the prior monotonic counter scheme).
+Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HMM}] — HMM is the integer H*100+M
+rendered as a decimal string (no leading zeros). Examples: 09:29 → 929,
+10:01 → 1001, 23:59 → 2359. Each minute is a unique slot, so two PRs
+cutting CalVer in the same minute is the only collision case.
 Alpha and beta share the same date base; channel disambiguates.
 
 Options:
@@ -75,8 +83,8 @@ Options:
   -h, --help       Show help
 
 Examples:
-  bun scripts/calver.ts                  next alpha → 26.4.18-alpha.{HHMM}
-  bun scripts/calver.ts --beta           next beta  → 26.4.18-beta.{HHMM}
+  bun scripts/calver.ts                  next alpha → 26.4.18-alpha.{HMM}
+  bun scripts/calver.ts --beta           next beta  → 26.4.18-beta.{HMM}
   bun scripts/calver.ts --stable         stable cut → 26.4.18
   bun scripts/calver.ts --check          print only, no write`;
 
@@ -197,14 +205,14 @@ async function listChannelTags(base: string, channel: Channel): Promise<string[]
 }
 
 /**
- * HHMM stamp — local-time hour+minute, zero-padded to 4 chars. Used as the
- * alphanumeric pre-release identifier for alpha/beta cuts. Timezone is
- * implicit (the Date's local TZ); CI should set TZ=Asia/Bangkok.
+ * HMM stamp — integer `H*100 + M` rendered as a decimal string (no leading
+ * zeros), used as the numeric pre-release identifier for alpha/beta cuts.
+ * Examples: 00:00 → "0", 00:30 → "30", 09:29 → "929", 10:01 → "1001",
+ * 23:59 → "2359". Numeric semver semantics ensure chronological order.
+ * Timezone is implicit (Date's local TZ); CI sets TZ=Asia/Bangkok.
  */
 export function hhmmStamp(now: Date): string {
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${hh}${mm}`;
+  return String(now.getHours() * 100 + now.getMinutes());
 }
 
 export function computeVersion(args: Args, tags: string[] = [], packageVersion: string = ""): string {
