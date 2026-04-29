@@ -97,7 +97,36 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     const allWindows = [
       ...new Map(sessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
     ];
-    const resolved = resolveWorktreeTarget(taskPart, allWindows);
+
+    // #935 — scope window search to PARENT oracle's session first.
+    // Pre-fix: a global search across all sessions ambiguously matched
+    // generic worktree names (e.g. `1--no-attach`) when 4 oracles each had
+    // a `--no-attach` window. Post-fix: try the parent oracle's session
+    // first; only fall back to global if the scoped search finds nothing.
+    //
+    // Parent oracle name is derived by stripping the trailing `-oracle`
+    // suffix from the main repo (e.g. `pulse-oracle` → `pulse`). Sessions
+    // can be named bare (`pulse`) or with a fleet-numeric prefix
+    // (`NN-pulse`), so we accept either shape.
+    const parentOracleName = mainRepoName.replace(/-oracle$/, "");
+    const parentSessions = sessions.filter(s =>
+      s.name === parentOracleName || s.name.endsWith(`-${parentOracleName}`)
+    );
+    let resolved: ReturnType<typeof resolveWorktreeTarget> | undefined;
+    if (parentSessions.length > 0) {
+      const scopedWindows = [
+        ...new Map(parentSessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
+      ];
+      const localResolved = resolveWorktreeTarget(taskPart, scopedWindows);
+      if (localResolved.kind === "exact" || localResolved.kind === "fuzzy") {
+        resolved = localResolved;
+      }
+    }
+    // Fall back to global search (existing behavior) when no parent session
+    // exists or when the scoped search did not produce a clean bind.
+    if (!resolved) {
+      resolved = resolveWorktreeTarget(taskPart, allWindows);
+    }
     switch (resolved.kind) {
       case "exact":
       case "fuzzy":
