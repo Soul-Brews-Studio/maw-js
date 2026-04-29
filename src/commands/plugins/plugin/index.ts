@@ -12,7 +12,9 @@ const USAGE =
   "  build [dir] [--watch] [--types]     bundle + pack a plugin\n" +
   "                                        --types: emit dist/<name>.d.ts\n" +
   "  dev [dir] [--types]                 watch mode (alias for build --watch, DX verb)\n" +
-  "  install <name | dir | .tgz | URL>   install a plugin (plain name → registry lookup)\n" +
+  "  install <name | package | dir | .tgz | URL>\n" +
+  "                                      plain name → registry lookup (plugin or package)\n" +
+  "                                      e.g. 'maw plugin install standard' installs the standard bundle\n" +
   "                                        --pin: add to plugins.lock on first install\n" +
   "  install <owner/repo>[/<name>][@<ref>]   install from GitHub (Vercel-style)\n" +
   "    install owner/repo                  whole repo (single-plugin repo)\n" +
@@ -147,12 +149,32 @@ async function runInstallCmd(args: string[]): Promise<void> {
   const src = args.find(a => !a.startsWith("-"));
   if (src && isPlainName(src)) {
     const { getRegistry } = await import("./registry-fetch");
-    const { resolvePluginSource } = await import("./registry-resolve");
     const reg = await getRegistry();
+    const pkg = reg.packages?.[src];
+    if (pkg) {
+      console.log(`installing package '${src}': ${pkg.plugins.length} plugins — ${pkg.summary}`);
+      const failures: { name: string; err: unknown }[] = [];
+      for (const pluginName of pkg.plugins) {
+        const subArgs = args.map(a => (a === src ? pluginName : a));
+        try {
+          await runInstallCmd(subArgs);
+        } catch (err) {
+          failures.push({ name: pluginName, err });
+          console.error(`  ! ${pluginName}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      const ok = pkg.plugins.length - failures.length;
+      console.log(`package '${src}': ${ok}/${pkg.plugins.length} installed${failures.length ? ` (${failures.length} failed)` : ""}`);
+      if (failures.length) throw new Error(`package install partial: ${failures.length} failed`);
+      return;
+    }
+    const { resolvePluginSource } = await import("./registry-resolve");
     const resolved = resolvePluginSource(src, reg);
     if (!resolved) {
+      const knownPackages = reg.packages ? Object.keys(reg.packages).join(", ") : "";
       throw new Error(
         `plugin '${src}' not in registry.\n` +
+        (knownPackages ? `  packages available: ${knownPackages}\n` : "") +
         `  if you have a direct URL or tarball, run: maw plugin install <url | .tgz>`,
       );
     }

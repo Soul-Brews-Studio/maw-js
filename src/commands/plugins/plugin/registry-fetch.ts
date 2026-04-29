@@ -25,12 +25,19 @@ export interface RegistryEntry {
   license: string;
   homepage?: string;
   addedAt: string;
+  tier?: string;
+}
+
+export interface RegistryPackage {
+  summary: string;
+  plugins: string[];
 }
 
 export interface RegistryManifest {
   schemaVersion: 1;
   updated: string;
   plugins: Record<string, RegistryEntry>;
+  packages?: Record<string, RegistryPackage>;
 }
 
 export function registryUrl(override?: string): string {
