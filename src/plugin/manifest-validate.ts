@@ -145,6 +145,15 @@ export function parseTarget(r: Record<string, unknown>): PluginManifest["target"
   return r.target;
 }
 
+/**
+ * Parse + validate the optional `capabilities` field.
+ *
+ * Single source of truth: KNOWN_CAPABILITY_NAMESPACES from manifest-constants.
+ * This function runs at BOTH install time (parseManifest in plugins-install)
+ * AND load time (parseManifest via loadManifestFromDir → discoverPackages).
+ * Both paths must use the same canonical set — never hardcode the list
+ * anywhere else. See #902 / test/isolated/plugin-load-capability-902.test.ts.
+ */
 export function parseCapabilities(r: Record<string, unknown>): PluginManifest["capabilities"] {
   if (r.capabilities === undefined) return undefined;
   if (

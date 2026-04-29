@@ -10,7 +10,15 @@
  * tmux/Tmux helpers (src/core/transport/tmux). `shell` covers shell-eval style
  * stdout writes for shell-environment plugins. Both are advisory in Phase A —
  * mirroring the rest of this list — and gate-able once the runtime grows real
- * capability enforcement (#487 follow-up). */
+ * capability enforcement (#487 follow-up).
+ *
+ * #902 — SINGLE SOURCE OF TRUTH. Every validator in the codebase must import
+ * this set; do NOT hardcode the namespace list anywhere else (install,
+ * load, build, lint paths). The alpha.41 bug surfaced because the runtime
+ * load-time path appeared to lag the install-time path — in fact both
+ * paths now share this constant via parseCapabilities(). The
+ * test/isolated/plugin-load-capability-902.test.ts regression suite locks
+ * the load-path against this set so any future drift fails CI. */
 export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "net",    // network (fetch, sockets)
   "fs",     // filesystem
