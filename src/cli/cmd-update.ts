@@ -177,15 +177,15 @@ export async function runUpdate(args: string[]): Promise<void> {
       // file ops always succeed even when the resolver is wedged.
       try {
         const globalPkg = join(homedir(), ".bun", "install", "global", "package.json");
-        if (existsSync(globalPkg)) {
-          const data = JSON.parse(readFileSync(globalPkg, "utf-8"));
-          let dirty = false;
-          for (const key of ["maw-js", "maw"]) {
-            if (data.dependencies?.[key]) { delete data.dependencies[key]; dirty = true; }
-          }
-          if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
+        // CodeQL TOCTOU: skip existsSync — readFileSync throws ENOENT if missing,
+        // caught by outer try/catch. Same effect, no race-window between check + write.
+        const data = JSON.parse(readFileSync(globalPkg, "utf-8"));
+        let dirty = false;
+        for (const key of ["maw-js", "maw"]) {
+          if (data.dependencies?.[key]) { delete data.dependencies[key]; dirty = true; }
         }
-      } catch { /* best effort — bun remove still runs below */ }
+        if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
+      } catch { /* best effort — file missing or unreadable; bun remove still runs below */ }
       try {
         const nm = join(homedir(), ".bun", "install", "global", "node_modules");
         for (const name of ["maw-js", "maw", "@maw-js"]) {
