@@ -35,6 +35,44 @@ export function findPluginRoot(stagingDir: string): string | null {
 }
 
 /**
+ * Resolve the plugin root inside an extracted monorepo staging dir
+ * (maw-plugin-registry#2). The registry repo's tarball, fetched via the
+ * `monorepo:plugins/<name>@<tag>` source format, is wrapped by github in
+ * `<repo>-<tag>/` and contains the FULL repo at that tag — so the plugin
+ * doesn't live at the root, it lives under a known subpath
+ * (typically `plugins/<name>/`).
+ *
+ * Walk: optional wrapper-dir descent (matching findPluginRoot's one-level
+ * walk), then descend into `subpath`. Returns null if no `plugin.json` is
+ * found at the resolved location.
+ *
+ * Path-traversal is gated upstream by `extractTarball`'s entry list check;
+ * we still refuse `..` segments in the parsed subpath (parseMonorepoRef).
+ */
+export function findMonorepoPluginRoot(stagingDir: string, subpath: string): string | null {
+  // First try: subpath relative to the staging dir directly. Local-tarball
+  // fixtures and any tarball whose entries weren't wrapped in a top-level
+  // dir hit this path.
+  const direct = join(stagingDir, subpath);
+  if (existsSync(join(direct, "plugin.json"))) return direct;
+
+  // Then: github-archive wrap style — `<repo>-<tag>/<subpath>/`. Walk one
+  // level into the lone top-level dir and retry. We don't gate on plugin.json
+  // at the staging root because the monorepo root NEVER has plugin.json — the
+  // root is the repo, plugins live under <subpath>.
+  let entries: string[];
+  try { entries = readdirSync(stagingDir); } catch { return null; }
+  if (entries.length !== 1) return null;
+  const inner = join(stagingDir, entries[0]!);
+  try {
+    if (!statSync(inner).isDirectory()) return null;
+  } catch { return null; }
+  const wrapped = join(inner, subpath);
+  if (existsSync(join(wrapped, "plugin.json"))) return wrapped;
+  return null;
+}
+
+/**
  * Read + parse plugin.json from an unpacked dir. Returns null + logs if missing.
  */
 export function readManifest(dir: string): PluginManifest | null {
