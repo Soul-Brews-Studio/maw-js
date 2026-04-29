@@ -6,6 +6,7 @@ import { getGhqRoot } from "../../config/ghq-root";
 import { ensureSessionRunning } from "./wake";
 import { loadFleet } from "./fleet-load";
 import { respawnMissingWorktrees, resumeActiveItems } from "./fleet-resume";
+import { pinSessionWide, pinWindowWide } from "./wake-pane-size";
 import {
   isSshTransportError,
   runWakeLoopFailSoft,
@@ -76,6 +77,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       // every Oracle session inherit Labubu's CLAUDE.md identity.
       const firstPath = join(getGhqRoot(), first.repo);
       await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
+      await pinSessionWide(sess.name);
       for (const [key, val] of Object.entries(getEnvVars())) {
         await tmux.setEnvironment(sess.name, key, val);
       }
@@ -91,6 +93,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
         const winPath = join(getGhqRoot(), win.repo);
         try {
           await tmux.newWindow(sess.name, win.name, { cwd: winPath });
+          await pinWindowWide(`${sess.name}:${win.name}`);
           if (!sess.skip_command) {
             await new Promise(r => setTimeout(r, 300));
             await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
