@@ -8,7 +8,7 @@ import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
 import { formatSdkMismatchError, hashFile, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
-import { installRoot, removeExisting } from "./install-source-detect";
+import { installRoot, removeExisting, type GithubRef } from "./install-source-detect";
 import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst, isSourcePluginManifest } from "./install-extraction";
 import { findPluginRoot, findMonorepoPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
 import { readLock, recordInstall } from "./lock";
@@ -377,6 +377,169 @@ export function monorepoTarballUrl(tag: string, repo?: string): string {
  * plugins.lock, --pin/--force semantics) — the only delta is the wrapper +
  * subpath walk performed in findMonorepoPluginRoot.
  */
+/**
+ * Default GitHub host for `installFromGithub` archive URLs. Override via
+ * `MAW_GITHUB_BASE_URL` for tests / on-prem GitHub Enterprise / mirrors —
+ * mirrors the `MAW_MONOREPO_BASE_URL` pattern above.
+ */
+const DEFAULT_GITHUB_BASE_URL = "https://github.com";
+
+export function githubBaseUrl(): string {
+  return process.env.MAW_GITHUB_BASE_URL || DEFAULT_GITHUB_BASE_URL;
+}
+
+function archiveTagUrl(owner: string, repo: string, ref: string): string {
+  return `${githubBaseUrl()}/${owner}/${repo}/archive/refs/tags/${ref}.tar.gz`;
+}
+
+function archiveBranchUrl(owner: string, repo: string, ref: string): string {
+  return `${githubBaseUrl()}/${owner}/${repo}/archive/refs/heads/${ref}.tar.gz`;
+}
+
+/**
+ * Resolve the latest release tag for `<owner>/<repo>` via `gh api`. Returns
+ * null if `gh` is unavailable, the call fails, or the repo has no releases —
+ * the caller falls back to the default branch tarball.
+ *
+ * Why `gh` and not raw fetch: `gh` already carries the operator's auth (so
+ * private repos and elevated rate limits work) and is the only network tool
+ * in the codebase that's already audited for that purpose.
+ */
+function fetchLatestReleaseTag(owner: string, repo: string): string | null {
+  const r = spawnSync("gh", ["api", `repos/${owner}/${repo}/releases/latest`, "--jq", ".tag_name"], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return null;
+  const tag = (r.stdout ?? "").trim();
+  if (!tag) return null;
+  return tag;
+}
+
+/**
+ * Install a plugin from a Vercel-style GitHub source: `owner/repo[/sub][@ref]`
+ * (#939). Resolves a GitHub archive URL, downloads, then hands off to
+ * `installFromTarball` so the existing sdk/sha/lock gates apply uniformly.
+ *
+ * Ref resolution:
+ *   • explicit `ref` set → try `refs/tags/<ref>.tar.gz`, fall back to
+ *     `refs/heads/<ref>.tar.gz` on 404. Order matters: most operators write
+ *     `@v1.2.3` meaning a tag; the heads fallback covers `@main` / `@dev`.
+ *   • no ref → `gh api releases/latest` for the tag; then archive that.
+ *     Fall back to `archive/HEAD.tar.gz` (default branch) if no releases.
+ *
+ * Subpath handling:
+ *   • passed through to `installFromTarball.subpath` which uses
+ *     `findMonorepoPluginRoot`. The single-segment `plugins/` auto-prefix
+ *     is applied here so `owner/repo/foo` resolves to `plugins/foo` if
+ *     that's where the plugin actually lives.
+ */
+export async function installFromGithub(
+  ref: GithubRef,
+  opts: { force?: boolean; weight?: number; pin?: boolean } = {},
+): Promise<void> {
+  const { owner, repo, subpath, ref: refName } = ref;
+
+  // Provenance string — also used to render the source label in plugins.lock
+  // and the install-success line. Mirrors how monorepo: is rendered.
+  const provenance =
+    `github:${owner}/${repo}` +
+    (subpath ? `/${subpath}` : "") +
+    (refName ? `@${refName}` : "");
+
+  // Resolve a tarball URL. We download to a temp file (downloadTarball) and
+  // try the next URL on failure rather than peeking via HEAD — github redirects
+  // /archive/refs/* to a CDN, and a HEAD against the unsigned redirect URL
+  // doesn't reflect tag-vs-branch existence reliably.
+  const candidates: string[] = [];
+  if (refName) {
+    candidates.push(archiveTagUrl(owner, repo, refName));
+    candidates.push(archiveBranchUrl(owner, repo, refName));
+  } else {
+    const latest = fetchLatestReleaseTag(owner, repo);
+    if (latest) {
+      candidates.push(archiveTagUrl(owner, repo, latest));
+    }
+    // Default-branch fallback. `archive/HEAD.tar.gz` resolves to the repo's
+    // default branch on github.com without us having to query for its name.
+    candidates.push(`${githubBaseUrl()}/${owner}/${repo}/archive/HEAD.tar.gz`);
+  }
+
+  let dlPath: string | null = null;
+  let lastError = "no archive URLs were attempted";
+  for (const url of candidates) {
+    const dl = await downloadTarball(url);
+    if (dl.ok) {
+      dlPath = dl.path;
+      break;
+    }
+    lastError = dl.error;
+  }
+  if (!dlPath) {
+    throw new Error(
+      `failed to fetch github archive for ${provenance}:\n  ${lastError}\n  tried: ${candidates.join(", ")}`,
+    );
+  }
+
+  // Resolve the subpath inside the extracted repo. `installFromTarball.subpath`
+  // is passed straight to `findMonorepoPluginRoot` which handles the
+  // `<repo>-<ref>/<subpath>/` walk for github-archive wrappers.
+  //
+  // Auto-prefix convenience: when subpath is a single segment (no `/`) and
+  // doesn't already start with `plugins/`, we tell `installFromTarball` to
+  // try `plugins/<seg>` first. If that doesn't pan out the user can pass an
+  // explicit `plugins/<seg>` themselves. The actual prefer-plugins/-then-
+  // literal probing happens in the resolver below by trying both subpath
+  // shapes against `findMonorepoPluginRoot` — but `installFromTarball`
+  // takes a single subpath, so we resolve it here BEFORE the call by peeking
+  // into the staging dir. To keep this simple and avoid changing
+  // installFromTarball's contract, we do that auto-prefix probe inline:
+  let effectiveSubpath = subpath;
+  if (subpath && !subpath.includes("/")) {
+    // Single segment — prefer `plugins/<seg>` if we can detect it. We don't
+    // have the staging dir yet (installFromTarball owns extraction), so the
+    // probe is a best-effort: try `plugins/<seg>` first and fall back. If
+    // both fail, installFromTarball surfaces the clearer error.
+    try {
+      await installFromTarball(dlPath, {
+        source: provenance,
+        force: opts.force,
+        weight: opts.weight,
+        pin: opts.pin,
+        subpath: `plugins/${subpath}`,
+      });
+      effectiveSubpath = `plugins/${subpath}`;
+      // Success on the prefixed path — clean up and return.
+      try { rmSync(join(dlPath, ".."), { recursive: true, force: true }); } catch { /* non-fatal */ }
+      return;
+    } catch (e: any) {
+      // Only fall through on the "no plugin.json at subpath" sentinel —
+      // any other error (sdk gate, sha mismatch) is real and must surface.
+      const msg = String(e?.message ?? e);
+      if (!/no plugin.json at subpath/.test(msg)) throw e;
+      effectiveSubpath = subpath;
+      // Re-download isn't needed: extraction was rolled back already inside
+      // installFromTarball on the staging-cleanup branch. But the temp
+      // tarball is still on disk — fall through to the literal-subpath try.
+    }
+  }
+
+  try {
+    await installFromTarball(dlPath, {
+      source: provenance,
+      force: opts.force,
+      weight: opts.weight,
+      pin: opts.pin,
+      ...(effectiveSubpath ? { subpath: effectiveSubpath } : {}),
+    });
+  } finally {
+    try {
+      rmSync(join(dlPath, ".."), { recursive: true, force: true });
+    } catch {
+      // Non-fatal — temp dir cleanup.
+    }
+  }
+}
+
 export async function installFromMonorepo(
   subpath: string,
   tag: string,

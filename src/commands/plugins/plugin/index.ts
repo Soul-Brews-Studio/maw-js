@@ -14,6 +14,11 @@ const USAGE =
   "  dev [dir] [--types]                 watch mode (alias for build --watch, DX verb)\n" +
   "  install <name | dir | .tgz | URL>   install a plugin (plain name → registry lookup)\n" +
   "                                        --pin: add to plugins.lock on first install\n" +
+  "  install <owner/repo>[/<name>][@<ref>]   install from GitHub (Vercel-style)\n" +
+  "    install owner/repo                  whole repo (single-plugin repo)\n" +
+  "    install owner/repo/bg               subdir from monorepo (auto plugins/ prefix)\n" +
+  "    install owner/repo/sub/dir          literal subpath\n" +
+  "    install owner/repo@v1.2.3           pinned tag (or branch / sha)\n" +
   "  pin <name> <tarball> [--version V]  add/update plugins.lock entry (#487)\n" +
   "  unpin <name>                        remove a plugins.lock entry\n" +
   "  registry                            show registry URL + entry count\n" +

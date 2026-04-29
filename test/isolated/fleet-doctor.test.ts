@@ -233,6 +233,10 @@ describe("checkStalePeers — reachable happy path", () => {
     expect(out.identities).toEqual({ fresh: { node: "fresh", agents: [] } });
   });
 
+  // #942 — overspecified assertion fixed: checkStalePeers also passes
+  // `from: "auto"` for #804 Step 4 v3-sign. The contract here is "timeout
+  // is forwarded" — use objectContaining so future opts (sign tags, etc.)
+  // don't regress this test.
   test("explicit timeout forwarded to curlFetch", async () => {
     curlFetchResponses = [{
       match: /identity/,
@@ -241,9 +245,10 @@ describe("checkStalePeers — reachable happy path", () => {
 
     await checkStalePeers([{ name: "x", url: "https://x.example" }], 7777);
 
-    expect(curlFetchCalls[0].opts).toEqual({ timeout: 7777 });
+    expect(curlFetchCalls[0].opts).toEqual(expect.objectContaining({ timeout: 7777 }));
   });
 
+  // #942 — see note above.
   test("default timeout=3000 when omitted", async () => {
     curlFetchResponses = [{
       match: /identity/,
@@ -252,7 +257,7 @@ describe("checkStalePeers — reachable happy path", () => {
 
     await checkStalePeers([{ name: "x", url: "https://x.example" }]);
 
-    expect(curlFetchCalls[0].opts).toEqual({ timeout: 3000 });
+    expect(curlFetchCalls[0].opts).toEqual(expect.objectContaining({ timeout: 3000 }));
   });
 });
 
