@@ -16,8 +16,19 @@ async function runAction(ws: MawWS, action: string, target: string, fn: () => Pr
 // --- Handlers ---
 
 const subscribe: Handler = (ws, data, engine) => {
-  ws.data.target = data.target;
-  engine.pushCapture(ws);
+  // scope "main" (default) replaces ws.data.target — full /ws capture stream.
+  // scope "preview" adds to previewTargets — used by FleetGrid pinned cards,
+  //   VSAgentPanel, useMissionControl pin so they don't clobber the active
+  //   TerminalView target on the same singleton WS (echo 2026-04-29).
+  const scope = data.scope === "preview" ? "preview" : "main";
+  if (scope === "main") {
+    ws.data.target = data.target;
+    engine.pushCapture(ws);
+  } else {
+    if (!ws.data.previewTargets) ws.data.previewTargets = new Set();
+    ws.data.previewTargets.add(data.target);
+    engine.pushPreviews(ws);
+  }
 };
 
 const subscribePreviews: Handler = (ws, data, engine) => {
