@@ -24,7 +24,13 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
   attach: ["tmux", "attach"],
-  ls: ["fleet", "ls"],
+
+  // Direct-handler form — `ls` invokes the original cmdList in core
+  // (src/commands/shared/comm-list.ts). Pre-#918 the `ls` plugin was a
+  // thin shim around cmdList(); the plugin shell was extracted but cmdList
+  // itself remained in core, so we route directly to it. NOT `fleet ls`
+  // (which lists fleet configs — different concept). See PR #955.
+  ls: { kind: "direct", handler: "../commands/shared/comm-list:cmdList" },
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
@@ -56,12 +62,14 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
 }
 
 /**
- * Invoke a direct-handler alias. Currently only `wake` uses this path.
+ * Invoke a direct-handler alias. Used by `wake` and `ls`.
  *
  * Handler spec format: "<relative-module-path>:<exportName>"
  *   e.g. "../commands/shared/wake-cmd:cmdWake"
  *
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
+ * For `ls`, calls cmdList() with no args (any extra argv is ignored —
+ * the original pre-#918 plugin took no args either).
  */
 export async function invokeDirectHandler(
   handler: string,
@@ -70,6 +78,19 @@ export async function invokeDirectHandler(
   const [modulePath, exportName] = handler.split(":");
   if (!modulePath || !exportName) {
     throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>'`);
+  }
+
+  if (exportName === "cmdList") {
+    // Original `maw ls` (pre-#918) was a thin shim that called cmdList()
+    // with no args. Preserve that signature exactly — extra argv is dropped
+    // until/unless we add filtering.
+    const mod = await import(modulePath);
+    const fn = mod[exportName] as () => Promise<unknown>;
+    if (typeof fn !== "function") {
+      throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
+    }
+    await fn();
+    return;
   }
 
   if (exportName === "cmdWake") {
