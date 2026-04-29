@@ -136,11 +136,12 @@ There is no fixed cadence. If `alpha` is quiet, don't cut. If `alpha` has shippe
 ```bash
 TZ=Asia/Bangkok bun scripts/calver.ts            # alpha bump (run on `alpha` branch)
 TZ=Asia/Bangkok bun scripts/calver.ts --stable   # stable bump (run on `alpha`, then PR to `main`)
-TZ=Asia/Bangkok bun scripts/calver.ts --hour 14  # alpha pinned to a specific hour bucket
 TZ=Asia/Bangkok bun scripts/calver.ts --check    # dry-run, no writes
 ```
 
-Or via the npm-script alias: `bun run calver [--stable|--hour N|--check]` (TZ still recommended).
+Or via the npm-script alias: `bun run calver [--stable|--check]` (TZ still recommended).
+
+`--hour` was removed in #923 — HMM is now computed from wall-clock automatically.
 
 ### Do NOT manually bump semver
 
