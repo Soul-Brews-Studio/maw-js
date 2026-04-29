@@ -1,21 +1,25 @@
 /**
  * Registry source resolution (#515).
  *
- * Translates a registry entry's `source` field into a concrete tarball URL
- * that `installFromUrl` / `installFromTarball` can consume.
+ * Translates a registry entry's `source` field into a concrete install
+ * source that `cmdPluginInstall` / `installFromUrl` / `installFromTarball` /
+ * `installFromMonorepo` can consume.
  *
  * Supported source forms:
- *   • npm:NAME                   → https://registry.npmjs.org/NAME/-/<basename>-<version>.tgz
- *   • github:OWNER/REPO#REF      → https://github.com/OWNER/REPO/archive/refs/tags/REF.tar.gz
- *   • https://URL.tgz (or .tar.gz) → pass-through
+ *   • npm:NAME                          → https://registry.npmjs.org/NAME/-/<basename>-<version>.tgz
+ *   • github:OWNER/REPO#REF             → https://github.com/OWNER/REPO/archive/refs/tags/REF.tar.gz
+ *   • monorepo:plugins/<name>@<tag>     → pass-through; `detectMode` routes to installFromMonorepo
+ *                                         (registry#2 — maw-plugin-registry monorepo subdirs)
+ *   • https://URL.tgz (or .tar.gz)      → pass-through
  *
  * Returns null when the plugin isn't in the registry — callers should suggest
  * `maw plugin install <url>` directly.
  */
 
 import type { RegistryManifest } from "./registry-fetch";
+import { parseMonorepoRef } from "./install-source-detect";
 
-export type SourceKind = "npm" | "github" | "https";
+export type SourceKind = "npm" | "github" | "https" | "monorepo";
 
 export interface ResolvedSource {
   kind: SourceKind;
@@ -82,6 +86,12 @@ export function resolvePluginSource(
 
   const gh = parseGithubRef(raw);
   if (gh) return { kind: "github", source: githubTarballUrl(gh), ...common };
+
+  // monorepo: passthrough — the install dispatcher (detectMode →
+  // installFromMonorepo) handles URL construction and subpath walk.
+  if (parseMonorepoRef(raw)) {
+    return { kind: "monorepo", source: raw, ...common };
+  }
 
   if (/^https?:\/\/.+\.(tgz|tar\.gz)(\?.*)?$/i.test(raw)) {
     return { kind: "https", source: raw, ...common };

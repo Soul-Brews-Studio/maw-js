@@ -10,7 +10,7 @@ import { basename, join, resolve } from "path";
 import { formatSdkMismatchError, hashFile, runtimeSdkVersion, satisfies } from "../../../plugin/registry";
 import { installRoot, removeExisting } from "./install-source-detect";
 import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHashAgainst, isSourcePluginManifest } from "./install-extraction";
-import { findPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
+import { findPluginRoot, findMonorepoPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
 import { readLock, recordInstall } from "./lock";
 import { createHash } from "crypto";
 
@@ -165,7 +165,7 @@ export async function installFromDir(
 
 export async function installFromTarball(
   tarballPath: string,
-  opts: { source: string; force?: boolean; weight?: number; pin?: boolean },
+  opts: { source: string; force?: boolean; weight?: number; pin?: boolean; subpath?: string },
 ): Promise<void> {
   if (!existsSync(tarballPath)) {
     throw new Error(`tarball not found: ${tarballPath}`);
@@ -182,9 +182,18 @@ export async function installFromTarball(
 
   // #864 — github-archive and npm tarballs wrap contents in a single top-level
   // directory (`<repo>-<ref>/` or `package/`). Walk one level if needed.
-  const pluginRoot = findPluginRoot(staging);
+  // monorepo: source format (registry#2) — additionally walk into the declared
+  // subpath (e.g. plugins/<name>/) inside the wrapper to reach the plugin.
+  const pluginRoot = opts.subpath
+    ? findMonorepoPluginRoot(staging, opts.subpath)
+    : findPluginRoot(staging);
   if (!pluginRoot) {
     rmSync(staging, { recursive: true, force: true });
+    if (opts.subpath) {
+      throw new Error(
+        `failed to read plugin manifest: no plugin.json at subpath '${opts.subpath}' inside ${staging} (or its single top-level wrapper dir)`,
+      );
+    }
     throw new Error(`failed to read plugin manifest: no plugin.json at ${staging} or in single top-level subdir`);
   }
 
@@ -326,6 +335,67 @@ export async function installFromUrl(
     await installFromTarball(dl.path, { source: url, force: opts.force, weight: opts.weight, pin: opts.pin });
   } finally {
     // Clean up the downloaded temp file.
+    try {
+      rmSync(join(dl.path, ".."), { recursive: true, force: true });
+    } catch {
+      // Non-fatal.
+    }
+  }
+}
+
+/**
+ * Default monorepo registry repo slug. The maw-plugin-registry monorepo
+ * (registry#2) hosts community plugins under `plugins/<name>/`. Override
+ * via `MAW_MONOREPO_REGISTRY_REPO` for forks / mirrors / tests.
+ *
+ * The base GitHub host is also overrideable via `MAW_MONOREPO_BASE_URL`
+ * (default `https://github.com`) so tests can serve fixture tarballs from
+ * a local HTTP server without monkey-patching fetch.
+ */
+const DEFAULT_MONOREPO_REPO = "Soul-Brews-Studio/maw-plugin-registry";
+const DEFAULT_MONOREPO_BASE_URL = "https://github.com";
+
+export function monorepoRepoSlug(): string {
+  return process.env.MAW_MONOREPO_REGISTRY_REPO || DEFAULT_MONOREPO_REPO;
+}
+
+export function monorepoTarballUrl(tag: string, repo?: string): string {
+  const r = repo || monorepoRepoSlug();
+  const base = process.env.MAW_MONOREPO_BASE_URL || DEFAULT_MONOREPO_BASE_URL;
+  return `${base}/${r}/archive/refs/tags/${tag}.tar.gz`;
+}
+
+/**
+ * Install a plugin from the maw-plugin-registry monorepo (registry#2).
+ *
+ * Source format: `monorepo:plugins/<name>@<tag>` — the subpath identifies
+ * the plugin dir within the registry repo, the tag pins the registry repo
+ * version. Resolution downloads the github archive of the registry repo at
+ * `<tag>`, then walks into `<repo>-<tag>/<subpath>/` to reach the plugin.
+ *
+ * Reuses the existing installFromTarball flow (sdk gate, sha256 verify,
+ * plugins.lock, --pin/--force semantics) — the only delta is the wrapper +
+ * subpath walk performed in findMonorepoPluginRoot.
+ */
+export async function installFromMonorepo(
+  subpath: string,
+  tag: string,
+  opts: { force?: boolean; weight?: number; pin?: boolean } = {},
+): Promise<void> {
+  const url = monorepoTarballUrl(tag);
+  const dl = await downloadTarball(url);
+  if (!dl.ok) {
+    throw new Error(dl.error);
+  }
+  try {
+    await installFromTarball(dl.path, {
+      source: `monorepo:${subpath}@${tag}`,
+      force: opts.force,
+      weight: opts.weight,
+      pin: opts.pin,
+      subpath,
+    });
+  } finally {
     try {
       rmSync(join(dl.path, ".."), { recursive: true, force: true });
     } catch {

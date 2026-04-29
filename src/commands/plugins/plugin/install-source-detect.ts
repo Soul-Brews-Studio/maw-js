@@ -20,10 +20,43 @@ export type Mode =
   | { kind: "dir"; src: string }
   | { kind: "tarball"; src: string }
   | { kind: "url"; src: string }
-  | { kind: "peer"; src: string; name: string; peer: string };
+  | { kind: "peer"; src: string; name: string; peer: string }
+  | { kind: "monorepo"; src: string; subpath: string; tag: string };
 
 const PEER_NAME_RE = /^[a-z][a-z0-9-]*$/;
 const PEER_HOST_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * `monorepo:<subpath>@<tag>` source format (maw-plugin-registry#2).
+ *
+ * Refers to a plugin subdir inside the maw-plugin-registry monorepo, pinned
+ * by tag. Resolution downloads `<base>/<repo>/archive/refs/tags/<tag>.tar.gz`,
+ * walks into the github wrapper (`<repo>-<tag>/`), then descends into the
+ * declared subpath (typically `plugins/<name>/`) to reach the plugin root.
+ *
+ * Example: `monorepo:plugins/shellenv@v0.1.2-shellenv`
+ *   → subpath: "plugins/shellenv", tag: "v0.1.2-shellenv"
+ *
+ * Subpath rules: must be relative (no leading `/`), must not contain `..`
+ * segments, must be non-empty. Tag must be non-empty.
+ */
+export interface MonorepoRef {
+  subpath: string;
+  tag: string;
+}
+
+export function parseMonorepoRef(raw: string): MonorepoRef | null {
+  if (!raw.startsWith("monorepo:")) return null;
+  const rest = raw.slice("monorepo:".length);
+  const at = rest.lastIndexOf("@");
+  if (at < 0) return null;
+  const subpath = rest.slice(0, at).trim();
+  const tag = rest.slice(at + 1).trim();
+  if (!subpath || !tag) return null;
+  if (subpath.startsWith("/")) return null;
+  if (subpath.split("/").includes("..")) return null;
+  return { subpath, tag };
+}
 
 /**
  * Detect `<name>@<peer>` syntax (Task #1, docs §2). Only triggers when the
@@ -49,6 +82,8 @@ export function detectMode(src: string): Mode {
   if (src.endsWith(".tgz") || src.endsWith(".tar.gz")) {
     return { kind: "tarball", src: resolve(src) };
   }
+  const monoRef = parseMonorepoRef(src);
+  if (monoRef) return { kind: "monorepo", src, subpath: monoRef.subpath, tag: monoRef.tag };
   const peerSpec = parsePeerSpec(src);
   if (peerSpec) return { kind: "peer", src, name: peerSpec.name, peer: peerSpec.peer };
   return { kind: "dir", src: resolve(src) };
