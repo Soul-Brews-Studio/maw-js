@@ -71,7 +71,10 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
 
       const first = sess.windows[0];
-      const firstPath = join(getGhqRoot(), "github.com", first.repo);
+      // #748 — Oracle repos live at <ghqRoot>/<repo> directly (e.g. /root/projects/neo-oracle),
+      // not under github.com/<org>/<repo>. Falling back to /root via missing-cwd was making
+      // every Oracle session inherit Labubu's CLAUDE.md identity.
+      const firstPath = join(getGhqRoot(), first.repo);
       await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
       for (const [key, val] of Object.entries(getEnvVars())) {
         await tmux.setEnvironment(sess.name, key, val);
@@ -85,7 +88,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       for (let i = 1; i < sess.windows.length; i++) {
         const win = sess.windows[i];
-        const winPath = join(getGhqRoot(), "github.com", win.repo);
+        const winPath = join(getGhqRoot(), win.repo);
         try {
           await tmux.newWindow(sess.name, win.name, { cwd: winPath });
           if (!sess.skip_command) {
