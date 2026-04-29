@@ -1,6 +1,6 @@
 {
   "name": "maw-js",
-  "version": "26.4.29-alpha.45",
+  "version": "26.4.29-alpha.46",
   "license": "BUSL-1.1",
   "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
@@ -25,7 +25,8 @@
     "ship:alpha": "bash scripts/ship-alpha.sh",
     "ship:alpha:dry": "bash scripts/ship-alpha.sh --dry-run",
     "calver": "bun scripts/calver.ts",
-    "check:redos": "bun scripts/check-redos.ts"
+    "check:redos": "bun scripts/check-redos.ts",
+    "preflight": "bash scripts/preflight.sh"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {

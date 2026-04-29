@@ -14,12 +14,15 @@ Bun v1.3+ is required. tmux is needed for multi-agent features. On Linux, `ssh` 
 
 ## Before opening a PR
 
-1. `bun run test:all` passes locally.
-2. New code has tests. If the code path is integration-only (spawns a subprocess, sets a timer, listens for a signal), document why in the test file.
-3. New `mock.module(...)` calls live in `test/isolated/` or `test/helpers/` (see `scripts/check-mock-boundary.sh`).
-4. If you added a new export to `src/core/transport/ssh.ts` or `src/config/*`, update the canonical mock in `test/helpers/mock-*.ts` (see `scripts/check-mock-export-sync.sh`).
-5. **Run `bun run check:redos`** — pre-flight ReDoS scan that catches the most common polynomial-backtracking shapes before CI's CodeQL job does. See [ReDoS pre-flight](#redos-pre-flight) below.
-6. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
+1. **Run `bun run preflight`** — local-build-first sanity check (~10s). Builds `dist/maw` and smoke-tests the actual binary. Catches the obvious failures before you pay the GitHub Actions tax. See [docs/process/local-build-first.md](./docs/process/local-build-first.md) — and read it once for the bundle-grep false-positive trap that birthed the script ([#911](https://github.com/Soul-Brews-Studio/maw-js/issues/911)).
+2. `bun run test:all` passes locally.
+3. New code has tests. If the code path is integration-only (spawns a subprocess, sets a timer, listens for a signal), document why in the test file.
+4. New `mock.module(...)` calls live in `test/isolated/` or `test/helpers/` (see `scripts/check-mock-boundary.sh`).
+5. If you added a new export to `src/core/transport/ssh.ts` or `src/config/*`, update the canonical mock in `test/helpers/mock-*.ts` (see `scripts/check-mock-export-sync.sh`).
+6. **Run `bun run check:redos`** — pre-flight ReDoS scan that catches the most common polynomial-backtracking shapes before CI's CodeQL job does. See [ReDoS pre-flight](#redos-pre-flight) below.
+7. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
+
+> **Don't trust grep on minified Bun bundles.** `bun build --minify` renames identifiers and dead-strips strings, so `strings dist/maw | grep <symbol>` is a false-negative trap. Run the binary instead — that's what `bun run preflight` does. See [docs/process/local-build-first.md](./docs/process/local-build-first.md).
 
 ## ReDoS pre-flight
 
