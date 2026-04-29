@@ -55,8 +55,18 @@ describe("cmd-update source-order invariants", () => {
     expect(src).toContain("clearing stale global refs");
   });
 
-  it("failure path prints recovery command", () => {
-    expect(src).toMatch(/manual recovery: bun add -g github:/);
+  it("failure path prints curl release-binary recovery command", () => {
+    // Updated #952 follow-up: previous message advised the same `bun add` that
+    // just failed — useless. New message points at the curl URL that bypasses
+    // bun's resolver entirely (works for release tags only).
+    expect(src).toMatch(/curl -fsSL https:\/\/github\.com\/.*\/releases\/download\//);
+    expect(src).toMatch(/-o ~\/\.bun\/bin\/maw/);
+  });
+
+  it("failure path prints fallback dep-loop instructions", () => {
+    // If the curl URL 404s (e.g. branch ref, not a tag), the user gets a
+    // pointer at the manual file-level eviction.
+    expect(src).toMatch(/edit ~\/\.bun\/install\/global\/package\.json to drop maw-js/);
   });
 
   // #950 — direct-evict of global package.json + node_modules must run

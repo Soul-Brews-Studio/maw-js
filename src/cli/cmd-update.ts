@@ -265,7 +265,11 @@ export async function runUpdate(args: string[]): Promise<void> {
     }
     if (installCode !== 0) {
       console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
-      console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
+      console.error(``);
+      console.error(`  Manual recovery (bypass bun resolver — release tags only):`);
+      console.error(`    curl -fsSL https://github.com/${repository}/releases/download/${ref}/maw -o ~/.bun/bin/maw && chmod +x ~/.bun/bin/maw && maw --version`);
+      console.error(``);
+      console.error(`  If dep-loop persists: edit ~/.bun/install/global/package.json to drop maw-js, then re-run \`bun add -g github:${repository}#${ref}\`.`);
       process.exit(installCode);
     }
     // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)
