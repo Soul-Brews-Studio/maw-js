@@ -95,6 +95,23 @@ export async function resolveOracle(
   // that exact slug loudly. Do NOT fall through to scan-suggest (which would
   // re-ask for a 24-org scan we already know the answer to).
   if (fleetRepo) {
+    // #906 — re-check ghq for the fleet-pinned repo BEFORE shelling out to
+    // `ghq get`. The earlier `ghqFind(\`/${oracle}-oracle\`)` only matches
+    // by oracle name; a fleet pin can name a repo whose slug differs from
+    // `${oracle}-oracle` (e.g. `mawjs-2 → mawjs-2-oracle` clones fine, but
+    // also any custom repo name). When the manual workaround in #906 ran
+    // `ghq get` outside `maw`, the repo IS on disk but the first ghqFind
+    // miss left us re-cloning every wake. Re-check by the fleet slug's
+    // last segment so the second `maw wake` short-circuits cleanly.
+    const fleetRepoStem = fleetRepo.split("/").pop()!;
+    const existing = await ghqFind(`/${fleetRepoStem}`);
+    if (existing) {
+      return {
+        repoPath: existing,
+        repoName: existing.split("/").pop()!,
+        parentDir: existing.replace(/\/[^/]+$/, ""),
+      };
+    }
     console.log(`\x1b[36m🌱\x1b[0m ${oracle} pinned in fleet → github.com/${fleetRepo} — cloning to ghq...`);
     try {
       await hostExec(`ghq get -u 'github.com/${fleetRepo}'`);
@@ -104,7 +121,7 @@ export async function resolveOracle(
       console.error(`\x1b[90m  manually: ghq get -u 'github.com/${fleetRepo}' && maw wake ${oracle}\x1b[0m`);
       process.exit(1);
     }
-    const cloned = await ghqFind(`/${fleetRepo.split("/").pop()}`);
+    const cloned = await ghqFind(`/${fleetRepoStem}`);
     if (cloned) {
       console.log(`\x1b[32m✓\x1b[0m cloned to ${cloned}`);
       return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };

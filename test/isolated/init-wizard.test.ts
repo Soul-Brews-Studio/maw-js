@@ -78,7 +78,11 @@ describe("cmdInit non-interactive", () => {
     expect(result.ok).toBe(true);
     expect(existsSync(CONFIG_FILE)).toBe(true);
     const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    expect(cfg.host).toBe("ci-node");
+    // #906 — host is the SSH connection target ("local" by default), NOT
+    // the node identity. Pre-#906 this asserted `cfg.host === "ci-node"`
+    // which is exactly the bug — `hostExec` would then `ssh ci-node …` on
+    // every fleet-pinned clone.
+    expect(cfg.host).toBe("local");
     expect(cfg.node).toBe("ci-node");
     expect(cfg.ghqRoot).toBe("/tmp/code");
     expect(cfg.port).toBe(3456);
@@ -186,7 +190,9 @@ describe("cmdInit interactive (scripted ask)", () => {
     const result = await cmdInit({ args: [], ask, writer: () => {} });
     expect(result.ok).toBe(true);
     const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    expect(cfg.host).toBe("white");
+    // #906 — host is the SSH target ("local"); node is the identity ("white").
+    expect(cfg.host).toBe("local");
+    expect(cfg.node).toBe("white");
     // #680 — ghqRoot is no longer prompted/persisted; resolved on demand via getGhqRoot().
     expect(cfg.ghqRoot).toBeUndefined();
     expect(cfg.env).toEqual({});
@@ -246,7 +252,9 @@ describe("cmdInit interactive (scripted ask)", () => {
     const result = await cmdInit({ args: [], ask, writer: () => {} });
     expect(result.ok).toBe(true);
     const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    expect(cfg.host).toBe("fresh");
+    // #906 — host=local; node=fresh.
+    expect(cfg.host).toBe("local");
+    expect(cfg.node).toBe("fresh");
   });
 
   test("backup option writes maw.config.json.bak.<ts> before overwrite", async () => {
@@ -286,7 +294,9 @@ describe("cmdInit interactive (scripted ask)", () => {
     const result = await cmdInit({ args: [], ask, writer: (m) => out.push(m) });
     expect(result.ok).toBe(true);
     const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    expect(cfg.host).toBe("myoracle");
+    // #906 — host=local; node=myoracle.
+    expect(cfg.host).toBe("local");
+    expect(cfg.node).toBe("myoracle");
     expect(out.some((l) => l.includes("Node name must be"))).toBe(true);
   });
 });

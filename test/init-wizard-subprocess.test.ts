@@ -77,7 +77,8 @@ describe("maw init --non-interactive — happy path", () => {
     expect(existsSync(r.configPath)).toBe(true);
 
     const cfg = readConfig(r.configPath);
-    expect(cfg.host).toBe("alpha");
+    // #906 — host = SSH connection target (defaults to "local"); node = identity.
+    expect(cfg.host).toBe("local");
     expect(cfg.node).toBe("alpha");
     expect(cfg.ghqRoot).toBe(ghq);
   });
@@ -130,7 +131,8 @@ describe("maw init — node name validation (Q1)", () => {
     const name = "a".repeat(63);
     const r = runInit(["--non-interactive", "--node", name, "--ghq-root", ghq]);
     expect(r.code).toBe(0);
-    expect(readConfig(r.configPath).host).toBe(name);
+    // #906 — assert against `node`, not `host`. host stays "local".
+    expect(readConfig(r.configPath).node).toBe(name);
   });
 
   test("node name starting with hyphen → reject", () => {
@@ -143,7 +145,8 @@ describe("maw init — node name validation (Q1)", () => {
     const ghq = mkdtempSync(join(tmpdir(), "maw-init-ghq-"));
     const r = runInit(["--non-interactive", "--node", "1", "--ghq-root", ghq]);
     expect(r.code).toBe(0);
-    expect(readConfig(r.configPath).host).toBe("1");
+    // #906 — assert against `node`, not `host`. host stays "local".
+    expect(readConfig(r.configPath).node).toBe("1");
   });
 
   test("node name with underscore → reject (hostname-safe regex excludes _)", () => {
@@ -363,7 +366,8 @@ describe("maw init — existing config handling (§ 4a)", () => {
     expect(second.status ?? -1).toBe(0);
 
     const cfg = readConfig(first.configPath);
-    expect(cfg.host).toBe("second");
+    // #906 — assert against `node`. host stays "local" by design.
+    expect(cfg.node).toBe("second");
   });
 
   // #510: --backup flag supported in --non-interactive (spec § 4a).
@@ -387,7 +391,8 @@ describe("maw init — existing config handling (§ 4a)", () => {
     expect(second.status ?? -1).toBe(0);
 
     // New config reflects second run
-    expect(readConfig(first.configPath).host).toBe("second");
+    // #906 — assert against `node`. host stays "local" by design.
+    expect(readConfig(first.configPath).node).toBe("second");
 
     // Some file in the config dir should match the backup pattern
     const entries = readdirSync(first.configDir);
