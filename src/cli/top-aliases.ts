@@ -1,0 +1,134 @@
+/**
+ * Top-level verb aliases — RFC #954 (Axis 2: help-prominence / verb routing).
+ *
+ * Single source of truth for short verbs that route directly without going
+ * through the plugin dispatcher. Inserted between `routeTools` and
+ * `matchCommand` in src/cli.ts.
+ *
+ * Two forms:
+ *   1. Argv-rewrite — splice `args` in place, continue normal dispatch
+ *      Example: `maw a foo` → `maw tmux attach foo` (handled by tmux plugin)
+ *   2. Direct-handler — dynamic-import + invoke a function in core
+ *      Example: `maw wake foo` → cmdWake(foo, opts) directly
+ *
+ * One-shot only — aliases NEVER expand into another alias. If the rewrite
+ * target itself names another alias, that's a bug in the table, not a feature.
+ */
+
+export type DirectHandler = { kind: "direct"; handler: string };
+export type AliasResolution =
+  | { kind: "argv"; argv: string[] }
+  | { kind: "direct"; handler: string; argv: string[] };
+
+export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
+  // Argv-rewrite form — canonical handler lives in a core plugin
+  a: ["tmux", "attach"],
+  attach: ["tmux", "attach"],
+  ls: ["fleet", "ls"],
+
+  // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
+  // even though the wake/ plugin was extracted to the registry in #918.
+  wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
+};
+
+/**
+ * Resolve a top-level alias from raw argv.
+ *
+ * @returns
+ *   - `{ kind: "argv", argv }` for argv-rewrite (caller splices into args)
+ *   - `{ kind: "direct", handler, argv }` for direct-handler dispatch
+ *   - `null` when args[0] is not a registered alias
+ */
+export function resolveTopAlias(args: string[]): AliasResolution | null {
+  if (args.length === 0) return null;
+  const verb = args[0]?.toLowerCase();
+  if (!verb) return null;
+  const entry = TOP_ALIASES[verb];
+  if (!entry) return null;
+
+  if (Array.isArray(entry)) {
+    // Argv-rewrite: replace args[0] with the canonical chain, keep rest.
+    return { kind: "argv", argv: [...entry, ...args.slice(1)] };
+  }
+
+  // Direct-handler: pass the rest of argv (everything after the verb) as-is.
+  return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
+}
+
+/**
+ * Invoke a direct-handler alias. Currently only `wake` uses this path.
+ *
+ * Handler spec format: "<relative-module-path>:<exportName>"
+ *   e.g. "../commands/shared/wake-cmd:cmdWake"
+ *
+ * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
+ */
+export async function invokeDirectHandler(
+  handler: string,
+  argv: string[],
+): Promise<void> {
+  const [modulePath, exportName] = handler.split(":");
+  if (!modulePath || !exportName) {
+    throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>'`);
+  }
+
+  if (exportName === "cmdWake") {
+    const { parseFlags } = await import("./parse-args");
+    const flags = parseFlags(argv, {
+      "--task": String,
+      "--wt": String,
+      "--prompt": String, "-p": "--prompt",
+      "--incubate": String,
+      "--fresh": Boolean,
+      "--attach": Boolean, "-a": "--attach",
+      "--list": Boolean,
+      "--split": Boolean,
+      "--all-local": Boolean,
+    }, 0);
+
+    const positional = flags._;
+    const oracle = positional[0];
+    if (!oracle) {
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local]");
+      const { UserError } = await import("../core/util/user-error");
+      throw new UserError("wake: missing oracle name");
+    }
+
+    const opts: {
+      task?: string;
+      wt?: string;
+      prompt?: string;
+      incubate?: string;
+      fresh?: boolean;
+      attach?: boolean;
+      listWt?: boolean;
+      split?: boolean;
+      allLocal?: boolean;
+    } = {};
+    if (flags["--task"]) opts.task = flags["--task"];
+    if (flags["--wt"]) opts.wt = flags["--wt"];
+    if (flags["--prompt"]) opts.prompt = flags["--prompt"];
+    if (flags["--incubate"]) opts.incubate = flags["--incubate"];
+    if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--attach"]) opts.attach = true;
+    if (flags["--list"]) opts.listWt = true;
+    if (flags["--split"]) opts.split = true;
+    if (flags["--all-local"]) opts.allLocal = true;
+
+    const mod = await import(modulePath);
+    const fn = mod[exportName] as (oracle: string, opts: typeof opts) => Promise<unknown>;
+    if (typeof fn !== "function") {
+      throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
+    }
+    await fn(oracle, opts);
+    return;
+  }
+
+  // Generic fallback for future direct handlers — pass argv through verbatim.
+  const mod = await import(modulePath);
+  const fn = mod[exportName] as (argv: string[]) => Promise<unknown>;
+  if (typeof fn !== "function") {
+    throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
+  }
+  await fn(argv);
+}

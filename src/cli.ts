@@ -58,6 +58,20 @@ async function main(): Promise<void> {
       await routeTools(cmd, args);
 
     if (!handled) {
+      // RFC #954 — top-level verb aliases. Sits between routeTools and
+      // matchCommand. Either rewrites argv in place (continue dispatch flow)
+      // or dispatches a direct-handler and exits the pipeline.
+      const { resolveTopAlias, invokeDirectHandler } = await import("./cli/top-aliases");
+      const aliasResult = resolveTopAlias(args);
+      if (aliasResult) {
+        if (aliasResult.kind === "direct") {
+          await invokeDirectHandler(aliasResult.handler, aliasResult.argv);
+          return;
+        }
+        // Argv-rewrite: splice in place, then fall through to matchCommand
+        // (which will pick up the canonical plugin verb).
+        args.splice(0, args.length, ...aliasResult.argv);
+      }
       // Try plugin commands (beta) — after core routes, before fallback
       const pluginMatch = matchCommand(args);
       if (pluginMatch) {
