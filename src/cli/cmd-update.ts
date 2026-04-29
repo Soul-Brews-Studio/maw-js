@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
 import {
-  existsSync, writeFileSync, mkdirSync, readdirSync,
+  existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync,
   lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
   renameSync, rmSync,
 } from "fs";
@@ -169,14 +169,35 @@ export async function runUpdate(args: string[]): Promise<void> {
         }
       } catch { /* stash best-effort */ }
 
+      // #950 — directly evict maw-js from global package.json + node_modules
+      // BEFORE invoking `bun remove`. The `bun remove` command silently no-ops
+      // when bun's resolver is already in a same-package conflict state (existing
+      // pin for `maw-js#refA` + new request for `maw-js#refB` create a same-name
+      // conflict — bun emits DependencyLoop and refuses to mutate state). Direct
+      // file ops always succeed even when the resolver is wedged.
+      try {
+        const globalPkg = join(homedir(), ".bun", "install", "global", "package.json");
+        // CodeQL TOCTOU: skip existsSync — readFileSync throws ENOENT if missing,
+        // caught by outer try/catch. Same effect, no race-window between check + write.
+        const data = JSON.parse(readFileSync(globalPkg, "utf-8"));
+        let dirty = false;
+        for (const key of ["maw-js", "maw"]) {
+          if (data.dependencies?.[key]) { delete data.dependencies[key]; dirty = true; }
+        }
+        if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
+      } catch { /* best effort — file missing or unreadable; bun remove still runs below */ }
+      try {
+        const nm = join(homedir(), ".bun", "install", "global", "node_modules");
+        for (const name of ["maw-js", "maw", "@maw-js"]) {
+          try { rmSync(join(nm, name), { recursive: true, force: true }); } catch {}
+        }
+      } catch {}
+
       // #697 — use the PACKAGE name (`maw-js`), not the bin name (`maw`).
       // `bun remove -g maw` is a silent no-op because bun looks up by package
       // name in ~/.bun/install/global/package.json, and the package registered
-      // there is `maw-js`. Leaving the old ref in that manifest (e.g. pinning
-      // `maw-js: github:.../#v26.4.19-alpha.15`) was the actual persistent
-      // source of the dep-loop across every retry — bun kept merging the
-      // stale pin into its graph alongside the new resolution. Removing by
-      // package name evicts the pin from global package.json cleanly.
+      // there is `maw-js`. Kept as belt-and-suspenders after the direct-evict
+      // above — picks up any cleanup `bun remove` does that we don't replicate.
       try { execSync(`bun remove -g maw-js`, { stdio: "pipe" }); } catch {}
       try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
 

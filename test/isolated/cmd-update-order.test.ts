@@ -58,4 +58,32 @@ describe("cmd-update source-order invariants", () => {
   it("failure path prints recovery command", () => {
     expect(src).toMatch(/manual recovery: bun add -g github:/);
   });
+
+  // #950 — direct-evict of global package.json + node_modules must run
+  // BEFORE `bun remove -g maw-js` in the retry block. `bun remove` silently
+  // no-ops when the resolver is wedged, so file-level eviction is the only
+  // reliable way to clear the stale pin.
+  it("#950: direct-edit of global package.json precedes `bun remove`", () => {
+    const directEditIdx = src.indexOf(`join(homedir(), ".bun", "install", "global", "package.json")`);
+    const removeCallMatch = src.match(REMOVE_CALL_RE);
+    expect(directEditIdx).toBeGreaterThan(-1);
+    expect(removeCallMatch).not.toBeNull();
+    expect(directEditIdx).toBeLessThan(removeCallMatch!.index!);
+  });
+
+  it("#950: direct-rm of global node_modules entries precedes `bun remove`", () => {
+    const directRmIdx = src.indexOf(`join(homedir(), ".bun", "install", "global", "node_modules")`);
+    const removeCallMatch = src.match(REMOVE_CALL_RE);
+    expect(directRmIdx).toBeGreaterThan(-1);
+    expect(removeCallMatch).not.toBeNull();
+    expect(directRmIdx).toBeLessThan(removeCallMatch!.index!);
+  });
+
+  it("#950: direct-edit drops both `maw-js` and `maw` keys", () => {
+    expect(src).toMatch(/for \(const key of \["maw-js", "maw"\]\)/);
+  });
+
+  it("#950: direct-rm covers maw-js, maw, and @maw-js node_modules", () => {
+    expect(src).toMatch(/for \(const name of \["maw-js", "maw", "@maw-js"\]\)/);
+  });
 });
