@@ -254,6 +254,8 @@ describe("manifest v1 — capabilities", () => {
             "sdk:identity",
             "proc:spawn",
             "ffi:load",
+            "tmux",
+            "shell",
           ],
         }),
         dir,
