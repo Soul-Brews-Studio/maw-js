@@ -10,6 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { resolvePluginMatch } from "../../src/cli/dispatch-match";
+import { resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
@@ -152,5 +153,48 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     const out = resolvePluginMatch([view], "attach");
     expect(out.kind).toBe("match");
     if (out.kind === "match") expect(out.matchedName).toBe("attach");
+  });
+});
+
+describe("resolveTopAlias — RFC #954 verb aliases", () => {
+  test("`ls` → argv rewrite to ['fleet', 'ls']", () => {
+    const out = resolveTopAlias(["ls"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["fleet", "ls"]);
+  });
+
+  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+    const out = resolveTopAlias(["a", "neo"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+  });
+
+  test("`attach neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+    const out = resolveTopAlias(["attach", "neo"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+  });
+
+  test("`wake neo --task X` → direct-handler form with cmdWake handler", () => {
+    const out = resolveTopAlias(["wake", "neo", "--task", "X"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdWake");
+      // argv passed to handler is everything AFTER the verb
+      expect(out!.argv).toEqual(["neo", "--task", "X"]);
+    }
+  });
+
+  test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {
+    // audit is a core route handled by routeTools BEFORE alias resolution;
+    // top-aliases must not register it. Returning null keeps the existing
+    // route untouched even if alias logic is reached out-of-order.
+    const out = resolveTopAlias(["audit"]);
+    expect(out).toBeNull();
   });
 });
