@@ -254,15 +254,32 @@ export async function cmdTeamSpawn(
     }
     try {
       const { hostExec, withPaneLock } = await import("../../../sdk");
+      const {
+        rebalanceAfterSpawn, stylePaneBorder, enableBorderStatus,
+        nextAgentColor, getWindowTarget, colorAnsi,
+      } = await import("../tmux/layout-manager");
       const claudeCmd = `claude --model ${model} --prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
       const anchor = process.env.TMUX_PANE;
       const targetFlag = anchor ? `-t '${anchor}' ` : "";
+
+      let newPaneId = "";
       await withPaneLock(async () => {
-        await hostExec(`tmux split-window ${targetFlag}-h -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`);
+        newPaneId = (await hostExec(
+          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${claudeCmd.replace(/'/g, "'\\''")}'`,
+        )).trim();
         await sleep(200);
       });
+
+      const teammateCount = manifest.members.length - 1;
+      const color = nextAgentColor(teammateCount);
+      const window = await getWindowTarget();
+
+      if (anchor) await rebalanceAfterSpawn(window, anchor);
+      if (newPaneId) await stylePaneBorder(newPaneId, role, color);
+      await enableBorderStatus(window);
+
       console.log();
-      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane (right, 50%)`);
+      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane [\x1b[${colorAnsi(color)}m${color}\x1b[0m]`);
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
