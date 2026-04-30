@@ -36,7 +36,7 @@ const cmd = args[0]?.toLowerCase();
 logAudit(cmd || "", args);
 
 async function main(): Promise<void> {
-  if (cmd === "--version" || cmd === "-v" || cmd === "version" || cmd === "v") {
+  if (cmd === "--version" || cmd === "-v" || cmd === "version") {
     console.log(getVersionString());
   } else if (cmd === "update" || cmd === "upgrade") {
     await runUpdate(args);
@@ -134,15 +134,37 @@ async function main(): Promise<void> {
         }
         const isKnownCommand = knownCommands.some(n => n.toLowerCase() === cmd);
         if (!isKnownCommand) {
-          // #394 — fuzzy FIRST, tmux listSessions second. The old order paid
-          // ~40ms on every unknown arg even when it was clearly a typo of a
-          // known command. New flow:
-          //   1. fuzzy-match against knownCommands (distance ≤ 2)
-          //   2. if close candidates → "did you mean" + exit, skip tmux
-          //   3. else if arg has oracle-name shape → tmux listSessions
-          //   4. else → generic "run maw --help"
+          // Prefix auto-resolve: if input uniquely prefixes one known command, run it.
+          // e.g. "v" → "version", "up" → "update", "cl" → "cleanup"
+          const prefixMatches = knownCommands.filter(n => n.toLowerCase().startsWith(cmd) && n.toLowerCase() !== cmd);
+          const uniquePrefixes = [...new Set(prefixMatches.map(n => n.toLowerCase()))];
+          if (uniquePrefixes.length === 1) {
+            const resolved = prefixMatches[0];
+            args.splice(0, 1, resolved);
+            const retryMatch = matchCommand(args);
+            if (retryMatch) {
+              await executeCommand(retryMatch.desc, retryMatch.remaining);
+              process.exit(0);
+            }
+            const retryPlugin = resolvePluginMatch(plugins, args.join(" ").toLowerCase());
+            if (retryPlugin.kind === "match") {
+              const matchedWords = retryPlugin.matchedName.split(/\s+/).filter(Boolean).length;
+              const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: args.slice(matchedWords) });
+              if (result.ok && result.output) console.log(result.output);
+              else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
+              process.exit(0);
+            }
+            // Special case: core routes handled before plugin dispatch
+            if (resolved === "version") { console.log(getVersionString()); process.exit(0); }
+            if (resolved === "update" || resolved === "upgrade") { await runUpdate(args.slice(1)); process.exit(0); }
+          }
+
+          // #394 — fuzzy FIRST, tmux listSessions second.
           const { fuzzyMatch } = await import("./core/util/fuzzy");
-          const closeCandidates = fuzzyMatch(args[0], knownCommands, 3, 2);
+          // Include prefix matches in suggestions when multiple candidates exist
+          const closeCandidates = uniquePrefixes.length > 1
+            ? uniquePrefixes
+            : fuzzyMatch(args[0], knownCommands, 3, 2);
           let isOracle = false;
           if (closeCandidates.length === 0) {
             // No close typo-match. Only spend the tmux query if the arg
