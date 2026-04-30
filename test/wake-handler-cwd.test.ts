@@ -13,8 +13,20 @@ const mockFleets = [
   },
 ];
 
+// Mock the WHOLE module surface — partial mocks pollute the bun test process
+// and cause "SyntaxError: Export named X not found" in any later test (or
+// transitively-imported source) that resolves a missing named export against
+// our truncated mock. See: bun mock.module is process-wide.
 mock.module("../src/commands/shared/fleet-load", () => ({
   loadFleet: () => mockFleets,
+  loadFleetEntries: () =>
+    mockFleets.map((session) => {
+      const m = session.name.match(/^(\d+)-(.+)$/);
+      const num = m ? parseInt(m[1], 10) : 0;
+      const groupName = m ? m[2] : session.name;
+      return { file: `${session.name}.json`, num, groupName, session };
+    }),
+  getSessionNames: async () => mockFleets.map((f) => f.name),
 }));
 
 mock.module("../src/config/ghq-root", () => ({
