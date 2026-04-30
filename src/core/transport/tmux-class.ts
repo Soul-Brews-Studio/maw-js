@@ -149,10 +149,10 @@ export class Tmux {
   async listPanes(): Promise<TmuxPane[]> {
     try {
       const raw = await this.run("list-panes", "-a", "-F",
-        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}");
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}");
       return raw.split("\n").filter(Boolean).map(line => {
-        const [id, command, target, title, pid, cwd] = line.split("|||");
-        return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined };
+        const [id, command, target, title, pid, cwd, winAct] = line.split("|||");
+        return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined, lastActivity: winAct ? Number(winAct) : undefined };
       });
     } catch { return []; }
   }
