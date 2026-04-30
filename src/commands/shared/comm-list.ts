@@ -1,5 +1,12 @@
 /**
  * comm-list.ts — cmdList + renderSessionName + orphan detection.
+ *
+ * #957 contract: cmdList is strictly READ-ONLY on tmux state. It must
+ * never call `tmux new-session` (vanilla or grouped `-t <parent>` form),
+ * `kill-session`, `kill-window`, `send-keys`, or any other mutating tmux
+ * subcommand — only `list-sessions`, `list-windows`, `list-panes`, and
+ * non-tmux helpers (`find`, `git worktree list` via scanWorktrees).
+ * Regression test: test/isolated/cmd-list-no-new-session-957.test.ts.
  */
 
 import { listSessions, getPaneInfos, scanWorktrees } from "../../sdk";
@@ -17,8 +24,21 @@ export function renderSessionName(name: string): string {
     : `\x1b[36m${name}\x1b[0m`;
 }
 
+/**
+ * #957 — `*-view-diag` sessions are diagnostic shadows produced by
+ * external tooling (extracted view plugin, doctor flows). They share
+ * panes with their parent so listing them surfaces nothing the user
+ * doesn't already see under the source session — and they pollute the
+ * output. Hide them from `maw ls`. The plain `*-view` suffix still
+ * renders (with the [view] tag) since users actively reattach to those.
+ */
+function isViewDiag(name: string): boolean {
+  return /-view-diag$/.test(name);
+}
+
 export async function cmdList() {
-  const sessions = await listSessions();
+  const rawSessions = await listSessions();
+  const sessions = rawSessions.filter(s => !isViewDiag(s.name));
 
   // Batch-check process + cwd for each pane
   const targets: string[] = [];
