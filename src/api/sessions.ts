@@ -138,8 +138,18 @@ sessionsApi.post("/send", async ({ body, set}) => {
       await sendKeys(resolved.target, message);
       await Bun.sleep(150);
       let lastLine = "";
-      try { const content = await capture(resolved.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
-      return { ok: true, target: resolved.target, text, source: "local", lastLine };
+      // Echo broadcast bug 2026-04-26: claude queues input behind a busy prompt and
+      // tmux send-keys still succeeds, so callers think delivery worked. Detect the
+      // "Press up to edit queued messages" indicator so the API can distinguish
+      // delivered vs queued.
+      let state: "delivered" | "queued" = "delivered";
+      try {
+        const content = await capture(resolved.target, 8);
+        const lines = content.split("\n").filter(l => l.trim());
+        lastLine = lines.pop() || "";
+        if (/Press up to edit queued messages/i.test(content)) state = "queued";
+      } catch {}
+      return { ok: true, target: resolved.target, text, source: "local", lastLine, state };
     }
 
     // Remote peer → federation HTTP
@@ -151,7 +161,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
         from: "auto", // #804 Step 4 SIGN — sign cross-node forwarded /api/send
       });
       if (res.ok && res.data?.ok) {
-        return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "" };
+        return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state: res.data.state ?? "delivered" };
       }
       set.status = 502; return { error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl };
     }
@@ -160,7 +170,7 @@ sessionsApi.post("/send", async ({ body, set}) => {
     const peerUrl = await findPeerForTarget(target, local);
     if (peerUrl) {
       const ok = await sendKeysToPeer(peerUrl, target, message);
-      if (ok) return { ok: true, target, text, source: peerUrl };
+      if (ok) return { ok: true, target, text, source: peerUrl, state: "delivered" as const };
       set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
     }
 
