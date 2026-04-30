@@ -40,22 +40,89 @@ describe("cmdTmuxSplit — pct bounds", () => {
   });
 });
 
-describe("cmdTmuxAttach — pure resolution + print", () => {
-  test("resolves and prints attach command (no side effects)", () => {
+describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
+  test("--print resolves and prints attach command (no exec)", () => {
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+    try {
+      cmdTmuxAttach("%999", { print: true });
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+    }
+    expect(calls).toHaveLength(0); // --print → never spawns
+    const joined = logs.join("\n");
+    expect(joined).toContain("tmux attach -t");
+    expect(joined).toContain("Ctrl-b d");
+  });
+
+  test("session-name target with --print → extracts session", () => {
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
     try {
-      cmdTmuxAttach("%999"); // pane id form, no resolution dependency
+      cmdTmuxAttach("some-session:0.1", { print: true });
     } finally {
       console.log = origLog;
     }
-    const joined = logs.join("\n");
-    expect(joined).toContain("tmux attach -t");
-    expect(joined).toContain("Ctrl-b d"); // detach instructions
+    expect(logs.join("\n")).toContain("tmux attach -t some-session");
   });
 
-  test("session-name target → extracts session for attach", () => {
+  test("no TTY (and no --print) → falls back to 3-line print, no spawn", () => {
+    // Simulate non-TTY environment (script / pipe / CI). Bun's test runner
+    // typically already has isTTY=undefined, but force it to be safe.
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    try {
+      cmdTmuxAttach("%999"); // no opts → relies on TTY/$TMUX detection
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(0); // no TTY → never spawns
+    const joined = logs.join("\n");
+    expect(joined).toContain("tmux attach -t");
+    expect(joined).toContain("Ctrl-b d");
+  });
+});
+
+describe("cmdTmuxAttach — TTY exec branches", () => {
+  test("inside tmux + TTY → spawns `tmux switch-client -t <session>`", () => {
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
@@ -63,7 +130,92 @@ describe("cmdTmuxAttach — pure resolution + print", () => {
       cmdTmuxAttach("some-session:0.1");
     } finally {
       console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+      else delete process.env.TMUX;
     }
-    expect(logs.join("\n")).toContain("tmux attach -t some-session");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["tmux", "switch-client", "-t", "some-session"]);
+    // No 3-line print under exec path — output is whatever tmux emits via stdio:inherit
+    expect(logs.join("\n")).not.toContain("Run: tmux attach -t");
+  });
+
+  test("outside tmux + TTY → spawns `tmux attach -t <session>`", () => {
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    try {
+      cmdTmuxAttach("some-session:0.1");
+    } finally {
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session"]);
+  });
+
+  test("non-zero exit → throws with exit code + verb", () => {
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = (() => ({
+      exitCode: 1,
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      success: false,
+    }));
+
+    try {
+      expect(() => cmdTmuxAttach("ghost-session")).toThrow(/tmux attach failed.*exit 1/);
+    } finally {
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+  });
+
+  test("--print overrides TTY detection — never spawns even in interactive shell", () => {
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    try {
+      cmdTmuxAttach("%999", { print: true });
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(0);
+    expect(logs.join("\n")).toContain("tmux attach -t");
   });
 });

@@ -362,25 +362,52 @@ export async function cmdTmuxLayout(target: string, preset: string): Promise<voi
   console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);
 }
 
+export interface TmuxAttachOpts {
+  /** Force print-only mode (no exec) regardless of TTY/$TMUX state. */
+  print?: boolean;
+}
+
 /**
- * Print the tmux attach command for the user to exec themselves.
+ * Attach to a tmux session.
  *
- * We can't `exec tmux attach` from a Bun subprocess because attach is
- * TTY-interactive and our process is the wrong process to attach. Instead
- * we resolve the target and print the exact command — the user runs it.
+ * Branch behavior (issue #962, fix for #395 print-only regression):
+ *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <session>`
+ *   - Outside tmux + TTY            → `tmux attach -t <session>`
+ *   - No TTY (script/pipe/CI)       → fall back to 3-line print (don't break automation)
+ *   - Explicit --print              → force print mode regardless of TTY
  *
- * This matches `maw team spawn`'s pattern (Bug C philosophy): prepare,
- * print, let the operator run the interactive part.
+ * Pre-#962 this was print-only (since #395, 2026-04-17). RFC #954's `a`
+ * alias surfaced the regression — operators expected `maw a foo` to attach,
+ * not just print instructions.
  */
-export function cmdTmuxAttach(target: string): void {
+export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
   const session = resolved.split(":")[0] ?? "";
 
-  console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
-  console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
-  console.log(`  detach with: Ctrl-b d\x1b[0m`);
+  const isTty = !!process.stdout.isTTY;
+  const inTmux = !!process.env.TMUX;
+
+  if (opts.print || !isTty) {
+    console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
+    console.log(`  detach with: Ctrl-b d\x1b[0m`);
+    return;
+  }
+
+  const tmuxArgs = inTmux
+    ? ["switch-client", "-t", session]
+    : ["attach", "-t", session];
+  const verb = inTmux ? "switch-client" : "attach";
+
+  const result = Bun.spawnSync(["tmux", ...tmuxArgs], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`tmux ${verb} failed (exit ${result.exitCode}) for session '${session}' [${source}]`);
+  }
 }
 
 /**

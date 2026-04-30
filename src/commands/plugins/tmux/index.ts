@@ -147,18 +147,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       await cmdTmuxLayout(target, preset);
     } else if (sub === "attach") {
-      const flags = parseFlags(args, { "--help": Boolean, "-h": "--help" }, 1);
+      const flags = parseFlags(args, {
+        "--print": Boolean,
+        "--help": Boolean, "-h": "--help",
+      }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux attach <target>");
-        console.log("  prints the tmux attach command for you to run (TTY required).");
+        console.log("usage: maw tmux attach <target> [--print]");
+        console.log("  default: exec `tmux attach` (or `switch-client` inside $TMUX) when on a TTY.");
+        console.log("  --print: print the tmux command instead of exec'ing (auto-on without a TTY).");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const target = flags._[0];
       if (!target) {
-        console.log("usage: maw tmux attach <target>");
+        console.log("usage: maw tmux attach <target> [--print]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      cmdTmuxAttach(target);
+      cmdTmuxAttach(target, { print: !!flags["--print"] });
     } else if (!sub || sub === "--help" || sub === "-h") {
       console.log("usage: maw tmux <ls|peek|send|split|kill|layout|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
@@ -167,7 +171,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log("  split <target>          split a pane (--vertical, --pct, --cmd)");
       console.log("  kill <target>           kill a pane or --session (fleet-safe)");
       console.log("  layout <target> <preset> apply a tmux layout preset");
-      console.log("  attach <target>         print tmux attach command (TTY required)");
+      console.log("  attach <target> [--print] attach to a tmux session (--print to skip exec)");
       return { ok: true, output: logs.join("\n") || undefined };
     } else {
       console.log(`unknown tmux subcommand: ${sub}`);
