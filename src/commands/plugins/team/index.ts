@@ -218,9 +218,37 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         || resolveTeamFromContext();
       cmdOracleMembers(team);
 
+    } else if (sub === "split") {
+      // maw team split <target> [--pct N] [--vertical]
+      const { cmdSplit } = await import("../split/impl");
+      const flags = parseFlags(args, {
+        "--pct": Number,
+        "--vertical": Boolean,
+      }, 1);
+      const target = flags._[0];
+      if (!target) {
+        logs.push("usage: maw team split <session|agent> [--pct N] [--vertical]");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      await cmdSplit(target, {
+        pct: flags["--pct"] as number | undefined,
+        vertical: !!flags["--vertical"],
+        lock: true,
+      });
+
+    } else if (sub === "peek") {
+      // maw team peek <target>
+      const { cmdTmuxPeek } = await import("../tmux/impl");
+      const target = args[1];
+      if (!target) {
+        logs.push("usage: maw team peek <session|agent>");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      await cmdTmuxPeek(target);
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
