@@ -21,7 +21,6 @@
  * the bundler, sidestepping the resolution context mismatch entirely.
  */
 
-import { cmdList } from "../commands/shared/comm-list";
 import { cmdWake } from "../commands/shared/wake-cmd";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
@@ -34,14 +33,7 @@ export type AliasResolution =
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
-  attach: ["tmux", "attach"],
-
-  // Direct-handler form — `ls` invokes the original cmdList in core
-  // (src/commands/shared/comm-list.ts). Pre-#918 the `ls` plugin was a
-  // thin shim around cmdList(); the plugin shell was extracted but cmdList
-  // itself remained in core, so we route directly to it. NOT `fleet ls`
-  // (which lists fleet configs — different concept). See PR #955.
-  ls: { kind: "direct", handler: "../commands/shared/comm-list:cmdList" },
+  ls: ["tmux", "ls", "--all"],
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
@@ -80,7 +72,6 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
  * dispatch is by `exportName` against a static handler map.
  *
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
- * For `ls`, parses --fix and calls cmdList(opts).
  */
 export async function invokeDirectHandler(
   handler: string,
@@ -89,17 +80,6 @@ export async function invokeDirectHandler(
   const [, exportName] = handler.split(":");
   if (!exportName) {
     throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>'`);
-  }
-
-  if (exportName === "cmdList") {
-    // Thread known flags through to cmdList. Currently:
-    //   --fix   prune orphaned worktrees after listing (#4 / FIX-A).
-    // Other argv is still dropped — cmdList has no positional filtering yet.
-    const flags = parseFlags(argv, { "--fix": Boolean }, 0);
-    const opts: { fix?: boolean } = {};
-    if (flags["--fix"]) opts.fix = true;
-    await cmdList(opts);
-    return;
   }
 
   if (exportName === "cmdWake") {

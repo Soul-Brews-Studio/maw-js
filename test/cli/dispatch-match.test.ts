@@ -157,46 +157,18 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
 });
 
 describe("resolveTopAlias — RFC #954 verb aliases", () => {
-  test("`ls` → direct-handler form with cmdList handler (NOT fleet ls)", () => {
-    // PR #955 routed `ls` to `fleet ls`, but fleet ls lists fleet *configs*
-    // — a different concept than the original `maw ls` which listed live
-    // tmux sessions/oracles via cmdList(). Restore the original direct dispatch.
+  test("`ls` → argv rewrite to ['tmux', 'ls', '--all']", () => {
     const out = resolveTopAlias(["ls"]);
     expect(out).not.toBeNull();
-    expect(out!.kind).toBe("direct");
-    if (out!.kind === "direct") {
-      expect(out!.handler).toContain("comm-list");
-      expect(out!.handler).toContain("cmdList");
-      // No positional args after the verb
-      expect(out!.argv).toEqual([]);
-    }
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all"]);
   });
 
-  test("`ls foo` → direct-handler form, extra argv passed through (ignored by handler today)", () => {
-    // The handler currently drops argv (cmdList takes no args), but the
-    // resolver must still pass everything-after-the-verb so future filtering
-    // (e.g. `maw ls <name>` name search) can be added without re-routing.
-    const out = resolveTopAlias(["ls", "foo"]);
-    expect(out).not.toBeNull();
-    expect(out!.kind).toBe("direct");
-    if (out!.kind === "direct") {
-      expect(out!.handler).toContain("cmdList");
-      expect(out!.argv).toEqual(["foo"]);
-    }
-  });
-
-  test("`ls --fix` → direct-handler form with --fix in argv (FIX-A: dispatch must not drop flag)", () => {
-    // Regression for the bug where invokeDirectHandler called cmdList() with
-    // no args, silently dropping `--fix` even though comm-list.ts:88 advertised
-    // it. The resolver must surface the flag so invokeDirectHandler can
-    // parse and forward it to cmdList({ fix: true }).
+  test("`ls --fix` → argv rewrite with --fix appended", () => {
     const out = resolveTopAlias(["ls", "--fix"]);
     expect(out).not.toBeNull();
-    expect(out!.kind).toBe("direct");
-    if (out!.kind === "direct") {
-      expect(out!.handler).toContain("cmdList");
-      expect(out!.argv).toEqual(["--fix"]);
-    }
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--fix"]);
   });
 
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
@@ -206,11 +178,9 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
   });
 
-  test("`attach neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+  test("`attach` is not a registered alias (removed — use `a`)", () => {
     const out = resolveTopAlias(["attach", "neo"]);
-    expect(out).not.toBeNull();
-    expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+    expect(out).toBeNull();
   });
 
   test("`wake neo --task X` → direct-handler form with cmdWake handler", () => {
