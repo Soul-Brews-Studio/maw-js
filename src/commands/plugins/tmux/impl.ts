@@ -68,19 +68,18 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     }
   }
 
-  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2:0".
-  // Matches maw peek's resolution. Suffix-preferred via the canonical
-  // resolveSessionTarget so "mawjs" → "101-mawjs" (not "mawjs-view").
+  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
+  // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
   try {
     const sessions = loadFleetEntries().map(e => ({ name: e.file.replace(/\.json$/, "") }));
     const r = resolveSessionTarget(target, sessions);
     if (r.kind === "exact" || r.kind === "fuzzy") {
-      return { resolved: `${r.match.name}:0`, source: `fleet-stem (${r.match.name})` };
+      return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
     }
   } catch { /* no fleet dir — fall through */ }
 
-  // 4. Bare session name → pane 0
-  return { resolved: `${target}:0`, source: "session-name (pane 0)" };
+  // 4. Bare session name — let tmux resolve to current/first pane
+  return { resolved: target, source: "session-name" };
 }
 
 export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Promise<void> {
