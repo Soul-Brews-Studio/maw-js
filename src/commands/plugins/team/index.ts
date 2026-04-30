@@ -320,14 +320,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         });
         await stylePaneBorder(paneId, name, color);
 
-        // Register in team config
+        // Upsert in team config
         if (existsSync(teamConfigPath)) {
           try {
             const cfg = JSON.parse(readFileSync(teamConfigPath, "utf-8"));
-            if (!cfg.members.some((m: any) => m.name === name)) {
-              cfg.members.push({ name, agentId, tmuxPaneId: paneId, color, model: "shell" });
-              writeFileSync(teamConfigPath, JSON.stringify(cfg, null, 2));
-            }
+            const existing = cfg.members.findIndex((m: any) => m.name === name);
+            const entry = { name, agentId, tmuxPaneId: paneId, color, model: "shell" };
+            if (existing >= 0) cfg.members[existing] = entry;
+            else cfg.members.push(entry);
+            writeFileSync(teamConfigPath, JSON.stringify(cfg, null, 2));
           } catch { /* best effort */ }
         }
 
