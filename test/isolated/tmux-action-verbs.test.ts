@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach } from "../../src/commands/plugins/tmux/impl";
+import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/plugins/tmux/impl";
 import * as impl from "../../src/commands/plugins/tmux/impl";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/plugins/tmux/impl.ts"), "utf-8");
 
 // Pure-validation tests for split, kill, layout, attach. These verbs call
 // hostExec under the hood — we test the input-validation paths that throw
@@ -217,5 +221,46 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
 
     expect(calls).toHaveLength(0);
     expect(logs.join("\n")).toContain("tmux attach -t");
+  });
+});
+
+// ── Heartbeat #974: Cooldown + Quota Gating ──────────────────────────────────
+
+describe("cmdTmuxSend — cooldown + quota (Heartbeat #974)", () => {
+  test("_sendTracker is exported and is a Map", () => {
+    expect(_sendTracker).toBeInstanceOf(Map);
+  });
+
+  test("Gate 0 exists in cmdTmuxSend before Gate 1", () => {
+    const gate0 = implSrc.indexOf("Gate 0");
+    const gate1 = implSrc.indexOf("Gate 1");
+    expect(gate0).toBeGreaterThan(-1);
+    expect(gate1).toBeGreaterThan(gate0);
+  });
+
+  test("cooldown check uses _sendTracker.get(resolved)", () => {
+    expect(implSrc).toMatch(/_sendTracker\.get\(resolved\)/);
+  });
+
+  test("cooldown is bypassed by opts.force", () => {
+    expect(implSrc).toMatch(/if\s*\(\s*!opts\.force\s*\)\s*\{[\s\S]*?_sendTracker/);
+  });
+
+  test("COOLDOWN_MS and QUOTA_PER_MINUTE constants exist", () => {
+    expect(implSrc).toMatch(/const COOLDOWN_MS\s*=\s*\d+/);
+    expect(implSrc).toMatch(/const QUOTA_PER_MINUTE\s*=\s*\d+/);
+    expect(implSrc).toMatch(/const QUOTA_WINDOW_MS\s*=\s*\d+/);
+  });
+
+  test("quota resets when window expires", () => {
+    expect(implSrc).toMatch(/prev\.windowStart\s*>\s*QUOTA_WINDOW_MS/);
+    expect(implSrc).toMatch(/prev\.count\s*=\s*0/);
+  });
+
+  test("tracker map can be manipulated directly", () => {
+    _sendTracker.clear();
+    _sendTracker.set("test-pane", { lastTs: Date.now(), count: 50, windowStart: Date.now() });
+    expect(_sendTracker.get("test-pane")?.count).toBe(50);
+    _sendTracker.clear();
   });
 });

@@ -205,6 +205,13 @@ export interface TmuxSendOpts {
   force?: boolean;
 }
 
+// ❤️ Heartbeat #974 — per-pane cooldown + quota tracking.
+// Prevents rapid-fire send-keys spam from stale agent turns.
+export const _sendTracker = new Map<string, { lastTs: number; count: number; windowStart: number }>();
+const COOLDOWN_MS = 500;
+const QUOTA_PER_MINUTE = 100;
+const QUOTA_WINDOW_MS = 60_000;
+
 /**
  * Send a command into a target tmux pane. Wraps `tmux send-keys` with
  * three safety gates:
@@ -224,6 +231,30 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
+
+  // Gate 0 — cooldown + quota (Heartbeat #974)
+  if (!opts.force) {
+    const now = Date.now();
+    const prev = _sendTracker.get(resolved);
+    if (prev) {
+      if (now - prev.lastTs < COOLDOWN_MS) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → cooldown (${COOLDOWN_MS}ms). Use --force to bypass.`);
+        return;
+      }
+      if (now - prev.windowStart > QUOTA_WINDOW_MS) {
+        prev.count = 0;
+        prev.windowStart = now;
+      }
+      if (prev.count >= QUOTA_PER_MINUTE) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → quota (${QUOTA_PER_MINUTE}/min). Use --force to bypass.`);
+        return;
+      }
+      prev.lastTs = now;
+      prev.count++;
+    } else {
+      _sendTracker.set(resolved, { lastTs: now, count: 1, windowStart: now });
+    }
+  }
 
   // Gate 1 — destructive-command deny-list
   const destCheck = checkDestructive(command);
