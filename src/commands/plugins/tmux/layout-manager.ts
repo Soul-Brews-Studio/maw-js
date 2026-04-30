@@ -66,7 +66,7 @@ export async function stylePaneBorder(
 }
 
 export async function enableBorderStatus(windowTarget: string): Promise<void> {
-  await hostExec(`tmux set-option -w -t '${windowTarget}' pane-border-status top`);
+  await hostExec(`tmux set-option -w -t '${windowTarget}' pane-border-status bottom`);
 }
 
 // ─── Hide / Show (CC-style break-pane / join-pane) ───────
@@ -125,10 +125,13 @@ export async function spawnTeammatePane(
   const targetFlag = anchor ? `-t '${anchor}' ` : "";
   const color = nextAgentColor(opts.colorIndex);
 
+  // Wrap in zsh so the pane stays alive after the command exits
+  const wrapped = `${command.replace(/'/g, "'\\''")}; exec zsh`;
+
   let paneId = "";
   await withPaneLock(async () => {
     paneId = (await hostExec(
-      `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${command.replace(/'/g, "'\\''")}'`,
+      `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${wrapped}'`,
     )).trim();
     await new Promise(r => setTimeout(r, 200));
   });
