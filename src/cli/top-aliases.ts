@@ -35,6 +35,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
   kill: ["tmux", "kill"],
+  peek: ["tmux", "peek"],
   split: ["split"],
   t: ["team"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
