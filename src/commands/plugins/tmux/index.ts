@@ -174,25 +174,58 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
       cmdTmuxAttach(target, { print: !!flags["--print"] });
-    } else if (sub === "unsplit") {
+    } else if (sub === "close" || sub === "unsplit") {
       if (!process.env.TMUX) {
-        console.log("\x1b[33m⚠\x1b[0m unsplit requires tmux");
+        console.log("\x1b[33m⚠\x1b[0m close requires tmux");
         return { ok: false, error: "not in tmux" };
       }
       const myPane = process.env.TMUX_PANE;
       const paneList = (await hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
       if (paneList.length <= 1) {
-        console.log("\x1b[90monly one pane — nothing to unsplit\x1b[0m");
+        console.log("\x1b[90mno panes to close\x1b[0m");
         return { ok: true };
       }
-      let killed = 0;
+      let hidden = 0;
       for (const pane of paneList) {
         if (pane === myPane) continue;
-        try { await hostExec(`tmux kill-pane -t '${pane}'`); killed++; } catch { /* already dead */ }
+        try {
+          await hostExec(`tmux break-pane -d -t '${pane}'`);
+          hidden++;
+        } catch { /* already gone */ }
       }
-      console.log(`\x1b[32m✓\x1b[0m unsplit — killed ${killed} sibling pane${killed !== 1 ? "s" : ""}`);
+      console.log(`\x1b[32m✓\x1b[0m closed ${hidden} pane${hidden !== 1 ? "s" : ""} (hidden — still alive)`);
+    } else if (sub === "open") {
+      if (!process.env.TMUX) {
+        console.log("\x1b[33m⚠\x1b[0m open requires tmux");
+        return { ok: false, error: "not in tmux" };
+      }
+      const target = args[1];
+      if (!target) {
+        // No target: bring back hidden panes from other windows in this session
+        const myWindow = (await hostExec("tmux display-message -p '#{window_index}'")).trim();
+        const windowList = (await hostExec("tmux list-windows -F '#{window_index}:#{window_panes}'")).split("\n").filter(Boolean);
+        const hiddenWindows = windowList
+          .map(l => { const [idx, count] = l.split(":"); return { idx, count: parseInt(count || "0") }; })
+          .filter(w => w.idx !== myWindow && w.count === 1);
+        if (hiddenWindows.length === 0) {
+          console.log("\x1b[90mno hidden panes to open\x1b[0m");
+          return { ok: true };
+        }
+        let joined = 0;
+        for (const w of hiddenWindows) {
+          try {
+            await hostExec(`tmux join-pane -h -s ':${w.idx}' -t '${myPane}'`);
+            joined++;
+          } catch { /* pane may have died */ }
+        }
+        console.log(`\x1b[32m✓\x1b[0m opened ${joined} hidden pane${joined !== 1 ? "s" : ""}`);
+      } else {
+        // Target given: split and show that session (same as split)
+        const { cmdSplit } = await import("../split/impl");
+        await cmdSplit(target, { lock: true });
+      }
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send|split|kill|unsplit|layout|attach> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
