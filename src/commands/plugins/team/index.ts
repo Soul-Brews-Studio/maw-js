@@ -342,6 +342,34 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       console.log(`\x1b[32m✓\x1b[0m ${count} panes ready (${tiled ? "tiled" : "main-vertical"}, team: ${teamName})`);
 
+    } else if (sub === "broadcast" || sub === "shout") {
+      // maw team broadcast <message> — send keystrokes to ALL agent panes
+      const message = args.slice(1).join(" ");
+      if (!message) {
+        logs.push("usage: maw team broadcast <message>");
+        return { ok: false, error: "message required", output: logs.join("\n") };
+      }
+      const teamName = resolveTeamFromContext();
+      const { loadTeam } = await import("./team-helpers");
+      const team = loadTeam(teamName);
+      if (!team) {
+        logs.push(`\x1b[33m⚠\x1b[0m team '${teamName}' not found`);
+        return { ok: false, error: "team not found" };
+      }
+      const { hostExec: exec } = await import("../../../sdk");
+      const { colorAnsi } = await import("../tmux/layout-manager");
+      const withPanes = team.members.filter(m => m.tmuxPaneId && m.agentType !== "team-lead");
+      let sent = 0;
+      for (const m of withPanes) {
+        try {
+          await exec(`tmux send-keys -t '${m.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
+          const color = (m.color || "white") as any;
+          console.log(`  \x1b[${colorAnsi(color)}m→\x1b[0m ${m.agentId || m.name}`);
+          sent++;
+        } catch { /* pane may be dead */ }
+      }
+      console.log(`\x1b[32m✓\x1b[0m broadcast to ${sent}/${withPanes.length} agents: ${message}`);
+
     } else if (sub === "hey") {
       // maw team hey <agent> <message> — send keystrokes to agent's tmux pane
       const agent = args[1];
