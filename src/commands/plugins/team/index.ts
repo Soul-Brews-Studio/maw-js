@@ -417,9 +417,52 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         if (marked > 0) console.log(`\x1b[32m✓\x1b[0m marked ${marked} message${marked !== 1 ? "s" : ""} read`);
       }
 
+    } else if (sub === "recover") {
+      // maw team recover [team-name] — restore layout from snapshot
+      const { loadLayoutSnapshot } = await import("./layout-snapshot");
+      const {
+        stylePaneBorder, enableBorderStatus, applyTeamLayout, getWindowTarget, colorAnsi,
+      } = await import("../tmux/layout-manager");
+      const teamName = args[1] || resolveTeamFromContext();
+      const snapshot = loadLayoutSnapshot(teamName);
+      if (!snapshot) {
+        logs.push(`\x1b[33m⚠\x1b[0m no layout snapshot for team '${teamName}'`);
+        return { ok: false, error: "no snapshot" };
+      }
+
+      const alive = await (async () => {
+        try {
+          const out = await hostExec("tmux list-panes -a -F '#{pane_id}'");
+          return new Set(out.split("\n").filter(Boolean));
+        } catch { return new Set<string>(); }
+      })();
+
+      let recovered = 0;
+      let dead = 0;
+      for (const p of snapshot.panes) {
+        if (alive.has(p.tmuxPaneId)) {
+          await stylePaneBorder(p.tmuxPaneId, p.name, p.color);
+          recovered++;
+          console.log(`  \x1b[${colorAnsi(p.color)}m●\x1b[0m ${p.agentId} → ${p.tmuxPaneId} (alive)`);
+        } else {
+          dead++;
+          console.log(`  \x1b[90m·\x1b[0m ${p.agentId} → ${p.tmuxPaneId} (dead)`);
+        }
+      }
+
+      if (recovered > 0) {
+        const window = await getWindowTarget();
+        const anchor = process.env.TMUX_PANE ?? snapshot.leaderPane;
+        await applyTeamLayout(window, anchor);
+        await enableBorderStatus(window);
+      }
+
+      const age = Math.round((Date.now() - snapshot.savedAt) / 60000);
+      console.log(`\x1b[32m✓\x1b[0m recovered ${recovered} pane${recovered !== 1 ? "s" : ""}, ${dead} dead (snapshot ${age}m ago)`);
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|recover|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

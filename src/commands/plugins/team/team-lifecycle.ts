@@ -285,6 +285,10 @@ export async function cmdTeamSpawn(
         } catch { /* best effort */ }
       }
 
+      // Save layout snapshot for session recovery (#1035)
+      const { saveLayoutSnapshot } = await import("./layout-snapshot");
+      saveLayoutSnapshot(teamName, process.env.TMUX_PANE ?? "");
+
       console.log();
       console.log(`  \x1b[32m✓ --exec\x1b[0m spawned \x1b[${colorAnsi(result.color)}m${agentId}\x1b[0m in pane ${result.paneId}`);
     } catch (e: any) {
