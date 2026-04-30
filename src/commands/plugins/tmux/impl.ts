@@ -8,6 +8,22 @@ import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safe
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
+// #971 — process.stdout.isTTY is `undefined` (not false) in bun-bundled
+// binaries installed via curl. `!!undefined` → false, making attach always
+// fall to print-only. node:tty.isatty(1) checks the fd directly and works
+// in both source and bundled contexts. Wrapped in object for test mockability
+// (ES module namespace objects are frozen, bare `let` can't be reassigned).
+export const _tty = {
+  isStdoutTTY: (): boolean => {
+    try {
+      const { isatty } = require("node:tty") as typeof import("node:tty");
+      return isatty(1);
+    } catch {
+      return !!process.stdout.isTTY;
+    }
+  },
+};
+
 export interface TmuxPeekOpts {
   /** Number of lines from bottom of pane buffer. Default 30. */
   lines?: number;
@@ -386,7 +402,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const { resolved, source } = hit;
   const session = resolved.split(":")[0] ?? "";
 
-  const isTty = !!process.stdout.isTTY;
+  const isTty = _tty.isStdoutTTY();
   const inTmux = !!process.env.TMUX;
 
   if (opts.print || !isTty) {
