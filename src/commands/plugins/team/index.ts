@@ -7,6 +7,7 @@ import {
   cmdTeamSend, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { parseFlags } from "../../../cli/parse-args";
+import { hostExec } from "../../../sdk";
 
 export const command = {
   name: "team",
@@ -218,8 +219,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         || resolveTeamFromContext();
       cmdOracleMembers(team);
 
-    } else if (sub === "split") {
-      // maw team split <target> [--pct N] [--vertical]
+    } else if (sub === "split" || sub === "open") {
+      // maw team open <target> [--pct N] [--vertical]
       const { cmdSplit } = await import("../split/impl");
       const flags = parseFlags(args, {
         "--pct": Number,
@@ -227,7 +228,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }, 1);
       const target = flags._[0];
       if (!target) {
-        logs.push("usage: maw team split <session|agent> [--pct N] [--vertical]");
+        logs.push("usage: maw team open <session|agent> [--pct N] [--vertical]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
       await cmdSplit(target, {
@@ -235,6 +236,25 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         vertical: !!flags["--vertical"],
         lock: true,
       });
+
+    } else if (sub === "close") {
+      if (!process.env.TMUX) {
+        logs.push("\x1b[33m⚠\x1b[0m close requires tmux");
+        return { ok: false, error: "not in tmux" };
+      }
+      const myPane = process.env.TMUX_PANE;
+      const paneList = (await hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
+      if (paneList.length <= 1) {
+        console.log("\x1b[90mno split panes to close\x1b[0m");
+        return { ok: true };
+      }
+      let killed = 0;
+      for (const pane of paneList) {
+        if (pane === myPane) continue;
+        try { await hostExec(`tmux kill-pane -t '${pane}'`); killed++; } catch {}
+      }
+      console.log(`\x1b[32m✓\x1b[0m closed ${killed} pane${killed !== 1 ? "s" : ""}`);
+
 
     } else if (sub === "peek") {
       // maw team peek <target>
