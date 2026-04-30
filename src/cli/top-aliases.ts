@@ -31,6 +31,19 @@ export type AliasResolution =
   | { kind: "argv"; argv: string[] }
   | { kind: "direct"; handler: string; argv: string[] };
 
+export const ALIAS_DESCRIPTIONS: Record<string, string> = {
+  a: "Attach to a tmux session",
+  kill: "Kill a tmux pane or session",
+  peek: "Read content of a tmux pane",
+  split: "Split pane and attach to a session",
+  open: "Bring back hidden panes (join-pane)",
+  close: "Hide panes without killing (break-pane)",
+  t: "Team — create, spawn, send, shutdown",
+  cleanup: "Kill zombie agent panes",
+  ls: "List sessions (compact, -a roster, -v detail)",
+  wake: "Wake an oracle session (fuzzy match, auto-clone)",
+};
+
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
