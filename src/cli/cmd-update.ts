@@ -152,15 +152,29 @@ export async function runUpdate(args: string[]): Promise<void> {
       const BIN = join(homedir(), ".bun", "bin", "maw");
       const STASH = `${BIN}.prev`;
       let stashed = false;
-      // Refuse if .prev already exists — that's a prior crashed update's
-      // last-known-good escape hatch; silently overwriting would destroy it
-      // (architect's gotcha on #551). User resolves explicitly.
+      // #968 — if .prev already exists, it's a leftover from a prior crashed
+      // update. The original (#551) behavior refused at this point so the
+      // user wouldn't lose their last-known-good binary. But that left the
+      // user STUCK after a single crash — the retry/curl-fallback path below
+      // never runs because we exit here. Auto-rotate to a timestamped name
+      // instead: the working binary they're running RIGHT NOW still gets
+      // stashed (BIN → STASH below); the rotated copy is preserved as
+      // `${STASH}.crash.<unix-timestamp>` for forensic recovery if needed.
       if (existsSync(STASH)) {
-        console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists (prior update crashed — last-known-good binary).`);
-        console.error(`  restore manually:  mv ${STASH} ${BIN}`);
-        console.error(`  or discard it:     rm ${STASH}   \x1b[90m# only if you're sure\x1b[0m`);
-        console.error(`  then re-run:       maw update ${ref}`);
-        process.exit(1);
+        const archived = `${STASH}.crash.${Math.floor(Date.now() / 1000)}`;
+        try {
+          renameSync(STASH, archived);
+          console.warn(`\x1b[33m↺\x1b[0m rotated stale ${STASH} → ${archived} (prior crash leftover; in-flight stash will replace it)`);
+        } catch (e: any) {
+          // Belt-and-suspenders: if rotation fails (perms, disk full, etc.),
+          // fall back to the original refuse behavior so we never silently
+          // overwrite a working binary in the rename below.
+          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${e.message || e}`);
+          console.error(`  resolve manually:  mv ${STASH} ${BIN}     \x1b[90m# restore last-known-good\x1b[0m`);
+          console.error(`  or discard it:     rm ${STASH}             \x1b[90m# only if you're sure\x1b[0m`);
+          console.error(`  then re-run:       maw update ${ref}`);
+          process.exit(1);
+        }
       }
       try {
         if (existsSync(BIN)) {
