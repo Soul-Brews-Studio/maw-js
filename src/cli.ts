@@ -36,7 +36,7 @@ const cmd = args[0]?.toLowerCase();
 logAudit(cmd || "", args);
 
 async function main(): Promise<void> {
-  if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+  if (cmd === "--version" || cmd === "-v" || cmd === "version" || cmd === "v") {
     console.log(getVersionString());
   } else if (cmd === "update" || cmd === "upgrade") {
     await runUpdate(args);
