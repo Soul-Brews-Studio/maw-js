@@ -1,0 +1,13 @@
+{
+  "name": "hey-gale",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^26.0.0",
+  "description": "Shortcut to message Gale — maw hey-gale <message>",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "hey-gale",
+    "help": "maw hey-gale <message> [--wait] — send a message to Gale Oracle"
+  },
+  "weight": 0
+}
