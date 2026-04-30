@@ -80,6 +80,16 @@ export async function createWorktree(
   }
   try { await hostExec(`git -C '${safe(repoPath)}' branch -D '${safe(branch)}' 2>/dev/null`); } catch { /* ok */ }
   await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'`);
+  // Mirror .agent symlink from main tree — it's gitignored so worktrees don't inherit it
+  try {
+    const agentSrc = `${repoPath}/.agent`;
+    const agentDst = `${wtPath}/.agent`;
+    const { lstatSync, readlinkSync, symlinkSync } = await import("fs");
+    if (lstatSync(agentSrc, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      symlinkSync(readlinkSync(agentSrc), agentDst);
+      console.log(`\x1b[32m+\x1b[0m .agent symlink: ${agentDst}`);
+    }
+  } catch { /* non-fatal */ }
   console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
   return { wtPath, windowName: `${oracle}-${name}` };
 }
