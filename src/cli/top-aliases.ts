@@ -8,12 +8,23 @@
  * Two forms:
  *   1. Argv-rewrite — splice `args` in place, continue normal dispatch
  *      Example: `maw a foo` → `maw tmux attach foo` (handled by tmux plugin)
- *   2. Direct-handler — dynamic-import + invoke a function in core
+ *   2. Direct-handler — static-imported function reference
  *      Example: `maw wake foo` → cmdWake(foo, opts) directly
  *
  * One-shot only — aliases NEVER expand into another alias. If the rewrite
  * target itself names another alias, that's a bug in the table, not a feature.
+ *
+ * IMPORTANT: handlers are STATIC imports, not dynamic. When this file is
+ * bundled into src/cli.ts via bun build, dynamic `import("../commands/...")`
+ * paths get resolved relative to the bundled cli.ts (one dir up from where
+ * the source lives), which breaks at runtime. Static imports are inlined by
+ * the bundler, sidestepping the resolution context mismatch entirely.
  */
+
+import { cmdList } from "../commands/shared/comm-list";
+import { cmdWake } from "../commands/shared/wake-cmd";
+import { parseFlags } from "./parse-args";
+import { UserError } from "../core/util/user-error";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -64,19 +75,19 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
 /**
  * Invoke a direct-handler alias. Used by `wake` and `ls`.
  *
- * Handler spec format: "<relative-module-path>:<exportName>"
- *   e.g. "../commands/shared/wake-cmd:cmdWake"
+ * Handler spec format kept as "<path>:<exportName>" for documentation +
+ * help-text rendering, but the path is no longer used at runtime —
+ * dispatch is by `exportName` against a static handler map.
  *
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
- * For `ls`, calls cmdList() with no args (any extra argv is ignored —
- * the original pre-#918 plugin took no args either).
+ * For `ls`, parses --fix and calls cmdList(opts).
  */
 export async function invokeDirectHandler(
   handler: string,
   argv: string[],
 ): Promise<void> {
-  const [modulePath, exportName] = handler.split(":");
-  if (!modulePath || !exportName) {
+  const [, exportName] = handler.split(":");
+  if (!exportName) {
     throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>'`);
   }
 
@@ -84,22 +95,14 @@ export async function invokeDirectHandler(
     // Thread known flags through to cmdList. Currently:
     //   --fix   prune orphaned worktrees after listing (#4 / FIX-A).
     // Other argv is still dropped — cmdList has no positional filtering yet.
-    const { parseFlags } = await import("./parse-args");
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     const opts: { fix?: boolean } = {};
     if (flags["--fix"]) opts.fix = true;
-
-    const mod = await import(modulePath);
-    const fn = mod[exportName] as (opts?: { fix?: boolean }) => Promise<unknown>;
-    if (typeof fn !== "function") {
-      throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
-    }
-    await fn(opts);
+    await cmdList(opts);
     return;
   }
 
   if (exportName === "cmdWake") {
-    const { parseFlags } = await import("./parse-args");
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
@@ -116,7 +119,6 @@ export async function invokeDirectHandler(
     const oracle = positional[0];
     if (!oracle) {
       console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local]");
-      const { UserError } = await import("../core/util/user-error");
       throw new UserError("wake: missing oracle name");
     }
 
@@ -141,20 +143,9 @@ export async function invokeDirectHandler(
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
 
-    const mod = await import(modulePath);
-    const fn = mod[exportName] as (oracle: string, opts: typeof opts) => Promise<unknown>;
-    if (typeof fn !== "function") {
-      throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
-    }
-    await fn(oracle, opts);
+    await cmdWake(oracle, opts);
     return;
   }
 
-  // Generic fallback for future direct handlers — pass argv through verbatim.
-  const mod = await import(modulePath);
-  const fn = mod[exportName] as (argv: string[]) => Promise<unknown>;
-  if (typeof fn !== "function") {
-    throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
-  }
-  await fn(argv);
+  throw new Error(`top-alias: unknown direct-handler export '${exportName}'`);
 }
