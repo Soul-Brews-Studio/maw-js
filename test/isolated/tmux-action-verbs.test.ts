@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach } from "../../src/commands/plugins/tmux/impl";
+import * as impl from "../../src/commands/plugins/tmux/impl";
 
 // Pure-validation tests for split, kill, layout, attach. These verbs call
 // hostExec under the hood — we test the input-validation paths that throw
@@ -111,8 +112,8 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
 
 describe("cmdTmuxAttach — TTY exec branches", () => {
   test("inside tmux + TTY → spawns `tmux switch-client -t <session>`", () => {
-    const origIsTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
     process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
 
@@ -131,20 +132,19 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     } finally {
       console.log = origLog;
       (Bun as any).spawnSync = origSpawnSync;
-      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
       else delete process.env.TMUX;
     }
 
     expect(calls).toHaveLength(1);
     expect(calls[0].args).toEqual(["tmux", "switch-client", "-t", "some-session"]);
-    // No 3-line print under exec path — output is whatever tmux emits via stdio:inherit
     expect(logs.join("\n")).not.toContain("Run: tmux attach -t");
   });
 
   test("outside tmux + TTY → spawns `tmux attach -t <session>`", () => {
-    const origIsTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
@@ -159,7 +159,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
       cmdTmuxAttach("some-session:0.1");
     } finally {
       (Bun as any).spawnSync = origSpawnSync;
-      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
 
@@ -168,8 +168,8 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
   });
 
   test("non-zero exit → throws with exit code + verb", () => {
-    const origIsTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
@@ -185,14 +185,14 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
       expect(() => cmdTmuxAttach("ghost-session")).toThrow(/tmux attach failed.*exit 1/);
     } finally {
       (Bun as any).spawnSync = origSpawnSync;
-      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
   });
 
   test("--print overrides TTY detection — never spawns even in interactive shell", () => {
-    const origIsTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
@@ -211,7 +211,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     } finally {
       console.log = origLog;
       (Bun as any).spawnSync = origSpawnSync;
-      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
 
