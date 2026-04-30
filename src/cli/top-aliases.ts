@@ -36,6 +36,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   a: ["tmux", "attach"],
   kill: ["tmux", "kill"],
   t: ["team"],
+  cleanup: ["team", "cleanup", "--zombie-agents"],
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
