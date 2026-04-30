@@ -80,11 +80,12 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   console.log(`\x1b[36m⏳\x1b[0m shutting down ${alive.length} teammate(s) in '${name}'...`);
 
-  // Step 1: Send shutdown_request via inbox files
+  // Step 1: Send shutdown via structured inbox
+  const { sendShutdown } = await import("./inbox");
   for (const m of alive) {
     try {
-      writeShutdownRequest(name, m.name, "team teardown via maw team shutdown");
-      console.log(`  \x1b[90m↪ shutdown_request → ${m.name} (${m.tmuxPaneId})\x1b[0m`);
+      sendShutdown(name, m.name, "team teardown via maw team shutdown");
+      console.log(`  \x1b[90m↪ shutdown → ${m.name} (${m.tmuxPaneId})\x1b[0m`);
     } catch (e) {
       console.error(`  \x1b[31m✗\x1b[0m failed to send shutdown to ${m.name}: ${e}`);
     }
