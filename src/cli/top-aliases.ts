@@ -81,15 +81,20 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdList") {
-    // Original `maw ls` (pre-#918) was a thin shim that called cmdList()
-    // with no args. Preserve that signature exactly — extra argv is dropped
-    // until/unless we add filtering.
+    // Thread known flags through to cmdList. Currently:
+    //   --fix   prune orphaned worktrees after listing (#4 / FIX-A).
+    // Other argv is still dropped — cmdList has no positional filtering yet.
+    const { parseFlags } = await import("./parse-args");
+    const flags = parseFlags(argv, { "--fix": Boolean }, 0);
+    const opts: { fix?: boolean } = {};
+    if (flags["--fix"]) opts.fix = true;
+
     const mod = await import(modulePath);
-    const fn = mod[exportName] as () => Promise<unknown>;
+    const fn = mod[exportName] as (opts?: { fix?: boolean }) => Promise<unknown>;
     if (typeof fn !== "function") {
       throw new Error(`top-alias: '${exportName}' not found in '${modulePath}'`);
     }
-    await fn();
+    await fn(opts);
     return;
   }
 

@@ -35,6 +35,18 @@ export function isSilent(): boolean {
   return process.env.MAW_SILENT === "1";
 }
 
+/**
+ * Top-alias verbs (RFC #954) that are read-only and don't shell out to a
+ * plugin. Suppress the bootstrap preamble (`loaded config: …`,
+ * `loaded N plugins (…)`) for these — chatter pollutes their output and
+ * users perceive the verbosity as breakage. See FIX-A / task #4.
+ *
+ * Kept here (not in top-aliases.ts) because isQuiet() runs from import-time
+ * side-effects in load.ts / registry.ts, well before cli.ts can call
+ * setVerbosityFlags(). Mirroring the help/version guard's structure.
+ */
+const QUIET_TOP_ALIASES = new Set(["ls", "a", "attach", "wake"]);
+
 export function isQuiet(): boolean {
   // --silent implies --quiet
   if (isSilent()) return true;
@@ -45,9 +57,19 @@ export function isQuiet(): boolean {
   // lines fire from import-time side-effects (e.g. ssh.ts top-level
   // loadConfig()) before cli.ts can call setVerbosityFlags(). Covers nested
   // forms too — `maw oracle scan --help` etc.
-  return process.argv.some(
-    a => a === "--help" || a === "-h" || a === "--version" || a === "-v",
-  );
+  if (
+    process.argv.some(
+      a => a === "--help" || a === "-h" || a === "--version" || a === "-v",
+    )
+  ) return true;
+  // FIX-A — top-alias verbs (ls, a, attach, wake) are read-only and don't
+  // need plugin-loading narration. cli.ts builds args via
+  // `process.argv.slice(2)` then takes args[0] as the verb, so mirror that
+  // shape here. We deliberately check ONLY argv[2] (not `.some()`) so flag
+  // values like `--as ls` don't false-positive.
+  const verb = process.argv[2]?.toLowerCase();
+  if (verb && QUIET_TOP_ALIASES.has(verb)) return true;
+  return false;
 }
 
 export function verbose(fn: () => void): void {

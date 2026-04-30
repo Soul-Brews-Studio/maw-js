@@ -185,6 +185,20 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
+  test("`ls --fix` → direct-handler form with --fix in argv (FIX-A: dispatch must not drop flag)", () => {
+    // Regression for the bug where invokeDirectHandler called cmdList() with
+    // no args, silently dropping `--fix` even though comm-list.ts:88 advertised
+    // it. The resolver must surface the flag so invokeDirectHandler can
+    // parse and forward it to cmdList({ fix: true }).
+    const out = resolveTopAlias(["ls", "--fix"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("cmdList");
+      expect(out!.argv).toEqual(["--fix"]);
+    }
+  });
+
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();

@@ -16,10 +16,18 @@ import {
 } from "../../src/cli/verbosity";
 
 describe("verbosity", () => {
+  // process.argv is mutated by some tests below; snapshot + restore.
+  const origArgv = process.argv;
+
   beforeEach(() => {
     setVerbosityFlags({});
     delete process.env.MAW_QUIET;
     delete process.env.MAW_SILENT;
+    process.argv = [...origArgv];
+  });
+
+  afterEach(() => {
+    process.argv = origArgv;
   });
 
   test("default: no flag, no env → neither quiet nor silent", () => {
@@ -55,6 +63,55 @@ describe("verbosity", () => {
     setVerbosityFlags({ quiet: false, silent: true });
     expect(isSilent()).toBe(true);
     expect(isQuiet()).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // FIX-A — top-alias verbs (ls / a / attach / wake) suppress bootstrap chatter.
+  // These verbs are read-only and don't need plugin-loading narration.
+  // ---------------------------------------------------------------------------
+
+  describe("top-alias verb suppression (FIX-A)", () => {
+    test("`maw ls` → quiet (suppress 'loaded config:' / 'loaded N plugins')", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "ls"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw ls --fix` → still quiet (verb position is what matters)", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "ls", "--fix"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw a <name>` → quiet", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "a", "neo"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw attach <name>` → quiet", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "attach", "neo"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw wake <name>` → quiet (cmdWake is direct-handler, no plugin shell-out)", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "wake", "neo"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw bud --as ls` → NOT quiet (positional check at argv[2], not .some)", () => {
+      // Regression guard: an `--as ls` value buried later in argv must not
+      // false-positive into the suppression path.
+      process.argv = ["bun", "/path/to/cli.ts", "bud", "--as", "ls"];
+      expect(isQuiet()).toBe(false);
+    });
+
+    test("`maw fleet status` → NOT quiet (non-alias verb)", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "fleet", "status"];
+      expect(isQuiet()).toBe(false);
+    });
+
+    test("verb is case-insensitive (LS == ls)", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "LS"];
+      expect(isQuiet()).toBe(true);
+    });
   });
 
   // ---------------------------------------------------------------------------
