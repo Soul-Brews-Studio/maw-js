@@ -3,6 +3,7 @@ import { hostExec as ssh, tmux } from "../../sdk";
 import { buildCommand } from "../../config";
 import { getGhqRoot } from "../../config/ghq-root";
 import type { FleetSession } from "./fleet-load";
+import { pinWindowWide } from "./wake-pane-size";
 
 /** After fleet spawn, send /recap to oracles with active Pulse board items */
 export async function resumeActiveItems() {
@@ -116,6 +117,7 @@ export async function respawnMissingWorktrees(sessions: FleetSession[]): Promise
         usedNames.add(windowName);
         try {
           await tmux.newWindow(sess.name, windowName, { cwd: wtPath });
+          await pinWindowWide(`${sess.name}:${windowName}`);
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${sess.name}:${windowName}`, buildCommand(windowName));
           console.log(`  \x1b[32m↻\x1b[0m ${windowName} (discovered on disk)`);

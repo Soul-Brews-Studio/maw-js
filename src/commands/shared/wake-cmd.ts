@@ -7,6 +7,7 @@ import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
+import { pinSessionWide, pinWindowWide } from "./wake-pane-size";
 
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
@@ -70,6 +71,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     session = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
     const mainWindowName = `${oracle}-oracle`;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
+    await pinSessionWide(session);
     await setSessionEnv(session);
     await new Promise(r => setTimeout(r, 300));
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath));
@@ -93,6 +95,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`;
         usedNames.add(wtWindowName);
         await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
+        await pinWindowWide(`${session}:${wtWindowName}`);
         await new Promise(r => setTimeout(r, 300));
         await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path));
         console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
@@ -119,6 +122,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
+          await pinWindowWide(`${session}:${wtWindowName}`);
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
@@ -208,6 +212,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   } catch { /* session might be fresh */ }
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
+  await pinWindowWide(`${session}:${windowName}`);
   await new Promise(r => setTimeout(r, 300));
   const cmd = buildCommandInDir(windowName, targetPath);
   if (opts.prompt) {

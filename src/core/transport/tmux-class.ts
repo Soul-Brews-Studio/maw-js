@@ -215,6 +215,12 @@ export class Tmux {
     await this.tryRun("resize-pane", "-t", target, "-x", c, "-y", r);
   }
 
+  async resizeWindow(target: string, cols: number, rows: number): Promise<void> {
+    const c = Math.max(1, Math.min(cfgLimit("ptyCols"), Math.floor(cols)));
+    const r = Math.max(1, Math.min(cfgLimit("ptyRows"), Math.floor(rows)));
+    await this.tryRun("resize-window", "-t", target, "-x", c, "-y", r);
+  }
+
   async splitWindow(target: string): Promise<void> {
     await this.run("split-window", "-t", target);
   }
