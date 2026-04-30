@@ -280,6 +280,52 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       await cmdTmuxPeek(target);
 
+    } else if (sub === "prep") {
+      // maw team prep <N> [--tiled]
+      if (!process.env.TMUX) {
+        logs.push("\x1b[33m⚠\x1b[0m prep requires tmux");
+        return { ok: false, error: "not in tmux" };
+      }
+      const count = parseInt(args[1] || "0");
+      if (!count || count < 1 || count > 10) {
+        logs.push("usage: maw team prep <1-10> [--tiled]");
+        return { ok: false, error: "count required (1-10)" };
+      }
+      const tiled = args.includes("--tiled");
+      const {
+        nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
+        applyTeamLayout, applyTiledLayout, getWindowTarget,
+      } = await import("../tmux/layout-manager");
+      const { hostExec, withPaneLock } = await import("../../../sdk");
+      const anchor = process.env.TMUX_PANE ?? "";
+      const paneIds: string[] = [];
+
+      for (let i = 0; i < count; i++) {
+        const name = `agent-${i + 1}`;
+        const color = nextAgentColor(i);
+        const targetFlag = anchor ? `-t '${anchor}' ` : "";
+
+        let paneId = "";
+        await withPaneLock(async () => {
+          paneId = (await hostExec(
+            `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'echo "\\x1b[${colorAnsi(color)}m${name} ready\\x1b[0m" && exec zsh'`,
+          )).trim();
+          await new Promise(r => setTimeout(r, 200));
+        });
+        paneIds.push(paneId);
+        await stylePaneBorder(paneId, name, color);
+
+        const window = await getWindowTarget();
+        if (tiled) {
+          await applyTiledLayout(window);
+        } else if (anchor) {
+          await applyTeamLayout(window, anchor);
+        }
+        await enableBorderStatus(window);
+        console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${name} → ${paneId}`);
+      }
+      console.log(`\x1b[32m✓\x1b[0m ${count} panes ready (${tiled ? "tiled" : "main-vertical"})`);
+
     } else if (sub === "layout") {
       // maw team layout [main-vertical|tiled] [--pct N]
       if (!process.env.TMUX) {
