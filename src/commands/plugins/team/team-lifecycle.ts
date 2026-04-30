@@ -253,9 +253,14 @@ export async function cmdTeamSpawn(
       return;
     }
     try {
-      const { hostExec } = await import("../../../sdk");
+      const { hostExec, withPaneLock } = await import("../../../sdk");
       const claudeCmd = `claude --model ${model} --prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
-      await hostExec(`tmux split-window -h -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`);
+      const anchor = process.env.TMUX_PANE;
+      const targetFlag = anchor ? `-t '${anchor}' ` : "";
+      await withPaneLock(async () => {
+        await hostExec(`tmux split-window ${targetFlag}-h -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`);
+        await sleep(200);
+      });
       console.log();
       console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane (right, 50%)`);
     } catch (e: any) {
