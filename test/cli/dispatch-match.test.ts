@@ -157,18 +157,18 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
 });
 
 describe("resolveTopAlias — RFC #954 verb aliases", () => {
-  test("`ls` → argv rewrite to ['tmux', 'ls', '--all']", () => {
+  test("`ls` → argv rewrite to ['tmux', 'ls', '--all', '--compact']", () => {
     const out = resolveTopAlias(["ls"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--compact"]);
   });
 
-  test("`ls --fix` → argv rewrite with --fix appended", () => {
-    const out = resolveTopAlias(["ls", "--fix"]);
+  test("`ls -v` → argv rewrite with -v appended (overrides compact)", () => {
+    const out = resolveTopAlias(["ls", "-v"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--fix"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--compact", "-v"]);
   });
 
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {

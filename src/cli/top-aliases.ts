@@ -33,7 +33,7 @@ export type AliasResolution =
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
-  ls: ["tmux", "ls", "--all"],
+  ls: ["tmux", "ls", "--all", "--compact"],
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
