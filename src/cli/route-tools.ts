@@ -32,9 +32,10 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
   }
   if (cmd === "plugin") {
     const sub = args[1]?.toLowerCase();
-    // "maw plugin init|build|install" → forward to the plugin-lifecycle
-    // plugin (tasks #2 + #3 both landed).
-    if (sub === "init" || sub === "build" || sub === "install") {
+    // "maw plugin init|build|install|search|registry|pin|unpin|dev" →
+    // forward to the plugin-lifecycle plugin (marketplace pipeline).
+    const lifecycleSubs = new Set(["init", "build", "install", "search", "registry", "pin", "unpin", "dev"]);
+    if (sub && lifecycleSubs.has(sub)) {
       const { loadManifestFromDir } = await import("../plugin/manifest");
       const { invokePlugin } = await import("../plugin/registry");
       const { resolve, join } = await import("path");
