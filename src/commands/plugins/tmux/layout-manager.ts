@@ -44,6 +44,10 @@ export async function rebalanceAfterSpawn(
   await applyTeamLayout(windowTarget, leaderPane);
 }
 
+export async function applyTiledLayout(windowTarget: string): Promise<void> {
+  await hostExec(`tmux select-layout -t '${windowTarget}' tiled`);
+}
+
 // ─── Pane Borders ────────────────────────────────────────
 
 export async function stylePaneBorder(
@@ -79,6 +83,28 @@ export async function showPane(paneId: string, targetPane: string): Promise<bool
     await hostExec(`tmux join-pane -h -s '${paneId}' -t '${targetPane}'`);
     return true;
   } catch { return false; }
+}
+
+// ─── Shutdown Cleanup ────────────────────────────────────
+
+export async function cleanupTeamPanes(
+  leaderPane: string,
+  teammatePaneIds: string[],
+  opts: { hide?: boolean } = {},
+): Promise<number> {
+  let cleaned = 0;
+  for (const pane of teammatePaneIds) {
+    if (pane === leaderPane) continue;
+    try {
+      if (opts.hide) {
+        await hostExec(`tmux break-pane -d -t '${pane}'`);
+      } else {
+        await hostExec(`tmux kill-pane -t '${pane}'`);
+      }
+      cleaned++;
+    } catch { /* already gone */ }
+  }
+  return cleaned;
 }
 
 // ─── Helpers ─────────────────────────────────────────────

@@ -280,9 +280,29 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       await cmdTmuxPeek(target);
 
+    } else if (sub === "layout") {
+      // maw team layout [main-vertical|tiled] [--pct N]
+      if (!process.env.TMUX) {
+        logs.push("\x1b[33m⚠\x1b[0m layout requires tmux");
+        return { ok: false, error: "not in tmux" };
+      }
+      const { applyTeamLayout, applyTiledLayout, getWindowTarget } = await import("../tmux/layout-manager");
+      const preset = args[1] || "main-vertical";
+      const window = await getWindowTarget();
+      const anchor = process.env.TMUX_PANE ?? "";
+      if (preset === "tiled") {
+        await applyTiledLayout(window);
+        console.log(`\x1b[32m✓\x1b[0m applied tiled layout`);
+      } else {
+        const pctIdx = args.indexOf("--pct");
+        const pct = pctIdx !== -1 ? parseInt(args[pctIdx + 1] || "30") : 30;
+        await applyTeamLayout(window, anchor, pct);
+        console.log(`\x1b[32m✓\x1b[0m applied main-vertical layout (leader ${pct}%)`);
+      }
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|layout|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
