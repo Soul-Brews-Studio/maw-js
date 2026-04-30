@@ -107,6 +107,10 @@ export interface TmuxLsOpts {
   all?: boolean;
   /** JSON output for scripting. */
   json?: boolean;
+  /** Compact: one line per session. Default for `maw ls`. Use -v for full detail. */
+  compact?: boolean;
+  /** Verbose: full per-pane detail. Overrides --compact. */
+  verbose?: boolean;
 }
 
 export type PaneStatus = "active" | "idle" | "stale" | "unknown";
@@ -201,6 +205,33 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     if (sec < 3600) return `${Math.floor(sec / 60)}m`;
     return `${Math.floor(sec / 3600)}h${Math.floor((sec % 3600) / 60)}m`;
   };
+
+  if (opts.compact && !opts.verbose) {
+    const bySession = new Map<string, AnnotatedPane[]>();
+    for (const p of scope) {
+      const sess = p.target.split(":")[0]!;
+      if (!bySession.has(sess)) bySession.set(sess, []);
+      bySession.get(sess)!.push(p);
+    }
+    const bestStatus = (panes: AnnotatedPane[]): PaneStatus => {
+      if (panes.some(p => p.status === "active")) return "active";
+      if (panes.some(p => p.status === "idle")) return "idle";
+      if (panes.some(p => p.status === "stale")) return "stale";
+      return "unknown";
+    };
+    console.log();
+    for (const [sess, panes] of bySession) {
+      const dot = STATUS_DOT[bestStatus(panes)];
+      const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
+      const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
+      const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
+      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+    }
+    console.log();
+    console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
+    console.log();
+    return;
+  }
 
   console.log();
   console.log(`  \x1b[36;1m  ${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
