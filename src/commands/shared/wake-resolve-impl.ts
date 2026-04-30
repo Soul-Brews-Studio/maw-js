@@ -117,16 +117,15 @@ export async function resolveOracle(
       await hostExec(`ghq get -u 'github.com/${fleetRepo}'`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} but clone failed: ${msg.split("\n")[0]}`);
-      console.error(`\x1b[90m  manually: ghq get -u 'github.com/${fleetRepo}' && maw wake ${oracle}\x1b[0m`);
-      process.exit(1);
+      console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${fleetRepo} clone/update failed: ${msg.split("\n")[0]}`);
     }
     const cloned = await ghqFind(`/${fleetRepoStem}`);
     if (cloned) {
-      console.log(`\x1b[32m✓\x1b[0m cloned to ${cloned}`);
+      console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
       return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
     }
-    console.error(`\x1b[31merror\x1b[0m: clone of ${fleetRepo} reported success but path not found in ghq list`);
+    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} — clone failed and not found locally`);
+    console.error(`\x1b[90m  manually: ghq get -u 'github.com/${fleetRepo}' && maw wake ${oracle}\x1b[0m`);
     process.exit(1);
   }
 
@@ -144,7 +143,6 @@ export async function resolveOracle(
       catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`\x1b[33m⚠\x1b[0m  clone failed for ${slug}: ${msg.split("\n")[0]}`);
-        continue;
       }
       const cloned = await ghqFind(`/${slug.split("/").pop()}`);
       if (cloned) {

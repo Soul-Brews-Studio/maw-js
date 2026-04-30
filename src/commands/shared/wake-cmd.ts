@@ -7,11 +7,20 @@ import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
+import { parseWakeTarget, ensureCloned } from "./wake-target";
 
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
+
+  const parsed = parseWakeTarget(oracle);
+  if (parsed) {
+    await ensureCloned(parsed.slug);
+    oracle = parsed.oracle;
+    if (!opts.urlRepoName) opts.urlRepoName = parsed.slug.split("/").pop();
+  }
+
   // #358 — reject -view suffix at the user-input boundary (before any session work).
   assertValidOracleName(oracle);
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);

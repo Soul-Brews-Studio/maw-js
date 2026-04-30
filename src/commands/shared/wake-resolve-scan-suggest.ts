@@ -306,7 +306,6 @@ export async function scanSuggestOracle(
     await hostExecFn(`ghq get -u '${cloneUrl}'`);
   } catch (e: any) {
     console.error(`\x1b[33m⚠\x1b[0m clone failed: ${String(e?.message || e).split("\n")[0]}`);
-    return null;
   }
 
   const cloned = await hostExecFn(`ghq list --full-path | grep -i '/${stem}$' | head -1`);
