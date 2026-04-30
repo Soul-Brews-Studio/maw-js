@@ -297,12 +297,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         applyTeamLayout, applyTiledLayout, getWindowTarget,
       } = await import("../tmux/layout-manager");
       const { hostExec, withPaneLock } = await import("../../../sdk");
+      const { TEAMS_DIR, loadTeam } = await import("./team-helpers");
+      const { readFileSync, writeFileSync, existsSync } = await import("fs");
+      const { join } = await import("path");
       const anchor = process.env.TMUX_PANE ?? "";
-      const paneIds: string[] = [];
+
+      const teamName = resolveTeamFromContext();
+      const teamConfigPath = join(TEAMS_DIR, teamName, "config.json");
 
       for (let i = 0; i < count; i++) {
         const name = `agent-${i + 1}`;
         const color = nextAgentColor(i);
+        const agentId = `${name}@${teamName}`;
         const targetFlag = anchor ? `-t '${anchor}' ` : "";
 
         let paneId = "";
@@ -312,8 +318,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           )).trim();
           await new Promise(r => setTimeout(r, 200));
         });
-        paneIds.push(paneId);
         await stylePaneBorder(paneId, name, color);
+
+        // Register in team config
+        if (existsSync(teamConfigPath)) {
+          try {
+            const cfg = JSON.parse(readFileSync(teamConfigPath, "utf-8"));
+            if (!cfg.members.some((m: any) => m.name === name)) {
+              cfg.members.push({ name, agentId, tmuxPaneId: paneId, color, model: "shell" });
+              writeFileSync(teamConfigPath, JSON.stringify(cfg, null, 2));
+            }
+          } catch { /* best effort */ }
+        }
 
         const window = await getWindowTarget();
         if (tiled) {
@@ -322,9 +338,39 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           await applyTeamLayout(window, anchor);
         }
         await enableBorderStatus(window);
-        console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${name} → ${paneId}`);
+        console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${agentId} → ${paneId}`);
       }
-      console.log(`\x1b[32m✓\x1b[0m ${count} panes ready (${tiled ? "tiled" : "main-vertical"})`);
+      console.log(`\x1b[32m✓\x1b[0m ${count} panes ready (${tiled ? "tiled" : "main-vertical"}, team: ${teamName})`);
+
+    } else if (sub === "hey") {
+      // maw team hey <agent> <message> — send keystrokes to agent's tmux pane
+      const agent = args[1];
+      const message = args.slice(2).join(" ");
+      if (!agent || !message) {
+        logs.push("usage: maw team hey <agent> <message>");
+        return { ok: false, error: "agent and message required", output: logs.join("\n") };
+      }
+      const teamName = resolveTeamFromContext();
+      const { TEAMS_DIR, loadTeam } = await import("./team-helpers");
+      const team = loadTeam(teamName);
+      if (!team) {
+        logs.push(`\x1b[33m⚠\x1b[0m team '${teamName}' not found`);
+        return { ok: false, error: "team not found" };
+      }
+      // Find agent by name or agentId (strip @team suffix for matching)
+      const member = team.members.find(m =>
+        m.name === agent || m.agentId === agent || m.agentId === `${agent}@${teamName}`
+      );
+      if (!member || !member.tmuxPaneId) {
+        logs.push(`\x1b[33m⚠\x1b[0m agent '${agent}' not found or no pane ID`);
+        logs.push(`Available: ${team.members.filter(m => m.tmuxPaneId).map(m => m.name).join(", ") || "none"}`);
+        return { ok: false, error: "agent not found" };
+      }
+      const { hostExec: exec } = await import("../../../sdk");
+      await exec(`tmux send-keys -t '${member.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
+      const { colorAnsi } = await import("../tmux/layout-manager");
+      const color = (member.color || "white") as any;
+      console.log(`\x1b[${colorAnsi(color)}m→\x1b[0m sent to ${member.agentId || member.name}: ${message}`);
 
     } else if (sub === "layout") {
       // maw team layout [main-vertical|tiled] [--pct N]
