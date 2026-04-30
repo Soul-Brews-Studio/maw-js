@@ -27,6 +27,20 @@ export const command = {
 function resolveTeamFromContext(): string {
   const envTeam = process.env.MAW_TEAM;
   if (envTeam) return envTeam;
+
+  // #1020 — detect team from tmux session name (strip NN- prefix)
+  if (process.env.TMUX) {
+    try {
+      const { execSync } = require("child_process");
+      const sessionName = execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+      const teamName = sessionName.replace(/^\d+-/, "");
+      const teamsDir = join(homedir(), ".claude/teams");
+      if (teamName && existsSync(join(teamsDir, teamName, "config.json"))) {
+        return teamName;
+      }
+    } catch { /* not in tmux or tmux failed */ }
+  }
+
   const teamsDir = join(homedir(), ".claude/teams");
   try {
     const live = readdirSync(teamsDir).filter(d =>
