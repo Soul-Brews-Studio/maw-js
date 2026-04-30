@@ -270,13 +270,19 @@ export async function cmdTeamSpawn(
 
       const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
 
-      // Persist pane state to team config
-      const member = manifest.members.find((m: any) => m.name === role);
-      if (member) {
-        member.tmuxPaneId = result.paneId;
-        member.color = result.color;
-        member.agentId = agentId;
-        writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      // Persist pane state to tool store config (~/.claude/teams/)
+      const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
+      if (existsSync(toolConfigPath)) {
+        try {
+          const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
+          const member = toolConfig.members?.find((m: any) => m.name === role);
+          if (member) {
+            member.tmuxPaneId = result.paneId;
+            member.color = result.color;
+            member.agentId = agentId;
+            writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
+          }
+        } catch { /* best effort */ }
       }
 
       console.log();
