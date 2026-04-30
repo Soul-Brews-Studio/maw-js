@@ -107,6 +107,43 @@ export async function cleanupTeamPanes(
   return cleaned;
 }
 
+// ─── Unified Spawn ───────────────────────────────────────
+
+export interface SpawnResult {
+  paneId: string;
+  color: AgentColor;
+  isFirst: boolean;
+}
+
+export async function spawnTeammatePane(
+  agentName: string,
+  command: string,
+  opts: { colorIndex: number; leaderPane?: string } = { colorIndex: 0 },
+): Promise<SpawnResult> {
+  const { withPaneLock } = await import("../../../sdk");
+  const anchor = opts.leaderPane || process.env.TMUX_PANE || "";
+  const targetFlag = anchor ? `-t '${anchor}' ` : "";
+  const color = nextAgentColor(opts.colorIndex);
+
+  let paneId = "";
+  await withPaneLock(async () => {
+    paneId = (await hostExec(
+      `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${command.replace(/'/g, "'\\''")}'`,
+    )).trim();
+    await new Promise(r => setTimeout(r, 200));
+  });
+
+  const window = await getWindowTarget();
+  const panes = await listPaneIds(window);
+  const isFirst = panes.length <= 2;
+
+  if (anchor) await rebalanceAfterSpawn(window, anchor);
+  if (paneId) await stylePaneBorder(paneId, agentName, color);
+  await enableBorderStatus(window);
+
+  return { paneId, color, isFirst };
+}
+
 // ─── Helpers ─────────────────────────────────────────────
 
 export async function getWindowTarget(): Promise<string> {

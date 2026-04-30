@@ -114,7 +114,17 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
     }
   }
 
-  // FUSION: merge team knowledge into individual oracle mailboxes
+  // Step 4: Clean up any remaining panes (hide or kill)
+  try {
+    const { cleanupTeamPanes } = await import("../tmux/layout-manager");
+    const leaderPane = process.env.TMUX_PANE ?? "";
+    const allPaneIds = teammates.map(m => m.tmuxPaneId).filter(Boolean) as string[];
+    const cleaned = await cleanupTeamPanes(leaderPane, allPaneIds, { hide: !opts.force });
+    if (cleaned > 0) {
+      console.log(`  \x1b[90m${opts.force ? "killed" : "hidden"} ${cleaned} leftover pane${cleaned !== 1 ? "s" : ""}\x1b[0m`);
+    }
+  } catch { /* layout-manager not available outside tmux */ }
+
   if (opts.merge) {
     mergeTeamKnowledge(name, teammates);
   }
@@ -253,33 +263,24 @@ export async function cmdTeamSpawn(
       return;
     }
     try {
-      const { hostExec, withPaneLock } = await import("../../../sdk");
-      const {
-        rebalanceAfterSpawn, stylePaneBorder, enableBorderStatus,
-        nextAgentColor, getWindowTarget, colorAnsi,
-      } = await import("../tmux/layout-manager");
+      const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
       const claudeCmd = `claude --model ${model} --prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
-      const anchor = process.env.TMUX_PANE;
-      const targetFlag = anchor ? `-t '${anchor}' ` : "";
+      const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
+      const agentId = `${role}@${teamName}`;
 
-      let newPaneId = "";
-      await withPaneLock(async () => {
-        newPaneId = (await hostExec(
-          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${claudeCmd.replace(/'/g, "'\\''")}'`,
-        )).trim();
-        await sleep(200);
-      });
+      const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
 
-      const teammateCount = manifest.members.length - 1;
-      const color = nextAgentColor(teammateCount);
-      const window = await getWindowTarget();
-
-      if (anchor) await rebalanceAfterSpawn(window, anchor);
-      if (newPaneId) await stylePaneBorder(newPaneId, role, color);
-      await enableBorderStatus(window);
+      // Persist pane state to team config
+      const member = manifest.members.find((m: any) => m.name === role);
+      if (member) {
+        member.tmuxPaneId = result.paneId;
+        member.color = result.color;
+        member.agentId = agentId;
+        writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      }
 
       console.log();
-      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane [\x1b[${colorAnsi(color)}m${color}\x1b[0m]`);
+      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned \x1b[${colorAnsi(result.color)}m${agentId}\x1b[0m in pane ${result.paneId}`);
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);

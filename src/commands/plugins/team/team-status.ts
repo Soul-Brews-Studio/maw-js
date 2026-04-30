@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { hostExec } from "../../../sdk";
 import { cmdTeamTaskList, type MawTask } from "./task-ops";
 import { loadTeam } from "./impl";
+import { type AgentColor, colorAnsi } from "../tmux/layout-manager";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
@@ -18,34 +19,27 @@ function listTeams(): string[] {
     .map(e => e.name);
 }
 
-async function getPanes(): Promise<Map<string, string>> {
-  const paneMap = new Map<string, string>();
+async function getAlivePanes(): Promise<Set<string>> {
   try {
-    const out = await hostExec(
-      "tmux list-panes -a -F '#{pane_id} #{session_name}:#{window_index} #{pane_current_command}'"
-    );
-    for (const line of out.split("\n").filter(Boolean)) {
-      const [paneId, session, cmd] = line.split(" ");
-      if (paneId) paneMap.set(paneId, `${session ?? ""} ${cmd ?? ""}`.trim());
-    }
-  } catch { /* tmux may not be running */ }
-  return paneMap;
+    const out = await hostExec("tmux list-panes -a -F '#{pane_id}'");
+    return new Set(out.split("\n").filter(Boolean));
+  } catch { return new Set(); }
 }
 
 export async function cmdTeamStatus(teamName?: string): Promise<void> {
   const teams = teamName ? [teamName] : listTeams();
 
   if (teams.length === 0) {
-    console.log(`\x1b[36mℹ\x1b[0m no active teams`);
+    console.log(`\x1b[36minfo\x1b[0m no active teams`);
     return;
   }
 
-  const panes = await getPanes();
+  const alive = await getAlivePanes();
 
   for (const name of teams) {
     const config = loadTeam(name);
     if (!config) {
-      console.log(`\x1b[33m⚠\x1b[0m team not found: ${name}`);
+      console.log(`\x1b[33m!\x1b[0m team not found: ${name}`);
       continue;
     }
 
@@ -60,41 +54,47 @@ export async function cmdTeamStatus(teamName?: string): Promise<void> {
     }
 
     const members = config.members.filter(m => m.agentType !== "team-lead");
-    console.log(`\n\x1b[36;1mTeam: ${name}\x1b[0m (${members.length} agents)\n`);
+    console.log(`\n\x1b[36;1m${name}\x1b[0m (${members.length} agents)\n`);
     console.log(
-      `  ${pad("Agent", 15)} ${pad("Status", 9)} ${pad("Task", 29)} Pane`
+      `  ${pad("Agent", 20)} ${pad("Status", 10)} ${pad("Task", 25)} Pane`
     );
     console.log(
-      `  ${"─".repeat(15)} ${"─".repeat(9)} ${"─".repeat(29)} ${"─".repeat(8)}`
+      `  ${"─".repeat(20)} ${"─".repeat(10)} ${"─".repeat(25)} ${"─".repeat(10)}`
     );
 
-    let working = 0;
-    let idle = 0;
+    let running = 0;
+    let dead = 0;
 
     for (const m of members) {
       const memberTasks = taskByAssignee.get(m.name) ?? [];
       const activeTask = memberTasks.find(t => t.status === "in_progress") ?? memberTasks.at(-1);
       const taskLabel = activeTask
-        ? `#${activeTask.id} ${activeTask.subject.slice(0, 20)} [${activeTask.status === "completed" ? "done" : activeTask.status}]`
-        : "-";
+        ? `#${activeTask.id} ${activeTask.subject.slice(0, 18)} [${activeTask.status === "completed" ? "done" : activeTask.status}]`
+        : "\x1b[90m-\x1b[0m";
 
       const paneId = m.tmuxPaneId ?? "";
-      const paneLabel = paneId && panes.has(paneId) ? paneId : (paneId || "-");
-      const isWorking = activeTask?.status === "in_progress";
-      isWorking ? working++ : idle++;
+      const isAlive = paneId ? alive.has(paneId) : false;
+      isAlive ? running++ : dead++;
 
-      const statusTxt = isWorking
-        ? `\x1b[36mworking\x1b[0m  `
-        : `\x1b[90midle\x1b[0m     `;
+      const color = (m.color as AgentColor) || "white";
+      const ansi = colorAnsi(color);
+      const agentId = m.agentId || m.name;
 
-      console.log(
-        `  ${pad(m.name, 15)} ${statusTxt} ${pad(taskLabel, 29)} ${paneLabel}`
-      );
+      const dot = isAlive ? `\x1b[${ansi}m●\x1b[0m` : `\x1b[90m·\x1b[0m`;
+      const nameCol = isAlive
+        ? `\x1b[${ansi}m${pad(agentId, 18)}\x1b[0m`
+        : `\x1b[90m${pad(agentId, 18)}\x1b[0m`;
+      const statusCol = isAlive
+        ? `\x1b[32mrunning\x1b[0m   `
+        : `\x1b[90mexited\x1b[0m    `;
+      const paneCol = isAlive ? paneId : `\x1b[90m${paneId || "-"}\x1b[0m`;
+
+      console.log(`  ${dot} ${nameCol} ${statusCol} ${pad(taskLabel, 25)} ${paneCol}`);
     }
 
     const done = tasks.filter(t => t.status === "completed").length;
     console.log(
-      `\n  \x1b[90mTasks: ${done}/${tasks.length} done | Agents: ${working} working, ${idle} idle\x1b[0m`
+      `\n  \x1b[90mTasks: ${done}/${tasks.length} done | ${running} running, ${dead} exited\x1b[0m`
     );
   }
   console.log("");
