@@ -18,6 +18,7 @@ export interface TmuxPane {
   title: string;
   pid?: number;
   cwd?: string;
+  lastActivity?: number;
 }
 
 export interface TmuxWindow {

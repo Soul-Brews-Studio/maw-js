@@ -109,12 +109,16 @@ export interface TmuxLsOpts {
   json?: boolean;
 }
 
+export type PaneStatus = "active" | "idle" | "stale" | "unknown";
+
 interface AnnotatedPane {
   id: string;
   target: string;
   command: string | undefined;
   title: string | undefined;
   annotation: string; // "fleet: X" | "team: agent @ team-name" | "orphan" | ""
+  status: PaneStatus;
+  lastActivitySec: number;
 }
 
 /**
@@ -153,13 +157,20 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
   }
 
-  const annotated: AnnotatedPane[] = allPanes.map(p => ({
-    id: p.id,
-    target: p.target,
-    command: p.command,
-    title: p.title,
-    annotation: annotatePane(p, fleetSessions, teamByPane),
-  }));
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  const annotated: AnnotatedPane[] = allPanes.map(p => {
+    const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
+    const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
+    return {
+      id: p.id,
+      target: p.target,
+      command: p.command,
+      title: p.title,
+      annotation: annotatePane(p, fleetSessions, teamByPane),
+      status,
+      lastActivitySec: ageSec < 0 ? 0 : ageSec,
+    };
+  });
 
   const scope = opts.all
     ? annotated
@@ -177,9 +188,25 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     return;
   }
 
+  const STATUS_DOT: Record<PaneStatus, string> = {
+    active: "\x1b[32m●\x1b[0m",
+    idle: "\x1b[33m◐\x1b[0m",
+    stale: "\x1b[31m◌\x1b[0m",
+    unknown: "\x1b[90m·\x1b[0m",
+  };
+
+  const formatAge = (sec: number): string => {
+    if (sec <= 0) return "";
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+    return `${Math.floor(sec / 3600)}h${Math.floor((sec % 3600) / 60)}m`;
+  };
+
   console.log();
-  console.log(`  \x1b[36;1m${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  console.log(`  \x1b[36;1m  ${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
   for (const p of scope) {
+    const dot = STATUS_DOT[p.status];
+    const age = formatAge(p.lastActivitySec);
     const annColored = p.annotation.startsWith("team:") ? `\x1b[36m${p.annotation}\x1b[0m`
       : p.annotation.startsWith("fleet:") ? `\x1b[32m${p.annotation}\x1b[0m`
       : p.annotation.startsWith("view:") ? `\x1b[90m${p.annotation}\x1b[0m`
@@ -187,7 +214,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       : "";
     const annPad = pad(p.annotation, 30);
     const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
-    console.log(`  ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+    console.log(`  ${dot} ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
 }
