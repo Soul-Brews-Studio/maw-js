@@ -13,6 +13,7 @@
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { mockConfigModule } from "../helpers/mock-config";
+import { mockSshModule } from "../helpers/mock-ssh";
 
 // --- Shared test state (mutated per-test, read by mocks) ---
 
@@ -30,42 +31,42 @@ mock.module("../../src/config", () => mockConfigModule(() => ({ host: "local" })
 
 // ssh — tmux.ts imports hostExec from here; mocking it intercepts every
 // tmux.run() call and lets us feed synthetic list-windows / list-panes output.
-mock.module("../../src/core/transport/ssh", () => ({
-  hostExec: async (cmd: string) => {
-    sshCommands.push(cmd);
-    // tmux list-windows -a -F '#{session_name}|||#{window_index}|||#{window_name}|||#{window_active}|||#{pane_current_path}'
-    if (cmd.includes("list-windows")) {
-      return mockSessions
-        .flatMap(s => s.windows.map(w =>
-          `${s.name}|||${w.index}|||${w.name}|||${w.active ? "1" : "0"}|||/tmp`,
-        ))
-        .join("\n");
-    }
-    // tmux list-panes -a -F '#{session_name}:#{window_index}|||#{pane_current_command}'
-    if (cmd.includes("list-panes")) {
-      return mockSessions
-        .flatMap(s => s.windows.map(w =>
-          `${s.name}:${w.index}|||${sshResult || "zsh"}`,
-        ))
-        .join("\n");
-    }
-    if (cmd.includes("capture-pane")) return "captured";
-    return "";
-  },
-  ssh: async () => "",
-  capture: async () => "captured",
-  sendKeys: async () => {},
-  selectWindow: async () => {},
-  switchClient: async () => {},
-  getPaneCommand: async () => sshResult || "zsh",
-  getPaneCommands: async (targets: string[]) => {
-    const out: Record<string, string> = {};
-    for (const t of targets) out[t] = sshResult || "zsh";
-    return out;
-  },
-  getPaneInfos: async () => ({}),
-  listSessions: async () => mockSessions,
-}));
+// Use mockSshModule so all 11 real exports are present — partial mocks pollute
+// the bun process and break engine.ts's transitive imports (e.g. HostExecError
+// pulled in via fleet-wake-failsoft).
+mock.module("../../src/core/transport/ssh", () =>
+  mockSshModule({
+    hostExec: async (cmd: string) => {
+      sshCommands.push(cmd);
+      // tmux list-windows -a -F '#{session_name}|||#{window_index}|||#{window_name}|||#{window_active}|||#{pane_current_path}'
+      if (cmd.includes("list-windows")) {
+        return mockSessions
+          .flatMap(s => s.windows.map(w =>
+            `${s.name}|||${w.index}|||${w.name}|||${w.active ? "1" : "0"}|||/tmp`,
+          ))
+          .join("\n");
+      }
+      // tmux list-panes -a -F '#{session_name}:#{window_index}|||#{pane_current_command}'
+      if (cmd.includes("list-panes")) {
+        return mockSessions
+          .flatMap(s => s.windows.map(w =>
+            `${s.name}:${w.index}|||${sshResult || "zsh"}`,
+          ))
+          .join("\n");
+      }
+      if (cmd.includes("capture-pane")) return "captured";
+      return "";
+    },
+    capture: async () => "captured",
+    getPaneCommand: async () => sshResult || "zsh",
+    getPaneCommands: async (targets: string[]) => {
+      const out: Record<string, string> = {};
+      for (const t of targets) out[t] = sshResult || "zsh";
+      return out;
+    },
+    listSessions: async () => mockSessions,
+  }),
+);
 
 // peers — no federation in tests; return local sessions unchanged.
 mock.module("../../src/core/transport/peers", () => ({
