@@ -9,7 +9,7 @@
  * Regression test: test/isolated/cmd-list-no-new-session-957.test.ts.
  */
 
-import { listSessions, getPaneInfos, scanWorktrees } from "../../sdk";
+import { listSessions, getPaneInfos, scanWorktrees, cleanupWorktree } from "../../sdk";
 
 /**
  * #359 — render a session header line for `maw ls`.
@@ -36,7 +36,15 @@ function isViewDiag(name: string): boolean {
   return /-view-diag$/.test(name);
 }
 
-export async function cmdList() {
+/**
+ * `maw ls` — list active oracle sessions and orphaned worktrees.
+ *
+ * @param opts.fix  When true, after listing, prune any orphaned/stale
+ *                  worktrees via cleanupWorktree() and print a summary.
+ *                  Threaded from the alias-dispatch path
+ *                  (src/cli/top-aliases.ts → invokeDirectHandler).
+ */
+export async function cmdList(opts: { fix?: boolean } = {}) {
   const rawSessions = await listSessions();
   const sessions = rawSessions.filter(s => !isViewDiag(s.name));
 
@@ -85,7 +93,9 @@ export async function cmdList() {
         console.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
       }
       console.log("");
-      console.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
+      if (!opts.fix) {
+        console.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
+      }
     }
   } catch (e: any) {
     // Don't crash maw ls on scan failure (non-critical) — but surface the error in debug mode
@@ -99,5 +109,31 @@ export async function cmdList() {
     console.log("\x1b[90mNo active sessions.\x1b[0m");
     console.log("\x1b[90m  → maw bud <name>     create new oracle\x1b[0m");
     console.log("\x1b[90m  → maw wake <name>    attach existing\x1b[0m");
+  }
+
+  // --fix — prune orphans we just listed. Calls cleanupWorktree() per
+  // entry; same surface that `maw fleet` flows already use, so behavior
+  // matches user expectations from existing maintenance commands.
+  // Read-only contract above is preserved when --fix is absent (default).
+  if (opts.fix && orphans.length > 0) {
+    console.log("");
+    console.log(`\x1b[36m→ pruning ${orphans.length} orphan${orphans.length === 1 ? "" : "s"}…\x1b[0m`);
+    let pruned = 0;
+    for (const wt of orphans) {
+      const dirName = wt.path.split("/").pop() || wt.name;
+      try {
+        const log = await cleanupWorktree(wt.path);
+        console.log(`  \x1b[32m✓\x1b[0m ${dirName}`);
+        for (const line of log) console.log(`    \x1b[90m${line}\x1b[0m`);
+        pruned++;
+      } catch (e: any) {
+        console.log(`  \x1b[31m✗\x1b[0m ${dirName} \x1b[90m(${e?.message || e})\x1b[0m`);
+      }
+    }
+    console.log("");
+    console.log(`\x1b[90m  pruned ${pruned}/${orphans.length}\x1b[0m`);
+  } else if (opts.fix && orphans.length === 0) {
+    console.log("");
+    console.log(`\x1b[90m  → nothing to prune\x1b[0m`);
   }
 }

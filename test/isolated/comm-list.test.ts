@@ -62,6 +62,7 @@ const realResolveTarget = _rSdk.resolveTarget;
 // scanWorktrees is re-exported through src/sdk but typed loosely here
 // because the type only ships at compile time; any() the shape we need.
 const realScanWorktrees = (_rSdk as unknown as { scanWorktrees: (...a: unknown[]) => unknown }).scanWorktrees;
+const realCleanupWorktree = (_rSdk as unknown as { cleanupWorktree: (...a: unknown[]) => unknown }).cleanupWorktree;
 
 const _rConfig = await import("../../src/config");
 const realLoadConfig = _rConfig.loadConfig;
@@ -93,6 +94,9 @@ let findPeerForTargetReturn: string | null = null;
 let resolveTargetReturn: unknown = null;
 let scanWorktreesReturn: unknown[] = [];
 let scanWorktreesThrows: string | null = null;
+let cleanupWorktreeCalls: string[] = [];
+let cleanupWorktreeThrows: Record<string, string> = {};
+let cleanupWorktreeLog: Record<string, string[]> = {};
 
 let configOverride: Record<string, unknown> = {};
 let cfgLimitMap: Record<string, number> = {};
@@ -181,6 +185,13 @@ mock.module(
       if (!mockActive) return (realScanWorktrees as (...a: unknown[]) => Promise<unknown[]>)(...args);
       if (scanWorktreesThrows) throw new Error(scanWorktreesThrows);
       return scanWorktreesReturn;
+    },
+    cleanupWorktree: async (...args: unknown[]) => {
+      if (!mockActive) return (realCleanupWorktree as (...a: unknown[]) => Promise<unknown>)(...args);
+      const [path] = args as [string];
+      cleanupWorktreeCalls.push(path);
+      if (cleanupWorktreeThrows[path]) throw new Error(cleanupWorktreeThrows[path]);
+      return cleanupWorktreeLog[path] ?? [`removed ${path}`];
     },
   }),
 );
@@ -304,6 +315,9 @@ beforeEach(() => {
   resolveTargetReturn = null;
   scanWorktreesReturn = [];
   scanWorktreesThrows = null;
+  cleanupWorktreeCalls = [];
+  cleanupWorktreeThrows = {};
+  cleanupWorktreeLog = {};
   configOverride = {};
   cfgLimitMap = {};
   logMessageCalls = [];
@@ -581,6 +595,77 @@ describe("cmdList — orphan detection", () => {
 
     expect(outs.some((o) => o.includes("⚠ orphaned:"))).toBe(false);
     expect(outs.some((o) => o.includes("→ maw ls --fix"))).toBe(false);
+  });
+});
+
+describe("cmdList — --fix prune (FIX-A)", () => {
+  test("opts.fix=true with orphans → calls cleanupWorktree per orphan + prints summary", async () => {
+    listSessionsReturn = [];
+    scanWorktreesReturn = [
+      { path: "/ghq/org/repo.wt-1-stale", status: "stale", name: "1-stale" },
+      { path: "/ghq/org/repo.wt-2-orphan", status: "orphan", name: "2-orphan" },
+    ];
+
+    await run(() => cmdList({ fix: true }));
+
+    // Both orphan paths should have been pruned
+    expect(cleanupWorktreeCalls.sort()).toEqual([
+      "/ghq/org/repo.wt-1-stale",
+      "/ghq/org/repo.wt-2-orphan",
+    ]);
+    const joined = outs.join("\n");
+    expect(joined).toContain("pruning 2 orphans");
+    expect(joined).toContain("repo.wt-1-stale");
+    expect(joined).toContain("repo.wt-2-orphan");
+    expect(joined).toContain("pruned 2/2");
+    // The "→ maw ls --fix" hint must NOT print when --fix is already active
+    expect(joined).not.toContain("→ maw ls --fix");
+  });
+
+  test("opts.fix=true with no orphans → 'nothing to prune' and no cleanupWorktree call", async () => {
+    listSessionsReturn = [
+      { name: "08-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] },
+    ];
+    getPaneInfosReturn = { "08-mawjs:0": { command: "claude", cwd: "/" } };
+    scanWorktreesReturn = [
+      { path: "/ghq/org/repo", status: "active", name: "main" },
+    ];
+
+    await run(() => cmdList({ fix: true }));
+
+    expect(cleanupWorktreeCalls).toHaveLength(0);
+    expect(outs.join("\n")).toContain("nothing to prune");
+  });
+
+  test("opts.fix=false (default) preserves read-only behavior — no prune, hint shown", async () => {
+    listSessionsReturn = [];
+    scanWorktreesReturn = [
+      { path: "/ghq/org/repo.wt-1-stale", status: "stale", name: "1-stale" },
+    ];
+
+    await run(() => cmdList());
+
+    expect(cleanupWorktreeCalls).toHaveLength(0);
+    const joined = outs.join("\n");
+    expect(joined).toContain("⚠ orphaned:");
+    expect(joined).toContain("→ maw ls --fix");
+  });
+
+  test("opts.fix=true: cleanupWorktree throws on one orphan → keeps going + reports failure", async () => {
+    listSessionsReturn = [];
+    scanWorktreesReturn = [
+      { path: "/ghq/org/repo.wt-1-good", status: "stale", name: "1-good" },
+      { path: "/ghq/org/repo.wt-2-bad",  status: "stale", name: "2-bad" },
+    ];
+    cleanupWorktreeThrows = { "/ghq/org/repo.wt-2-bad": "permission denied" };
+
+    await run(() => cmdList({ fix: true }));
+
+    expect(cleanupWorktreeCalls).toHaveLength(2);
+    const joined = outs.join("\n");
+    expect(joined).toContain("repo.wt-1-good");
+    expect(joined).toContain("permission denied");
+    expect(joined).toContain("pruned 1/2");
   });
 });
 
