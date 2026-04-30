@@ -157,18 +157,34 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
 });
 
 describe("resolveTopAlias — RFC #954 verb aliases", () => {
-  test("`ls` → argv rewrite to ['tmux', 'ls', '--all', '--compact', '--roster']", () => {
+  test("`ls` → direct-handler cmdLs (compact, no roster)", () => {
     const out = resolveTopAlias(["ls"]);
     expect(out).not.toBeNull();
-    expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--compact", "--roster"]);
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toBe("cmdLs");
+      expect(out!.argv).toEqual([]);
+    }
   });
 
-  test("`ls -v` → argv rewrite with -v appended (overrides compact)", () => {
+  test("`ls -a` → direct-handler cmdLs with -a (roster)", () => {
+    const out = resolveTopAlias(["ls", "-a"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toBe("cmdLs");
+      expect(out!.argv).toEqual(["-a"]);
+    }
+  });
+
+  test("`ls -v` → direct-handler cmdLs with -v (verbose)", () => {
     const out = resolveTopAlias(["ls", "-v"]);
     expect(out).not.toBeNull();
-    expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "ls", "--all", "--compact", "--roster", "-v"]);
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toBe("cmdLs");
+      expect(out!.argv).toEqual(["-v"]);
+    }
   });
 
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
