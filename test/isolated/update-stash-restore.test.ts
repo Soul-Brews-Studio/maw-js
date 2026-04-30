@@ -79,16 +79,33 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     expect(retryIdx).toBeGreaterThan(stashBlockEnd);
   });
 
-  // ── Case 4: prior .prev REFUSE (architect's safety gotcha) ────────────
-  it("case 4 — existing .prev refuses with process.exit(1) (does NOT overwrite)", () => {
-    // If ~/.bun/bin/maw.prev already exists, it's a prior crash's last-known-good
-    // escape hatch. Silently overwriting would destroy that. Refuse + hint user.
+  // ── Case 4: prior .prev ROTATE (#968 — auto-recover, don't block) ─────
+  it("case 4 — existing .prev rotates to timestamped archive (does NOT overwrite, does NOT exit)", () => {
+    // #968 — the original (#551) behavior refused with process.exit(1) when
+    // STASH already existed. That left users stuck after a single crash:
+    // the retry/curl-fallback path below could never run. Now we rotate the
+    // stale STASH to `${STASH}.crash.<unix-timestamp>` instead, preserving
+    // it for forensic recovery while unblocking the in-flight update.
     expect(cmdUpdateSrc).toMatch(
-      /if\s*\(\s*existsSync\(STASH\)\s*\)\s*\{[\s\S]*?process\.exit\(1\)/,
+      /if\s*\(\s*existsSync\(STASH\)\s*\)\s*\{[\s\S]*?renameSync\(STASH\s*,\s*archived\)/,
     );
-    // Must NOT silently unlink old stash before rename
+    // Must NOT exit on the happy rotate path (only on rotation failure)
+    expect(cmdUpdateSrc).toMatch(
+      /\$\{STASH\}\.crash\.\$\{Math\.floor\(Date\.now\(\) \/ 1000\)\}/,
+    );
+    // Must still NOT silently unlink old stash before rename of BIN
     expect(cmdUpdateSrc).not.toMatch(
       /unlinkSync\(STASH\)[\s\S]*?renameSync\(BIN\s*,\s*STASH\)/,
+    );
+  });
+
+  // ── Case 4b: rotation failure preserves the original refuse behavior ───
+  it("case 4b — rotation failure falls back to refuse + process.exit(1)", () => {
+    // If renameSync(STASH, archived) throws (perms, disk full, etc.), we
+    // restore the original "refuse to overwrite" safety net rather than
+    // risk silently destroying the user's last-known-good binary.
+    expect(cmdUpdateSrc).toMatch(
+      /catch\s*\([^)]*\)\s*\{[\s\S]*?could not be rotated[\s\S]*?process\.exit\(1\)/,
     );
   });
 
