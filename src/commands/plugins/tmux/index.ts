@@ -1,6 +1,7 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
 import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach } from "./impl";
+import { hostExec } from "../../../sdk";
 
 export const command = {
   name: "tmux",
@@ -173,8 +174,25 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
       cmdTmuxAttach(target, { print: !!flags["--print"] });
+    } else if (sub === "unsplit") {
+      if (!process.env.TMUX) {
+        console.log("\x1b[33m⚠\x1b[0m unsplit requires tmux");
+        return { ok: false, error: "not in tmux" };
+      }
+      const myPane = process.env.TMUX_PANE;
+      const paneList = (await hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
+      if (paneList.length <= 1) {
+        console.log("\x1b[90monly one pane — nothing to unsplit\x1b[0m");
+        return { ok: true };
+      }
+      let killed = 0;
+      for (const pane of paneList) {
+        if (pane === myPane) continue;
+        try { await hostExec(`tmux kill-pane -t '${pane}'`); killed++; } catch { /* already dead */ }
+      }
+      console.log(`\x1b[32m✓\x1b[0m unsplit — killed ${killed} sibling pane${killed !== 1 ? "s" : ""}`);
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|attach> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|unsplit|layout|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
