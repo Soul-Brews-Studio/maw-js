@@ -82,7 +82,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build CLI
-        run: bun build --target=bun src/cli.ts
+        run: bun build --target=bun src/cli.ts --outfile /tmp/maw-bundled.js
+
+      - name: Bundle smoke test
+        run: |
+          bun /tmp/maw-bundled.js version | grep -q "maw v"
+          echo "✓ bundled binary runs"
 
       - name: Validate plugin manifests
         run: |
