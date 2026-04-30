@@ -40,6 +40,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   close: "Hide panes without killing (break-pane)",
   t: "Team — create, spawn, send, shutdown",
   layout: "Apply team layout (main-vertical or tiled)",
+  zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   ls: "List sessions (compact, -a roster, -v detail)",
@@ -56,6 +57,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   close: ["tmux", "close"],
   t: ["team"],
   layout: ["team", "layout"],
+  zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
 
