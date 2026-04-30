@@ -1,6 +1,6 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
-import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach } from "./impl";
+import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, resolveTmuxTarget } from "./impl";
 import { hostExec } from "../../../sdk";
 
 export const command = {
@@ -224,6 +224,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const { cmdSplit } = await import("../split/impl");
         await cmdSplit(target, { lock: true });
       }
+    } else if (sub === "zoom") {
+      const target = args[1];
+      if (!target) {
+        console.log("usage: maw tmux zoom <target>");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      const { resolved } = resolveTmuxTarget(target) ?? { resolved: target };
+      await hostExec(`tmux resize-pane -Z -t '${resolved}'`);
+      console.log(`\x1b[32m✓\x1b[0m toggled zoom on ${resolved}`);
+
     } else if (!sub || sub === "--help" || sub === "-h") {
       console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");

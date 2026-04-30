@@ -392,9 +392,34 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`\x1b[32m✓\x1b[0m applied main-vertical layout (leader ${pct}%)`);
       }
 
+    } else if (sub === "inbox") {
+      // maw team inbox [agent] [--mark-read]
+      const { readInbox, readUnread, markRead } = await import("./inbox");
+      const teamName = resolveTeamFromContext();
+      const agent = args[1] || "leader";
+      const doMark = args.includes("--mark-read");
+
+      const messages = doMark ? readInbox(teamName, agent) : readUnread(teamName, agent);
+      if (messages.length === 0) {
+        console.log(`\x1b[90mno ${doMark ? "" : "unread "}messages for ${agent}@${teamName}\x1b[0m`);
+      } else {
+        const { colorAnsi } = await import("../tmux/layout-manager");
+        for (const m of messages) {
+          const ts = new Date(m.timestamp).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit" });
+          const typeColor = m.type === "done" ? "32" : m.type === "stuck" ? "31" : m.type === "progress" ? "36" : "33";
+          const payload = Object.values(m.payload).join(" ").slice(0, 60);
+          console.log(`  \x1b[${typeColor}m${m.type.padEnd(10)}\x1b[0m \x1b[90m${ts}\x1b[0m ${m.from} → ${payload}`);
+        }
+        console.log(`\x1b[90m  ${messages.length} message${messages.length !== 1 ? "s" : ""}\x1b[0m`);
+      }
+      if (doMark) {
+        const marked = markRead(teamName, agent);
+        if (marked > 0) console.log(`\x1b[32m✓\x1b[0m marked ${marked} message${marked !== 1 ? "s" : ""} read`);
+      }
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|layout|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
