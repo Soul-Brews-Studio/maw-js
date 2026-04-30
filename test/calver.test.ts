@@ -6,6 +6,7 @@ import {
   effectiveBase,
   extractBaseFromVersion,
   hhmmStamp,
+  isValidCalendarDate,
   maxAlphaFromTags,
   maxNFromPackageJson,
   maxNFromTags,
@@ -256,6 +257,31 @@ describe("calver compareBases (#819)", () => {
   });
 });
 
+describe("calver isValidCalendarDate", () => {
+  it("accepts valid dates", () => {
+    expect(isValidCalendarDate("26.4.18")).toBe(true);
+    expect(isValidCalendarDate("26.1.31")).toBe(true);
+    expect(isValidCalendarDate("26.2.29")).toBe(true);
+    expect(isValidCalendarDate("26.12.31")).toBe(true);
+  });
+
+  it("rejects ghost dates (day > max for month)", () => {
+    expect(isValidCalendarDate("26.4.53")).toBe(false);
+    expect(isValidCalendarDate("26.4.31")).toBe(false);
+    expect(isValidCalendarDate("26.2.30")).toBe(false);
+    expect(isValidCalendarDate("26.6.31")).toBe(false);
+  });
+
+  it("rejects invalid months", () => {
+    expect(isValidCalendarDate("26.0.15")).toBe(false);
+    expect(isValidCalendarDate("26.13.1")).toBe(false);
+  });
+
+  it("rejects day 0", () => {
+    expect(isValidCalendarDate("26.4.0")).toBe(false);
+  });
+});
+
 describe("calver effectiveBase (#819)", () => {
   it("picks package.json base when ahead of today", () => {
     expect(effectiveBase("26.4.28", "26.4.29-alpha.5")).toBe("26.4.29");
@@ -275,19 +301,26 @@ describe("calver effectiveBase (#819)", () => {
   });
 
   it("handles bare future stable (post-cut shape, no suffix)", () => {
-    // Just-cut tomorrow's stable: package.json holds bare 26.4.30 with no suffix.
     expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
+  });
+
+  it("ghost-date guard: rejects package.json with impossible day (> 31)", () => {
+    expect(effectiveBase("26.4.30", "26.4.53-alpha.1150")).toBe("26.4.30");
+    expect(effectiveBase("26.4.30", "26.4.50")).toBe("26.4.30");
+    expect(effectiveBase("26.5.1", "26.4.53-alpha.1150")).toBe("26.5.1");
+  });
+
+  it("ghost-date guard: rejects day > month max (Apr has 30 days)", () => {
+    expect(effectiveBase("26.4.28", "26.4.31-alpha.5")).toBe("26.4.28");
   });
 });
 
 describe("calver computeVersion future-dated package.json (#819, HMM-adapted)", () => {
   const apr28_1200 = new Date(2026, 3, 28, 12, 0);
   const apr29_0500 = new Date(2026, 3, 29, 5, 0);
+  const apr30_1200 = new Date(2026, 3, 30, 12, 0);
 
   it("future-dated alpha: bumps to package.json's date with current HMM (no downgrade)", () => {
-    // The #819 anti-downgrade guard still fires under HMM: package.json at
-    // 26.4.29-alpha.5, clock at 2026-04-28 12:00 → bump to 26.4.29-alpha.1200,
-    // NOT 26.4.28-alpha.1200 (which would be a base downgrade).
     expect(
       computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
     ).toBe("26.4.29-alpha.1200");
@@ -309,5 +342,17 @@ describe("calver computeVersion future-dated package.json (#819, HMM-adapted)", 
     expect(
       computeVersion({ stable: true, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
     ).toBe("26.4.28");
+  });
+
+  it("ghost-date in package.json: falls back to today's real date", () => {
+    expect(
+      computeVersion({ stable: false, check: false, now: apr30_1200 }, [], "26.4.53-alpha.1150"),
+    ).toBe("26.4.30-alpha.1200");
+  });
+
+  it("ghost-date does not affect stable cuts", () => {
+    expect(
+      computeVersion({ stable: true, check: false, now: apr30_1200 }, [], "26.4.53-alpha.1150"),
+    ).toBe("26.4.30");
   });
 });
