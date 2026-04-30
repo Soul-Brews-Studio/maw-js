@@ -37,9 +37,8 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   kill: ["tmux", "kill"],
   peek: ["tmux", "peek"],
   split: ["split"],
-  open: ["split"],
-  close: ["tmux", "unsplit"],
-  unsplit: ["tmux", "unsplit"],
+  open: ["tmux", "open"],
+  close: ["tmux", "close"],
   t: ["team"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
 
