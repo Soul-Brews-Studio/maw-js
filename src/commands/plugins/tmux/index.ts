@@ -59,15 +59,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--compact": Boolean,
         "--verbose": Boolean,
         "-v": "--verbose",
+        "--roster": Boolean,
         "--help": Boolean,
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux ls [--all|-a] [--compact] [-v|--verbose] [--json]");
+        console.log("usage: maw tmux ls [--all|-a] [--compact] [-v|--verbose] [--roster] [--json]");
         console.log("  default:    panes in current session only");
         console.log("  --all:      panes across every session");
         console.log("  --compact:  one line per session (default for `maw ls`)");
         console.log("  -v:         full per-pane detail (overrides --compact)");
+        console.log("  --roster:   include sleeping oracles from ghq");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       await cmdTmuxLs({
@@ -75,6 +77,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         json: !!flags["--json"],
         compact: !!flags["--compact"],
         verbose: !!flags["--verbose"],
+        roster: !!flags["--roster"],
       });
     } else if (sub === "peek") {
       const flags = parseFlags(args, {

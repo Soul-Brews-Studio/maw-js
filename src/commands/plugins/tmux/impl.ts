@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
+import { ghqList } from "../../../core/ghq";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
@@ -111,6 +112,8 @@ export interface TmuxLsOpts {
   compact?: boolean;
   /** Verbose: full per-pane detail. Overrides --compact. */
   verbose?: boolean;
+  /** Roster: include sleeping oracles from ghq (compact mode only). */
+  roster?: boolean;
 }
 
 export type PaneStatus = "active" | "idle" | "stale" | "unknown";
@@ -185,7 +188,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     return;
   }
 
-  if (!scope.length) {
+  if (!scope.length && !(opts.compact && opts.roster)) {
     console.log(opts.all
       ? "\x1b[90mNo panes found.\x1b[0m"
       : `\x1b[90mNo panes in current session '${currentSession || "(none)"}'. Use --all for every session.\x1b[0m`);
@@ -220,13 +223,35 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       return "unknown";
     };
     console.log();
+    const awakeNames = new Set<string>();
     for (const [sess, panes] of bySession) {
+      awakeNames.add(sess);
       const dot = STATUS_DOT[bestStatus(panes)];
       const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
       const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
       console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
     }
+
+    if (opts.roster) {
+      try {
+        const repos = await ghqList();
+        const sleeping = repos
+          .filter(p => p.endsWith("-oracle"))
+          .map(p => p.split("/").pop()!)
+          .filter(name => !awakeNames.has(name))
+          .sort();
+        for (const name of sleeping) {
+          console.log(`  \x1b[90m· ${name}  (sleeping)\x1b[0m`);
+        }
+        const total = awakeNames.size + sleeping.length;
+        if (sleeping.length > 0) {
+          console.log();
+          console.log(`\x1b[90m  ${total} oracles — ${awakeNames.size} awake, ${sleeping.length} sleeping\x1b[0m`);
+        }
+      } catch { /* ghq unavailable */ }
+    }
+
     console.log();
     console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
     console.log();
