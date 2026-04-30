@@ -64,6 +64,33 @@ export async function resolveOracle(
     return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
   }
 
+  // #997 — fuzzy match against local *-oracle repos in ghq before remote lookups.
+  // e.g. "v3" matches "arra-oracle-v3-oracle" so `maw wake v3` works like `maw ls -a`.
+  try {
+    const { ghqList } = await import("../../core/ghq");
+    const repos = await ghqList();
+    const oracleLower = oracle.toLowerCase();
+    const candidates = repos
+      .filter(p => p.endsWith("-oracle"))
+      .map(p => p.split("/").pop()!)
+      .filter(name => {
+        const bare = name.replace(/-oracle$/, "");
+        return bare.includes(oracleLower) || oracleLower.includes(bare);
+      });
+    if (candidates.length === 1) {
+      const match = await ghqFind(`/${candidates[0]}`);
+      if (match) {
+        console.log(`\x1b[36m→\x1b[0m fuzzy match: ${candidates[0]}`);
+        return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
+      }
+    } else if (candidates.length > 1) {
+      console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${candidates.length} local oracles:`);
+      for (const c of candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
+      console.error(`\x1b[90m  use the full name: maw wake <exact-name>\x1b[0m`);
+      process.exit(1);
+    }
+  } catch { /* ghq unavailable — fall through */ }
+
   // Fleet configs — oracle known in a fleet, repo may need to be cloned (#237)
   let fleetRepo: string | null = null;
   try {
