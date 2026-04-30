@@ -4,6 +4,7 @@ import { swagger } from "@elysiajs/swagger";
 import { sessionsApi } from "./sessions";
 import { feedApi } from "./feed";
 import { teamsApi } from "./teams";
+import { threadsApi } from "./threads";
 import { configApi } from "./config";
 import { fleetApi } from "./fleet";
 import { asksApi } from "./asks";
@@ -49,6 +50,7 @@ export const api = new Elysia({ prefix: "/api" })
   .use(sessionsApi)
   .use(feedApi)
   .use(teamsApi)
+  .use(threadsApi)
   .use(configApi)
   .use(fleetApi)
   .use(asksApi)
