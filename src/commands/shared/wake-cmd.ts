@@ -76,7 +76,23 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
-    session = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
+    const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
+
+    // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
+    // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
+    let session_: string;
+    if (/^\d+-/.test(baseName)) {
+      session_ = baseName;
+    } else {
+      const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+      let maxNum = 0;
+      for (const s of sessions) {
+        const m = s.name.match(/^(\d+)-/);
+        if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+      }
+      session_ = `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
+    }
+    session = session_;
     const mainWindowName = `${oracle}-oracle`;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await setSessionEnv(session);
