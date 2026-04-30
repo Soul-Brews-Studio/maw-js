@@ -53,6 +53,14 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   }
 
   const { repoPath, repoName, parentDir } = resolved;
+
+  // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
+  // update oracle to the resolved name so session/window names are correct.
+  const resolvedOracle = repoName.replace(/-oracle$/, "");
+  if (resolvedOracle !== oracle && repoName.endsWith("-oracle")) {
+    oracle = resolvedOracle;
+  }
+
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
   const ghSlug = repoPath.includes("github.com/")
     ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
