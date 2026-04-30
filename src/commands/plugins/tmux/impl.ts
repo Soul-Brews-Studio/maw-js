@@ -5,6 +5,7 @@ import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList } from "../../../core/ghq";
+import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
@@ -222,6 +223,15 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       if (panes.some(p => p.status === "stale")) return "stale";
       return "unknown";
     };
+    let worktrees: Awaited<ReturnType<typeof scanWorktrees>> = [];
+    try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    const wtBySession = new Map<string, typeof worktrees>();
+    for (const wt of worktrees) {
+      const mainName = wt.mainRepo.split("/").pop() || "";
+      if (!wtBySession.has(mainName)) wtBySession.set(mainName, []);
+      wtBySession.get(mainName)!.push(wt);
+    }
+
     console.log();
     const awakeNames = new Set<string>();
     for (const [sess, panes] of bySession) {
@@ -231,6 +241,12 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
       const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
       console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      const wts = wtBySession.get(sess) || [];
+      for (const wt of wts) {
+        const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
+        const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
+        console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
+      }
     }
 
     if (opts.roster) {

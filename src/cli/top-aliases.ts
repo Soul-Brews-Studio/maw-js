@@ -22,6 +22,7 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
+import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -33,7 +34,12 @@ export type AliasResolution =
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
   a: ["tmux", "attach"],
-  ls: ["tmux", "ls", "--all", "--compact", "--roster"],
+
+  // Direct-handler form — `ls` flags differ from tmux ls:
+  //   maw ls      → compact, live sessions only
+  //   maw ls -a   → compact + sleeping oracles (roster)
+  //   maw ls -v   → full per-pane detail
+  ls: { kind: "direct", handler: "cmdLs" },
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
@@ -71,15 +77,33 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
  * help-text rendering, but the path is no longer used at runtime —
  * dispatch is by `exportName` against a static handler map.
  *
+ * For `ls`, `-a` = roster (sleeping oracles), `-v` = full detail.
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
 export async function invokeDirectHandler(
   handler: string,
   argv: string[],
 ): Promise<void> {
-  const [, exportName] = handler.split(":");
+  const exportName = handler.includes(":") ? handler.split(":")[1] : handler;
   if (!exportName) {
-    throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>'`);
+    throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>' or name`);
+  }
+
+  if (exportName === "cmdLs") {
+    const flags = parseFlags(argv, {
+      "--all": Boolean, "-a": "--all",
+      "--verbose": Boolean, "-v": "--verbose",
+      "--fix": Boolean,
+      "--json": Boolean,
+    }, 0);
+    await cmdTmuxLs({
+      all: true,
+      compact: !flags["--verbose"],
+      verbose: !!flags["--verbose"],
+      roster: !!flags["--all"],
+      json: !!flags["--json"],
+    });
+    return;
   }
 
   if (exportName === "cmdWake") {
