@@ -48,7 +48,7 @@ export interface OracleListOpts {
   path?: boolean;
 }
 
-interface EnrichedEntry {
+export interface EnrichedEntry {
   entry: OracleEntry;
   awake: boolean;
   session: string | null;
@@ -107,13 +107,10 @@ function buildEntryFromManifest(
   };
 }
 
-export async function cmdOracleList(opts: OracleListOpts = {}) {
+export async function buildEnrichedEntries(opts: { scan?: boolean; stale?: boolean; json?: boolean } = {}): Promise<EnrichedEntry[]> {
   const config = loadConfig();
   const agents = config.agents || {};
 
-  // 1. Cache: --scan forces refresh; empty cache auto-bootstraps; stale cache
-  //    refreshes unless --stale. Edge case: offline scanLocal still succeeds
-  //    (filesystem walk, no network). Only scan --remote hits GitHub.
   let cache = readCache();
   const shouldRefresh =
     !!opts.scan || !cache || (isCacheStale(cache) && !opts.stale);
@@ -124,15 +121,11 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
       );
     }
     cache = scanAndCache("local");
-    // The cache changed under us — drop any stale manifest TTL view so we
-    // reflect the freshly-scanned oracles.json contribution.
     invalidateManifest();
   }
 
-  // 2. Live tmux snapshot — used for awake state + surfacing just-budded
-  //    oracles that haven't landed in the manifest's filesystem sources.
   const sessions = await listSessions().catch(() => []);
-  const awakeByName = new Map<string, string>(); // name → session
+  const awakeByName = new Map<string, string>();
   for (const s of sessions) {
     for (const w of s.windows) {
       if (w.name.endsWith("-oracle")) {
@@ -142,16 +135,12 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
     }
   }
 
-  // 3. Aggregate via OracleManifest — single source of "what oracles exist"
-  //    spanning fleet/sessions/agents/oracles-json. Replaces the old direct
-  //    `cache.oracles` enumeration (which missed sessions/agents-only entries).
   const manifest = loadManifestCached();
   const cacheByName = new Map<string, OracleEntry>(
     (cache?.oracles ?? []).map((e) => [e.name, e]),
   );
   const now = new Date().toISOString();
 
-  // Build entries from manifest (cross-source visibility).
   const manifestNames = new Set<string>();
   const entries: OracleEntry[] = [];
   const sourcesByName = new Map<string, string[]>();
@@ -163,9 +152,6 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
     );
   }
 
-  // Edge case: tmux has an oracle window the manifest doesn't know about
-  // (e.g., a stray window with no fleet/session/agent/oracles-json record).
-  // Surface it so the operator can see it. Tag source as "tmux" for clarity.
   for (const [name] of awakeByName) {
     if (!manifestNames.has(name)) {
       entries.push({
@@ -184,8 +170,7 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
     }
   }
 
-  // 4. Enrich each entry with awake state + lineage + nickname (read-through)
-  const enriched: EnrichedEntry[] = entries.map((entry) => {
+  return entries.map((entry) => {
     const session = awakeByName.get(entry.name) ?? null;
     const awake = session !== null;
     const nickname = resolveNickname(entry.name, entry.local_path || null);
@@ -200,6 +185,10 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
       sources: sourcesByName.get(entry.name) ?? [],
     };
   });
+}
+
+export async function cmdOracleList(opts: OracleListOpts = {}) {
+  const enriched = await buildEnrichedEntries(opts);
 
   // 5. Apply filters
   let filtered = enriched;
@@ -215,9 +204,10 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   });
 
   // 7. JSON output — preserve schema for machine consumers
+  const cache = readCache();
   if (opts.json) {
     const out = {
-      cache_scanned_at: cache!.local_scanned_at,
+      cache_scanned_at: cache?.local_scanned_at ?? null,
       total: filtered.length,
       awake: filtered.filter((x) => x.awake).length,
       oracles: filtered.map((x) => ({
@@ -225,8 +215,6 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
         awake: x.awake,
         session: x.session,
         lineage: x.lineage,
-        // Manifest source labels — helps consumers see why this oracle
-        // shows up (fleet/session/agent/oracles-json/tmux).
         sources: x.sources,
       })),
     };
@@ -237,8 +225,8 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   // 8. Formatted grouped output
   const total = filtered.length;
   const awakeCount = filtered.filter((x) => x.awake).length;
-  const age = timeSince(cache!.local_scanned_at);
-  const fresh = !isCacheStale(cache!);
+  const age = cache ? timeSince(cache.local_scanned_at) : "?";
+  const fresh = cache ? !isCacheStale(cache) : false;
   const staleMark = fresh ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⚠ stale\x1b[0m";
 
   console.log(
@@ -274,7 +262,7 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
 
 // ─── Formatting helpers ──────────────────────────────────────────────────────
 
-function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): string {
+export function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): string {
   const { entry: e, awake, lineage } = x;
 
   // Icon + tag mapping:

@@ -3,6 +3,7 @@ import { cmdOracleList, cmdOracleAbout, cmdOracleScan, cmdOracleScanStale } from
 import { cmdOraclePrune } from "./impl-prune";
 import { cmdOracleRegister } from "./impl-register";
 import { cmdOracleSetNickname, cmdOracleGetNickname } from "./impl-nickname";
+import { cmdOracleSearch } from "./impl-search";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
@@ -119,10 +120,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         if (!name) return { ok: false, error: "usage: maw oracle get-nickname <oracle>" };
         const flags = parseFlags(args, { "--json": Boolean }, 2);
         cmdOracleGetNickname(name, { json: flags["--json"] });
+      } else if (subcmd === "search" || subcmd === "find") {
+        const query = args[1];
+        if (!query) return { ok: false, error: "usage: maw oracle search <query>" };
+        const flags = parseFlags(args, { "--json": Boolean, "--awake": Boolean, "--org": String }, 2);
+        await cmdOracleSearch(query, { json: flags["--json"], awake: flags["--awake"], org: flags["--org"] });
       } else if (subcmd === "about" && args[1]) {
         await cmdOracleAbout(args[1]);
       } else {
-        return { ok: false, error: "usage: maw oracle [ls|scan|prune|register <name>|set-nickname <name> <nickname>|get-nickname <name>|about <name>]" };
+        return { ok: false, error: "usage: maw oracle [ls|scan|search <query>|prune|register <name>|set-nickname <name> <nickname>|get-nickname <name>|about <name>]" };
       }
     } else if (ctx.source === "api") {
       const query = ctx.args as Record<string, unknown>;
@@ -185,10 +191,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       } else if (sub === "get-nickname") {
         if (!query.name) return { ok: false, error: "usage: query.sub=get-nickname + query.name" };
         cmdOracleGetNickname(query.name as string, { json: query.json as boolean | undefined });
+      } else if (sub === "search" || sub === "find") {
+        if (!query.query) return { ok: false, error: "usage: query.sub=search + query.query" };
+        await cmdOracleSearch(query.query as string, {
+          json: query.json as boolean | undefined,
+          awake: query.awake as boolean | undefined,
+          org: query.org as string | undefined,
+        });
       } else if (sub === "about" && query.name) {
         await cmdOracleAbout(query.name as string);
       } else {
-        return { ok: false, error: "usage: query.sub=[ls|scan|prune|register|set-nickname|get-nickname|about] + query.name" };
+        return { ok: false, error: "usage: query.sub=[ls|scan|search|prune|register|set-nickname|get-nickname|about] + query.name" };
       }
     }
 
