@@ -10,6 +10,14 @@ import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safe
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
+function listSessionNamesSync(): string[] {
+  try {
+    const result = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_name}"]);
+    if (result.exitCode !== 0) return [];
+    return new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
+  } catch { return []; }
+}
+
 // #971 — process.stdout.isTTY is `undefined` (not false) in bun-bundled
 // binaries installed via curl. `!!undefined` → false, making attach always
 // fall to print-only. node:tty.isatty(1) checks the fd directly and works
@@ -77,6 +85,15 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
       return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
     }
   } catch { /* no fleet dir — fall through */ }
+
+  // 3.7 — Live tmux sessions (covers sessions not in fleet config).
+  const liveSessions = listSessionNamesSync().map(s => ({ name: s }));
+  if (liveSessions.length > 0) {
+    const r = resolveSessionTarget(target, liveSessions);
+    if (r.kind === "exact" || r.kind === "fuzzy") {
+      return { resolved: r.match.name, source: `live-session (${r.match.name})` };
+    }
+  }
 
   // 4. Bare session name — let tmux resolve to current/first pane
   return { resolved: target, source: "session-name" };
