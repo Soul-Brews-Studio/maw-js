@@ -579,7 +579,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   }
 }
 
-function suggestRecovery(target: string, session: string, source: string): never {
+function suggestRecovery(target: string, session: string, source: string): void {
   const candidates: Array<{ oracle: string; label: string }> = [];
 
   if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
@@ -618,77 +618,31 @@ function suggestRecovery(target: string, session: string, source: string): never
     process.exit(1);
   }
 
-  const selected = interactiveSelect(candidates);
-  if (selected) {
-    console.log(`\x1b[36m→\x1b[0m maw wake ${selected.oracle}`);
-    const result = Bun.spawnSync(["maw", "wake", selected.oracle], {
-      stdio: ["inherit", "inherit", "inherit"],
-    });
-    process.exit(result.exitCode ?? 0);
-  }
-  process.exit(0);
+  selectAndWake(candidates);
 }
 
-function interactiveSelect(items: Array<{ oracle: string; label: string }>): { oracle: string; label: string } | null {
-  const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
-  let cursor = 0;
-  const fd = openSync("/dev/tty", "r");
+async function selectAndWake(candidates: Array<{ oracle: string; label: string }>): Promise<never> {
+  const { select, isCancel } = await import("@clack/prompts");
 
-  const render = () => {
-    // Move up to clear previous render (skip on first render)
-    process.stdout.write(`\x1b[?25l`); // hide cursor
-    console.log("");
-    console.log("  Wake which oracle? \x1b[90m(↑↓ select, Enter confirm, q quit)\x1b[0m");
-    for (let i = 0; i < items.length; i++) {
-      const prefix = i === cursor ? "\x1b[36m❯\x1b[0m" : " ";
-      const highlight = i === cursor ? `\x1b[1m${items[i].label}\x1b[0m` : `\x1b[90m${items[i].label}\x1b[0m`;
-      console.log(`  ${prefix} ${highlight}`);
-    }
-  };
+  const selected = await select({
+    message: "Wake which oracle?",
+    options: candidates.map(c => ({
+      value: c.oracle,
+      label: c.label,
+      hint: `maw wake ${c.oracle}`,
+    })),
+  });
 
-  const clear = () => {
-    // Move up and clear the menu lines
-    const totalLines = items.length + 2; // header + items + blank
-    for (let i = 0; i < totalLines; i++) {
-      process.stdout.write(`\x1b[A\x1b[2K`);
-    }
-  };
-
-  render();
-
-  const buf = Buffer.alloc(8);
-  while (true) {
-    const n = readSync(fd, buf, 0, buf.length, null);
-    if (n === 0) break;
-    const input = buf.slice(0, n).toString();
-
-    if (input === "q" || input === "\x03") { // q or Ctrl-C
-      clear();
-      closeSync(fd);
-      process.stdout.write(`\x1b[?25h`); // show cursor
-      console.log("  \x1b[90maborted\x1b[0m");
-      return null;
-    }
-    if (input === "\r" || input === "\n") { // Enter
-      clear();
-      closeSync(fd);
-      process.stdout.write(`\x1b[?25h`);
-      return items[cursor];
-    }
-    if (input === "\x1b[A" || input === "k") { // Up
-      clear();
-      cursor = (cursor - 1 + items.length) % items.length;
-      render();
-    }
-    if (input === "\x1b[B" || input === "j") { // Down
-      clear();
-      cursor = (cursor + 1) % items.length;
-      render();
-    }
+  if (isCancel(selected)) {
+    console.log("\x1b[90m  aborted\x1b[0m");
+    process.exit(0);
   }
-  closeSync(fd);
-  process.stdout.write(`\x1b[?25h`);
-  return null;
+
+  console.log(`\x1b[36m→\x1b[0m maw wake ${selected}`);
+  const result = Bun.spawnSync(["maw", "wake", selected as string], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  process.exit(result.exitCode ?? 0);
 }
 
 function ghqFindOracleSync(slug: string): string | null {

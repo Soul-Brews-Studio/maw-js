@@ -29,6 +29,7 @@
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
+    "@clack/prompts": "^1.3.0",
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
     "@monaco-editor/react": "^4.7.0",
