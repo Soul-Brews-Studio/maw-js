@@ -580,48 +580,115 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
 }
 
 function suggestRecovery(target: string, session: string, source: string): never {
-  const lines: string[] = [];
+  const candidates: Array<{ oracle: string; label: string }> = [];
 
   if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
-    lines.push(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
+    console.log(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
     try {
       const entries = loadFleetEntries();
       const entry = entries.find(e => e.file.replace(/\.json$/, "") === session);
       if (entry?.session?.windows?.[0]) {
         const w = entry.session.windows[0];
         const oracleName = w.name.replace(/-oracle$/, "");
-        const repo = w.repo;
-        lines.push("");
-        lines.push(`  Oracle: ${w.name}`);
-        const localPath = ghqFindOracleSync(repo);
-        if (localPath) {
-          lines.push(`  Repo:   ${localPath}`);
-        } else {
-          lines.push(`  Repo:   ${repo} (not cloned)`);
-        }
-        lines.push(`  \x1b[36m→ maw wake ${oracleName}\x1b[0m`);
+        const localPath = ghqFindOracleSync(w.repo);
+        const status = localPath ? "cloned" : "not cloned";
+        candidates.push({ oracle: oracleName, label: `${w.name} (${status})` });
       }
     } catch { /* fleet not available */ }
   } else {
-    lines.push(`\x1b[31m✗\x1b[0m  No session matches '${target}'.`);
+    console.log(`\x1b[31m✗\x1b[0m  No session matches '${target}'.`);
   }
 
-  const similar = findSimilarOracles(target);
-  if (similar.length > 0) {
-    lines.push("");
-    lines.push(`  Also matched:`);
-    for (const s of similar.slice(0, 5)) {
-      const name = s.replace(/-oracle$/, "");
-      lines.push(`    ${s} \x1b[90m→ maw wake ${name}\x1b[0m`);
+  for (const s of findSimilarOracles(target).slice(0, 5)) {
+    const name = s.replace(/-oracle$/, "");
+    if (!candidates.some(c => c.oracle === name)) {
+      candidates.push({ oracle: name, label: s });
     }
   }
 
-  if (lines.length === 0) {
-    throw new Error(`can't find session: ${session}`);
+  if (candidates.length === 0) {
+    process.exit(1);
   }
 
-  console.log(lines.join("\n"));
-  process.exit(1);
+  if (!_tty.isStdoutTTY()) {
+    console.log("");
+    for (const c of candidates) {
+      console.log(`  ${c.label} \x1b[90m→ maw wake ${c.oracle}\x1b[0m`);
+    }
+    process.exit(1);
+  }
+
+  const selected = interactiveSelect(candidates);
+  if (selected) {
+    console.log(`\x1b[36m→\x1b[0m maw wake ${selected.oracle}`);
+    const result = Bun.spawnSync(["maw", "wake", selected.oracle], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
+  process.exit(0);
+}
+
+function interactiveSelect(items: Array<{ oracle: string; label: string }>): { oracle: string; label: string } | null {
+  const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+  let cursor = 0;
+  const fd = openSync("/dev/tty", "r");
+
+  const render = () => {
+    // Move up to clear previous render (skip on first render)
+    process.stdout.write(`\x1b[?25l`); // hide cursor
+    console.log("");
+    console.log("  Wake which oracle? \x1b[90m(↑↓ select, Enter confirm, q quit)\x1b[0m");
+    for (let i = 0; i < items.length; i++) {
+      const prefix = i === cursor ? "\x1b[36m❯\x1b[0m" : " ";
+      const highlight = i === cursor ? `\x1b[1m${items[i].label}\x1b[0m` : `\x1b[90m${items[i].label}\x1b[0m`;
+      console.log(`  ${prefix} ${highlight}`);
+    }
+  };
+
+  const clear = () => {
+    // Move up and clear the menu lines
+    const totalLines = items.length + 2; // header + items + blank
+    for (let i = 0; i < totalLines; i++) {
+      process.stdout.write(`\x1b[A\x1b[2K`);
+    }
+  };
+
+  render();
+
+  const buf = Buffer.alloc(8);
+  while (true) {
+    const n = readSync(fd, buf, 0, buf.length, null);
+    if (n === 0) break;
+    const input = buf.slice(0, n).toString();
+
+    if (input === "q" || input === "\x03") { // q or Ctrl-C
+      clear();
+      closeSync(fd);
+      process.stdout.write(`\x1b[?25h`); // show cursor
+      console.log("  \x1b[90maborted\x1b[0m");
+      return null;
+    }
+    if (input === "\r" || input === "\n") { // Enter
+      clear();
+      closeSync(fd);
+      process.stdout.write(`\x1b[?25h`);
+      return items[cursor];
+    }
+    if (input === "\x1b[A" || input === "k") { // Up
+      clear();
+      cursor = (cursor - 1 + items.length) % items.length;
+      render();
+    }
+    if (input === "\x1b[B" || input === "j") { // Down
+      clear();
+      cursor = (cursor + 1) % items.length;
+      render();
+    }
+  }
+  closeSync(fd);
+  process.stdout.write(`\x1b[?25h`);
+  return null;
 }
 
 function ghqFindOracleSync(slug: string): string | null {
