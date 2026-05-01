@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
-import { ghqList } from "../../../core/ghq";
+import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
@@ -548,6 +548,13 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const { resolved, source } = hit;
   const session = resolved.split(":")[0] ?? "";
 
+  // Pre-flight: check if resolved session is actually alive. If not, show
+  // recovery suggestions instead of printing stale instructions or failing.
+  const alive = listSessionNamesSync();
+  if (!alive.includes(session)) {
+    suggestRecovery(target, session, source);
+  }
+
   const isTty = _tty.isStdoutTTY();
   const inTmux = !!process.env.TMUX;
 
@@ -568,8 +575,71 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   });
 
   if (result.exitCode !== 0) {
-    throw new Error(`tmux ${verb} failed (exit ${result.exitCode}) for session '${session}' [${source}]`);
+    suggestRecovery(target, session, source);
   }
+}
+
+function suggestRecovery(target: string, session: string, source: string): never {
+  const lines: string[] = [];
+
+  if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
+    lines.push(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
+    try {
+      const entries = loadFleetEntries();
+      const entry = entries.find(e => e.file.replace(/\.json$/, "") === session);
+      if (entry?.session?.windows?.[0]) {
+        const w = entry.session.windows[0];
+        const oracleName = w.name.replace(/-oracle$/, "");
+        const repo = w.repo;
+        lines.push("");
+        lines.push(`  Oracle: ${w.name}`);
+        const localPath = ghqFindOracleSync(repo);
+        if (localPath) {
+          lines.push(`  Repo:   ${localPath}`);
+        } else {
+          lines.push(`  Repo:   ${repo} (not cloned)`);
+        }
+        lines.push(`  \x1b[36m→ maw wake ${oracleName}\x1b[0m`);
+      }
+    } catch { /* fleet not available */ }
+  } else {
+    lines.push(`\x1b[31m✗\x1b[0m  No session matches '${target}'.`);
+  }
+
+  const similar = findSimilarOracles(target);
+  if (similar.length > 0) {
+    lines.push("");
+    lines.push(`  Also matched:`);
+    for (const s of similar.slice(0, 5)) {
+      const name = s.replace(/-oracle$/, "");
+      lines.push(`    ${s} \x1b[90m→ maw wake ${name}\x1b[0m`);
+    }
+  }
+
+  if (lines.length === 0) {
+    throw new Error(`can't find session: ${session}`);
+  }
+
+  console.log(lines.join("\n"));
+  process.exit(1);
+}
+
+function ghqFindOracleSync(slug: string): string | null {
+  try {
+    const repos = ghqListSync();
+    return repos.find(r => r.endsWith(`/${slug}`)) ?? null;
+  } catch { return null; }
+}
+
+function findSimilarOracles(target: string): string[] {
+  try {
+    const lc = target.toLowerCase();
+    const repos = ghqListSync();
+    return repos
+      .map(r => r.split("/").pop() ?? "")
+      .filter(name => name.endsWith("-oracle") && name.toLowerCase().includes(lc))
+      .filter((v, i, a) => a.indexOf(v) === i);
+  } catch { return []; }
 }
 
 /**
