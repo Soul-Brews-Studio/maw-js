@@ -68,6 +68,7 @@
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
-    "./commands/shared/done": "./src/commands/shared/done.ts"
+    "./commands/shared/done": "./src/commands/shared/done.ts",
+    "./commands/shared/comm": "./src/commands/shared/comm.ts"
   }
 }
