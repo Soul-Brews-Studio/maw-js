@@ -86,10 +86,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       config = { name: teamName, description: "Multi-AI swarm", members: [], createdAt: Date.now() };
     }
 
+    const { loadConfig } = await import("../../../config");
+    const configCommands = loadConfig().commands || {};
+
     for (let i = 0; i < agentList.length; i++) {
       const agentType = agentList[i];
       const known = KNOWN_AGENTS[agentType];
-      const agentCmd = known ? known.cmd : agentType;
+      const fromConfig = configCommands[agentType];
+      const agentCmd = fromConfig || (known ? known.cmd : agentType);
       const label = known ? known.label : agentType;
       const name = `${agentType}-${i + 1}`;
       const color = nextAgentColor(i);
