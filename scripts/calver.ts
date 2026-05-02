@@ -150,13 +150,15 @@ export function isValidCalendarDate(base: string): boolean {
  * downgrade against `YY.M.(D+1)-alpha.N`.
  *
  * #1015 ghost-date guard: if the package.json base has a day that doesn't
- * exist in the calendar (e.g. April 53), it's a ghost from legacy monotonic
- * stable bumps. Always fall back to today's real date.
+ * exist in the calendar (e.g. April 53), throw — the base is corrupted and
+ * must be fixed before cutting a release.
  */
 export function effectiveBase(todayBase: string, packageVersion: string): string {
   const pkgBase = extractBaseFromVersion(packageVersion);
   if (!pkgBase) return todayBase;
-  if (!isValidCalendarDate(pkgBase)) return todayBase;
+  if (!isValidCalendarDate(pkgBase)) {
+    throw new Error(`ghost date in package.json: ${packageVersion} (day ${pkgBase.split(".")[2]} doesn't exist in month ${pkgBase.split(".")[1]}) — fix package.json version to a real date`);
+  }
   return compareBases(pkgBase, todayBase) > 0 ? pkgBase : todayBase;
 }
 
@@ -262,10 +264,14 @@ async function main() {
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
-  // #1015: warn on ghost dates in package.json.
+  // #1015: hard-fail on ghost dates in package.json. A ghost (e.g. April 53)
+  // means the CalVer base is corrupted and must be fixed before cutting.
   const pkgBase = extractBaseFromVersion(pkg.version ?? "");
   if (pkgBase && !isValidCalendarDate(pkgBase)) {
-    console.error(`⚠ ghost date in package.json: ${pkg.version} (day ${pkgBase.split(".")[2]} doesn't exist) → using ${todayBase}`);
+    console.error(`\n❌ ghost date in package.json: ${pkg.version}`);
+    console.error(`   day ${pkgBase.split(".")[2]} doesn't exist in month ${pkgBase.split(".")[1]}`);
+    console.error(`\n   fix: set "version" to "${todayBase}" in package.json, then re-run\n`);
+    process.exit(1);
   }
 
   // #819: choose the effective base before fetching tags so we list tags for

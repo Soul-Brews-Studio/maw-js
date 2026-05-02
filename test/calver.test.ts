@@ -309,12 +309,9 @@ describe("calver effectiveBase (#819)", () => {
     expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
   });
 
-  it("#1015: ghost date (day > month max) falls back to today", () => {
-    // The v26.4.53 ghost — April has no day 53. Without the guard,
-    // effectiveBase picks 26.4.53 because 53 > 30. With the guard,
-    // it detects the invalid calendar date and falls back to today.
-    expect(effectiveBase("26.4.30", "26.4.53")).toBe("26.4.30");
-    expect(effectiveBase("26.5.2", "26.4.53")).toBe("26.5.2");
+  it("#1015: ghost date (day > month max) throws", () => {
+    expect(() => effectiveBase("26.4.30", "26.4.53")).toThrow("ghost date");
+    expect(() => effectiveBase("26.5.2", "26.4.53")).toThrow("ghost date");
   });
 });
 
