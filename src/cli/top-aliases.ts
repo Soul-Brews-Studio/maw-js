@@ -176,6 +176,19 @@ export async function invokeDirectHandler(
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
 
+    // Shorthand: --codex, --gemini etc. → engine from config.commands
+    // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
+    if (!opts.engine) {
+      const { loadConfig } = await import("../config");
+      const commands = loadConfig().commands || {};
+      for (const arg of (flags._ as string[])) {
+        if (arg.startsWith("--") && commands[arg.slice(2)]) {
+          opts.engine = arg.slice(2);
+          break;
+        }
+      }
+    }
+
     await cmdWake(oracle, opts);
     return;
   }

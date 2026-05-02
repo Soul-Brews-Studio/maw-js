@@ -238,6 +238,18 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         return `${session}:${existingWindow}`;
       }
       console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' already running in ${session}`);
+      if (!opts.attach && process.stdin.isTTY) {
+        process.stdout.write(`  attach? [y/N] `);
+        const { openSync, readSync, closeSync } = await import("fs");
+        try {
+          const fd = openSync("/dev/tty", "r");
+          const buf = Buffer.alloc(8);
+          const n = readSync(fd, buf, 0, buf.length, null);
+          closeSync(fd);
+          const answer = buf.slice(0, n).toString().trim().toLowerCase();
+          if (answer === "y" || answer === "yes") opts.attach = true;
+        } catch {}
+      }
       if (opts.attach) {
         await tmux.selectWindow(`${session}:${existingWindow}`);
         await attachToSession(session);
