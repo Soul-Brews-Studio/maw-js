@@ -9,6 +9,7 @@ import { HttpTransport } from "./http";
 import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { LoRaTransport } from "./lora";
 import { NanoclawTransport } from "./nanoclaw";
+// ZenohTransport loaded dynamically — zenoh-ts bundles WASM that conflicts with single-file build
 
 /** Singleton router instance */
 let router: TransportRouter | null = null;
@@ -29,6 +30,18 @@ export function createTransportRouter(): TransportRouter {
   const workspaceConfigs = loadWorkspaceConfigs();
   if (workspaceConfigs.length > 0) {
     router.register(new HubTransport(config.node));
+  }
+
+  // 2.5. Zenoh transport — pub/sub + auto-discovery (dynamic import — WASM)
+  if (config.zenoh?.locator) {
+    import("./zenoh").then(({ ZenohTransport }) => {
+      const zt = new ZenohTransport({
+        locator: config.zenoh!.locator,
+        node: config.node ?? "local",
+      });
+      zt.connect().catch((e) => console.warn(`[zenoh] connect failed: ${e}`));
+      router!.register(zt);
+    }).catch((e) => console.warn(`[zenoh] load failed: ${e}`));
   }
 
   // 3. HTTP federation as fallback
@@ -68,3 +81,4 @@ export { HubTransport } from "./hub";
 export { HttpTransport } from "./http";
 export { NanoclawTransport } from "./nanoclaw";
 export { LoRaTransport } from "./lora";
+// ZenohTransport exported via dynamic import only (WASM dependency)

@@ -11,7 +11,7 @@
     "maw": "./src/cli.ts"
   },
   "scripts": {
-    "build": "bun build src/cli.ts --outfile dist/maw --target=bun --minify",
+    "build": "bun build src/cli.ts --outfile dist/maw --target=bun --minify --external @eclipse-zenoh/zenoh-ts",
     "deploy": "bun run build && bun src/cli.ts fleet sync && pm2 restart maw",
     "dev": "pm2 start ecosystem.config.cjs",
     "test": "MAW_TEST_MODE=1 bun test test/ --path-ignore-patterns '**/test/isolated/**' --path-ignore-patterns '**/zz-mock-tmux-smoke*' --path-ignore-patterns '**/agents/**'",
@@ -30,6 +30,7 @@
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
+    "@eclipse-zenoh/zenoh-ts": "^1.9.0",
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
     "@monaco-editor/react": "^4.7.0",
