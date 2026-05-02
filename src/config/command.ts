@@ -7,19 +7,23 @@ function matchGlob(pattern: string, name: string): boolean {
   return false;
 }
 
-export function buildCommand(agentName: string): string {
+export function buildCommand(agentName: string, engine?: string): string {
   const config = loadConfig();
-  let cmd = config.commands.default || "claude";
+  let cmd: string;
+
+  if (engine && config.commands[engine]) {
+    cmd = config.commands[engine];
+  } else {
+    cmd = config.commands.default || "claude";
+    for (const [pattern, command] of Object.entries(config.commands)) {
+      if (pattern === "default") continue;
+      if (matchGlob(pattern, agentName)) { cmd = command; break; }
+    }
+  }
 
   // Strip --dangerously-skip-permissions when running as root (#181)
   if (process.getuid?.() === 0) {
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/, "");
-  }
-
-  // Match specific patterns first (skip "default")
-  for (const [pattern, command] of Object.entries(config.commands)) {
-    if (pattern === "default") continue;
-    if (matchGlob(pattern, agentName)) { cmd = command; break; }
   }
 
   // Inject --session-id if configured for this agent
@@ -51,8 +55,8 @@ export function buildCommand(agentName: string): string {
  * already sets the initial pane cwd, and the scrollback noise wasn't worth
  * the reboot-recovery edge case. `cwd` param kept for API compat + future use.
  */
-export function buildCommandInDir(agentName: string, _cwd: string): string {
-  return buildCommand(agentName);
+export function buildCommandInDir(agentName: string, _cwd: string, engine?: string): string {
+  return buildCommand(agentName, engine);
 }
 
 export function getEnvVars(): Record<string, string> {

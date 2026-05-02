@@ -143,12 +143,13 @@ export async function invokeDirectHandler(
       "--list": Boolean,
       "--split": Boolean,
       "--all-local": Boolean,
+      "--engine": String, "-e": "--engine",
     }, 0);
 
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
       throw new UserError("wake: missing oracle name");
     }
 
@@ -162,6 +163,7 @@ export async function invokeDirectHandler(
       listWt?: boolean;
       split?: boolean;
       allLocal?: boolean;
+      engine?: string;
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
@@ -172,6 +174,7 @@ export async function invokeDirectHandler(
     if (flags["--list"]) opts.listWt = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
+    if (flags["--engine"]) opts.engine = flags["--engine"];
 
     await cmdWake(oracle, opts);
     return;

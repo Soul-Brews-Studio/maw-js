@@ -112,6 +112,26 @@ describe("buildCommand — post-#541 contract", () => {
     expect(inDir).not.toContain("{ ");
   });
 
+  test("engine param selects named command from config", () => {
+    fakeConfig.commands = { default: "claude", codex: "codex --search" };
+    expect(buildCommand("any-agent", "codex")).toBe("codex --search");
+  });
+
+  test("engine param falls back to default when engine not in config", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommand("any-agent", "gemini")).toBe("claude");
+  });
+
+  test("engine param skips pattern matching", () => {
+    fakeConfig.commands = { default: "claude", "foo-*": "echo pattern", codex: "codex --auto" };
+    expect(buildCommand("foo-bar", "codex")).toBe("codex --auto");
+  });
+
+  test("buildCommandInDir passes engine through", () => {
+    fakeConfig.commands = { default: "claude", codex: "codex --search" };
+    expect(buildCommandInDir("foo", "/tmp", "codex")).toBe("codex --search");
+  });
+
   test("no direnv / CLAUDECODE / cd preamble anywhere in output", () => {
     // Try a mix of configs and confirm the invariant holds for all.
     const configs: any[] = [

@@ -79,13 +79,22 @@ export async function getPaneCommand(target: string, host?: string): Promise<str
   return t.getPaneCommand(target);
 }
 
-/** Pane command looks like an AI agent — name match (claude/codex/node) or
- *  Claude Code 2.1+ versioned-binary signature (e.g. "2.1.121"). */
+/** Pane command looks like an AI agent — name match (claude/codex/node),
+ *  Claude Code 2.1+ versioned-binary signature (e.g. "2.1.121"), or any
+ *  binary from config.commands entries. */
 export function isAgentCommand(cmd: string | null | undefined): boolean {
   const c = (cmd ?? "").trim();
   if (!c) return false;
   if (/claude|codex|node/i.test(c)) return true;
   if (/^\d+\.\d+\.\d+$/.test(c)) return true;
+  try {
+    const { loadConfig } = require("../../config");
+    const commands: Record<string, string> = loadConfig().commands || {};
+    for (const v of Object.values(commands)) {
+      const bin = v.split(/\s/)[0];
+      if (bin && bin !== "default" && c.toLowerCase().includes(bin.toLowerCase())) return true;
+    }
+  } catch {}
   return false;
 }
 
