@@ -23,6 +23,7 @@
 
 import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
+import { cmdPreflight } from "../commands/shared/preflight";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -45,6 +46,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   cleanup: "Kill zombie agent panes",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
+  preflight: "Pre-flight check — version, plugins, dead agents, config",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -70,6 +72,8 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
+
+  preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
 };
 
 /**
@@ -190,6 +194,12 @@ export async function invokeDirectHandler(
     }
 
     await cmdWake(oracle, opts);
+    return;
+  }
+
+  if (exportName === "cmdPreflight") {
+    const flags = parseFlags(argv, { "--fix": Boolean }, 0);
+    await cmdPreflight({ fix: !!flags["--fix"] });
     return;
   }
 
