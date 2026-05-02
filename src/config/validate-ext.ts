@@ -70,6 +70,14 @@ function validateExtFields(
     }
   }
 
+  // zenoh: { locator: string }
+  if ("zenoh" in raw && raw.zenoh && typeof raw.zenoh === "object") {
+    const z = raw.zenoh as Record<string, unknown>;
+    if (typeof z.locator === "string") {
+      result.zenoh = { locator: z.locator };
+    }
+  }
+
   // pluginSources: string[] of URLs
   if ("pluginSources" in raw) {
     if (Array.isArray(raw.pluginSources)) {
