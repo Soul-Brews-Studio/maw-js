@@ -290,6 +290,22 @@ export async function runUpdate(args: string[]): Promise<void> {
           }
         }
         if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
+
+        // #1015 — prune symlinks that point to plugins no longer in the bundle.
+        let pruned = 0;
+        for (const entry of readdirSync(pluginDir)) {
+          const p = join(pluginDir, entry);
+          try {
+            if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
+              unlinkSync(p);
+              pruned++;
+            }
+          } catch {}
+        }
+        if (pruned > 0) {
+          console.log(`\n  \x1b[33m⚠\x1b[0m removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} (targets no longer exist)`);
+          console.log(`    run \x1b[90mmaw plugin install standard\x1b[0m to restore from registry`);
+        }
       }
     } catch {}
 

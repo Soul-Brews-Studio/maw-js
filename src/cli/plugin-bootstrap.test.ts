@@ -150,6 +150,40 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(readdirSync(pluginDir)).toEqual([]);
   });
 
+  it("#1015 — broken symlinks are pruned before linking", async () => {
+    makeBundledPlugin("alpha");
+
+    mkdirSync(pluginDir, { recursive: true });
+    // Simulate a broken symlink: points to a target that doesn't exist
+    symlinkSync("/nonexistent/old-maw-js/src/commands/plugins/workon", join(pluginDir, "workon"));
+    symlinkSync("/nonexistent/old-maw-js/src/commands/plugins/wake", join(pluginDir, "wake"));
+    // Verify they're broken
+    expect(lstatSync(join(pluginDir, "workon")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "workon"))).toBe(false);
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+
+    try {
+      await runBootstrap(pluginDir, srcDir);
+
+      // Broken symlinks removed
+      expect(existsSync(join(pluginDir, "workon"))).toBe(false);
+      expect(existsSync(join(pluginDir, "wake"))).toBe(false);
+      // But they shouldn't appear in readdirSync either
+      const entries = readdirSync(pluginDir);
+      expect(entries).not.toContain("workon");
+      expect(entries).not.toContain("wake");
+      // Bundled plugin still linked
+      expect(entries).toContain("alpha");
+      // Warning was logged
+      expect(warns.some(w => w.includes("2 broken plugin symlink"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it("pluginSources URL-fetch path is gated behind wasEmpty (only logs on first install)", async () => {
     // The `[maw] bootstrapped N plugins` console.log is inside the `wasEmpty`
     // branch alongside the URL-fetch logic — its presence/absence is a

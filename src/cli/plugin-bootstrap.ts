@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync } from "fs";
 import { join } from "path";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
@@ -24,6 +24,26 @@ const URL_SCHEME_RE = /^https?:\/\//;
  */
 export async function runBootstrap(pluginDir: string, srcDir: string): Promise<void> {
   mkdirSync(pluginDir, { recursive: true });
+
+  // 0. #1015 — prune broken symlinks before anything else. After an update
+  //    removes bundled plugins from src/commands/plugins/, their old symlinks
+  //    in ~/.maw/plugins/ become dangling. readdirSync still lists them, but
+  //    existsSync returns false (target gone). The plugin loader silently
+  //    skips them, so the user sees "unknown command" with no explanation.
+  let pruned = 0;
+  for (const entry of readdirSync(pluginDir)) {
+    const p = join(pluginDir, entry);
+    try {
+      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
+        unlinkSync(p);
+        pruned++;
+      }
+    } catch {}
+  }
+  if (pruned > 0) {
+    console.warn(`[maw] removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} from ${pluginDir}`);
+  }
+
   const wasEmpty = readdirSync(pluginDir).length === 0;
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
