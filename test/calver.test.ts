@@ -6,6 +6,7 @@ import {
   effectiveBase,
   extractBaseFromVersion,
   hhmmStamp,
+  isValidCalendarDate,
   maxAlphaFromTags,
   maxNFromPackageJson,
   maxNFromTags,
@@ -256,6 +257,35 @@ describe("calver compareBases (#819)", () => {
   });
 });
 
+describe("calver isValidCalendarDate (#1015)", () => {
+  it("valid dates pass", () => {
+    expect(isValidCalendarDate("26.1.1")).toBe(true);
+    expect(isValidCalendarDate("26.4.30")).toBe(true);
+    expect(isValidCalendarDate("26.2.29")).toBe(true); // Feb 29 (leap)
+    expect(isValidCalendarDate("26.12.31")).toBe(true);
+  });
+
+  it("ghost dates fail (day exceeds month)", () => {
+    expect(isValidCalendarDate("26.4.53")).toBe(false); // the v26.4.53 ghost
+    expect(isValidCalendarDate("26.4.31")).toBe(false); // April has 30 days
+    expect(isValidCalendarDate("26.2.30")).toBe(false); // Feb max 29
+  });
+
+  it("invalid month fails", () => {
+    expect(isValidCalendarDate("26.0.1")).toBe(false);
+    expect(isValidCalendarDate("26.13.1")).toBe(false);
+  });
+
+  it("day 0 fails", () => {
+    expect(isValidCalendarDate("26.1.0")).toBe(false);
+  });
+
+  it("malformed input fails", () => {
+    expect(isValidCalendarDate("26.4")).toBe(false);
+    expect(isValidCalendarDate("26.4.5.1")).toBe(false);
+  });
+});
+
 describe("calver effectiveBase (#819)", () => {
   it("picks package.json base when ahead of today", () => {
     expect(effectiveBase("26.4.28", "26.4.29-alpha.5")).toBe("26.4.29");
@@ -277,6 +307,14 @@ describe("calver effectiveBase (#819)", () => {
   it("handles bare future stable (post-cut shape, no suffix)", () => {
     // Just-cut tomorrow's stable: package.json holds bare 26.4.30 with no suffix.
     expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
+  });
+
+  it("#1015: ghost date (day > month max) falls back to today", () => {
+    // The v26.4.53 ghost — April has no day 53. Without the guard,
+    // effectiveBase picks 26.4.53 because 53 > 30. With the guard,
+    // it detects the invalid calendar date and falls back to today.
+    expect(effectiveBase("26.4.30", "26.4.53")).toBe("26.4.30");
+    expect(effectiveBase("26.5.2", "26.4.53")).toBe("26.5.2");
   });
 });
 

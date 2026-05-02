@@ -130,6 +130,17 @@ export function compareBases(a: string, b: string): number {
   return 0;
 }
 
+const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+export function isValidCalendarDate(base: string): boolean {
+  const parts = base.split(".").map(x => parseInt(x, 10));
+  if (parts.length !== 3) return false;
+  const [, m, d] = parts;
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > DAYS_IN_MONTH[m]) return false;
+  return true;
+}
+
 /**
  * #819: pick the effective base for the next bump — the later of today's
  * clock-derived base and the package.json-derived base. This prevents the
@@ -137,10 +148,15 @@ export function compareBases(a: string, b: string): number {
  * clock still reads `YY.M.D` (tomorrow's stable already cut, today's clock
  * still ticking). Without this, the script targets `YY.M.D-alpha.0` — a
  * downgrade against `YY.M.(D+1)-alpha.N`.
+ *
+ * #1015 ghost-date guard: if the package.json base has a day that doesn't
+ * exist in the calendar (e.g. April 53), it's a ghost from legacy monotonic
+ * stable bumps. Always fall back to today's real date.
  */
 export function effectiveBase(todayBase: string, packageVersion: string): string {
   const pkgBase = extractBaseFromVersion(packageVersion);
   if (!pkgBase) return todayBase;
+  if (!isValidCalendarDate(pkgBase)) return todayBase;
   return compareBases(pkgBase, todayBase) > 0 ? pkgBase : todayBase;
 }
 
@@ -245,6 +261,12 @@ async function main() {
   // source-of-truth set for the monotonic counter (see computeVersion).
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+
+  // #1015: warn on ghost dates in package.json.
+  const pkgBase = extractBaseFromVersion(pkg.version ?? "");
+  if (pkgBase && !isValidCalendarDate(pkgBase)) {
+    console.error(`⚠ ghost date in package.json: ${pkg.version} (day ${pkgBase.split(".")[2]} doesn't exist) → using ${todayBase}`);
+  }
 
   // #819: choose the effective base before fetching tags so we list tags for
   // the correct date when package.json is future-dated.
