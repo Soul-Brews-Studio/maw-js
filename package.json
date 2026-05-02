@@ -95,7 +95,13 @@
     "./commands/shared/fleet-load": "./src/commands/shared/fleet-load.ts",
     "./commands/shared/queue-store": "./src/commands/shared/queue-store.ts",
     "./commands/shared/scan-signals": "./src/commands/shared/scan-signals.ts",
+    "./commands/shared/federation": "./src/commands/shared/federation.ts",
+    "./commands/shared/federation-sync": "./src/commands/shared/federation-sync.ts",
+    "./commands/shared/pulse": "./src/commands/shared/pulse.ts",
+    "./commands/shared/should-auto-wake": "./src/commands/shared/should-auto-wake.ts",
+    "./commands/shared/triggers": "./src/commands/shared/triggers.ts",
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
+    "./commands/shared/wake-cmd": "./src/commands/shared/wake-cmd.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
     "./commands/shared/workspace": "./src/commands/shared/workspace.ts"
