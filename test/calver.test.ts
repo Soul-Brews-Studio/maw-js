@@ -309,9 +309,9 @@ describe("calver effectiveBase (#819)", () => {
     expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
   });
 
-  it("#1015: ghost date (day > month max) throws", () => {
-    expect(() => effectiveBase("26.4.30", "26.4.53")).toThrow("ghost date");
-    expect(() => effectiveBase("26.5.2", "26.4.53")).toThrow("ghost date");
+  it("#1015: ghost date (day > month max) falls back to today", () => {
+    expect(effectiveBase("26.4.30", "26.4.53")).toBe("26.4.30");
+    expect(effectiveBase("26.5.2", "26.4.53")).toBe("26.5.2");
   });
 });
 

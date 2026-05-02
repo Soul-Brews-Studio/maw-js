@@ -150,15 +150,14 @@ export function isValidCalendarDate(base: string): boolean {
  * downgrade against `YY.M.(D+1)-alpha.N`.
  *
  * #1015 ghost-date guard: if the package.json base has a day that doesn't
- * exist in the calendar (e.g. April 53), throw — the base is corrupted and
- * must be fixed before cutting a release.
+ * exist in the calendar (e.g. April 53), fall back to today — the base is
+ * corrupted. main() auto-fixes package.json before reaching here, but
+ * direct callers get a safe fallback instead of a crash.
  */
 export function effectiveBase(todayBase: string, packageVersion: string): string {
   const pkgBase = extractBaseFromVersion(packageVersion);
   if (!pkgBase) return todayBase;
-  if (!isValidCalendarDate(pkgBase)) {
-    throw new Error(`ghost date in package.json: ${packageVersion} (day ${pkgBase.split(".")[2]} doesn't exist in month ${pkgBase.split(".")[1]}) — fix package.json version to a real date`);
-  }
+  if (!isValidCalendarDate(pkgBase)) return todayBase;
   return compareBases(pkgBase, todayBase) > 0 ? pkgBase : todayBase;
 }
 
@@ -264,23 +263,25 @@ async function main() {
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
-  // #1015: hard-fail on ghost dates in package.json. A ghost (e.g. April 53)
-  // means the CalVer base is corrupted and must be fixed before cutting.
+  // #1015: auto-fix ghost dates in package.json. A ghost (e.g. April 53)
+  // is a corrupted CalVer base from legacy monotonic stable bumps. Instead
+  // of erroring, reset to today's real date and continue.
   const pkgBase = extractBaseFromVersion(pkg.version ?? "");
   if (pkgBase && !isValidCalendarDate(pkgBase)) {
     const [, mo, da] = pkgBase.split(".").map(Number);
     const MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const DAYS = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     const maxDay = mo >= 1 && mo <= 12 ? DAYS[mo] : "?";
-    console.error(`\n❌ ghost date in package.json: ${pkg.version}`);
-    console.error(`   day ${da} doesn't exist in ${MONTH_NAMES[mo] || `month ${mo}`} (max: ${maxDay})`);
-    console.error(`\n   CalVer scheme: v{YY}.{M}.{D}[-{channel}.{HMM}]`);
-    console.error(`     YY   = year (${now.getFullYear() % 100})`);
-    console.error(`     M    = month 1-12 (${now.getMonth() + 1} = ${MONTH_NAMES[now.getMonth() + 1]})`);
-    console.error(`     D    = day of month 1-${DAYS[now.getMonth() + 1]} (today: ${now.getDate()})`);
-    console.error(`     HMM  = hour*100 + minute (wall clock)`);
-    console.error(`\n   fix: set "version" to "${todayBase}" in package.json, then re-run\n`);
-    process.exit(1);
+    console.error(`\n⚠ ghost date in package.json: ${pkg.version}`);
+    console.error(`  day ${da} doesn't exist in ${MONTH_NAMES[mo] || `month ${mo}`} (max: ${maxDay})`);
+    console.error(`\n  CalVer scheme: v{YY}.{M}.{D}[-{channel}.{HMM}]`);
+    console.error(`    YY   = year (${now.getFullYear() % 100})`);
+    console.error(`    M    = month 1-12 (${now.getMonth() + 1} = ${MONTH_NAMES[now.getMonth() + 1]})`);
+    console.error(`    D    = day of month 1-${DAYS[now.getMonth() + 1]} (today: ${now.getDate()})`);
+    console.error(`    HMM  = hour*100 + minute (wall clock)`);
+    console.error(`\n  auto-fix: resetting base to ${todayBase}\n`);
+    pkg.version = todayBase;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   }
 
   // #819: choose the effective base before fetching tags so we list tags for
