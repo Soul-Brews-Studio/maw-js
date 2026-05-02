@@ -1,4 +1,4 @@
-import { hostExec, tmux, restoreTabOrder, takeSnapshot } from "../../sdk";
+import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
@@ -237,7 +237,24 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
       }
-      console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' already running in ${session}`);
+      // Check if agent is actually alive in the pane
+      const target = `${session}:${existingWindow}`;
+      const infos = await getPaneInfos([target]);
+      const info = infos[target];
+      const agentAlive = info && isAgentCommand(info.command);
+
+      if (!agentAlive) {
+        console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
+        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        if (opts.attach) {
+          await tmux.selectWindow(target);
+          await attachToSession(session);
+        }
+        await maybeSplit(target, opts);
+        return target;
+      }
+
+      console.log(`\x1b[32m⚡\x1b[0m '${existingWindow}' running in ${session}`);
       if (!opts.attach && process.stdin.isTTY) {
         process.stdout.write(`  attach? [y/N] `);
         const { openSync, readSync, closeSync } = await import("fs");
@@ -251,11 +268,11 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         } catch {}
       }
       if (opts.attach) {
-        await tmux.selectWindow(`${session}:${existingWindow}`);
+        await tmux.selectWindow(target);
         await attachToSession(session);
       }
-      await maybeSplit(`${session}:${existingWindow}`, opts);
-      return `${session}:${existingWindow}`;
+      await maybeSplit(target, opts);
+      return target;
     }
   } catch { /* session might be fresh */ }
 
