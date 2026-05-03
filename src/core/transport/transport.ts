@@ -56,7 +56,7 @@ export interface TransportMessage {
   to: string;            // recipient oracle name
   body: string;          // the actual message text
   timestamp: number;     // epoch ms
-  transport: "tmux" | "mqtt" | "http" | "hub";  // which channel carried it
+  transport: "tmux" | "mqtt" | "http" | "hub" | "scout";  // which channel carried it
 }
 
 /** Presence info broadcast by each host */

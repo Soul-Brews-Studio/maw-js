@@ -10,6 +10,7 @@ import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { LoRaTransport } from "./lora";
 import { NanoclawTransport } from "./nanoclaw";
 import { MdnsTransport } from "./mdns";
+import { ScoutTransport } from "./scout";
 // ZenohTransport loaded dynamically — zenoh-ts bundles WASM that conflicts with single-file build
 
 /** Singleton router instance */
@@ -33,15 +34,17 @@ export function createTransportRouter(): TransportRouter {
     router.register(new HubTransport(config.node));
   }
 
-  // 2.5. mDNS P2P — auto-discovery + direct messaging (no config needed)
+  // 2.5. Scout P2P — zenoh-inspired zero-config LAN discovery + auto-pairing
   const oracles = Object.keys(config.agents || {}).filter(k => k.endsWith("-oracle"));
-  const mdns = new MdnsTransport({
+  const scout = new ScoutTransport({
     node: config.node ?? "local",
+    oracle: config.oracle ?? "mawjs",
     port: config.port ?? 3456,
     oracles,
+    autoPair: true,
   });
-  mdns.connect().catch(() => {});
-  router.register(mdns);
+  scout.connect().catch(() => {});
+  router.register(scout);
 
   // 2.6. Zenoh transport — pub/sub + auto-discovery (dynamic import — WASM)
   if (config.zenoh?.locator) {
@@ -93,4 +96,5 @@ export { HttpTransport } from "./http";
 export { NanoclawTransport } from "./nanoclaw";
 export { LoRaTransport } from "./lora";
 export { MdnsTransport } from "./mdns";
+export { ScoutTransport } from "./scout";
 // ZenohTransport exported via dynamic import only (WASM dependency)

@@ -62,3 +62,48 @@ pairApi.get("/pair/:code/status", ({ params, set }) => {
 });
 
 export function _resetResults(): void { results.clear(); }
+
+// ─── Auto-pair (scout discovery) ─────────────────────────────────────
+
+const recentHellos = new Map<string, number>();
+const HELLO_WINDOW_MS = 60_000;
+
+/** Called by ScoutTransport when a Hello is received, to track zid for anti-replay */
+export function recordHelloZid(zid: string): void {
+  recentHellos.set(zid, Date.now());
+  // prune old entries
+  const cutoff = Date.now() - HELLO_WINDOW_MS;
+  for (const [k, v] of recentHellos) {
+    if (v < cutoff) recentHellos.delete(k);
+  }
+}
+
+pairApi.post("/pair/auto", async ({ body, set }) => {
+  const b = (body ?? {}) as { node?: string; oracle?: string; url?: string; zid?: string; capabilities?: string[] };
+
+  if (!b.node || !b.url || !b.zid) {
+    set.status = 400;
+    return { ok: false, error: "missing_fields" };
+  }
+
+  // anti-replay: must have seen a Hello from this zid recently
+  const helloTs = recentHellos.get(b.zid);
+  if (!helloTs || Date.now() - helloTs > HELLO_WINDOW_MS) {
+    set.status = 403;
+    return { ok: false, error: "no_recent_hello" };
+  }
+
+  const id = me();
+  try {
+    await cmdAdd({ alias: b.node, url: b.url, node: b.node });
+  } catch {}
+
+  recentHellos.delete(b.zid);
+
+  return {
+    ok: true,
+    node: id.node,
+    oracle: "mawjs",
+    url: `http://localhost:${id.port}`,
+  };
+});
