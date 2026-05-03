@@ -164,8 +164,24 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     },
   };
 
+  const corsHeaders = (req: Request) => {
+    const origin = req.headers.get("origin") ?? "*";
+    return {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Federation-Token, X-From-Signature",
+      "Access-Control-Allow-Private-Network": "true",
+    };
+  };
+
   const fetchHandler = (req: Request, server: any) => {
     const url = new URL(req.url);
+
+    // CORS preflight for all routes
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(req) });
+    }
+
     if (url.pathname === "/ws/pty") {
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -174,12 +190,22 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set() } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
-    // Elysia handles all /api/* routes
+    // Elysia handles all /api/* routes (has its own CORS)
     if (url.pathname.startsWith("/api")) {
       return api.handle(req);
     }
-    // Hono handles views + static
-    return views.fetch(req, { server });
+    // Hono handles views + static — clone response with CORS headers
+    const addCors = (r: Response) => {
+      const h = corsHeaders(req);
+      return new Response(r.body, {
+        status: r.status,
+        statusText: r.statusText,
+        headers: { ...Object.fromEntries(r.headers.entries()), ...h },
+      });
+    };
+    const res = views.fetch(req, { server });
+    if (res instanceof Promise) return res.then(addCors);
+    return addCors(res as Response);
   };
 
   // HTTP server (always)
