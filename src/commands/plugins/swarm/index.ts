@@ -1,4 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import type { AgentColor } from "../tmux/layout-manager";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
@@ -89,6 +90,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const { loadConfig } = await import("../../../config");
     const configCommands = loadConfig().commands || {};
 
+    const paneIds: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor }[] = [];
     for (let i = 0; i < agentList.length; i++) {
       const agentType = agentList[i];
       const known = KNOWN_AGENTS[agentType];
@@ -98,34 +100,50 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const name = `${agentType}-${i + 1}`;
       const color = nextAgentColor(i);
       const agentId = `${name}@${teamName}`;
+
+      paneIds.push({ name, agentId, agentCmd, label, color });
+    }
+
+    // Phase 1: Split all panes (empty shells) — no agents yet
+    const spawned: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor; paneId: string }[] = [];
+    for (const agent of paneIds) {
       const targetFlag = anchor ? `-t '${anchor}' ` : "";
-
-      const shellCmd = `${agentCmd}; exec zsh`;
-
       let paneId = "";
       await withPaneLock(async () => {
         paneId = (await hostExec(
-          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${shellCmd.replace(/'/g, "'\\''")}'`,
+          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'exec zsh -li'`,
         )).trim();
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 100));
       });
+      spawned.push({ ...agent, paneId });
+    }
 
-      await stylePaneBorder(paneId, `${name} (${label})`, color);
+    // Phase 2: Apply layout ONCE — all panes get their final sizes
+    const window = await getWindowTarget();
+    if (tiled) {
+      await applyTiledLayout(window);
+    } else if (anchor) {
+      await applyTeamLayout(window, anchor);
+    }
+    await enableBorderStatus(window);
+    await new Promise(r => setTimeout(r, 200));
 
-      const existing = config.members.findIndex((m: any) => m.name === name);
-      const entry = { name, agentId, tmuxPaneId: paneId, color, model: agentType };
+    // Phase 3: Start agents in correctly-sized panes
+    for (const agent of spawned) {
+      await stylePaneBorder(agent.paneId, `${agent.name} (${agent.label})`, agent.color);
+
+      const escaped = agent.agentCmd.replace(/'/g, "'\\''");
+      await hostExec(
+        `tmux send-keys -t '${agent.paneId}' '${escaped}; printf "\\e[?1049l"; clear; exec zsh -li' Enter`,
+      );
+      await new Promise(r => setTimeout(r, 200));
+
+      const existing = config.members.findIndex((m: any) => m.name === agent.name);
+      const entry = { name: agent.name, agentId: agent.agentId, tmuxPaneId: agent.paneId, color: agent.color, model: agent.agentCmd };
       if (existing >= 0) config.members[existing] = entry;
       else config.members.push(entry);
 
-      const window = await getWindowTarget();
-      if (tiled) {
-        await applyTiledLayout(window);
-      } else if (anchor) {
-        await applyTeamLayout(window, anchor);
-      }
-      await enableBorderStatus(window);
-
-      console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${name} (${label}) → ${paneId}`);
+      console.log(`  \x1b[${colorAnsi(agent.color)}m●\x1b[0m ${agent.name} (${agent.label}) → ${agent.paneId}`);
     }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2));
