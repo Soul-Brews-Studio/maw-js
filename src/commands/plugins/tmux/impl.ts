@@ -612,6 +612,16 @@ function suggestRecovery(target: string, session: string, source: string): void 
     process.exit(1);
   }
 
+  if (candidates.length === 1) {
+    const picked = candidates[0];
+    console.log(`\n  \x1b[36m→\x1b[0m auto-selecting: ${picked.label}`);
+    console.log(`  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+    const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
+
   if (!_tty.isStdoutTTY()) {
     console.log("");
     for (const c of candidates) {
