@@ -1,4 +1,23 @@
 import { loadConfig } from "./load";
+import { homedir } from "os";
+
+/**
+ * Expand a leading `~` to the user's home directory.
+ *
+ * Channel config (`~/.claude/channels/<oracle>/config.json`) accepts paths
+ * like `"~/.claude/channels/foo"` in env values. JSON has no shell, so the
+ * tilde reaches `buildCommand` as a literal `~`. The env-prepend block
+ * single-quotes values, which suppresses tilde expansion at exec time too,
+ * so the plugin sees `DISCORD_STATE_DIR=~/.claude/...` literally and either
+ * fails to find the dir or silently falls back to a default.
+ *
+ * Expand here, before quoting. Only triggers when `~` is the first character
+ * and followed by `/` or end-of-string — won't touch usernames embedded
+ * elsewhere in the value. (#1135)
+ */
+function expandTilde(value: string): string {
+  return value.replace(/^~(?=\/|$)/, homedir());
+}
 
 function matchGlob(pattern: string, name: string): boolean {
   if (pattern === name) return true;
@@ -35,7 +54,7 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // because tmux set-environment only affects NEW shells, not the existing one
   if (opts.channelEnv && Object.keys(opts.channelEnv).length > 0) {
     const envPrefix = Object.entries(opts.channelEnv)
-      .map(([k, v]) => `${k}='${v.replace(/'/g, "'\\''")}'`)
+      .map(([k, v]) => `${k}='${expandTilde(v).replace(/'/g, "'\\''")}'`)
       .join(" ");
     cmd = `${envPrefix} ${cmd}`;
   }

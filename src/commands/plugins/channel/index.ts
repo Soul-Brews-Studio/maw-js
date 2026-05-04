@@ -66,9 +66,12 @@ github: prefix → delegates to setup wizard`,
 
       const newPlugin: ChannelPlugin = { id: pluginId };
 
-      // Auto-set DISCORD_STATE_DIR for discord plugins
+      // Auto-set DISCORD_STATE_DIR for discord plugins. Use absolute path —
+      // Bun/Node don't expand `~` in JSON values; storing a literal tilde
+      // here would fail at exec time (#1135).
       if (pluginId.includes("discord")) {
-        newPlugin.env = { DISCORD_STATE_DIR: `~/.claude/channels/${oracle}` };
+        const home = require("os").homedir();
+        newPlugin.env = { DISCORD_STATE_DIR: `${home}/.claude/channels/${oracle}` };
       }
 
       // --env KEY=VAL

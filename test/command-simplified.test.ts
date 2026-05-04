@@ -162,3 +162,57 @@ describe("buildCommand — post-#541 contract", () => {
     }
   });
 });
+
+describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
+  test("leading tilde in env value expands to homedir before single-quoting", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channelEnv: { DISCORD_STATE_DIR: "~/.claude/channels/mybot" },
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    const home = require("os").homedir();
+    expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
+    // Critically: the literal tilde must NOT survive into the quoted value.
+    expect(out).not.toContain("'~/.claude/channels/mybot'");
+  });
+
+  test("tilde in middle of value is left alone (only leading ~ expands)", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channelEnv: { WEIRD: "/path/with/~/inside" },
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    expect(out).toContain("WEIRD='/path/with/~/inside'");
+  });
+
+  test("absolute path env value is preserved verbatim (already-fixed configs)", () => {
+    fakeConfig.commands = { default: "claude" };
+    const home = require("os").homedir();
+    const out = buildCommand("bot", {
+      channelEnv: { DISCORD_STATE_DIR: `${home}/.claude/channels/mybot` },
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
+  });
+
+  test("single quotes inside env value are still escaped after tilde expansion", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channelEnv: { TRICKY: "~/path with 'quotes'" },
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    const home = require("os").homedir();
+    // Single quote inside the value gets the canonical "'\\''" escape sequence.
+    expect(out).toContain(`TRICKY='${home}/path with '\\''quotes'\\'''`);
+  });
+
+  test("bare tilde (~ alone, no slash) also expands", () => {
+    fakeConfig.commands = { default: "claude" };
+    const home = require("os").homedir();
+    const out = buildCommand("bot", {
+      channelEnv: { JUST_TILDE: "~" },
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    expect(out).toContain(`JUST_TILDE='${home}'`);
+  });
+});
