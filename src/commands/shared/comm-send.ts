@@ -250,10 +250,16 @@ export async function cmdSend(
     const isCanonical = parts.length >= 3;
     const isLocalScope = !targetNode || targetNode === config.node;
     if (isLocalScope && bareAgent && !isCanonical) {
-      const hasLocalSession = sessions.some(s =>
-        s.name === bareAgent ||
-        s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
-      );
+      // #1107: check fleet config first — if fleet maps this oracle to a
+      // running session, it's live (don't fall through to substring matching)
+      const { resolveFleetSession } = await import("./wake");
+      const fleetSess = resolveFleetSession(bareAgent);
+      const hasLocalSession = (fleetSess && sessions.some(s => s.name === fleetSess)) ||
+        sessions.some(s =>
+          s.name === bareAgent ||
+          s.name.replace(/^\d+-/, "") === bareAgent ||
+          s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
+        );
       try {
         // Sub-PR 4 of #841: use the unified OracleManifest as the source of
         // truth for `isFleetKnown`. We still derive `isLive` from the freshly

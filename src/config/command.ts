@@ -42,6 +42,14 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
 
   if (opts.channels?.length) {
     cmd += " --channels " + opts.channels.join(" ");
+    // #1108: channel-enabled oracles (Discord/Telegram bots) run autonomous —
+    // permission prompts block unattended sessions (Mother stuck 20+ min).
+    if (!cmd.includes("--dangerously-skip-permissions")) {
+      cmd += " --dangerously-skip-permissions";
+    }
+    if (!cmd.includes("--continue") && !cmd.includes("--resume")) {
+      cmd += " --continue";
+    }
   }
   if (opts.devChannels) {
     cmd += " --dangerously-load-development-channels";

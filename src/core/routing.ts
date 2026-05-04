@@ -70,20 +70,22 @@ export function resolveTarget(
 
   const selfNode = config.node ?? "local";
 
-  // --- Step 1: Local findWindow + fleet config ---
-  const localTarget = findWindow(writable, query);
-  if (localTarget) {
-    return { type: "local", target: localTarget };
-  }
-  // Fleet config: oracle name → session name → findWindow (#281)
+  // --- Step 1: Fleet config first, then local findWindow (#1107) ---
+  // Fleet config is authoritative — check it BEFORE substring matching
+  // to prevent "discord" matching "hermes-discord" when fleet says
+  // discord → 24-discord-oracle.
   const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
   if (fleetSession) {
     const fleetTarget = findWindow(writable.filter(s => s.name === fleetSession), query)
       || findWindow(writable.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
     if (fleetTarget) return { type: "local", target: fleetTarget };
-    // Fleet config matched but session not running — try first window of fleet session
     const fleetSess = writable.find(s => s.name === fleetSession);
     if (fleetSess?.windows.length) return { type: "local", target: `${fleetSession}:${fleetSess.windows[0].index}` };
+  }
+  // Fallback to general findWindow (catches non-fleet sessions)
+  const localTarget = findWindow(writable, query);
+  if (localTarget) {
+    return { type: "local", target: localTarget };
   }
 
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---
@@ -93,16 +95,19 @@ export function resolveTarget(
     const agentName = query.slice(colonIdx + 1);
     if (!nodeName || !agentName) return { type: "error", reason: "empty_node_or_agent", detail: `invalid format: '${query}'`, hint: "use node:agent format (e.g. mba:homekeeper)" };
 
-    // Self-node check: "white:mawjs" from white → resolve locally
+    // Self-node check: "m5:discord" from m5 → resolve locally
+    // #1107: fleet config first to prevent substring collision
     if (nodeName === selfNode) {
-      const selfTarget = findWindow(writable, agentName);
-      if (selfTarget) return { type: "self-node", target: selfTarget };
-      // Try fleet config resolution (#281)
       const selfFleet = resolveFleetSession(agentName) || resolveFleetSession(agentName.replace(/-oracle$/, ""));
       if (selfFleet) {
+        const fleetTarget = findWindow(writable.filter(s => s.name === selfFleet), agentName)
+          || findWindow(writable.filter(s => s.name === selfFleet), agentName.replace(/-oracle$/, ""));
+        if (fleetTarget) return { type: "self-node", target: fleetTarget };
         const fleetSess = writable.find(s => s.name === selfFleet);
         if (fleetSess?.windows.length) return { type: "self-node", target: `${selfFleet}:${fleetSess.windows[0].index}` };
       }
+      const selfTarget = findWindow(writable, agentName);
+      if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }
 
