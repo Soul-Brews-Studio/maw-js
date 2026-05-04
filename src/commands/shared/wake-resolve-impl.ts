@@ -58,6 +58,22 @@ export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
 ): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
+  // #1104 — fleet pin wins over ghq scan. When fleet config specifies a full
+  // org/repo slug, use it for an org-qualified ghq lookup so duplicate repo
+  // names across orgs resolve correctly.
+  try {
+    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
+      if (win?.repo && win.repo.includes("/")) {
+        const fleetHit = await ghqFind(`/${win.repo}`);
+        if (fleetHit) {
+          return { repoPath: fleetHit, repoName: fleetHit.split("/").pop()!, parentDir: fleetHit.replace(/\/[^/]+$/, "") };
+        }
+      }
+    }
+  } catch { /* fleet dir may not exist */ }
+
   const ghqHit = await ghqFind(`/${oracle}-oracle`);
   if (ghqHit) {
     const repoPath = ghqHit;
