@@ -276,6 +276,12 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     return null;
   }
 
+  // #1107: fleet config is authoritative — check FIRST before substring matching.
+  // "discord" → fleet says "24-discord-oracle", use that. Don't let substring
+  // matching grab "18-hermes-discord" first.
+  const fleetSession = resolveFleetSession(oracle);
+  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
   // fleet sessions suffix-match, surface loudly rather than silently picking one.
@@ -289,8 +295,6 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   }
 
   // No fleet match — defer to the canonical resolver on non-ephemeral sessions
-  // (wake shouldn't treat a *-view clone as "the oracle is running"). Exact
-  // wins; ambiguous non-numeric matches surface loudly.
   const candidates = sessions.filter(s => !s.name.endsWith("-view") && !s.name.startsWith("maw-pty-"));
   const r = resolveSessionTarget(oracle, candidates);
   if (r.kind === "exact" || r.kind === "fuzzy") return r.match.name;
@@ -301,8 +305,6 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
-  const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
   return null;
 }
 
