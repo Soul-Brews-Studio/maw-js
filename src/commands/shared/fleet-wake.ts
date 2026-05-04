@@ -1,4 +1,4 @@
-import { readdirSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmux, FLEET_DIR, saveTabOrder, restoreTabOrder } from "../../sdk";
 import { buildCommand, getEnvVars } from "../../config";
@@ -76,6 +76,16 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       // not under github.com/<org>/<repo>. Falling back to /root via missing-cwd was making
       // every Oracle session inherit Labubu's CLAUDE.md identity.
       const firstPath = join(getGhqRoot(), first.repo);
+      // #748 follow-up — tmux silently falls back to $HOME when -c <missing-path>,
+      // which re-surfaces the wrong-CLAUDE.md bug if ghqRoot resolves to a stale value
+      // (e.g. test fixture leak setting "/tmp/nope"). Refuse to spawn into a missing
+      // path; raise a clear error instead of silently inheriting the wrong identity.
+      if (!existsSync(firstPath)) {
+        throw new Error(
+          `wake: refusing to spawn ${sess.name} — cwd "${firstPath}" does not exist. ` +
+          `Check ghqRoot resolution (config.ghqRoot, $GHQ_ROOT, \`ghq root\`) and fleet config repo "${first.repo}".`,
+        );
+      }
       await tmux.newSession(sess.name, { window: first.name, cwd: firstPath });
       await pinSessionWide(sess.name);
       for (const [key, val] of Object.entries(getEnvVars())) {
@@ -101,6 +111,15 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       for (let i = 1; i < sess.windows.length; i++) {
         const win = sess.windows[i];
         const winPath = join(getGhqRoot(), win.repo);
+        if (!existsSync(winPath)) {
+          // Skip rather than throw — first-window throw already surfaced the
+          // root cause; per-window failures should fail-soft so other windows
+          // in the same session still wake.
+          process.stderr.write(
+            `[maw] wake: skipping ${sess.name}:${win.name} — cwd "${winPath}" does not exist.\n`,
+          );
+          continue;
+        }
         try {
           await tmux.newWindow(sess.name, win.name, { cwd: winPath });
           await pinWindowWide(`${sess.name}:${win.name}`);
