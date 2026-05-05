@@ -176,7 +176,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; type?: string; color?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -252,22 +252,38 @@ export async function cmdTeamSpawn(
   console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
   console.log(`  \x1b[90mprompt: ${promptPath}\x1b[0m`);
 
-  // #393 Bug C — opt-in auto-spawn via splitWindowLocked. Default behavior
-  // (print-only) is unchanged. With --exec, we split the current pane and
-  // run the printed claude command inside it. Requires $TMUX (must be
-  // inside an active tmux session).
+  // Capture parent session ID for agent-teams protocol
+  const parentSessionId = process.env.CLAUDE_SESSION_ID || "";
+
+  // Build the full agent-teams claude command
+  const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
+  const agentType = opts.type || "general-purpose";
+  const agentColor = opts.color || ["yellow", "green", "blue", "red", "cyan"][teammateCount % 5];
+  const agentId = `${role}@${teamName}`;
+  const envPrefix = "CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1";
+  const claudeCmd = [
+    envPrefix,
+    "claude",
+    `--agent-id '${agentId}'`,
+    `--agent-name '${role}'`,
+    `--team-name '${teamName}'`,
+    `--agent-color ${agentColor}`,
+    parentSessionId ? `--parent-session-id ${parentSessionId}` : "",
+    `--agent-type ${agentType}`,
+    "--dangerously-skip-permissions",
+    `--model ${model}`,
+    `--system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`,
+  ].filter(Boolean).join(" ");
+
   if (opts.exec) {
     if (!process.env.TMUX) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
       return;
     }
     try {
       const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
-      const claudeCmd = `claude --model ${model} --system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
-      const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
-      const agentId = `${role}@${teamName}`;
 
       const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
 
@@ -295,11 +311,11 @@ export async function cmdTeamSpawn(
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
     }
     return;
   }
 
   console.log();
-  console.log(`  \x1b[36mRun:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+  console.log(`  \x1b[36mRun:\x1b[0m ${claudeCmd}`);
 }

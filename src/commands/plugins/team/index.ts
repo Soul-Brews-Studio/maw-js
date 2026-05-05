@@ -75,13 +75,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
 subcommands:
   create <name>            create a new team (alias: new)
+  spawn <team> <role>      spawn agent into team
   delete <name>            delete a team
   status                   show team status
   invite <oracle>          invite oracle to team
   members <name>           list team members
   send <name> <message>    send message to team
 
-flags: --description <text>, --members <list>`,
+spawn flags:
+  --model <model>          model to use (e.g. opus, sonnet)
+  --type <type>            agent capability tier: Explore | general-purpose | Plan (default: general-purpose)
+  --color <color>          agent terminal color: yellow | green | blue | red | cyan (default: auto-rotate)
+  --exec                   execute agent immediately
+  --prompt <text>          initial prompt (greedy — consumes rest of args)
+
+general flags: --description <text>, --members <list>`,
       };
     }
 
@@ -95,20 +103,24 @@ flags: --description <text>, --members <list>`,
       cmdTeamCreate(args[1], { description });
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--prompt <text>] [--exec]");
+        logs.push("usage: maw team spawn <team> <role> [--model <m>] [--type <t>] [--color <c>] [--exec] [--prompt <p>]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
+      const typeIdx = args.indexOf("--type");
+      const type = typeIdx !== -1 ? args[typeIdx + 1] : undefined;
+      const colorIdx = args.indexOf("--color");
+      const color = colorIdx !== -1 ? args[colorIdx + 1] : undefined;
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
-      // --prompt is greedy to end-of-argv; strip --exec if it appears in the tail
+      // --prompt is greedy to end-of-argv; strip known flags if they appear in the tail
       let prompt: string | undefined;
       if (promptIdx !== -1) {
         const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec");
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec });
+      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, type, color });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");
