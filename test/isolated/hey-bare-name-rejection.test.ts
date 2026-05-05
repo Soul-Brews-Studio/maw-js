@@ -1,14 +1,25 @@
 /**
- * hey-bare-name-rejection.test.ts — #759 Phase 2.
+ * hey-bare-name-rejection.test.ts — #759 Phase 2 + #1136.
  *
- * Verifies that `maw hey <bare-name> "..."` is now a hard error: cmdSend
- * MUST print the Phase 2 error shape on stderr and exit non-zero BEFORE
- * any tmux / sdk / network resolution work happens. No fallthrough, no
- * MAW_QUIET escape hatch.
+ * Verifies the bare-name contract:
+ *
+ *   #759 Phase 2 (#785) — bare-name targets cannot fall through to the
+ *   generic "window not found" path. The Phase 2 error shape (with this-node
+ *   suggestion + cross-node placeholders + `maw locate` hint) is what the
+ *   user sees instead.
+ *
+ *   #1136 (relaxation) — when the local resolver finds an unambiguous local
+ *   match, the bare name resolves and delivery proceeds. Federation safety
+ *   is preserved: the bare-name error still fires when local resolution
+ *   misses (or is ambiguous).
  *
  * Mocked seams: src/sdk, src/config, src/core/routing,
  *   src/core/runtime/hooks, src/commands/shared/comm-log-feed,
  *   src/commands/shared/wake-resolve, src/commands/shared/wake-cmd.
+ *
+ * `resolveTargetMock` is per-test mutable: tests that exercise the local
+ * happy path swap it to a "local" result; the rest leave it at the default
+ * "error" shape so the bare-name error fires at the end of cmdSend.
  *
  * process.exit is stubbed to throw "__exit__:<code>" so the harness survives
  * branches that would otherwise terminate the runner.
@@ -30,6 +41,10 @@ let sendKeysCalls: Array<{ target: string; text: string }> = [];
 let resolveTargetCalls = 0;
 let listSessionsCalls = 0;
 let cmdWakeCalls = 0;
+// Per-test mutable: bare-name tests need this to default to a miss so the
+// federation-friendly error fires at the end of cmdSend. Local-fallback tests
+// (#1136) flip it to a "local" result before invoking cmdSend.
+let resolveTargetMock: any = { type: "error", detail: "no local session found", hint: undefined };
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +75,7 @@ mock.module(join(import.meta.dir, "../../src/config"), () => {
 mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
   resolveTarget: () => {
     resolveTargetCalls++;
-    return { type: "local", target: "x:y.0" };
+    return resolveTargetMock;
   },
 }));
 
@@ -125,6 +140,7 @@ beforeEach(() => {
   resolveTargetCalls = 0;
   listSessionsCalls = 0;
   cmdWakeCalls = 0;
+  resolveTargetMock = { type: "error", detail: "no local session found", hint: undefined };
   delete process.env.MAW_QUIET;
 });
 
@@ -136,8 +152,9 @@ afterAll(() => {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("cmdSend — bare-name hard rejection (#759 Phase 2)", () => {
-  test("bare name 'mawjs-oracle' → exits 1, prints Phase 2 error, no resolution work", async () => {
+describe("cmdSend — bare-name contract (#759 Phase 2 + #1136)", () => {
+  test("bare name with no local match → exits 1, prints federation-friendly error", async () => {
+    // resolveTargetMock defaults to error (no local match)
     await run(() => cmdSend("mawjs-oracle", "test"));
 
     expect(exitCode).toBe(1);
@@ -154,14 +171,26 @@ describe("cmdSend — bare-name hard rejection (#759 Phase 2)", () => {
     expect(allErr).toContain("maw hey <node>:<session>:mawjs-oracle");
     // locate hint
     expect(allErr).toContain("maw locate mawjs-oracle");
-    // No downstream work happened
-    expect(resolveTargetCalls).toBe(0);
-    expect(listSessionsCalls).toBe(0);
-    expect(cmdWakeCalls).toBe(0);
+    // Delivery did NOT happen
     expect(sendKeysCalls.length).toBe(0);
   });
 
-  test("MAW_QUIET=1 does NOT bypass the rejection — Phase 1 escape hatch is gone", async () => {
+  test("bare name with local match → resolves and delivers, no federation error (#1136)", async () => {
+    resolveTargetMock = { type: "local", target: "x:y.0" };
+    await run(() => cmdSend("discord-oracle", "hello"));
+
+    const allErr = errs.join("\n");
+    // No federation error — local match resolved
+    expect(allErr).not.toContain("bare-name target removed");
+    expect(allErr).not.toContain("node prefix required");
+    // Delivery happened — sendKeys was called once
+    expect(sendKeysCalls.length).toBe(1);
+    expect(sendKeysCalls[0]?.text).toBe("hello");
+    // Resolution was attempted
+    expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  test("MAW_QUIET=1 does NOT bypass federation error when local match misses", async () => {
     process.env.MAW_QUIET = "1";
     await run(() => cmdSend("mawjs-oracle", "test"));
     expect(exitCode).toBe(1);
@@ -169,31 +198,30 @@ describe("cmdSend — bare-name hard rejection (#759 Phase 2)", () => {
     expect(sendKeysCalls.length).toBe(0);
   });
 
-  test("node-prefixed target 'test-node:foo' passes — no rejection", async () => {
+  test("node-prefixed target 'test-node:foo' bypasses bare-name probe", async () => {
+    resolveTargetMock = { type: "local", target: "test-node:foo.0" };
     await run(() => cmdSend("test-node:foo", "hi"));
-    // Either resolved as local/self-node and sent, or hit a downstream branch —
-    // the key invariant is we did NOT exit on the bare-name guard.
     const allErr = errs.join("\n");
     expect(allErr).not.toContain("bare-name target removed");
-    // Resolution was attempted
     expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
   });
 
-  test("team:<name> prefix passes the bare-name guard", async () => {
+  test("team:<name> prefix bypasses bare-name probe", async () => {
     // team: routing has its own validation downstream; we only assert the
-    // bare-name guard didn't fire.
+    // bare-name path didn't fire.
     await run(() => cmdSend("team:nonexistent-team", "hi"));
     const allErr = errs.join("\n");
     expect(allErr).not.toContain("bare-name target removed");
   });
 
-  test("plugin:<name> prefix passes the bare-name guard", async () => {
+  test("plugin:<name> prefix bypasses bare-name probe", async () => {
     await run(() => cmdSend("plugin:nonexistent-plugin", "hi"));
     const allErr = errs.join("\n");
     expect(allErr).not.toContain("bare-name target removed");
   });
 
-  test("path-style target with '/' passes the bare-name guard", async () => {
+  test("path-style target with '/' bypasses bare-name probe", async () => {
+    resolveTargetMock = { type: "local", target: "some/path.0" };
     await run(() => cmdSend("some/path", "hi"));
     const allErr = errs.join("\n");
     expect(allErr).not.toContain("bare-name target removed");

@@ -1,19 +1,21 @@
 /**
- * #759 Phase 2 — bare-name hard rejection error formatter.
+ * Bare-name federation-friendly error formatter (#759 Phase 2 + #1136).
  *
- * The Phase 1 deprecation warning has been converted into a hard error. The
- * formatter is tested directly (pure function). The cmdSend wiring (early
- * exit, gating on `!query.includes(":")`) is covered by the isolated test
+ * The formatter is tested directly (pure function). The cmdSend wiring —
+ * how/when this error fires — is covered by the isolated test
  * `test/isolated/hey-bare-name-rejection.test.ts`.
  *
- * History: this file used to assert `formatBareNameDeprecation` — Phase 2
- * renamed the export to `formatBareNameError` and changed the shape from
- * yellow `⚠ deprecation` to red `error:`. See issue #759.
+ * History:
+ *   - Phase 1 (#759 / #761) — deprecation warning, fall-through to send
+ *   - Phase 2 (#785) — hard error, no resolution attempted
+ *   - #1136 — relaxation: bare names get a local-resolver probe; this error
+ *     fires only when the local lookup truly misses or is ambiguous. The
+ *     formatter shape and substitution rules are unchanged.
  */
 import { describe, test, expect } from "bun:test";
 import { formatBareNameError } from "../src/commands/shared/comm-send";
 
-describe("#759 Phase 2 — bare-name hard rejection", () => {
+describe("#759 Phase 2 + #1136 — bare-name federation-friendly error", () => {
   test("error marker, removal phrase, and node-prefix demand are all present", () => {
     const out = formatBareNameError("mawjs-oracle");
     expect(out).toContain("error");

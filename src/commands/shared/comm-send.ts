@@ -94,20 +94,23 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
 }
 
 /**
- * Phase 2 of #759 — bare-name hard rejection. The bare-name path is removed
- * outright: cmdSend prints this error to stderr and exits non-zero before
- * any resolution attempt. Replaces the Phase 1 `formatBareNameDeprecation`
- * warning. Shape is fixed per the issue and exercised by
- * test/isolated/hey-bare-name-rejection.test.ts.
+ * Federation-friendly error for bare-name targets that don't resolve locally.
+ * Originally introduced in #759 Phase 2 (#785) as a hard error before any
+ * resolution work — every bare name was rejected.
+ *
+ * After #1136 the contract is softer: bare names get a local-resolver probe
+ * first, and this error only fires when the local lookup truly misses (or
+ * is ambiguous). The shape and substitution rules are unchanged so existing
+ * downstream tools that match on the message keep working.
  *
  * The triple `<node>:<session>:<agent>` form keeps `<node>` and `<session>`
  * as literal placeholders — the user is meant to run `maw locate <agent>`
  * to enumerate concrete candidates across the federation. Only `<agent>`
  * is substituted with the bare query the user actually typed.
  *
- * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts).
- *   The production caller is `cmdSend` in this same file. No other module
- *   imports this symbol.
+ * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts,
+ *   test/isolated/hey-bare-name-rejection.test.ts). The production caller is
+ *   `cmdSend` in this same file. No other module imports this symbol.
  */
 export function formatBareNameError(query: string): string {
   const RED = "\x1b[31m"; // error marker
@@ -152,16 +155,19 @@ export async function cmdSend(
 ) {
   const config = loadConfig();
 
-  // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
-  // resolution work so users get a fast, deterministic failure pushing them
-  // onto the canonical `<node>:<agent>` form. `team:` and `plugin:` prefixes
-  // are special-cased downstream and have their own colon, so they pass.
-  // `/` is reserved for path-style targets. MAW_QUIET no longer suppresses —
-  // Phase 1's quiet-opt-out was a deprecation-window concession only.
-  if (!query.includes(":") && !query.includes("/")) {
-    console.error(formatBareNameError(query));
-    process.exit(1);
-  }
+  // #1136 — bare names get a local-resolver probe before the federation-
+  // friendly error fires. Capture the flag here; the error path at the end
+  // of this function uses it. The original #759 Phase 2 hard reject
+  // unconditionally exited here; that was the right call when federation
+  // ambiguity (#758) was unaddressed, but `resolveTarget` now returns
+  // `kind: "ambiguous"` for the dangerous case, so the safety net moved
+  // from the entry guard to the resolver itself. The 95% local-only case
+  // (single-host setups) gets the happy path; cross-host ambiguity still
+  // surfaces the canonical 3-part guidance.
+  //
+  // `team:` and `plugin:` prefixes have their own colon and skip this
+  // probe. `/` is reserved for path-style targets and also skips.
+  const isBareName = !query.includes(":") && !query.includes("/");
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
   if (query.startsWith("team:")) {
@@ -517,6 +523,14 @@ export async function cmdSend(
   }
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
+  // #1136: for bare names, prefer the federation-friendly guidance (canonical
+  // 3-part form + `maw locate` hint) over the generic "window not found"
+  // message. Bare names already had a chance through `resolveTarget` and
+  // auto-wake above; if we got here it's a true miss.
+  if (isBareName) {
+    console.error(formatBareNameError(query));
+    process.exit(1);
+  }
   if (result?.type === "error") {
     console.error(`\x1b[31merror\x1b[0m: ${result.detail}`);
     if (result.hint) console.error(`\x1b[33mhint\x1b[0m:  ${result.hint}`);
