@@ -3,6 +3,16 @@ import { openSync, readSync, closeSync } from "fs";
 import { hostExec } from "../../sdk";
 import { loadConfig } from "../../config";
 import { tlink } from "../../core/util/terminal";
+import {
+  type AllowedOrgs,
+  fetchAllowedOrgs,
+  _resetAllowedOrgsCache,
+} from "../../lib/gh-user-orgs";
+
+// Re-export to preserve existing import paths (wake-resolve-impl + tests
+// import these from this file). The implementation moved to src/lib/gh-user-orgs.ts
+// so the bud plugin (Phase 2 of the smart-default-org work) can share it.
+export { type AllowedOrgs, fetchAllowedOrgs, _resetAllowedOrgsCache };
 
 export interface OrgEntry {
   name: string;
@@ -29,15 +39,6 @@ interface ScanSuggestDeps {
 }
 
 /**
- * #770 — Result of probing GitHub for the orgs the authenticated user can
- * actually own a repo in. `ok: false` triggers a graceful fallback to the
- * unfiltered (all-local) scan with a warning.
- */
-type AllowedOrgs =
-  | { ok: true; user: string; orgs: Set<string> }
-  | { ok: false; reason: string };
-
-/**
  * Extract unique org names from `ghq list` output (github.com/<org>/<repo> format).
  * @internal — exported for tests only.
  */
@@ -49,50 +50,6 @@ export function extractGhqOrgs(ghqOutput: string): string[] {
     if (parts.length >= 3 && parts[1]) orgs.add(parts[1]);
   }
   return [...orgs].sort();
-}
-
-/**
- * Process-lifetime cache for the user's owned + member orgs. Single `gh api
- * user/orgs` per maw invocation; reset between tests via `_resetAllowedOrgsCache`.
- */
-let _allowedOrgsCache: AllowedOrgs | null = null;
-
-/** @internal — exported only so tests can isolate cases. */
-export function _resetAllowedOrgsCache(): void { _allowedOrgsCache = null; }
-
-/**
- * Probe `gh api user` and `gh api user/orgs` to derive the orgs the user can
- * actually host a repo in. Cached on first call. On any failure (no auth,
- * offline, gh missing) returns `ok: false` so the caller can fall back to the
- * legacy all-local scan with a warning rather than silently empty out.
- *
- * @internal — exported for tests only.
- */
-export function fetchAllowedOrgs(execFn: (cmd: string) => string): AllowedOrgs {
-  if (_allowedOrgsCache) return _allowedOrgsCache;
-
-  let user: string;
-  try {
-    user = execFn("gh api user --jq .login 2>/dev/null").trim();
-    if (!user) throw new Error("empty login");
-  } catch (e: any) {
-    const reason = `gh api user failed: ${String(e?.message || e).split("\n")[0]}`;
-    return (_allowedOrgsCache = { ok: false, reason });
-  }
-
-  const orgs = new Set<string>([user]);
-  try {
-    const raw = execFn("gh api user/orgs --jq '.[].login' 2>/dev/null");
-    for (const line of raw.split("\n")) {
-      const t = line.trim();
-      if (t) orgs.add(t);
-    }
-  } catch {
-    // user lookup worked but org listing failed (e.g. token without `read:org`).
-    // Falling through with just the user is still better than scanning all-local.
-  }
-
-  return (_allowedOrgsCache = { ok: true, user, orgs });
 }
 
 /**
