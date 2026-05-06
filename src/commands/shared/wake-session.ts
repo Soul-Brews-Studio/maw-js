@@ -79,7 +79,19 @@ export async function createWorktree(
     await hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
   }
   try { await hostExec(`git -C '${safe(repoPath)}' branch -D '${safe(branch)}' 2>/dev/null`); } catch { /* ok */ }
-  await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'`);
+  // Branch from origin/<default> (fresh) instead of primary worktree's HEAD —
+  // primary often parks on a stale feature branch from a prior session, which
+  // would otherwise propagate stale state to every new agent worktree. Fall
+  // back to no starting-point (current HEAD) if origin/HEAD isn't configured.
+  let baseRef = "";
+  try {
+    baseRef = await hostExec(`git -C '${safe(repoPath)}' symbolic-ref --short refs/remotes/origin/HEAD`);
+  } catch { /* origin/HEAD not set — fall back to HEAD */ }
+  if (baseRef) {
+    try { await hostExec(`git -C '${safe(repoPath)}' fetch origin --quiet`); } catch { /* offline OK */ }
+  }
+  const baseArg = baseRef ? ` '${safe(baseRef)}'` : "";
+  await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'${baseArg}`);
   // Mirror .agent symlink from main tree — it's gitignored so worktrees don't inherit it
   try {
     const agentSrc = `${repoPath}/.agent`;
