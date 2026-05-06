@@ -1,5 +1,38 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
+
+// #1149 — `--inbox` mode writes directly to Claude Code's teammate inbox file
+// (`~/.claude/teams/<team>/inboxes/<agent>.json`) instead of injecting via
+// tmux send-keys. Claude Code's useInboxPoller (1Hz) picks up the message and
+// wraps it in `<teammate-message>` XML for the recipient's conversation.
+//
+// No proper-lockfile: respects maw-js's documented file-system-race stance
+// (docs/security/file-system-race-stance.md) — PRIVATE-PATH inboxes are
+// effectively single-writer per agent at any given moment.
+function writeInboxMessage(teamName: string, agentName: string, from: string, text: string): string {
+  const inboxDir = join(homedir(), ".claude/teams", teamName, "inboxes");
+  const inboxPath = join(inboxDir, `${agentName}.json`);
+  mkdirSync(inboxDir, { recursive: true });
+  let messages: any[] = [];
+  if (existsSync(inboxPath)) {
+    try { messages = JSON.parse(readFileSync(inboxPath, "utf-8")); } catch { messages = []; }
+  }
+  // Claude Code's TeammateMessage schema: { from, text, timestamp, read, color?, summary? }
+  // text is PLAIN — Claude wraps it in <teammate-message> for the conversation.
+  messages.push({
+    from,
+    text,
+    summary: text.slice(0, 80),
+    timestamp: new Date().toISOString(),
+    read: false,
+  });
+  // lgtm[js/file-system-race] — PRIVATE-PATH: inbox under ~/.claude/teams/<team>/inboxes/, see docs/security/file-system-race-stance.md
+  writeFileSync(inboxPath, JSON.stringify(messages, null, 2));
+  return inboxPath;
+}
 
 export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
   // hey stays core — it's the transport layer.
@@ -15,10 +48,24 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // entry so the same pair stops queuing on subsequent sends.
     const approve = args.includes("--approve");
     const trust = args.includes("--trust");
+
+    // #1149 — `--inbox` short-circuits to file-based teammate inbox write
+    const inboxFlag = args.includes("--inbox");
+    const teamIdx = args.indexOf("--team");
+    const teamName = teamIdx > -1 && args[teamIdx + 1] ? args[teamIdx + 1] : process.env.CLAUDE_CODE_TEAM_NAME;
+    const fromIdx = args.indexOf("--from");
+    const fromTag = fromIdx > -1 && args[fromIdx + 1] ? args[fromIdx + 1] : "[maw-hey]";
+
     const target = args[1];
     const msgArgs = args
       .slice(2)
-      .filter(a => a !== "--force" && a !== "--approve" && a !== "--trust");
+      .filter((a, i, arr) => {
+        if (["--force", "--approve", "--trust", "--inbox"].includes(a)) return false;
+        if (a === "--team" || a === "--from") return false;
+        // skip the value following --team/--from
+        if (i > 0 && (arr[i - 1] === "--team" || arr[i - 1] === "--from")) return false;
+        return true;
+      });
 
     // Distinguish: zero-args usage error vs missing-message error (#388.3)
     // A user who typed `maw hey mawjs` (just the target, no message) was
@@ -42,6 +89,22 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       console.error(`  (if '${target}' isn't a valid target, run 'maw ls' to see available ones)`);
       throw new UserError(`missing message for '${target}'`);
     }
+
+    // #1149 — `--inbox` mode: write to Claude Code's teammate inbox
+    // (target = bare agent-name; --team is required since there's no node:agent
+    //  semantics for inbox writes — single-host file IPC)
+    if (inboxFlag) {
+      if (!teamName) {
+        console.error(`✗ --inbox requires --team <name> or CLAUDE_CODE_TEAM_NAME env`);
+        console.error(`  maw hey <agent> <message> --inbox --team <team-name>`);
+        throw new UserError("--inbox missing --team");
+      }
+      const path = writeInboxMessage(teamName, target, fromTag, msgArgs.join(" "));
+      console.log(`\x1b[32m✓\x1b[0m delivered to inbox → ${path}`);
+      console.log(`  Claude Code's useInboxPoller (1Hz) will wrap this as <teammate-message>`);
+      return true;
+    }
+
     await cmdSend(target, msgArgs.join(" "), force, { approve, trust });
     return true;
   }
