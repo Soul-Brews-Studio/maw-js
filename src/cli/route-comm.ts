@@ -100,8 +100,10 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
         throw new UserError("--inbox missing --team");
       }
       const path = writeInboxMessage(teamName, target, fromTag, msgArgs.join(" "));
-      console.log(`\x1b[32m✓\x1b[0m delivered to inbox → ${path}`);
-      console.log(`  Claude Code's useInboxPoller (1Hz) will wrap this as <teammate-message>`);
+      // Format mirrors federation's "delivered → <session>:<pane>" so operators
+      // can distinguish transport at a glance. (inbox mode) tag = file IPC, not tmux.
+      console.log(`\x1b[32mdelivered\x1b[0m → ${path} \x1b[90m(inbox mode)\x1b[0m`);
+      console.log(`\x1b[90m  ⤷ Claude Code's useInboxPoller (1Hz) will wrap as <teammate-message>\x1b[0m`);
       return true;
     }
 
