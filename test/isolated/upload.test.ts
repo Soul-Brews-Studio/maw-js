@@ -30,7 +30,7 @@ mock.module("os", () => ({
 let app: Elysia;
 
 beforeAll(async () => {
-  const { uploadApi } = await import("../src/api/upload");
+  const { uploadApi } = await import("../../src/api/upload");
   app = new Elysia().use(uploadApi);
 });
 
