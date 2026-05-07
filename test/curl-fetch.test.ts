@@ -20,6 +20,11 @@ mock.module("../src/config", () => mockConfigModule(() => {
 
 const { curlFetch } = await import("../src/core/transport/curl-fetch");
 
+// On macOS, curlFetch uses curlSpawn (curl subprocess) instead of nativeFetch
+// (globalThis.fetch). Tests that mock globalThis.fetch only exercise the Linux
+// code path and must be skipped on macOS. (#1126)
+const nativeFetchTest = process.platform === "darwin" ? test.skip : test;
+
 // Probe for a live local maw server at `white.local:3456`. Tests that
 // require a running daemon are skipped in environments where it's not
 // reachable (CI, other machines, localhost without the service).
@@ -46,7 +51,7 @@ describe("curlFetch", () => {
     expect(res.ok).toBe(false);
   });
 
-  test("warns on nativeFetch failure with method + URL (#385 site 1)", async () => {
+  nativeFetchTest("warns on nativeFetch failure with method + URL (#385 site 1)", async () => {
     // Previous behavior: catch swallowed ALL errors (abort/JSON/network/DNS)
     // and returned a bare {ok:false, status:0, data:null} — callers had no
     // diagnosis. Fix: warn loud with method + URL + error message before
@@ -134,8 +139,9 @@ describe("curlFetch", () => {
 describe("curlFetch body size cap (#653)", () => {
   // Tests snapshot global.fetch per-case so they don't leak across the file.
   // Pattern lifted from costs.test.ts fix (#649) to keep snapshot/restore safe.
+  // These tests mock globalThis.fetch → only valid on Linux (nativeFetch path).
 
-  test("rejects body exceeding maxBytes (streaming)", async () => {
+  nativeFetchTest("rejects body exceeding maxBytes (streaming)", async () => {
     const origFetch = globalThis.fetch;
     try {
       // Stream 20 chunks of 1 MB each — no Content-Length header, so the
@@ -159,7 +165,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  test("rejects when Content-Length exceeds cap (before buffering)", async () => {
+  nativeFetchTest("rejects when Content-Length exceeds cap (before buffering)", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
@@ -175,7 +181,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  test("passes through when body under cap", async () => {
+  nativeFetchTest("passes through when body under cap", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
@@ -193,7 +199,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  test("default cap is 10 MB when maxBytes not supplied", async () => {
+  nativeFetchTest("default cap is 10 MB when maxBytes not supplied", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
