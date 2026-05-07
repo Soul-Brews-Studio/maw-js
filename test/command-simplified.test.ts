@@ -216,3 +216,56 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
     expect(out).toContain(`JUST_TILDE='${home}'`);
   });
 });
+
+describe("buildCommand — channelEnv shell-vs-config precedence (#1148)", () => {
+  const KEY = "MAWJS_TEST_PRECEDENCE_KEY";
+  const KEY1 = "MAWJS_TEST_K1";
+  const KEY2 = "MAWJS_TEST_K2";
+
+  afterEach(() => {
+    delete process.env[KEY];
+    delete process.env[KEY1];
+    delete process.env[KEY2];
+  });
+
+  test("shell env unset → config value prepended", () => {
+    fakeConfig.commands = { default: "claude" };
+    delete process.env[KEY];
+    const out = buildCommand("bot", { channelEnv: { [KEY]: "from-config" } });
+    expect(out).toContain(`${KEY}='from-config'`);
+  });
+
+  test("shell env set non-empty → config value NOT prepended (defer to shell)", () => {
+    fakeConfig.commands = { default: "claude" };
+    process.env[KEY] = "from-shell";
+    const out = buildCommand("bot", { channelEnv: { [KEY]: "from-config" } });
+    // Config value must NOT win over the operator's shell-set value.
+    expect(out).not.toContain(`${KEY}='from-config'`);
+  });
+
+  test("shell env empty string → config value still prepended (treats empty as unset)", () => {
+    fakeConfig.commands = { default: "claude" };
+    process.env[KEY] = "";
+    const out = buildCommand("bot", { channelEnv: { [KEY]: "from-config" } });
+    // Empty-string env was the #1135 trap reborn — must NOT silently disable config.
+    expect(out).toContain(`${KEY}='from-config'`);
+  });
+
+  test("multi-key: shell wins for one, config wins for the other", () => {
+    fakeConfig.commands = { default: "claude" };
+    process.env[KEY1] = "shell-1";
+    delete process.env[KEY2];
+    const out = buildCommand("bot", {
+      channelEnv: { [KEY1]: "config-1", [KEY2]: "config-2" },
+    });
+    expect(out).not.toContain(`${KEY1}='config-1'`); // shell wins for KEY1
+    expect(out).toContain(`${KEY2}='config-2'`);     // config used for KEY2
+  });
+
+  test("all keys covered by shell → no envPrefix added at all", () => {
+    fakeConfig.commands = { default: "claude" };
+    process.env[KEY] = "from-shell";
+    const out = buildCommand("bot", { channelEnv: { [KEY]: "from-config" } });
+    expect(out).not.toMatch(new RegExp(`\\b${KEY}=`));
+  });
+});

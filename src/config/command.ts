@@ -51,12 +51,18 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   }
 
   // Prepend channel env vars directly to command (not tmux set-environment)
-  // because tmux set-environment only affects NEW shells, not the existing one
+  // because tmux set-environment only affects NEW shells, not the existing one.
+  //
+  // #1148 — defer to shell env when set. Precedence: shell env (non-empty)
+  // wins over channel config.json. Empty-string env is treated as unset
+  // (otherwise stale `export DISCORD_STATE_DIR=` would silently disable
+  // the config value — same #1135 trap shape through a different door).
   if (opts.channelEnv && Object.keys(opts.channelEnv).length > 0) {
     const envPrefix = Object.entries(opts.channelEnv)
+      .filter(([k]) => process.env[k] === undefined || process.env[k] === "")
       .map(([k, v]) => `${k}='${expandTilde(v).replace(/'/g, "'\\''")}'`)
       .join(" ");
-    cmd = `${envPrefix} ${cmd}`;
+    if (envPrefix) cmd = `${envPrefix} ${cmd}`;
   }
 
   if (opts.channels?.length) {
