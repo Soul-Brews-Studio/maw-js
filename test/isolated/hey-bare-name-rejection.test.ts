@@ -227,4 +227,58 @@ describe("cmdSend — bare-name contract (#759 Phase 2 + #1136)", () => {
     expect(allErr).not.toContain("bare-name target removed");
     expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
   });
+
+  test("bare name matching multiple local sessions → AmbiguousMatchError propagates, no federation error, no delivery (#1136)", async () => {
+    // resolveTarget itself surfaces ambiguity by throwing AmbiguousMatchError
+    // (via findWindow's two-pass resolver — see core/runtime/find-window.ts).
+    // cmdSend deliberately does NOT catch it; the top-level error-handler
+    // (src/cli/error-handler.ts) renders the candidates list. We assert here
+    // that the throw escapes cmdSend and the federation-friendly bare-name
+    // error path does NOT also fire (it would be wrong noise on top of the
+    // real error).
+    const { AmbiguousMatchError } = await import("../../src/core/runtime/find-window");
+    const ambiguous = new AmbiguousMatchError("mawjs", [
+      "101-mawjs:0",
+      "102-mawjs:0",
+    ]);
+    const origMock = resolveTargetMock;
+    // Replace the mock with a throwing variant for this test only.
+    mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
+      resolveTarget: () => {
+        resolveTargetCalls++;
+        throw ambiguous;
+      },
+    }));
+    // Re-import cmdSend so it picks up the new resolveTarget mock binding.
+    const { cmdSend: cmdSendWithThrow } = await import("../../src/commands/shared/comm-send");
+
+    let caught: unknown = null;
+    await run(async () => {
+      try {
+        await cmdSendWithThrow("mawjs", "test");
+      } catch (e) {
+        // AmbiguousMatchError must escape cmdSend (handled at top-level).
+        caught = e;
+      }
+    });
+
+    expect(caught).toBeInstanceOf(AmbiguousMatchError);
+    expect((caught as InstanceType<typeof AmbiguousMatchError>).candidates).toEqual([
+      "101-mawjs:0",
+      "102-mawjs:0",
+    ]);
+    // No delivery on ambiguous match.
+    expect(sendKeysCalls.length).toBe(0);
+    // The federation-friendly bare-name error must NOT fire — ambiguous is a
+    // distinct, more-actionable error rendered by the top-level handler.
+    expect(errs.join("\n")).not.toContain("bare-name target removed");
+
+    // Restore the standard mock binding for any later tests.
+    mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
+      resolveTarget: () => {
+        resolveTargetCalls++;
+        return origMock;
+      },
+    }));
+  });
 });
