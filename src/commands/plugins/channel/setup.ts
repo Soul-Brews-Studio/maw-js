@@ -28,13 +28,19 @@ function extractClientId(token: string): string | null {
   } catch { return null; }
 }
 
-function fetchGuilds(token: string): Array<{ id: string; name: string }> {
+// #1170 — use native fetch instead of execSync curl: shell-spawned curl puts
+// the token in process argv (visible to `ps`, EDR, crash logs). fetch keeps
+// the token in-memory in this process only. AbortSignal.timeout matches the
+// 10s subprocess timeout this replaced.
+async function fetchGuilds(token: string): Promise<Array<{ id: string; name: string }>> {
   try {
-    const raw = execSync(
-      `curl -sS --compressed -H "Authorization: Bot ${token}" https://discord.com/api/v10/users/@me/guilds`,
-      { encoding: "utf8", timeout: 10000 },
-    );
-    return JSON.parse(raw).map((g: any) => ({ id: g.id, name: g.name }));
+    const r = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { Authorization: `Bot ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) return [];
+    const data = await r.json() as any[];
+    return data.map((g) => ({ id: g.id, name: g.name }));
   } catch { return []; }
 }
 
@@ -176,7 +182,7 @@ async function setupOfficial(oracle: string, provider: string, opts: SetupOpts) 
   // Step 4: Guild (Discord only)
   if (provider === "discord") {
     s(4, "Guild / Server");
-    const guilds = fetchGuilds(token);
+    const guilds = await fetchGuilds(token);
     if (guilds.length > 0) {
       for (let i = 0; i < guilds.length; i++) {
         const selected = opts.guild === guilds[i].id ? " ←" : "";
