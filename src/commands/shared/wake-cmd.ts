@@ -4,12 +4,20 @@ import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../con
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
+import { UserError } from "../../core/util/user-error";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+  // #1151 — reject flag-shaped names. parseFlags lands unrecognized flags
+  // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
+  // and (without this guard) get sanitized into session names like `26---help`.
+  if (oracle.startsWith("-")) {
+    throw new UserError(`invalid oracle name: "${oracle}" — did you mean 'maw --help'?`);
+  }
+
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
