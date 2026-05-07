@@ -2,6 +2,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { tmux } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
+import { loadConfig } from "../../config/load";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
 
 export async function cmdFleetValidate() {
@@ -48,12 +49,17 @@ export async function cmdFleetValidate() {
   }
 
   // 4. Running sessions without config
+  // #1134 — allowlist skips intentional non-fleet sessions (dev oracles like
+  // mawjs/mawui that run from source repos). Match exact name OR stem after
+  // stripping NN- slot prefix, so `"mawjs"` covers `08-mawjs` and `25-mawjs`.
   const runningSessions = await getSessionNames();
   const configNames = new Set(entries.map(e => e.session.name));
+  const allowlist = new Set(loadConfig().fleetValidateAllowlist || []);
   for (const s of runningSessions) {
-    if (!configNames.has(s)) {
-      issues.push(`\x1b[90mOrphan session\x1b[0m: tmux '${s}' has no fleet config`);
-    }
+    if (configNames.has(s)) continue;
+    const stem = s.replace(/^\d+-/, "");
+    if (allowlist.has(s) || allowlist.has(stem)) continue;
+    issues.push(`\x1b[90mOrphan session\x1b[0m: tmux '${s}' has no fleet config`);
   }
 
   // 5. Running windows not in fleet config (won't survive reboot)

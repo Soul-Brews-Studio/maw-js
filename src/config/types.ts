@@ -153,6 +153,15 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /**
+   * Tmux session names treated as intentional non-fleet — `maw fleet validate`
+   * skips its "Orphan session" warning for these. Useful for dev oracles that
+   * run from source repos directly (incubator pattern) without fleet configs.
+   * Match is exact OR after stripping the `NN-` slot prefix, so listing
+   * `"mawjs"` allowlists both `08-mawjs` and `25-mawjs` even as slots shift.
+   * (#1134)
+   */
+  fleetValidateAllowlist?: string[];
 }
 
 /** Typed defaults for intervals, timeouts, limits (#172) */
