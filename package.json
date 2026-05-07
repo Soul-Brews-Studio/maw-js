@@ -87,6 +87,7 @@
     "./lib/schemas": "./src/lib/schemas.ts",
     "./lib/sleep": "./src/lib/sleep.ts",
     "./lib/sparkline": "./src/lib/sparkline.ts",
+    "./commands/plugins/fleet/fleet-adopt": "./src/commands/plugins/fleet/fleet-adopt.ts",
     "./commands/shared/comm": "./src/commands/shared/comm.ts",
     "./commands/shared/comm-send": "./src/commands/shared/comm-send.ts",
     "./commands/shared/done": "./src/commands/shared/done.ts",
