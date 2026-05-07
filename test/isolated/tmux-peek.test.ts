@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
-import { tmpdir, homedir } from "os";
+import { homedir } from "os";
 
 // Test resolveTmuxTarget in isolation — it's a pure function that resolves
 // user-supplied targets to tmux pane identifiers. hostExec is NOT exercised
@@ -56,20 +56,24 @@ describe("resolveTmuxTarget — target resolution", () => {
   test("team-agent with empty tmuxPaneId falls through to session-name fallback", async () => {
     const { resolveTmuxTarget } = await import("../../src/commands/plugins/tmux/impl");
     const hit = resolveTmuxTarget("orphan-agent");
-    // orphan-agent has tmuxPaneId="" — skipped as not-live, falls to session fallback
-    expect(hit?.resolved).toBe("orphan-agent:0");
-    expect(hit?.source).toContain("session-name");
+    // orphan-agent has tmuxPaneId="" — skipped as not-live, falls through.
+    // Per #1012 (don't hardcode :0), the bare name is returned as-is so tmux
+    // can resolve to the current/first pane itself.
+    expect(hit).not.toBeNull();
+    // Could land on session-name fallback (most likely) or live-session if a
+    // tmux session happens to fuzzy-match. Both are valid fall-throughs.
+    expect(["session-name", "live-session", "fleet-stem"].some(tag => hit!.source.includes(tag))).toBe(true);
   });
 
-  test("bare session name → session:0 (via fleet-stem OR session-name fallback)", async () => {
+  test("bare session name → resolved via fleet-stem OR session-name fallback", async () => {
     const { resolveTmuxTarget } = await import("../../src/commands/plugins/tmux/impl");
     const hit = resolveTmuxTarget("112-fusion");
-    expect(hit?.resolved).toBe("112-fusion:0");
-    // After #394 Bug I fix: this now resolves via the fleet-stem tier first
-    // (since 112-fusion IS a fleet session). Falls back to session-name only
-    // for non-fleet stems. Either tier is acceptable — both produce correct
-    // pane-0 resolution.
-    expect(["fleet-stem", "session-name"].some(tag => hit!.source.includes(tag))).toBe(true);
+    expect(hit).not.toBeNull();
+    // Per #1012 (don't hardcode :0): resolver returns the bare session name
+    // (no `:0` suffix); tmux itself resolves to the current/first pane.
+    // After #394 Bug I fix: may resolve via fleet-stem tier first (if fleet
+    // match), else live-session, else session-name fallback. All are valid.
+    expect(["fleet-stem", "live-session", "session-name"].some(tag => hit!.source.includes(tag))).toBe(true);
   });
 
   test("target resolution is deterministic — same input, same output", async () => {
@@ -84,9 +88,11 @@ describe("resolveTmuxTarget — target resolution", () => {
     // Not a team-agent name (not in any config), not a pane-id pattern — fallback to session.
     // Note: may still hit fleet-stem tier if "zzz-nonexistent" word-matches a fleet name.
     // This test isn't isolated from the real fleet dir; just verify we get SOME resolution.
+    // Per #1012: no `:0` suffix is hardcoded — the bare name is the valid result.
     const hit = resolveTmuxTarget("zzz-nonexistent-xyzzy");
     expect(hit).not.toBeNull();
-    expect(hit?.resolved).toContain(":");
+    expect(hit!.resolved.length).toBeGreaterThan(0);
+    expect(hit!.source.length).toBeGreaterThan(0);
   });
 });
 
@@ -101,10 +107,11 @@ describe("resolveTmuxTarget — fleet stem tier (#394 Bug I)", () => {
     // This name won't match any fleet session but WILL match the final fallback.
     const hit = resolveTmuxTarget("definitely-not-a-real-fleet-oracle-xyzzy");
     expect(hit).not.toBeNull();
-    // Either fleet-stem (if fuzzy-matched) or session-name — both valid,
-    // both include a :N suffix meaning "pane 0 of that session".
-    expect(hit!.resolved).toMatch(/:\d+$/);
-    expect(["fleet-stem", "session-name"].some(tag => hit!.source.includes(tag))).toBe(true);
+    // Per #1012 (don't hardcode :0): resolver returns the bare session name
+    // — no `:0` suffix — tmux itself resolves to the current/first pane.
+    // Either fleet-stem / live-session (if fuzzy-matched) or session-name fallback.
+    expect(hit!.resolved.length).toBeGreaterThan(0);
+    expect(["fleet-stem", "live-session", "session-name"].some(tag => hit!.source.includes(tag))).toBe(true);
   });
 
   test("source label for bare-name resolution mentions the tier used", async () => {

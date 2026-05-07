@@ -40,6 +40,7 @@ export interface SshMockOverrides {
   getPaneCommand?: (...args: any[]) => any;
   getPaneCommands?: (...args: any[]) => any;
   getPaneInfos?: (...args: any[]) => any;
+  isAgentCommand?: (...args: any[]) => any;
   HostExecError?: any;
 }
 
@@ -75,6 +76,11 @@ export function mockSshModule(overrides: SshMockOverrides = {}) {
     getPaneCommand: async () => "",
     getPaneCommands: async () => ({}),
     getPaneInfos: async () => ({}),
+    isAgentCommand: (cmd: string | null | undefined) => {
+      const c = (cmd ?? "").trim();
+      if (!c) return false;
+      return /claude|codex|node/i.test(c);
+    },
     HostExecError: MockHostExecError,
     ...overrides,
   };

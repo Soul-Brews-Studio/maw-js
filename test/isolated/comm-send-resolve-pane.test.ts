@@ -52,6 +52,7 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
   capture: async () => "",
   sendKeys: async () => {},
   getPaneCommand: async () => "claude",
+  isAgentCommand: (cmd: string) => /^(claude|codex|node)$/.test(cmd),
   findPeerForTarget: async () => null,
   resolveTarget: () => null,
   curlFetch: async () => ({ ok: false, status: 0, data: null }),

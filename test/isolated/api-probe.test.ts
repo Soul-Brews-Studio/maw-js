@@ -26,6 +26,7 @@ import { describe, test, expect, mock, beforeAll, afterAll } from "bun:test";
 import { join } from "path";
 import { Elysia } from "elysia";
 import { mockSshModule } from "../helpers/mock-ssh";
+import { mockConfigModule } from "../helpers/mock-config";
 
 // ─── Mock seams BEFORE importing sessions.ts ────────────────────────────────
 
@@ -44,10 +45,9 @@ mock.module(join(root, "src/core/transport/ssh"), () =>
   }),
 );
 
-mock.module(join(root, "src/config"), () => {
-  const { mockConfigModule } = require("../helpers/mock-config");
-  return mockConfigModule(() => ({ node: "test-node", port: 3456, agents: {} }));
-});
+mock.module(join(root, "src/config"), () =>
+  mockConfigModule(() => ({ node: "test-node", port: 3456, agents: {} })),
+);
 
 // ─── Mount the route ─────────────────────────────────────────────────────────
 

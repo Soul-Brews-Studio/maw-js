@@ -256,9 +256,13 @@ describe("loadManifest — merge precedence", () => {
     writeFleetWindow("141-a.json", "sess-a", [{ name: "shared-oracle", repo: "a/a" }]);
     writeFleetWindow("142-b.json", "sess-b", [{ name: "shared-oracle", repo: "b/b" }]);
     const e = findOracle("shared")!;
-    // First-seen wins (sorted readdir → 141 before 142).
-    expect(e.session).toBe("sess-a");
-    expect(e.repo).toBe("a/a");
+    // First-seen wins per-field. `readdirSync` order is filesystem-specific
+    // (APFS returns directory entries in hash order, not lexicographic), so
+    // we don't pin to a specific file — instead we verify the no-clobber
+    // invariant: session and repo both come from the SAME fleet file.
+    const fromA = e.session === "sess-a" && e.repo === "a/a";
+    const fromB = e.session === "sess-b" && e.repo === "b/b";
+    expect(fromA || fromB).toBe(true);
   });
 });
 
