@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
+import { loadConfig } from "../../../config/load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
@@ -267,21 +268,58 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       wtBySession.get(mainName)!.push(wt);
     }
 
-    console.log();
+    // #1153 — grouped compact output with summary header
     const awakeNames = new Set<string>();
+    const fleetEntries: Array<{ sess: string; panes: AnnotatedPane[] }> = [];
+    const orphanEntries: Array<{ sess: string; panes: AnnotatedPane[] }> = [];
+
     for (const [sess, panes] of bySession) {
       awakeNames.add(sess);
+      if (fleetSessions.has(sess)) {
+        fleetEntries.push({ sess, panes });
+      } else {
+        orphanEntries.push({ sess, panes });
+      }
+    }
+
+    // Summary header
+    const nodeName = loadConfig().node || "local";
+    const activeCount = [...bySession.values()].filter(p => bestStatus(p) === "active").length;
+    const idleCount = [...bySession.values()].filter(p => bestStatus(p) === "idle").length;
+    const staleCount = [...bySession.values()].filter(p => bestStatus(p) === "stale").length;
+    console.log();
+    console.log(`  \x1b[36m📡 ${nodeName}\x1b[0m · \x1b[32m${activeCount} active\x1b[0m · \x1b[33m${idleCount} idle\x1b[0m · \x1b[90m${staleCount} stale\x1b[0m`);
+    console.log();
+
+    const renderSession = (sess: string, panes: AnnotatedPane[]) => {
       const dot = STATUS_DOT[bestStatus(panes)];
       const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
-      const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
-      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      const agentTag = agents > 0 ? ` · \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
+      const maxAge = Math.max(...panes.map(p => p.lastActivitySec));
+      const ageTag = maxAge > 60 ? ` · \x1b[90m${formatAge(maxAge)}\x1b[0m` : "";
+      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${ageTag}`);
       const wts = wtBySession.get(sess) || [];
       for (const wt of wts) {
         const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
         const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
         console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
       }
+    };
+
+    if (fleetEntries.length > 0) {
+      console.log(`  \x1b[33mFleet\x1b[0m \x1b[90m(${fleetEntries.length})\x1b[0m`);
+      for (const { sess, panes } of fleetEntries) renderSession(sess, panes);
+      if (staleCount > 0 && staleCount >= fleetEntries.length / 2) {
+        console.log(`  \x1b[90m  → maw fleet wake\x1b[0m`);
+      }
+      console.log();
+    }
+
+    if (orphanEntries.length > 0) {
+      console.log(`  \x1b[33mOther\x1b[0m \x1b[90m(${orphanEntries.length})\x1b[0m  \x1b[90m→ maw cleanup\x1b[0m`);
+      for (const { sess, panes } of orphanEntries) renderSession(sess, panes);
+      console.log();
     }
 
     if (opts.roster) {
@@ -292,18 +330,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
           .map(p => p.split("/").pop()!)
           .filter(name => !awakeNames.has(name))
           .sort();
-        for (const name of sleeping) {
-          console.log(`  \x1b[90m· ${name}  (sleeping)\x1b[0m`);
-        }
-        const total = awakeNames.size + sleeping.length;
         if (sleeping.length > 0) {
+          console.log(`  \x1b[33mSleeping\x1b[0m \x1b[90m(${sleeping.length})\x1b[0m`);
+          for (const name of sleeping) {
+            console.log(`  \x1b[90m○ ${name}\x1b[0m`);
+          }
           console.log();
-          console.log(`\x1b[90m  ${total} oracles — ${awakeNames.size} awake, ${sleeping.length} sleeping\x1b[0m`);
         }
       } catch { /* ghq unavailable */ }
     }
 
-    console.log();
     console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
     console.log();
     return;
