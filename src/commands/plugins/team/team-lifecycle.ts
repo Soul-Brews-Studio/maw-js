@@ -3,6 +3,7 @@ import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
+import { formatError } from "../../../lib/format-error";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -87,7 +88,7 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
       sendShutdown(name, m.name, "team teardown via maw team shutdown");
       console.log(`  \x1b[90m↪ shutdown → ${m.name} (${m.tmuxPaneId})\x1b[0m`);
     } catch (e) {
-      console.error(`  \x1b[31m✗\x1b[0m failed to send shutdown to ${m.name}: ${e}`);
+      console.error(formatError(`failed to send shutdown to ${m.name}: ${e}`));
     }
   }
 
@@ -111,7 +112,10 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
       await tmux.killPane(m.tmuxPaneId!);
       console.log(`  \x1b[33m⚠\x1b[0m force-killed ${m.name} (${m.tmuxPaneId})`);
     } else {
-      console.error(`  \x1b[31m✗\x1b[0m ${m.name} did not respond to shutdown_request (use --force to kill)`);
+      console.error(formatError(
+        `${m.name} did not respond to shutdown_request`,
+        `use --force to kill`,
+      ));
     }
   }
 

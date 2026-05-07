@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { validatePluginName } from "./plugin-create-scaffold";
 import { scaffoldRust } from "./plugin-create-rust";
 import { scaffoldAs } from "./plugin-create-as";
+import { formatError } from "../../lib/format-error";
 
 export async function cmdPluginCreate(
   name: string | undefined,
@@ -36,7 +37,7 @@ export async function cmdPluginCreate(
   }
   const nameErr = validatePluginName(name);
   if (nameErr) {
-    console.error(`\x1b[31m✗\x1b[0m Invalid plugin name: ${nameErr}`);
+    console.error(formatError(`Invalid plugin name: ${nameErr}`));
     process.exit(1);
   }
 
@@ -47,7 +48,7 @@ export async function cmdPluginCreate(
       : join(homedir(), ".oracle", "plugins", name));
 
   if (existsSync(dest)) {
-    console.error(`\x1b[31m✗\x1b[0m Destination already exists: ${dest}`);
+    console.error(formatError(`Destination already exists: ${dest}`));
     process.exit(1);
   }
 
@@ -62,7 +63,7 @@ export async function cmdPluginCreate(
       scaffoldAs(name, dest);
     }
   } catch (err: any) {
-    console.error(`\x1b[31m✗\x1b[0m ${err.message}`);
+    console.error(formatError(err.message));
     process.exit(1);
   }
 

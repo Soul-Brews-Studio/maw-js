@@ -3,6 +3,7 @@ import { existsSync, unlinkSync, symlinkSync, mkdirSync, readdirSync } from "fs"
 import { tmux, FLEET_DIR } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
+import { formatError } from "../../lib/format-error";
 
 export async function cmdFleetSync() {
   const entries = loadFleetEntries();
@@ -59,7 +60,7 @@ export async function cmdFleetSyncConfigs() {
   const repoFleetDir = join(import.meta.dir, "..", "..", "fleet");
 
   if (!existsSync(repoFleetDir)) {
-    console.error(`  \x1b[31m✗\x1b[0m No fleet/ directory found in repo`);
+    console.error(formatError(`No fleet/ directory found in repo`));
     process.exit(1);
   }
 

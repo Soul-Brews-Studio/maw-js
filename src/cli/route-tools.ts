@@ -123,8 +123,11 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const unknownFlag = filteredArgs.find(a => a.startsWith("-"));
     if (unknownFlag) {
       const { UserError } = await import("../core/util/user-error");
-      console.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
-      console.error(`  usage: maw serve [port] [--as <name>]  (run 'maw serve --help' for more)`);
+      const { formatError } = await import("../lib/format-error");
+      console.error(formatError(
+        `unknown flag '${unknownFlag}' for 'maw serve'`,
+        `usage: maw serve [port] [--as <name>]  (run 'maw serve --help' for more)`,
+      ));
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));

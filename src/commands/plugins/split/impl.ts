@@ -1,6 +1,7 @@
 import { listSessions, hostExec, withPaneLock } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../../core/matcher/normalize-target";
+import { formatError } from "../../../lib/format-error";
 
 export interface SplitOpts {
   /** Split percentage (1-99). Default: 50. */
@@ -66,22 +67,20 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
     const r = resolveSessionTarget(target, sessions);
 
     if (r.kind === "ambiguous") {
-      console.error(`  \x1b[31m✗\x1b[0m '${target}' is ambiguous — matches ${r.candidates.length} sessions:`);
+      console.error(formatError(
+        `'${target}' is ambiguous — matches ${r.candidates.length} sessions`,
+        `use the full name: maw split <exact-session>`,
+      ));
       for (const s of r.candidates) {
         console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
       }
-      console.error(`  \x1b[90m  use the full name: maw split <exact-session>\x1b[0m`);
       throw new Error(`'${target}' is ambiguous`);
     }
     if (r.kind === "none") {
-      console.error(`  \x1b[31m✗\x1b[0m session '${target}' not found in fleet`);
-      if (r.hints?.length) {
-        console.error(`  \x1b[90mdid you mean:\x1b[0m`);
-        for (const h of r.hints) {
-          console.error(`  \x1b[90m    • ${h.name}\x1b[0m`);
-        }
-      }
-      console.error(`  \x1b[90m  try: maw ls\x1b[0m`);
+      console.error(formatError(
+        `session '${target}' not found in fleet`,
+        r.hints?.length ? `did you mean ${r.hints.map(h => h.name).join(", ")}? (try: maw ls)` : `try: maw ls`,
+      ));
       throw new Error(`session '${target}' not found in fleet`);
     }
 

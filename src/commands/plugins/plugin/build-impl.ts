@@ -25,6 +25,7 @@ import { join, resolve, basename } from "path";
 import { spawnSync } from "child_process";
 import { parseFlags } from "../../../cli/parse-args";
 import { inferCapabilitiesAst } from "../../../plugin/cap-infer-ast";
+import { formatError } from "../../../lib/format-error";
 
 // ─── Capability inference ────────────────────────────────────────────────────
 
@@ -132,7 +133,7 @@ async function runWatch(dir: string, emitTypes = false): Promise<void> {
     try {
       await runBuild(dir, emitTypes);
     } catch (e: any) {
-      console.error(`\x1b[31m✗\x1b[0m rebuild failed: ${e.message}`);
+      console.error(formatError(`rebuild failed: ${e.message}`));
     } finally {
       building = false;
     }

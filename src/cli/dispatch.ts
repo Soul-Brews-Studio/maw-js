@@ -5,6 +5,7 @@ import { matchCommand, executeCommand } from "./command-registry";
 import { getVersionString } from "./cmd-version";
 import { runUpdate } from "./cmd-update";
 import { UserError } from "../core/util/user-error";
+import { formatError } from "../lib/format-error";
 
 /** Core route names that are not plugins but are still "known commands". */
 const CORE_ROUTES = [
@@ -70,8 +71,10 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   const dispatch = resolvePluginMatch(plugins, cmdName);
 
   if (dispatch.kind === "ambiguous") {
-    console.error(`\x1b[31m✗\x1b[0m ambiguous command: ${args[0]}`);
-    console.error(`  candidates: ${dispatch.candidates.map(c => `${c.plugin} (${c.name})`).join(", ")}`);
+    console.error(formatError(
+      `ambiguous command: ${args[0]}`,
+      `candidates: ${dispatch.candidates.map(c => `${c.plugin} (${c.name})`).join(", ")}`,
+    ));
     throw new UserError(`ambiguous command: ${args[0]}`);
   }
   if (dispatch.kind === "match") {
@@ -152,12 +155,10 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       }
     }
     if (!isOracle) {
-      console.error(`\x1b[31m✗\x1b[0m unknown command: ${args[0]}`);
-      if (closeCandidates.length > 0) {
-        console.error(`  did you mean: ${closeCandidates.join(", ")}?`);
-      } else {
-        console.error(`  run 'maw --help' to see available commands`);
-      }
+      const hint = closeCandidates.length > 0
+        ? `did you mean: ${closeCandidates.join(", ")}?`
+        : `run 'maw --help' to see available commands`;
+      console.error(formatError(`unknown command: ${args[0]}`, hint));
       // UserError: output already printed above; top-level catch just
       // exits 1 without bun's default stack trace (alpha.66 polish).
       throw new UserError(`unknown command: ${args[0]}`);

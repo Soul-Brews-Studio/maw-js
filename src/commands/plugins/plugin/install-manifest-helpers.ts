@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { parseManifest } from "../../../plugin/manifest";
 import { runtimeSdkVersion } from "../../../plugin/registry";
+import { formatError } from "../../../lib/format-error";
 
 /**
  * #864 — Resolve the plugin root inside an extracted staging dir.
@@ -78,13 +79,13 @@ export function findMonorepoPluginRoot(stagingDir: string, subpath: string): str
 export function readManifest(dir: string): PluginManifest | null {
   const manifestPath = join(dir, "plugin.json");
   if (!existsSync(manifestPath)) {
-    console.error(`\x1b[31m✗\x1b[0m no plugin.json at ${dir}`);
+    console.error(formatError(`no plugin.json at ${dir}`));
     return null;
   }
   try {
     return parseManifest(readFileSync(manifestPath, "utf8"), dir);
   } catch (e: any) {
-    console.error(`\x1b[31m✗\x1b[0m invalid plugin.json: ${e.message}`);
+    console.error(formatError(`invalid plugin.json: ${e.message}`));
     return null;
   }
 }

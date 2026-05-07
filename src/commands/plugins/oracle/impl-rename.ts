@@ -21,6 +21,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, copyF
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { hostExec, FLEET_DIR } from "../../../sdk";
+import { formatError } from "../../../lib/format-error";
 
 interface RenameOpts {
   org?: string;
@@ -70,7 +71,7 @@ export async function cmdOracleRename(oldName: string, newName: string, opts: Re
   // 1. Validate names
   const validationError = validateRename(oldName, newName);
   if (validationError) {
-    console.error(`\x1b[31merror\x1b[0m: ${validationError}`);
+    console.error(formatError(validationError));
     process.exit(1);
   }
 
@@ -97,7 +98,7 @@ export async function cmdOracleRename(oldName: string, newName: string, opts: Re
       await hostExec(`ghq get -u ${org}/${newName}-oracle 2>&1`);
       console.log(`\x1b[32m  ✓\x1b[0m cloned to new path`);
     } catch (e: any) {
-      console.error(`\x1b[31m  ✗\x1b[0m ghq get failed: ${e?.message?.split("\n")[0] || e}`);
+      console.error(formatError(`ghq get failed: ${e?.message?.split("\n")[0] || e}`));
     }
   }
 

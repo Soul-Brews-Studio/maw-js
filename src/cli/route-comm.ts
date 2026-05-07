@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
+import { formatError } from "../lib/format-error";
 
 // #1149 — `--inbox` mode writes directly to Claude Code's teammate inbox file
 // (`~/.claude/teams/<team>/inboxes/<agent>.json`) instead of injecting via
@@ -84,9 +85,10 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       throw new UserError("missing target and message");
     }
     if (!msgArgs.length) {
-      console.error(`✗ missing message for target '${target}'`);
-      console.error(`  maw hey ${target} <message>`);
-      console.error(`  (if '${target}' isn't a valid target, run 'maw ls' to see available ones)`);
+      console.error(formatError(
+        `missing message for target '${target}'`,
+        `maw hey ${target} <message>  (if '${target}' isn't a valid target, run 'maw ls' to see available ones)`,
+      ));
       throw new UserError(`missing message for '${target}'`);
     }
 
@@ -95,8 +97,10 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     //  semantics for inbox writes — single-host file IPC)
     if (inboxFlag) {
       if (!teamName) {
-        console.error(`✗ --inbox requires --team <name> or CLAUDE_CODE_TEAM_NAME env`);
-        console.error(`  maw hey <agent> <message> --inbox --team <team-name>`);
+        console.error(formatError(
+          `--inbox requires --team <name> or CLAUDE_CODE_TEAM_NAME env`,
+          `maw hey <agent> <message> --inbox --team <team-name>`,
+        ));
         throw new UserError("--inbox missing --team");
       }
       const path = writeInboxMessage(teamName, target, fromTag, msgArgs.join(" "));
