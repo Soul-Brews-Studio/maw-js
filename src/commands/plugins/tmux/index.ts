@@ -1,6 +1,7 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
 import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, resolveTmuxTarget } from "./impl";
+import { cmdStallDetect } from "./stall-detect";
 import { hostExec } from "../../../sdk";
 
 export const command = {
@@ -224,6 +225,37 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const { cmdSplit } = await import("../split/impl");
         await cmdSplit(target, { lock: true });
       }
+    } else if (sub === "detect-stalls" || sub === "stall") {
+      const flags = parseFlags(args, {
+        "--watch": Boolean,
+        "--threshold": Number,
+        "--interval": Number,
+        "--lines": Number,
+        "--help": Boolean,
+        "-h": "--help",
+      }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux detect-stalls <target> [<target>...] [--watch] [--threshold N] [--interval MS] [--lines N]");
+        console.log("  Phase A — notify-only. Reports panes whose capture-pane content");
+        console.log("  hash hasn't changed for `threshold` consecutive samples.");
+        console.log("  --watch       keep watching (default: one-shot single sample)");
+        console.log("  --threshold N consecutive unchanged samples before notify (default 3)");
+        console.log("  --interval MS milliseconds between samples (default 30000)");
+        console.log("  --lines N     lines from bottom of pane to hash (default 30)");
+        console.log("  NOTE: no auto-nudge in Phase A. See #976B for opt-in injection.");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const targets = (flags._ as string[]).filter(Boolean);
+      if (targets.length === 0) {
+        console.log("usage: maw tmux detect-stalls <target> [<target>...] [--watch] [--threshold N] [--interval MS]");
+        return { ok: false, error: "at least one target required", output: logs.join("\n") };
+      }
+      await cmdStallDetect(targets, {
+        watch: !!flags["--watch"],
+        threshold: flags["--threshold"] as number | undefined,
+        intervalMs: flags["--interval"] as number | undefined,
+        lines: flags["--lines"] as number | undefined,
+      });
     } else if (sub === "zoom") {
       const target = args[1];
       if (!target) {
@@ -235,7 +267,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log(`\x1b[32m✓\x1b[0m toggled zoom on ${resolved}`);
 
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach|detect-stalls> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
@@ -243,6 +275,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log("  kill <target>           kill a pane or --session (fleet-safe)");
       console.log("  layout <target> <preset> apply a tmux layout preset");
       console.log("  attach <target> [--print] attach to a tmux session (--print to skip exec)");
+      console.log("  detect-stalls <target>... [--watch]  notify when pane content stops changing");
       return { ok: true, output: logs.join("\n") || undefined };
     } else {
       console.log(`unknown tmux subcommand: ${sub}`);

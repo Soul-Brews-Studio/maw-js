@@ -47,6 +47,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
+  stall: "Detect stalled panes — notify-only (#976A)",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -62,6 +63,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
+  stall: ["tmux", "detect-stalls"],
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
