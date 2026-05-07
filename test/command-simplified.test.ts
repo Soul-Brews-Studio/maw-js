@@ -217,6 +217,77 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
   });
 });
 
+describe("buildCommand — permissionMode (#1146)", () => {
+  test("default (unset) preserves #1108 behavior — injects --dangerously-skip-permissions", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channels: ["plugin:discord@claude-plugins-official"],
+    });
+    expect(out).toContain("--dangerously-skip-permissions");
+    expect(out).toContain("--continue");
+    expect(out).toContain("--channels plugin:discord@claude-plugins-official");
+  });
+
+  test('permissionMode "skip" is identical to default — flag present', () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channels: ["plugin:discord@claude-plugins-official"],
+      permissionMode: "skip",
+    });
+    expect(out).toContain("--dangerously-skip-permissions");
+    expect(out).toContain("--continue");
+  });
+
+  test('permissionMode "relay" omits --dangerously-skip-permissions but keeps --continue + --channels', () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("bot", {
+      channels: ["plugin:discord@claude-plugins-official"],
+      permissionMode: "relay",
+    });
+    // The whole point of #1146 — no skip flag in relay mode.
+    expect(out).not.toContain("--dangerously-skip-permissions");
+    // Channel + continue plumbing still wired up so the bot can connect + resume.
+    expect(out).toContain("--channels plugin:discord@claude-plugins-official");
+    expect(out).toContain("--continue");
+  });
+
+  test('permissionMode "relay" with channelEnv — env still prepended, skip flag still omitted', () => {
+    fakeConfig.commands = { default: "claude" };
+    const home = require("os").homedir();
+    const out = buildCommand("bot", {
+      channels: ["plugin:discord@claude-plugins-official"],
+      channelEnv: { DISCORD_STATE_DIR: "~/.claude/channels/mybot" },
+      permissionMode: "relay",
+    });
+    expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
+    expect(out).not.toContain("--dangerously-skip-permissions");
+  });
+
+  test("permissionMode is ignored when no channels are configured (no flag injection in either case)", () => {
+    fakeConfig.commands = { default: "claude" };
+    const skipOut = buildCommand("bot", { permissionMode: "skip" });
+    const relayOut = buildCommand("bot", { permissionMode: "relay" });
+    // Without channels, the #1108 injection block is skipped entirely — no flag
+    // is added regardless of permissionMode.
+    expect(skipOut).not.toContain("--dangerously-skip-permissions");
+    expect(relayOut).not.toContain("--dangerously-skip-permissions");
+  });
+
+  test('permissionMode "relay" — config-supplied --continue is preserved (fallback wrap kicks in)', () => {
+    // Operator chose `claude --continue` as their default. Relay mode should
+    // not strip --continue; it should only suppress the skip flag injection.
+    fakeConfig.commands = { default: "claude --continue" };
+    const out = buildCommand("bot", {
+      channels: ["plugin:discord@claude-plugins-official"],
+      permissionMode: "relay",
+    });
+    expect(out).toContain("--continue");
+    expect(out).not.toContain("--dangerously-skip-permissions");
+    // --continue triggers the || fallback wrap (#1091) so we get { primary || fallback; }
+    expect(out).toContain(" || ");
+  });
+});
+
 describe("buildCommand — channelEnv shell-vs-config precedence (#1148)", () => {
   const KEY = "MAWJS_TEST_PRECEDENCE_KEY";
   const KEY1 = "MAWJS_TEST_K1";

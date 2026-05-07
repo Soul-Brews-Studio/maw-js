@@ -12,6 +12,14 @@ export interface ChannelPlugin {
 export interface OracleChannelConfig {
   plugins: ChannelPlugin[];
   token_source?: string;
+  /**
+   * #1146 — permission gating mode for the wake command injection.
+   *   "skip"  (default) — inject `--dangerously-skip-permissions` (autonomous).
+   *   "relay"           — omit the skip flag so permission prompts flow through
+   *                       the channel (e.g. Discord DM ✅/❌ via MCP relay).
+   * Omitting the field preserves the existing #1108 autonomous behavior.
+   */
+  permissionMode?: "skip" | "relay";
 }
 
 function stateDir(oracleStem: string): string {
@@ -38,6 +46,16 @@ export function getChannelPluginIds(oracleStem: string, fleetOverride?: string[]
   if (fleetOverride?.length) return fleetOverride;
   const config = loadOracleChannels(oracleStem);
   return config?.plugins.map(p => p.id) ?? [];
+}
+
+/**
+ * #1146 — read the permissionMode from the channel config.
+ * Returns "skip" when unset or the file is missing so callers can pass the
+ * value straight through to buildCommand without an extra null-check.
+ */
+export function getChannelPermissionMode(oracleStem: string): "skip" | "relay" {
+  const config = loadOracleChannels(oracleStem);
+  return config?.permissionMode === "relay" ? "relay" : "skip";
 }
 
 export function getChannelEnv(oracleStem: string, fleetEnvOverride?: Record<string, string>): Record<string, string> {

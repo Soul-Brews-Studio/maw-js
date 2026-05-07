@@ -31,6 +31,15 @@ export interface BuildCommandOpts {
   channels?: string[];
   channelEnv?: Record<string, string>;
   devChannels?: boolean;
+  /**
+   * #1146 — gate `--dangerously-skip-permissions` injection for channel-enabled bots.
+   *   "skip" (default) — inject the flag (current behavior, autonomous bots).
+   *   "relay"          — omit the flag; permission prompts flow through the channel
+   *                      (e.g. Discord DM ✅/❌ buttons via the MCP permission relay).
+   * Only meaningful when `channels` is non-empty. Undefined ⇒ "skip" semantics
+   * so existing setups are unchanged.
+   */
+  permissionMode?: "skip" | "relay";
 }
 
 export function buildCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
@@ -69,7 +78,12 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
     cmd += " --channels " + opts.channels.join(" ");
     // #1108: channel-enabled oracles (Discord/Telegram bots) run autonomous —
     // permission prompts block unattended sessions (Mother stuck 20+ min).
-    if (!cmd.includes("--dangerously-skip-permissions")) {
+    //
+    // #1146: opt-out via permissionMode: "relay". When set, the bot keeps the
+    // channel + --continue plumbing but the skip flag is omitted so that
+    // permission prompts route through the channel (e.g. Discord DM ✅/❌).
+    // Default (undefined or "skip") preserves the #1108 behavior.
+    if (opts.permissionMode !== "relay" && !cmd.includes("--dangerously-skip-permissions")) {
       cmd += " --dangerously-skip-permissions";
     }
     if (!cmd.includes("--continue") && !cmd.includes("--resume")) {
