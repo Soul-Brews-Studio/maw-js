@@ -180,7 +180,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean; type?: string; color?: string } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; codex?: boolean; type?: string; color?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -216,7 +216,8 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const model = opts.model || "sonnet";
+  const isCodex = opts.codex === true;
+  const model = opts.model || (isCodex ? "gpt-5.5" : "sonnet");
   const parts: string[] = [];
   parts.push(`You are '${role}' on team '${teamName}'.`);
   if (opts.prompt) parts.push(opts.prompt);
@@ -242,7 +243,7 @@ export async function cmdTeamSpawn(
   if (existsSync(toolConfigPath)) {
     try {
       const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-      const member: TeamMember = { name: role, model };
+      const member: TeamMember = { name: role, model, backendType: isCodex ? "codex" : "claude" };
       if (!toolConfig.members.some((m: any) => m.name === role)) {
         toolConfig.members.push(member);
         // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
@@ -289,7 +290,11 @@ export async function cmdTeamSpawn(
     try {
       const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
 
-      const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
+      const escapedPath = promptPath.replace(/'/g, "'\\''");
+      const agentCmd = isCodex
+        ? `codex exec --model ${model} -c approval_policy=never "$(cat '${escapedPath}')"`
+        : claudeCmd;
+      const result = await spawnTeammatePane(role, agentCmd, { colorIndex: teammateCount });
 
       // Persist pane state to tool store config (~/.claude/teams/)
       const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");

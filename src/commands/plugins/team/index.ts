@@ -114,13 +114,14 @@ general flags: --description <text>, --members <list>`,
       const color = colorIdx !== -1 ? args[colorIdx + 1] : undefined;
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
+      const codex = args.includes("--codex");
       // --prompt is greedy to end-of-argv; strip known flags if they appear in the tail
       let prompt: string | undefined;
       if (promptIdx !== -1) {
-        const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec");
+        const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec" && a !== "--codex");
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, type, color });
+      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, codex, type, color });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");
