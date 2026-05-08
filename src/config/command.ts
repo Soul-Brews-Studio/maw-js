@@ -40,6 +40,16 @@ export interface BuildCommandOpts {
    * so existing setups are unchanged.
    */
   permissionMode?: "skip" | "relay";
+  /**
+   * Resume a specific Claude session by id (UUID matching the JSONL filename
+   * under `~/.claude/projects/<encoded-cwd>/<id>.jsonl`). Wins over the
+   * implicit `--continue` injection below; emits `claude … --resume "<id>"`.
+   * Used by the directed-inbox watcher (Phase 2a) to pin a follow-up wake on
+   * thread N to the same session that handled the prior wake on thread N —
+   * keeps worktree count proportional to (oracle × thread) pairs instead of
+   * ballooning per wake.
+   */
+  resume?: string;
 }
 
 export function buildCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
@@ -89,6 +99,15 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   }
   if (opts.devChannels) {
     cmd += " --dangerously-load-development-channels";
+  }
+
+  // Caller-provided --resume <sid> wins over the implicit --continue below.
+  // Strip any pre-existing --continue / --resume in the configured cmd, then
+  // append the explicit session id. No `||` fallback added here — the
+  // standard fallback block below covers both.
+  if (opts.resume) {
+    cmd = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
+    cmd += ` --resume "${opts.resume}"`;
   }
 
   // #1174 — `--continue` is the default for ALL claude wakes (not just

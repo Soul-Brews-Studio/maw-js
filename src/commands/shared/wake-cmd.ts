@@ -10,7 +10,7 @@ import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-se
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; noAttach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; resume?: string; attach?: boolean; noAttach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // #1151 — reject flag-shaped names. parseFlags lands unrecognized flags
   // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
   // and (without this guard) get sanitized into session names like `26---help`.
@@ -128,9 +128,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // #1146 — read permissionMode so channel-enabled bots can opt into "relay"
     // (channel-routed prompts) instead of the default "skip" (autonomous).
     const permissionMode = getChannelPermissionMode(oracle);
+    // Build wakeOpts as object whenever extra fields are needed (channels OR
+    // resume). Caller's `--resume <sid>` must propagate all the way down to
+    // buildCommandInDir; passing engine alone (string form) loses it.
     const wakeOpts = channelIds.length
-      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode }
-      : opts.engine;
+      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode, resume: opts.resume }
+      : (opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine);
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
@@ -258,7 +261,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       if (opts.prompt) {
         await tmux.selectWindow(`${session}:${existingWindow}`);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
-        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`);
+        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine)} -p '${escaped}'`);
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
@@ -271,7 +274,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine));
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
@@ -292,7 +295,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  const cmd = buildCommandInDir(windowName, targetPath, opts.engine);
+  const cmd = buildCommandInDir(windowName, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine);
   if (opts.prompt) {
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);
