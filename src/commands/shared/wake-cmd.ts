@@ -131,9 +131,15 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // Build wakeOpts as object whenever extra fields are needed (channels OR
     // resume). Caller's `--resume <sid>` must propagate all the way down to
     // buildCommandInDir; passing engine alone (string form) loses it.
+    // Build wakeOpts as object whenever extra fields are needed (channels,
+    // resume, or fresh). Caller's `--resume <sid>` / `--fresh` must propagate
+    // down to buildCommandInDir; passing engine alone (string form) loses
+    // them. buildCommandInDir auto-probes the cwd for a missing JSONL and
+    // sets fresh=true itself when neither fresh nor resume was supplied —
+    // see config/command.ts buildCommandInDir.
     const wakeOpts = channelIds.length
-      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode, resume: opts.resume }
-      : (opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine);
+      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode, resume: opts.resume, fresh: opts.fresh }
+      : (opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine);
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
@@ -261,7 +267,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       if (opts.prompt) {
         await tmux.selectWindow(`${session}:${existingWindow}`);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
-        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine)} -p '${escaped}'`);
+        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine)} -p '${escaped}'`);
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
@@ -274,7 +280,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine));
+        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine));
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
@@ -295,7 +301,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  const cmd = buildCommandInDir(windowName, targetPath, opts.resume ? { engine: opts.engine, resume: opts.resume } : opts.engine);
+  const cmd = buildCommandInDir(windowName, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine);
   if (opts.prompt) {
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);

@@ -1,5 +1,6 @@
 import { loadConfig } from "./load";
 import { homedir } from "os";
+import { hasContinuableSession } from "../core/util/claude-projects";
 
 /**
  * Expand a leading `~` to the user's home directory.
@@ -50,6 +51,15 @@ export interface BuildCommandOpts {
    * ballooning per wake.
    */
   resume?: string;
+  /**
+   * Strip `--continue` / `--resume` and skip the `||` shell-fallback. Set
+   * by `--fresh` callers OR auto-detected by `buildCommandInDir` when the
+   * target cwd has no JSONL under `~/.claude/projects/<encoded>/`. Without
+   * this, `claude --continue` exits 0 with "No conversation found to
+   * continue" in a fresh cwd, so the `||` fallback never fires and the
+   * pane lands at an empty shell with the prompt discarded.
+   */
+  fresh?: boolean;
 }
 
 export function buildCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
@@ -103,11 +113,18 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
 
   // Caller-provided --resume <sid> wins over the implicit --continue below.
   // Strip any pre-existing --continue / --resume in the configured cmd, then
-  // append the explicit session id. No `||` fallback added here — the
-  // standard fallback block below covers both.
+  // append the explicit session id. The standard fallback block below
+  // covers --resume too.
   if (opts.resume) {
     cmd = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     cmd += ` --resume "${opts.resume}"`;
+  }
+
+  // Caller-asserted (or auto-probed) fresh cwd: strip any pre-existing
+  // --continue / --resume so we don't try to resume a session that doesn't
+  // exist. The `||` fallback block below also bails out for fresh runs.
+  if (opts.fresh) {
+    cmd = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
   }
 
   // #1174 — `--continue` is the default for ALL claude wakes (not just
@@ -124,6 +141,7 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   const isClaudeEngine = cmdPart.startsWith("claude");
   if (
     isClaudeEngine &&
+    !opts.fresh &&
     !cmd.includes("--continue") &&
     !cmd.includes("--resume")
   ) {
@@ -152,7 +170,9 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // Reset terminal after Claude TUI exits — prevents frozen prompt (#1091)
   const reset = 'printf "\\e[?1049l\\e[0m"; stty sane 2>/dev/null; clear';
 
-  if (cmd.includes("--continue") || cmd.includes("--resume")) {
+  // Skip the || fallback for fresh runs — the cmd has no --continue/--resume
+  // so there's nothing to fall back from.
+  if (!opts.fresh && (cmd.includes("--continue") || cmd.includes("--resume"))) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
     return `{ ${cmd} || ${fallback}; }; ${reset}`;
@@ -167,8 +187,22 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
  * already sets the initial pane cwd, and the scrollback noise wasn't worth
  * the reboot-recovery edge case. `cwd` param kept for API compat + future use.
  */
-export function buildCommandInDir(agentName: string, _cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
-  return buildCommand(agentName, optsOrEngine);
+export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
+  // Auto-probe for "no continuable session" silent-fail. When the caller
+  // didn't explicitly opt in (fresh) or out (resume) and the target cwd
+  // has no JSONL under `~/.claude/projects/<encoded>/`, we set fresh=true
+  // ourselves — otherwise `claude --continue` exits 0 with "No conversation
+  // found to continue" and the `||` fallback never fires. This keeps every
+  // wake site safe without forcing every caller to remember the probe.
+  const opts: BuildCommandOpts = typeof optsOrEngine === "string"
+    ? { engine: optsOrEngine }
+    : (optsOrEngine || {});
+  if (opts.fresh === undefined && opts.resume === undefined && cwd) {
+    if (!hasContinuableSession(cwd)) {
+      opts.fresh = true;
+    }
+  }
+  return buildCommand(agentName, opts);
 }
 
 export function getEnvVars(): Record<string, string> {
