@@ -168,8 +168,27 @@ export async function invokeDirectHandler(
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [--dry-run]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [--dry-run]\n       maw wake all [--kill] [--all] [--resume]");
       throw new UserError("wake: missing oracle name");
+    }
+
+    // Pre-#918 the wake/ plugin handled `maw wake all` by routing to cmdWakeAll.
+    // When wake routing moved to top-aliases the early-route was lost, so "all"
+    // started resolving as a literal oracle name (#918 regression surfaced via
+    // pulse-oracle 2026-05-06 maw-boot incident). Restore the routing here.
+    if (oracle.toLowerCase() === "all") {
+      const allFlags = parseFlags(argv, {
+        "--kill": Boolean,
+        "--all": Boolean,
+        "--resume": Boolean,
+      }, 0);
+      const { cmdWakeAll } = await import("../commands/shared/fleet-wake");
+      await cmdWakeAll({
+        kill: !!allFlags["--kill"],
+        all: !!allFlags["--all"],
+        resume: !!allFlags["--resume"],
+      });
+      return;
     }
 
     if (flags["--dry-run"]) {
