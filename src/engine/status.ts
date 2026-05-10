@@ -64,7 +64,7 @@ export class StatusDetector {
     clients: Set<MawWS>,
     feedListeners: Set<(event: FeedEvent) => void>,
   ) {
-    if (clients.size === 0 || sessions.length === 0) return;
+    if (sessions.length === 0) return;
 
     const agents = sessions.flatMap(s =>
       s.windows.map(w => ({ target: `${s.name}:${w.index}`, name: w.name, session: s.name }))
