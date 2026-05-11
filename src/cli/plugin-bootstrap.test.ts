@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -13,6 +13,25 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 import { runBootstrap } from "./plugin-bootstrap";
+
+/**
+ * #1186 — `runBootstrap` now dynamic-imports `../config` so the multi-source
+ * resolver can read `bundledPluginSource`. paths.ts caches CONFIG_FILE on
+ * first load, so MAW_HOME must be sandboxed before any test calls
+ * runBootstrap. MAW_TEST_MODE=1 makes `persistBundledPath` a no-op as a
+ * second line of defence against corrupting the developer's real config.
+ */
+let configSandbox: string;
+beforeAll(() => {
+  configSandbox = mkdtempSync(join(tmpdir(), "maw-bootstrap-config-"));
+  process.env.MAW_HOME = configSandbox;
+  process.env.MAW_TEST_MODE = "1";
+});
+afterAll(() => {
+  try { rmSync(configSandbox, { recursive: true, force: true }); } catch {}
+  delete process.env.MAW_HOME;
+  delete process.env.MAW_TEST_MODE;
+});
 
 /**
  * Tests for #817 — bootstrap-on-empty.
@@ -212,6 +231,106 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(existsSync(join(pluginDir, "shellenv"))).toBe(true);
       expect(lstatSync(join(pluginDir, "shellenv")).isSymbolicLink()).toBe(true);
     } finally {
+      console.log = originalLog;
+    }
+  });
+});
+
+/**
+ * Tests for #1186 — multi-source resolver.
+ *
+ * The bug: the compiled binary's `import.meta.dir` no longer resolves to the
+ * source tree, so `<srcDir>/commands/plugins` doesn't exist and bundled
+ * plugins never re-symlink after `~/.maw/plugins/` is wiped.
+ *
+ * The fix: `runBootstrap` checks $MAW_BUNDLED_PLUGINS env first, then
+ * `config.bundledPluginSource`, then falls back to the srcDir hint.
+ */
+describe("runBootstrap — #1186 multi-source resolver", () => {
+  let workDir: string;
+  let srcDir: string;
+  let altBundled: string;
+  let pluginDir: string;
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), "maw-bootstrap-1186-"));
+    srcDir = join(workDir, "src");
+    altBundled = join(workDir, "alt-bundled-plugins");
+    pluginDir = join(workDir, "plugins");
+    mkdirSync(join(srcDir, "commands", "plugins"), { recursive: true });
+    mkdirSync(altBundled, { recursive: true });
+  });
+
+  afterEach(() => {
+    try { rmSync(workDir, { recursive: true, force: true }); } catch {}
+    delete process.env.MAW_BUNDLED_PLUGINS;
+  });
+
+  /** Create a plugin directory under `parent` that runBootstrap will accept. */
+  function makePlugin(parent: string, name: string): void {
+    const dir = join(parent, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+  }
+
+  it("env MAW_BUNDLED_PLUGINS overrides srcDir hint (compiled-binary case)", async () => {
+    // Bundled plugins exist at both paths — env override wins.
+    makePlugin(join(srcDir, "commands", "plugins"), "src-only");
+    makePlugin(altBundled, "alt-only");
+    process.env.MAW_BUNDLED_PLUGINS = altBundled;
+
+    await runBootstrap(pluginDir, srcDir);
+
+    const linked = readdirSync(pluginDir).sort();
+    expect(linked).toEqual(["alt-only"]);
+    expect(readlinkSync(join(pluginDir, "alt-only"))).toBe(join(altBundled, "alt-only"));
+  });
+
+  it("env MAW_BUNDLED_PLUGINS expands leading ~/", async () => {
+    // Stash a real bundled dir somewhere under HOME so the ~/ expansion has
+    // a target — we use the sandbox's own .maw-bundled subdir.
+    const homeRel = ".maw-bundled-test";
+    const homeAbs = join(process.env.HOME ?? "", homeRel);
+    mkdirSync(homeAbs, { recursive: true });
+    try {
+      makePlugin(homeAbs, "tilde-resolved");
+      process.env.MAW_BUNDLED_PLUGINS = `~/${homeRel}`;
+
+      await runBootstrap(pluginDir, srcDir);
+
+      expect(readdirSync(pluginDir).sort()).toEqual(["tilde-resolved"]);
+    } finally {
+      try { rmSync(homeAbs, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("missing MAW_BUNDLED_PLUGINS target → falls through to srcDir hint", async () => {
+    makePlugin(join(srcDir, "commands", "plugins"), "from-src");
+    process.env.MAW_BUNDLED_PLUGINS = "/nonexistent/path/that/does/not/exist";
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["from-src"]);
+  });
+
+  it("no env + no srcDir bundled + empty pluginDir → warns, doesn't throw", async () => {
+    // Remove the bundled dir so the resolver returns null.
+    rmSync(join(srcDir, "commands", "plugins"), { recursive: true });
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+    const originalLog = console.log;
+    console.log = () => {};
+
+    try {
+      await runBootstrap(pluginDir, srcDir);
+      expect(warns.some(w => w.includes("bundled-plugin source not found"))).toBe(true);
+      expect(warns.some(w => w.includes("#1186"))).toBe(true);
+      expect(existsSync(pluginDir)).toBe(true);
+      expect(readdirSync(pluginDir)).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
       console.log = originalLog;
     }
   });

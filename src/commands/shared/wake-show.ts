@@ -15,9 +15,10 @@ export async function cmdShow(oracle: string): Promise<void> {
   const windowName = `${oracle}-oracle`;
 
   const { getChannelPluginIds, getChannelEnv, getChannelPermissionMode } = await import("./channel-loader");
-  const channelIds = getChannelPluginIds(oracle);
-  const channelEnv = getChannelEnv(oracle);
-  const permissionMode = getChannelPermissionMode(oracle);
+  // #1195 Phase 2 — prefer <repo>/.claude/channel.json over the global config
+  const channelIds = getChannelPluginIds(oracle, undefined, repoPath);
+  const channelEnv = getChannelEnv(oracle, undefined, repoPath);
+  const permissionMode = getChannelPermissionMode(oracle, repoPath);
 
   const opts = channelIds.length
     ? { channels: channelIds, channelEnv, permissionMode }
