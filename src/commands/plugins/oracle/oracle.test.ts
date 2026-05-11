@@ -1,6 +1,13 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { InvokeContext } from "../../../plugin/types";
 
+// Import real implementations that other test files depend on — mock.module
+// is process-global in bun, so our mock of ./impl persists into
+// prune-register.test.ts etc. Spreading the real functions prevents both
+// "export not found" SyntaxErrors AND preserves behavior for those tests.
+const realPrune = await import("./impl-prune");
+const realRegister = await import("./impl-register");
+
 mock.module("./impl", () => ({
   cmdOracleList: async () => {
     console.log("Oracle Fleet  (1/2 awake)");
@@ -17,10 +24,8 @@ mock.module("./impl", () => ({
   cmdOracleAbout: async (name: string) => {
     console.log(`Oracle — ${name}`);
   },
-  // sdk/index.ts re-exports these from this same module; stubs prevent
-  // "export not found" SyntaxErrors when impl-register.ts pulls in the SDK.
-  cmdOraclePrune: async (_opts: any) => {},
-  cmdOracleRegister: async (_name: string, _opts?: any) => {},
+  cmdOraclePrune: realPrune.cmdOraclePrune,
+  cmdOracleRegister: realRegister.cmdOracleRegister,
 }));
 
 mock.module("./impl-nickname", () => ({
