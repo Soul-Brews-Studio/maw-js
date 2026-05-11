@@ -51,6 +51,8 @@ export class MawEngine {
     } catch {
       console.warn("[engine] session cache init failed — will retry on first WS connect");
     }
+    // Start intervals headlessly so triggers fire without a browser connected (#headless-triggers)
+    this.startIntervals();
   }
 
   on(type: string, handler: Handler) { this.handlers.set(type, handler); }
