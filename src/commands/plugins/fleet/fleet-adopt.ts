@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, basename } from "path";
 import { execSync } from "child_process";
-import { FLEET_DIR } from "../../../core/paths";
+import { getFleetDir } from "../../../core/paths";
 import { loadFleetEntries } from "../../shared/fleet-load";
 
 export function extractOracleStem(claudeMdPath: string): string | null {
@@ -161,7 +161,7 @@ export async function adoptByPath(
 
   const slot = entries.reduce((max, e) => Math.max(max, e.num), 0) + 1;
   const fileName = `${String(slot).padStart(2, "0")}-${stem}.json`;
-  const configPath = join(FLEET_DIR, fileName);
+  const configPath = join(getFleetDir(), fileName);
   const config = {
     name: `${String(slot).padStart(2, "0")}-${stem}`,
     windows: [{ name: `${stem}-oracle`, repo: `${org}/${repo}` }],
