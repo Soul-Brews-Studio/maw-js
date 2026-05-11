@@ -123,11 +123,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // Channel env vars are prepended to the command (not tmux set-environment)
     // because tmux set-environment only affects NEW shells, not the existing one
     const { getChannelPluginIds, getChannelEnv, getChannelPermissionMode } = await import("./channel-loader");
-    const channelIds = getChannelPluginIds(oracle);
-    const channelEnv = getChannelEnv(oracle);
+    // #1195 Phase 2 — prefer <repo>/.claude/channel.json over the global config
+    const channelIds = getChannelPluginIds(oracle, undefined, repoPath);
+    const channelEnv = getChannelEnv(oracle, undefined, repoPath);
     // #1146 — read permissionMode so channel-enabled bots can opt into "relay"
     // (channel-routed prompts) instead of the default "skip" (autonomous).
-    const permissionMode = getChannelPermissionMode(oracle);
+    const permissionMode = getChannelPermissionMode(oracle, repoPath);
     const wakeOpts = channelIds.length
       ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode }
       : opts.engine;

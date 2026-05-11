@@ -77,25 +77,55 @@ export function saveOracleChannels(oracleStem: string, config: OracleChannelConf
   writeFileSync(configPath(oracleStem), JSON.stringify(config, null, 2) + "\n");
 }
 
-export function getChannelPluginIds(oracleStem: string, fleetOverride?: string[]): string[] {
+/**
+ * Resolve the effective channel config for an oracle.
+ *
+ * Phase 2 of #1195 — repo-local `.claude/channel.json` (if present at
+ * `repoPath`) wins over the global `~/.claude/channels/<stem>/config.json`,
+ * so config travels with the repo across machines and users. The global
+ * path remains the fallback for un-migrated oracles.
+ */
+export function loadEffectiveChannels(
+  oracleStem: string,
+  repoPath?: string,
+): OracleChannelConfig | null {
+  if (repoPath) {
+    const repo = loadRepoChannels(repoPath);
+    if (repo) return repo;
+  }
+  return loadOracleChannels(oracleStem);
+}
+
+export function getChannelPluginIds(
+  oracleStem: string,
+  fleetOverride?: string[],
+  repoPath?: string,
+): string[] {
   if (fleetOverride?.length) return fleetOverride;
-  const config = loadOracleChannels(oracleStem);
-  return config?.plugins.map(p => p.id) ?? [];
+  return loadEffectiveChannels(oracleStem, repoPath)?.plugins.map(p => p.id) ?? [];
 }
 
 /**
  * #1146 — read the permissionMode from the channel config.
  * Returns "skip" when unset or the file is missing so callers can pass the
  * value straight through to buildCommand without an extra null-check.
+ * `repoPath` is honored per #1195 Phase 2.
  */
-export function getChannelPermissionMode(oracleStem: string): "skip" | "relay" {
-  const config = loadOracleChannels(oracleStem);
+export function getChannelPermissionMode(
+  oracleStem: string,
+  repoPath?: string,
+): "skip" | "relay" {
+  const config = loadEffectiveChannels(oracleStem, repoPath);
   return config?.permissionMode === "relay" ? "relay" : "skip";
 }
 
-export function getChannelEnv(oracleStem: string, fleetEnvOverride?: Record<string, string>): Record<string, string> {
+export function getChannelEnv(
+  oracleStem: string,
+  fleetEnvOverride?: Record<string, string>,
+  repoPath?: string,
+): Record<string, string> {
   const env: Record<string, string> = {};
-  const config = loadOracleChannels(oracleStem);
+  const config = loadEffectiveChannels(oracleStem, repoPath);
   if (config?.plugins) {
     for (const p of config.plugins) {
       if (p.env) Object.assign(env, p.env);
