@@ -17,6 +17,10 @@ mock.module("./impl", () => ({
   cmdOracleAbout: async (name: string) => {
     console.log(`Oracle — ${name}`);
   },
+  // sdk/index.ts re-exports these from this same module; stubs prevent
+  // "export not found" SyntaxErrors when impl-register.ts pulls in the SDK.
+  cmdOraclePrune: async (_opts: any) => {},
+  cmdOracleRegister: async (_name: string, _opts?: any) => {},
 }));
 
 mock.module("./impl-nickname", () => ({
