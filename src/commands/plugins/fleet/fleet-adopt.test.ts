@@ -36,6 +36,12 @@ function makeRepo(name: string, claudeMdLine1: string): string {
 }
 
 function clearFleet(): void {
+  // #1190 — beforeEach used to assume fleetDir existed from module-load
+  // mkdirSync; in CI, cross-file test pollution can wipe the dir before this
+  // file's beforeEach runs (paths.ts's FLEET_DIR module-load mkdir is a
+  // one-shot at first import — if a sibling test rms tmproot, this dir is
+  // gone). Re-create defensively so the loop below can scan an empty dir.
+  mkdirSync(fleetDir, { recursive: true });
   for (const f of readdirSync(fleetDir)) rmSync(join(fleetDir, f), { force: true });
 }
 

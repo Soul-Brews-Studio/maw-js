@@ -34,5 +34,26 @@ export const CONFIG_DIR = process.env.MAW_HOME
 export const FLEET_DIR = join(CONFIG_DIR, "fleet");
 export const CONFIG_FILE = join(CONFIG_DIR, "maw.config.json");
 
+/**
+ * Call-time variants of CONFIG_DIR / FLEET_DIR / CONFIG_FILE. (#1190 / #1200)
+ *
+ * Why: the consts above evaluate at module load. In `bun test` (single-process
+ * across many files in src/commands/plugins/), any earlier file that imports
+ * paths.ts (directly or transitively — almost everything does) freezes the
+ * resolved path with whatever env was set at that import moment. Test files
+ * that dynamic-import their target AFTER setting `MAW_CONFIG_DIR` or
+ * `MAW_HOME` then see the wrong (frozen) path, not the env they just set.
+ *
+ * These getters re-read the env on every call, so test sandboxing works
+ * regardless of import order. New call sites (and tests) should prefer the
+ * getters; the consts stay for backward compat with the existing 30+ callers.
+ */
+export function getConfigDir(): string {
+  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
+  return process.env.MAW_CONFIG_DIR || join(homedir(), ".config", "maw");
+}
+export function getFleetDir(): string { return join(getConfigDir(), "fleet"); }
+export function getConfigFile(): string { return join(getConfigDir(), "maw.config.json"); }
+
 // Ensure dirs exist on first import
 mkdirSync(FLEET_DIR, { recursive: true });
