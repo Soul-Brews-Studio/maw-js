@@ -61,15 +61,10 @@ await mock.module("fs", () => ({
   },
   existsSync: (path: string) => {
     calls.push({ fn: "existsSync", args: [path] });
-    // Use real existsSync so other test files in the same worker (e.g. consent
-    // tests) get correct answers — mock.module("fs") is process-global in bun.
-    return realFs.existsSync(path);
+    return true; // ~/.maw already exists in mock-world
   },
   mkdirSync: (path: string, opts: unknown) => {
     calls.push({ fn: "mkdirSync", args: [path, opts] });
-    // Pass through to realFs so other test files sharing this worker can
-    // actually create directories (consent store's writePending relies on this).
-    (realFs.mkdirSync as (p: string, o?: unknown) => void)(path, opts);
   },
   writeSync: (fd: number, buf: Buffer, _off: number, _len: number, _pos: number) => {
     calls.push({ fn: "writeSync", args: [fd, buf.toString("utf-8")] });
