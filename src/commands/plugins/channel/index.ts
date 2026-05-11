@@ -35,6 +35,9 @@ subcommands:
   providers                list available channel providers
   setup <oracle>           interactive channel setup wizard
   test <oracle>            test channel configuration
+  migrate --to-repo [...]  copy global ~/.claude/channels/<oracle>/config.json
+                           into each oracle's <repo>/.claude/channel.json
+                           ([oracle...] empty = all; --dry-run / --remove-global)
 
 shorthand: discord → plugin:discord@claude-plugins-official
 github: prefix → delegates to setup wizard`,
@@ -261,16 +264,117 @@ github: prefix → delegates to setup wizard`,
         for (const c of checks) console.log(`    ${c}`);
       }
 
+    } else if (sub === "migrate") {
+      const rest = args.slice(1);
+      const toRepo = rest.includes("--to-repo");
+      const dryRun = rest.includes("--dry-run");
+      const removeGlobal = rest.includes("--remove-global");
+      const targets = rest.filter(a => !a.startsWith("--"));
+
+      if (!toRepo) {
+        console.log("usage: maw channel migrate --to-repo [oracle...] [--dry-run] [--remove-global]");
+        console.log("  copies global ~/.claude/channels/<oracle>/config.json into");
+        console.log("  <repo>/.claude/channel.json so config travels with the repo (#1195).");
+        console.log("");
+        console.log("  no [oracle...] args = migrate every oracle with global config.");
+        console.log("  --dry-run            = show what would happen, no writes.");
+        console.log("  --remove-global      = delete the global config after a successful copy.");
+        return { ok: false, error: "--to-repo required" };
+      }
+
+      const stems = targets.length > 0
+        ? targets
+        : listAllOracleChannels().map(o => o.oracle);
+
+      if (stems.length === 0) {
+        console.log("  no oracles with global channel config to migrate");
+        return { ok: true };
+      }
+
+      const { ghqFind } = await import("../../../core/ghq");
+      const { unlinkSync, rmdirSync } = await import("fs");
+      const { join: pathJoin } = await import("path");
+      const { homedir: hd } = await import("os");
+
+      // Channel dir names are heterogeneous: some include the `-oracle`
+      // suffix (e.g. `mawjs-oracle`), some don't (e.g. `mother`,
+      // `hermes-discord`). Try the literal name first, then the
+      // `-oracle`-suffixed form, then the stripped form. ghqFind returns
+      // the FIRST match (and warns on multiples) without calling
+      // process.exit — unlike resolveOracle.
+      const resolveRepo = async (stem: string): Promise<string | null> => {
+        const candidates = [
+          stem,
+          stem.endsWith("-oracle") ? stem.replace(/-oracle$/, "") : `${stem}-oracle`,
+        ];
+        for (const candidate of candidates) {
+          const hit = await ghqFind(`/${candidate}`);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      let migrated = 0, skipped = 0, failed = 0;
+      for (const stem of stems) {
+        const global = loadOracleChannels(stem);
+        if (!global) {
+          console.log(`  \x1b[90m·\x1b[0m ${stem}: no global config — skip`);
+          skipped++;
+          continue;
+        }
+
+        const repoPath = await resolveRepo(stem);
+        if (!repoPath) {
+          console.log(`  \x1b[31m✗\x1b[0m ${stem}: no local repo (tried ghq for '${stem}' and '-oracle' variants) — skip`);
+          failed++;
+          continue;
+        }
+
+        if (loadRepoChannels(repoPath)) {
+          console.log(`  \x1b[33m⚠\x1b[0m ${stem}: ${repoPath}/.claude/channel.json already exists — skip (delete it first)`);
+          skipped++;
+          continue;
+        }
+
+        if (dryRun) {
+          console.log(`  \x1b[36m·\x1b[0m DRY-RUN ${stem}: would write ${repoPath}/.claude/channel.json (${global.plugins.length} plugin(s))`);
+          migrated++;
+          continue;
+        }
+
+        saveRepoChannels(repoPath, global);
+        console.log(`  \x1b[32m✓\x1b[0m ${stem}: → ${repoPath}/.claude/channel.json`);
+
+        if (removeGlobal) {
+          const globalConfig = pathJoin(hd(), ".claude", "channels", stem, "config.json");
+          const globalDir = pathJoin(hd(), ".claude", "channels", stem);
+          try {
+            unlinkSync(globalConfig);
+            try { rmdirSync(globalDir); } catch { /* dir not empty: state files survive */ }
+            console.log(`    \x1b[90m✓ removed global config\x1b[0m`);
+          } catch (e: any) {
+            console.log(`    \x1b[33m⚠ failed to remove global: ${e?.message || e}\x1b[0m`);
+          }
+        }
+        migrated++;
+      }
+
+      console.log(`\n  ${migrated} migrated, ${skipped} skipped, ${failed} failed`);
+      if (migrated > 0 && !removeGlobal && !dryRun) {
+        console.log(`  tip: re-run with --remove-global to delete the global config copies.`);
+      }
+
     } else {
-      console.log("usage: maw channel <add|rm|ls|providers|setup|test> [oracle] [plugin]\n");
-      console.log("  maw channel providers                        list available providers");
-      console.log("  maw channel setup hermes-discord discord      interactive wizard");
-      console.log("  maw channel setup myoracle github:org/repo   git channel wizard");
-      console.log("  maw channel add hermes-discord discord        quick register");
-      console.log("  maw channel add myoracle github:org/repo     git channel");
-      console.log("  maw channel rm hermes-discord discord         remove channel");
-      console.log("  maw channel ls                                list all");
-      console.log("  maw channel test hermes-discord               verify connectivity");
+      console.log("usage: maw channel <add|rm|ls|providers|setup|test|migrate> [oracle] [plugin]\n");
+      console.log("  maw channel providers                          list available providers");
+      console.log("  maw channel setup hermes-discord discord       interactive wizard");
+      console.log("  maw channel setup myoracle github:org/repo     git channel wizard");
+      console.log("  maw channel add hermes-discord discord         quick register");
+      console.log("  maw channel add myoracle github:org/repo       git channel");
+      console.log("  maw channel rm hermes-discord discord          remove channel");
+      console.log("  maw channel ls                                 list all");
+      console.log("  maw channel test hermes-discord                verify connectivity");
+      console.log("  maw channel migrate --to-repo [oracle...]      global → repo (#1195)");
       console.log("");
       console.log("  maw wake <oracle> auto-injects --channels when config exists");
     }

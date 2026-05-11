@@ -2,7 +2,15 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } fr
 import { join } from "path";
 import { homedir } from "os";
 
-const CHANNELS_BASE = join(homedir(), ".claude", "channels");
+/**
+ * Defer HOME lookup to call-time. Evaluating this at module load froze the
+ * developer's actual `$HOME` into a const, which made `process.env.HOME =
+ * sandbox` in test `beforeAll` a no-op — tests then leaked
+ * `test-*-oracle` dirs into the real `~/.claude/channels/`. (#1195 Phase 3)
+ */
+function channelsBase(): string {
+  return join(homedir(), ".claude", "channels");
+}
 
 /**
  * Per-repo channel config path (#1195 Phase 1).
@@ -58,7 +66,7 @@ export interface OracleChannelConfig {
 }
 
 function stateDir(oracleStem: string): string {
-  return join(CHANNELS_BASE, oracleStem);
+  return join(channelsBase(), oracleStem);
 }
 
 function configPath(oracleStem: string): string {
@@ -130,9 +138,9 @@ export function getChannelEnv(oracleStem: string, fleetEnvOverride?: Record<stri
 }
 
 export function listAllOracleChannels(): Array<{ oracle: string; plugins: ChannelPlugin[] }> {
-  if (!existsSync(CHANNELS_BASE)) return [];
+  if (!existsSync(channelsBase())) return [];
   const { readdirSync } = require("fs");
-  const dirs = readdirSync(CHANNELS_BASE, { withFileTypes: true })
+  const dirs = readdirSync(channelsBase(), { withFileTypes: true })
     .filter((d: any) => d.isDirectory())
     .map((d: any) => d.name);
 
