@@ -149,6 +149,19 @@ export interface MawConfig {
   pin?: string;
   /** Plugin source URLs — auto-installed on bootstrap (nuke → first run) */
   pluginSources?: string[];
+  /**
+   * Absolute path to the bundled-plugins directory
+   * (`<maw-js-checkout>/src/commands/plugins`).
+   *
+   * Why: `runBootstrap` uses `import.meta.dir` from cli.ts to locate bundled
+   * plugins. That works in source / `bun link` mode, but the compiled binary's
+   * `import.meta.dir` points at the binary's filesystem location — which
+   * doesn't contain the `commands/plugins/` subtree. With this field set
+   * (auto-populated on the first source-mode boot, or set manually for
+   * distributed binaries), the compiled binary can still re-symlink the
+   * bundled plugins after `~/.maw/plugins/` is wiped. (#1186)
+   */
+  bundledPluginSource?: string;
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
   /**

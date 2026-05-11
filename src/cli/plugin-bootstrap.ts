@@ -1,8 +1,66 @@
 import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
+
+/** Expand a leading "~/" to the current user's home directory. */
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+}
+
+/**
+ * Resolve the absolute path to the bundled-plugins directory.
+ *
+ * Priority (#1186):
+ *   1. `$MAW_BUNDLED_PLUGINS` — env override; escape hatch for tests and
+ *      distributed binaries that ship plugins alongside the executable.
+ *   2. `config.bundledPluginSource` — persisted by a prior source-mode boot
+ *      so the compiled binary keeps finding plugins after the binary has
+ *      replaced the bun-linked source path.
+ *   3. `<srcDirHint>/commands/plugins` — works in source / `bun link` mode
+ *      where `import.meta.dir` still resolves to the source tree.
+ *
+ * Returns the resolved path or null if none exist. Callers warn rather than
+ * throw so an already-populated `pluginDir` continues to work.
+ */
+async function resolveBundledPath(srcDirHint: string): Promise<string | null> {
+  const envPath = process.env.MAW_BUNDLED_PLUGINS;
+  if (envPath) {
+    const expanded = expandHome(envPath);
+    if (existsSync(expanded)) return expanded;
+  }
+
+  try {
+    const { loadConfig } = await import("../config");
+    const configured = loadConfig().bundledPluginSource;
+    if (configured) {
+      const expanded = expandHome(configured);
+      if (existsSync(expanded)) return expanded;
+    }
+  } catch {}
+
+  const fromSrc = join(srcDirHint, "commands", "plugins");
+  if (existsSync(fromSrc)) return fromSrc;
+
+  return null;
+}
+
+/**
+ * Persist the resolved bundled-plugins path to config when it came from the
+ * srcDir hint — that's the source / `bun link` boot recording its location
+ * for the later compiled-binary boot. Skipped under `MAW_TEST_MODE=1` to
+ * keep test runs from writing into the real config file.
+ */
+async function persistBundledPath(resolvedPath: string): Promise<void> {
+  if (process.env.MAW_TEST_MODE === "1") return;
+  try {
+    const { loadConfig, saveConfig } = await import("../config");
+    if (loadConfig().bundledPluginSource === resolvedPath) return;
+    saveConfig({ bundledPluginSource: resolvedPath });
+  } catch {}
+}
 
 /**
  * Auto-bootstrap plugins into pluginDir.
@@ -18,6 +76,10 @@ const URL_SCHEME_RE = /^https?:\/\//;
  *
  * Bug: #817 — bootstrap-on-empty caused new bundled plugins to be
  * silently invisible on every existing host until a manual symlink.
+ *
+ * Bug: #1186 — compiled binary lost the bundled-plugin path because
+ * `import.meta.dir` no longer pointed at the source tree. Multi-source
+ * resolver (`resolveBundledPath`) and source-mode auto-persist fix it.
  *
  * @param pluginDir  resolved ~/.maw/plugins/ path
  * @param srcDir     resolved src/ directory (pass import.meta.dir from cli.ts)
@@ -48,8 +110,8 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
   //    runs every boot. Cheap (fs stat + symlink), no network.
-  const bundled = join(srcDir, "commands", "plugins");
-  if (existsSync(bundled)) {
+  const bundled = await resolveBundledPath(srcDir);
+  if (bundled) {
     for (const d of readdirSync(bundled)) {
       const src = join(bundled, d);
       const dest = join(pluginDir, d);
@@ -59,6 +121,20 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
       if (existsSync(dest)) continue; // already linked / user dir / valid symlink
       symlinkSync(src, dest);
     }
+    // Source-mode boot? Persist the path so a later compiled-binary boot
+    // can find the bundled plugins even after `import.meta.dir` stops
+    // pointing at the source tree. Skip when the path came from env so
+    // a transient `MAW_BUNDLED_PLUGINS` doesn't overwrite stored config.
+    const fromSrc = join(srcDir, "commands", "plugins");
+    if (bundled === fromSrc && !process.env.MAW_BUNDLED_PLUGINS) {
+      await persistBundledPath(bundled);
+    }
+  } else if (wasEmpty) {
+    console.warn(
+      `[maw] bundled-plugin source not found — set MAW_BUNDLED_PLUGINS or ` +
+      `'bundledPluginSource' in maw.config.json to the absolute path of ` +
+      `src/commands/plugins in your maw-js checkout. (#1186)`,
+    );
   }
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
