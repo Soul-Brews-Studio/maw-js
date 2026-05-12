@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { ghqFind } from "../../core/ghq";
-import { buildCommandInDir, buildRespawnCommand, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { buildCommandInDir, buildShellFunction, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
@@ -149,7 +149,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
       ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode }
       : opts.engine;
     const paneTarget = `${session}:${mainWindowName}`;
-    await tmux.respawnPane(paneTarget, buildRespawnCommand(mainWindowName, wakeOpts));
+    await tmux.sendText(paneTarget, buildShellFunction(mainWindowName, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)

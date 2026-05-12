@@ -3,4 +3,4 @@ export type { TriggerEvent, TriggerConfig, PeerConfig, MawIntervals, MawTimeouts
 export { D } from "./config/types";
 export { validateConfigShape } from "./config/validate";
 export { loadConfig, resetConfig, saveConfig, configForDisplay, cfgInterval, cfgTimeout, cfgLimit, cfg } from "./config/load";
-export { buildCommand, buildCommandInDir, buildRespawnCommand, writeSessionScript, getEnvVars } from "./config/command";
+export { buildCommand, buildCommandInDir, buildShellFunction, writeSessionScript, getEnvVars } from "./config/command";

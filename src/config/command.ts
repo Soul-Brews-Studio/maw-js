@@ -313,24 +313,23 @@ export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?:
 }
 
 /**
- * Build a respawn-pane command — replaces the pane process entirely.
- * No shell history, no typed command visible. Shows date + oracle name
- * before Claude starts, exit timestamp after Claude exits, then drops
- * to user's $SHELL.
+ * Build a shell function definition + call for the oracle.
+ * The pane shows `odin-oracle` — clean, re-runnable, no .sh path.
+ * Defines the function inline, then calls it immediately.
  */
-export function buildRespawnCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
+export function buildShellFunction(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
   const cmd = buildCommand(agentName, optsOrEngine);
-  const safe = agentName.replace(/'/g, "'\\''");
-  return [
+  const fn = agentName.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const body = [
     `clear`,
-    `printf '\\033]2;${safe}\\033\\\\'`,
-    `date '+🕐 %H:%M %Z — ${safe}'`,
+    `printf '\\033]2;${fn}\\033\\\\'`,
+    `date '+🕐 %H:%M %Z — ${fn}'`,
     `echo`,
     cmd,
     `echo`,
-    `date '+⏹ %H:%M %Z — ${safe} exited'`,
-    `exec \${SHELL:-zsh} -li`,
+    `date '+⏹ %H:%M %Z — ${fn} exited'`,
   ].join("; ");
+  return `${fn}() { ${body}; }; ${fn}`;
 }
 
 export function getEnvVars(): Record<string, string> {
