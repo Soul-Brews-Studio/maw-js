@@ -54,24 +54,30 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
-  // Argv-rewrite form — canonical handler lives in a core plugin
-  a: ["tmux", "attach"],
-  kill: ["tmux", "kill"],
-  peek: ["tmux", "peek"],
+  // Argv-rewrite form — canonical handler lives in a top-level plugin in
+  // maw-plugin-registry. The previous `["tmux", X]` rewrites were stale —
+  // the `tmux` plugin was split into per-verb top-level plugins
+  // (attach/, kill/, peek/, zoom/, panes/) but the alias table was not
+  // updated. Result: `maw a flutter` rewrote to `maw tmux attach flutter`
+  // → "unknown command: tmux" → fell through to bare-name comm-send.
+  // Same shape as the #1244 cleanup alias bug. (#TBD)
+  a: ["attach"],
+  kill: ["kill"],
+  peek: ["peek"],
   split: ["split"],
-  open: ["tmux", "open"],
+  open: ["tmux", "open"],     // tmux open/close/detect-stalls not yet extracted as top-level plugins
   close: ["tmux", "close"],
   t: ["team"],
   layout: ["team", "layout"],
-  zoom: ["tmux", "zoom"],
-  panes: ["tmux", "ls", "--all", "--verbose"],
+  zoom: ["zoom"],
+  panes: ["panes"],
   // `maw cleanup` → `maw cleanup --zombie-agents` (auto-inject flag for the
   // top-level cleanup plugin in maw-plugin-registry). The previous rewrite
   // `["team", "cleanup", ...]` was wrong — the `team` plugin has no `cleanup`
   // subcommand; the cleanup plugin sits at the top level. Resolver runs once
   // (dispatch.ts:36), so the self-reference doesn't loop. (#1244)
   cleanup: ["cleanup", "--zombie-agents"],
-  stall: ["tmux", "detect-stalls"],
+  stall: ["tmux", "detect-stalls"],   // detect-stalls not yet extracted as top-level plugin
 
   // `maw new <name>` — the friendly door for creating an oracle.
   // Routes to the awaken plugin (bud + wake + fire /awaken). Plain alias —

@@ -187,11 +187,15 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+  test("`a neo` → argv rewrite to ['attach', 'neo']", () => {
+    // The alias rewrites to the top-level `attach` plugin (in maw-plugin-registry).
+    // The previous `["tmux", "attach"]` form was stale — the tmux/attach
+    // subcommand was extracted to a top-level plugin, but the alias was not
+    // updated. Same shape as the #1244 cleanup alias bug.
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["attach", "neo"]);
   });
 
   test("`attach` is not a registered alias (removed — use `a`)", () => {
