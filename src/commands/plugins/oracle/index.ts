@@ -12,6 +12,10 @@ export const command = {
 };
 
 // Shared spec for `ls` flags — used by both ls and the fleet alias.
+// NOTE: `--new` is NOT declared here. `arg` requires String-typed flags to
+// consume a value, but the spec is `--new[=DURATION]` — bare `--new` is valid.
+// We pre-process bare `--new` → `--new=7d` before calling parseFlags so arg
+// always sees the `=DURATION` form. See `preprocessNewFlag` below.
 const LS_FLAGS = {
   "--json": Boolean,
   "--awake": Boolean,
@@ -20,7 +24,35 @@ const LS_FLAGS = {
   "--org": String,
   "--path": Boolean,
   "-p": "--path",
+  "--new": String,
+  "--since": String,
 } as const;
+
+/**
+ * `--new` has an optional value (`--new` defaults to 7d, `--new=24h` overrides).
+ * Convert any bare `--new` token into `--new=7d` so the `arg` parser doesn't
+ * choke. `--new=...` and `--new ...` forms are left untouched.
+ */
+export function preprocessNewFlag(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--new") {
+      const next = args[i + 1];
+      // If the next token looks like a duration (matches ^\d+[smhdw]$),
+      // leave it alone — arg will consume it as the value normally.
+      // Otherwise default to 7d via the `=` form.
+      if (next && /^\d+[smhdw]$/.test(next)) {
+        out.push(a);
+      } else {
+        out.push("--new=7d");
+      }
+    } else {
+      out.push(a);
+    }
+  }
+  return out;
+}
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -44,7 +76,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           output: `usage: maw oracle <subcommand> [args]
 
 subcommands:
-  ls [flags]               list oracles (--json, --awake, --scan, --stale, --org, --path)
+  ls [flags]               list oracles (--json, --awake, --scan, --stale, --org, --path, --new[=DURATION], --since=DATE)
   search <query>           fuzzy search oracles
   scan                     scan ghq for new oracles
   prune                    prune missing/dead oracles
@@ -56,7 +88,7 @@ subcommands:
         };
       }
       if (!subcmd || subcmd === "ls" || subcmd === "list") {
-        const flags = parseFlags(args, LS_FLAGS, 1);
+        const flags = parseFlags(preprocessNewFlag(args), LS_FLAGS, 1);
         await cmdOracleList({
           awake: flags["--awake"],
           org: flags["--org"],
@@ -64,6 +96,8 @@ subcommands:
           scan: flags["--scan"],
           stale: flags["--stale"],
           path: flags["--path"],
+          new: flags["--new"],
+          since: flags["--since"],
         });
       } else if (subcmd === "scan") {
         const flags = parseFlags(args, {
@@ -99,7 +133,7 @@ subcommands:
         console.error(
           `\x1b[33m⚠  maw oracle fleet is deprecated — use \x1b[36mmaw oracle ls\x1b[0m\x1b[33m instead\x1b[0m`,
         );
-        const flags = parseFlags(args, LS_FLAGS, 1);
+        const flags = parseFlags(preprocessNewFlag(args), LS_FLAGS, 1);
         await cmdOracleList({
           awake: flags["--awake"],
           org: flags["--org"],
@@ -107,6 +141,8 @@ subcommands:
           scan: flags["--scan"],
           stale: flags["--stale"],
           path: flags["--path"],
+          new: flags["--new"],
+          since: flags["--since"],
         });
       } else if (subcmd === "prune") {
         const flags = parseFlags(args, {
@@ -167,6 +203,8 @@ subcommands:
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,
           path: query.path as boolean | undefined,
+          new: typeof query.new === "string" ? query.new : (query.new === true ? "7d" : undefined),
+          since: query.since as string | undefined,
         });
       } else if (sub === "scan") {
         if (query.stale) {
@@ -195,6 +233,8 @@ subcommands:
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,
           path: query.path as boolean | undefined,
+          new: typeof query.new === "string" ? query.new : (query.new === true ? "7d" : undefined),
+          since: query.since as string | undefined,
         });
       } else if (sub === "prune") {
         await cmdOraclePrune({

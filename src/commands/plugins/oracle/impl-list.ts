@@ -36,8 +36,21 @@ import {
   invalidateManifest,
   type OracleManifestEntry,
 } from "../../../lib/oracle-manifest";
-import { lineageOf, timeSince, type OracleLineage } from "./impl-helpers";
+import {
+  lineageOf,
+  timeSince,
+  parseDuration,
+  parseSince,
+  readBirthsCache,
+  writeBirthsCache,
+  resolveCreatedAtWithCache,
+  type OracleLineage,
+  type CreatedAt,
+  type CreatedSource,
+  type ResolveCreatedAtDeps,
+} from "./impl-helpers";
 import { resolveNickname } from "../../../core/fleet/nicknames";
+import { UserError } from "../../../core/util/user-error";
 
 export interface OracleListOpts {
   awake?: boolean;
@@ -46,6 +59,21 @@ export interface OracleListOpts {
   scan?: boolean;
   stale?: boolean;
   path?: boolean;
+  /**
+   * `--new[=DURATION]` — filter to oracles created within the window.
+   * String form: `7d`, `24h`, `2w`, etc. (grammar: ^\d+(s|m|h|d|w)$).
+   * Bare `--new` should be normalized by the caller to `"7d"`.
+   */
+  new?: string;
+  /**
+   * `--since=ISO_DATE` — absolute lower bound. Takes precedence over --new.
+   */
+  since?: string;
+  /**
+   * Test hook — inject the resolveCreatedAt dependencies so we don't
+   * shell out to git or touch real filesystem birthtimes in tests.
+   */
+  _resolveDeps?: ResolveCreatedAtDeps;
 }
 
 export interface EnrichedEntry {
@@ -55,6 +83,8 @@ export interface EnrichedEntry {
   lineage: OracleLineage;
   /** Manifest-source labels — useful for future debugging / future flag. */
   sources: string[];
+  /** Populated only when --new or --since is active. */
+  createdAt?: CreatedAt;
 }
 
 /**
@@ -195,13 +225,67 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   if (opts.awake) filtered = filtered.filter((x) => x.awake);
   if (opts.org) filtered = filtered.filter((x) => x.entry.org === opts.org);
 
-  // 6. Sort — awake first within each org; orgs alphabetical; names alphabetical
-  filtered.sort((a, b) => {
-    if (a.entry.org !== b.entry.org)
-      return a.entry.org.localeCompare(b.entry.org);
-    if (a.awake !== b.awake) return a.awake ? -1 : 1;
-    return a.entry.name.localeCompare(b.entry.name);
-  });
+  // 5b. --new / --since — resolve a creation timestamp per row via the
+  //     4-tier cascade, then filter to entries within the window.
+  //     --since (absolute) takes precedence over --new (relative).
+  const newActive = !!(opts.new || opts.since);
+  let windowLabel = "";
+  if (newActive) {
+    let lowerBoundMs: number;
+    if (opts.since) {
+      const d = parseSince(opts.since);
+      if (!d) {
+        throw new UserError(
+          `--since: invalid date "${opts.since}" (expected ISO date like 2026-05-10)`,
+        );
+      }
+      lowerBoundMs = d.getTime();
+      windowLabel = `since ${opts.since}`;
+    } else {
+      // Default to 7d when --new is bare; caller normalizes "" → "7d".
+      const spec = opts.new && opts.new.length > 0 ? opts.new : "7d";
+      const ms = parseDuration(spec);
+      if (ms === null) {
+        throw new UserError(
+          `--new: invalid duration "${spec}" (expected like 7d, 24h, 2w)`,
+        );
+      }
+      lowerBoundMs = Date.now() - ms;
+      windowLabel = spec;
+    }
+
+    const cache = readBirthsCache();
+    const resolveDeps = opts._resolveDeps;
+    const withTs: EnrichedEntry[] = [];
+    for (const x of filtered) {
+      const createdAt = await resolveCreatedAtWithCache(x.entry, cache, resolveDeps);
+      withTs.push({ ...x, createdAt });
+    }
+    writeBirthsCache(cache);
+
+    filtered = withTs.filter((x) => {
+      const iso = x.createdAt?.iso;
+      if (!iso) return false;
+      const t = new Date(iso).getTime();
+      if (Number.isNaN(t)) return false;
+      return t >= lowerBoundMs;
+    });
+
+    // Sort newest first — overrides the org/awake/name sort below.
+    filtered.sort((a, b) => {
+      const at = new Date(a.createdAt?.iso ?? 0).getTime();
+      const bt = new Date(b.createdAt?.iso ?? 0).getTime();
+      return bt - at;
+    });
+  } else {
+    // 6. Standard sort — awake first within each org; orgs alphabetical; names alphabetical
+    filtered.sort((a, b) => {
+      if (a.entry.org !== b.entry.org)
+        return a.entry.org.localeCompare(b.entry.org);
+      if (a.awake !== b.awake) return a.awake ? -1 : 1;
+      return a.entry.name.localeCompare(b.entry.name);
+    });
+  }
 
   // 7. JSON output — preserve schema for machine consumers
   const cache = readCache();
@@ -210,13 +294,20 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
       cache_scanned_at: cache?.local_scanned_at ?? null,
       total: filtered.length,
       awake: filtered.filter((x) => x.awake).length,
-      oracles: filtered.map((x) => ({
-        ...x.entry,
-        awake: x.awake,
-        session: x.session,
-        lineage: x.lineage,
-        sources: x.sources,
-      })),
+      oracles: filtered.map((x) => {
+        const base: Record<string, unknown> = {
+          ...x.entry,
+          awake: x.awake,
+          session: x.session,
+          lineage: x.lineage,
+          sources: x.sources,
+        };
+        if (newActive) {
+          base.created_at = x.createdAt?.iso ?? null;
+          base.created_source = x.createdAt?.source ?? "unknown";
+        }
+        return base;
+      }),
     };
     console.log(JSON.stringify(out, null, 2));
     return;
@@ -229,17 +320,39 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   const fresh = cache ? !isCacheStale(cache) : false;
   const staleMark = fresh ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⚠ stale\x1b[0m";
 
-  console.log(
-    `\n  \x1b[36mOracle Fleet\x1b[0m  (${awakeCount} awake / ${total} total)    cache: ${age} ago ${staleMark}\n`,
-  );
+  if (newActive) {
+    console.log(
+      `\n  \x1b[36mOracle Fleet — new (${windowLabel})\x1b[0m  (${total} match${total === 1 ? "" : "es"})    cache: ${age} ago ${staleMark}\n`,
+    );
+  } else {
+    console.log(
+      `\n  \x1b[36mOracle Fleet\x1b[0m  (${awakeCount} awake / ${total} total)    cache: ${age} ago ${staleMark}\n`,
+    );
+  }
 
   if (total === 0) {
-    if (opts.awake) console.log("  No awake oracles.\n");
+    if (newActive) {
+      // The spec calls out the friendly empty-state explicitly.
+      const label = windowLabel || "7d";
+      console.log(
+        `  No oracles created in the last ${label}. Try --new=30d.\n`,
+      );
+    } else if (opts.awake) console.log("  No awake oracles.\n");
     else if (opts.org) console.log(`  No oracles found in org '${opts.org}'.\n`);
     else
       console.log(
         "  No oracles found. Run \x1b[90mmaw oracle scan\x1b[0m to refresh.\n",
       );
+    return;
+  }
+
+  if (newActive) {
+    // Flat newest-first list with Age column — grouping by org would obscure
+    // the recency ordering that --new exists to surface.
+    for (const x of filtered) {
+      console.log(formatRow(x, { showPath: !!opts.path, showAge: true }));
+    }
+    console.log();
     return;
   }
 
@@ -262,7 +375,10 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
 
 // ─── Formatting helpers ──────────────────────────────────────────────────────
 
-export function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): string {
+export function formatRow(
+  x: EnrichedEntry,
+  fopts: { showPath: boolean; showAge?: boolean },
+): string {
   const { entry: e, awake, lineage } = x;
 
   // Icon + tag mapping:
@@ -307,6 +423,11 @@ export function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): strin
       ? `\n        \x1b[90m${e.local_path}\x1b[0m`
       : "";
 
+  const ageCol =
+    fopts.showAge && x.createdAt?.iso
+      ? ` \x1b[36m${timeSince(x.createdAt.iso)} ago\x1b[0m`
+      : "";
+
   const displayName = e.nickname
     ? `${e.name} \x1b[90m(${e.nickname})\x1b[0m`
     : e.name;
@@ -315,5 +436,5 @@ export function formatRow(x: EnrichedEntry, fopts: { showPath: boolean }): strin
     ? `${e.name} (${e.nickname})`.length
     : e.name.length;
   const padding = " ".repeat(Math.max(0, 22 - plainWidth));
-  return `    ${icon} ${tag}  ${displayName}${padding} ${lineageNote.padEnd(26)} ${node}${missing}${registerHint}${pathCol}`;
+  return `    ${icon} ${tag}  ${displayName}${padding} ${lineageNote.padEnd(26)} ${node}${ageCol}${missing}${registerHint}${pathCol}`;
 }

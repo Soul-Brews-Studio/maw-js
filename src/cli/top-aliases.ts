@@ -25,6 +25,8 @@ import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdShow } from "../commands/shared/wake-show";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
+import { cmdOracleList } from "../commands/plugins/oracle/impl";
+import { preprocessNewFlag } from "../commands/plugins/oracle";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -144,6 +146,36 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdLs") {
+    // `maw ls --new` pivots to the oracle lister — "new" makes no sense for
+    // tmux panes anyway, and surfacing recently-created oracles is the
+    // friendly door we want at the top level (#1273). All other --new
+    // flags (--new=24h, --since=...) pivot too. Org/awake/path/json fall
+    // through to the oracle path so users can combine.
+    if (argv.includes("--new") || argv.some((a) => a.startsWith("--new=") || a.startsWith("--since="))) {
+      const lsFlags = parseFlags(preprocessNewFlag(argv), {
+        "--json": Boolean,
+        "--awake": Boolean,
+        "--scan": Boolean,
+        "--stale": Boolean,
+        "--org": String,
+        "--path": Boolean,
+        "-p": "--path",
+        "--new": String,
+        "--since": String,
+      }, 0);
+      await cmdOracleList({
+        awake: lsFlags["--awake"],
+        org: lsFlags["--org"],
+        json: lsFlags["--json"],
+        scan: lsFlags["--scan"],
+        stale: lsFlags["--stale"],
+        path: lsFlags["--path"],
+        new: lsFlags["--new"],
+        since: lsFlags["--since"],
+      });
+      return;
+    }
+
     const flags = parseFlags(argv, {
       "--all": Boolean, "-a": "--all",
       "--verbose": Boolean, "-v": "--verbose",
