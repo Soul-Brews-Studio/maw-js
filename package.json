@@ -98,6 +98,7 @@
     "./commands/shared/scan-signals": "./src/commands/shared/scan-signals.ts",
     "./commands/shared/should-auto-wake": "./src/commands/shared/should-auto-wake.ts",
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
+    "./commands/shared/wake-cmd": "./src/commands/shared/wake-cmd.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
     "./commands/shared/workspace": "./src/commands/shared/workspace.ts",
