@@ -39,12 +39,15 @@ export interface PaneSplitOpts {
  * @param opts      orientation, pct, target
  */
 export async function cmdPaneSplit(command: string, opts: PaneSplitOpts = {}): Promise<void> {
-  if (!process.env.TMUX && !opts.target) {
-    throw new Error("maw pane split requires either an active tmux session ($TMUX) or an explicit -t target");
-  }
-
+  // Opts-only validation first — these checks don't depend on environment, so
+  // they should fire deterministically regardless of $TMUX state (otherwise
+  // test runs without $TMUX would mask real opts misuse).
   if (opts.horizontal && opts.vertical) {
     throw new Error("-h and -v are mutually exclusive");
+  }
+
+  if (!process.env.TMUX && !opts.target) {
+    throw new Error("maw pane split requires either an active tmux session ($TMUX) or an explicit -t target");
   }
 
   // Default target = caller's pane (anchors split to where the user typed
