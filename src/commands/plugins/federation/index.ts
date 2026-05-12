@@ -42,10 +42,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: args.includes("--force"),
         json: args.includes("--json"),
       });
+    } else if (sub === "agents") {
+      const { cmdFederationAgents } = await import("../../shared/federation-agents");
+      const nodeFlag = args.find(a => a.startsWith("--node="))?.split("=")[1]
+        ?? (args.includes("--node") ? args[args.indexOf("--node") + 1] : undefined);
+      const oracleFlag = args.find(a => a.startsWith("--oracle="))?.split("=")[1]
+        ?? (args.includes("--oracle") ? args[args.indexOf("--oracle") + 1] : undefined);
+      await cmdFederationAgents({
+        json: args.includes("--json"),
+        node: nodeFlag,
+        oracle: oracleFlag,
+      });
     } else {
       return {
         ok: false,
-        error: "usage: maw federation <status|sync> [--verify|--dry-run|--check|--prune|--force|--json]",
+        error: "usage: maw federation <status|agents|sync> [--verify|--json|--node <name>|--oracle <glob>|--dry-run|--check|--prune|--force]",
       };
     }
 
