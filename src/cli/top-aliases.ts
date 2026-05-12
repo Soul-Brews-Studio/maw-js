@@ -65,7 +65,12 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   layout: ["team", "layout"],
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
-  cleanup: ["team", "cleanup", "--zombie-agents"],
+  // `maw cleanup` → `maw cleanup --zombie-agents` (auto-inject flag for the
+  // top-level cleanup plugin in maw-plugin-registry). The previous rewrite
+  // `["team", "cleanup", ...]` was wrong — the `team` plugin has no `cleanup`
+  // subcommand; the cleanup plugin sits at the top level. Resolver runs once
+  // (dispatch.ts:36), so the self-reference doesn't loop. (#1244)
+  cleanup: ["cleanup", "--zombie-agents"],
   stall: ["tmux", "detect-stalls"],
 
   // `maw new <name>` — the friendly door for creating an oracle.
