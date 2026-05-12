@@ -3,17 +3,23 @@
 #
 # Bootstrap order:
 #   1. Ensure HOME and MAW_HOME exist ($MAW_HOME/peers.json is the peers store).
-#   2. If peers.json is missing, run `maw init --non-interactive --force` to
-#      write ~/.config/maw/maw.config.json. (init does NOT create peers.json —
-#      that only happens on the first successful `maw peers add`.)
-#   3. Register the peer via `maw peers add` — tolerant on restart with the
-#      same volume (add overwrites cleanly; `|| true` swallows probe failures
-#      when the peer container hasn't come up yet).
+#   2. If maw.config.json is missing, write it DIRECTLY as JSON. (Pre-#TBD this
+#      ran `maw init --non-interactive`, but `init` lives in maw-plugin-registry
+#      which is not installed in this test image — only the 13 legacy plugins
+#      built into maw-js ship here. Calling `maw init` errored with "unknown
+#      command: init" and the container never reached healthy.)
+#   3. If PEER_URL is set, write peers.json DIRECTLY as JSON. (Same reason —
+#      `maw peers add` lives in plugin-registry. The shape matches PeersFile
+#      from maw-plugin-registry/plugins/peers/store.ts.)
 #   4. exec "$@" so the CMD (e.g. `maw serve`) becomes PID 1 and receives
 #      SIGTERM directly from the container runtime.
 #
-# `maw init` supports --non-interactive with --node/--ghq-root/--force/--federate
-# flags (src/commands/plugins/init/non-interactive.ts). No stdin blocking.
+# Why not install plugin-registry in the image? Two reasons:
+#   - This test only exercises `maw serve` + the /info handshake (which uses
+#     core, not plugin-registry). Bootstrap doesn't need a real `maw init`.
+#   - Cloning + linking plugin-registry adds a second-repo build dependency
+#     that would couple Dockerfile to a different release cadence. Follow-up:
+#     issue tracks the architecturally-correct fix.
 set -eu
 
 : "${HOME:=/root}"
@@ -23,14 +29,35 @@ export HOME
 : "${NODE_NAME:=$(hostname)}"
 : "${PEER_ALIAS:=peer}"
 
-mkdir -p "$MAW_HOME"
+mkdir -p "$MAW_HOME" "$HOME/.config/maw"
 
-if [ ! -f "$MAW_HOME/peers.json" ]; then
-  maw init --non-interactive --node "$NODE_NAME" --force
+CONFIG_FILE="$HOME/.config/maw/maw.config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+  cat > "$CONFIG_FILE" <<EOF
+{
+  "host": "local",
+  "node": "$NODE_NAME",
+  "port": 3456
+}
+EOF
 fi
 
 if [ -n "${PEER_URL:-}" ]; then
-  maw peers add "$PEER_ALIAS" "$PEER_URL" || true
+  PEERS_FILE="$MAW_HOME/peers.json"
+  ADDED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  cat > "$PEERS_FILE" <<EOF
+{
+  "version": 1,
+  "peers": {
+    "$PEER_ALIAS": {
+      "url": "$PEER_URL",
+      "node": null,
+      "addedAt": "$ADDED_AT",
+      "lastSeen": null
+    }
+  }
+}
+EOF
 fi
 
 echo "[${NODE_NAME}] bootstrap complete — peers.json:"
