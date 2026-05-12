@@ -55,64 +55,44 @@ afterEach(() => {
   (process as any).getuid = origGetuid;
 });
 
-const RESET = `; printf "\\e[?1049l\\e[0m"; stty sane 2>/dev/null; clear`;
-const wrap = (cmd: string) => cmd + RESET;
-const wrapFallback = (primary: string, fallback: string) => `{ ${primary} || ${fallback}; }${RESET}`;
+// Plain command — no fallback wrap, no reset suffix.
+// The `claude()` shell wrapper from `maw shellenv` handles --continue fallback.
+const wrap = (cmd: string) => cmd;
 
 describe("buildCommand — post-#541 contract", () => {
-  test("auto-injects --continue + fallback when default is bare 'claude' (#1174)", () => {
-    // #1174 — `--continue` is the default for ALL claude wakes (engine-aware).
-    // Bare "claude" config now produces the wrapped fallback form so a fresh
-    // wake resumes the prior conversation in that oracle's cwd, falling back
-    // to bare claude when no prior session exists.
+  test("auto-injects --continue when default is bare 'claude' (#1174)", () => {
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent")).toBe(
-      wrapFallback("claude --continue", "claude"),
-    );
+    expect(buildCommand("any-agent")).toBe("claude --continue");
   });
 
-  test("emits || fallback when default has --continue (#1091 reset suffix)", () => {
+  test("preserves --continue when default has it", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
-    expect(buildCommand("any-agent")).toBe(
-      wrapFallback("claude --continue --dangerously-skip-permissions", "claude --dangerously-skip-permissions"),
-    );
+    expect(buildCommand("any-agent")).toBe("claude --continue --dangerously-skip-permissions");
   });
 
   test("pattern-match wins over default", () => {
     fakeConfig.commands = { default: "claude", "foo-*": "echo hi" };
-    expect(buildCommand("foo-bar")).toBe(wrap("echo hi"));
+    expect(buildCommand("foo-bar")).toBe("echo hi");
   });
 
   test('pattern-match ignores the literal "default" key', () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
-    const out = buildCommand("default");
-    expect(out).toContain("claude --continue --dangerously-skip-permissions");
-    expect(out).toContain("||");
-    expect(out).toContain("claude --dangerously-skip-permissions");
+    expect(buildCommand("default")).toBe("claude --continue --dangerously-skip-permissions");
   });
 
-  test("sessionId replaces --continue with --resume and fallback carries --session-id", () => {
+  test("sessionId replaces --continue with --resume", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     fakeSessionIds = { foo: "uuid-1" };
     const out = buildCommand("foo");
-    const inner = out.replace(/^\{ /, "").replace(/; \};.*$/, "");
-    const [primary, fallback] = inner.split(" || ");
-    expect(primary).toContain('--resume "uuid-1"');
-    expect(primary).not.toContain("--continue");
-    expect(fallback).toContain('--session-id "uuid-1"');
-    expect(fallback).not.toContain("--continue");
-    expect(fallback).not.toContain("--resume");
+    expect(out).toContain('--resume "uuid-1"');
+    expect(out).not.toContain("--continue");
   });
 
   test("sessionId appends --resume when cmd has no --continue", () => {
     fakeConfig.commands = { default: "claude" };
     fakeSessionIds = { foo: "uuid-2" };
     const out = buildCommand("foo");
-    const inner = out.replace(/^\{ /, "").replace(/; \};.*$/, "");
-    const [primary, fallback] = inner.split(" || ");
-    expect(primary).toContain('--resume "uuid-2"');
-    expect(fallback).toContain('--session-id "uuid-2"');
-    expect(fallback).not.toContain("--resume");
+    expect(out).toContain('--resume "uuid-2"');
   });
 
   test("buildCommandInDir returns session script path (#1188)", () => {
@@ -152,14 +132,7 @@ describe("buildCommand — post-#541 contract", () => {
   test("#1174: non-channel claude wake auto-injects --continue (positive case)", () => {
     fakeConfig.commands = { default: "claude --dangerously-skip-permissions" };
     const out = buildCommand("any-agent");
-    expect(out).toContain("--continue");
-    expect(out).toContain("||"); // wrapped with fallback
-    expect(out).toBe(
-      wrapFallback(
-        "claude --dangerously-skip-permissions --continue",
-        "claude --dangerously-skip-permissions",
-      ),
-    );
+    expect(out).toBe("claude --dangerously-skip-permissions --continue");
   });
 
   test("#1174: codex (non-claude) engine does NOT get --continue (engine-aware guard)", () => {
