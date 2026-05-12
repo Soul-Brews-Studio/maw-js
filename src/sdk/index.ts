@@ -131,6 +131,7 @@ export {
 // ─── definePlugin — the plugin contract ──────────────────────────────────────
 
 import type { InvokeContext, InvokeResult } from "../plugin/types";
+import type { FeedEvent } from "../lib/feed";
 
 /** Plugin configuration — the type IS the interface */
 export interface PluginConfig {
@@ -139,13 +140,13 @@ export interface PluginConfig {
   /** The handler — one function, all surfaces (cli/api/peer) */
   handler: (ctx: InvokeContext) => Promise<InvokeResult>;
   /** Phase 0: GATE — return false to cancel event pipeline */
-  onGate?: (event: any) => boolean;
+  onGate?: (event: FeedEvent) => boolean;
   /** Phase 1: FILTER — modify event before handlers */
-  onFilter?: (event: any) => any;
+  onFilter?: (event: FeedEvent) => FeedEvent;
   /** Phase 2: HANDLE — observe/react to events */
-  onEvent?: (event: any) => void | Promise<void>;
+  onEvent?: (event: FeedEvent) => void | Promise<void>;
   /** Phase 3: LATE — guaranteed cleanup */
-  onLate?: (event: any) => void;
+  onLate?: (event: FeedEvent) => void;
   /** Called when plugin is first installed */
   onInstall?: () => void | Promise<void>;
   /** Called when plugin is removed */

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { MawEngine } from "../engine";
-import type { WSData } from "./types";
+import type { WSData, MawWS } from "./types";
+import type { Server } from "bun";
 import { loadConfig } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
@@ -150,15 +151,15 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   }
 
   const wsHandler = {
-    open: (ws: any) => {
+    open: (ws: MawWS) => {
       if (ws.data.mode === "pty") return;
       engine.handleOpen(ws);
     },
-    message: (ws: any, msg: any) => {
+    message: (ws: MawWS, msg: string | Buffer) => {
       if (ws.data.mode === "pty") { handlePtyMessage(ws, msg); return; }
       engine.handleMessage(ws, msg);
     },
-    close: (ws: any) => {
+    close: (ws: MawWS) => {
       if (ws.data.mode === "pty") { handlePtyClose(ws); return; }
       engine.handleClose(ws);
     },
@@ -174,7 +175,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     };
   };
 
-  const fetchHandler = (req: Request, server: any) => {
+  const fetchHandler = (req: Request, server: Server<WSData>) => {
     const url = new URL(req.url);
 
     // CORS preflight for all routes
@@ -235,9 +236,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const peers = loadPeers().peers;
     const local = config.node ? { oracle: config.oracle ?? "mawjs", node: config.node } : undefined;
     warnDuplicatesAtBoot({ peers, local });
-  } catch (e: any) {
+  } catch (e: unknown) {
     // Never fail boot on a dedup-scan glitch — log and move on.
-    console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
+    console.warn(`[startup] peer dedup scan skipped: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });

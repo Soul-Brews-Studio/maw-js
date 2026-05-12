@@ -85,21 +85,38 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args, {
         "--lines": Number,
         "--history": Boolean,
+        "--team": Boolean,
+        "--all": Boolean,
         "--help": Boolean,
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
         console.log("usage: maw tmux peek <target> [--lines N] [--history]");
+        console.log("       maw peek --team [name]    peek all team agent panes");
+        console.log("       maw peek --all            peek all panes in current session");
         console.log("  target: pane id (%N), session:w.p, team-agent name, or session name");
         return { ok: true, output: logs.join("\n") || undefined };
       }
+      const lines = (flags["--lines"] as number | undefined) ?? 15;
+      const history = !!flags["--history"];
+
+      // --team: peek all agent panes in a team (or current team)
+      if (flags["--team"] || flags["--all"]) {
+        const { peekTeamPanes } = await import("./peek-team");
+        await peekTeamPanes({
+          teamName: flags._[0],
+          all: !!flags["--all"],
+          lines,
+          history,
+        });
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+
       const target = flags._[0];
       if (!target) {
         console.log("usage: maw tmux peek <target> [--lines N] [--history]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      const lines = (flags["--lines"] as number | undefined) ?? 30;
-      const history = !!flags["--history"];
       await cmdTmuxPeek(target, { lines, history });
     } else if (sub === "split") {
       const flags = parseFlags(args, {

@@ -2,14 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 import { tmux, FLEET_DIR } from "../../../sdk";
-import { loadFleetEntries, type FleetEntry } from "../../shared/fleet-load";
-
-interface HibernateSnapshot {
-  hibernated_at: string;
-  panes: number;
-  commands: string[];
-  idle_duration?: string;
-}
+import { loadFleetEntries, type FleetEntry, type HibernateSnapshot } from "../../shared/fleet-load";
 
 function getSessionPanes(session: string): Array<{ cmd: string; idle: string }> {
   try {
@@ -137,7 +130,7 @@ export async function cmdResume(args: string[]) {
   const targets = args.filter(a => !a.startsWith("--"));
 
   const entries = loadFleetEntries();
-  const hibernated = entries.filter(e => (e.session as any).hibernated_at);
+  const hibernated = entries.filter(e => e.session.hibernated_at);
 
   let toResume: FleetEntry[];
   if (targets.length > 0) {
@@ -190,8 +183,9 @@ export async function cmdResume(args: string[]) {
       writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
       ok++;
-    } catch (e: any) {
-      console.log(` \x1b[31m✗ FAILED\x1b[0m: ${e.message?.split("\n")[0] || e}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+      console.log(` \x1b[31m✗ FAILED\x1b[0m: ${msg}`);
       failed++;
     }
   }
@@ -223,10 +217,10 @@ export async function cmdFleetStatus() {
         mem: memKB > 0 ? `${Math.round(memKB / 1024)}MB` : "?",
         panes: panes.length,
       });
-    } else if ((entry.session as any).hibernated_at) {
-      const since = (entry.session as any).hibernated_at;
+    } else if (entry.session.hibernated_at) {
+      const since = entry.session.hibernated_at;
       const ago = formatDuration(Math.floor((Date.now() - new Date(since).getTime()) / 1000));
-      hibernated.push({ name: sessName, oracle, since: `${ago} ago`, snapshot: (entry.session as any).snapshot });
+      hibernated.push({ name: sessName, oracle, since: `${ago} ago`, snapshot: entry.session.snapshot });
     } else {
       dead.push({ name: sessName, oracle });
     }

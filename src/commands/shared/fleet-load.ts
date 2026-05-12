@@ -13,6 +13,13 @@ export interface FleetWindow {
   repo: string;
 }
 
+/** Snapshot recorded when a session is hibernated via `maw fleet hibernate`. */
+export interface HibernateSnapshot {
+  panes: number;
+  commands: string[];
+  idle_duration?: string;
+}
+
 export interface FleetSession {
   name: string;
   windows: FleetWindow[];
@@ -21,6 +28,10 @@ export interface FleetSession {
   sync_peers?: string[];
   /** Project repos (org/repo) this oracle absorbs ψ/ from via `maw soul-sync --project`. */
   project_repos?: string[];
+  /** ISO timestamp set when the session is put to sleep via `maw fleet hibernate`. */
+  hibernated_at?: string;
+  /** State snapshot saved at hibernate time. */
+  snapshot?: HibernateSnapshot;
 }
 
 export interface FleetEntry {

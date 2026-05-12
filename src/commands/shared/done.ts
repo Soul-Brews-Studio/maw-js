@@ -11,6 +11,8 @@ export interface DoneOpts {
 }
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
+type FleetWindow = { name: string; repo?: string };
+type FleetConfig = { windows?: FleetWindow[] };
 
 export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   let windowName = normalizeTarget(windowName_);
@@ -26,7 +28,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   if (sessionName) {
-    signalParentInbox(windowName, sessionName, sessions as any);
+    signalParentInbox(windowName, sessionName, sessions);
   }
 
   if (sessionName !== null && windowIndex !== null && !opts.force) {
@@ -132,8 +134,8 @@ async function autoSave(
       } catch {
         console.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
       }
-    } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
+    } catch (e: unknown) {
+      console.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }
@@ -144,8 +146,8 @@ async function removeWorktreeViaConfig(
 ): Promise<boolean> {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-      const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
+      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetConfig;
+      const win = (config.windows || []).find((w) => w.name.toLowerCase() === windowNameLower);
       if (!win?.repo) continue;
 
       const fullPath = join(reposRoot, win.repo);
@@ -167,8 +169,8 @@ async function removeWorktreeViaConfig(
           try { await hostExec(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
         }
         return true;
-      } catch (e: any) {
-        console.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
+      } catch (e: unknown) {
+        console.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       break;
     }
@@ -215,9 +217,9 @@ function removeFromFleetConfig(windowNameLower: string): boolean {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const filePath = join(FLEET_DIR, file);
-      const config = JSON.parse(readFileSync(filePath, "utf-8"));
+      const config = JSON.parse(readFileSync(filePath, "utf-8")) as FleetConfig;
       const before = config.windows?.length || 0;
-      config.windows = (config.windows || []).filter((w: any) => w.name.toLowerCase() !== windowNameLower);
+      config.windows = (config.windows || []).filter((w) => w.name.toLowerCase() !== windowNameLower);
       if (config.windows.length < before) {
         writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n");
         console.log(`  \x1b[32m✓\x1b[0m removed from ${file}`);

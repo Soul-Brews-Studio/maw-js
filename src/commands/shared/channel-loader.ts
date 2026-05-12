@@ -50,6 +50,14 @@ export function loadRepoChannels(repoPath: string): OracleChannelConfig | null {
 export interface ChannelPlugin {
   id: string;
   env?: Record<string, string>;
+  /** For git channels: "github:org/repo" source reference. */
+  source?: string;
+  /** For git channels: absolute local clone path. */
+  path?: string;
+  /** For git channels: MCP server startup command. */
+  mcp?: { command: string; args: string[] };
+  /** Marks dev / git-sourced channels. */
+  dev?: boolean;
 }
 
 export interface OracleChannelConfig {
