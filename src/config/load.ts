@@ -203,7 +203,7 @@ export function configForDisplay(): MawConfig & { envMasked: Record<string, stri
       envMasked[k] = v.slice(0, 3) + "\u2022".repeat(Math.min(v.length - 3, 20));
     }
   }
-  const result: any = { ...config, env: {}, envMasked };
+  const result: MawConfig & { envMasked: Record<string, string> } = { ...config, env: {}, envMasked };
   // Mask federation token (show first 4 chars only)
   if (result.federationToken) {
     result.federationToken = result.federationToken.slice(0, 4) + "\u2022".repeat(12);

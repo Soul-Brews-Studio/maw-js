@@ -56,11 +56,12 @@ export function loadTrust(): TrustListOnDisk {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (e: any): e is TrustEntryOnDisk =>
-        e &&
-        typeof e.sender === "string" &&
-        typeof e.target === "string" &&
-        typeof e.addedAt === "string",
+      (e: unknown): e is TrustEntryOnDisk =>
+        e !== null &&
+        typeof e === "object" &&
+        typeof (e as Record<string, unknown>).sender === "string" &&
+        typeof (e as Record<string, unknown>).target === "string" &&
+        typeof (e as Record<string, unknown>).addedAt === "string",
     );
   } catch {
     return [];

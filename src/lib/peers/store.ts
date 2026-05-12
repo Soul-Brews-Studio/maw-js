@@ -116,11 +116,11 @@ export function loadPeers(): PeersFile {
       version: 1,
       peers: (parsed.peers ?? {}) as Record<string, Peer>,
     };
-  } catch (e: any) {
+  } catch (e: unknown) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const aside = `${path}.corrupt-${stamp}`;
     try { renameSync(path, aside); } catch { /* ignore — caller still gets empty store */ }
-    console.error(`\x1b[33m⚠\x1b[0m peers store at ${path} failed to parse (${e?.message || e}); moved aside to ${aside}`);
+    console.error(`\x1b[33m⚠\x1b[0m peers store at ${path} failed to parse (${e instanceof Error ? e.message : String(e)}); moved aside to ${aside}`);
     return emptyStore();
   }
 }

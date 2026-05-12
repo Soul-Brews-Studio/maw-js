@@ -139,13 +139,13 @@ export interface PluginConfig {
   /** The handler — one function, all surfaces (cli/api/peer) */
   handler: (ctx: InvokeContext) => Promise<InvokeResult>;
   /** Phase 0: GATE — return false to cancel event pipeline */
-  onGate?: (event: any) => boolean;
+  onGate?: (event: unknown) => boolean;
   /** Phase 1: FILTER — modify event before handlers */
-  onFilter?: (event: any) => any;
+  onFilter?: (event: unknown) => unknown;
   /** Phase 2: HANDLE — observe/react to events */
-  onEvent?: (event: any) => void | Promise<void>;
+  onEvent?: (event: unknown) => void | Promise<void>;
   /** Phase 3: LATE — guaranteed cleanup */
-  onLate?: (event: any) => void;
+  onLate?: (event: unknown) => void;
   /** Called when plugin is first installed */
   onInstall?: () => void | Promise<void>;
   /** Called when plugin is removed */

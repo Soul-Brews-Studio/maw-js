@@ -2,13 +2,18 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 import { tmux, FLEET_DIR } from "../../../sdk";
-import { loadFleetEntries, type FleetEntry } from "../../shared/fleet-load";
+import { loadFleetEntries, type FleetEntry, type FleetSession } from "../../shared/fleet-load";
 
 interface HibernateSnapshot {
   hibernated_at: string;
   panes: number;
   commands: string[];
   idle_duration?: string;
+}
+
+interface HibernatedFleetSession extends FleetSession {
+  hibernated_at?: string;
+  snapshot?: HibernateSnapshot;
 }
 
 function getSessionPanes(session: string): Array<{ cmd: string; idle: string }> {
@@ -137,7 +142,7 @@ export async function cmdResume(args: string[]) {
   const targets = args.filter(a => !a.startsWith("--"));
 
   const entries = loadFleetEntries();
-  const hibernated = entries.filter(e => (e.session as any).hibernated_at);
+  const hibernated = entries.filter(e => (e.session as HibernatedFleetSession).hibernated_at);
 
   let toResume: FleetEntry[];
   if (targets.length > 0) {
@@ -190,8 +195,8 @@ export async function cmdResume(args: string[]) {
       writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
       ok++;
-    } catch (e: any) {
-      console.log(` \x1b[31m✗ FAILED\x1b[0m: ${e.message?.split("\n")[0] || e}`);
+    } catch (e: unknown) {
+      console.log(` \x1b[31m✗ FAILED\x1b[0m: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`);
       failed++;
     }
   }
@@ -223,10 +228,10 @@ export async function cmdFleetStatus() {
         mem: memKB > 0 ? `${Math.round(memKB / 1024)}MB` : "?",
         panes: panes.length,
       });
-    } else if ((entry.session as any).hibernated_at) {
-      const since = (entry.session as any).hibernated_at;
+    } else if ((entry.session as HibernatedFleetSession).hibernated_at) {
+      const since = (entry.session as HibernatedFleetSession).hibernated_at!;
       const ago = formatDuration(Math.floor((Date.now() - new Date(since).getTime()) / 1000));
-      hibernated.push({ name: sessName, oracle, since: `${ago} ago`, snapshot: (entry.session as any).snapshot });
+      hibernated.push({ name: sessName, oracle, since: `${ago} ago`, snapshot: (entry.session as HibernatedFleetSession).snapshot });
     } else {
       dead.push({ name: sessName, oracle });
     }

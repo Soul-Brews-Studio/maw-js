@@ -1,7 +1,7 @@
 import { spawnSync } from "child_process";
 import { openSync, readSync, closeSync } from "fs";
 import { hostExec } from "../../sdk";
-import { loadConfig } from "../../config";
+import { loadConfig, type MawConfig } from "../../config";
 import { tlink } from "../../core/util/terminal";
 import {
   type AllowedOrgs,
@@ -65,7 +65,7 @@ export function filterOrgsByAllowed(orgs: OrgEntry[], allowed: AllowedOrgs): Org
  * Combine orgs from ghq list + config, deduped, sorted case-insensitively.
  * @internal — exported for tests only.
  */
-export function buildOrgList(ghqOutput: string, cfg: any): OrgEntry[] {
+export function buildOrgList(ghqOutput: string, cfg: MawConfig): OrgEntry[] {
   const ghqOrgs = extractGhqOrgs(ghqOutput);
   const result: OrgEntry[] = ghqOrgs.map(name => ({ name, source: "local" }));
   const cfgOrgs: string[] = cfg.githubOrgs || (cfg.githubOrg ? [cfg.githubOrg] : []);

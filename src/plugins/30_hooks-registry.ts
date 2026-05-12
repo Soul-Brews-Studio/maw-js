@@ -21,7 +21,7 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
   for (const plugin of plugins) {
     if (!plugin.manifest.hooks || plugin.kind !== "ts" || !plugin.entryPath) continue;
 
-    let mod: any;
+    let mod: Record<string, unknown>;
     try { mod = await import(plugin.entryPath); } catch { continue; }
 
     const hooks = plugin.manifest.hooks;

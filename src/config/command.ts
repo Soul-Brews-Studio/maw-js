@@ -133,7 +133,7 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   }
 
   // Inject --session-id if configured for this agent
-  const sessionIds: Record<string, string> = (config as any).sessionIds || {};
+  const sessionIds: Record<string, string> = config.sessionIds || {};
   const sessionId = sessionIds[agentName]
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
   if (sessionId) {
@@ -236,7 +236,7 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
     if (idx !== -1) flags.splice(idx, 1);
   }
 
-  const sessionIds: Record<string, string> = (config as any).sessionIds || {};
+  const sessionIds: Record<string, string> = config.sessionIds || {};
   const sessionId = sessionIds[agentName]
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
 

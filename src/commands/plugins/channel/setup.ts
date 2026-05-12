@@ -17,6 +17,13 @@ interface SetupOpts {
   nonInteractive?: boolean;
 }
 
+interface GitChannelPlugin extends ChannelPlugin {
+  source?: string;
+  path?: string;
+  mcp?: { command: string; args: string[] };
+  dev?: boolean;
+}
+
 function isInstalled(provider: string): boolean {
   return existsSync(join(PLUGINS_CACHE, provider));
 }
@@ -39,7 +46,7 @@ async function fetchGuilds(token: string): Promise<Array<{ id: string; name: str
       signal: AbortSignal.timeout(10_000),
     });
     if (!r.ok) return [];
-    const data = await r.json() as any[];
+    const data = await r.json() as Array<{ id: string; name: string }>;
     return data.map((g) => ({ id: g.id, name: g.name }));
   } catch { return []; }
 }
@@ -280,8 +287,8 @@ async function setupGit(oracle: string, source: string, opts: SetupOpts) {
       execSync(`ghq get https://github.com/${repo}`, { timeout: 30000 });
     }
     console.log(`  \x1b[32m✓\x1b[0m ${repoPath.replace(homedir(), "~")}`);
-  } catch (e: any) {
-    console.log(`  \x1b[31m✗\x1b[0m clone failed: ${e.message}`);
+  } catch (e: unknown) {
+    console.log(`  \x1b[31m✗\x1b[0m clone failed: ${e instanceof Error ? e.message : String(e)}`);
     return;
   }
 
@@ -310,7 +317,7 @@ async function setupGit(oracle: string, source: string, opts: SetupOpts) {
       const mcp = JSON.parse(readFileSync(mcpJson, "utf8"));
       const servers = Object.entries(mcp.mcpServers || {});
       if (servers.length > 0) {
-        const [name, cfg] = servers[0] as [string, any];
+        const [name, cfg] = servers[0] as [string, { command?: string; args?: string[] }];
         serverName = name;
         serverCmd = cfg.command || "bun";
         serverArgs = (cfg.args || []).map((a: string) =>
@@ -328,14 +335,14 @@ async function setupGit(oracle: string, source: string, opts: SetupOpts) {
   console.log(`\n  \x1b[36mStep 4/5: Register channel\x1b[0m`);
   const pluginId = `server:${serverName}`;
   const config = loadOracleChannels(oracle) || { plugins: [] };
-  const newPlugin: ChannelPlugin = {
+  const newPlugin: GitChannelPlugin = {
     id: pluginId,
     env: { ...opts.env },
+    source: `github:${repo}`,
+    path: repoPath,
+    mcp: { command: serverCmd, args: serverArgs },
+    dev: true,
   };
-  (newPlugin as any).source = `github:${repo}`;
-  (newPlugin as any).path = repoPath;
-  (newPlugin as any).mcp = { command: serverCmd, args: serverArgs };
-  (newPlugin as any).dev = true;
 
   if (opts.pass) config.token_source = `pass:${opts.pass}`;
 

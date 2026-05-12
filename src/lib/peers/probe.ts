@@ -123,10 +123,10 @@ async function prefetchDnsCheck(url: string): Promise<LastError | null> {
   try {
     await lookup(hostname);
     return null;
-  } catch (e: any) {
+  } catch (e: unknown) {
     return {
       code: classifyProbeError(e),
-      message: typeof e?.message === "string" ? e.message : `DNS lookup failed for ${hostname}`,
+      message: e instanceof Error ? e.message : `DNS lookup failed for ${hostname}`,
       at: new Date().toISOString(),
     };
   }
@@ -135,8 +135,8 @@ async function prefetchDnsCheck(url: string): Promise<LastError | null> {
 /** Build a LastError record from a thrown error + url context. */
 function errToLast(err: unknown, fallbackMsg: string): LastError {
   const code = classifyProbeError(err);
-  const message = (err && typeof err === "object" && "message" in err && typeof (err as any).message === "string")
-    ? (err as any).message
+  const message = (err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string")
+    ? (err as { message: string }).message
     : fallbackMsg;
   return { code, message, at: new Date().toISOString() };
 }

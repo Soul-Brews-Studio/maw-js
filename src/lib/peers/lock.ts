@@ -20,8 +20,8 @@ function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
-    return e.code === "EPERM";
+  } catch (e: unknown) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -44,8 +44,8 @@ export function withPeersLock<T>(path: string, fn: () => T): T {
       const pidBytes = Buffer.from(String(process.pid));
       writeSync(fd, pidBytes, 0, pidBytes.length, 0);
       break;
-    } catch (e: any) {
-      if (e.code !== "EEXIST") throw e;
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       // fd-based read for the same TOCTOU reason as the write above.
       // Fixed 64-byte buffer — PIDs are ≤20 digits on every supported OS, so
       // no fstatSync needed (also avoids the CodeQL "stat-then-read" pattern).

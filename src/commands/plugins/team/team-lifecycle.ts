@@ -247,7 +247,7 @@ export async function cmdTeamSpawn(
     try {
       const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
       const member: TeamMember = { name: role, model, backendType: engineName };
-      if (!toolConfig.members.some((m: any) => m.name === role)) {
+      if (!toolConfig.members.some((m: TeamMember) => m.name === role)) {
         toolConfig.members.push(member);
         // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
         writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
@@ -265,7 +265,7 @@ export async function cmdTeamSpawn(
   const parentSessionId = process.env.CLAUDE_SESSION_ID || "";
 
   // Build the full agent-teams claude command
-  const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
+  const teammateCount = manifest.members.filter((m: string) => m !== role).length;
   const agentType = opts.type || "general-purpose";
   const agentColor = opts.color || ["yellow", "green", "blue", "red", "cyan"][teammateCount % 5];
   const agentId = `${role}@${teamName}`;
@@ -308,7 +308,7 @@ export async function cmdTeamSpawn(
       if (existsSync(toolConfigPath)) {
         try {
           const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-          const member = toolConfig.members?.find((m: any) => m.name === role);
+          const member = toolConfig.members?.find((m: TeamMember) => m.name === role);
           if (member) {
             member.tmuxPaneId = result.paneId;
             member.color = result.color;
@@ -324,9 +324,9 @@ export async function cmdTeamSpawn(
 
       console.log();
       console.log(`  \x1b[32m✓ --exec\x1b[0m spawned \x1b[${colorAnsi(result.color)}m${agentId}\x1b[0m in pane ${result.paneId}`);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.log();
-      console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
+      console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e instanceof Error ? e.message : String(e)}`);
       console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
     }
     return;

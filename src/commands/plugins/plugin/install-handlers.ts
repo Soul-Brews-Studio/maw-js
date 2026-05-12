@@ -231,7 +231,7 @@ export async function installFromTarball(
   let lock;
   try {
     lock = readLock();
-  } catch (e: any) {
+  } catch (e: unknown) {
     rmSync(staging, { recursive: true, force: true });
     throw e;
   }
@@ -511,10 +511,10 @@ export async function installFromGithub(
       // Success on the prefixed path — clean up and return.
       try { rmSync(join(dlPath, ".."), { recursive: true, force: true }); } catch { /* non-fatal */ }
       return;
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Only fall through on the "no plugin.json at subpath" sentinel —
       // any other error (sdk gate, sha mismatch) is real and must surface.
-      const msg = String(e?.message ?? e);
+      const msg = e instanceof Error ? e.message : String(e);
       if (!/no plugin.json at subpath/.test(msg)) throw e;
       effectiveSubpath = subpath;
       // Re-download isn't needed: extraction was rolled back already inside

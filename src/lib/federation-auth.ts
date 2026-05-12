@@ -258,7 +258,7 @@ export function federationAuth(): MiddlewareHandler {
     //     MUST flip this to false or they're exposed to Path B.
     //   - false: loopback requests must sign like any other peer. This is
     //     the fully-hardened posture; requires CLI self-signing (follow-up).
-    const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
+    const clientIp = (c.env as { server?: { requestIP?: (req: Request) => { address?: string } | null } })?.server?.requestIP?.(c.req.raw)?.address;
     const trustLoopback = config.trustLoopback !== false; // default true
 
     if (trustLoopback && isLoopback(clientIp)) return next();

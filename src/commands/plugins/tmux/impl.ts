@@ -85,7 +85,7 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     const FLEET_DIR = join(homedir(), ".config", "maw", "fleet");
     for (const f of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
-      const win = (cfg.windows || []).find((w: any) => w.name === `${target}-oracle` || w.name === target);
+      const win = (cfg.windows || []).find((w: { name: string }) => w.name === `${target}-oracle` || w.name === target);
       if (win) {
         const fleetSess = cfg.name;
         const alive = listSessionNamesSync();
@@ -132,8 +132,8 @@ export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Prom
   let out: string;
   try {
     out = await hostExec(`tmux capture-pane -pt '${resolved}' ${scroll} -J`);
-  } catch (e: any) {
-    throw new Error(`tmux capture-pane failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`tmux capture-pane failed for '${resolved}' (from ${source}): ${e instanceof Error ? e.message : e}`);
   }
 
   console.log(`\x1b[90m▸ ${target} → ${resolved} [${source}]\x1b[0m`);
@@ -441,8 +441,8 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
   try {
     const out = await hostExec(`tmux display-message -p -t '${resolved}' '#{pane_current_command}'`);
     paneCurrentCommand = out.trim();
-  } catch (e: any) {
-    throw new Error(`pane lookup failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`pane lookup failed for '${resolved}' (from ${source}): ${e instanceof Error ? e.message : e}`);
   }
   if (isClaudeLikePane(paneCurrentCommand) && !opts.force) {
     throw new Error(
@@ -459,8 +459,8 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
 
   try {
     await hostExec(args);
-  } catch (e: any) {
-    throw new Error(`send-keys failed for '${resolved}': ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`send-keys failed for '${resolved}': ${e instanceof Error ? e.message : e}`);
   }
 
   console.log(`\x1b[32m✓\x1b[0m sent to ${target} → ${resolved} \x1b[90m[${source}]${opts.literal ? " (literal)" : ""}${opts.allowDestructive ? " (destructive-allowed)" : ""}${opts.force ? " (force)" : ""}\x1b[0m`);
@@ -496,8 +496,8 @@ export async function cmdTmuxSplit(target: string, opts: TmuxSplitOpts = {}): Pr
 
   try {
     await hostExec(tmuxCmd);
-  } catch (e: any) {
-    throw new Error(`split-window failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`split-window failed for '${resolved}' (from ${source}): ${e instanceof Error ? e.message : e}`);
   }
 
   console.log(`\x1b[32m✓\x1b[0m split ${target} → ${resolved} \x1b[90m[${source}] ${opts.vertical ? "vertical" : "horizontal"} ${pct}%\x1b[0m`);
@@ -543,8 +543,8 @@ export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Prom
 
   try {
     await hostExec(tmuxCmd);
-  } catch (e: any) {
-    throw new Error(`kill failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`kill failed for '${resolved}' (from ${source}): ${e instanceof Error ? e.message : e}`);
   }
 
   console.log(`\x1b[32m✓\x1b[0m killed ${opts.session ? "session" : "pane"} ${target} → ${opts.session ? session : resolved} \x1b[90m[${source}]${opts.force ? " (force)" : ""}\x1b[0m`);
@@ -560,7 +560,7 @@ const VALID_LAYOUTS = ["even-horizontal", "even-vertical", "main-horizontal", "m
  * Apply a layout preset to a window. Wraps `tmux select-layout -t <window> <preset>`.
  */
 export async function cmdTmuxLayout(target: string, preset: string): Promise<void> {
-  if (!VALID_LAYOUTS.includes(preset as any)) {
+  if (!VALID_LAYOUTS.includes(preset as (typeof VALID_LAYOUTS)[number])) {
     throw new Error(`invalid layout '${preset}'. Valid: ${VALID_LAYOUTS.join(", ")}`);
   }
   const hit = resolveTmuxTarget(target);
@@ -572,8 +572,8 @@ export async function cmdTmuxLayout(target: string, preset: string): Promise<voi
 
   try {
     await hostExec(`tmux select-layout -t '${window}' ${preset}`);
-  } catch (e: any) {
-    throw new Error(`select-layout failed for '${window}' (from ${source}): ${e?.message || e}`);
+  } catch (e: unknown) {
+    throw new Error(`select-layout failed for '${window}' (from ${source}): ${e instanceof Error ? e.message : e}`);
   }
 
   console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);

@@ -1,5 +1,6 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import type { AgentColor } from "../tmux/layout-manager";
+import type { TeamConfig, TeamMember } from "../team/team-helpers";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
@@ -17,7 +18,7 @@ const KNOWN_AGENTS: Record<string, { cmd: string; label: string }> = {
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
-  console.log = (...a: any[]) => {
+  console.log = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
@@ -81,7 +82,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const configPath = join(teamDir, "config.json");
 
     mkdirSync(teamDir, { recursive: true });
-    let config: any;
+    let config: TeamConfig;
     if (existsSync(configPath)) {
       config = JSON.parse(readFileSync(configPath, "utf-8"));
     } else {
@@ -139,7 +140,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       );
       await new Promise(r => setTimeout(r, 200));
 
-      const existing = config.members.findIndex((m: any) => m.name === agent.name);
+      const existing = config.members.findIndex((m: TeamMember) => m.name === agent.name);
       const entry = { name: agent.name, agentId: agent.agentId, tmuxPaneId: agent.paneId, color: agent.color, model: agent.agentCmd };
       if (existing >= 0) config.members[existing] = entry;
       else config.members.push(entry);
@@ -154,8 +155,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     console.log(`\x1b[32m✓\x1b[0m swarm: ${agentList.length} agents (${tiled ? "tiled" : "main-vertical"})`);
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
   }

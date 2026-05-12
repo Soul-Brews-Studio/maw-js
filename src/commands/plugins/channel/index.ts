@@ -6,6 +6,12 @@ import {
 } from "../../shared/channel-loader";
 import { resolve } from "path";
 
+interface GitChannelPlugin extends ChannelPlugin {
+  source?: string;
+  path?: string;
+  dev?: boolean;
+}
+
 export const command = {
   name: "channel",
   description: "Manage Claude Code channels per oracle.",
@@ -14,7 +20,7 @@ export const command = {
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
-  console.log = (...a: any[]) => {
+  console.log = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
@@ -253,13 +259,13 @@ github: prefix → delegates to setup wizard`,
         else if (config.token_source) checks.push(`\x1b[32m✓ token source: ${config.token_source}\x1b[0m`);
         else checks.push("\x1b[33m⚠ no token configured\x1b[0m");
         // Check source (git channels)
-        if ((p as any).source) {
+        if ((p as GitChannelPlugin).source) {
           const { existsSync: ex } = require("fs");
-          if ((p as any).path && ex((p as any).path)) checks.push(`\x1b[32m✓ repo cloned\x1b[0m`);
+          if ((p as GitChannelPlugin).path && ex((p as GitChannelPlugin).path)) checks.push(`\x1b[32m✓ repo cloned\x1b[0m`);
           else checks.push(`\x1b[31m✗ repo not cloned\x1b[0m`);
         }
 
-        const devTag = (p as any).dev ? " \x1b[33m[dev]\x1b[0m" : "";
+        const devTag = (p as GitChannelPlugin).dev ? " \x1b[33m[dev]\x1b[0m" : "";
         console.log(`  ${p.id}${devTag}`);
         for (const c of checks) console.log(`    ${c}`);
       }
@@ -352,8 +358,8 @@ github: prefix → delegates to setup wizard`,
             unlinkSync(globalConfig);
             try { rmdirSync(globalDir); } catch { /* dir not empty: state files survive */ }
             console.log(`    \x1b[90m✓ removed global config\x1b[0m`);
-          } catch (e: any) {
-            console.log(`    \x1b[33m⚠ failed to remove global: ${e?.message || e}\x1b[0m`);
+          } catch (e: unknown) {
+            console.log(`    \x1b[33m⚠ failed to remove global: ${e instanceof Error ? e.message : String(e)}\x1b[0m`);
           }
         }
         migrated++;
@@ -380,8 +386,8 @@ github: prefix → delegates to setup wizard`,
     }
 
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
   }

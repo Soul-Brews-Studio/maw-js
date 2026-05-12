@@ -1,4 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import type { AgentColor } from "../tmux/layout-manager";
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -56,11 +57,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
-  console.log = (...a: any[]) => {
+  console.log = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
-  console.error = (...a: any[]) => {
+  console.error = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
@@ -358,7 +359,7 @@ general flags: --description <text>, --members <list>`,
         if (existsSync(teamConfigPath)) {
           try {
             const cfg = JSON.parse(readFileSync(teamConfigPath, "utf-8"));
-            const existing = cfg.members.findIndex((m: any) => m.name === name);
+            const existing = cfg.members.findIndex((m: { name: string }) => m.name === name);
             const entry = { name, agentId, tmuxPaneId: paneId, color, model: "shell" };
             if (existing >= 0) cfg.members[existing] = entry;
             else cfg.members.push(entry);
@@ -398,7 +399,7 @@ general flags: --description <text>, --members <list>`,
       for (const m of withPanes) {
         try {
           await exec(`tmux send-keys -t '${m.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
-          const color = (m.color || "white") as any;
+          const color = (m.color || "white") as AgentColor;
           console.log(`  \x1b[${colorAnsi(color)}m→\x1b[0m ${m.agentId || m.name}`);
           sent++;
         } catch { /* pane may be dead */ }
@@ -432,7 +433,7 @@ general flags: --description <text>, --members <list>`,
       const { hostExec: exec } = await import("../../../sdk");
       await exec(`tmux send-keys -t '${member.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
       const { colorAnsi } = await import("../tmux/layout-manager");
-      const color = (member.color || "white") as any;
+      const color = (member.color || "white") as AgentColor;
       console.log(`\x1b[${colorAnsi(color)}m→\x1b[0m sent to ${member.agentId || member.name}: ${message}`);
 
     } else if (sub === "layout") {
@@ -530,8 +531,8 @@ general flags: --description <text>, --members <list>`,
     }
 
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: any) {
-    return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };
+  } catch (e: unknown) {
+    return { ok: false, error: logs.join("\n") || (e instanceof Error ? e.message : String(e)), output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
     console.error = origError;

@@ -44,14 +44,15 @@ export function loadWorkspaceConfigs(): WorkspaceConfig[] {
 }
 
 /** Validate workspace config shape */
-function validateWorkspaceConfig(raw: any): boolean {
+function validateWorkspaceConfig(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") return false;
-  if (typeof raw.id !== "string" || raw.id.length === 0) return false;
-  if (typeof raw.hubUrl !== "string" || raw.hubUrl.length === 0) return false;
-  if (typeof raw.token !== "string" || raw.token.length === 0) return false;
-  if (!Array.isArray(raw.sharedAgents)) return false;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) return false;
+  if (typeof r.hubUrl !== "string" || r.hubUrl.length === 0) return false;
+  if (typeof r.token !== "string" || r.token.length === 0) return false;
+  if (!Array.isArray(r.sharedAgents)) return false;
   try {
-    const url = new URL(raw.hubUrl);
+    const url = new URL(r.hubUrl);
     if (url.protocol !== "ws:" && url.protocol !== "wss:") return false;
   } catch {
     return false;
