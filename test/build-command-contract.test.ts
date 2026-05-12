@@ -118,7 +118,7 @@ describe("buildCommand — post-#541 contract", () => {
   test("buildCommandInDir returns script path (#1188 — replaces inline blob with session script)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
-    expect(inDir).toStartWith("bash ");
+    expect(inDir).toStartWith(" bash ");
     expect(inDir).toContain("sessions/foo.sh");
     expect(inDir).not.toContain("cd ");
   });
@@ -143,7 +143,7 @@ describe("buildCommand — post-#541 contract", () => {
   test("buildCommandInDir returns bash script path (#1188)", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
     const result = buildCommandInDir("foo", "/tmp", "codex");
-    expect(result).toStartWith("bash ");
+    expect(result).toStartWith(" bash ");
     expect(result).toContain("sessions/foo.sh");
   });
 
@@ -199,7 +199,7 @@ describe("buildCommand — post-#541 contract", () => {
         expect(out).not.toContain("CLAUDECODE");
         expect(out.startsWith("cd ")).toBe(false);
         const inDir = buildCommandInDir(name, "/tmp/x");
-        expect(inDir).toStartWith("bash ");
+        expect(inDir).toStartWith(" bash ");
         expect(inDir).toContain("sessions/");
       }
     }

@@ -171,6 +171,8 @@ function formatScriptHeader(agentName: string, cwd: string, opts: BuildCommandOp
   if (opts.permissionMode) lines.push(`# Permission: ${opts.permissionMode}`);
   if (opts.engine) lines.push(`# Engine: ${opts.engine}`);
   lines.push("");
+  lines.push(`printf '\\033]2;${agentName}\\033\\\\'`);
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -302,7 +304,7 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
     const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
-    return `bash ${scriptPath}`;
+    return ` bash ${scriptPath}`;
   } catch {
     return buildCommand(agentName, optsOrEngine);
   }
