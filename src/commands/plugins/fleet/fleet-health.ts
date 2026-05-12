@@ -39,8 +39,8 @@ export async function cmdFleetHealth() {
       } catch { lastActivity = "?"; }
     }
 
-    const raw = entry.session as any;
-    const buddedFrom = raw.budded_from || "";
+    const raw = entry.session as Record<string, unknown>;
+    const buddedFrom = (raw.budded_from as string) || "";
     const peerCount = entry.session.sync_peers?.length || 0;
 
     const flags: string[] = [];

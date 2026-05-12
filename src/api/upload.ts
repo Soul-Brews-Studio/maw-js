@@ -41,13 +41,13 @@ export const uploadApi = new Elysia();
 /** POST /upload — accept a file via multipart form data */
 uploadApi.post("/upload", async ({ body, set }) => {
   try {
-    const file = (body as any)?.file;
+    const file = (body as Record<string, unknown>)?.file;
     if (!file || !(file instanceof Blob)) {
       set.status = 400;
       return { error: "missing 'file' field — use: curl -F 'file=@image.png' /api/upload" };
     }
 
-    const mime = (file as any).type || "";
+    const mime = (file as Record<string, unknown>).type as string || "";
     if (!ALLOWED_MIME.has(mime)) {
       set.status = 415;
       return { error: `unsupported mime: ${mime || "unknown"} — allowed: png, jpeg, webp, heic, heif` };
@@ -58,7 +58,7 @@ uploadApi.post("/upload", async ({ body, set }) => {
     }
 
     const id = randomUUID();
-    const origName = (file as any).name || `upload-${Date.now()}`;
+    const origName = String((file as Record<string, unknown>).name || `upload-${Date.now()}`);
     const safeName = basename(origName).replace(/[^a-zA-Z0-9._-]/g, "_");
     const ext = (EXT_BY_MIME[mime] || extname(safeName).replace(/^\./, "") || "bin").toLowerCase();
     const filename = `${id}.${ext}`;
@@ -76,9 +76,9 @@ uploadApi.post("/upload", async ({ body, set }) => {
     const url = `/maw-uploads/${dateSlug}/${filename}`;
     const kb = (buf.length / 1024).toFixed(1);
     return { ok: true, id, url, path: dest, name: safeName, size: `${kb}KB`, mime };
-  } catch (e: any) {
+  } catch (e: unknown) {
     set.status = 500;
-    return { error: e.message };
+    return { error: e instanceof Error ? e.message : String(e) };
   }
 });
 

@@ -84,8 +84,9 @@ export function readManifest(dir: string): PluginManifest | null {
   }
   try {
     return parseManifest(readFileSync(manifestPath, "utf8"), dir);
-  } catch (e: any) {
-    console.error(formatError(`invalid plugin.json: ${e.message}`));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(formatError(`invalid plugin.json: ${msg}`));
     return null;
   }
 }

@@ -129,13 +129,19 @@ function extractLastMessages(filePath: string): { lastUser: string | null; lastA
         if (!lastUser && e.type === "user" && e.message?.content) {
           const c = typeof e.message.content === "string"
             ? e.message.content
-            : e.message.content?.find?.((b: any) => b.type === "text")?.text;
-          if (c) lastUser = c.slice(0, 200);
+            : (e.message.content as unknown[])?.find?.((b: unknown) => {
+              const obj = b as Record<string, unknown>;
+              return obj.type === "text";
+            })?.text;
+          if (c) lastUser = String(c).slice(0, 200);
         }
         if (!lastAssistant && e.type === "assistant" && e.message?.content) {
           const blocks = Array.isArray(e.message.content) ? e.message.content : [];
-          const t = blocks.find((b: any) => b.type === "text")?.text;
-          if (t) lastAssistant = t.slice(0, 200);
+          const t = (blocks.find((b: unknown) => {
+            const obj = b as Record<string, unknown>;
+            return obj.type === "text";
+          }) as Record<string, unknown>)?.text;
+          if (t) lastAssistant = String(t).slice(0, 200);
         }
         if (lastUser && lastAssistant) break;
       } catch { /* malformed line */ }

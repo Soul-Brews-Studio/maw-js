@@ -43,8 +43,9 @@ export async function scanCommands(dir: string, scope: "builtin" | "user"): Prom
           count++;
         }
       }
-    } catch (err: any) {
-      console.error(`[commands] failed to load ${file}: ${err.message?.slice(0, 80)}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message?.slice(0, 80) : String(err).slice(0, 80);
+      console.error(`[commands] failed to load ${file}: ${msg}`);
     }
   }
   return count;

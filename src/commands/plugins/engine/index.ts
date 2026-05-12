@@ -9,9 +9,9 @@ export const command = {
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
-  console.log = (...a: any[]) => {
+  console.log = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
-    else logs.push(a.map(String).join(" "));
+    else logs.push((a as unknown[]).map(String).join(" "));
   };
 
   try {
@@ -82,8 +82,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg, output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
   }

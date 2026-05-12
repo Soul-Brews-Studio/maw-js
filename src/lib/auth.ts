@@ -77,10 +77,11 @@ function hmacSign(payload: string): string {
 
 /** Create a token after PIN verification */
 export function createToken(): string {
+  const config = loadConfig() as unknown as Record<string, unknown>;
   const payload: TokenPayload = {
     iat: Date.now(),
     exp: Date.now() + TOKEN_EXPIRY,
-    node: (loadConfig() as any).node || "local",
+    node: typeof config.node === "string" ? config.node : "local",
   };
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = hmacSign(data);

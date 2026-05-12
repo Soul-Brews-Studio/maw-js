@@ -30,7 +30,7 @@ const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 export interface CurlResponse {
   ok: boolean;
   status: number;
-  data: any;
+  data: unknown;
 }
 
 export async function curlFetch(url: string, opts?: {

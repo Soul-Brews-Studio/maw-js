@@ -148,8 +148,9 @@ export function readLock(): Lock {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e: any) {
-    throw new Error(`plugins.lock: invalid JSON at ${path}: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`plugins.lock: invalid JSON at ${path}: ${msg}`);
   }
   const v = validateSchema(parsed);
   if (!v.ok) throw new Error(v.error);
@@ -170,8 +171,9 @@ export function writeLock(lock: Lock): void {
   // <path>.tmp behind, we refuse to clobber without surfacing it.
   try {
     writeFileSync(tmp, content, { encoding: "utf8", flag: "w" });
-  } catch (e: any) {
-    throw new Error(`plugins.lock: failed to stage ${tmp}: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`plugins.lock: failed to stage ${tmp}: ${msg}`);
   }
   try {
     chmodSync(tmp, 0o644);

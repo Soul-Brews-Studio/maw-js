@@ -17,8 +17,9 @@ export async function pushCapture(
       lastContent.set(ws, content);
       ws.send(JSON.stringify({ type: "capture", target: ws.data.target, content }));
     }
-  } catch (e: any) {
-    ws.send(JSON.stringify({ type: "error", error: e.message }));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ws.send(JSON.stringify({ type: "error", error: msg }));
   }
 }
 

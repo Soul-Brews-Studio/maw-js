@@ -97,11 +97,12 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
         console.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
       }
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     // Don't crash maw ls on scan failure (non-critical) — but surface the error in debug mode
     // so silent failures have a diagnosable cause.
     if (process.env.MAW_DEBUG) {
-      console.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${e?.message || e}\x1b[0m`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${message}\x1b[0m`);
     }
   }
 
@@ -142,8 +143,9 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
         console.log(`  \x1b[32m✓\x1b[0m ${dirName}`);
         for (const line of log) console.log(`    \x1b[90m${line}\x1b[0m`);
         pruned++;
-      } catch (e: any) {
-        console.log(`  \x1b[31m✗\x1b[0m ${dirName} \x1b[90m(${e?.message || e})\x1b[0m`);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.log(`  \x1b[31m✗\x1b[0m ${dirName} \x1b[90m(${message})\x1b[0m`);
       }
     }
     console.log("");

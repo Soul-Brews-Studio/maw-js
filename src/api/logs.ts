@@ -24,7 +24,7 @@ logsApi.get("/logs", ({ query }) => {
     return { entries: [], total: 0 };
   }
 
-  const results: any[] = [];
+  const results: unknown[] = [];
   let dirs: string[];
   try {
     dirs = readdirSync(projectsDir);
@@ -104,9 +104,11 @@ logsApi.get("/logs", ({ query }) => {
   }
 
   results.sort((a, b) => {
-    if (!a.timestamp) return 1;
-    if (!b.timestamp) return -1;
-    return b.timestamp.localeCompare(a.timestamp);
+    const aTs = (a as Record<string, unknown>)?.timestamp;
+    const bTs = (b as Record<string, unknown>)?.timestamp;
+    if (!aTs) return 1;
+    if (!bTs) return -1;
+    return String(bTs).localeCompare(String(aTs));
   });
 
   return { entries: results.slice(0, limit), total: results.length };

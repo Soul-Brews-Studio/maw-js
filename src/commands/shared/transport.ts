@@ -6,7 +6,7 @@ import { getTransportRouter } from "../../transports";
 import { loadConfig } from "../../config";
 
 export async function cmdTransportStatus() {
-  const config = loadConfig() as any;
+  const config = loadConfig();
   const router = getTransportRouter();
 
   const node = config.node ?? "local";

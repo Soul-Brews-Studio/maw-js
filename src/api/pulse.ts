@@ -48,8 +48,8 @@ pulseApi.get("/pulse", async ({ query, set}) => {
     );
     const issues = JSON.parse(raw || "[]");
     return { repo, issues };
-  } catch (e: any) {
-    set.status = 500; return { error: e.message, repo };
+  } catch (e: unknown) {
+    set.status = 500; return { error: e instanceof Error ? e.message : String(e), repo };
   }
 }, {
   query: t.Object({
@@ -71,8 +71,8 @@ pulseApi.post("/pulse", async ({ body, set}) => {
     for (const l of allLabels) args.push("-l", l);
     const url = await ghSpawn(args);
     return { ok: true, url: url.trim() };
-  } catch (e: any) {
-    set.status = 500; return { error: e.message };
+  } catch (e: unknown) {
+    set.status = 500; return { error: e instanceof Error ? e.message : String(e) };
   }
 }, {
   body: t.Object({
@@ -102,8 +102,8 @@ pulseApi.patch("/pulse/:id", async ({ params, body, set}) => {
     if (!ops.length) { set.status = 400; return { error: "nothing to update" }; }
     for (const op of ops) await op();
     return { ok: true, id };
-  } catch (e: any) {
-    set.status = 500; return { error: e.message };
+  } catch (e: unknown) {
+    set.status = 500; return { error: e instanceof Error ? e.message : String(e) };
   }
 }, {
   params: t.Object({ id: t.String() }),

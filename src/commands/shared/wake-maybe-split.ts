@@ -16,8 +16,9 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
     try {
       const { cmdSplit } = await import("../plugins/split/impl");
       await cmdSplit(target);
-    } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.log(`  \x1b[33m⚠\x1b[0m split failed: ${message}`);
     }
     return;
   }

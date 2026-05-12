@@ -62,7 +62,7 @@ export function resolvePsi(): string {
  */
 export function writeShutdownRequest(teamName: string, memberName: string, reason: string): void {
   const inboxPath = join(TEAMS_DIR, teamName, "inboxes", `${memberName}.json`);
-  let messages: any[] = [];
+  let messages: unknown[] = [];
   if (existsSync(inboxPath)) {
     try { messages = JSON.parse(readFileSync(inboxPath, "utf-8")); } catch { messages = []; }
   }
@@ -84,7 +84,7 @@ export function writeShutdownRequest(teamName: string, memberName: string, reaso
  */
 export function writeMessage(teamName: string, memberName: string, from: string, text: string): void {
   const inboxPath = join(TEAMS_DIR, teamName, "inboxes", `${memberName}.json`);
-  let messages: any[] = [];
+  let messages: unknown[] = [];
   if (existsSync(inboxPath)) {
     try { messages = JSON.parse(readFileSync(inboxPath, "utf-8")); } catch { messages = []; }
   }

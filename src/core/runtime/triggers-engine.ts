@@ -101,8 +101,9 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
       if (code !== 0) throw new Error(`exit ${code}`);
       result.ok = true;
       result.output = output;
-    } catch (err: any) {
-      result.error = err.message?.slice(0, 200) || "unknown error";
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      result.error = msg.slice(0, 200);
     }
 
     lastFired.set(i, result);

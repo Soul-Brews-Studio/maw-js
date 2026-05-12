@@ -110,8 +110,9 @@ export async function cmdStallDetect(
       let out: string;
       try {
         out = await hostExec(`tmux capture-pane -pt '${id}' -S -${lines} -J`);
-      } catch (e: any) {
-        console.log(`\x1b[31m✗\x1b[0m ${user} (${id}): capture failed — ${e?.message || e}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.log(`\x1b[31m✗\x1b[0m ${user} (${id}): capture failed — ${msg}`);
         continue;
       }
       const result = updateStallState(state, id, out, threshold);

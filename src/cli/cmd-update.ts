@@ -78,8 +78,9 @@ export async function runUpdate(args: string[]): Promise<void> {
       });
       ref = tags[0];
       console.log(`\n  📍 ${channel} channel → ${ref}`);
-    } catch (e: any) {
-      console.error(`\x1b[31merror\x1b[0m: failed to resolve ${channel} channel: ${e.message}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`\x1b[31merror\x1b[0m: failed to resolve ${channel} channel: ${msg}`);
       process.exit(1);
     }
   }
@@ -165,11 +166,12 @@ export async function runUpdate(args: string[]): Promise<void> {
         try {
           renameSync(STASH, archived);
           console.warn(`\x1b[33m↺\x1b[0m rotated stale ${STASH} → ${archived} (prior crash leftover; in-flight stash will replace it)`);
-        } catch (e: any) {
+        } catch (e: unknown) {
           // Belt-and-suspenders: if rotation fails (perms, disk full, etc.),
           // fall back to the original refuse behavior so we never silently
           // overwrite a working binary in the rename below.
-          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${e.message || e}`);
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${msg}`);
           console.error(`  resolve manually:  mv ${STASH} ${BIN}     \x1b[90m# restore last-known-good\x1b[0m`);
           console.error(`  or discard it:     rm ${STASH}             \x1b[90m# only if you're sure\x1b[0m`);
           console.error(`  then re-run:       maw update ${ref}`);
@@ -269,8 +271,9 @@ export async function runUpdate(args: string[]): Promise<void> {
         try {
           renameSync(STASH, BIN);
           console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
-        } catch (e: any) {
-          console.error(`failed to restore stash: ${e.message || e}`);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`failed to restore stash: ${msg}`);
         }
       } else if (installCode === 0 && stashed && existsSync(STASH)) {
         // Retry succeeded — clean up the stash.

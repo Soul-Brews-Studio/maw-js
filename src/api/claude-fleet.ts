@@ -16,9 +16,9 @@ claudeFleetApi.get("/fleet/claude", async ({ set }) => {
   try {
     const sessions = await listClaudeSessions();
     return { sessions, count: sessions.length };
-  } catch (e: any) {
+  } catch (e: unknown) {
     set.status = 500;
-    return { error: "Failed to discover Claude sessions", detail: e.message };
+    return { error: "Failed to discover Claude sessions", detail: e instanceof Error ? e.message : String(e) };
   }
 }, {
   detail: {

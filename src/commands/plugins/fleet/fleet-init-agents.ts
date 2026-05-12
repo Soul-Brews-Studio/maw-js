@@ -44,8 +44,9 @@ export async function cmdFleetInitAgents(
         if (!(w.name in proposed)) proposed[w.name] = "local";
       }
     }
-  } catch (e: any) {
-    console.log(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${msg}`);
   }
 
   // 2. namedPeers → fetch {url}/api/config and adopt their "local" agents
@@ -69,8 +70,9 @@ export async function cmdFleetInitAgents(
           proposed[name] = peer.name;
         }
       }
-    } catch (e: any) {
-      peersFailed.push(`${peer.name} (${e?.message || "unknown"})`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "unknown";
+      peersFailed.push(`${peer.name} (${msg})`);
     }
   }
 

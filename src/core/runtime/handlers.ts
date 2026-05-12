@@ -9,8 +9,9 @@ async function runAction(ws: MawWS, action: string, target: string, fn: () => Pr
   try {
     await fn();
     ws.send(JSON.stringify({ type: "action-ok", action, target }));
-  } catch (e: any) {
-    ws.send(JSON.stringify({ type: "error", error: e.message }));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ws.send(JSON.stringify({ type: "error", error: msg }));
   }
 }
 
@@ -21,51 +22,60 @@ const subscribe: Handler = (ws, data, engine) => {
   // scope "preview" adds to previewTargets — used by FleetGrid pinned cards,
   //   VSAgentPanel, useMissionControl pin so they don't clobber the active
   //   TerminalView target on the same singleton WS (echo 2026-04-29).
-  const scope = data.scope === "preview" ? "preview" : "main";
+  const d = data as { scope?: string; target: string };
+  const scope = d.scope === "preview" ? "preview" : "main";
   if (scope === "main") {
-    ws.data.target = data.target;
+    ws.data.target = d.target;
     engine.pushCapture(ws);
   } else {
     if (!ws.data.previewTargets) ws.data.previewTargets = new Set();
-    ws.data.previewTargets.add(data.target);
+    ws.data.previewTargets.add(d.target);
     engine.pushPreviews(ws);
   }
 };
 
 const subscribePreviews: Handler = (ws, data, engine) => {
-  ws.data.previewTargets = new Set(data.targets || []);
+  const d = data as { targets?: string[] };
+  ws.data.previewTargets = new Set(d.targets || []);
   engine.pushPreviews(ws);
 };
 
 const select: Handler = (_ws, data) => {
-  selectWindow(data.target).catch(() => { /* expected: window may not exist */ });
+  const d = data as { target: string };
+  selectWindow(d.target).catch(() => { /* expected: window may not exist */ });
 };
 
 const send: Handler = async (ws, data, engine) => {
   // Check for active Claude session before sending (#17)
-  if (!data.force) {
+  const d = data as { force?: boolean; target: string; text: string };
+  if (!d.force) {
     try {
-      const cmd = await getPaneCommand(data.target);
+      const cmd = await getPaneCommand(d.target);
       if (!isAgentCommand(cmd)) {
-        ws.send(JSON.stringify({ type: "error", error: `no active Claude session in ${data.target} (running: ${cmd})` }));
+        ws.send(JSON.stringify({ type: "error", error: `no active Claude session in ${d.target} (running: ${cmd})` }));
         return;
       }
     } catch { /* pane check failed, proceed anyway */ }
   }
-  sendKeys(data.target, data.text)
+  sendKeys(d.target, d.text)
     .then(() => {
-      ws.send(JSON.stringify({ type: "sent", ok: true, target: data.target, text: data.text }));
+      ws.send(JSON.stringify({ type: "sent", ok: true, target: d.target, text: d.text }));
       setTimeout(() => engine.pushCapture(ws), 300);
     })
-    .catch(e => ws.send(JSON.stringify({ type: "error", error: e.message })));
+    .catch(e => {
+      const msg = e instanceof Error ? e.message : String(e);
+      ws.send(JSON.stringify({ type: "error", error: msg }));
+    });
 };
 
 const sleep: Handler = (ws, data) => {
-  runAction(ws, "sleep", data.target, () => sendKeys(data.target, "\x03"));
+  const d = data as { target: string };
+  runAction(ws, "sleep", d.target, () => sendKeys(d.target, "\x03"));
 };
 
 const stop: Handler = (ws, data) => {
-  runAction(ws, "stop", data.target, () => tmux.killWindow(data.target));
+  const d = data as { target: string };
+  runAction(ws, "stop", d.target, () => tmux.killWindow(d.target));
 };
 
 /**
@@ -92,18 +102,20 @@ function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }
 }
 
 const wake: Handler = (ws, data) => {
-  const cmd = buildSpawnCmd(data);
-  runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
+  const d = data as { target?: string; command?: string; cwd?: string };
+  const cmd = buildSpawnCmd(d);
+  runAction(ws, "wake", d.target, () => sendKeys(d.target, cmd + "\r"));
 };
 
 const restart: Handler = (ws, data) => {
-  const cmd = buildSpawnCmd(data);
-  runAction(ws, "restart", data.target, async () => {
-    await sendKeys(data.target, "\x03"); // Ctrl+C
+  const d = data as { target?: string; command?: string; cwd?: string };
+  const cmd = buildSpawnCmd(d);
+  runAction(ws, "restart", d.target, async () => {
+    await sendKeys(d.target, "\x03"); // Ctrl+C
     await new Promise(r => setTimeout(r, 2000));
-    await sendKeys(data.target, "\x03"); // Ctrl+C again (in case first was caught)
+    await sendKeys(d.target, "\x03"); // Ctrl+C again (in case first was caught)
     await new Promise(r => setTimeout(r, 500));
-    await sendKeys(data.target, cmd + "\r");
+    await sendKeys(d.target, cmd + "\r");
   });
 };
 

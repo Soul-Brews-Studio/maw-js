@@ -52,8 +52,9 @@ export function fetchAllowedOrgs(execFn: (cmd: string) => string): AllowedOrgs {
   try {
     user = execFn("gh api user --jq .login 2>/dev/null").trim();
     if (!user) throw new Error("empty login");
-  } catch (e: any) {
-    const reason = `gh api user failed: ${String(e?.message || e).split("\n")[0]}`;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const reason = `gh api user failed: ${msg.split("\n")[0]}`;
     return (_allowedOrgsCache = { ok: false, reason });
   }
 

@@ -27,7 +27,7 @@ function listVaultOnlyTeams(toolTeamNames: Set<string>): Array<{ name: string; m
       try {
         const raw = JSON.parse(readFileSync(manifestPath, "utf-8"));
         const members = Array.isArray(raw?.members)
-          ? raw.members.map((m: any) => typeof m === "string" ? m : m?.name).filter(Boolean)
+          ? raw.members.map((m: unknown) => typeof m === "string" ? m : (typeof m === "object" && m && "name" in m ? (m as { name: unknown }).name : undefined)).filter(Boolean)
           : [];
         out.push({ name, members });
       } catch { /* skip malformed manifest */ }

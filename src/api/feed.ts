@@ -34,16 +34,16 @@ feedApi.get("/feed", ({ query }) => {
 });
 
 feedApi.post("/feed", async ({ body }) => {
-  const b = body as any;
+  const b = body as Record<string, unknown>;
   const event: FeedEvent = {
-    timestamp: b.timestamp || new Date().toISOString(),
-    oracle: b.oracle || "unknown",
-    host: b.host || "local",
-    event: b.event || "Notification",
-    project: b.project || "",
-    sessionId: b.sessionId || "",
-    message: b.message || "",
-    ts: b.ts || Date.now(),
+    timestamp: typeof b.timestamp === "string" ? b.timestamp : new Date().toISOString(),
+    oracle: typeof b.oracle === "string" ? b.oracle : "unknown",
+    host: typeof b.host === "string" ? b.host : "local",
+    event: (typeof b.event === "string" ? b.event : "Notification") as unknown as FeedEvent["event"],
+    project: typeof b.project === "string" ? b.project : "",
+    sessionId: typeof b.sessionId === "string" ? b.sessionId : "",
+    message: typeof b.message === "string" ? b.message : "",
+    ts: typeof b.ts === "number" ? b.ts : Date.now(),
   };
   pushFeedEvent(event);
   markRealFeedEvent(event.oracle);

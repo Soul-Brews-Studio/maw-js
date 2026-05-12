@@ -161,14 +161,14 @@ export class MdnsTransport implements Transport {
       });
 
       if (res.ok) {
-        const data = (await res.json()) as any;
+        const data = (await res.json()) as Record<string, unknown>;
         if (data.ok) {
           const msg: TransportMessage = {
             from: this.config.node,
             to: target.oracle,
             body: message,
             timestamp: Date.now(),
-            transport: "http" as any,
+            transport: "http" as const,
           };
           for (const h of this.msgHandlers) h(msg);
           return true;

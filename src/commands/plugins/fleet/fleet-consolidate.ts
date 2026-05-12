@@ -45,7 +45,7 @@ export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boo
     const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");
     const num = f.match(/^(\d+)/)?.[1] || "?";
 
-    let cfg: any;
+    let cfg: Record<string, unknown>;
     try {
       cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
     } catch {

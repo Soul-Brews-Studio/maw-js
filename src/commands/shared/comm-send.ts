@@ -211,9 +211,10 @@ export async function cmdSend(
         await cmdSend(member, message, force);
         if (!memberFailed) delivered++;
         else failed++;
-      } catch (e: any) {
+      } catch (e: unknown) {
         failed++;
-        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${e?.message || "failed"}`);
+        const message = e instanceof Error ? e.message : "failed";
+        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${message}`);
       }
     }
     process.exit = origExit;
@@ -393,10 +394,11 @@ export async function cmdSend(
           return;
         }
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Forgiving: ACL eval errors must not break delivery. Phase 2 is
       // additive — log + fall through to existing behavior.
-      console.error(`\x1b[90mwarn: ACL evaluation failed (${e?.message ?? e}); allowing send\x1b[0m`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`\x1b[90mwarn: ACL evaluation failed (${message}); allowing send\x1b[0m`);
     }
   }
 
@@ -413,10 +415,11 @@ export async function cmdSend(
       console.log(
         `\x1b[36m+\x1b[0m trusted ${senderOracle} ↔ ${targetOracle}`,
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Same forgiving stance — trust persistence failure shouldn't
       // block the send the operator just approved.
-      console.error(`\x1b[90mwarn: trust persistence failed (${e?.message ?? e})\x1b[0m`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`\x1b[90mwarn: trust persistence failed (${message})\x1b[0m`);
     }
   }
 

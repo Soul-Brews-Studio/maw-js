@@ -13,8 +13,8 @@ oracleApi.get("/oracle/search", async ({ query, set}) => {
   try {
     const res = await fetch(`${ORACLE_URL}/api/search?${params}`);
     return await res.json();
-  } catch (e: any) {
-    set.status = 502; return { error: `Oracle unreachable: ${e.message}` };
+  } catch (e: unknown) {
+    set.status = 502; return { error: `Oracle unreachable: ${e instanceof Error ? e.message : String(e)}` };
   }
 }, {
   query: t.Object({
@@ -30,8 +30,8 @@ oracleApi.get("/oracle/traces", async ({ query, set}) => {
   try {
     const res = await fetch(`${ORACLE_URL}/api/traces?limit=${limit}`);
     return await res.json();
-  } catch (e: any) {
-    set.status = 502; return { error: `Oracle unreachable: ${e.message}` };
+  } catch (e: unknown) {
+    set.status = 502; return { error: `Oracle unreachable: ${e instanceof Error ? e.message : String(e)}` };
   }
 }, {
   query: t.Object({ limit: t.Optional(t.String()) }),
@@ -41,7 +41,7 @@ oracleApi.get("/oracle/stats", async ({ set }) => {
   try {
     const res = await fetch(`${ORACLE_URL}/api/stats`);
     return await res.json();
-  } catch (e: any) {
-    set.status = 502; return { error: `Oracle unreachable: ${e.message}` };
+  } catch (e: unknown) {
+    set.status = 502; return { error: `Oracle unreachable: ${e instanceof Error ? e.message : String(e)}` };
   }
 });

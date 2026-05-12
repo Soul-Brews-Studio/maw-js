@@ -70,8 +70,9 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
     await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
     await hostExec(`git -C '${mainPath}' worktree prune`);
     log.push(`removed worktree ${dirName}`);
-  } catch (e: any) {
-    log.push(`worktree remove failed: ${e.message || e}`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    log.push(`worktree remove failed: ${message}`);
   }
 
   // 3. Delete branch
@@ -90,7 +91,10 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
       const filePath = join(fleetDir, file);
       const cfg = JSON.parse(readFileSync(filePath, "utf-8"));
       const before = cfg.windows?.length || 0;
-      cfg.windows = (cfg.windows || []).filter((w: any) => w.repo !== repo);
+      cfg.windows = (cfg.windows || []).filter((w: unknown) => {
+        const obj = w as Record<string, unknown>;
+        return obj.repo !== repo;
+      });
       if (cfg.windows.length < before) {
         writeFileSync(filePath, JSON.stringify(cfg, null, 2) + "\n");
         log.push(`removed from ${file}`);

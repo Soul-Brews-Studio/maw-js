@@ -78,8 +78,8 @@ sessionsApi.get("/capture", async ({ query, set}) => {
     const sessions = await listSessions();
     const resolved = resolveCapture(target, sessions);
     return { content: await capture(resolved) };
-  } catch (e: any) {
-    return { content: "", error: e.message };
+  } catch (e: unknown) {
+    return { content: "", error: e instanceof Error ? e.message : String(e) };
   }
 }, {
   query: t.Object({

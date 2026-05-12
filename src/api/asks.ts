@@ -19,8 +19,8 @@ asksApi.post("/asks", async ({ body, set}) => {
   try {
     writeFileSync(asksPath, JSON.stringify(body, null, 2), "utf-8");
     return { ok: true };
-  } catch (e: any) {
-    set.status = 400; return { error: e.message };
+  } catch (e: unknown) {
+    set.status = 400; return { error: e instanceof Error ? e.message : String(e) };
   }
 }, {
   body: t.Unknown(),

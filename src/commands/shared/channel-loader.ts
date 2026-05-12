@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, Dirent } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -171,8 +171,8 @@ export function listAllOracleChannels(): Array<{ oracle: string; plugins: Channe
   if (!existsSync(channelsBase())) return [];
   const { readdirSync } = require("fs");
   const dirs = readdirSync(channelsBase(), { withFileTypes: true })
-    .filter((d: any) => d.isDirectory())
-    .map((d: any) => d.name);
+    .filter((d: Dirent) => d.isDirectory())
+    .map((d: Dirent) => d.name);
 
   const results: Array<{ oracle: string; plugins: ChannelPlugin[] }> = [];
   for (const dir of dirs) {

@@ -27,8 +27,8 @@ uiStateApi.post("/ui-state", async ({ body, set}) => {
   try {
     writeUiState(body as object);
     return { ok: true };
-  } catch (e: any) {
-    set.status = 400; return { error: e.message };
+  } catch (e: unknown) {
+    set.status = 400; return { error: e instanceof Error ? e.message : String(e) };
   }
 }, {
   body: t.Unknown(),

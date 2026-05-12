@@ -47,14 +47,15 @@ export class HttpTransport implements Transport {
     const allSessions = await getAggregatedSessions(localSessions);
 
     for (const session of allSessions) {
-      const source = (session as any).source;
+      const sessionRecord = session as unknown as Record<string, unknown>;
+      const source = sessionRecord.source;
       if (!source || source === "local") continue;
 
-      const match = session.windows.some((w) => w.name.toLowerCase().includes(target.oracle.toLowerCase()));
+      const match = (session as unknown as { windows: Array<{ name: string }> }).windows.some((w: { name: string }) => w.name.toLowerCase().includes(target.oracle.toLowerCase()));
       if (match) {
         const tmuxTarget = findWindow([session], target.oracle);
         if (tmuxTarget) {
-          return sendKeysToPeer(source, tmuxTarget, message);
+          return sendKeysToPeer(source as string, tmuxTarget, message);
         }
       }
     }

@@ -7,8 +7,8 @@ import { READONLY_METHODS } from "./proxy-trust";
 // --- Peer URL resolution (same as wormhole — acceptable duplication) ----
 
 export function resolveProxyPeerUrl(peer: string): string | null {
-  const config = loadConfig() as any;
-  const namedPeers: Array<{ name: string; url: string }> = config?.namedPeers ?? [];
+  const config = loadConfig() as unknown as Record<string, unknown>;
+  const namedPeers = (config?.namedPeers as unknown[] ?? []) as Array<{ name: string; url: string }>;
   const match = namedPeers.find((p) => p.name === peer);
   if (match) return match.url;
   if (/^[\w.-]+:\d+$/.test(peer)) return `http://${peer}`;
@@ -36,8 +36,8 @@ export async function relayHttpToPeer(
   const outHeaders: Record<string, string> = {};
 
   // Sign outbound with existing HMAC mechanism
-  const config = loadConfig() as any;
-  const token = config?.federationToken;
+  const config = loadConfig() as unknown as Record<string, unknown>;
+  const token = config?.federationToken as string | undefined;
   if (token) {
     Object.assign(outHeaders, signHeaders(token, upper, path));
   }

@@ -45,8 +45,8 @@ async function relayToPeer(
   const path = "/api/peer/exec";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
-  const config = loadConfig() as any;
-  const token = config?.federationToken;
+  const config = loadConfig() as unknown as Record<string, unknown>;
+  const token = config?.federationToken as string | undefined;
   if (token) {
     Object.assign(headers, signHeaders(token, "POST", path));
   }
@@ -71,7 +71,7 @@ async function relayToPeer(
 export const peerExecApi = new Elysia();
 
 peerExecApi.get("/peer/session", ({ set }) => {
-  setSessionCookie(set as any);
+  setSessionCookie(set as { headers: Record<string, string> });
   return { ok: true, rotates: "on_server_restart" };
 });
 
@@ -126,8 +126,8 @@ peerExecApi.post("/peer/exec", async ({ body, headers, set}) => {
       status: result.status,
       trust_tier: readonly ? "readonly" : "shell_allowlisted",
     };
-  } catch (err: any) {
-    set.status = 502; return { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) };
+  } catch (err: unknown) {
+    set.status = 502; return { error: "relay_failed", peer: peerUrl, reason: err instanceof Error ? err.message : String(err) };
   }
 }, {
   body: t.Object({

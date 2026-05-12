@@ -13,11 +13,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
-  console.log = (...a: any[]) => {
+  console.log = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
-  console.error = (...a: any[]) => {
+  console.error = (...a: unknown[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
@@ -284,8 +284,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg, output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
     console.error = origError;

@@ -19,7 +19,7 @@ interface NanoclawConfig {
 /** Resolve a "telegram:nat" or "tg:12345" target to a nanoclaw JID */
 export function resolveNanoclawJid(target: string): { jid: string; url: string } | null {
   const config = loadConfig();
-  const nc = (config as any).nanoclaw as NanoclawConfig | undefined;
+  const nc = (config as unknown as Record<string, unknown>).nanoclaw as NanoclawConfig | undefined;
   if (!nc?.url) return null;
 
   // Direct JID pass-through (tg:12345, dc:98765)

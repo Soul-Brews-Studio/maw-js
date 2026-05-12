@@ -8,7 +8,7 @@ export const PROXY_SESSION_TOKEN = randomBytes(16).toString("hex");
 export const PROXY_COOKIE_NAME = "proxy_session";
 export const PROXY_COOKIE_MAX_AGE = 60 * 60 * 24;
 
-export function setProxySessionCookie(set: any): void {
+export function setProxySessionCookie(set: { headers: Record<string, string> }): void {
   set.headers["Set-Cookie"] =
     `${PROXY_COOKIE_NAME}=${PROXY_SESSION_TOKEN}; HttpOnly; SameSite=Strict; Path=/api/proxy; Max-Age=${PROXY_COOKIE_MAX_AGE}`;
 }

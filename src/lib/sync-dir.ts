@@ -14,7 +14,7 @@
  * are preserved, missing source returns 0, unreadable entries are skipped
  * silently. Returns the number of files copied.
  */
-import { existsSync, readdirSync, copyFileSync, mkdirSync } from "fs";
+import { existsSync, readdirSync, copyFileSync, mkdirSync, Dirent } from "fs";
 import { join } from "path";
 
 /**
@@ -28,8 +28,8 @@ export function syncDir(srcDir: string, dstDir: string): number {
   let count = 0;
 
   function walk(src: string, dst: string) {
-    let entries: any[];
-    try { entries = readdirSync(src, { withFileTypes: true } as any) as any; }
+    let entries: Dirent[];
+    try { entries = readdirSync(src, { withFileTypes: true }) as Dirent[]; }
     catch { return; }
 
     for (const entry of entries) {

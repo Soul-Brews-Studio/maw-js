@@ -13,8 +13,9 @@ let client: mqtt.MqttClient | null = null;
 
 function getClient(): mqtt.MqttClient | null {
   if (client) return client;
-  const config = loadConfig();
-  const broker = (config as any).mqttPublish?.broker;
+  const config = loadConfig() as unknown as Record<string, unknown>;
+  const mqttConfig = config.mqttPublish as unknown as Record<string, unknown> | undefined;
+  const broker = typeof mqttConfig?.broker === "string" ? mqttConfig.broker : null;
   if (!broker) return null;
   client = mqtt.connect(broker, {
     clientId: `maw-${config.node ?? "local"}-${Date.now()}`,

@@ -79,7 +79,8 @@ export async function ensureCloned(slug: string): Promise<void> {
   console.log(`\x1b[36m⚡\x1b[0m cloning ${slug}...`);
   try {
     await hostExec(`ghq get github.com/${slug}`);
-  } catch (e: any) {
-    console.log(`\x1b[33m⚠\x1b[0m clone failed: ${e.message || e}\n  falling back to normal resolution`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.log(`\x1b[33m⚠\x1b[0m clone failed: ${message}\n  falling back to normal resolution`);
   }
 }

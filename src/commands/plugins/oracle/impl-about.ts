@@ -22,7 +22,10 @@ export async function cmdOracleAbout(oracle: string) {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       const hasOracle = (config.windows || []).some(
-        (w: any) => w.name.toLowerCase() === `${name}-oracle` || w.name.toLowerCase() === name
+        (w: unknown) => {
+          const window = w as Record<string, unknown>;
+          return window.name !== undefined && (String(window.name).toLowerCase() === `${name}-oracle` || String(window.name).toLowerCase() === name);
+        }
       );
       if (hasOracle) {
         fleetFile = file;
@@ -78,7 +81,10 @@ export async function cmdOracleAbout(oracle: string) {
     if (actualWindows > fleetWindowCount) {
       // Find which windows are unregistered
       const fleetConfig = JSON.parse(readFileSync(join(fleetDir, fleetFile), "utf-8"));
-      const registeredNames = new Set((fleetConfig.windows || []).map((w: any) => w.name));
+      const registeredNames = new Set((fleetConfig.windows || []).map((w: unknown) => {
+        const window = w as Record<string, unknown>;
+        return String(window.name);
+      }));
       const runningWindows = sessions.find(s => s.name === session)?.windows || [];
       const unregistered = runningWindows.filter(w => !registeredNames.has(w.name));
 

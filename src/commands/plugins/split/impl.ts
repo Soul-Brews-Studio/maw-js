@@ -126,7 +126,8 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
     const action = opts.noAttach ? "empty pane" : resolved;
     const anchorLabel = opts.anchorPane ? ` (anchored at ${opts.anchorPane})` : "";
     console.log(`  \x1b[32m✓\x1b[0m split ${side} — ${action} (${pct}%)${anchorLabel}`);
-  } catch (e: any) {
-    throw new Error(`split failed: ${e.message || e}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`split failed: ${msg}`);
   }
 }

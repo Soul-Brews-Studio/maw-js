@@ -54,7 +54,8 @@ export function isPathProxyable(path: string): boolean {
 
 export function isProxyShellPeerAllowed(originHost: string): boolean {
   if (originHost.startsWith("anon-")) return false;
-  const config = loadConfig() as any;
-  const allowed: string[] = config?.proxy?.shellPeers ?? [];
+  const config = loadConfig() as unknown as Record<string, unknown>;
+  const proxy = config?.proxy as unknown as Record<string, unknown>;
+  const allowed: string[] = (proxy?.shellPeers as unknown[]) ?? [];
   return allowed.includes(originHost);
 }

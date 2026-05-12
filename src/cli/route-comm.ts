@@ -17,7 +17,7 @@ function writeInboxMessage(teamName: string, agentName: string, from: string, te
   const inboxDir = join(homedir(), ".claude/teams", teamName, "inboxes");
   const inboxPath = join(inboxDir, `${agentName}.json`);
   mkdirSync(inboxDir, { recursive: true });
-  let messages: any[] = [];
+  let messages: unknown[] = [];
   if (existsSync(inboxPath)) {
     try { messages = JSON.parse(readFileSync(inboxPath, "utf-8")); } catch { messages = []; }
   }

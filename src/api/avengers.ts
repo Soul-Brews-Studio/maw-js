@@ -32,8 +32,8 @@ avengersApi.get("/avengers/status", async ({ set }) => {
       source: base,
       timestamp: new Date().toISOString(),
     };
-  } catch (err: any) {
-    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
+  } catch (err: unknown) {
+    set.status = 502; return { error: `avengers unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 });
 
@@ -46,8 +46,8 @@ avengersApi.get("/avengers/best", async ({ set }) => {
     const res = await fetch(`${base}/best`, { signal: AbortSignal.timeout(5000) });
     const best = await res.json();
     return best;
-  } catch (err: any) {
-    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
+  } catch (err: unknown) {
+    set.status = 502; return { error: `avengers unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 });
 
@@ -70,8 +70,8 @@ avengersApi.get("/avengers/traffic", async ({ set }) => {
       speed,
       timestamp: new Date().toISOString(),
     };
-  } catch (err: any) {
-    set.status = 502; return { error: `avengers unreachable: ${err.message}` };
+  } catch (err: unknown) {
+    set.status = 502; return { error: `avengers unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 });
 

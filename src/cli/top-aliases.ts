@@ -184,8 +184,9 @@ export async function invokeDirectHandler(
           ? `\x1b[36m→\x1b[0m [dry-run] would attach to session: ${session}`
           : `\x1b[36m→\x1b[0m [dry-run] would create new session for: ${oracle}`);
         console.log(`\x1b[90m  no changes made.\x1b[0m`);
-      } catch (e: any) {
-        console.error(`\x1b[31m✗\x1b[0m [dry-run] resolution failed: ${e?.message || e}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`\x1b[31m✗\x1b[0m [dry-run] resolution failed: ${msg}`);
       }
       return;
     }

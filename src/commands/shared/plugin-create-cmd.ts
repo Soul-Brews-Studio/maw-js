@@ -62,8 +62,9 @@ export async function cmdPluginCreate(
     } else {
       scaffoldAs(name, dest);
     }
-  } catch (err: any) {
-    console.error(formatError(err.message));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(formatError(message));
     process.exit(1);
   }
 

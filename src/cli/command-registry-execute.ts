@@ -73,8 +73,8 @@ export async function executeCommand(desc: CommandDescriptor, remaining: string[
 
     try {
       await Promise.race([wasmExec, timeoutGuard]);
-    } catch (err: any) {
-      const msg = err.message || String(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("wasm-safety") && msg.includes("timed out")) {
         console.error(`[commands] WASM timeout in "${desc.name}": command exceeded ${WASM_COMMAND_TIMEOUT_MS / 1000}s limit`);
       } else if (msg.includes("unreachable") || msg.includes("RuntimeError")) {

@@ -261,8 +261,9 @@ export async function scanSuggestOracle(
   console.log(`\n\x1b[36m⚡ ghq get -u ${tlink(cloneUrl)}\x1b[0m`);
   try {
     await hostExecFn(`ghq get -u '${cloneUrl}'`);
-  } catch (e: any) {
-    console.error(`\x1b[33m⚠\x1b[0m clone failed: ${String(e?.message || e).split("\n")[0]}`);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`\x1b[33m⚠\x1b[0m clone failed: ${message.split("\n")[0]}`);
   }
 
   const cloned = await hostExecFn(`ghq list --full-path | grep -i '/${stem}$' | head -1`);

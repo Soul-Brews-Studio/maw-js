@@ -132,8 +132,9 @@ async function runWatch(dir: string, emitTypes = false): Promise<void> {
     building = true;
     try {
       await runBuild(dir, emitTypes);
-    } catch (e: any) {
-      console.error(formatError(`rebuild failed: ${e.message}`));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(formatError(`rebuild failed: ${msg}`));
     } finally {
       building = false;
     }
@@ -153,11 +154,12 @@ async function runBuild(dir: string, emitTypes = false): Promise<BuildSummary> {
     throw new Error(`no plugin.json in ${dir}`);
   }
 
-  let manifest: any;
+  let manifest: Record<string, unknown>;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  } catch (e: any) {
-    throw new Error(`invalid plugin.json: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`invalid plugin.json: ${msg}`);
   }
 
   // --- Target gate (Phase A: js only; wasm → Phase C message) ---

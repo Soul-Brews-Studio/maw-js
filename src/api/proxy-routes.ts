@@ -11,7 +11,7 @@ export const proxyApi = new Elysia();
  * GET /api/proxy/session — bootstrap a proxy session cookie.
  */
 proxyApi.get("/proxy/session", ({ set }) => {
-  setProxySessionCookie(set);
+  setProxySessionCookie(set as unknown as { headers: Record<string, string> });
   return { ok: true, rotates: "on_server_restart" };
 });
 
@@ -101,8 +101,8 @@ proxyApi.post("/proxy", async ({ body, set, request }) => {
       elapsed_ms: result.elapsedMs,
       trust_tier: readonly ? "readonly_method" : "shell_allowlisted",
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     set.status = 502;
-    return { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) };
+    return { error: "relay_failed", peer: peerUrl, reason: err instanceof Error ? err.message : String(err) };
   }
 });

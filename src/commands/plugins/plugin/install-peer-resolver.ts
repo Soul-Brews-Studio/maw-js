@@ -47,7 +47,7 @@ export async function resolvePeerInstall(
   let result: SearchPeersResult;
   try {
     result = await search(name, { ...(opts.searchOpts ?? {}), peer });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // The only throw path in searchPeers is `unknown peer '<peer>'`. Rethrow
     // unchanged — that message is already the one we want to surface.
     throw err;

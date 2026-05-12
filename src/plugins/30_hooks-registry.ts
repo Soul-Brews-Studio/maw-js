@@ -30,11 +30,12 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
       const events = hooks[phase as keyof typeof hooks];
       if (!events) continue;
 
-      const fn = exportNames.reduce((f: any, name: string) => f ?? mod[name], null);
+      const fn = exportNames.reduce((f: unknown, name: string) => f ?? mod[name], null);
       if (typeof fn !== "function") continue;
 
       for (const event of events) {
-        (system.hooks as any)[phase](event, fn);
+        const hookRegistry = system.hooks as unknown as Record<string, (event: string, fn: (e: unknown) => void) => void>;
+        hookRegistry[phase](event, fn as (e: unknown) => void);
         registered++;
       }
     }

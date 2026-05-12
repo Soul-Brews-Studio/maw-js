@@ -10,10 +10,11 @@ function validateExtFields(
   // triggers: TriggerConfig[]
   if ("triggers" in raw) {
     if (Array.isArray(raw.triggers)) {
-      const valid = raw.triggers.filter((t: any) => {
+      const valid = raw.triggers.filter((t: unknown) => {
         if (!t || typeof t !== "object") return false;
-        if (!t.on || typeof t.on !== "string") return false;
-        if (!t.action || typeof t.action !== "string") return false;
+        const obj = t as Record<string, unknown>;
+        if (!obj.on || typeof obj.on !== "string") return false;
+        if (!obj.action || typeof obj.action !== "string") return false;
         return true;
       });
       if (valid.length !== raw.triggers.length) {
@@ -109,10 +110,11 @@ function validateExtFields(
   // namedPeers: array of {name, url} objects
   if ("namedPeers" in raw) {
     if (Array.isArray(raw.namedPeers)) {
-      const valid = raw.namedPeers.filter((p: any) => {
+      const valid = raw.namedPeers.filter((p: unknown) => {
         if (!p || typeof p !== "object") return false;
-        if (typeof p.name !== "string" || typeof p.url !== "string") return false;
-        try { new URL(p.url); return true; } catch { return false; }
+        const obj = p as Record<string, unknown>;
+        if (typeof obj.name !== "string" || typeof obj.url !== "string") return false;
+        try { new URL(obj.url); return true; } catch { return false; }
       });
       if (valid.length !== raw.namedPeers.length) {
         warn("namedPeers", `has ${raw.namedPeers.length - valid.length} invalid entries`);

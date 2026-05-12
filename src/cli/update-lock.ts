@@ -16,8 +16,8 @@ function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
-    return e.code === "EPERM";
+  } catch (e: unknown) {
+    return e instanceof Error && "code" in e && e.code === "EPERM";
   }
 }
 
@@ -45,8 +45,10 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
       const pidBytes = Buffer.from(String(process.pid));
       writeSync(fd, pidBytes, 0, pidBytes.length, 0);
       break;
-    } catch (e: any) {
-      if (e.code !== "EEXIST") throw e;
+    } catch (e: unknown) {
+      if (!(e instanceof Error && "code" in e && e.code === "EEXIST")) {
+        throw e;
+      }
       // Steal stale lock: if holder PID is dead, remove + retry immediately.
       // fd-based read for the same TOCTOU reason as the write above.
       let holderPid = NaN;

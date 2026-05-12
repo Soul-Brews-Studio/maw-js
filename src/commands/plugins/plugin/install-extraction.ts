@@ -52,8 +52,9 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
   let res: Response;
   try {
     res = await fetch(url);
-  } catch (e: any) {
-    return { ok: false, error: `download failed: ${e.message}` };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `download failed: ${msg}` };
   }
   if (!res.ok) {
     return { ok: false, error: `download failed: HTTP ${res.status} ${res.statusText}` };

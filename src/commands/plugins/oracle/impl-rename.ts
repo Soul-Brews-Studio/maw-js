@@ -84,9 +84,10 @@ export async function cmdOracleRename(oldName: string, newName: string, opts: Re
     try {
       await hostExec(`gh repo rename ${newName}-oracle --repo ${org}/${oldName}-oracle --yes 2>&1`);
       console.log(`\x1b[32m  ✓\x1b[0m repo renamed on GitHub`);
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Repo may already be renamed (re-running)
-      console.log(`\x1b[33m  ⚠\x1b[0m gh rename returned: ${e?.message?.split("\n")[0] || e}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`\x1b[33m  ⚠\x1b[0m gh rename returned: ${msg.split("\n")[0]}`);
       console.log(`\x1b[90m  (continuing — repo may already be at new name)\x1b[0m`);
     }
   }
@@ -97,8 +98,9 @@ export async function cmdOracleRename(oldName: string, newName: string, opts: Re
     try {
       await hostExec(`ghq get -u ${org}/${newName}-oracle 2>&1`);
       console.log(`\x1b[32m  ✓\x1b[0m cloned to new path`);
-    } catch (e: any) {
-      console.error(formatError(`ghq get failed: ${e?.message?.split("\n")[0] || e}`));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(formatError(`ghq get failed: ${msg.split("\n")[0]}`));
     }
   }
 
@@ -108,9 +110,11 @@ export async function cmdOracleRename(oldName: string, newName: string, opts: Re
   let renamedConfig: string | null = null;
   for (const file of fleetFiles) {
     const content = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-    const win = (content.windows || []).find((w: any) =>
-      w.name === `${oldName}-oracle` || w.name === oldName
-    );
+    const win = (content.windows || []).find((w: unknown) => {
+      if (typeof w !== "object" || !w) return false;
+      const win_obj = w as Record<string, unknown>;
+      return win_obj.name === `${oldName}-oracle` || win_obj.name === oldName;
+    });
     if (win) {
       // Update name + windows[].name + windows[].repo
       const newSessionName = content.name.replace(oldName, newName);

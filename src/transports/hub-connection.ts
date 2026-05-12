@@ -199,7 +199,8 @@ export function openWebSocket(
     });
 
     ws.addEventListener("error", (event) => {
-      console.error(`[hub] workspace ${conn.config.id}: error:`, (event as any).message || "connection error");
+      const msg = (event as unknown as Record<string, unknown>).message || "connection error";
+      console.error(`[hub] workspace ${conn.config.id}: error:`, msg);
       // close event will fire after error — reconnect handled there
     });
   } catch (err) {

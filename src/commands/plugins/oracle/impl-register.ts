@@ -33,12 +33,12 @@ export function findInFleet(
 ): DiscoveredOracle | null {
   try {
     for (const file of readdirSync(fleetDir).filter((f) => f.endsWith(".json"))) {
-      let config: any;
+      let config: Record<string, unknown>;
       try {
         config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       } catch { continue; }
 
-      const windows: any[] = config.windows || [];
+      const windows: unknown[] = (config.windows as unknown[]) || [];
       const hasThis = windows.some(
         (w) => w.name === `${name}-oracle` || w.name === name,
       );

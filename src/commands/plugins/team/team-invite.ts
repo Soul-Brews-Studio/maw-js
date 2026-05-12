@@ -77,17 +77,19 @@ function manifestPath(teamName: string): string {
  */
 export function recordInvitee(teamName: string, peer: NamedPeer, scope: string): void {
   const path = manifestPath(teamName);
-  let manifest: any;
+  let manifest: Record<string, unknown>;
   try {
     manifest = JSON.parse(readFileSync(path, "utf-8"));
-  } catch (e: any) {
-    if (e?.code === "ENOENT") {
+  } catch (e: unknown) {
+    if (e instanceof Error && "code" in e && e.code === "ENOENT") {
       throw new Error(`team '${teamName}' not found — run: maw team create ${teamName}`);
     }
     throw e;
   }
   manifest.invitees = Array.isArray(manifest.invitees) ? manifest.invitees : [];
-  const existing = manifest.invitees.findIndex((i: any) => i?.name === peer.name);
+  const existing = manifest.invitees.findIndex((i: unknown) =>
+    typeof i === "object" && i && "name" in i && (i as { name: unknown }).name === peer.name
+  );
   const entry = {
     name: peer.name,
     url: peer.url,

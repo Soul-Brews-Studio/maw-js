@@ -13,7 +13,7 @@ fleetApi.get("/fleet-config", () => {
     const files = readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"));
     const configs = files.map(f => JSON.parse(readFileSync(join(fleetDir, f), "utf-8")));
     return { configs };
-  } catch (e: any) {
-    return { configs: [], error: e.message };
+  } catch (e: unknown) {
+    return { configs: [], error: e instanceof Error ? e.message : String(e) };
   }
 });

@@ -16,14 +16,14 @@ export interface AuditEntry {
 
 /** Append a structured audit log entry to ~/.config/maw/audit.jsonl */
 export function logAudit(cmd: string, args: string[], result?: string): void {
-  const entry: AuditEntry = {
+  const entry: AuditEntry & { result?: string } = {
     ts: new Date().toISOString(),
     cmd,
     args,
     user: process.env.USER || process.env.LOGNAME || "unknown",
     pid: process.pid,
   };
-  if (result !== undefined) (entry as any).result = result;
+  if (result !== undefined) entry.result = result;
   try {
     appendFileSync(AUDIT_FILE, JSON.stringify(entry) + "\n", "utf-8");
   } catch {

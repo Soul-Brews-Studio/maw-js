@@ -1,6 +1,6 @@
 import { Elysia} from "elysia";
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join, basename } from "path";
+import { join } from "path";
 import { homedir } from "os";
 
 export const costsApi = new Elysia();
@@ -56,19 +56,23 @@ function scanSession(filePath: string): SessionUsage | null {
     let lastTimestamp = "";
 
     for (const line of lines) {
-      let obj: any;
+      let obj: unknown;
       try { obj = JSON.parse(line); } catch { continue; }
-      if (obj.type !== "assistant" || !obj.message?.usage) continue;
+      if (typeof obj !== "object" || !obj || !("type" in obj) || obj.type !== "assistant" || !("message" in obj)) continue;
+      const msg = obj.message as unknown;
+      if (typeof msg !== "object" || !msg || !("usage" in msg)) continue;
 
-      const u = obj.message.usage;
-      inputTokens += u.input_tokens || 0;
-      outputTokens += u.output_tokens || 0;
-      cacheReadTokens += u.cache_read_input_tokens || 0;
-      cacheCreateTokens += u.cache_creation_input_tokens || 0;
+      const u = msg.usage as unknown;
+      if (typeof u === "object" && u) {
+        if ("input_tokens" in u && typeof (u as Record<string, unknown>).input_tokens === "number") inputTokens += (u as Record<string, unknown>).input_tokens as number;
+        if ("output_tokens" in u && typeof (u as Record<string, unknown>).output_tokens === "number") outputTokens += (u as Record<string, unknown>).output_tokens as number;
+        if ("cache_read_input_tokens" in u && typeof (u as Record<string, unknown>).cache_read_input_tokens === "number") cacheReadTokens += (u as Record<string, unknown>).cache_read_input_tokens as number;
+        if ("cache_creation_input_tokens" in u && typeof (u as Record<string, unknown>).cache_creation_input_tokens === "number") cacheCreateTokens += (u as Record<string, unknown>).cache_creation_input_tokens as number;
+      }
       turns++;
 
-      if (obj.message.model && !model) model = obj.message.model;
-      if (obj.timestamp) lastTimestamp = obj.timestamp;
+      if ("model" in msg && typeof (msg as Record<string, unknown>).model === "string" && !model) model = (msg as Record<string, unknown>).model as string;
+      if ("timestamp" in obj && typeof (obj as Record<string, unknown>).timestamp === "string") lastTimestamp = (obj as Record<string, unknown>).timestamp as string;
     }
 
     if (turns === 0) return null;

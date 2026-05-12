@@ -25,9 +25,9 @@ function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
+  } catch (e: unknown) {
     // ESRCH = no such process. EPERM = alive but we lack permission (still alive).
-    return e?.code === "EPERM";
+    return e instanceof Error && "code" in e && e.code === "EPERM";
   }
 }
 
@@ -49,8 +49,10 @@ export function acquirePidLock(instanceName: string | null): void {
       writeSync(fd, String(process.pid));
       closeSync(fd);
       break; // acquired
-    } catch (e: any) {
-      if (e?.code !== "EEXIST") throw e;
+    } catch (e: unknown) {
+      if (!(e instanceof Error && "code" in e && e.code === "EEXIST")) {
+        throw e;
+      }
       // Someone holds (or held) the lock — probe liveness.
       // fd-based read prevents path-TOCTOU (symlink swap between wx open and
       // the probe read). Mirrors the #562 / #581 fix in src/cli/update-lock.ts.
