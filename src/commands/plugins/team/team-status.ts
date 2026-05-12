@@ -56,10 +56,10 @@ export async function cmdTeamStatus(teamName?: string): Promise<void> {
     const members = config.members.filter(m => m.agentType !== "team-lead");
     console.log(`\n\x1b[36;1m${name}\x1b[0m (${members.length} agents)\n`);
     console.log(
-      `  ${pad("Agent", 20)} ${pad("Status", 10)} ${pad("Task", 25)} Pane`
+      `  ${pad("Agent", 20)} ${pad("Engine", 10)} ${pad("Status", 10)} ${pad("Task", 25)} Pane`
     );
     console.log(
-      `  ${"─".repeat(20)} ${"─".repeat(10)} ${"─".repeat(25)} ${"─".repeat(10)}`
+      `  ${"─".repeat(20)} ${"─".repeat(10)} ${"─".repeat(10)} ${"─".repeat(25)} ${"─".repeat(10)}`
     );
 
     let running = 0;
@@ -89,7 +89,8 @@ export async function cmdTeamStatus(teamName?: string): Promise<void> {
         : `\x1b[90mexited\x1b[0m    `;
       const paneCol = isAlive ? paneId : `\x1b[90m${paneId || "-"}\x1b[0m`;
 
-      console.log(`  ${dot} ${nameCol} ${statusCol} ${pad(taskLabel, 25)} ${paneCol}`);
+      const engineCol = pad(m.backendType || "claude", 10);
+      console.log(`  ${dot} ${nameCol} ${engineCol} ${statusCol} ${pad(taskLabel, 25)} ${paneCol}`);
     }
 
     const done = tasks.filter(t => t.status === "completed").length;
