@@ -131,14 +131,16 @@ export function listArtifacts(teamFilter?: string): ArtifactSummary[] {
   return results;
 }
 
-/** Get full artifact contents (spec + result + attachment list) */
-export function getArtifact(team: string, taskId: string): {
+interface ArtifactDetail {
   meta: ArtifactMeta;
   spec: string;
   result: string | null;
   attachments: string[];
   dir: string;
-} | null {
+}
+
+/** Get full artifact contents (spec + result + attachment list) */
+export function getArtifact(team: string, taskId: string): ArtifactDetail | null {
   const dir = join(ARTIFACTS_ROOT, team, taskId);
   const metaPath = join(dir, "meta.json");
   if (!existsSync(metaPath)) return null;

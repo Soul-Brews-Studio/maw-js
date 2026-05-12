@@ -24,12 +24,17 @@ export interface AutoPairResponse {
   error?: string;
 }
 
+export interface OperationResult {
+  ok: boolean;
+  error?: string;
+}
+
 export async function initiatePair(
   peer: DiscoveredPeer,
   localNode: string,
   localOracle: string,
   localPort: number,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<OperationResult> {
   const locator = peer.locators[0];
   if (!locator) return { ok: false, error: "no_locator" };
 

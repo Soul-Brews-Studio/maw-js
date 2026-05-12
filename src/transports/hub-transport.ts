@@ -3,7 +3,7 @@
  * See hub.ts for full protocol documentation.
  */
 
-import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 import { loadConfig } from "../config";
 import { trySilent } from "../core/util/try-silent";
@@ -19,9 +19,9 @@ export class HubTransport implements Transport {
   private connections: Map<string, HubConnection> = new Map();
   private nodeId: string;
   private federationToken: string | undefined;
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   constructor(nodeId?: string) {
     const config = loadConfig();
@@ -114,15 +114,15 @@ export class HubTransport implements Transport {
     }
   }
 
-  onMessage(handler: (msg: TransportMessage) => void) {
+  onMessage(handler: MessageHandler) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: (p: TransportPresence) => void) {
+  onPresence(handler: PresenceHandler) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: (e: FeedEvent) => void) {
+  onFeed(handler: FeedHandler) {
     this.feedHandlers.add(handler);
   }
 

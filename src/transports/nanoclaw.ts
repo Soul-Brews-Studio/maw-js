@@ -8,16 +8,16 @@
  * send() POSTs { jid, text } to nanoclaw's /send endpoint for delivery.
  */
 
-import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 import { resolveNanoclawJid, sendViaNanoclaw } from "../bridges/nanoclaw";
 
 export class NanoclawTransport implements Transport {
   readonly name = "nanoclaw";
   private _connected = true; // Stateless HTTP — always "connected"
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   get connected() { return this._connected; }
 
@@ -33,9 +33,9 @@ export class NanoclawTransport implements Transport {
   async publishPresence(_presence: TransportPresence): Promise<void> {}
   async publishFeed(_event: FeedEvent): Promise<void> {}
 
-  onMessage(handler: (msg: TransportMessage) => void) { this.msgHandlers.add(handler); }
-  onPresence(handler: (p: TransportPresence) => void) { this.presenceHandlers.add(handler); }
-  onFeed(handler: (e: FeedEvent) => void) { this.feedHandlers.add(handler); }
+  onMessage(handler: MessageHandler) { this.msgHandlers.add(handler); }
+  onPresence(handler: PresenceHandler) { this.presenceHandlers.add(handler); }
+  onFeed(handler: FeedHandler) { this.feedHandlers.add(handler); }
 
   /** Can reach targets that resolve to a nanoclaw channel JID */
   canReach(target: TransportTarget): boolean {

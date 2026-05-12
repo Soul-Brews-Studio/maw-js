@@ -2,6 +2,7 @@ import { capture, isAgentCommand } from "../core/transport/ssh";
 import { tmux } from "../core/transport/tmux";
 import type { FeedEvent } from "../lib/feed";
 import type { MawWS } from "../core/types";
+import type { SessionInfo } from "./types";
 
 interface AgentState {
   hash: string;
@@ -25,11 +26,6 @@ export interface CrashedAgent {
   target: string;
   name: string;
   session: string;
-}
-
-interface SessionInfo {
-  name: string;
-  windows: { index: number; name: string; active: boolean }[];
 }
 
 /** Strip Claude Code status bar lines before hashing (they change constantly even when idle) */

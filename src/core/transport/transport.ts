@@ -67,6 +67,10 @@ export interface TransportPresence {
   timestamp: number;
 }
 
+export type MessageHandler = (msg: TransportMessage) => void;
+export type PresenceHandler = (p: TransportPresence) => void;
+export type FeedHandler = (e: FeedEvent) => void;
+
 /** Abstract transport — implementations handle different channels */
 export interface Transport {
   readonly name: string;

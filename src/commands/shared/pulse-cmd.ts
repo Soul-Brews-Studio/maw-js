@@ -52,6 +52,12 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
   }
 }
 
+interface PulseIssue {
+  number: number;
+  title: string;
+  labels: { name: string }[];
+}
+
 export async function cmdPulseLs(opts: { sync?: boolean }) {
   const repo = "laris-co/pulse-oracle";
 
@@ -59,7 +65,7 @@ export async function cmdPulseLs(opts: { sync?: boolean }) {
   const issuesJson = (await hostExec(
     `gh issue list --repo ${repo} --state open --json number,title,labels --limit 50`
   )).trim();
-  const issues: { number: number; title: string; labels: { name: string }[] }[] = JSON.parse(issuesJson || "[]");
+  const issues: PulseIssue[] = JSON.parse(issuesJson || "[]");
 
   // Categorize
   const projects: typeof issues = [];

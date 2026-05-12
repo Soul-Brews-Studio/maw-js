@@ -35,18 +35,23 @@ function extractClientId(token: string): string | null {
   } catch { return null; }
 }
 
+interface DiscordGuild {
+  id: string;
+  name: string;
+}
+
 // #1170 — use native fetch instead of execSync curl: shell-spawned curl puts
 // the token in process argv (visible to `ps`, EDR, crash logs). fetch keeps
 // the token in-memory in this process only. AbortSignal.timeout matches the
 // 10s subprocess timeout this replaced.
-async function fetchGuilds(token: string): Promise<Array<{ id: string; name: string }>> {
+async function fetchGuilds(token: string): Promise<DiscordGuild[]> {
   try {
     const r = await fetch("https://discord.com/api/v10/users/@me/guilds", {
       headers: { Authorization: `Bot ${token}` },
       signal: AbortSignal.timeout(10_000),
     });
     if (!r.ok) return [];
-    const data = await r.json() as Array<{ id: string; name: string }>;
+    const data = await r.json() as DiscordGuild[];
     return data.map((g) => ({ id: g.id, name: g.name }));
   } catch { return []; }
 }
