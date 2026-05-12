@@ -171,6 +171,7 @@ export async function cmdOracleRegister(
   } = {},
 ): Promise<void> {
   if (!name) throw new Error("register requires a name: maw oracle register <name>");
+  name = name.toLowerCase();
 
   const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
   const writeRawCache = deps.writeRawCache ?? ((data) => writeRaw(CACHE_FILE, data));

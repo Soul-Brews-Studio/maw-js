@@ -41,7 +41,8 @@ export async function cmdFleetInitAgents(
       for (const w of sess.windows || []) {
         if (!w?.name) continue;
         localScanned++;
-        if (!(w.name in proposed)) proposed[w.name] = "local";
+        const wn = w.name.toLowerCase();
+        if (!(wn in proposed)) proposed[wn] = "local";
       }
     }
   } catch (e: unknown) {
@@ -66,8 +67,9 @@ export async function cmdFleetInitAgents(
       for (const [name, host] of Object.entries(peerAgents)) {
         // Only adopt entries the peer owns (host === "local") — skip their
         // view of other peers, which may be stale on their side too.
-        if (host === "local" && !(name in proposed)) {
-          proposed[name] = peer.name;
+        const lname = name.toLowerCase();
+        if (host === "local" && !(lname in proposed)) {
+          proposed[lname] = peer.name;
         }
       }
     } catch (e: unknown) {

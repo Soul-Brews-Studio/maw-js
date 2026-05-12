@@ -179,3 +179,56 @@ export function checkSelfPeer(
   }
   return findings;
 }
+
+/**
+ * Check 6 — Casing duplicates in config.agents keys and fleet window names.
+ *
+ * Root cause of #1240: no normalization at write sites left thClaws and
+ * thclaws as distinct keys, causing the wake resolver to present both.
+ */
+export function checkCasingDuplicates(
+  agents: Record<string, string>,
+  fleetWindowNames: string[],
+): DoctorFinding[] {
+  const findings: DoctorFinding[] = [];
+
+  const agentsByLower = new Map<string, string[]>();
+  for (const key of Object.keys(agents)) {
+    const lower = key.toLowerCase();
+    const group = agentsByLower.get(lower) ?? [];
+    group.push(key);
+    agentsByLower.set(lower, group);
+  }
+  for (const [, keys] of agentsByLower) {
+    if (keys.length > 1) {
+      findings.push({
+        level: "warn",
+        check: "casing-duplicates",
+        fixable: false,
+        message: `${keys.map((k) => `'${k}'`).join(" and ")} map to same oracle — pick one`,
+        detail: { kind: "agents", keys },
+      });
+    }
+  }
+
+  const windowsByLower = new Map<string, string[]>();
+  for (const name of fleetWindowNames) {
+    const lower = name.toLowerCase();
+    const group = windowsByLower.get(lower) ?? [];
+    group.push(name);
+    windowsByLower.set(lower, group);
+  }
+  for (const [, names] of windowsByLower) {
+    if (names.length > 1) {
+      findings.push({
+        level: "warn",
+        check: "casing-duplicates",
+        fixable: false,
+        message: `${names.map((n) => `'${n}'`).join(" and ")} map to same oracle — pick one`,
+        detail: { kind: "fleet", names },
+      });
+    }
+  }
+
+  return findings;
+}

@@ -144,7 +144,7 @@ export async function adoptByPath(
     throw new Error(`adoptByPath: CLAUDE.md not found at ${repoPath}`);
   }
 
-  const stem = nameOverride ?? extractOracleStem(claudeMd);
+  const stem = (nameOverride?.toLowerCase()) ?? extractOracleStem(claudeMd);
   if (!stem) {
     throw new Error(`adoptByPath: could not extract oracle stem from ${claudeMd}`);
   }

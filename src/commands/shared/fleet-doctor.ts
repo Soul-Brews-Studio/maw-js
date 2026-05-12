@@ -26,6 +26,7 @@ export {
   checkOrphanRoutes,
   checkDuplicatePeers,
   checkSelfPeer,
+  checkCasingDuplicates,
 } from "./fleet-doctor-checks";
 export type { FleetEntryLike } from "./fleet-doctor-checks-repo";
 export { checkMissingRepos } from "./fleet-doctor-checks-repo";
@@ -43,6 +44,7 @@ import {
   checkDuplicatePeers,
   checkSelfPeer,
   checkMissingAgents,
+  checkCasingDuplicates,
 } from "./fleet-doctor-checks";
 import { checkMissingRepos } from "./fleet-doctor-checks-repo";
 import { checkStalePeers } from "./fleet-doctor-stale-peers";
@@ -60,7 +62,7 @@ export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
   const peers = config.namedPeers || [];
   const agents = config.agents || {};
 
-  let entries: Array<{ session: { name: string; windows: Array<{ repo?: string }> } }> = [];
+  let entries: Array<{ session: { name: string; windows: Array<{ name?: string; repo?: string }> } }> = [];
   try {
     entries = loadFleetEntries().map((e) => ({
       session: { name: e.session.name, windows: e.session.windows },
@@ -73,12 +75,17 @@ export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
     sessionNames = sessions.map((s) => s.name);
   } catch { /* no tmux server — checks that need sessions will simply find nothing */ }
 
+  const fleetWindowNames = entries.flatMap((e) =>
+    (e.session.windows ?? []).map((w) => w.name).filter((n): n is string => !!n),
+  );
+
   const findings: DoctorFinding[] = [];
   findings.push(...checkCollisions(sessionNames, peers.map((p) => p.name)));
   findings.push(...checkOrphanRoutes(agents, peers.map((p) => p.name), localNode));
   findings.push(...checkDuplicatePeers(peers));
   findings.push(...checkSelfPeer(peers, localNode, config.port));
   findings.push(...checkMissingRepos(entries, join(getGhqRoot(), "github.com")));
+  findings.push(...checkCasingDuplicates(agents, fleetWindowNames));
 
   const { findings: staleFindings, identities } = await checkStalePeers(peers);
   findings.push(...staleFindings);

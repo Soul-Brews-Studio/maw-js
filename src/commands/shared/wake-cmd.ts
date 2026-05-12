@@ -155,10 +155,11 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     // Auto-register agent in config.agents so federation peers can route to it (#285)
     const config = loadConfig();
     const agents = config.agents || {};
-    if (!(oracle in agents)) {
+    const oracleKey = oracle.toLowerCase();
+    if (!(oracleKey in agents)) {
       const node = config.node || "local";
-      saveConfig({ agents: { ...agents, [oracle]: node } });
-      console.log(`\x1b[32m+\x1b[0m registered agent '${oracle}' → '${node}' in config.agents`);
+      saveConfig({ agents: { ...agents, [oracleKey]: node } });
+      console.log(`\x1b[32m+\x1b[0m registered agent '${oracleKey}' → '${node}' in config.agents`);
     }
 
     // #1020 — session = team: auto-create team config so `maw team spawn`
