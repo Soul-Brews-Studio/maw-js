@@ -103,7 +103,7 @@ general flags: --description <text>, --members <list>`,
       cmdTeamCreate(args[1], { description });
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--model <m>] [--type <t>] [--color <c>] [--exec] [--prompt <p>]");
+        logs.push("usage: maw team spawn <team> <role> [--engine <e>] [--model <m>] [--type <t>] [--color <c>] [--exec] [--prompt <p>]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
       const modelIdx = args.indexOf("--model");
@@ -114,13 +114,17 @@ general flags: --description <text>, --members <list>`,
       const color = colorIdx !== -1 ? args[colorIdx + 1] : undefined;
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
+      // --engine <name> or --codex shorthand (#1202)
+      const engineIdx = args.indexOf("--engine");
+      let engine = engineIdx !== -1 ? args[engineIdx + 1] : undefined;
+      if (args.includes("--codex")) engine = "codex";
       // --prompt is greedy to end-of-argv; strip known flags if they appear in the tail
       let prompt: string | undefined;
       if (promptIdx !== -1) {
-        const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec");
+        const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec" && a !== "--codex");
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, type, color });
+      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, engine, type, color });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");

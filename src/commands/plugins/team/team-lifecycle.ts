@@ -180,7 +180,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean; type?: string; color?: string } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; engine?: string; type?: string; color?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -215,8 +215,12 @@ export async function cmdTeamSpawn(
     } catch { /* no findings */ }
   }
 
-  // Build spawn prompt
-  const model = opts.model || "sonnet";
+  // Resolve engine (#1202) — defaults to claude, supports --engine codex etc.
+  const { resolveEngine, ENGINE_DEFS, buildEngineCommand } = await import("../../shared/engines");
+  const engineName = opts.engine ? resolveEngine(opts.engine) : "claude";
+  const engineConfig = ENGINE_DEFS[engineName];
+  const isClaudeEngine = engineName === "claude";
+  const model = opts.model || engineConfig.defaultModel;
   const parts: string[] = [];
   parts.push(`You are '${role}' on team '${teamName}'.`);
   if (opts.prompt) parts.push(opts.prompt);
@@ -242,7 +246,7 @@ export async function cmdTeamSpawn(
   if (existsSync(toolConfigPath)) {
     try {
       const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-      const member: TeamMember = { name: role, model };
+      const member: TeamMember = { name: role, model, backendType: engineName };
       if (!toolConfig.members.some((m: any) => m.name === role)) {
         toolConfig.members.push(member);
         // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
@@ -253,6 +257,7 @@ export async function cmdTeamSpawn(
 
   console.log(`\x1b[32m✓\x1b[0m spawn prompt written for '${role}'`);
   console.log(`  \x1b[90mpast life: ${pastLife ? "yes" : "no"}\x1b[0m`);
+  console.log(`  \x1b[90mengine: ${engineName} (${engineConfig.binary})\x1b[0m`);
   console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
   console.log(`  \x1b[90mprompt: ${promptPath}\x1b[0m`);
 
@@ -279,17 +284,24 @@ export async function cmdTeamSpawn(
     `--system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`,
   ].filter(Boolean).join(" ");
 
+  // For non-claude engines, build the command from the registry (#1202).
+  // Claude keeps its agent-teams-aware command with --agent-id etc.
+  const escapedPromptPath = promptPath.replace(/'/g, "'\\''");
+  const agentCmd = isClaudeEngine
+    ? claudeCmd
+    : buildEngineCommand(engineName, { model, promptPath: escapedPromptPath });
+
   if (opts.exec) {
     if (!process.env.TMUX) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${agentCmd}`);
       return;
     }
     try {
       const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
 
-      const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
+      const result = await spawnTeammatePane(role, agentCmd, { colorIndex: teammateCount });
 
       // Persist pane state to tool store config (~/.claude/teams/)
       const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
