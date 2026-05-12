@@ -163,9 +163,12 @@ describe("cmdSend — bare-name contract (#759 Phase 2 + #1136)", () => {
     expect(allErr).toContain("error");
     expect(allErr).toContain("bare-name target removed");
     expect(allErr).toContain("node prefix required");
-    // this-node form with substituted agent
+    // this-node form uses the ACTUAL local node name (config.node), not the
+    // literal "local" — `local:` is not a built-in alias and errors with
+    // "node 'local' not in namedPeers". (#1246)
     expect(allErr).toContain("this node:");
-    expect(allErr).toContain("maw hey local:mawjs-oracle");
+    expect(allErr).toContain("maw hey test-node:mawjs-oracle");
+    expect(allErr).not.toContain("maw hey local:mawjs-oracle");
     // cross-node placeholder form
     expect(allErr).toContain("cross-node candidates:");
     expect(allErr).toContain("maw hey <node>:<session>:mawjs-oracle");

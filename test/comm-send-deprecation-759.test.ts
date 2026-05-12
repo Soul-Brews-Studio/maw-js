@@ -50,6 +50,24 @@ describe("#759 Phase 2 + #1136 — bare-name federation-friendly error", () => {
     expect(out).toContain("maw locate weird name with spaces");
   });
 
+  test("localNode parameter substitutes into the `this node:` hint (#1246)", () => {
+    // When the caller passes the current node name, the hint uses it instead
+    // of the literal "local" so the suggested command actually resolves.
+    const out = formatBareNameError("mother", "m5");
+    expect(out).toContain("maw hey m5:mother");
+    expect(out).not.toContain("maw hey local:mother");
+    // Cross-node placeholder stays the same — `<node>:<session>:` is still
+    // a literal users learn to expand via `maw locate`.
+    expect(out).toContain("maw hey <node>:<session>:mother");
+  });
+
+  test("localNode defaults to 'local' for backward compat (#1246)", () => {
+    // No second arg → falls back to the original "local:" form. Callers in
+    // the codebase always pass config.node; this is just defense.
+    const out = formatBareNameError("mother");
+    expect(out).toContain("maw hey local:mother");
+  });
+
   test("output shape (ANSI-stripped) matches the issue example", () => {
     const out = formatBareNameError("mawjs-oracle");
     const stripped = out.replace(/\x1b\[[0-9;]*m/g, "");

@@ -112,7 +112,12 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
  *   test/isolated/hey-bare-name-rejection.test.ts). The production caller is
  *   `cmdSend` in this same file. No other module imports this symbol.
  */
-export function formatBareNameError(query: string): string {
+export function formatBareNameError(query: string, localNode = "local"): string {
+  // `localNode` is the current node's name (config.node). When provided, the
+  // `this node:` hint uses it so the suggestion actually resolves — `local:`
+  // is not a built-in alias and errors with "node 'local' not in namedPeers".
+  // Defaults to `"local"` for backward compat with the pure-function tests.
+  // (#1246)
   const RED = "\x1b[31m"; // error marker
   const C = "\x1b[36m";   // cyan — for canonical suggestion lines
   const D = "\x1b[90m";   // dim — for explanatory tail
@@ -121,7 +126,7 @@ export function formatBareNameError(query: string): string {
     `${RED}error${R}: bare-name target removed — node prefix required`,
     ``,
     `  this node:`,
-    `    ${C}maw hey local:${query} "..."${R}`,
+    `    ${C}maw hey ${localNode}:${query} "..."${R}`,
     ``,
     `  cross-node candidates:`,
     `    ${C}maw hey <node>:<session>:${query} "..."${R}`,
@@ -541,7 +546,7 @@ export async function cmdSend(
   // message. Bare names already had a chance through `resolveTarget` and
   // auto-wake above; if we got here it's a true miss.
   if (isBareName) {
-    console.error(formatBareNameError(query));
+    console.error(formatBareNameError(query, config.node ?? "local"));
     process.exit(1);
   }
   if (result?.type === "error") {
