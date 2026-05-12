@@ -141,10 +141,14 @@ export function formatBareNameError(query: string): string {
  * - `trust` (#842 Sub-C): paired with `approve` — also append the
  *   sender↔target pair to the on-disk trust list so subsequent sends in
  *   either direction skip the gate without operator intervention.
+ * - `noReply` (#1140): signal that no response is expected. Prepends
+ *   `/fyi ` to the message body (human-readable convention) and appends
+ *   `<no-reply/>` (wire-level marker for automated routing).
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
+  noReply?: boolean;
 }
 
 export async function cmdSend(
@@ -153,6 +157,12 @@ export async function cmdSend(
   force = false,
   opts: CmdSendOptions = {},
 ) {
+  // #1140 — --no-reply: prepend /fyi (human convention) + append <no-reply/> (wire marker)
+  if (opts.noReply) {
+    if (!message.startsWith("/fyi ")) message = `/fyi ${message}`;
+    if (!message.includes("<no-reply/>")) message = `${message} <no-reply/>`;
+  }
+
   const config = loadConfig();
 
   // #1136 — bare names get a local-resolver probe before the federation-

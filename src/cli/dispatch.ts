@@ -167,8 +167,9 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
   if (args.length >= 2) {
     const f = args.includes("--force");
-    const m = args.slice(1).filter(a => a !== "--force");
-    await cmdSend(args[0], m.join(" "), f);
+    const noReply = args.includes("--no-reply");
+    const m = args.slice(1).filter(a => a !== "--force" && a !== "--no-reply");
+    await cmdSend(args[0], m.join(" "), f, { noReply });
   } else {
     await cmdPeek(args[0]);
   }

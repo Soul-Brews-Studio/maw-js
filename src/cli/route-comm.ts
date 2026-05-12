@@ -49,6 +49,8 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // entry so the same pair stops queuing on subsequent sends.
     const approve = args.includes("--approve");
     const trust = args.includes("--trust");
+    // #1140 — `--no-reply` signals no response expected (FYI-only message)
+    const noReply = args.includes("--no-reply");
 
     // #1149 — `--inbox` short-circuits to file-based teammate inbox write
     const inboxFlag = args.includes("--inbox");
@@ -61,7 +63,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     const msgArgs = args
       .slice(2)
       .filter((a, i, arr) => {
-        if (["--force", "--approve", "--trust", "--inbox"].includes(a)) return false;
+        if (["--force", "--approve", "--trust", "--inbox", "--no-reply"].includes(a)) return false;
         if (a === "--team" || a === "--from") return false;
         // skip the value following --team/--from
         if (i > 0 && (arr[i - 1] === "--team" || arr[i - 1] === "--from")) return false;
@@ -74,7 +76,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // same "usage:" error. Now the missing-message case names the target
     // so the user sees their input got through.
     if (!target) {
-      console.error("usage: maw hey <target> <message> [--force] [--approve] [--trust]");
+      console.error("usage: maw hey <target> <message> [--force] [--approve] [--trust] [--no-reply]");
       console.error("  target forms (#759 Phase 2 — bare names removed):");
       console.error("    local:<agent>                this node");
       console.error("    <node>:<session>             canonical cross-node form (window 1)");
@@ -111,7 +113,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       return true;
     }
 
-    await cmdSend(target, msgArgs.join(" "), force, { approve, trust });
+    await cmdSend(target, msgArgs.join(" "), force, { approve, trust, noReply });
     return true;
   }
   return false;
