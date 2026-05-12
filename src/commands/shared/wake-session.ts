@@ -43,7 +43,8 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
     const target = `${session}:${win.name}`;
     const paneCmd = (cmds[target] || "").trim().toLowerCase();
     if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
-      if (!(await isPaneIdle(target))) continue; // shell has children → mid-startup, skip
+      if (!(await isPaneIdle(target))) continue;
+      if (await paneRanSessionScript(target)) continue;
       try {
         await new Promise(r => setTimeout(r, cfgTimeout("wakeRetry")));
         const cwd = cwdMap?.[win.name];
@@ -55,6 +56,17 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
     }
   }
   return retried;
+}
+
+async function paneRanSessionScript(target: string): Promise<boolean> {
+  try {
+    const content = (await hostExec(
+      `tmux capture-pane -t '${target}' -p -S -10 2>/dev/null`
+    )).trim();
+    return content.includes("maw-session:") || content.includes("🕐") || content.includes("\\033]2;");
+  } catch {
+    return false;
+  }
 }
 
 /**
