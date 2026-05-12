@@ -1,5 +1,5 @@
 import { hostExec, tmux } from "../../sdk";
-import { buildCommand, buildCommandInDir, cfgTimeout } from "../../config";
+import { buildCommand, buildRespawnCommand, cfgTimeout } from "../../config";
 import { execSync } from "child_process";
 
 /** Attach to tmux session — switch-client if inside tmux, attach if fresh shell */
@@ -47,9 +47,7 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
       if (await paneRanSessionScript(target)) continue;
       try {
         await new Promise(r => setTimeout(r, cfgTimeout("wakeRetry")));
-        const cwd = cwdMap?.[win.name];
-        const cmd = cwd ? buildCommandInDir(win.name, cwd) : buildCommand(win.name);
-        await tmux.sendText(target, cmd);
+        await tmux.respawnPane(target, buildRespawnCommand(win.name));
         console.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
         retried++;
       } catch { /* window may have been killed */ }

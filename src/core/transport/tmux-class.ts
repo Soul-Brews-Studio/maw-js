@@ -288,6 +288,10 @@ export class Tmux {
     }
   }
 
+  async respawnPane(target: string, command: string): Promise<void> {
+    await this.run("respawn-pane", "-k", "-t", target, command);
+  }
+
   // --- Environment ---
 
   async setEnvironment(session: string, key: string, value: string): Promise<void> {

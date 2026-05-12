@@ -312,6 +312,27 @@ export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?:
   }
 }
 
+/**
+ * Build a respawn-pane command — replaces the pane process entirely.
+ * No shell history, no typed command visible. Shows date + oracle name
+ * before Claude starts, exit timestamp after Claude exits, then drops
+ * to user's $SHELL.
+ */
+export function buildRespawnCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
+  const cmd = buildCommand(agentName, optsOrEngine);
+  const safe = agentName.replace(/'/g, "'\\''");
+  return [
+    `clear`,
+    `printf '\\033]2;${safe}\\033\\\\'`,
+    `date '+🕐 %H:%M %Z — ${safe}'`,
+    `echo`,
+    cmd,
+    `echo`,
+    `date '+⏹ %H:%M %Z — ${safe} exited'`,
+    `exec \${SHELL:-zsh} -li`,
+  ].join("; ");
+}
+
 export function getEnvVars(): Record<string, string> {
   return loadConfig().env || {};
 }
