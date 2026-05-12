@@ -303,8 +303,8 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
  */
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
-    const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
-    return ` bash ${scriptPath}`;
+    writeSessionScript(agentName, cwd, optsOrEngine);
+    return ` maw show ${agentName} | bash`;
   } catch {
     return buildCommand(agentName, optsOrEngine);
   }
