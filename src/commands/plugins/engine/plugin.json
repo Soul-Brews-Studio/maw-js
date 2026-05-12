@@ -1,0 +1,13 @@
+{
+  "name": "engine",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Manage AI engine backends — list, check, set default.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "engine",
+    "help": "maw engine <ls|check|set> — manage AI backends"
+  },
+  "weight": 0
+}
