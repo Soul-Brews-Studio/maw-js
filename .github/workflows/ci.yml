@@ -38,14 +38,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # ghq is used by cmdWake, cmd-update, plugin-bootstrap, find, done.
-      # Without it, isolated tests shell out and print "ghq: not found" noise
-      # (even when the test itself passes). Install the binary so CI logs
-      # stay quiet and any future test that depends on ghq output works.
-      - name: Install ghq
-        run: |
-          go install github.com/x-motemen/ghq@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Setup ghq
+        uses: ./.github/actions/setup-ghq
 
       - name: Run ${{ matrix.suite.name }} tests
         env:
@@ -82,10 +76,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install ghq
-        run: |
-          go install github.com/x-motemen/ghq@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Setup ghq
+        uses: ./.github/actions/setup-ghq
 
       - name: Run isolated tests (shard ${{ matrix.shard }}/8)
         # MAW_SKIP_FLAKY=1 — override list (#811/#813 precedent).

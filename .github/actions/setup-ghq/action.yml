@@ -1,0 +1,25 @@
+name: Setup ghq
+description: Install ghq (cached binary, pinned version)
+
+# ghq is needed by cmdWake, cmd-update, plugin-bootstrap, find, done — without it,
+# isolated tests shell out and print "ghq: not found" noise. Compiling from source
+# in each matrix shard costs ~30–60s; caching the binary across runs avoids that.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache ghq binary
+      id: cache-ghq
+      uses: actions/cache@v5
+      with:
+        path: ~/go/bin/ghq
+        key: ghq-v1.10.1-${{ runner.os }}
+
+    - name: Install ghq (cache miss)
+      if: steps.cache-ghq.outputs.cache-hit != 'true'
+      shell: bash
+      run: go install github.com/x-motemen/ghq@v1.10.1
+
+    - name: Add ghq to PATH
+      shell: bash
+      run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
