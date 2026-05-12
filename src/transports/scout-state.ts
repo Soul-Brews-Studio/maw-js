@@ -16,6 +16,8 @@ export interface DiscoveredPeer {
   locators: string[];
   capabilities: string[];
   oracles: string[];
+  /** Epoch-ms when this zid was first observed (set on insert, never updated). #1237 */
+  firstSeen: number;
   lastSeen: number;
   paired: boolean;
 }
@@ -49,6 +51,7 @@ export class ScoutState {
 
     const existing = this.discoveredPeers.get(hello.zid);
     const isNew = !existing;
+    const now = Date.now();
 
     this.discoveredPeers.set(hello.zid, {
       zid: hello.zid,
@@ -58,7 +61,8 @@ export class ScoutState {
       locators: hello.locators,
       capabilities: hello.capabilities,
       oracles: hello.oracles,
-      lastSeen: Date.now(),
+      firstSeen: existing?.firstSeen ?? now,
+      lastSeen: now,
       paired: existing?.paired ?? false,
     });
 
