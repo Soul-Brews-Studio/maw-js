@@ -128,12 +128,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe(wrap("codex --search"));
   });
 
-  test("engine param falls back to default when engine not in config (#1174 fallback for claude)", () => {
+  test("engine param uses registry when not in config.commands (#1205)", () => {
     fakeConfig.commands = { default: "claude" };
-    // Falls back to default "claude" → #1174 auto-injects --continue.
-    expect(buildCommand("any-agent", "gemini")).toBe(
-      wrapFallback("claude --continue", "claude"),
-    );
+    // #1205 — "gemini" is in ENGINE_DEFS, so the registry builds the command
+    // instead of falling through to the default claude command.
+    expect(buildCommand("any-agent", "gemini")).toBe("gemini --sandbox");
   });
 
   test("engine param skips pattern matching", () => {

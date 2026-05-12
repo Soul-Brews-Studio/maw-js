@@ -50,10 +50,14 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
     ? { engine: optsOrEngine }
     : (optsOrEngine || {});
 
-  // #1205 — non-claude engines: use the engine registry for interactive mode.
-  // Team-spawn uses buildEngineCommand (with prompt file); wake just starts
-  // the engine's interactive CLI with permission flags.
-  if (opts.engine) {
+  const config = loadConfig();
+  let cmd: string;
+
+  if (opts.engine && config.commands[opts.engine]) {
+    // User config wins over registry defaults
+    cmd = config.commands[opts.engine];
+  } else if (opts.engine) {
+    // #1205 — fall back to engine registry for interactive mode
     try {
       const { ENGINE_DEFS } = require("../commands/shared/engines");
       const engineDef = ENGINE_DEFS[opts.engine as keyof typeof ENGINE_DEFS];
@@ -62,13 +66,7 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
         return `${engineDef.binary}${perm}`;
       }
     } catch {}
-  }
-
-  const config = loadConfig();
-  let cmd: string;
-
-  if (opts.engine && config.commands[opts.engine]) {
-    cmd = config.commands[opts.engine];
+    cmd = config.commands.default || "claude";
   } else {
     cmd = config.commands.default || "claude";
     for (const [pattern, command] of Object.entries(config.commands)) {
@@ -192,7 +190,12 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
   }
 
   // #1205 — non-claude engines: simple interactive command from registry.
-  if (opts.engine) {
+  let cmd: string;
+  if (opts.engine && config.commands[opts.engine]) {
+    // User config wins over registry
+    cmd = config.commands[opts.engine];
+  } else if (opts.engine) {
+    // #1205 — fall back to engine registry for interactive script
     try {
       const { ENGINE_DEFS } = require("../commands/shared/engines");
       const e = ENGINE_DEFS[opts.engine as keyof typeof ENGINE_DEFS];
@@ -207,11 +210,7 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
         return lines.join("\n");
       }
     } catch {}
-  }
-
-  let cmd: string;
-  if (opts.engine && config.commands[opts.engine]) {
-    cmd = config.commands[opts.engine];
+    cmd = config.commands.default || "claude";
   } else {
     cmd = config.commands.default || "claude";
     for (const [pattern, command] of Object.entries(config.commands)) {
