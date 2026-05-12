@@ -35,7 +35,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         output: `usage: maw channel <subcommand> [args]
 
 subcommands:
-  ls [oracle]              list channels (all or for specific oracle)
+  ls [oracle] [--json] [-v] list channels (all or for specific oracle)
   add <oracle> <plugin>    add channel plugin to oracle
   rm <oracle> <plugin>     remove channel plugin from oracle
   providers                list available channel providers
@@ -162,7 +162,8 @@ github: prefix → delegates to setup wizard`,
 
     } else if (sub === "ls" || sub === "list" || !sub) {
       const json = args.includes("--json");
-      const target = args.filter(a => !a.startsWith("--"))[1];
+      const verbose = args.includes("--verbose") || args.includes("-v");
+      const target = args.filter(a => !a.startsWith("-"))[1];
 
       if (json) {
         const data = target
@@ -189,6 +190,9 @@ github: prefix → delegates to setup wizard`,
           if (config.token_source) {
             console.log(`    \x1b[90mtoken: ${config.token_source}\x1b[0m`);
           }
+          if (verbose && config.permissionMode) {
+            console.log(`    \x1b[90mpermissionMode: ${config.permissionMode}\x1b[0m`);
+          }
         }
       } else {
         const all = listAllOracleChannels();
@@ -201,6 +205,20 @@ github: prefix → delegates to setup wizard`,
           for (const { oracle, plugins } of all) {
             for (const p of plugins) {
               console.log(`  ${oracle.padEnd(30)}  ${p.id}`);
+              if (verbose) {
+                if (p.env) {
+                  for (const [k, v] of Object.entries(p.env)) {
+                    console.log(`  ${" ".repeat(30)}  \x1b[90m${k}=${v}\x1b[0m`);
+                  }
+                }
+                const cfg = loadOracleChannels(oracle);
+                if (cfg?.permissionMode) {
+                  console.log(`  ${" ".repeat(30)}  \x1b[90mpermissionMode: ${cfg.permissionMode}\x1b[0m`);
+                }
+                if (cfg?.token_source) {
+                  console.log(`  ${" ".repeat(30)}  \x1b[90mtoken: ${cfg.token_source}\x1b[0m`);
+                }
+              }
             }
           }
           console.log(`\n  ${all.length} oracle(s) with channels`);

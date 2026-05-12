@@ -3,7 +3,7 @@ import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
 
-export async function cmdFleetLs(opts: { json?: boolean } = {}) {
+export async function cmdFleetLs(opts: { json?: boolean; verbose?: boolean } = {}) {
   const entries = loadFleetEntries();
   const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
 
@@ -19,6 +19,7 @@ export async function cmdFleetLs(opts: { json?: boolean } = {}) {
         name: e.session.name,
         windows: e.session.windows.length,
         running: runningSessions.includes(e.session.name),
+        ...(opts.verbose && { windowDetails: e.session.windows, syncPeers: e.session.sync_peers }),
       })),
     }, null, 2));
     return;
@@ -35,20 +36,35 @@ export async function cmdFleetLs(opts: { json?: boolean } = {}) {
   const conflicts = [...numCount.entries()].filter(([, names]) => names.length > 1);
 
   console.log(`\n  \x1b[36mFleet Configs\x1b[0m (${entries.length} active, ${disabled} disabled)\n`);
-  console.log(`  ${"#".padEnd(4)} ${"Session".padEnd(20)} ${"Win".padEnd(5)} Status`);
-  console.log(`  ${"─".repeat(4)} ${"─".repeat(20)} ${"─".repeat(5)} ${"─".repeat(20)}`);
 
-  for (const e of entries) {
-    const numStr = String(e.num).padStart(2, "0");
-    const name = e.session.name.padEnd(20);
-    const wins = String(e.session.windows.length).padEnd(5);
-    const isRunning = runningSessions.includes(e.session.name);
-    const isConflict = (numCount.get(e.num)?.length ?? 0) > 1;
+  if (opts.verbose) {
+    for (const e of entries) {
+      const numStr = String(e.num).padStart(2, "0");
+      const isRunning = runningSessions.includes(e.session.name);
+      const isConflict = (numCount.get(e.num)?.length ?? 0) > 1;
+      let status = isRunning ? "\x1b[32mrunning\x1b[0m" : "\x1b[90mstopped\x1b[0m";
+      if (isConflict) status += "  \x1b[31mCONFLICT\x1b[0m";
+      console.log(`  ${numStr}  \x1b[33m${e.session.name}\x1b[0m  ${status}`);
+      for (const w of e.session.windows) {
+        console.log(`       \x1b[90m${w.name.padEnd(20)} ${w.repo}\x1b[0m`);
+      }
+    }
+  } else {
+    console.log(`  ${"#".padEnd(4)} ${"Session".padEnd(20)} ${"Win".padEnd(5)} Status`);
+    console.log(`  ${"─".repeat(4)} ${"─".repeat(20)} ${"─".repeat(5)} ${"─".repeat(20)}`);
 
-    let status = isRunning ? "\x1b[32mrunning\x1b[0m" : "\x1b[90mstopped\x1b[0m";
-    if (isConflict) status += "  \x1b[31mCONFLICT\x1b[0m";
+    for (const e of entries) {
+      const numStr = String(e.num).padStart(2, "0");
+      const name = e.session.name.padEnd(20);
+      const wins = String(e.session.windows.length).padEnd(5);
+      const isRunning = runningSessions.includes(e.session.name);
+      const isConflict = (numCount.get(e.num)?.length ?? 0) > 1;
 
-    console.log(`  ${numStr}  ${name} ${wins} ${status}`);
+      let status = isRunning ? "\x1b[32mrunning\x1b[0m" : "\x1b[90mstopped\x1b[0m";
+      if (isConflict) status += "  \x1b[31mCONFLICT\x1b[0m";
+
+      console.log(`  ${numStr}  ${name} ${wins} ${status}`);
+    }
   }
 
   if (conflicts.length > 0) {

@@ -10,10 +10,10 @@ interface SubcommandDef {
 const FLEET: Record<string, SubcommandDef> = {
   ls: {
     desc: "list fleet configs",
-    args: "[--json]",
+    args: "[--json] [--verbose|-v]",
     handler: async (args) => {
       const { cmdFleetLs } = await import("../../shared/fleet");
-      await cmdFleetLs({ json: args.includes("--json") });
+      await cmdFleetLs({ json: args.includes("--json"), verbose: args.includes("--verbose") || args.includes("-v") });
     },
   },
   init: {
