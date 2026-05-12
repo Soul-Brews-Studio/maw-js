@@ -45,8 +45,15 @@ export {
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
 export { curlFetch } from "../core/transport/curl-fetch";
 export {
-  getPeers, getFederationStatus, findPeerForTarget,
+  getPeers, getFederationStatus, findPeerForTarget, getAggregatedSessions,
 } from "../core/transport/peers";
+export type { AggregatedSession } from "../core/transport/peers";
+export {
+  attachRemoteSession, SshAttachError,
+} from "../core/transport/ssh-attach";
+export type {
+  AttachRemoteSessionOpts, SshAttachErrorKind, ExecFileSyncFn,
+} from "../core/transport/ssh-attach";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
 export { findWindow } from "../core/runtime/find-window";

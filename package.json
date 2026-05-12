@@ -78,6 +78,8 @@
     "./core/matcher/resolve-target": "./src/core/matcher/resolve-target.ts",
     "./core/paths": "./src/core/paths.ts",
     "./core/transport/ssh": "./src/core/transport/ssh.ts",
+    "./core/transport/ssh-attach": "./src/core/transport/ssh-attach.ts",
+    "./core/transport/peers": "./src/core/transport/peers.ts",
     "./core/transport/tmux": "./src/core/transport/tmux.ts",
     "./worktrees": "./src/core/fleet/worktrees.ts",
     "./core/util/terminal": "./src/core/util/terminal.ts",

@@ -107,13 +107,17 @@ function validateExtFields(
     }
   }
 
-  // namedPeers: array of {name, url} objects
+  // namedPeers: array of {name, url, ssh?} objects
+  // `ssh` is the optional SSH alias for cross-node attach (#1236). When
+  // present it MUST be a string; non-string ssh values cause the whole entry
+  // to be dropped (rather than silently leaking a bad type into hostExec).
   if ("namedPeers" in raw) {
     if (Array.isArray(raw.namedPeers)) {
       const valid = raw.namedPeers.filter((p: unknown) => {
         if (!p || typeof p !== "object") return false;
         const obj = p as Record<string, unknown>;
         if (typeof obj.name !== "string" || typeof obj.url !== "string") return false;
+        if ("ssh" in obj && typeof obj.ssh !== "string") return false;
         try { new URL(obj.url); return true; } catch { return false; }
       });
       if (valid.length !== raw.namedPeers.length) {
@@ -121,7 +125,7 @@ function validateExtFields(
       }
       result.namedPeers = valid;
     } else {
-      warn("namedPeers", "must be an array of {name, url}");
+      warn("namedPeers", "must be an array of {name, url, ssh?}");
     }
   }
 

@@ -10,10 +10,23 @@ export interface TriggerConfig {
   once?: boolean;       // fire once then self-destruct (#149)
 }
 
-/** Named peer with URL */
+/** Named peer with URL + optional SSH alias. */
 export interface PeerConfig {
   name: string;
   url: string;
+  /**
+   * SSH host/alias used for cross-node tmux attach (#1236 Tier 3).
+   *
+   * Resolution order in `attach.resolveSshAlias`:
+   *   1. `namedPeers[n].ssh`        (explicit override — preferred)
+   *   2. URL hostname stripped      (`http://mba.wg:9090` → `mba.wg`)
+   *   3. literal node name from /api/identity
+   *
+   * Set this when the peer's wireguard hostname is different from its SSH
+   * alias, or when you've configured `Host <alias>` in `~/.ssh/config`.
+   * No new secret storage — SSH keys stay where they are (~/.ssh).
+   */
+  ssh?: string;
 }
 
 export interface MawIntervals {
