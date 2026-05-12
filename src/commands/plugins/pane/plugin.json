@@ -1,0 +1,13 @@
+{
+  "name": "pane",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Unified pane control — split, kill, peek, list. Thin facade over tmux helpers (#1269).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "pane",
+    "help": "maw pane <split|kill|peek|list> — unified pane control"
+  },
+  "weight": 10
+}
