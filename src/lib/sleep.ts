@@ -15,49 +15,53 @@
  *   3. If window still exists, kill it
  *   4. Append a `sleep` event to ~/.oracle/maw-log.jsonl
  */
-import { tmux, saveTabOrder, takeSnapshot } from "../sdk";
+import { tmux, saveTabOrder, takeSnapshot, listSessions } from "../sdk";
 import { detectSession } from "../commands/shared/wake";
+import { loadFleetEntries } from "../commands/shared/fleet-load";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
 export async function cmdSleepOne(oracle: string, window?: string) {
-  const session = await detectSession(oracle);
-  if (!session) {
-    throw new Error(`no running session found for '${oracle}'`);
+  // If caller provides an explicit window name, use it directly
+  if (window) {
+    const session = await detectSession(oracle);
+    if (!session) throw new Error(`no running session found for '${oracle}'`);
+    await saveTabOrder(session);
+    return doSleep(session, window, oracle);
   }
 
-  const windowName = window ? `${oracle}-${window}` : `${oracle}-oracle`;
+  const sessions = await listSessions();
+  const targetLower = oracle.toLowerCase();
 
-  // Save tab order before sleeping (so wake can restore positions)
-  await saveTabOrder(session);
-
-  let windows;
-  try {
-    windows = await tmux.listWindows(session);
-  } catch {
-    throw new Error(`could not list windows for session '${session}'`);
-  }
-
-  // Normalize trailing dashes — tmux window names like "fireman-1w-test-"
-  // cause exact-match failures and strand maw sleep (#206)
-  const stripDash = (s: string) => s.replace(/-+$/, "");
-
-  const target = windows.find(w => w.name === windowName || stripDash(w.name) === stripDash(windowName));
-  if (!target) {
-    const nameSuffix = window || "oracle";
-    const fuzzy = windows.find(w =>
-      stripDash(w.name) === stripDash(windowName) ||
-      new RegExp(`^${oracle}-\\d+-${nameSuffix}-?$`).test(w.name)
-    );
-    if (!fuzzy) {
-      console.error(`\x1b[90mavailable:\x1b[0m ${windows.map(w => w.name).join(", ")}`);
-      throw new Error(`window '${windowName}' not found in session '${session}'`);
+  // Tier 1: window-name match across ALL sessions
+  for (const s of sessions) {
+    const w = s.windows.find(w => w.name.toLowerCase() === targetLower);
+    if (w) {
+      await saveTabOrder(s.name);
+      return doSleep(s.name, w.name, oracle);
     }
-    return await doSleep(session, fuzzy.name, oracle);
   }
 
-  await doSleep(session, windowName, oracle);
+  // Tier 2: session-name match → use fleet's primary window
+  const sess = sessions.find(s => s.name === oracle || s.name.endsWith(`-${oracle}`));
+  if (sess) {
+    const entry = loadFleetEntries().find(e => e.session.name === sess.name);
+    const primary = entry?.session.windows[0]?.name ?? sess.windows[0]?.name;
+    if (primary) {
+      await saveTabOrder(sess.name);
+      return doSleep(sess.name, primary, oracle);
+    }
+  }
+
+  // Tier 3: detectSession (existing fleet-aware resolver)
+  const session = await detectSession(oracle);
+  if (!session) throw new Error(`no running session found for '${oracle}'`);
+  const entry = loadFleetEntries().find(e => e.session.name === session);
+  const primary = entry?.session.windows[0]?.name;
+  if (!primary) throw new Error(`could not resolve window for '${oracle}'`);
+  await saveTabOrder(session);
+  return doSleep(session, primary, oracle);
 }
 
 async function doSleep(session: string, windowName: string, oracle: string) {
