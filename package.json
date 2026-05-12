@@ -100,6 +100,7 @@
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
-    "./commands/shared/workspace": "./src/commands/shared/workspace.ts"
+    "./commands/shared/workspace": "./src/commands/shared/workspace.ts",
+    "./test/helpers/mock-config": "./test/helpers/mock-config.ts"
   }
 }
