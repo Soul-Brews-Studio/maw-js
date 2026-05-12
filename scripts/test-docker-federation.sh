@@ -2,12 +2,18 @@
 # test-docker-federation.sh — end-to-end probe round-trip between two maw-js containers.
 #
 # Expected FAILURE until Soul-Brews-Studio/maw-js#596 ships (server-side /info endpoint).
-# Probe client at src/commands/plugins/peers/probe.ts:111 fetches /info, server.ts
-# does not register that route — handshake returns HTTP_4XX even between healthy peers.
+# The canonical probe client lives in maw-plugin-registry/plugins/peers/probe.ts and
+# fetches <peer>/info, but server.ts in maw-js does not register that route — handshake
+# returns HTTP_4XX even between healthy peers.
+#
+# Note: the `peers` plugin (maw-plugin-registry) is NOT installed in the federation test
+# container — only the 13 maw-js core plugins ship there. So we can't call `maw peers
+# probe`; we replicate the /info handshake directly via wget instead (#1255).
 #
 # Contract: docker-fed-0419 team shared contract — docker/compose.yml defines
-# services node-a and node-b. Both run `maw serve` and peer each other via `maw peers add`.
-# This script verifies `maw peers probe peer` round-trips in both directions.
+# services node-a and node-b. Both run `maw serve` on port 3456 with $PEER_URL set
+# to the other node. This script verifies the /info handshake round-trips in both
+# directions.
 #
 # Usage: ./scripts/test-docker-federation.sh
 # Exit  : 0 = both directions PASS; non-zero = any failure (expected until #596)
@@ -57,10 +63,37 @@ done
 
 probe() {
   local from="$1"
-  local to_name="$2"
+  local to_name="$2"  # alias kept for callsite parity; unused for the HTTP probe
   local rc=0
   local out
-  out=$(docker compose -f "$COMPOSE_FILE" exec -T "$from" maw peers probe "$to_name" 2>&1) || rc=$?
+  # Direct HTTP probe via wget inside the container — peers plugin is not
+  # installed here so `maw peers probe` is unavailable. Replicates the
+  # canonical handshake (see maw-plugin-registry/plugins/peers/probe.ts):
+  # GET ${PEER_URL}/info, validate body has a truthy "maw" field.
+  out=$(docker compose -f "$COMPOSE_FILE" exec -T "$from" sh -c '
+    set -u
+    url="${PEER_URL:?PEER_URL not set}/info"
+    err=$(mktemp)
+    body=$(wget --tries=1 --timeout=2 -O- "$url" 2>"$err")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      status=$(grep -E "HTTP/" "$err" 2>/dev/null | tail -1 | awk "{print \$2}")
+      hint=$(grep -m1 -iE "error|refused|resolve|timed out|unreachable" "$err" 2>/dev/null || true)
+      printf "handshake failed: wget rc=%s%s %s\n" "$rc" "${status:+ HTTP_$status}" "$hint"
+      rm -f "$err"
+      exit "$rc"
+    fi
+    rm -f "$err"
+    case "$body" in
+      *\"maw\"*) ;;
+      *)
+        printf "handshake failed: BAD_BODY (response missing \"maw\" field)\n"
+        printf "%s\n" "$body" | head -3
+        exit 6
+        ;;
+    esac
+    printf "OK: %s\n" "$(printf "%s" "$body" | head -c 200)"
+  ' 2>&1) || rc=$?
   printf '%s\n' "$out"
   return "$rc"
 }
