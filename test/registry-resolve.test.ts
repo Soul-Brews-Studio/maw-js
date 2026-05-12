@@ -104,4 +104,42 @@ describe("resolvePluginSource", () => {
     expect(() => resolvePluginSource("foo", manifestWith("git+ssh://weird")))
       .toThrow(/unrecognized source/);
   });
+
+  // ─── bare owner/repo[/subpath][@ref] (maw-plugin-registry#4) ─────────────
+  it("resolves bare owner/repo/subpath@ref (canonical new format)", () => {
+    const r = resolvePluginSource(
+      "foo",
+      manifestWith("soul-brews-studio/maw-plugin-registry/bg@v0.1.2-bg"),
+    )!;
+    expect(r.kind).toBe("github-bare");
+    // Passthrough — detectMode parses it via parseGithubRef and dispatches to
+    // installFromGithub, which honors the subpath + ref.
+    expect(r.source).toBe("soul-brews-studio/maw-plugin-registry/bg@v0.1.2-bg");
+    expect(r.version).toBe("1.2.3");
+  });
+
+  it("resolves bare owner/repo@ref (own-repo, no subpath)", () => {
+    const r = resolvePluginSource("foo", manifestWith("some-org/their-plugin@v1.0.0"))!;
+    expect(r.kind).toBe("github-bare");
+    expect(r.source).toBe("some-org/their-plugin@v1.0.0");
+  });
+
+  it("legacy monorepo: still resolves (with deprecation warning)", () => {
+    const origWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(" ")); };
+    try {
+      const r = resolvePluginSource(
+        "foo",
+        manifestWith("monorepo:plugins/shellenv@v0.1.2-shellenv"),
+      )!;
+      expect(r.kind).toBe("monorepo");
+      expect(r.source).toBe("monorepo:plugins/shellenv@v0.1.2-shellenv");
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/deprecated/);
+      expect(warnings[0]).toMatch(/maw-plugin-registry#4/);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
 });

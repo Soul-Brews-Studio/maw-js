@@ -8,8 +8,11 @@
  * Supported source forms:
  *   • npm:NAME                          → https://registry.npmjs.org/NAME/-/<basename>-<version>.tgz
  *   • github:OWNER/REPO#REF             → https://github.com/OWNER/REPO/archive/refs/tags/REF.tar.gz
+ *   • owner/repo[/subpath][@ref]        → pass-through; `detectMode` routes to installFromGithub
+ *                                         (maw-plugin-registry#4 — Vercel-style bare github source;
+ *                                         the canonical replacement for `monorepo:`)
  *   • monorepo:plugins/<name>@<tag>     → pass-through; `detectMode` routes to installFromMonorepo
- *                                         (registry#2 — maw-plugin-registry monorepo subdirs)
+ *                                         (DEPRECATED — registry#2 legacy; see maw-plugin-registry#4)
  *   • https://URL.tgz (or .tar.gz)      → pass-through
  *
  * Returns null when the plugin isn't in the registry — callers should suggest
@@ -17,9 +20,12 @@
  */
 
 import type { RegistryManifest } from "./registry-fetch";
-import { parseMonorepoRef } from "./install-source-detect";
+import {
+  parseMonorepoRef,
+  parseGithubRef as parseBareGithubRef,
+} from "./install-source-detect";
 
-export type SourceKind = "npm" | "github" | "https" | "monorepo";
+export type SourceKind = "npm" | "github" | "github-bare" | "https" | "monorepo";
 
 export interface ResolvedSource {
   kind: SourceKind;
@@ -90,11 +96,26 @@ export function resolvePluginSource(
   // monorepo: passthrough — the install dispatcher (detectMode →
   // installFromMonorepo) handles URL construction and subpath walk.
   if (parseMonorepoRef(raw)) {
+    console.warn(
+      `WARN: monorepo: source format is deprecated, will be removed in v26.6.x. ` +
+      `Migration: maw-plugin-registry#4. (plugin '${name}', source: ${raw})`,
+    );
     return { kind: "monorepo", source: raw, ...common };
   }
 
   if (/^https?:\/\/.+\.(tgz|tar\.gz)(\?.*)?$/i.test(raw)) {
     return { kind: "https", source: raw, ...common };
+  }
+
+  // Vercel-style bare github source — `owner/repo[/subpath][@ref]` (maw-plugin-registry#4).
+  // Pass through verbatim: `detectMode` parses it via the same `parseGithubRef`
+  // and dispatches to `installFromGithub`, which honors subpath + ref.
+  //
+  // Run LAST so explicit `npm:` / `github:` / `monorepo:` / `https://` prefixes
+  // take precedence — `parseGithubRef` deliberately rejects those shapes, but
+  // ordering documents the contract.
+  if (parseBareGithubRef(raw)) {
+    return { kind: "github-bare", source: raw, ...common };
   }
 
   throw new Error(`registry entry '${name}' has unrecognized source: ${JSON.stringify(raw)}`);
