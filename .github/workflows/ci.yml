@@ -62,7 +62,9 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    name: test-isolated (${{ matrix.shard }}/8)
+    # No explicit `name:` — GitHub's default matrix naming is `test-isolated (N)`
+    # which renders cleanly in the PR checks list. The previous explicit
+    # `test-isolated (${{ matrix.shard }}/8)` form was noisier.
     steps:
       - uses: actions/checkout@v6
 
