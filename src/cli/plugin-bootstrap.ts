@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync, readlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -110,16 +110,40 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
   //    runs every boot. Cheap (fs stat + symlink), no network.
+  //
+  // Auto-heal: if dest is a symlink pointing to a path that's NOT under the
+  //   current bundled root (e.g., a deleted clone path), re-link it. Prevents
+  //   silent "unknown command: tmux" after migrating between maw-js checkouts.
   const bundled = await resolveBundledPath(srcDir);
   if (bundled) {
+    let healed = 0;
     for (const d of readdirSync(bundled)) {
       const src = join(bundled, d);
       const dest = join(pluginDir, d);
       const isPlugin =
         existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
       if (!isPlugin) continue;
-      if (existsSync(dest)) continue; // already linked / user dir / valid symlink
+      if (existsSync(dest)) {
+        // Heal: if dest is a symlink pointing to a stale bundled location,
+        // re-link to the current bundled path. Plain dirs (user overrides)
+        // are left alone.
+        try {
+          if (lstatSync(dest).isSymbolicLink()) {
+            const target = readlinkSync(dest);
+            if (target !== src && target.includes("/commands/plugins/")) {
+              unlinkSync(dest);
+              symlinkSync(src, dest);
+              healed++;
+            }
+          }
+        } catch { /* leave alone */ }
+        continue;
+      }
       symlinkSync(src, dest);
+      healed++;
+    }
+    if (healed > 0) {
+      console.warn(`[maw] linked ${healed} bundled plugin${healed === 1 ? "" : "s"} to ${bundled}`);
     }
     // Source-mode boot? Persist the path so a later compiled-binary boot
     // can find the bundled plugins even after `import.meta.dir` stops
