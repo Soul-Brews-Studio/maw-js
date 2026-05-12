@@ -313,23 +313,16 @@ export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?:
 }
 
 /**
- * Build a shell function definition + call for the oracle.
- * The pane shows `odin-oracle` — clean, re-runnable, no .sh path.
- * Defines the function inline, then calls it immediately.
+ * Build the plain wake command for the pane.
+ * No per-oracle function, no inline fallback wrap — relies on the
+ * user's `claude()` shell wrapper (from `maw shellenv`) to handle
+ * `--continue` fallback transparently.
+ *
+ * Pane shows the actual command: `claude --dangerously-skip-permissions --continue`
+ * Re-runnable with up-arrow. Re-runnable by typing claude flags directly.
  */
 export function buildShellFunction(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
-  const cmd = buildCommand(agentName, optsOrEngine);
-  const fn = agentName.replace(/[^a-zA-Z0-9_-]/g, "-");
-  const body = [
-    `clear`,
-    `printf '\\033]2;${fn}\\033\\\\'`,
-    `date '+🕐 %H:%M %Z — ${fn}'`,
-    `echo`,
-    cmd,
-    `echo`,
-    `date '+⏹ %H:%M %Z — ${fn} exited'`,
-  ].join("; ");
-  return `${fn}() { ${body}; }; ${fn}`;
+  return buildCommand(agentName, optsOrEngine);
 }
 
 export function getEnvVars(): Record<string, string> {
