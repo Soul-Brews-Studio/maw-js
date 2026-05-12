@@ -79,6 +79,7 @@ subcommands:
   spawn <team> <role>      spawn agent into team
   delete <name>            delete a team
   status                   show team status
+  doctor [--fix]           detect ghost/orphan panes; --fix auto-repairs
   invite <oracle>          invite oracle to team
   members <name>           list team members
   send <name> <message>    send message to team
@@ -201,6 +202,11 @@ general flags: --description <text>, --members <list>`,
       if (!id || !agent) { return { ok: false, error: "usage: maw team assign <task-id> <agent> [--team <name>]" }; }
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
+
+    } else if (sub === "doctor") {
+      // maw team doctor [--fix]
+      const { cmdTeamDoctor } = await import("./team-doctor");
+      await cmdTeamDoctor({ fix: args.includes("--fix") });
 
     } else if (sub === "status") {
       // maw team status [team-name]
@@ -526,7 +532,7 @@ general flags: --description <text>, --members <list>`,
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|recover|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|recover|resume|lives|list|status|doctor|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
