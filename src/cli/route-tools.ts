@@ -8,6 +8,7 @@ const CORE_HELP: Record<string, string> = {
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
+  locate: "usage: maw locate <oracle> [--json]",
   audit: "usage: maw audit [limit]",
   serve: "usage: maw serve [port] [--as <name>]",
 };
@@ -101,6 +102,18 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const { parseFlags } = await import("./parse-args");
     const flags = parseFlags(args, { "--json": Boolean, "--all": Boolean, "--node": String }, 1);
     await cmdAgents({ json: flags["--json"], all: flags["--all"], node: flags["--node"] });
+    return true;
+  }
+  if (cmd === "locate") {
+    const { cmdLocate } = await import("../commands/shared/locate");
+    const { parseFlags } = await import("./parse-args");
+    const flags = parseFlags(args, { "--json": Boolean }, 1);
+    const query = flags._[0];
+    if (!query) {
+      console.error("usage: maw locate <oracle> [--json]");
+      process.exit(1);
+    }
+    await cmdLocate(query, { json: flags["--json"] });
     return true;
   }
   if (cmd === "audit") {

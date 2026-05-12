@@ -11,7 +11,7 @@ import { formatError } from "../lib/format-error";
 const CORE_ROUTES = [
   "hey",
   "plugins", "plugin", "artifacts", "artifact",
-  "agents", "agent", "audit", "serve",
+  "agents", "agent", "locate", "audit", "serve",
   "update", "upgrade", "version",
 ];
 

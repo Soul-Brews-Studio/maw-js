@@ -91,7 +91,6 @@ describe("cmdFederationAgents", () => {
     expect(all).toContain("volt");
     expect(all).toContain("neo");
     expect(all).toContain("clinic-nat");
-    expect(all).toContain("unreachable");
     expect(all).toContain("timeout");
   });
 
@@ -198,7 +197,7 @@ describe("cmdFederationAgents", () => {
 
     const all = output.join("\n");
     expect(all).toContain("volt"); // local still renders
-    expect(output.filter(l => l.includes("unreachable")).length).toBe(2);
+    expect(output.filter(l => l.includes("connection refused")).length).toBe(2);
   });
 
   test("peer returns non-ok status: recorded as skipped", async () => {
@@ -213,7 +212,6 @@ describe("cmdFederationAgents", () => {
 
     const all = output.join("\n");
     expect(all).toContain("white");
-    expect(all).toContain("unreachable");
     expect(all).toContain("HTTP 503");
   });
 });

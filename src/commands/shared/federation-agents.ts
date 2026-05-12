@@ -28,7 +28,7 @@ export interface FederationAgentDeps {
   nodeName: () => string;
 }
 
-function labelForPeer(url: string, named: { name: string; url: string }[]): string {
+export function labelForPeer(url: string, named: { name: string; url: string }[]): string {
   const match = named.find(p => p.url === url);
   if (match) return match.name;
   try {
@@ -38,7 +38,7 @@ function labelForPeer(url: string, named: { name: string; url: string }[]): stri
   } catch { return url; }
 }
 
-async function defaultGetLocalAgents(nodeName: string): Promise<FederationAgent[]> {
+export async function defaultGetLocalAgents(nodeName: string): Promise<FederationAgent[]> {
   const [sessions, panes] = await Promise.all([tmux.listAll(), tmux.listPanes()]);
   const windowNames = new Map<string, string>();
   for (const s of sessions) {
@@ -64,6 +64,23 @@ function matchGlob(pattern: string, str: string): boolean {
 
 function pad(s: string, n: number): string {
   return s.padEnd(n);
+}
+
+const CURL_CODES: Record<number, string> = {
+  6: "DNS resolution failed",
+  7: "connection refused",
+  22: "HTTP 4xx/5xx",
+  28: "connection timeout",
+  35: "SSL/TLS error",
+};
+
+export function describeFetchError(res: { status: number; data: unknown }): string {
+  const errMsg = (res.data as { error?: string } | null)?.error;
+  if (errMsg) return errMsg;
+  const s = res.status;
+  if (s >= 100 && s <= 599) return `HTTP ${s}`;
+  if (s === 0) return "unreachable";
+  return CURL_CODES[s] ? `curl exit ${s} (${CURL_CODES[s]})` : `curl exit ${s}`;
 }
 
 export async function cmdFederationAgents(
@@ -101,7 +118,7 @@ export async function cmdFederationAgents(
     const results = await Promise.allSettled(
       peers.map(url =>
         deps.fetch(`${url}/api/agents`, { timeout: 3000 }).then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status || "error"}`);
+          if (!res.ok) throw new Error(describeFetchError(res));
           return { url, data: res.data };
         })
       )
@@ -167,7 +184,7 @@ export async function cmdFederationAgents(
   if (skipped.length > 0) {
     console.log("");
     for (const s of skipped) {
-      console.log(`\x1b[33m! ${s.label}\x1b[0m  unreachable (${s.error})`);
+      console.log(`\x1b[33m! ${s.label}\x1b[0m  ${s.error}`);
     }
   }
 }
