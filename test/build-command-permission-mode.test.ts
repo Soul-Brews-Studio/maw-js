@@ -107,7 +107,7 @@ describe("buildCommand — permissionMode (#1146)", () => {
     expect(relayOut).not.toContain("--dangerously-skip-permissions");
   });
 
-  test('permissionMode "relay" preserves --continue plumbing (|| fallback wrap from #1091)', () => {
+  test('permissionMode "relay" preserves --continue plumbing', () => {
     fakeConfig.commands = { default: "claude" };
     const out = buildCommand("bot", {
       channels: ["plugin:discord@claude-plugins-official"],
@@ -115,6 +115,7 @@ describe("buildCommand — permissionMode (#1146)", () => {
     });
     expect(out).toContain("--continue");
     expect(out).not.toContain("--dangerously-skip-permissions");
-    expect(out).toContain(" || ");
+    // Fallback is now in the `claude()` shell wrapper (maw shellenv),
+    // not inline `|| fallback`. See PR #1229.
   });
 });
