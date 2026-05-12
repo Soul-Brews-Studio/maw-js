@@ -1,0 +1,12 @@
+{
+  "name": "arena",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Engine arena — same prompt, multiple engines, compare side by side.",
+  "cli": {
+    "command": "arena",
+    "help": "maw arena \"<prompt>\" [--engines engine1,engine2,...] [--tiled]"
+  },
+  "weight": 5
+}

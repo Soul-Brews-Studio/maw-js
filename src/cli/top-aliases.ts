@@ -51,6 +51,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   stall: "Detect stalled panes — notify-only (#976A)",
   show: "Print session launch script to stdout (pipe-able)",
   new: "Create a new oracle (alias for awaken — friendly door)",
+  arena: "Engine arena — compare AI engines side by side",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -73,6 +74,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // all awaken flags pass through. New users learn `new`; the `bud`/`awaken`
   // metaphors stay for those who want them.
   new: ["awaken"],
+  arena: ["arena"],
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
