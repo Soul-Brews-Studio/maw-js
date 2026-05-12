@@ -8,14 +8,14 @@ on:
 
 jobs:
   test:
+    # Fast suites — single runner each. test-isolated is split out below
+    # into a sharded matrix because it's the slowest (79 per-file subprocesses).
     runs-on: ubuntu-latest
     strategy:
       matrix:
         suite:
           - name: unit
             script: test
-          - name: isolated
-            script: test:isolated
           - name: plugin
             script: test:plugin
           - name: mock-smoke
@@ -48,6 +48,44 @@ jobs:
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Run ${{ matrix.suite.name }} tests
+        env:
+          MAW_SKIP_FLAKY: "1"
+        run: bun run ${{ matrix.suite.script }}
+
+  # test-isolated is the slowest CI job — 79 test files × bun startup, all
+  # sequential because Bun's mock.module is process-global. Each subprocess
+  # is already independent, so we shard 8-way for ~8x wall-clock speedup.
+  # (#1257)
+  test-isolated:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    name: test-isolated (${{ matrix.shard }}/8)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Cache bun deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install ghq
+        run: |
+          go install github.com/x-motemen/ghq@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Run isolated tests (shard ${{ matrix.shard }}/8)
         # MAW_SKIP_FLAKY=1 — override list (#811/#813 precedent).
         # Currently skips:
         #   - test/integration/federation-local.test.ts (#830 — port-binding
@@ -59,11 +97,11 @@ jobs:
         # is a belt-and-braces measure to keep CI green while we monitor.
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bun run ${{ matrix.suite.script }}
+        run: bash scripts/test-isolated.sh --shard ${{ matrix.shard }}/8
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-isolated]
     steps:
       - uses: actions/checkout@v6
 
