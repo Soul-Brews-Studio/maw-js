@@ -49,6 +49,21 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   const opts: BuildCommandOpts = typeof optsOrEngine === "string"
     ? { engine: optsOrEngine }
     : (optsOrEngine || {});
+
+  // #1205 — non-claude engines: use the engine registry for interactive mode.
+  // Team-spawn uses buildEngineCommand (with prompt file); wake just starts
+  // the engine's interactive CLI with permission flags.
+  if (opts.engine) {
+    try {
+      const { ENGINE_DEFS } = require("../commands/shared/engines");
+      const engineDef = ENGINE_DEFS[opts.engine as keyof typeof ENGINE_DEFS];
+      if (engineDef && engineDef.binary !== "claude") {
+        const perm = engineDef.permissionFlag ? ` ${engineDef.permissionFlag}` : "";
+        return `${engineDef.binary}${perm}`;
+      }
+    } catch {}
+  }
+
   const config = loadConfig();
   let cmd: string;
 
@@ -174,6 +189,24 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
       }
       lines.push("");
     }
+  }
+
+  // #1205 — non-claude engines: simple interactive command from registry.
+  if (opts.engine) {
+    try {
+      const { ENGINE_DEFS } = require("../commands/shared/engines");
+      const e = ENGINE_DEFS[opts.engine as keyof typeof ENGINE_DEFS];
+      if (e && e.binary !== "claude") {
+        const perm = e.permissionFlag ? ` ${e.permissionFlag}` : "";
+        lines.push(`${e.binary}${perm}`);
+        lines.push("");
+        lines.push("# Terminal reset");
+        lines.push('printf "\\e[?1049l\\e[0m"');
+        lines.push("stty sane 2>/dev/null");
+        lines.push("clear");
+        return lines.join("\n");
+      }
+    } catch {}
   }
 
   let cmd: string;

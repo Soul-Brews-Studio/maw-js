@@ -241,10 +241,12 @@ export async function invokeDirectHandler(
   if (exportName === "cmdShow") {
     const oracle = argv[0];
     if (!oracle) {
-      console.error("usage: maw show <oracle>");
+      console.error("usage: maw show <oracle> [--engine <name>]");
       process.exit(1);
     }
-    await cmdShow(oracle);
+    const engineIdx = argv.indexOf("--engine");
+    const engine = engineIdx !== -1 ? argv[engineIdx + 1] : undefined;
+    await cmdShow(oracle, { engine });
     return;
   }
 
