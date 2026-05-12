@@ -104,6 +104,38 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}) {
   console.log(`  \x1b[32m✓\x1b[0m config: node=${config.node || "?"}, engines=[${engines.join(", ") || "default only"}]`);
   pass++;
 
+  // 5. Local branch vs alpha check
+  try {
+    const { execSync } = require("child_process");
+    const mawRoot = join(__dirname, "../../..");
+    const branch = execSync("git branch --show-current", { cwd: mawRoot, encoding: "utf-8" }).trim();
+    if (branch && branch !== "alpha") {
+      try {
+        execSync("git fetch origin alpha --quiet", { cwd: mawRoot, stdio: "ignore", timeout: 5000 });
+      } catch {} // network may be offline
+      const behind = execSync(`git rev-list HEAD..origin/alpha --count`, { cwd: mawRoot, encoding: "utf-8" }).trim();
+      const behindCount = parseInt(behind) || 0;
+      if (behindCount > 0) {
+        console.log(`  \x1b[33m⚠\x1b[0m branch: '${branch}' is ${behindCount} commit(s) behind alpha`);
+        const commits = execSync(`git log HEAD..origin/alpha --oneline -5`, { cwd: mawRoot, encoding: "utf-8" }).trim();
+        if (commits) {
+          for (const line of commits.split("\n")) {
+            console.log(`    \x1b[90m${line}\x1b[0m`);
+          }
+          if (behindCount > 5) console.log(`    \x1b[90m... and ${behindCount - 5} more\x1b[0m`);
+        }
+        console.log(`    \x1b[36mConsider: cd $(git rev-parse --show-toplevel) && git checkout alpha\x1b[0m`);
+        fail++;
+      } else {
+        console.log(`  \x1b[32m✓\x1b[0m branch: ${branch} (up to date with alpha)`);
+        pass++;
+      }
+    } else {
+      console.log(`  \x1b[32m✓\x1b[0m branch: alpha`);
+      pass++;
+    }
+  } catch {} // not a git repo or git not available — skip silently
+
   // Summary
   const elapsed = Date.now() - t0;
   const icon = fail === 0 ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⚠\x1b[0m";
