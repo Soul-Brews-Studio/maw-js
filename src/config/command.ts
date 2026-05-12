@@ -242,6 +242,13 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
   const alreadyHasContinue = cmd.includes("--continue") || cmd.includes("--resume");
   const fullCmd = [cmd, ...flags].join(" \\\n    ");
 
+  // Surface which claude is being executed (shell function from `maw shellenv`
+  // vs raw binary). Useful when debugging PATH shadowing or wrapper presence.
+  if (isClaudeEngine) {
+    lines.push(`which claude`);
+    lines.push("");
+  }
+
   if (isClaudeEngine && !sessionId) {
     if (alreadyHasContinue) {
       // cmd already has --continue; build a fallback that strips it.
