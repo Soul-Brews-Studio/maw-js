@@ -17,6 +17,170 @@ import { createHash } from "node:crypto";
 import { hostExec } from "../../../sdk";
 import { resolveTmuxTarget } from "./impl";
 
+// ─── Phase B: one-shot stall detection with gated auto-nudge (#976) ──────────
+
+const EDITOR_REPL_CMDS = new Set(["vim", "nano", "emacs", "node", "python", "python3", "psql", "irb"]);
+
+interface NudgeGateResult {
+  safe: boolean;
+  reason?: string;
+}
+
+function checkNudgeGates(lastLine: string, paneCmd: string): NudgeGateResult {
+  // Gate 1: password prompt
+  if (/password:|passphrase:|\[sudo\]|pin:/i.test(lastLine))
+    return { safe: false, reason: "gate 1: password prompt" };
+  // Gate 2: editor or REPL running
+  const bare = paneCmd.trim().toLowerCase().split(/\s+/)[0] ?? "";
+  if (EDITOR_REPL_CMDS.has(bare))
+    return { safe: false, reason: "gate 2: editor/REPL" };
+  // Gate 3: claude mid-turn (braille spinner, "Thinking", ⏺ marker)
+  if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|thinking|⏺/i.test(lastLine))
+    return { safe: false, reason: "gate 3: claude mid-turn" };
+  // Gate 4: interactive prompt (trailing ? or numbered options 1), 2) …)
+  if (/\?\s*$|\b[1-9]\)/.test(lastLine))
+    return { safe: false, reason: "gate 4: interactive prompt" };
+  return { safe: true };
+}
+
+interface PaneStallResult {
+  display: string;
+  id: string;
+  stalled: boolean;
+  nudgeBlocked?: string;
+  nudged?: boolean;
+}
+
+/**
+ * One-shot stall detection with optional gated auto-nudge.
+ *
+ * Algorithm:
+ *   1. Capture last 5 lines from each target pane.
+ *   2. Wait 3 seconds.
+ *   3. Capture again — unchanged content → stall detected.
+ *   4. If --auto-nudge and all safety gates pass → send Enter.
+ *
+ * No targets → inspect every pane in the current tmux session.
+ */
+export async function cmdDetectStalls(targets?: string[], opts?: { autoNudge?: boolean }): Promise<void> {
+  const autoNudge = opts?.autoNudge ?? false;
+
+  // Resolve targets. No targets → all panes in current session.
+  type Resolved = { display: string; id: string };
+  let resolved: Resolved[];
+
+  if (!targets || targets.length === 0) {
+    let raw: string;
+    try {
+      raw = await hostExec("tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_id}'");
+    } catch {
+      console.log("\x1b[33m⚠\x1b[0m  not in a tmux session or tmux unavailable");
+      return;
+    }
+    resolved = raw.trim().split("\n").filter(Boolean).map(line => {
+      const [display, id] = line.trim().split(" ");
+      return { display: display ?? line, id: id ?? display ?? line };
+    });
+  } else {
+    resolved = targets.map(t => {
+      const hit = resolveTmuxTarget(t);
+      if (!hit) throw new Error(`cannot resolve target '${t}'`);
+      return { display: t, id: hit.resolved };
+    });
+  }
+
+  if (resolved.length === 0) {
+    console.log("\x1b[90mno panes to inspect\x1b[0m");
+    return;
+  }
+
+  // First capture
+  const snap1 = new Map<string, string>();
+  for (const { id } of resolved) {
+    try {
+      snap1.set(id, await hostExec(`tmux capture-pane -pt '${id}' -S -5 -J`));
+    } catch {
+      snap1.set(id, "");
+    }
+  }
+
+  // Wait 3 seconds
+  await new Promise<void>(r => setTimeout(r, 3000));
+
+  // Second capture + evaluate
+  const results: PaneStallResult[] = [];
+  for (const { display, id } of resolved) {
+    let snap2 = "";
+    try {
+      snap2 = await hostExec(`tmux capture-pane -pt '${id}' -S -5 -J`);
+    } catch { /* pane gone */ }
+
+    const before = snap1.get(id) ?? "";
+    const stalled = before === snap2;
+
+    if (!stalled) {
+      results.push({ display, id, stalled: false });
+      continue;
+    }
+
+    if (!autoNudge) {
+      results.push({ display, id, stalled: true });
+      continue;
+    }
+
+    // Get pane's current command for gate 2
+    let paneCmd = "";
+    try {
+      paneCmd = (await hostExec(`tmux display-message -p -t '${id}' '#{pane_current_command}'`)).trim();
+    } catch { /* ignore */ }
+
+    const lastLine = snap2.trimEnd().split("\n").pop() ?? "";
+    const gate = checkNudgeGates(lastLine, paneCmd);
+
+    if (!gate.safe) {
+      results.push({ display, id, stalled: true, nudgeBlocked: gate.reason });
+      continue;
+    }
+
+    try {
+      await hostExec(`tmux send-keys -t '${id}' '' Enter`);
+      results.push({ display, id, stalled: true, nudged: true });
+    } catch {
+      results.push({ display, id, stalled: true, nudgeBlocked: "send-keys failed" });
+    }
+  }
+
+  // Output
+  console.log("\n\x1b[1m🔍 Stall Detection\x1b[0m\n");
+  for (const r of results) {
+    const label = r.display.padEnd(20);
+    if (!r.stalled) {
+      console.log(`  \x1b[32m●\x1b[0m ${label} active (output changing)`);
+    } else {
+      console.log(`  \x1b[33m⚠\x1b[0m ${label} STALLED (no output for 3s)`);
+      if (autoNudge) {
+        if (r.nudged) {
+          console.log(`    \x1b[90m→ auto-nudge: sent Enter\x1b[0m`);
+        } else if (r.nudgeBlocked) {
+          console.log(`    \x1b[90m→ auto-nudge: blocked (${r.nudgeBlocked})\x1b[0m`);
+        }
+      }
+    }
+  }
+
+  const active = results.filter(r => !r.stalled).length;
+  const stalled = results.filter(r => r.stalled).length;
+  const nudged = results.filter(r => r.nudged).length;
+  const blocked = results.filter(r => r.stalled && !r.nudged).length;
+
+  console.log();
+  if (autoNudge && stalled > 0) {
+    console.log(`\x1b[90mSummary: ${active} active, ${stalled} stalled (${nudged} nudged, ${blocked} blocked)\x1b[0m\n`);
+  } else {
+    console.log(`\x1b[90mSummary: ${active} active, ${stalled} stalled\x1b[0m\n`);
+  }
+}
+
 export interface StallDetectOpts {
   /** Keep watching forever. Default: false (one-shot single sample). */
   watch?: boolean;

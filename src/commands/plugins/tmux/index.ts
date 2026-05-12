@@ -1,7 +1,7 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
 import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, resolveTmuxTarget } from "./impl";
-import { cmdStallDetect } from "./stall-detect";
+import { cmdStallDetect, cmdDetectStalls } from "./stall-detect";
 import { hostExec } from "../../../sdk";
 
 export const command = {
@@ -203,6 +203,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const target = args[1];
       if (!target) {
         // No target: bring back hidden panes from other windows in this session
+        const myPane = process.env.TMUX_PANE;
         const myWindow = (await hostExec("tmux display-message -p '#{window_index}'")).trim();
         const windowList = (await hostExec("tmux list-windows -F '#{window_index}:#{window_panes}'")).split("\n").filter(Boolean);
         const hiddenWindows = windowList
@@ -227,6 +228,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
     } else if (sub === "detect-stalls" || sub === "stall") {
       const flags = parseFlags(args, {
+        "--auto-nudge": Boolean,
         "--watch": Boolean,
         "--threshold": Number,
         "--interval": Number,
@@ -235,27 +237,33 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux detect-stalls <target> [<target>...] [--watch] [--threshold N] [--interval MS] [--lines N]");
-        console.log("  Phase A — notify-only. Reports panes whose capture-pane content");
-        console.log("  hash hasn't changed for `threshold` consecutive samples.");
-        console.log("  --watch       keep watching (default: one-shot single sample)");
-        console.log("  --threshold N consecutive unchanged samples before notify (default 3)");
-        console.log("  --interval MS milliseconds between samples (default 30000)");
-        console.log("  --lines N     lines from bottom of pane to hash (default 30)");
-        console.log("  NOTE: no auto-nudge in Phase A. See #976B for opt-in injection.");
+        console.log("usage: maw tmux detect-stalls [<target>...] [--auto-nudge] [--watch] [--threshold N] [--interval MS] [--lines N]");
+        console.log("  No targets → inspect all panes in current tmux session.");
+        console.log("  --auto-nudge  send Enter to stalled panes (gated by 4 safety checks)");
+        console.log("  --watch       keep watching (legacy Phase A loop mode)");
+        console.log("  --threshold N consecutive unchanged samples before notify (watch mode, default 3)");
+        console.log("  --interval MS milliseconds between samples (watch mode, default 30000)");
+        console.log("  --lines N     lines from bottom of pane to hash (watch mode, default 30)");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const targets = (flags._ as string[]).filter(Boolean);
-      if (targets.length === 0) {
-        console.log("usage: maw tmux detect-stalls <target> [<target>...] [--watch] [--threshold N] [--interval MS]");
-        return { ok: false, error: "at least one target required", output: logs.join("\n") };
+      if (flags["--watch"]) {
+        // Legacy Phase A: watch loop mode requires explicit targets
+        if (targets.length === 0) {
+          console.log("usage: maw tmux detect-stalls <target>... --watch [--threshold N] [--interval MS]");
+          return { ok: false, error: "at least one target required for --watch mode", output: logs.join("\n") };
+        }
+        await cmdStallDetect(targets, {
+          watch: true,
+          threshold: flags["--threshold"] as number | undefined,
+          intervalMs: flags["--interval"] as number | undefined,
+          lines: flags["--lines"] as number | undefined,
+        });
+      } else {
+        await cmdDetectStalls(targets.length > 0 ? targets : undefined, {
+          autoNudge: !!flags["--auto-nudge"],
+        });
       }
-      await cmdStallDetect(targets, {
-        watch: !!flags["--watch"],
-        threshold: flags["--threshold"] as number | undefined,
-        intervalMs: flags["--interval"] as number | undefined,
-        lines: flags["--lines"] as number | undefined,
-      });
     } else if (sub === "zoom") {
       const target = args[1];
       if (!target) {

@@ -77,9 +77,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 subcommands:
   create <name>            create a new team (alias: new)
   spawn <team> <role>      spawn agent into team
+  save <name>              save current session state to JSONL
+  resume <name>            restore dead panes (JSONL snapshot) or reincarnate from vault
   delete <name>            delete a team
   status                   show team status
-  doctor [--fix]           detect ghost/orphan panes; --fix auto-repairs
   invite <oracle>          invite oracle to team
   members <name>           list team members
   send <name> <message>    send message to team
@@ -133,6 +134,14 @@ general flags: --description <text>, --members <list>`,
         return { ok: false, error: "team, agent, and message required", output: logs.join("\n") };
       }
       cmdTeamSend(args[1], args[2], args.slice(3).join(" "));
+    } else if (sub === "save") {
+      if (!args[1]) {
+        logs.push("usage: maw team save <name>");
+        return { ok: false, error: "name required", output: logs.join("\n") };
+      }
+      const { cmdTeamSave } = await import("./team-recovery");
+      await cmdTeamSave(args[1]);
+
     } else if (sub === "resume") {
       if (!args[1]) {
         logs.push("usage: maw team resume <name> [--model <model>]");
@@ -140,7 +149,13 @@ general flags: --description <text>, --members <list>`,
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
-      cmdTeamResume(args[1], { model });
+      // Prefer JSONL-based session recovery when a snapshot exists; fall back to vault reincarnation.
+      const { hasSavedSession, cmdTeamSessionResume } = await import("./team-recovery");
+      if (hasSavedSession(args[1])) {
+        await cmdTeamSessionResume(args[1], { model });
+      } else {
+        cmdTeamResume(args[1], { model });
+      }
     } else if (sub === "lives" || sub === "history") {
       if (!args[1]) {
         logs.push("usage: maw team lives <agent>");
@@ -202,11 +217,6 @@ general flags: --description <text>, --members <list>`,
       if (!id || !agent) { return { ok: false, error: "usage: maw team assign <task-id> <agent> [--team <name>]" }; }
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
-
-    } else if (sub === "doctor") {
-      // maw team doctor [--fix]
-      const { cmdTeamDoctor } = await import("./team-doctor");
-      await cmdTeamDoctor({ fix: args.includes("--fix") });
 
     } else if (sub === "status") {
       // maw team status [team-name]
@@ -532,7 +542,7 @@ general flags: --description <text>, --members <list>`,
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|inbox|layout|prep|recover|resume|lives|list|status|doctor|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|save|resume|send|shutdown|split|peek|hey|inbox|layout|prep|recover|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
