@@ -171,6 +171,7 @@ function formatScriptHeader(agentName: string, cwd: string, opts: BuildCommandOp
   if (opts.permissionMode) lines.push(`# Permission: ${opts.permissionMode}`);
   if (opts.engine) lines.push(`# Engine: ${opts.engine}`);
   lines.push("");
+  lines.push(`clear`);
   lines.push(`printf '\\033]2;${agentName}\\033\\\\'`);
   lines.push("");
   return lines.join("\n");
