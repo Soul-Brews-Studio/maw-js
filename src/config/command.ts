@@ -286,31 +286,24 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
     ? { engine: optsOrEngine }
     : (optsOrEngine || {});
 
-  const content = formatScriptHeader(agentName, cwd, opts) + formatScriptBody(agentName, opts) + "\n";
-
   mkdirSync(SESSIONS_DIR, { recursive: true });
-  const globalPath = join(SESSIONS_DIR, `${agentName}.sh`);
-  writeFileSync(globalPath, content, { mode: 0o755 });
+  const scriptPath = join(SESSIONS_DIR, `${agentName}.sh`);
+  const content = formatScriptHeader(agentName, cwd, opts) + formatScriptBody(agentName, opts) + "\n";
+  writeFileSync(scriptPath, content, { mode: 0o755 });
 
-  if (cwd) {
-    const localPath = join(cwd, ".start.sh");
-    try { writeFileSync(localPath, content, { mode: 0o755 }); } catch {}
-  }
-
-  return globalPath;
+  return scriptPath;
 }
 
 /**
- * Build the command string for a wake pane. Writes session script to both
- * ~/.maw/sessions/<agent>.sh (global) and <cwd>/.start.sh (local).
- * Returns `bash .start.sh` for clean pane display (#1188).
+ * Build the command string for a wake pane. Writes a session script to
+ * ~/.maw/sessions/<agent>.sh and returns the command to run it (#1188).
  *
- * Falls back to global path, then inline buildCommand().
+ * Falls back to inline buildCommand() if script write fails.
  */
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
-    writeSessionScript(agentName, cwd, optsOrEngine);
-    return ` bash .start.sh`;
+    const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
+    return ` bash ${scriptPath}`;
   } catch {
     return buildCommand(agentName, optsOrEngine);
   }

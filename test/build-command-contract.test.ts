@@ -115,10 +115,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(fallback).not.toContain("--resume");
   });
 
-  test("buildCommandInDir returns bash .start.sh (#1188 — clean pane display)", () => {
+  test("buildCommandInDir returns session script path (#1188)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
-    expect(inDir).toBe(" bash .start.sh");
+    expect(inDir).toStartWith(" bash ");
+    expect(inDir).toContain("sessions/foo.sh");
     expect(inDir).not.toContain("cd ");
   });
 
@@ -139,10 +140,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("foo-bar", "codex")).toBe(wrap("codex --auto"));
   });
 
-  test("buildCommandInDir returns bash .start.sh with engine (#1188)", () => {
+  test("buildCommandInDir returns session script path with engine (#1188)", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
     const result = buildCommandInDir("foo", "/tmp", "codex");
-    expect(result).toBe(" bash .start.sh");
+    expect(result).toStartWith(" bash ");
+    expect(result).toContain("sessions/foo.sh");
   });
 
   // #1174 — engine-aware --continue auto-inject for claude wakes.
@@ -197,7 +199,8 @@ describe("buildCommand — post-#541 contract", () => {
         expect(out).not.toContain("CLAUDECODE");
         expect(out.startsWith("cd ")).toBe(false);
         const inDir = buildCommandInDir(name, "/tmp/x");
-        expect(inDir).toBe(" bash .start.sh");
+        expect(inDir).toStartWith(" bash ");
+        expect(inDir).toContain("sessions/");
       }
     }
   });
