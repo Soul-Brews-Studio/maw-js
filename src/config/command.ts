@@ -286,25 +286,31 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
     ? { engine: optsOrEngine }
     : (optsOrEngine || {});
 
-  mkdirSync(SESSIONS_DIR, { recursive: true });
-  const scriptPath = join(SESSIONS_DIR, `${agentName}.sh`);
   const content = formatScriptHeader(agentName, cwd, opts) + formatScriptBody(agentName, opts) + "\n";
-  writeFileSync(scriptPath, content, { mode: 0o755 });
 
-  return scriptPath;
+  mkdirSync(SESSIONS_DIR, { recursive: true });
+  const globalPath = join(SESSIONS_DIR, `${agentName}.sh`);
+  writeFileSync(globalPath, content, { mode: 0o755 });
+
+  if (cwd) {
+    const localPath = join(cwd, ".start.sh");
+    try { writeFileSync(localPath, content, { mode: 0o755 }); } catch {}
+  }
+
+  return globalPath;
 }
 
 /**
- * Build the command string for a wake pane. Writes a session script to
- * ~/.maw/sessions/<agent>.sh and returns `bash <path>` so the tmux pane
- * shows a clean one-liner instead of a 200-char inline blob (#1188).
+ * Build the command string for a wake pane. Writes session script to both
+ * ~/.maw/sessions/<agent>.sh (global) and <cwd>/.start.sh (local).
+ * Returns `bash .start.sh` for clean pane display (#1188).
  *
- * Falls back to inline buildCommand() if script write fails.
+ * Falls back to global path, then inline buildCommand().
  */
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
     writeSessionScript(agentName, cwd, optsOrEngine);
-    return ` maw show ${agentName} | bash`;
+    return ` bash .start.sh`;
   } catch {
     return buildCommand(agentName, optsOrEngine);
   }
