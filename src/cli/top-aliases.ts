@@ -25,6 +25,7 @@ import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdShow } from "../commands/shared/wake-show";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
+import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -80,10 +81,11 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   stall: ["tmux", "detect-stalls"],   // detect-stalls not yet extracted as top-level plugin
 
   // `maw new <name>` — the friendly door for creating an oracle.
-  // Routes to the awaken plugin (bud + wake + fire /awaken). Plain alias —
-  // all awaken flags pass through. New users learn `new`; the `bud`/`awaken`
-  // metaphors stay for those who want them.
-  new: ["awaken"],
+  // Routes through cmdNew (direct handler) which wraps the awaken plugin
+  // with a TTY-aware "Attach now? [Y/n]" prompt (#1272). cmdNew strips its
+  // own flags (--no-attach, --auto-attach, -y) and passes everything else
+  // through to awaken, then handles the attach step.
+  new: { kind: "direct", handler: "./cmd-new:cmdNew" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
@@ -266,6 +268,11 @@ export async function invokeDirectHandler(
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     await cmdPreflight({ fix: !!flags["--fix"] });
+    return;
+  }
+
+  if (exportName === "cmdNew") {
+    await cmdNew(argv);
     return;
   }
 
