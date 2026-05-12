@@ -10,14 +10,13 @@
  * See ψ/writing/2026-04-18/plugin-hash-supply-chain-spec.md for the spec.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
-import { homedir } from "os";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { hashFile } from "../../../plugin/registry";
+import type { ValidationResult } from "../../../plugin/types";
 import { readManifest } from "./install-manifest-helpers";
 import { extractTarball } from "./install-extraction";
-import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
 
 export const LOCK_SCHEMA = 1;
 
@@ -48,7 +47,7 @@ export function lockPath(): string {
 }
 
 /** Validate sha256 is a canonical "sha256:" + 64 lowercase hex, or bare 64-hex. */
-export function validateSha256(value: string): { ok: true } | { ok: false; error: string } {
+export function validateSha256(value: string): ValidationResult {
   const s = typeof value === "string" ? value : "";
   const hex = s.startsWith("sha256:") ? s.slice("sha256:".length) : s;
   if (!/^[0-9a-f]{64}$/.test(hex)) {
@@ -58,7 +57,7 @@ export function validateSha256(value: string): { ok: true } | { ok: false; error
 }
 
 /** Plugin names: segmented by '/', lowercase alnum + . _ - within segments. */
-export function validateName(name: string): { ok: true } | { ok: false; error: string } {
+export function validateName(name: string): ValidationResult {
   if (typeof name !== "string" || name.length === 0) {
     return { ok: false, error: "plugin name required" };
   }

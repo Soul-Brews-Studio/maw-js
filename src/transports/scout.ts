@@ -15,6 +15,9 @@ import type {
   TransportTarget,
   TransportMessage,
   TransportPresence,
+  MessageHandler,
+  PresenceHandler,
+  FeedHandler,
 } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 import { loadPeers } from "../lib/peers/store";
@@ -47,9 +50,9 @@ export class ScoutTransport implements Transport {
   private scoutTimer: ReturnType<typeof setTimeout> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private state: ScoutState;
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   constructor(config: ScoutTransportConfig) {
     this.config = config;
@@ -182,15 +185,15 @@ export class ScoutTransport implements Transport {
     }
   }
 
-  onMessage(handler: (msg: TransportMessage) => void) {
+  onMessage(handler: MessageHandler) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: (p: TransportPresence) => void) {
+  onPresence(handler: PresenceHandler) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: (e: FeedEvent) => void) {
+  onFeed(handler: FeedHandler) {
     this.feedHandlers.add(handler);
   }
 

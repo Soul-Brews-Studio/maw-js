@@ -15,6 +15,11 @@ async function runAction(ws: MawWS, action: string, target: string, fn: () => Pr
   }
 }
 
+export interface HandlerTarget { target: string }
+export interface HandlerScopedTarget { scope?: string; target: string }
+export interface HandlerSendData { force?: boolean; target: string; text: string }
+export interface SpawnCommandData { target?: string; command?: string; cwd?: string }
+
 // --- Handlers ---
 
 const subscribe: Handler = (ws, data, engine) => {
@@ -22,7 +27,7 @@ const subscribe: Handler = (ws, data, engine) => {
   // scope "preview" adds to previewTargets — used by FleetGrid pinned cards,
   //   VSAgentPanel, useMissionControl pin so they don't clobber the active
   //   TerminalView target on the same singleton WS (echo 2026-04-29).
-  const d = data as { scope?: string; target: string };
+  const d = data as HandlerScopedTarget;
   const scope = d.scope === "preview" ? "preview" : "main";
   if (scope === "main") {
     ws.data.target = d.target;
@@ -41,13 +46,13 @@ const subscribePreviews: Handler = (ws, data, engine) => {
 };
 
 const select: Handler = (_ws, data) => {
-  const d = data as { target: string };
+  const d = data as HandlerTarget;
   selectWindow(d.target).catch(() => { /* expected: window may not exist */ });
 };
 
 const send: Handler = async (ws, data, engine) => {
   // Check for active Claude session before sending (#17)
-  const d = data as { force?: boolean; target: string; text: string };
+  const d = data as HandlerSendData;
   if (!d.force) {
     try {
       const cmd = await getPaneCommand(d.target);
@@ -69,12 +74,12 @@ const send: Handler = async (ws, data, engine) => {
 };
 
 const sleep: Handler = (ws, data) => {
-  const d = data as { target: string };
+  const d = data as HandlerTarget;
   runAction(ws, "sleep", d.target, () => sendKeys(d.target, "\x03"));
 };
 
 const stop: Handler = (ws, data) => {
-  const d = data as { target: string };
+  const d = data as HandlerTarget;
   runAction(ws, "stop", d.target, () => tmux.killWindow(d.target));
 };
 
@@ -93,7 +98,7 @@ const stop: Handler = (ws, data) => {
  *   • Resolve the canonical cwd from fleet config and prepend `cd '<cwd>' && `
  *     when known. Non-fleet targets fall back to the bare cmd (pre-fix behavior).
  */
-function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
+function buildSpawnCmd(data: SpawnCommandData): string {
   const target = data.target || "";
   const oracle = extractOracleName(target);
   const baseCmd = data.command || buildCommand(oracle);
@@ -102,13 +107,13 @@ function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }
 }
 
 const wake: Handler = (ws, data) => {
-  const d = data as { target?: string; command?: string; cwd?: string };
+  const d = data as SpawnCommandData;
   const cmd = buildSpawnCmd(d);
   runAction(ws, "wake", d.target, () => sendKeys(d.target, cmd + "\r"));
 };
 
 const restart: Handler = (ws, data) => {
-  const d = data as { target?: string; command?: string; cwd?: string };
+  const d = data as SpawnCommandData;
   const cmd = buildSpawnCmd(d);
   runAction(ws, "restart", d.target, async () => {
     await sendKeys(d.target, "\x03"); // Ctrl+C

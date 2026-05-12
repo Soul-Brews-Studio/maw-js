@@ -10,7 +10,7 @@ import { cfgTimeout } from "../config";
 import { listSessions } from "../core/transport/ssh";
 import { findWindow } from "../core/runtime/find-window";
 import { curlFetch } from "../core/transport/curl-fetch";
-import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
 export interface HttpTransportConfig {
@@ -23,9 +23,9 @@ export class HttpTransport implements Transport {
   readonly name = "http-federation";
   private _connected = false;
   private config: HttpTransportConfig;
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   constructor(config: HttpTransportConfig) {
     this.config = config;
@@ -89,15 +89,15 @@ export class HttpTransport implements Transport {
     }
   }
 
-  onMessage(handler: (msg: TransportMessage) => void) {
+  onMessage(handler: MessageHandler) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: (p: TransportPresence) => void) {
+  onPresence(handler: PresenceHandler) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: (e: FeedEvent) => void) {
+  onFeed(handler: FeedHandler) {
     this.feedHandlers.add(handler);
   }
 

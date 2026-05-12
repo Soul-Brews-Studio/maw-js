@@ -10,7 +10,23 @@ import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-se
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; noAttach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export interface WakeCmdOptions {
+  task?: string;
+  wt?: string;
+  prompt?: string;
+  incubate?: string;
+  fresh?: boolean;
+  attach?: boolean;
+  noAttach?: boolean;
+  listWt?: boolean;
+  split?: boolean;
+  repoPath?: string;
+  urlRepoName?: string;
+  allLocal?: boolean;
+  engine?: string;
+}
+
+export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<string> {
   // #1151 — reject flag-shaped names. parseFlags lands unrecognized flags
   // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
   // and (without this guard) get sanitized into session names like `26---help`.

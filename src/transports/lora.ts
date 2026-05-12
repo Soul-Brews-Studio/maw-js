@@ -6,15 +6,15 @@
  * Reserved via `maw radio`.
  */
 
-import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
 export class LoRaTransport implements Transport {
   readonly name = "lora";
   private _connected = false;
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   get connected() { return this._connected; }
 
@@ -34,9 +34,9 @@ export class LoRaTransport implements Transport {
   async publishPresence(_presence: TransportPresence): Promise<void> {}
   async publishFeed(_event: FeedEvent): Promise<void> {}
 
-  onMessage(handler: (msg: TransportMessage) => void) { this.msgHandlers.add(handler); }
-  onPresence(handler: (p: TransportPresence) => void) { this.presenceHandlers.add(handler); }
-  onFeed(handler: (e: FeedEvent) => void) { this.feedHandlers.add(handler); }
+  onMessage(handler: MessageHandler) { this.msgHandlers.add(handler); }
+  onPresence(handler: PresenceHandler) { this.presenceHandlers.add(handler); }
+  onFeed(handler: FeedHandler) { this.feedHandlers.add(handler); }
 
   /** LoRa transport cannot reach anything until hardware is connected */
   canReach(_target: TransportTarget): boolean {

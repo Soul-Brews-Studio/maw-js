@@ -21,6 +21,9 @@ import type {
   TransportTarget,
   TransportMessage,
   TransportPresence,
+  MessageHandler,
+  PresenceHandler,
+  FeedHandler,
 } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
@@ -49,9 +52,9 @@ export class MdnsTransport implements Transport {
   private socket: Socket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private peers = new Map<string, DiscoveredPeer>();
-  private msgHandlers = new Set<(msg: TransportMessage) => void>();
-  private presenceHandlers = new Set<(p: TransportPresence) => void>();
-  private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private msgHandlers = new Set<MessageHandler>();
+  private presenceHandlers = new Set<PresenceHandler>();
+  private feedHandlers = new Set<FeedHandler>();
 
   constructor(config: MdnsTransportConfig) {
     this.config = config;
@@ -198,15 +201,15 @@ export class MdnsTransport implements Transport {
     }
   }
 
-  onMessage(handler: (msg: TransportMessage) => void) {
+  onMessage(handler: MessageHandler) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: (p: TransportPresence) => void) {
+  onPresence(handler: PresenceHandler) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: (e: FeedEvent) => void) {
+  onFeed(handler: FeedHandler) {
     this.feedHandlers.add(handler);
   }
 

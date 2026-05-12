@@ -1,8 +1,7 @@
 import { capture, isAgentCommand } from "../core/transport/ssh";
 import { tmux } from "../core/transport/tmux";
 import type { MawWS } from "../core/types";
-
-type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
+import type { SessionInfo } from "./types";
 
 /** Push terminal capture to a subscribed WebSocket client. */
 export async function pushCapture(

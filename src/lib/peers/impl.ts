@@ -139,7 +139,7 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
  *
  * Throws if the alias does not exist.
  */
-export interface ProbeResult {
+export interface CmdProbeResult {
   alias: string;
   url: string;
   node: string | null;
@@ -149,7 +149,7 @@ export interface ProbeResult {
   pubkeyMismatch?: PeerPubkeyMismatchError;
 }
 
-export async function cmdProbe(alias: string): Promise<ProbeResult> {
+export async function cmdProbe(alias: string): Promise<CmdProbeResult> {
   const data = loadPeers();
   const existing = data.peers[alias];
   if (!existing) throw new Error(`peer "${alias}" not found`);

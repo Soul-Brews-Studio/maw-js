@@ -3,8 +3,7 @@ import { loadConfig, buildCommand } from "../config";
 import type { FeedEvent } from "../lib/feed";
 import type { MawWS } from "../core/types";
 import type { StatusDetector } from "./status";
-
-type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
+import type { SessionInfo } from "./types";
 
 /** Auto-restart crashed agents if config.autoRestart is enabled. */
 export async function handleCrashedAgents(
