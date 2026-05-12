@@ -1,0 +1,13 @@
+{
+  "name": "self-update",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Sync local maw-js checkout with origin (#1271).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "self-update",
+    "help": "maw self-update [--dry-run|--check|--branch=NAME|--force]"
+  },
+  "weight": 50
+}
