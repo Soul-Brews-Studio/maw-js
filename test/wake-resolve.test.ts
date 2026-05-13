@@ -179,3 +179,45 @@ describe("matchOracleWindow — #1282 numeric prefix strip", () => {
     expect(matchOracleWindow("homekeeper", "")).toBe(false);
   });
 });
+
+/**
+ * Tests for matchOracleWindow — #1302 permissive suffix match.
+ *
+ * A bare query like `phd` should match a fleet window named `dustboy-phd-oracle`
+ * (ends with `-phd-oracle`). Over-match risk is handled by callers' ambiguity
+ * detection — if 2+ windows match, they bail loudly.
+ */
+describe("matchOracleWindow — #1302 permissive suffix match", () => {
+  test("bare query 'phd' matches fleet window 'dustboy-phd-oracle'", () => {
+    expect(matchOracleWindow("phd", "dustboy-phd-oracle")).toBe(true);
+  });
+
+  test("bare query 'bar' matches 'foo-bar-oracle'", () => {
+    expect(matchOracleWindow("bar", "foo-bar-oracle")).toBe(true);
+  });
+
+  test("bare query 'bar' does NOT match 'other-oracle' (no -bar- segment)", () => {
+    expect(matchOracleWindow("bar", "other-oracle")).toBe(false);
+  });
+
+  test("case-insensitive: query 'phd' matches 'DustBoy-PHD-Oracle'", () => {
+    expect(matchOracleWindow("phd", "DustBoy-PHD-Oracle")).toBe(true);
+  });
+
+  test("does not over-match a bare substring without -oracle suffix: 'phd' vs 'dustboy-phd-dev'", () => {
+    expect(matchOracleWindow("phd", "dustboy-phd-dev")).toBe(false);
+  });
+
+  test("does not match when bare appears without dash boundary: 'phd' vs 'superphd-oracle'", () => {
+    expect(matchOracleWindow("phd", "superphd-oracle")).toBe(false);
+  });
+
+  test("backward compat: whole-name match still works (existing check #1) — 'phd' matches 'phd-oracle'", () => {
+    expect(matchOracleWindow("phd", "phd-oracle")).toBe(true);
+  });
+
+  test("numeric-prefix + permissive suffix combine: '20-phd' matches 'dustboy-phd-oracle'", () => {
+    // After ^\d+- strip, bare='phd' → suffix '-phd-oracle' matches.
+    expect(matchOracleWindow("20-phd", "dustboy-phd-oracle")).toBe(true);
+  });
+});

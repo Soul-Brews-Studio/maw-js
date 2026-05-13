@@ -65,15 +65,23 @@ export async function resolveFromWorktrees(
  * silently fell through to fleet-clone. Strip the numeric prefix before
  * comparing; keep the raw form for backward compat with un-prefixed callers.
  *
+ * #1302 — Add a permissive suffix check so a bare query like `phd` matches a
+ * fleet window named `dustboy-phd-oracle` (ends with `-phd-oracle`). This
+ * intentionally allows a 2nd path beyond exact equality; if 2+ windows match
+ * the same bare query, callers' ambiguity handling bails. Case-insensitive
+ * so `phd` matches `DustBoy-PHD-Oracle` too.
+ *
  * @internal — exported for tests.
  */
 export function matchOracleWindow(oracle: string, windowName: string): boolean {
   const bare = oracle.replace(/^\d+-/, "");
+  const bareLower = bare.toLowerCase();
   return (
     windowName === `${bare}-oracle` ||
     windowName === bare ||
     windowName === `${oracle}-oracle` ||
-    windowName === oracle
+    windowName === oracle ||
+    windowName.toLowerCase().endsWith(`-${bareLower}-oracle`)
   );
 }
 
