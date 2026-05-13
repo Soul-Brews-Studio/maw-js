@@ -109,11 +109,13 @@ export async function resolveOracle(
     const { ghqList } = await import("../../core/ghq");
     const repos = await ghqList();
     const oracleLower = oracle.toLowerCase();
+    // #997 — case-insensitive endsWith so DustBoy-Phd-Oracle matches
+    // alongside foo-oracle. Also strip -oracle case-insensitively.
     const candidates = repos
-      .filter(p => p.endsWith("-oracle"))
+      .filter(p => p.toLowerCase().endsWith("-oracle"))
       .map(p => p.split("/").pop()!)
       .filter(name => {
-        const bare = name.replace(/-oracle$/, "");
+        const bare = name.toLowerCase().replace(/-oracle$/, "");
         return bare.includes(oracleLower) || oracleLower.includes(bare);
       });
     if (candidates.length === 1) {
