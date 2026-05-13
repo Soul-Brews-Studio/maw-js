@@ -28,6 +28,7 @@ export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "ffi",    // native FFI (bun:ffi)
   "tmux",   // tmux socket interaction (spawnSync("tmux", …) + SDK tmux helpers)
   "shell",  // shell-eval / stdout-writing plugins (shellenv-style)
+  "attach", // attach-strategy plugins (attach:strategy capability — extracted from built-in attach plugin)
 ]);
 
 /**
