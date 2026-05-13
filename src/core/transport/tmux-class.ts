@@ -71,12 +71,17 @@ export class Tmux {
     window?: string;
     cwd?: string;
     detached?: boolean;
+    /** Command to run in the new session's first pane. When omitted, tmux
+     *  spawns the user's default shell. Trailing positional in `tmux
+     *  new-session [-d] [-s NAME] [-c CWD] [COMMAND]`. */
+    command?: string;
   } = {}): Promise<void> {
     const args: (string | number)[] = [];
     if (opts.detached !== false) args.push("-d");
     args.push("-s", name);
     if (opts.window) args.push("-n", opts.window);
     if (opts.cwd) args.push("-c", opts.cwd);
+    if (opts.command) args.push(opts.command);
     await this.run("new-session", ...args);
     await this.setOption(name, "renumber-windows", "on");
   }

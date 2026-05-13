@@ -1,0 +1,13 @@
+{
+  "name": "shell",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Spawn an interactive tmux shell session (#1304). Attaches by default.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "shell",
+    "help": "maw shell <name> [--no-attach] — spawn an interactive tmux session"
+  },
+  "weight": 10
+}

@@ -1,0 +1,13 @@
+{
+  "name": "bg",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Spawn a background tmux session running a command (#1304). Detached by default.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "bg",
+    "help": "maw bg <name> \"<cmd>\" [--attach] — spawn a background command in a tmux session"
+  },
+  "weight": 10
+}
