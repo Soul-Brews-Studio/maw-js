@@ -2,6 +2,7 @@ import { listSessions, hostExec, withPaneLock } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../../core/matcher/normalize-target";
 import { formatError } from "../../../lib/format-error";
+import { isClaudeLikePane, callerPaneCarveRefusal } from "../tmux/safety";
 
 export interface SplitOpts {
   /** Split percentage (1-99). Default: 50. */
@@ -56,6 +57,34 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
   const pct = opts.pct ?? 50;
   if (!Number.isFinite(pct) || pct < 1 || pct > 99) {
     throw new Error(`--pct must be 1-99 (got ${pct})`);
+  }
+
+  // Foot-gun refusal (#1303): when `--no-attach` is used and no `--from`
+  // anchor is supplied, the caller's own pane ($TMUX_PANE) is the implicit
+  // anchor — meaning the caller's pane gets carved. If the caller is running
+  // a claude-like process (Claude Code session), refuse outright. Carving
+  // a live AI pane is almost never what the user wants; the user almost
+  // certainly meant to spawn a peer shell, not slice their own session.
+  //
+  // Three escape hatches, all mentioned in the error message:
+  //   - `maw shell <name>` — non-carve interactive shell (#1304)
+  //   - `maw bg <name> "<cmd>"` — non-carve background command (#1304)
+  //   - `--from <oracle>` — carve a different peer's pane intentionally
+  if (opts.noAttach && !opts.anchorPane && process.env.TMUX_PANE) {
+    let callerCmd: string | undefined;
+    try {
+      const out = await hostExec(
+        `tmux display-message -p -t '${process.env.TMUX_PANE.replace(/'/g, "'\\''")}' '#{pane_current_command}'`,
+      );
+      callerCmd = out.trim();
+    } catch {
+      // If the lookup fails (rare — pane gone, tmux unreachable), skip the
+      // gate rather than block legitimate splits. The bug we're guarding
+      // against is the silent carve, not the rare lookup failure.
+    }
+    if (isClaudeLikePane(callerCmd)) {
+      throw new Error(callerPaneCarveRefusal(process.env.TMUX_PANE, callerCmd));
+    }
   }
 
   // Resolve target to session:window if bare name given. Resolution rules

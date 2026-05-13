@@ -66,6 +66,25 @@ export function isClaudeLikePane(paneCurrentCommand: string | undefined): boolea
 }
 
 /**
+ * Foot-gun refusal message (#1303) — shared between `maw split` and
+ * `maw pane split` so a single grep finds every refusal site. Both verbs
+ * implicitly carve $TMUX_PANE when called without an explicit anchor;
+ * when the caller is Claude Code, that carves the live AI pane.
+ *
+ * Returns the full error body (caller throws). Includes the offending
+ * pane id and current-command so the user can verify the heuristic
+ * matched the pane they expected.
+ */
+export function callerPaneCarveRefusal(panePane: string, callerCmd: string | undefined): string {
+  return (
+    `refusing to carve caller's pane: would slice the claude-like pane '${panePane}' (running '${callerCmd ?? "?"}').\n` +
+    `  use \`maw shell <name>\` for a non-carve interactive shell (#1304)\n` +
+    `  use \`maw bg <name> "<cmd>"\` for a non-carve background command (#1304)\n` +
+    `  use \`--from <oracle>\` (or \`-t <pane>\` for \`maw pane split\`) to carve a different pane intentionally`
+  );
+}
+
+/**
  * Fleet session protection (shared with kill). A session whose name
  * matches a known fleet stem OR ends in `-view` must never be killed
  * without --force.

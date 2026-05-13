@@ -14,6 +14,8 @@
  * pane-ref resolution or pct validation.
  */
 import { cmdTmuxSplit } from "../tmux/impl";
+import { isClaudeLikePane, callerPaneCarveRefusal } from "../tmux/safety";
+import { hostExec } from "../../../sdk";
 
 export interface PaneSplitOpts {
   /** Horizontal split (side-by-side). Mutually exclusive with vertical. */
@@ -56,6 +58,25 @@ export async function cmdPaneSplit(command: string, opts: PaneSplitOpts = {}): P
   const target = opts.target ?? process.env.TMUX_PANE ?? "";
   if (!target) {
     throw new Error("no target — pass -t SESSION:WINDOW or run inside a tmux pane");
+  }
+
+  // Foot-gun refusal (#1303): when no explicit `-t` target is supplied, the
+  // caller's pane ($TMUX_PANE) gets carved. If the caller is running a
+  // claude-like process (Claude Code session), refuse outright. Mirror of
+  // the gate in `maw split` — see split/impl.ts for full rationale.
+  if (!opts.target && process.env.TMUX_PANE) {
+    let callerCmd: string | undefined;
+    try {
+      const out = await hostExec(
+        `tmux display-message -p -t '${process.env.TMUX_PANE.replace(/'/g, "'\\''")}' '#{pane_current_command}'`,
+      );
+      callerCmd = out.trim();
+    } catch {
+      // Lookup failure is rare; don't block legitimate splits on it.
+    }
+    if (isClaudeLikePane(callerCmd)) {
+      throw new Error(callerPaneCarveRefusal(process.env.TMUX_PANE, callerCmd));
+    }
   }
 
   // Default vertical=false (= horizontal). `-h` is the default tmux orientation
