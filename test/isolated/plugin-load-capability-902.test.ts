@@ -74,9 +74,9 @@ function makePluginDir(opts: {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("#902 — load-time capability validator (single source of truth)", () => {
-  test("KNOWN_CAPABILITY_NAMESPACES is the canonical set (#874 baseline)", () => {
+  test("KNOWN_CAPABILITY_NAMESPACES is the canonical set", () => {
     expect([...KNOWN_CAPABILITY_NAMESPACES].sort()).toEqual(
-      ["ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
+      ["attach", "ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
     );
   });
 
