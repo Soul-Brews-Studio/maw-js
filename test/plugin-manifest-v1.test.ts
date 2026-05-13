@@ -87,8 +87,9 @@ describe("manifest v1 — new fields", () => {
   test("seeded capability namespaces are frozen set", () => {
     // #874 — `tmux` and `shell` joined the namespace list to support community
     // plugins (bg, rename, park, shellenv) that spawn tmux or shell-eval.
+    // #1291 — `attach` joined for attach-strategy plugins (attach-ssh).
     expect([...KNOWN_CAPABILITY_NAMESPACES].sort()).toEqual(
-      ["net", "fs", "peer", "sdk", "proc", "ffi", "tmux", "shell"].sort(),
+      ["attach", "net", "fs", "peer", "sdk", "proc", "ffi", "tmux", "shell"].sort(),
     );
   });
 });
