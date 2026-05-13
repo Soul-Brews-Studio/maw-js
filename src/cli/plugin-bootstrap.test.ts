@@ -335,3 +335,128 @@ describe("runBootstrap — #1186 multi-source resolver", () => {
     }
   });
 });
+
+/**
+ * Tests for #1314 — transient-worktree-path poisoning.
+ *
+ * The bug: `bun link maw-js` from `/tmp/maw-js-<N>` worktrees (common in
+ * /parallel-ship setups) made `persistBundledPath` write the transient path
+ * to config and auto-heal migrate symlinks toward it. When the worktree was
+ * later removed, the next CLI invocation pruned all 18 dangling symlinks but
+ * couldn't resolve a stable bundled path — silently leaving the user with
+ * "unknown command: <bundled-plugin>" and the `wasEmpty` gate suppressed any
+ * diagnostic.
+ *
+ * Fix: refuse to persist or migrate-toward `/tmp/`-prefixed paths; drop the
+ * `wasEmpty` gate when `bundled === null` AND `pruned > 0`.
+ *
+ * These tests run under MAW_TEST_MODE=1 (set in the file's beforeAll), so
+ * persistBundledPath is a no-op. We test the OTHER guards directly here —
+ * the persist-skip is tested by reasoning about the env-mode contract.
+ */
+describe("runBootstrap — #1314 transient-worktree poisoning", () => {
+  let workDir: string;
+  let pluginDir: string;
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), "maw-bootstrap-1314-"));
+    pluginDir = join(workDir, "plugins");
+    mkdirSync(pluginDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try { rmSync(workDir, { recursive: true, force: true }); } catch {}
+    delete process.env.MAW_BUNDLED_PLUGINS;
+  });
+
+  it("auto-heal does NOT migrate symlinks to a /tmp/ source", async () => {
+    // The isTransientPath guard catches /tmp/ and /private/tmp/ specifically
+    // (not the macOS process-tmpdir at /var/folders/). To exercise it we
+    // create real /tmp/ paths and clean them up explicitly.
+    const transientSrc = `/tmp/maw-1314-transient-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const transientBundled = join(transientSrc, "commands", "plugins");
+    mkdirSync(join(transientBundled, "alpha"), { recursive: true });
+    writeFileSync(join(transientBundled, "alpha", "plugin.json"), JSON.stringify({ name: "alpha" }));
+
+    // Pre-existing symlink at dest pointing to a stable location. Auto-heal
+    // should refuse to move it toward the /tmp/ source.
+    const stableBundled = join(workDir, "stable", "src", "commands", "plugins", "alpha");
+    mkdirSync(stableBundled, { recursive: true });
+    writeFileSync(join(stableBundled, "plugin.json"), JSON.stringify({ name: "alpha" }));
+    symlinkSync(stableBundled, join(pluginDir, "alpha"));
+    const beforeTarget = readlinkSync(join(pluginDir, "alpha"));
+
+    process.env.MAW_BUNDLED_PLUGINS = transientBundled;
+    try {
+      await runBootstrap(pluginDir, "/nonexistent/src");
+      // Symlink target unchanged — auto-heal refused the transient migration.
+      expect(readlinkSync(join(pluginDir, "alpha"))).toBe(beforeTarget);
+    } finally {
+      try { rmSync(transientSrc, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("resolveBundledPath skips /tmp/ paths in config (falls through to srcDir hint)", async () => {
+    // Config is sandboxed via MAW_HOME (beforeAll). Plant a transient path
+    // there, then verify runBootstrap falls through to the srcDir hint.
+    const transientPath = join("/tmp", `maw-poisoned-${Date.now()}`);
+    // Don't actually create the path — even if it existed, the guard would
+    // skip it. This tests the "skip via /tmp prefix" branch specifically.
+    const { saveConfig, resetConfig } = await import("../config");
+    saveConfig({ bundledPluginSource: transientPath });
+    resetConfig();
+
+    // Set up a real srcDir bundled tree as the fallback target.
+    const srcDir = join(workDir, "src");
+    const bundledDir = join(srcDir, "commands", "plugins");
+    mkdirSync(join(bundledDir, "beta"), { recursive: true });
+    writeFileSync(join(bundledDir, "beta", "plugin.json"), JSON.stringify({ name: "beta" }));
+
+    await runBootstrap(pluginDir, srcDir);
+
+    // Despite config pointing at the transient path, the srcDir bundled was
+    // used → beta got linked.
+    expect(readdirSync(pluginDir).sort()).toEqual(["beta"]);
+    expect(readlinkSync(join(pluginDir, "beta"))).toBe(join(bundledDir, "beta"));
+  });
+
+  it("warns loudly when pruned > 0 AND bundled cannot be resolved (drops wasEmpty gate)", async () => {
+    // Simulate the exact failure mode: pluginDir has registry symlinks
+    // (NOT empty) PLUS dangling bundled symlinks. After pruning, no bundled
+    // source can be found. Pre-#1314 the warning was suppressed.
+    symlinkSync(join(workDir, "definitely-not-here", "tmux"), join(pluginDir, "tmux"));
+    symlinkSync(join(workDir, "definitely-not-here", "attach"), join(pluginDir, "attach"));
+    // A "registry plugin" that survives prune — its target exists.
+    const registryPlugin = join(workDir, "registry", "some-plugin");
+    mkdirSync(registryPlugin, { recursive: true });
+    symlinkSync(registryPlugin, join(pluginDir, "some-plugin"));
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+
+    try {
+      // No srcDir bundled, no env, no usable config → resolveBundledPath returns null.
+      await runBootstrap(pluginDir, "/nonexistent/src");
+
+      // pluginDir was NOT empty (registry symlink survives), but pruning
+      // happened AND bundled is null → warning must fire.
+      expect(warns.some(w => w.includes("bundled-plugin source not found"))).toBe(true);
+      expect(warns.some(w => w.includes("#1314"))).toBe(true);
+      // Recovery hint with pruned-count.
+      expect(warns.some(w => w.includes("broken plugin symlink") && w.includes("pruned"))).toBe(true);
+      expect(warns.some(w => w.includes("bun link maw-js"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  // Note: persistBundledPath's /tmp/ guard is exercised indirectly. Under
+  // MAW_TEST_MODE=1 (file-level beforeAll) it's a no-op, so a direct
+  // "did config get written?" assertion isn't safe. The guard's effect is
+  // proven by the resolveBundledPath skip test above (which exercises the
+  // downstream "config has /tmp path → skip it" path) plus the auto-heal
+  // refusal test (which exercises the migrate-to-/tmp refusal path). Tests
+  // that flip MAW_TEST_MODE off would risk corrupting the developer's
+  // real ~/.config/maw/maw.config.json (per the saveConfig #820 guard).
+});

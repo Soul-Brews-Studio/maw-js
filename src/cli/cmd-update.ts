@@ -321,7 +321,15 @@ export async function runUpdate(args: string[]): Promise<void> {
       const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
       const mawSrc = dirname(realpathSync(mawBin));
       const bundled = join(mawSrc, "commands", "plugins");
-      if (existsSync(bundled)) {
+      // #1314 — refuse to re-link into a transient/worktree path. `which maw`
+      // resolving into /tmp/<worktree>/ via `bun link` would otherwise write
+      // symlinks that go dangling when the worktree is removed, leaving the
+      // user with "unknown command: <bundled-plugin>" until they re-link from
+      // a stable checkout. Mirrors plugin-bootstrap.ts isTransientPath guard.
+      if (/^(\/private)?\/tmp\//.test(bundled)) {
+        console.log(`\n  \x1b[33m⚠\x1b[0m bundled plugins resolve to transient path (${bundled}) — skipping re-link`);
+        console.log(`    re-run \x1b[90mbun link maw-js\x1b[0m from your stable checkout when ready (#1314)`);
+      } else if (existsSync(bundled)) {
         let refreshed = 0;
         for (const d of readdirSync(bundled)) {
           if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
