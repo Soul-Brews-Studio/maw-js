@@ -219,9 +219,13 @@ export async function resolveOracle(
   } catch { /* probe/clone best-effort — fall through to federation */ }
 
   // Federation fallback: check peers
+  // #1290: read namedPeers (modern fleet config) AND legacy peers — same shape as
+  // #1282, different field. `maw a` already does this via getAggregatedSessions.
   try {
     const config = loadConfig();
-    const peers = config.peers || [];
+    const namedPeerUrls = (config.namedPeers ?? []).map(p => p.url).filter(Boolean);
+    const legacyPeerUrls = config.peers ?? [];
+    const peers = [...new Set([...namedPeerUrls, ...legacyPeerUrls])];
     for (const peer of peers) {
       try {
         const res = await curlFetch(`${peer}/api/sessions`, { timeout: 10000 });
