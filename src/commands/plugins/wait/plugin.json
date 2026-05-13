@@ -1,0 +1,13 @@
+{
+  "name": "wait",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Block until a tmux session named <name> no longer exists (#1306). Completes the bg/shell/wait POSIX-style trio.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "wait",
+    "help": "maw wait <name> [--interval N] [--timeout N] — block until tmux session ends"
+  },
+  "weight": 10
+}

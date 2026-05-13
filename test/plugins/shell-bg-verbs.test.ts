@@ -22,6 +22,13 @@ import * as tmuxImpl from "../../src/commands/plugins/tmux/impl";
  * the live `tmux` singleton is patched per-test only — avoids `mock.module`
  * global pollution that breaks sibling oracle/fleet tests via the `Tmux`
  * class export.
+ *
+ * Arg-shape note (#1306): ctx.args from the real CLI dispatcher does NOT
+ * include the command name (the dispatcher strips it via
+ * `args.slice(matchedWords)`). The original #1304 tests passed
+ * `["shell", "scratch"]` which masked a parseFlags(…, skip=1) bug that made
+ * `maw shell foo` always fail at the real CLI. Tests below pass the real
+ * shape `["scratch"]` so they would catch the regression next time.
  */
 
 const calls: {
@@ -76,7 +83,7 @@ describe("maw shell plugin", () => {
   });
 
   it("default: creates session + attaches", async () => {
-    const result = await handler({ source: "cli", args: ["shell", "scratch"] });
+    const result = await handler({ source: "cli", args: ["scratch"] });
     expect(result.ok).toBe(true);
     expect(calls.newSession).toHaveLength(1);
     expect(calls.newSession[0].name).toBe("scratch");
@@ -85,7 +92,7 @@ describe("maw shell plugin", () => {
   });
 
   it("--no-attach: creates session, does NOT attach", async () => {
-    const result = await handler({ source: "cli", args: ["shell", "svc", "--no-attach"] });
+    const result = await handler({ source: "cli", args: ["svc", "--no-attach"] });
     expect(result.ok).toBe(true);
     expect(calls.newSession).toHaveLength(1);
     expect(calls.newSession[0].name).toBe("svc");
@@ -94,7 +101,7 @@ describe("maw shell plugin", () => {
   });
 
   it("missing name: prints usage and errors", async () => {
-    const result = await handler({ source: "cli", args: ["shell"] });
+    const result = await handler({ source: "cli", args: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("required");
     expect(calls.newSession).toHaveLength(0);
@@ -102,7 +109,7 @@ describe("maw shell plugin", () => {
 
   it("existing session: fails loudly", async () => {
     existingSessions.add("scratch");
-    const result = await handler({ source: "cli", args: ["shell", "scratch"] });
+    const result = await handler({ source: "cli", args: ["scratch"] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("already exists");
     expect(calls.newSession).toHaveLength(0);
@@ -110,7 +117,7 @@ describe("maw shell plugin", () => {
   });
 
   it("--help: prints usage", async () => {
-    const result = await handler({ source: "cli", args: ["shell", "--help"] });
+    const result = await handler({ source: "cli", args: ["--help"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw shell");
     expect(calls.newSession).toHaveLength(0);
@@ -140,7 +147,7 @@ describe("maw bg plugin", () => {
   });
 
   it("default: spawns detached, does NOT attach", async () => {
-    const result = await handler({ source: "cli", args: ["bg", "dev", "bun run dev"] });
+    const result = await handler({ source: "cli", args: ["dev", "bun run dev"] });
     expect(result.ok).toBe(true);
     expect(calls.newSession).toHaveLength(1);
     expect(calls.newSession[0].name).toBe("dev");
@@ -151,7 +158,7 @@ describe("maw bg plugin", () => {
   });
 
   it("--attach: spawns AND attaches", async () => {
-    const result = await handler({ source: "cli", args: ["bg", "srv", "bun run dev", "--attach"] });
+    const result = await handler({ source: "cli", args: ["srv", "bun run dev", "--attach"] });
     expect(result.ok).toBe(true);
     expect(calls.newSession).toHaveLength(1);
     expect(calls.newSession[0].opts.command).toBe("bun run dev");
@@ -159,14 +166,14 @@ describe("maw bg plugin", () => {
   });
 
   it("missing name: prints usage and errors", async () => {
-    const result = await handler({ source: "cli", args: ["bg"] });
+    const result = await handler({ source: "cli", args: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("name required");
     expect(calls.newSession).toHaveLength(0);
   });
 
   it("missing command: prints usage and errors", async () => {
-    const result = await handler({ source: "cli", args: ["bg", "lonely"] });
+    const result = await handler({ source: "cli", args: ["lonely"] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("command required");
     expect(calls.newSession).toHaveLength(0);
@@ -174,7 +181,7 @@ describe("maw bg plugin", () => {
 
   it("existing session: fails loudly", async () => {
     existingSessions.add("dev");
-    const result = await handler({ source: "cli", args: ["bg", "dev", "bun run dev"] });
+    const result = await handler({ source: "cli", args: ["dev", "bun run dev"] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("already exists");
     expect(calls.newSession).toHaveLength(0);
@@ -182,7 +189,7 @@ describe("maw bg plugin", () => {
   });
 
   it("--help: prints usage", async () => {
-    const result = await handler({ source: "cli", args: ["bg", "--help"] });
+    const result = await handler({ source: "cli", args: ["--help"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw bg");
     expect(calls.newSession).toHaveLength(0);

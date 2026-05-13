@@ -47,11 +47,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+    // skip=0: ctx.args from the dispatcher is already stripped of the command
+    // name (src/cli/dispatch.ts ~L82: `args.slice(matchedWords)`). Pre-#1306
+    // this was skip=1 which silently ate the first positional, making
+    // `maw bg <name> "<cmd>"` always error with "session name required". The
+    // shipped tests passed a leading command name so they didn't catch it —
+    // tests updated alongside this fix.
     const flags = parseFlags(args, {
       "--attach":    Boolean,
       "--no-attach": Boolean,
       "--help":      Boolean, "-h": "--help",
-    }, 1);
+    }, 0);
 
     if (flags["--help"]) {
       printUsage();
