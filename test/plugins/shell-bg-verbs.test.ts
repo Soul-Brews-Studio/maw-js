@@ -1,7 +1,7 @@
-import { describe, it, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import type { InvokeContext } from "../../src/plugin/types";
-import { tmux } from "../../src/core/transport/tmux-class";
-import * as tmuxImpl from "../../src/commands/plugins/tmux/impl";
+import { cmdShell } from "../../src/commands/plugins/shell/impl";
+import { cmdBg } from "../../src/commands/plugins/bg/impl";
 
 /**
  * Tests for `maw shell` + `maw bg` — the two new verbs added in #1304.
@@ -18,10 +18,18 @@ import * as tmuxImpl from "../../src/commands/plugins/tmux/impl";
  * plugin-install's sort-index at its baseline value, restoring it to its
  * original (passing) shard. See PR #1307 ship retro.
  *
- * Mocking strategy: `spyOn(tmux, "method")` + `mockRestore` in afterEach so
- * the live `tmux` singleton is patched per-test only — avoids `mock.module`
- * global pollution that breaks sibling oracle/fleet tests via the `Tmux`
- * class export.
+ * Mocking strategy (#1309): Behavioral tests call `cmdShell` / `cmdBg`
+ * directly with `{tmux, attachFn}` dependency-injection fakes. This
+ * sidesteps the `spyOn(tmux, ...)` foot-gun: under `bun run test` (no
+ * `--isolate`), sibling test files can mock `ssh.ts` or replace
+ * properties on the `tmux` singleton with Promises, leaving spyOn's
+ * `mockRestore` unable to clean up — 6 of 11 tests would fail with
+ * module-pollution. DI fakes never touch the singleton, so module
+ * order is irrelevant.
+ *
+ * Handler-level concerns (parseFlags, --help, missing-arg usage prints)
+ * are still tested via the index.ts `handler` — those code paths
+ * short-circuit before touching tmux, so no mocking is needed.
  *
  * Arg-shape note (#1306): ctx.args from the real CLI dispatcher does NOT
  * include the command name (the dispatcher strips it via
@@ -31,167 +39,191 @@ import * as tmuxImpl from "../../src/commands/plugins/tmux/impl";
  * shape `["scratch"]` so they would catch the regression next time.
  */
 
-const calls: {
-  newSession: Array<{ name: string; opts: any }>;
-  attach: string[];
-  hasSession: string[];
-} = { newSession: [], attach: [], hasSession: [] };
-
-let existingSessions = new Set<string>();
-
-function resetCalls(): void {
-  calls.newSession.length = 0;
-  calls.attach.length = 0;
-  calls.hasSession.length = 0;
-  existingSessions = new Set();
+interface FakeTmux {
+  hasSession: (name: string) => Promise<boolean>;
+  newSession: (name: string, opts: { cwd?: string; command?: string }) => Promise<void>;
+  _calls: {
+    hasSession: string[];
+    newSession: Array<{ name: string; opts: { cwd?: string; command?: string } }>;
+  };
 }
 
-function installSpies(): { has: any; ns: any; att: any } {
-  const has = spyOn(tmux, "hasSession").mockImplementation(async (name: string) => {
-    calls.hasSession.push(name);
-    return existingSessions.has(name);
-  });
-  const ns = spyOn(tmux, "newSession").mockImplementation(async (name: string, opts: any) => {
-    calls.newSession.push({ name, opts });
-  });
-  const att = spyOn(tmuxImpl, "cmdTmuxAttach").mockImplementation((target: string) => {
-    calls.attach.push(target);
-  });
-  return { has, ns, att };
+function makeFakeTmux(existing: Set<string> = new Set()): FakeTmux {
+  const calls = {
+    hasSession: [] as string[],
+    newSession: [] as Array<{ name: string; opts: { cwd?: string; command?: string } }>,
+  };
+  return {
+    _calls: calls,
+    async hasSession(name: string): Promise<boolean> {
+      calls.hasSession.push(name);
+      return existing.has(name);
+    },
+    async newSession(name: string, opts: { cwd?: string; command?: string }): Promise<void> {
+      calls.newSession.push({ name, opts });
+    },
+  };
+}
+
+function makeAttachFn(): { fn: (target: string) => void; calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    fn: (target: string) => { calls.push(target); },
+  };
 }
 
 // -----------------------------------------------------------------------------
-// maw shell
+// maw shell — impl (DI-injected)
 // -----------------------------------------------------------------------------
 
-describe("maw shell plugin", () => {
-  let handler: (ctx: InvokeContext) => Promise<any>;
-  let spies: { has: any; ns: any; att: any };
+describe("maw shell impl", () => {
+  let tmux: FakeTmux;
+  let attach: { fn: (t: string) => void; calls: string[] };
 
-  beforeEach(async () => {
-    resetCalls();
-    spies = installSpies();
-    const mod = await import("../../src/commands/plugins/shell/index");
-    handler = mod.default;
-  });
-
-  afterEach(() => {
-    spies.has.mockRestore();
-    spies.ns.mockRestore();
-    spies.att.mockRestore();
-    mock.restore();
+  beforeEach(() => {
+    tmux = makeFakeTmux();
+    attach = makeAttachFn();
   });
 
   it("default: creates session + attaches", async () => {
-    const result = await handler({ source: "cli", args: ["scratch"] });
-    expect(result.ok).toBe(true);
-    expect(calls.newSession).toHaveLength(1);
-    expect(calls.newSession[0].name).toBe("scratch");
-    expect(calls.newSession[0].opts.cwd).toBeDefined();
-    expect(calls.attach).toEqual(["scratch"]);
+    await cmdShell("scratch", { tmux, attachFn: attach.fn });
+    expect(tmux._calls.newSession).toHaveLength(1);
+    expect(tmux._calls.newSession[0].name).toBe("scratch");
+    expect(tmux._calls.newSession[0].opts.cwd).toBeDefined();
+    expect(attach.calls).toEqual(["scratch"]);
   });
 
   it("--no-attach: creates session, does NOT attach", async () => {
-    const result = await handler({ source: "cli", args: ["svc", "--no-attach"] });
-    expect(result.ok).toBe(true);
-    expect(calls.newSession).toHaveLength(1);
-    expect(calls.newSession[0].name).toBe("svc");
-    expect(calls.attach).toEqual([]);
-    expect(result.output).toContain("created (detached)");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    try {
+      await cmdShell("svc", { attach: false, tmux, attachFn: attach.fn });
+    } finally {
+      console.log = origLog;
+    }
+    expect(tmux._calls.newSession).toHaveLength(1);
+    expect(tmux._calls.newSession[0].name).toBe("svc");
+    expect(attach.calls).toEqual([]);
+    expect(logs.join("\n")).toContain("created (detached)");
+  });
+
+  it("existing session: fails loudly", async () => {
+    tmux = makeFakeTmux(new Set(["scratch"]));
+    let err: unknown;
+    try {
+      await cmdShell("scratch", { tmux, attachFn: attach.fn });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toContain("already exists");
+    expect(tmux._calls.newSession).toHaveLength(0);
+    expect(attach.calls).toHaveLength(0);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// maw shell — handler-level (parseFlags / usage prints; no tmux contact)
+// -----------------------------------------------------------------------------
+
+describe("maw shell handler", () => {
+  let handler: (ctx: InvokeContext) => Promise<{ ok: boolean; output?: string; error?: string }>;
+
+  beforeEach(async () => {
+    const mod = await import("../../src/commands/plugins/shell/index");
+    handler = mod.default;
   });
 
   it("missing name: prints usage and errors", async () => {
     const result = await handler({ source: "cli", args: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("required");
-    expect(calls.newSession).toHaveLength(0);
-  });
-
-  it("existing session: fails loudly", async () => {
-    existingSessions.add("scratch");
-    const result = await handler({ source: "cli", args: ["scratch"] });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("already exists");
-    expect(calls.newSession).toHaveLength(0);
-    expect(calls.attach).toHaveLength(0);
   });
 
   it("--help: prints usage", async () => {
     const result = await handler({ source: "cli", args: ["--help"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw shell");
-    expect(calls.newSession).toHaveLength(0);
   });
 });
 
 // -----------------------------------------------------------------------------
-// maw bg
+// maw bg — impl (DI-injected)
 // -----------------------------------------------------------------------------
 
-describe("maw bg plugin", () => {
-  let handler: (ctx: InvokeContext) => Promise<any>;
-  let spies: { has: any; ns: any; att: any };
+describe("maw bg impl", () => {
+  let tmux: FakeTmux;
+  let attach: { fn: (t: string) => void; calls: string[] };
 
-  beforeEach(async () => {
-    resetCalls();
-    spies = installSpies();
-    const mod = await import("../../src/commands/plugins/bg/index");
-    handler = mod.default;
-  });
-
-  afterEach(() => {
-    spies.has.mockRestore();
-    spies.ns.mockRestore();
-    spies.att.mockRestore();
-    mock.restore();
+  beforeEach(() => {
+    tmux = makeFakeTmux();
+    attach = makeAttachFn();
   });
 
   it("default: spawns detached, does NOT attach", async () => {
-    const result = await handler({ source: "cli", args: ["dev", "bun run dev"] });
-    expect(result.ok).toBe(true);
-    expect(calls.newSession).toHaveLength(1);
-    expect(calls.newSession[0].name).toBe("dev");
-    expect(calls.newSession[0].opts.command).toBe("bun run dev");
-    expect(calls.newSession[0].opts.cwd).toBeDefined();
-    expect(calls.attach).toEqual([]);
-    expect(result.output).toContain("spawned (detached)");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    try {
+      await cmdBg("dev", "bun run dev", { tmux, attachFn: attach.fn });
+    } finally {
+      console.log = origLog;
+    }
+    expect(tmux._calls.newSession).toHaveLength(1);
+    expect(tmux._calls.newSession[0].name).toBe("dev");
+    expect(tmux._calls.newSession[0].opts.command).toBe("bun run dev");
+    expect(tmux._calls.newSession[0].opts.cwd).toBeDefined();
+    expect(attach.calls).toEqual([]);
+    expect(logs.join("\n")).toContain("spawned (detached)");
   });
 
   it("--attach: spawns AND attaches", async () => {
-    const result = await handler({ source: "cli", args: ["srv", "bun run dev", "--attach"] });
-    expect(result.ok).toBe(true);
-    expect(calls.newSession).toHaveLength(1);
-    expect(calls.newSession[0].opts.command).toBe("bun run dev");
-    expect(calls.attach).toEqual(["srv"]);
+    await cmdBg("srv", "bun run dev", { attach: true, tmux, attachFn: attach.fn });
+    expect(tmux._calls.newSession).toHaveLength(1);
+    expect(tmux._calls.newSession[0].opts.command).toBe("bun run dev");
+    expect(attach.calls).toEqual(["srv"]);
+  });
+
+  it("existing session: fails loudly", async () => {
+    tmux = makeFakeTmux(new Set(["dev"]));
+    let err: unknown;
+    try {
+      await cmdBg("dev", "bun run dev", { tmux, attachFn: attach.fn });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toContain("already exists");
+    expect(tmux._calls.newSession).toHaveLength(0);
+    expect(attach.calls).toHaveLength(0);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// maw bg — handler-level (parseFlags / usage prints; no tmux contact)
+// -----------------------------------------------------------------------------
+
+describe("maw bg handler", () => {
+  let handler: (ctx: InvokeContext) => Promise<{ ok: boolean; output?: string; error?: string }>;
+
+  beforeEach(async () => {
+    const mod = await import("../../src/commands/plugins/bg/index");
+    handler = mod.default;
   });
 
   it("missing name: prints usage and errors", async () => {
     const result = await handler({ source: "cli", args: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("name required");
-    expect(calls.newSession).toHaveLength(0);
   });
 
   it("missing command: prints usage and errors", async () => {
     const result = await handler({ source: "cli", args: ["lonely"] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("command required");
-    expect(calls.newSession).toHaveLength(0);
-  });
-
-  it("existing session: fails loudly", async () => {
-    existingSessions.add("dev");
-    const result = await handler({ source: "cli", args: ["dev", "bun run dev"] });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("already exists");
-    expect(calls.newSession).toHaveLength(0);
-    expect(calls.attach).toHaveLength(0);
   });
 
   it("--help: prints usage", async () => {
     const result = await handler({ source: "cli", args: ["--help"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw bg");
-    expect(calls.newSession).toHaveLength(0);
   });
 });

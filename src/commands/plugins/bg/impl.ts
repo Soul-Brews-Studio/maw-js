@@ -16,30 +16,41 @@
  *   - process management (kill / restart / list-running)
  *   - log capture beyond tmux's inherited stdio
  *   - --shell convenience flag (v2 polish)
+ *
+ * Testing seams (#1309): `opts.tmux` + `opts.attachFn` let tests inject
+ * fakes directly rather than spying on the live `tmux` singleton. See
+ * shell/impl.ts for the same pattern + rationale.
  */
-import { tmux } from "../../../core/transport/tmux-class";
-import { cmdTmuxAttach } from "../tmux/impl";
+import { tmux as defaultTmux, type Tmux } from "../../../core/transport/tmux-class";
+import { cmdTmuxAttach as defaultAttach } from "../tmux/impl";
 
 export interface BgOpts {
   /** Attach after spawning. Default: false. Pass `--attach` to attach. */
   attach?: boolean;
+  /** Tmux instance override (testing seam — #1309). Default: real singleton. */
+  tmux?: Pick<Tmux, "hasSession" | "newSession">;
+  /** Attach helper override (testing seam — #1309). Default: cmdTmuxAttach. */
+  attachFn?: (target: string) => void;
 }
 
 export async function cmdBg(name: string, cmd: string, opts: BgOpts = {}): Promise<void> {
   if (!name) throw new Error("session name required (usage: maw bg <name> \"<cmd>\")");
   if (!cmd) throw new Error("command required (usage: maw bg <name> \"<cmd>\")");
 
-  if (await tmux.hasSession(name)) {
+  const t = opts.tmux ?? defaultTmux;
+  const attachFn = opts.attachFn ?? defaultAttach;
+
+  if (await t.hasSession(name)) {
     throw new Error(
       `session '${name}' already exists — attach with 'maw a ${name}' or kill with 'maw kill ${name}'`,
     );
   }
 
-  await tmux.newSession(name, { cwd: process.cwd(), command: cmd });
+  await t.newSession(name, { cwd: process.cwd(), command: cmd });
 
   const attach = opts.attach === true; // default false
   if (attach) {
-    cmdTmuxAttach(name);
+    attachFn(name);
   } else {
     console.log(`✓ session '${name}' spawned (detached) — running: ${cmd}`);
     console.log(`  attach: maw a ${name}    kill: maw kill ${name}`);
