@@ -86,9 +86,10 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
 
   // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
   // update oracle to the resolved name so session/window names are correct.
-  const resolvedOracle = repoName.replace(/-oracle$/, "");
-  if (resolvedOracle !== oracle && repoName.endsWith("-oracle")) {
-    oracle = resolvedOracle;
+  // #1299 — case-insensitive match: e.g. "DustBoy-Phd-Oracle" should resolve too.
+  const resolvedOracle = repoName.replace(/-oracle$/i, "");
+  if (resolvedOracle !== oracle && repoName.toLowerCase().endsWith("-oracle")) {
+    oracle = resolvedOracle.toLowerCase();
   }
 
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
