@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind } from "../../core/ghq";
@@ -239,9 +240,17 @@ export async function resolveOracle(
             w.name === `${oracle}-oracle` || w.name === oracle || w.name.toLowerCase().startsWith(oracleLower)
           ) || (sessionMatch ? (s.windows || [])[0] : null);
           if (found) {
-            console.log(`\x1b[36m⚡\x1b[0m ${oracle} found on peer ${peer} — waking remotely`);
-            await curlFetch(`${peer}/api/send`, { method: "POST", body: JSON.stringify({ target: `${s.name}:${found.index}`, text: "" }), from: "auto" /* #804 Step 4 SIGN — sign cross-node remote-wake /api/send */ });
-            console.log(`\x1b[32m✓\x1b[0m ${oracle} is running on ${peer} (session ${s.name}:${found.name})`);
+            // #1290-followup: SSH+tmux nudge (matches original wake.ts @ 4cc891ed
+            // + src/core/transport/ssh-attach.ts pattern). No HTTP /api/send.
+            const namedPeer = config.namedPeers?.find(p => p.url === peer);
+            const sshAlias = namedPeer?.ssh || namedPeer?.name || new URL(peer).hostname;
+            console.log(`\x1b[36m⚡\x1b[0m ${oracle} on ${sshAlias} — wake keystroke via tmux`);
+            execFileSync(
+              "ssh",
+              ["-tt", sshAlias, `tmux send-keys -t '${s.name}:${found.index}' '' Enter`],
+              { stdio: "inherit" },
+            );
+            console.log(`\x1b[32m✓\x1b[0m ${oracle} woken on ${sshAlias} (session ${s.name}:${found.index})`);
             process.exit(0);
           }
         }
