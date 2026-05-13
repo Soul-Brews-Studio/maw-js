@@ -54,6 +54,28 @@ export async function resolveFromWorktrees(
   };
 }
 
+/**
+ * Match an oracle alias to a fleet window name.
+ *
+ * #1282 — When `maw a <oracle>` (or any caller running inside a numbered tmux
+ * session like "20-homekeeper") forwards the session name as the oracle alias,
+ * the bare name carries a `^\d+-` prefix while fleet window names do not. So
+ * `"20-homekeeper-oracle" !== "homekeeper-oracle"` always missed and waking
+ * silently fell through to fleet-clone. Strip the numeric prefix before
+ * comparing; keep the raw form for backward compat with un-prefixed callers.
+ *
+ * @internal — exported for tests.
+ */
+export function matchOracleWindow(oracle: string, windowName: string): boolean {
+  const bare = oracle.replace(/^\d+-/, "");
+  return (
+    windowName === `${bare}-oracle` ||
+    windowName === bare ||
+    windowName === `${oracle}-oracle` ||
+    windowName === oracle
+  );
+}
+
 export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
@@ -64,7 +86,7 @@ export async function resolveOracle(
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
+      const win = (config.windows || []).find((w: FleetWindow) => matchOracleWindow(oracle, w.name));
       if (win?.repo && win.repo.includes("/")) {
         const fleetHit = await ghqFind(`/${win.repo}`);
         if (fleetHit) {
@@ -112,7 +134,7 @@ export async function resolveOracle(
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
+      const win = (config.windows || []).find((w: FleetWindow) => matchOracleWindow(oracle, w.name));
       if (win?.repo) {
         const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
@@ -246,7 +268,7 @@ export function resolveFleetSession(oracle: string): string | null {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      if ((config.windows || []).some((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle)) return config.name;
+      if ((config.windows || []).some((w: FleetWindow) => matchOracleWindow(oracle, w.name))) return config.name;
     }
   } catch { /* fleet dir may not exist */ }
   return null;

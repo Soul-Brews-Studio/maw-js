@@ -10,7 +10,7 @@
  * following the same pattern as wake.test.ts.
  */
 import { describe, test, expect } from "bun:test";
-import { resolveFromWorktrees } from "../src/commands/shared/wake-resolve-impl";
+import { resolveFromWorktrees, matchOracleWindow } from "../src/commands/shared/wake-resolve-impl";
 import type { WorktreeInfo } from "../src/core/fleet/worktrees-scan";
 
 const MAIN_PATH = "/home/user/ghq/github.com/Soul-Brews-Studio/wireboy-oracle";
@@ -126,5 +126,56 @@ describe("resolveFromWorktrees — worktree fallback", () => {
       () => true,
     );
     expect(result).toBeNull();
+  });
+});
+
+/**
+ * Tests for matchOracleWindow — fleet window name comparator that tolerates
+ * the `^\d+-` tmux session prefix that callers like `maw a <oracle>` carry in.
+ *
+ * #1282 — oracle="20-homekeeper" must match window.name="homekeeper-oracle".
+ * Without the strip, every `maw a` invocation from a numbered fleet session
+ * silently fell through fleet-pin lookup into fleet-clone.
+ */
+describe("matchOracleWindow — #1282 numeric prefix strip", () => {
+  test("strips numeric prefix: oracle='20-homekeeper' matches 'homekeeper-oracle'", () => {
+    expect(matchOracleWindow("20-homekeeper", "homekeeper-oracle")).toBe(true);
+  });
+
+  test("strips numeric prefix: oracle='20-homekeeper' matches bare 'homekeeper'", () => {
+    expect(matchOracleWindow("20-homekeeper", "homekeeper")).toBe(true);
+  });
+
+  test("backward compat: oracle='homekeeper' still matches 'homekeeper-oracle'", () => {
+    expect(matchOracleWindow("homekeeper", "homekeeper-oracle")).toBe(true);
+  });
+
+  test("backward compat: oracle='mawjs' matches 'mawjs-oracle'", () => {
+    expect(matchOracleWindow("mawjs", "mawjs-oracle")).toBe(true);
+  });
+
+  test("backward compat: oracle='mawjs' matches bare 'mawjs'", () => {
+    expect(matchOracleWindow("mawjs", "mawjs")).toBe(true);
+  });
+
+  test("preserves prefixed form too: oracle='20-homekeeper' matches '20-homekeeper-oracle'", () => {
+    // Some configs may genuinely name a window with the numeric prefix — don't lose that path.
+    expect(matchOracleWindow("20-homekeeper", "20-homekeeper-oracle")).toBe(true);
+  });
+
+  test("multi-digit prefix: oracle='110-yeast' matches 'yeast-oracle'", () => {
+    expect(matchOracleWindow("110-yeast", "yeast-oracle")).toBe(true);
+  });
+
+  test("non-numeric prefix is NOT stripped: oracle='dev-homekeeper' does not match 'homekeeper-oracle'", () => {
+    expect(matchOracleWindow("dev-homekeeper", "homekeeper-oracle")).toBe(false);
+  });
+
+  test("mismatched name returns false: oracle='20-homekeeper' does not match 'wireboy-oracle'", () => {
+    expect(matchOracleWindow("20-homekeeper", "wireboy-oracle")).toBe(false);
+  });
+
+  test("empty window name returns false", () => {
+    expect(matchOracleWindow("homekeeper", "")).toBe(false);
   });
 });
