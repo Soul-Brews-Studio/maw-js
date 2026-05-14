@@ -184,6 +184,19 @@ export async function invokeDirectHandler(
       "--fix": Boolean,
       "--json": Boolean,
     }, 0);
+    // Cross-node delegation: when a positional is present it names a federation
+    // peer (e.g. `maw ls oracle-world`) — route to the mpr ls plugin which
+    // owns peer resolution + /api/sessions calls. Local `maw ls` (no positional)
+    // keeps the existing cmdTmuxLs behavior so flags/output stay identical.
+    if (flags._.length > 0) {
+      const { discoverPackages, invokePlugin } = await import("../plugin/registry");
+      const plugin = discoverPackages().find(p => p.manifest.name === "ls");
+      if (!plugin) throw new UserError("ls plugin not found in registry");
+      const result = await invokePlugin(plugin, { source: "cli", args: argv });
+      if (result.ok && result.output) console.log(result.output);
+      else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
+      return;
+    }
     await cmdTmuxLs({
       all: true,
       compact: !flags["--verbose"],
