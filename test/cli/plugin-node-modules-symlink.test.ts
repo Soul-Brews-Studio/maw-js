@@ -3,10 +3,17 @@
  * `ensureMawJsResolvable` from `src/plugin/ensure-maw-js-resolvable.ts`.
  *
  * Validates the helper that lays a single shared symlink
- *   <installRoot>/node_modules/maw-js → <mawJsRoot>
+ *   <installRoot>/../node_modules/maw-js → <mawJsRoot>
  * so plugins under `<installRoot>/<name>/` can resolve `import "maw-js/..."`
  * via the standard node_modules walk-up. See the impl module header for
  * full Layer 2 / sila trace context.
+ *
+ * ## #1354 path change
+ *
+ * Original (#1339 Option E v1) placed the symlink INSIDE installRoot as a
+ * sibling of plugin dirs — that caused bun cycles + auto-population. The
+ * hot-fix (#1354) moved it ONE LEVEL UP: `installRoot()/../node_modules/`.
+ * Tests below set up fixtures at the parent-level path.
  *
  * ## Mocking strategy (per #1335 retro)
  *
@@ -64,9 +71,19 @@ function tmpDir(prefix: string): string {
   return d;
 }
 
-/** Create a fake maw-js source root with a package.json (the impl checks
- *  `existsSync(mawJsRoot)` only, but a real package.json keeps the fixture
- *  honest and matches what plugins will actually see post-symlink). */
+/**
+ * Create a per-test sandbox so `join(installRoot(), "..", "node_modules")`
+ * resolves to a unique path per test (not the shared OS tmpdir).
+ * Layout: `<sandbox>/plugins/` = MAW_PLUGINS_DIR
+ *         `<sandbox>/node_modules/` = where the impl writes the symlink
+ */
+function makeSandbox(): string {
+  const sandbox = tmpDir("maw-sandbox-");
+  const pluginsDir = join(sandbox, "plugins");
+  mkdirSync(pluginsDir, { recursive: true });
+  return pluginsDir;
+}
+
 function makeMawJsRoot(): string {
   const root = tmpDir("maw-js-root-");
   writeFileSync(
@@ -83,8 +100,7 @@ beforeEach(() => {
   origPluginsDir = process.env.MAW_PLUGINS_DIR;
   origMawJsPath = process.env.MAW_JS_PATH;
 
-  // Per-test tmp install root + maw-js source root.
-  process.env.MAW_PLUGINS_DIR = tmpDir("maw-plugins-");
+  process.env.MAW_PLUGINS_DIR = makeSandbox();
   process.env.MAW_JS_PATH = makeMawJsRoot();
 });
 
@@ -106,10 +122,10 @@ describe("ensureMawJsResolvable", () => {
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
       const mawJsRoot = process.env.MAW_JS_PATH!;
-      const linkPath = join(installRoot, "node_modules", "maw-js");
+      const nodeModulesDir = join(installRoot, "..", "node_modules");
+      const linkPath = join(nodeModulesDir, "maw-js");
 
-      // Sanity preconditions.
-      expect(existsSync(join(installRoot, "node_modules"))).toBe(false);
+      expect(existsSync(nodeModulesDir)).toBe(false);
       expect(existsSync(linkPath)).toBe(false);
 
       const r = ensureMawJsResolvable();
@@ -117,7 +133,7 @@ describe("ensureMawJsResolvable", () => {
       expect(r.changed).toBe(true);
       expect(r.linkPath).toBe(linkPath);
       expect(r.target).toBe(mawJsRoot);
-      expect(existsSync(join(installRoot, "node_modules"))).toBe(true);
+      expect(existsSync(nodeModulesDir)).toBe(true);
       expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
       expect(readlinkSync(linkPath)).toBe(mawJsRoot);
     },
@@ -129,7 +145,7 @@ describe("ensureMawJsResolvable", () => {
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
       const mawJsRoot = process.env.MAW_JS_PATH!;
-      const nodeModules = join(installRoot, "node_modules");
+      const nodeModules = join(installRoot, "..", "node_modules");
       const linkPath = join(nodeModules, "maw-js");
 
       mkdirSync(nodeModules, { recursive: true });
@@ -148,10 +164,9 @@ describe("ensureMawJsResolvable", () => {
     "safety: refuses to clobber live symlink pointing elsewhere",
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
-      const nodeModules = join(installRoot, "node_modules");
+      const nodeModules = join(installRoot, "..", "node_modules");
       const linkPath = join(nodeModules, "maw-js");
 
-      // Wrong target — but a live, existing dir (not dangling).
       const wrongTarget = tmpDir("maw-js-wrong-");
       writeFileSync(
         join(wrongTarget, "package.json"),
@@ -165,7 +180,6 @@ describe("ensureMawJsResolvable", () => {
 
       expect(r.changed).toBe(false);
       expect(r.reason).toMatch(/manual fix|points to/i);
-      // Symlink left untouched.
       expect(readlinkSync(linkPath)).toBe(wrongTarget);
     },
     5000,
@@ -176,11 +190,9 @@ describe("ensureMawJsResolvable", () => {
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
       const mawJsRoot = process.env.MAW_JS_PATH!;
-      const nodeModules = join(installRoot, "node_modules");
+      const nodeModules = join(installRoot, "..", "node_modules");
       const linkPath = join(nodeModules, "maw-js");
 
-      // Pre-existing node_modules (e.g. from a prior unrelated install) but
-      // no maw-js entry yet.
       mkdirSync(nodeModules, { recursive: true });
       writeFileSync(join(nodeModules, ".keep"), "");
       expect(existsSync(linkPath)).toBe(false);
@@ -190,7 +202,6 @@ describe("ensureMawJsResolvable", () => {
       expect(r.changed).toBe(true);
       expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
       expect(readlinkSync(linkPath)).toBe(mawJsRoot);
-      // Sibling content untouched.
       expect(existsSync(join(nodeModules, ".keep"))).toBe(true);
     },
     5000,
@@ -201,16 +212,14 @@ describe("ensureMawJsResolvable", () => {
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
       const mawJsRoot = process.env.MAW_JS_PATH!;
-      const nodeModules = join(installRoot, "node_modules");
+      const nodeModules = join(installRoot, "..", "node_modules");
       const linkPath = join(nodeModules, "maw-js");
 
-      // Point at a directory we then delete → dangling symlink on disk.
       const ghost = tmpDir("maw-js-ghost-");
       mkdirSync(nodeModules, { recursive: true });
       symlinkSync(ghost, linkPath, "dir");
       rmSync(ghost, { recursive: true, force: true });
 
-      // Confirm dangling: lstat sees the link, existsSync (which follows) is false.
       expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
       expect(existsSync(linkPath)).toBe(false);
 
@@ -227,10 +236,9 @@ describe("ensureMawJsResolvable", () => {
     "leaves a real (non-symlink) file at maw-js path alone",
     () => {
       const installRoot = process.env.MAW_PLUGINS_DIR!;
-      const nodeModules = join(installRoot, "node_modules");
+      const nodeModules = join(installRoot, "..", "node_modules");
       const linkPath = join(nodeModules, "maw-js");
 
-      // Operator (or another tool) wrote a real directory here. Don't touch it.
       mkdirSync(linkPath, { recursive: true });
       writeFileSync(join(linkPath, "package.json"), "{}");
 
@@ -238,7 +246,6 @@ describe("ensureMawJsResolvable", () => {
 
       expect(r.changed).toBe(false);
       expect(r.reason).toMatch(/not a symlink/i);
-      // Not converted into a symlink.
       expect(lstatSync(linkPath).isDirectory()).toBe(true);
       expect(lstatSync(linkPath).isSymbolicLink()).toBe(false);
     },
@@ -257,8 +264,7 @@ describe("ensureMawJsResolvable", () => {
 
       expect(r.changed).toBe(false);
       expect(r.reason).toMatch(/not found/i);
-      // No symlink created.
-      const linkPath = join(process.env.MAW_PLUGINS_DIR!, "node_modules", "maw-js");
+      const linkPath = join(process.env.MAW_PLUGINS_DIR!, "..", "node_modules", "maw-js");
       expect(existsSync(linkPath)).toBe(false);
     },
     5000,
@@ -268,7 +274,7 @@ describe("ensureMawJsResolvable", () => {
     "idempotent end-to-end: first call creates, second call is a no-op",
     () => {
       const mawJsRoot = process.env.MAW_JS_PATH!;
-      const linkPath = join(process.env.MAW_PLUGINS_DIR!, "node_modules", "maw-js");
+      const linkPath = join(process.env.MAW_PLUGINS_DIR!, "..", "node_modules", "maw-js");
 
       const first = ensureMawJsResolvable();
       expect(first.changed).toBe(true);
