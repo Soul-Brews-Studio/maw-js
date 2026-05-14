@@ -302,15 +302,16 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
 
-  // #769 — URL/slug input expresses the FULL repo intent (e.g. "m5-oracle").
-  // The bare `oracle` is the stripped form ("m5"), and falling through to the
-  // generic suffix match would greedily hit unrelated `*-m5` sessions
-  // (`01-maw-m5`, `04-ollama-m5`). Match strictly on the full repo name; if
-  // none, return null so the caller auto-creates a session named after it.
+  // #1340 — all comparisons below are case-insensitive. tmux session names are
+  // case-sensitive (01-Somwind ≠ 01-somwind) but users aren't. Manually-created
+  // mixed-case sessions must be discoverable by maw's lowercase oracle names.
+  const oracleLc = oracle.toLowerCase();
+
   if (urlRepoName) {
-    const exact = sessions.find(s => s.name === urlRepoName || s.name === oracle);
+    const urlLc = urlRepoName.toLowerCase();
+    const exact = sessions.find(s => s.name.toLowerCase() === urlLc || s.name.toLowerCase() === oracleLc);
     if (exact) return exact.name;
-    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
+    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.toLowerCase().endsWith(`-${urlLc}`));
     if (numbered.length === 1) return numbered[0]!.name;
     if (numbered.length > 1) {
       console.error(`\x1b[31merror\x1b[0m: '${urlRepoName}' is ambiguous — matches ${numbered.length} fleet sessions:`);
@@ -321,21 +322,15 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     return null;
   }
 
-  // #1107: fleet config is authoritative — check FIRST before substring matching.
-  // "discord" → fleet says "24-discord-oracle", use that. Don't let substring
-  // matching grab "18-hermes-discord" first.
   const fleetSession = resolveFleetSession(oracle);
   if (fleetSession) {
-    if (sessions.find(s => s.name === fleetSession)) return fleetSession;
-    // Fleet knows this oracle but session is dead → return null so cmdWake
-    // creates a NEW session instead of substring-matching into the wrong one.
+    const fleetLc = fleetSession.toLowerCase();
+    if (sessions.find(s => s.name.toLowerCase() === fleetLc)) return fleetSession;
     return null;
   }
 
-  // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
-  // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
-  // fleet sessions suffix-match, surface loudly rather than silently picking one.
-  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`));
+  // #1340 — case-insensitive suffix match for numeric-prefixed fleet sessions.
+  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.toLowerCase().endsWith(`-${oracleLc}`));
   if (numeric.length === 1) return numeric[0]!.name;
   if (numeric.length > 1) {
     console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numeric.length} fleet sessions:`);
