@@ -333,7 +333,12 @@ export async function cmdSend(
         if (decision.wake) {
           const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
             method: "POST",
-            body: JSON.stringify({ target: bareAgent }),
+            // #1343 — receiver (mpr/plugins/wake/index.ts:117) reads body.oracle.
+            // Previously sent {target: ...} which silently failed every cross-node
+            // auto-wake. Cross-node hey short-form (peer:agent) has been broken
+            // since wake was extracted to mpr. Canonical (peer:session:window)
+            // skips wake entirely so masked the bug.
+            body: JSON.stringify({ oracle: bareAgent }),
             from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
           });
           if (!wakeRes.ok || !wakeRes.data?.ok) {
