@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync, readlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { ensureMawJsResolvable } from "../plugin/ensure-maw-js-resolvable";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
@@ -109,6 +110,17 @@ async function persistBundledPath(resolvedPath: string): Promise<void> {
  */
 export async function runBootstrap(pluginDir: string, srcDir: string): Promise<void> {
   mkdirSync(pluginDir, { recursive: true });
+
+  // #1339 Option E — ensure `<pluginDir>/node_modules/maw-js` exists so any
+  // installed plugin can resolve `import "maw-js/..."` via standard node
+  // module walk-up. Idempotent; silent on no-op. The verbose log path
+  // surfaces actual link creations / replacements only.
+  try {
+    const r = ensureMawJsResolvable();
+    if (r.changed) {
+      console.warn(`[maw] ${r.reason}`);
+    }
+  } catch { /* never fatal on bootstrap */ }
 
   // 0. #1015 — prune broken symlinks before anything else. After an update
   //    removes bundled plugins from src/commands/plugins/, their old symlinks

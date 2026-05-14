@@ -40,6 +40,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { installRoot } from "./install-source-detect";
+import { ensureMawJsResolvable } from "../../../plugin/ensure-maw-js-resolvable";
 
 export const VALID_TIERS = ["core", "standard", "extra"] as const;
 export type Tier = (typeof VALID_TIERS)[number];
@@ -157,6 +158,16 @@ export async function cmdPluginInstallTier(opts: InstallTierOptions): Promise<In
       (skipped ? `, ${skipped} skipped` : "") +
       (failed.length ? `, ${failed.length} failed` : ""),
   );
+
+  // #1339 Option E — once at the end of the bulk loop (not per-iteration).
+  // cmdPluginInstall already calls ensureMawJsResolvable() per-install, so
+  // this is a belt-and-suspenders final reconcile that also covers the
+  // skip-existing path where nothing was installed but the link may still
+  // be missing from a prior partial run.
+  try {
+    const r = ensureMawJsResolvable();
+    if (r.changed) console.warn(`[maw] ${r.reason}`);
+  } catch { /* never fatal */ }
 
   if (failed.length > 0) {
     throw new Error(`install --tier ${opts.tier}: ${failed.length} of ${names.length} failed`);

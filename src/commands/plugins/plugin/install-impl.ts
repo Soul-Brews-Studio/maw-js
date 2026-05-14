@@ -25,6 +25,7 @@ import { parseFlags } from "../../../cli/parse-args";
 import { detectMode, ensureInstallRoot } from "./install-source-detect";
 import { installFromDir, installFromTarball, installFromUrl, installFromMonorepo, installFromGithub } from "./install-handlers";
 import { resolvePeerInstall } from "./install-peer-resolver";
+import { ensureMawJsResolvable } from "../../../plugin/ensure-maw-js-resolvable";
 import { basename } from "path";
 
 export { installRoot, detectMode, parsePeerSpec, parseMonorepoRef, parseGithubRef, ensureInstallRoot, removeExisting } from "./install-source-detect";
@@ -69,6 +70,17 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
     throw new Error(`--category must be one of: core, standard, extra (got ${JSON.stringify(cat)})`);
   }
   const weight = cat !== undefined ? CATEGORY_WEIGHT[cat] : undefined;
+
+  // #1339 Option E — every successful install path must end with the parent
+  // `node_modules/maw-js` shared link in place. Wired here at the dispatch
+  // level so all source kinds (dir/tarball/url/peer/monorepo/github) inherit
+  // the fix from a single call site. Idempotent; silent on no-op.
+  const runEnsureLink = (): void => {
+    try {
+      const r = ensureMawJsResolvable();
+      if (r.changed) console.warn(`[maw] ${r.reason}`);
+    } catch { /* never fatal */ }
+  };
 
   // Dispatch on source type. --pin only meaningful for tarball/URL installs
   // (dev `--link` is a symlink, not a supply-chain surface).
@@ -125,4 +137,7 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
   } else {
     await installFromUrl(mode.src, { force, weight, pin });
   }
+
+  // Post-install (every source kind): ensure the resolution layer is in place.
+  runEnsureLink();
 }
