@@ -149,7 +149,8 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
-    const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
+    // #1340 — lowercase baseName so maw always creates canonical lowercase sessions.
+    const baseName = (getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle).toLowerCase();
 
     // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
     // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
