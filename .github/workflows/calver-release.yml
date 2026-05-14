@@ -120,11 +120,23 @@ jobs:
         # leaving the proximate user-facing fix #857 unreachable to users.
         # Same override pattern as test-unit shard (#811/#813 precedent).
         # Root-cause port-race fix is tracked separately in #830.
+        #
+        # #1336 — mirror ci.yml test-unit's --isolate. 31 of 102 test files
+        # use process-global mock.module() which leaks across files in a
+        # shared process. PR CI uses --isolate (per #1278); CalVer Release
+        # did not, so curlFetch + peers/accept tests would flake on the
+        # release runner even when sharded CI was 20/20 green, silently
+        # blocking the alpha tag (e.g. v26.5.14-alpha.1944 from #1331/#1335).
+        # path-ignores mirror package.json:test exactly.
         env:
           MAW_SKIP_FLAKY: "1"
+          MAW_TEST_MODE: "1"
         run: |
           bun install --frozen-lockfile
-          bun run test
+          bun test test/ --isolate \
+            --path-ignore-patterns '**/test/isolated/**' \
+            --path-ignore-patterns '**/zz-mock-tmux-smoke*' \
+            --path-ignore-patterns '**/agents/**'
           bun run build
 
       - name: Tag + GitHub release
