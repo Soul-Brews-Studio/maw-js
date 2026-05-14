@@ -40,7 +40,17 @@ export interface SshMockOverrides {
   getPaneCommand?: (...args: any[]) => any;
   getPaneCommands?: (...args: any[]) => any;
   getPaneInfos?: (...args: any[]) => any;
+  isAgentCommand?: (...args: any[]) => any;
   HostExecError?: any;
+}
+
+/** Faithful lightweight default for isAgentCommand — name-match only (no
+ *  config.commands lookup, which the real one does). Mirrors the tightened
+ *  #10 logic so tests that don't override it still get sane answers. */
+function defaultIsAgentCommand(cmd?: string | null): boolean {
+  const c = (cmd ?? "").trim();
+  if (!c) return false;
+  return /claude|codex/i.test(c) || /^node$/i.test(c) || /^\d+\.\d+\.\d+$/.test(c);
 }
 
 // #431 added HostExecError — mocks must re-export the class shape or
@@ -75,6 +85,7 @@ export function mockSshModule(overrides: SshMockOverrides = {}) {
     getPaneCommand: async () => "",
     getPaneCommands: async () => ({}),
     getPaneInfos: async () => ({}),
+    isAgentCommand: defaultIsAgentCommand,
     HostExecError: MockHostExecError,
     ...overrides,
   };
