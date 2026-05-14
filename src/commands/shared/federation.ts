@@ -1,5 +1,6 @@
 import { getFederationStatus, getPeers, curlFetch, listSessions } from "../../sdk";
 import { loadConfig } from "../../config";
+import { loadPeers, type Peer } from "../../lib/peers/store";
 
 async function fetchPeerAgentCount(url: string): Promise<number> {
   try {
@@ -33,13 +34,64 @@ function labelForPeer(url: string, named: { name: string; url: string }[]): stri
   } catch { return url; }
 }
 
+/**
+ * Options for `cmdFederationStatus` (#1329).
+ *
+ * Defaults preserve byte-for-byte parity with pre-#1329 output — see
+ * verification matrix in PR. Both flags are additive: `-av` produces a
+ * row block with both the `node:` line (from `-a`) and the
+ * `pubkey/lastSeen/version/oracle` line (from `-v`).
+ */
+export interface FederationStatusOpts {
+  /** -a / --all: also surface node identity per row. */
+  all?: boolean;
+  /** -v / --verbose: also surface pubkey/lastSeen/version/oracle per row (cached read only — no HTTP). */
+  verbose?: boolean;
+}
+
+/**
+ * Find the cached peer entry (~/.maw/peers.json) that matches a federation
+ * peer by URL or node identity. URL match wins; node match is the fallback
+ * for peers whose runtime URL differs from the cached entry (e.g. WireGuard
+ * vs LAN alias for the same node).
+ */
+function findCachedPeer(
+  url: string,
+  nodeName: string | undefined,
+  store: Record<string, Peer>,
+): Peer | undefined {
+  for (const p of Object.values(store)) {
+    if (p.url === url) return p;
+  }
+  if (nodeName) {
+    for (const p of Object.values(store)) {
+      if (p.node === nodeName) return p;
+    }
+  }
+  return undefined;
+}
+
+/** Format an ISO timestamp for verbose rows — trim sub-second precision; `never` if null. */
+function fmtLastSeen(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  // 2026-05-12T06:44:52.801Z → 2026-05-12T06:44:52Z
+  return iso.replace(/\.\d+Z$/, "Z");
+}
+
 /** maw federation status — show all nodes (local + peers) with connectivity + agent counts */
-export async function cmdFederationStatus() {
+export async function cmdFederationStatus(opts: FederationStatusOpts = {}) {
+  const { all = false, verbose = false } = opts;
   const peers = getPeers();
   const config = loadConfig();
   const named = config.namedPeers ?? [];
   const totalNodes = peers.length + 1; // +1 for local
   const localLabel = config.node ? `${config.node} (local)` : "local";
+
+  // -v reads the on-disk TOFU cache (~/.maw/peers.json). Loaded once up-front
+  // so the per-row lookups are O(1) Map probes — no fs hit per peer.
+  // We deliberately do NOT make HTTP calls per peer for version etc; uncached
+  // fields render as "unknown" / "-" (#1329 design: cached-only default flow).
+  const peerStore = verbose ? loadPeers().peers : {};
 
   // Header always includes local, so "N nodes (1 local + M peers)"
   console.log(
@@ -91,6 +143,30 @@ export async function cmdFederationStatus() {
     const label = labelForPeer(url, named);
     console.log(`  ${dot}  \x1b[37m${label}\x1b[0m  ${status}`);
     console.log(`     \x1b[90m${url}\x1b[0m`);
+
+    // -a: surface the node identity (best-effort from /api/identity probe).
+    // Falls back to "(unknown)" when the peer is unreachable AND has never
+    // exposed an identity — otherwise the live probe wins over cached.
+    if (all) {
+      const nodeName = statuses[i].node
+        ?? findCachedPeer(url, undefined, peerStore)?.node
+        ?? "(unknown)";
+      console.log(`     \x1b[90mnode: ${nodeName}\x1b[0m`);
+    }
+
+    // -v: surface cached TOFU fields. No HTTP calls — uncached = literal "unknown" / "-".
+    // Version has no cached field in peers.json today (#1329 open-question 1 deferred
+    // to a follow-up that wires a `version` write during probePeer); always "unknown".
+    if (verbose) {
+      const cached = findCachedPeer(url, statuses[i].node, peerStore);
+      const pubkey = cached?.pubkey ? cached.pubkey.slice(0, 8) : "-";
+      const lastSeen = fmtLastSeen(cached?.lastSeen);
+      const version = "unknown";
+      const oracle = cached?.identity?.oracle ?? "-";
+      console.log(
+        `     \x1b[90mpubkey: ${pubkey}  lastSeen: ${lastSeen}  version: ${version}  oracle: ${oracle}\x1b[0m`,
+      );
+    }
   }
 
   console.log(`\n\x1b[90m${reachableCount}/${totalNodes} reachable (one-way; use --verify for pair-symmetric check — PR #398)\x1b[0m\n`);
