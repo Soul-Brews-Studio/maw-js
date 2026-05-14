@@ -176,7 +176,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; cwd?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -213,6 +213,8 @@ export async function cmdTeamSpawn(
 
   // Build spawn prompt
   const model = opts.model || "sonnet";
+  const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];
   parts.push(`You are '${role}' on team '${teamName}'.`);
   if (opts.prompt) parts.push(opts.prompt);
@@ -260,12 +262,12 @@ export async function cmdTeamSpawn(
     if (!process.env.TMUX) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
       return;
     }
     try {
       const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
-      const claudeCmd = `claude --model ${model} --system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
+      const claudeCmd = `${cwdPrefix}claude --model ${model} --system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
       const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
       const agentId = `${role}@${teamName}`;
 
@@ -295,11 +297,11 @@ export async function cmdTeamSpawn(
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
     }
     return;
   }
 
   console.log();
-  console.log(`  \x1b[36mRun:\x1b[0m claude --model ${model} --system-prompt-file "${promptPath}"`);
+  console.log(`  \x1b[36mRun:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
 }
