@@ -1,6 +1,6 @@
-import { describe, it, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import type { InvokeContext } from "../../src/plugin/types";
-import { tmux } from "../../src/core/transport/tmux-class";
+import { cmdWait, WaitTimeoutError } from "../../src/commands/plugins/wait/impl";
 
 /**
  * Tests for `maw wait` — the third verb of the POSIX-style job-control trio
@@ -11,136 +11,167 @@ import { tmux } from "../../src/core/transport/tmux-class";
  * reason documented in shell-bg-verbs.test.ts header. See PR #1307 retro
  * and #1308 for the underlying EEXIST shard-flake.
  *
- * Mocking strategy: `spyOn(tmux, "hasSession")` + `mockRestore` in afterEach
- * so the live `tmux` singleton is patched per-test only. Avoids
- * `mock.module` global pollution.
+ * Mocking strategy (#1312): Behavioral tests call `cmdWait` directly with
+ * a `{tmux}` dependency-injection fake. This sidesteps the
+ * `spyOn(tmux, ...)` foot-gun: under `bun run test` (no `--isolate`),
+ * sibling test files mutate the shared `tmux` singleton at import-time,
+ * leaving spyOn's `mockRestore` unable to clean up — 4 wait tests would
+ * fail with module-pollution. DI fakes never touch the singleton, so
+ * module order is irrelevant. Same pattern as #1309 for shell+bg.
+ *
+ * Handler-level concerns (parseFlags, --help, missing-arg usage prints)
+ * are still tested via the index.ts `handler` — those code paths
+ * short-circuit before touching tmux, so no mocking is needed.
  */
 
-let aliveQueue: boolean[] = [];
-const calls: { hasSession: string[] } = { hasSession: [] };
-
-function resetCalls(): void {
-  calls.hasSession.length = 0;
-  aliveQueue = [];
+interface FakeTmux {
+  hasSession: (name: string) => Promise<boolean>;
+  _calls: { hasSession: string[] };
 }
 
-/** Push a sequence of has-session results. Each call to `tmux.hasSession`
- *  consumes one. If the queue empties, returns `false` (i.e. ended). */
-function queueAlive(...values: boolean[]): void {
-  aliveQueue.push(...values);
+/** Fake whose `hasSession` returns each value from `queue` in turn, then
+ *  `false` once the queue is drained. Mirrors the original spy-based
+ *  helper but injected, not spied. */
+function makeFakeTmux(queue: boolean[] = []): FakeTmux {
+  const calls = { hasSession: [] as string[] };
+  const remaining = [...queue];
+  return {
+    _calls: calls,
+    async hasSession(name: string): Promise<boolean> {
+      calls.hasSession.push(name);
+      return remaining.shift() ?? false;
+    },
+  };
 }
 
-function installSpies(): { has: any } {
-  const has = spyOn(tmux, "hasSession").mockImplementation(async (name: string) => {
-    calls.hasSession.push(name);
-    return aliveQueue.shift() ?? false;
-  });
-  return { has };
+/** Fake whose `hasSession` always returns true — used for timeout cases. */
+function makeAlwaysAliveTmux(): FakeTmux {
+  const calls = { hasSession: [] as string[] };
+  return {
+    _calls: calls,
+    async hasSession(name: string): Promise<boolean> {
+      calls.hasSession.push(name);
+      return true;
+    },
+  };
 }
 
-describe("maw wait plugin", () => {
-  let handler: (ctx: InvokeContext) => Promise<any>;
-  let spies: { has: any };
+// -----------------------------------------------------------------------------
+// maw wait — impl (DI-injected)
+// -----------------------------------------------------------------------------
 
-  beforeEach(async () => {
-    resetCalls();
-    spies = installSpies();
-    const mod = await import("../../src/commands/plugins/wait/index");
-    handler = mod.default;
+describe("maw wait impl", () => {
+  let tmux: FakeTmux;
+
+  beforeEach(() => {
+    tmux = makeFakeTmux();
   });
-
-  afterEach(() => {
-    spies.has.mockRestore();
-    mock.restore();
-  });
-
-  // Arg-shape note: ctx.args from the real CLI dispatcher does NOT include
-  // the command name (dispatcher strips it via `args.slice(matchedWords)`).
-  // Tests pass the real shape `[<name>, ...flags]` so they catch regressions
-  // in the skip=0 parseFlags wiring.
 
   it("session never existed: returns immediately", async () => {
-    queueAlive(false);
-    const result = await handler({ source: "cli", args: ["ghost"] });
-    expect(result.ok).toBe(true);
-    expect(calls.hasSession).toEqual(["ghost"]);
-    expect(result.output).toContain("not running");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    try {
+      await cmdWait("ghost", { tmux });
+    } finally {
+      console.log = origLog;
+    }
+    expect(tmux._calls.hasSession).toEqual(["ghost"]);
+    expect(logs.join("\n")).toContain("not running");
   });
 
   it("session ends mid-wait: blocks then returns", async () => {
-    // alive once (fast path), then ends on next poll
-    queueAlive(true, false);
-    const result = await handler({
-      source: "cli",
-      // 1ms interval keeps test instant
-      args: ["builder", "--interval", "0.001"],
-    });
-    expect(result.ok).toBe(true);
-    expect(calls.hasSession.length).toBeGreaterThanOrEqual(2);
-    expect(result.output).toContain("ended");
+    tmux = makeFakeTmux([true, false]); // alive once, then ends
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    try {
+      await cmdWait("builder", { tmux, intervalSec: 0.001 });
+    } finally {
+      console.log = origLog;
+    }
+    expect(tmux._calls.hasSession.length).toBeGreaterThanOrEqual(2);
+    expect(logs.join("\n")).toContain("ended");
   });
 
-  it("--timeout exceeded: returns ok=false with timeout: prefix", async () => {
-    // Keep returning true forever — timeout must kick in.
-    spies.has.mockImplementation(async (name: string) => {
-      calls.hasSession.push(name);
-      return true;
-    });
-    const result = await handler({
-      source: "cli",
-      args: ["stuck", "--interval", "0.05", "--timeout", "0.01"],
-    });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/^timeout:/);
-    expect(result.error).toContain("stuck");
+  it("--timeout exceeded: throws WaitTimeoutError", async () => {
+    tmux = makeAlwaysAliveTmux();
+    let err: unknown;
+    try {
+      await cmdWait("stuck", { tmux, intervalSec: 0.05, timeoutSec: 0.01 });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(WaitTimeoutError);
+    expect(String((err as Error).message)).toMatch(/^timeout:/);
+    expect(String((err as Error).message)).toContain("stuck");
+  });
+
+  it("missing name: throws usage error before touching tmux", async () => {
+    let err: unknown;
+    try {
+      await cmdWait("", { tmux });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toContain("required");
+    expect(tmux._calls.hasSession).toHaveLength(0);
+  });
+
+  it("--interval 0: rejects with validation error", async () => {
+    let err: unknown;
+    try {
+      await cmdWait("x", { tmux, intervalSec: 0 });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toContain("--interval");
+  });
+
+  it("--timeout 0: rejects with validation error", async () => {
+    let err: unknown;
+    try {
+      await cmdWait("x", { tmux, timeoutSec: 0 });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toContain("--timeout");
+  });
+
+  it("custom intervalSec is plumbed through", async () => {
+    tmux = makeFakeTmux([true, true, false]);
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    const start = Date.now();
+    try {
+      await cmdWait("x", { tmux, intervalSec: 0.05 });
+    } finally {
+      console.log = origLog;
+    }
+    const elapsed = Date.now() - start;
+    // Two intervals of 50ms after the fast-path check.
+    expect(elapsed).toBeGreaterThanOrEqual(50);
+    expect(tmux._calls.hasSession.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// maw wait — handler-level (parseFlags / usage prints; no tmux contact)
+// -----------------------------------------------------------------------------
+
+describe("maw wait handler", () => {
+  let handler: (ctx: InvokeContext) => Promise<{ ok: boolean; output?: string; error?: string }>;
+
+  beforeEach(async () => {
+    const mod = await import("../../src/commands/plugins/wait/index");
+    handler = mod.default;
   });
 
   it("missing name: prints usage and errors", async () => {
     const result = await handler({ source: "cli", args: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("required");
-    expect(calls.hasSession).toHaveLength(0);
   });
 
-  it("--help: prints usage, does not poll", async () => {
+  it("--help: prints usage", async () => {
     const result = await handler({ source: "cli", args: ["--help"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw wait");
-    expect(calls.hasSession).toHaveLength(0);
-  });
-
-  it("--interval 0: rejects with validation error", async () => {
-    queueAlive(true);
-    const result = await handler({
-      source: "cli",
-      args: ["x", "--interval", "0"],
-    });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("--interval");
-    // hasSession may still have been called by the fast-path check — that's fine.
-  });
-
-  it("--timeout 0: rejects with validation error", async () => {
-    queueAlive(true);
-    const result = await handler({
-      source: "cli",
-      args: ["x", "--timeout", "0"],
-    });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("--timeout");
-  });
-
-  it("custom --interval is plumbed through", async () => {
-    queueAlive(true, true, false);
-    const start = Date.now();
-    const result = await handler({
-      source: "cli",
-      args: ["x", "--interval", "0.05"],
-    });
-    const elapsed = Date.now() - start;
-    expect(result.ok).toBe(true);
-    // Two intervals of 50ms after the fast-path check.
-    expect(elapsed).toBeGreaterThanOrEqual(50);
-    expect(calls.hasSession.length).toBeGreaterThanOrEqual(3);
   });
 });

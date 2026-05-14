@@ -16,13 +16,15 @@
  *   - waiting on multiple names at once
  *   - waiting on `maw a` peer / remote sessions
  */
-import { tmux } from "../../../core/transport/tmux-class";
+import { tmux as defaultTmux, type Tmux } from "../../../core/transport/tmux-class";
 
 export interface WaitOpts {
   /** Poll interval in seconds. Default 5. Fractional values allowed. */
   intervalSec?: number;
   /** Hard timeout in seconds. Throws on expiry. Omit for no timeout. */
   timeoutSec?: number;
+  /** Tmux instance override (testing seam — #1312). Default: real singleton. */
+  tmux?: Pick<Tmux, "hasSession">;
 }
 
 /** Thrown when --timeout is exceeded. Caller maps to exit code 1. */
@@ -44,9 +46,11 @@ export async function cmdWait(name: string, opts: WaitOpts = {}): Promise<void> 
     throw new Error(`--timeout must be positive (got ${opts.timeoutSec})`);
   }
 
+  const t = opts.tmux ?? defaultTmux;
+
   // Fast path: session never existed → nothing to wait for. This matches
   // POSIX `wait` on a finished job: no error, no spin.
-  if (!(await tmux.hasSession(name))) {
+  if (!(await t.hasSession(name))) {
     console.log(`✓ session '${name}' not running — nothing to wait for`);
     return;
   }
@@ -60,7 +64,7 @@ export async function cmdWait(name: string, opts: WaitOpts = {}): Promise<void> 
       throw new WaitTimeoutError(name, opts.timeoutSec!);
     }
     await new Promise<void>((r) => setTimeout(r, intervalMs));
-    if (!(await tmux.hasSession(name))) {
+    if (!(await t.hasSession(name))) {
       console.log(`✓ session '${name}' ended`);
       return;
     }
