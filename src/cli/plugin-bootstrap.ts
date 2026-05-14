@@ -39,7 +39,7 @@ function isTransientPath(p: string): boolean {
  * Returns the resolved path or null if none exist. Callers warn rather than
  * throw so an already-populated `pluginDir` continues to work.
  */
-async function resolveBundledPath(srcDirHint: string): Promise<string | null> {
+export async function resolveBundledPath(srcDirHint: string): Promise<string | null> {
   const envPath = process.env.MAW_BUNDLED_PLUGINS;
   if (envPath) {
     const expanded = expandHome(envPath);
