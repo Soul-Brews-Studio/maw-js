@@ -234,6 +234,40 @@ export async function invokeDirectHandler(
       "--force": Boolean,
     }, 0);
 
+    // #1332 — intercept -h/--help before oracle extraction. parseFlags puts
+    // unrecognized flags in `_`, so --help lands as positional[0] and hits
+    // the oracle-name validator. Print help and return instead.
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      const help = [
+        "maw wake <oracle> [flags]",
+        "",
+        "  Wake (or attach to) an oracle session in tmux.",
+        "",
+        "  flags:",
+        "    --task <s>        Create a worktree for the given task",
+        "    --wt <s>          Worktree name override",
+        "    -p, --prompt <s>  Prompt to inject after attach",
+        "    --incubate <slug> Clone from GitHub before waking",
+        "    --fresh           Force a fresh session (skip existing)",
+        "    -a, --attach      Attach to pane after wake",
+        "    --no-attach       Wake without attaching",
+        "    --list            List worktrees for this oracle",
+        "    --split           Split pane instead of new window",
+        "    --all-local       Resolve all local repos (no peer)",
+        "    -e, --engine <s>  AI engine override",
+        "    --force           Bypass refuse-to-spawn guard",
+        "    --dry-run         Show what would happen, don't act",
+        "",
+        "  examples:",
+        "    maw wake homekeeper          # wake or attach to homekeeper",
+        "    maw wake neo --task fix-123   # wake in a worktree",
+        "    maw wake all                  # wake entire fleet",
+        "",
+      ];
+      console.log(help.join("\n"));
+      return;
+    }
+
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
