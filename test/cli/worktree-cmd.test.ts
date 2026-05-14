@@ -60,7 +60,7 @@ const PRISTINE_STDOUT_WRITE = process.stdout.write?.bind?.(process.stdout);
 // is process-global → without our re-mock, done.ts's isFleetRegisteredWindow
 // would read from snapshot's tmp dir (not ours) and never find the fleet
 // config files we write below.
-mock.module("../src/core/paths", () => ({
+mock.module("../../src/core/paths", () => ({
   MAW_ROOT: "/tmp",
   CONFIG_DIR: join(TEST_HOME, "config"),
   FLEET_DIR,
@@ -88,8 +88,8 @@ let listSessionsReturn: Array<{
   windows: Array<{ index: number; name: string; active: boolean }>;
 }> = [];
 
-import { mockSshModule } from "./helpers/mock-ssh";
-mock.module("../src/core/transport/ssh", () =>
+import { mockSshModule } from "../helpers/mock-ssh";
+mock.module("../../src/core/transport/ssh", () =>
   mockSshModule({
     hostExec: async (cmd: string) => {
       hostExecCalls.push(cmd);
@@ -116,7 +116,7 @@ mock.module("../src/core/transport/ssh", () =>
 let tmuxCalls: string[] = [];
 let tmuxHasSession = false;
 let tmuxWindows: Array<{ index: number; name: string; active: boolean }> = [];
-mock.module("../src/core/transport/tmux", () => ({
+mock.module("../../src/core/transport/tmux", () => ({
   tmux: {
     hasSession: async (name: string) => {
       tmuxCalls.push(`hasSession ${name}`);
@@ -223,7 +223,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("rev-parse --git-dir", "");
       onHostExec("worktree add", "");
 
-      const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
       const target = await cmdWorktreeAdd(repoDir, "feature-x", { noAttach: true });
 
       // Path captured in `git worktree add '<wtPath>' -b 'feat/<slug>' '<from>'`
@@ -244,7 +244,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("rev-parse --git-dir", "");
       onHostExec("worktree add", "");
 
-      const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeAdd(repoDir, "feat-y", { from: "origin/main", noAttach: true });
 
       const wtAddCmd = hostExecCalls.find(c => c.includes("worktree add '"));
@@ -262,7 +262,7 @@ describe("#1331 — maw worktree v1", () => {
       // Default hostExec (no throw) → refExists returns true for origin/alpha
       onHostExec("worktree add", "");
 
-      const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeAdd(repoDir, "slug-a", { noAttach: true });
 
       const wtAddCmd = hostExecCalls.find(c => c.includes("worktree add '"));
@@ -280,7 +280,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec(/rev-parse --verify 'origin\/main'/, "main-sha");
       onHostExec("worktree add", "");
 
-      const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeAdd(repoDir, "slug-b", { noAttach: true });
 
       const wtAddCmd = hostExecCalls.find(c => c.includes("worktree add '"));
@@ -302,7 +302,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("worktree prune", "");
       onHostExec("branch -d", "");
 
-      const { cmdWorktreeRemove } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeRemove } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeRemove("clean", {});
 
       const removeCmd = hostExecCalls.find(c => c.includes("worktree remove '"));
@@ -322,7 +322,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("-name '*.wt-dirty'", `${TEST_HOME}/myrepo.wt-dirty\n`);
       onHostExec("status --porcelain", " M src/foo.ts\n?? src/bar.ts\n");
 
-      const { cmdWorktreeRemove } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeRemove } = await import("../../src/commands/shared/worktree-cmd");
 
       const stderr = captureStderr();
       let thrown: Error | null = null;
@@ -359,7 +359,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("worktree prune", "");
       onHostExec("branch -D", "");
 
-      const { cmdWorktreeRemove } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeRemove } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeRemove("dirtyok", { allowUncommitted: true });
 
       // git worktree remove invoked WITH --force
@@ -380,7 +380,7 @@ describe("#1331 — maw worktree v1", () => {
         `${TEST_HOME}/repo-a.wt-ambig\n${TEST_HOME}/repo-b.wt-ambig\n`,
       );
 
-      const { cmdWorktreeRemove } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeRemove } = await import("../../src/commands/shared/worktree-cmd");
       const stderr = captureStderr();
       let thrown: Error | null = null;
       try {
@@ -421,7 +421,7 @@ describe("#1331 — maw worktree v1", () => {
       const wasTmux = process.env.TMUX;
       delete process.env.TMUX;
       try {
-        const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+        const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
         await cmdWorktreeAdd(repoDir, "splitslug", { split: true, noAttach: true });
       } finally {
         if (wasTmux !== undefined) process.env.TMUX = wasTmux;
@@ -437,7 +437,7 @@ describe("#1331 — maw worktree v1", () => {
       onHostExec("rev-parse --git-dir", "");
       onHostExec("worktree add", "");
 
-      const { cmdWorktreeAdd } = await import("../src/commands/shared/worktree-cmd");
+      const { cmdWorktreeAdd } = await import("../../src/commands/shared/worktree-cmd");
       await cmdWorktreeAdd(repoDir, "nosplitslug", { noAttach: true });
 
       // maybeSplit returns immediately when opts.split is falsy.
@@ -479,7 +479,7 @@ describe("#1331 — maw done — auto-save discriminator (★ #7, #8, plus dirty
     onHostExec("display-message", `${TEST_HOME}/codewt`);
     onHostExec("status --porcelain", "");
 
-    const { cmdDone } = await import("../src/commands/shared/done");
+    const { cmdDone } = await import("../../src/commands/shared/done");
     await cmdDone("feature-x", { force: false });
 
     // ★ Critical assertion #1: no git add / commit / push fired.
@@ -520,7 +520,7 @@ describe("#1331 — maw done — auto-save discriminator (★ #7, #8, plus dirty
     onHostExec("branch -d", "");
     onHostExec("rev-parse --abbrev-ref HEAD", "feat/oracle-task");
 
-    const { cmdDone } = await import("../src/commands/shared/done");
+    const { cmdDone } = await import("../../src/commands/shared/done");
     await cmdDone("neo-oracle", { force: false });
 
     // ★ Critical assertion: auto-save body fired (git add + commit + push)
@@ -545,7 +545,7 @@ describe("#1331 — maw done — auto-save discriminator (★ #7, #8, plus dirty
     onHostExec("display-message", `${TEST_HOME}/dirtycwd`);
     onHostExec("status --porcelain", " M src/foo.ts\n");
 
-    const { cmdDone } = await import("../src/commands/shared/done");
+    const { cmdDone } = await import("../../src/commands/shared/done");
     const stderr = captureStderr();
     let thrown: Error | null = null;
     try {
@@ -582,7 +582,7 @@ describe("#1331 — maw done — auto-save discriminator (★ #7, #8, plus dirty
     onHostExec("display-message", `${TEST_HOME}/dirtyokcwd`);
     onHostExec("status --porcelain", " M src/foo.ts\n");
 
-    const { cmdDone } = await import("../src/commands/shared/done");
+    const { cmdDone } = await import("../../src/commands/shared/done");
     await cmdDone("feature-dirty-ok", { allowUncommitted: true });
 
     // No auto-save (discriminator still says code-repo)
