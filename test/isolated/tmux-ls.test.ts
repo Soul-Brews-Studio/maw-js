@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { annotatePane } from "../../src/commands/plugins/tmux/impl";
+import { annotatePane } from "../../src/commands/core/tmux/impl";
 
 // Pure unit tests for the annotation logic used by `maw tmux ls` (#395).
 // No mocks — just deterministic inputs → deterministic outputs.

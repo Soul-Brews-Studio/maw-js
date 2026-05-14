@@ -12,6 +12,7 @@ const CORE_ROUTES = [
   "hey",
   "plugins", "plugin", "artifacts", "artifact",
   "agents", "agent", "locate", "audit", "serve",
+  "tmux",
   "update", "upgrade", "version",
 ];
 
@@ -40,6 +41,9 @@ export async function dispatchCommand(cmd: string, args: string[]): Promise<void
       return;
     }
     args.splice(0, args.length, ...aliasResult.argv);
+    // Alias may rewrite to a core verb (e.g. `maw open` → ["tmux", "open"]).
+    // Re-check routeTools so core handlers catch the post-splice argv.
+    if (await routeTools(args[0]!.toLowerCase(), args)) return;
   }
 
   // Try plugin commands (beta) — after core routes, before fallback

@@ -3,7 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { hostExec } from "../../../sdk";
 import { TEAMS_DIR, loadTeam, resolvePsi } from "./team-helpers";
-import type { AgentColor } from "../tmux/layout-manager";
+import type { AgentColor } from "../../core/tmux/layout-manager";
 
 const MAW_TEAMS_DIR = join(homedir(), ".maw/teams");
 
@@ -111,7 +111,7 @@ export async function cmdTeamSessionResume(teamName: string, opts: { model?: str
     (await hostExec("tmux list-panes -a -F '#{pane_id}'")).split("\n").filter(Boolean),
   );
 
-  const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
+  const { spawnTeammatePane, colorAnsi } = await import("../../core/tmux/layout-manager");
   const PSI = resolvePsi();
 
   let recovered = 0;

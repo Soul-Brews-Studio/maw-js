@@ -23,7 +23,7 @@
 
 import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdShow } from "../commands/shared/wake-show";
-import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
+import { cmdTmuxLs } from "../commands/core/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdOracleList } from "../commands/plugins/oracle/impl";
 import { preprocessNewFlag } from "../commands/plugins/oracle";

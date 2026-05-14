@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { TEAMS_DIR, loadTeam } from "./team-helpers";
-import type { AgentColor } from "../tmux/layout-manager";
+import type { AgentColor } from "../../core/tmux/layout-manager";
 
 export interface PaneSnapshot {
   name: string;

@@ -227,7 +227,7 @@ describe("cmdPaneSplit — #1303 foot-gun refusal (mirror)", () => {
 describe("safety helpers", () => {
   test("isClaudeLikePane matches claude substring + version-y patterns", async () => {
     const { isClaudeLikePane } = await import(
-      "../../src/commands/plugins/tmux/safety"
+      "../../src/commands/core/tmux/safety"
     );
     expect(isClaudeLikePane("claude")).toBe(true);
     expect(isClaudeLikePane("bun claude --foo")).toBe(true);
@@ -239,7 +239,7 @@ describe("safety helpers", () => {
 
   test("callerPaneCarveRefusal includes pane id + all three escape hatches", async () => {
     const { callerPaneCarveRefusal } = await import(
-      "../../src/commands/plugins/tmux/safety"
+      "../../src/commands/core/tmux/safety"
     );
     const msg = callerPaneCarveRefusal("%42", "claude");
     expect(msg).toContain("%42");

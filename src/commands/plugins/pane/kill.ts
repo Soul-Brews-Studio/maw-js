@@ -8,7 +8,7 @@
  * Delegates to `cmdTmuxKill` (without --session) so fleet/view safety still
  * applies — the underlying helper refuses fleet/view targets unless --force.
  */
-import { cmdTmuxKill } from "../tmux/impl";
+import { cmdTmuxKill } from "../../core/tmux/impl";
 
 export interface PaneKillOpts {
   /** Bypass fleet/view session refusal. */

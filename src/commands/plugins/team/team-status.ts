@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { hostExec } from "../../../sdk";
 import { cmdTeamTaskList, type MawTask } from "./task-ops";
 import { loadTeam } from "./impl";
-import { type AgentColor, colorAnsi } from "../tmux/layout-manager";
+import { type AgentColor, colorAnsi } from "../../core/tmux/layout-manager";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 

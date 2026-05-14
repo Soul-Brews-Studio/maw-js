@@ -2,7 +2,7 @@ import { listSessions, hostExec, withPaneLock } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../../core/matcher/normalize-target";
 import { formatError } from "../../../lib/format-error";
-import { isClaudeLikePane, callerPaneCarveRefusal } from "../tmux/safety";
+import { isClaudeLikePane, callerPaneCarveRefusal } from "../../core/tmux/safety";
 
 export interface SplitOpts {
   /** Split percentage (1-99). Default: 50. */

@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import type { AgentColor } from "../tmux/layout-manager";
+import type { AgentColor } from "../../core/tmux/layout-manager";
 import type { TeamConfig, TeamMember } from "../team/team-helpers";
 import { parseFlags } from "../../../cli/parse-args";
 
@@ -68,7 +68,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const {
       nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
       applyTeamLayout, applyTiledLayout, getWindowTarget,
-    } = await import("../tmux/layout-manager");
+    } = await import("../../core/tmux/layout-manager");
     const { hostExec, withPaneLock } = await import("../../../sdk");
     const { PANE_INIT_PRELUDE } = await import("../../shared/pane-prelude");
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("fs");

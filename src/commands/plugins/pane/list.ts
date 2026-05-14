@@ -18,7 +18,7 @@
  * maw-plugin-registry). For now `maw pane list` re-uses cmdTmuxLs directly
  * — same output shape, simpler subset.
  */
-import { cmdTmuxLs, type TmuxLsOpts } from "../tmux/impl";
+import { cmdTmuxLs, type TmuxLsOpts } from "../../core/tmux/impl";
 
 export interface PaneListOpts {
   /** Filter to a specific session name. When set, implies --all-scope scan + post-filter. */

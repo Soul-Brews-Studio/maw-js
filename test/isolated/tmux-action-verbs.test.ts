@@ -1,10 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/plugins/tmux/impl";
-import * as impl from "../../src/commands/plugins/tmux/impl";
+import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/core/tmux/impl";
+import * as impl from "../../src/commands/core/tmux/impl";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/plugins/tmux/impl.ts"), "utf-8");
+const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/core/tmux/impl.ts"), "utf-8");
 
 // Pure-validation tests for split, kill, layout, attach. These verbs call
 // hostExec under the hood — we test the input-validation paths that throw

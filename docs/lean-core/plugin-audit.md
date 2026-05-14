@@ -119,7 +119,7 @@ and out of scope for this audit. Likewise `bootstrap` lives in
 | take | extra | tangled | 3 | 2026-04-16 | Hand-off. |
 | talk-to | extra | tangled | 4 | 2026-04-28 | Inter-agent thread starter. |
 | team | extra | tangled | 8 | 2026-04-26 | Team coordination. Heavy core ties. Active. |
-| tmux | extra | tangled | 5 | 2026-04-17 | tmux primitive. Maintenance-only — keeps fleet alive. Reconsider if extracted with fleet bundle. |
+| tmux | core | tangled | 5 | 2026-05-14 | **Moved to core (#1315)** — load-bearing primitive (every fleet/oracle command). Now at `src/commands/core/tmux/`. Q3 of ADR 0001 resolved. |
 | transport | extra | clean | 2 | 2026-04-16 | Transport switcher. Light. |
 | triggers | extra | clean | 1 | 2026-04-16 | Trigger registry. Types only. |
 | trust | core | clean | 1 | 2026-04-29 | Trust ledger. Schemas only. Stays core (security boundary). |
@@ -177,11 +177,12 @@ These reach into `core/fleet`, `core/matcher`, `core/ghq`, `shared/wake*`,
 
 - Land #626 (SDK exports complete) for: `bud`, `oracle`, `team`,
   `soul-sync`, `done`, `archive`, `find`, `fleet`, `locate`, `view`,
-  `restart`, `workon`, `split`, `tmux`, `tab`, `panes`, `zoom`, `kill`,
-  `init`.
+  `restart`, `workon`, `split`, `tab`, `panes`, `zoom`, `kill`,
+  `init`. (`tmux` removed — moved to core per #1315.)
 - Then extract by workflow bundle:
-  - **fleet bundle**: `fleet`, `tmux`, `tab`, `panes`, `zoom`, `restart`,
+  - **fleet bundle**: `fleet`, `tab`, `panes`, `zoom`, `restart`,
     `kill`, `split`, `workon` — ship as one community plugin set.
+    (`tmux` is core, called by the bundle — not part of it.)
   - **oracle/lineage bundle**: `bud`, `oracle`, `soul-sync`, `done`,
     `reunion`, `archive`, `find` — second community set.
   - **team/queue bundle**: `team`, `pair`, `assign`, `cross-team-queue`,
@@ -209,9 +210,12 @@ These reach into `core/fleet`, `core/matcher`, `core/ghq`, `shared/wake*`,
    per-plugin gives finer profile control.
 2. Profile names: confirm `minimal` / `dev` / `federation` / `full` /
    `legacy` from the #640 epic body, or open a new RFC.
-3. `tmux` placement: today it's `extra` but every fleet plugin depends on
+3. ~~`tmux` placement: today it's `extra` but every fleet plugin depends on
    it. May need a hidden "fleet runtime" tier that's auto-activated when
-   any fleet plugin is selected.
+   any fleet plugin is selected.~~ **Resolved (#1315, 2026-05-14)** —
+   moved to core at `src/commands/core/tmux/`. The bootstrap-failure
+   incident proved tmux is a load-bearing primitive, not an opt-in
+   workflow. No hidden fleet-runtime tier needed.
 
 ## References
 

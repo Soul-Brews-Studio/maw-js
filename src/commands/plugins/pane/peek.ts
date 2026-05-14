@@ -6,7 +6,7 @@
  * reader). No reimplementation — same resolver, same buffer-capture, same
  * `--lines`/`--history` semantics.
  */
-import { cmdTmuxPeek, type TmuxPeekOpts } from "../tmux/impl";
+import { cmdTmuxPeek, type TmuxPeekOpts } from "../../core/tmux/impl";
 
 export type PanePeekOpts = TmuxPeekOpts;
 

@@ -19,7 +19,7 @@
  * DI sidesteps the module-pollution failure mode entirely.
  */
 import { tmux as defaultTmux, type Tmux } from "../../../core/transport/tmux-class";
-import { cmdTmuxAttach as defaultAttach } from "../tmux/impl";
+import { cmdTmuxAttach as defaultAttach } from "../../core/tmux/impl";
 
 export interface ShellOpts {
   /** Attach after creating. Default: true. Pass `--no-attach` for detached. */

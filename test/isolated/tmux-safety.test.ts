@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "../../src/commands/plugins/tmux/safety";
+import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "../../src/commands/core/tmux/safety";
 
 // Pure unit tests for the safety module (#395 maw tmux send/kill prereq).
 // No mocks — everything is deterministic input → deterministic output.

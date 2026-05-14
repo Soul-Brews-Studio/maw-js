@@ -3,7 +3,7 @@ import {
   updateStallState,
   formatStallNotice,
   type StallState,
-} from "../src/commands/plugins/tmux/stall-detect";
+} from "../src/commands/core/tmux/stall-detect";
 
 // Pure logic tests for #976 Phase A stall detection.
 // No tmux, no setInterval — `updateStallState` is a pure state-machine

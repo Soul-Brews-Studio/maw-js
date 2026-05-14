@@ -11,6 +11,7 @@ const CORE_HELP: Record<string, string> = {
   locate: "usage: maw locate <oracle> [--json]",
   audit: "usage: maw audit [limit]",
   serve: "usage: maw serve [port] [--as <name>]",
+  tmux: "usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach|zoom|detect-stalls> [args]",
 };
 
 function hasHelpFlag(args: string[]): boolean {
@@ -119,6 +120,22 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
   if (cmd === "audit") {
     const { cmdAudit } = await import("../commands/shared/audit");
     await cmdAudit(args.slice(1));
+    return true;
+  }
+  if (cmd === "tmux") {
+    // #1315 — tmux moved from plugin to core. Invokes the same default
+    // handler that previously sat behind the plugin registry, with a
+    // CLI InvokeContext so output streams to process.stdout.
+    const { default: tmuxHandler } = await import("../commands/core/tmux/index");
+    const result = await tmuxHandler({
+      source: "cli",
+      args: args.slice(1),
+      writer: (...a: unknown[]) => console.log(...a),
+    });
+    if (!result.ok) {
+      if (result.error) console.error(result.error);
+      process.exit(result.exitCode ?? 1);
+    }
     return true;
   }
   if (cmd === "serve") {

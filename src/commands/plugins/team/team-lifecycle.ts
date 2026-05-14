@@ -121,7 +121,7 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   // Step 4: Clean up any remaining panes (hide or kill)
   try {
-    const { cleanupTeamPanes } = await import("../tmux/layout-manager");
+    const { cleanupTeamPanes } = await import("../../core/tmux/layout-manager");
     const leaderPane = process.env.TMUX_PANE ?? "";
     const allPaneIds = teammates.map(m => m.tmuxPaneId).filter(Boolean) as string[];
     const cleaned = await cleanupTeamPanes(leaderPane, allPaneIds, { hide: !opts.force });
@@ -299,7 +299,7 @@ export async function cmdTeamSpawn(
       return;
     }
     try {
-      const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
+      const { spawnTeammatePane, colorAnsi } = await import("../../core/tmux/layout-manager");
 
       const result = await spawnTeammatePane(role, agentCmd, { colorIndex: teammateCount });
 

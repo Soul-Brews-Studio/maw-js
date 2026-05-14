@@ -106,7 +106,7 @@ This ADR does not commit a date for any wave. It commits the *order* and the *sh
 - Profile naming — confirmed names beyond `all` (`minimal`, `dev`, `federation`, `full`, `legacy`) are tracked in the audit's open questions.
 - Per-plugin extraction PRs — each extra plugin's move to its own community repo is a separate PR; this ADR sets the philosophy, not the schedule.
 - Bundle granularity — one repo per plugin vs. per workflow set is a Wave-3 decision, deferred until Phase 3 starts.
-- `tmux` placement — today `extra` but every fleet plugin depends on it; may need a hidden "fleet runtime" tier auto-activated when any fleet plugin is selected (audit Q3).
+- ~~`tmux` placement — today `extra` but every fleet plugin depends on it; may need a hidden "fleet runtime" tier auto-activated when any fleet plugin is selected (audit Q3).~~ **Resolved (#1315, 2026-05-14)** — tmux moved to `core` (`src/commands/core/tmux/`). Empirical evidence (bootstrap failure incident where missing tmux symlink broke fleet/oracle commands across every install) confirmed tmux is a load-bearing primitive, not a workflow opt-in. No "fleet runtime" hidden tier needed; tmux is now ABI surface alongside the federation primitives.
 
 **Migration window**:
 

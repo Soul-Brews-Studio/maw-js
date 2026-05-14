@@ -22,7 +22,7 @@
  * shell/impl.ts for the same pattern + rationale.
  */
 import { tmux as defaultTmux, type Tmux } from "../../../core/transport/tmux-class";
-import { cmdTmuxAttach as defaultAttach } from "../tmux/impl";
+import { cmdTmuxAttach as defaultAttach } from "../../core/tmux/impl";
 
 export interface BgOpts {
   /** Attach after spawning. Default: false. Pass `--attach` to attach. */

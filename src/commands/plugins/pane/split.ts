@@ -13,8 +13,8 @@
  * Delegates the actual tmux invocation to `cmdTmuxSplit` so we never re-implement
  * pane-ref resolution or pct validation.
  */
-import { cmdTmuxSplit } from "../tmux/impl";
-import { isClaudeLikePane, callerPaneCarveRefusal } from "../tmux/safety";
+import { cmdTmuxSplit } from "../../core/tmux/impl";
+import { isClaudeLikePane, callerPaneCarveRefusal } from "../../core/tmux/safety";
 import { hostExec } from "../../../sdk";
 
 export interface PaneSplitOpts {

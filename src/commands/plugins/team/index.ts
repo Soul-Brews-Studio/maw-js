@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import type { AgentColor } from "../tmux/layout-manager";
+import type { AgentColor } from "../../core/tmux/layout-manager";
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -323,7 +323,7 @@ general flags: --description <text>, --members <list>`,
 
     } else if (sub === "peek") {
       // maw team peek <target>
-      const { cmdTmuxPeek } = await import("../tmux/impl");
+      const { cmdTmuxPeek } = await import("../../core/tmux/impl");
       const target = args[1];
       if (!target) {
         logs.push("usage: maw team peek <session|agent>");
@@ -346,7 +346,7 @@ general flags: --description <text>, --members <list>`,
       const {
         nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
         applyTeamLayout, applyTiledLayout, getWindowTarget,
-      } = await import("../tmux/layout-manager");
+      } = await import("../../core/tmux/layout-manager");
       const { hostExec, withPaneLock } = await import("../../../sdk");
       const { TEAMS_DIR, loadTeam } = await import("./team-helpers");
       const { readFileSync, writeFileSync, existsSync } = await import("fs");
@@ -409,7 +409,7 @@ general flags: --description <text>, --members <list>`,
         return { ok: false, error: "team not found" };
       }
       const { hostExec: exec } = await import("../../../sdk");
-      const { colorAnsi } = await import("../tmux/layout-manager");
+      const { colorAnsi } = await import("../../core/tmux/layout-manager");
       const withPanes = team.members.filter(m => m.tmuxPaneId && m.agentType !== "team-lead");
       let sent = 0;
       for (const m of withPanes) {
@@ -448,7 +448,7 @@ general flags: --description <text>, --members <list>`,
       }
       const { hostExec: exec } = await import("../../../sdk");
       await exec(`tmux send-keys -t '${member.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
-      const { colorAnsi } = await import("../tmux/layout-manager");
+      const { colorAnsi } = await import("../../core/tmux/layout-manager");
       const color = (member.color || "white") as AgentColor;
       console.log(`\x1b[${colorAnsi(color)}m→\x1b[0m sent to ${member.agentId || member.name}: ${message}`);
 
@@ -458,7 +458,7 @@ general flags: --description <text>, --members <list>`,
         logs.push("\x1b[33m⚠\x1b[0m layout requires tmux");
         return { ok: false, error: "not in tmux" };
       }
-      const { applyTeamLayout, applyTiledLayout, getWindowTarget } = await import("../tmux/layout-manager");
+      const { applyTeamLayout, applyTiledLayout, getWindowTarget } = await import("../../core/tmux/layout-manager");
       const preset = args[1] || "main-vertical";
       const window = await getWindowTarget();
       const anchor = process.env.TMUX_PANE ?? "";
@@ -483,7 +483,7 @@ general flags: --description <text>, --members <list>`,
       if (messages.length === 0) {
         console.log(`\x1b[90mno ${doMark ? "" : "unread "}messages for ${agent}@${teamName}\x1b[0m`);
       } else {
-        const { colorAnsi } = await import("../tmux/layout-manager");
+        const { colorAnsi } = await import("../../core/tmux/layout-manager");
         for (const m of messages) {
           const ts = new Date(m.timestamp).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit" });
           const typeColor = m.type === "done" ? "32" : m.type === "stuck" ? "31" : m.type === "progress" ? "36" : "33";
@@ -502,7 +502,7 @@ general flags: --description <text>, --members <list>`,
       const { loadLayoutSnapshot } = await import("./layout-snapshot");
       const {
         stylePaneBorder, enableBorderStatus, applyTeamLayout, getWindowTarget, colorAnsi,
-      } = await import("../tmux/layout-manager");
+      } = await import("../../core/tmux/layout-manager");
       const teamName = args[1] || resolveTeamFromContext();
       const snapshot = loadLayoutSnapshot(teamName);
       if (!snapshot) {
