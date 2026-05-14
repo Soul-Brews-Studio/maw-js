@@ -25,6 +25,12 @@ const created: string[] = [];
 let origPluginsDir: string | undefined;
 let origPluginsLock: string | undefined;
 
+// #1308 — guard against prior tests in the same shard corrupting
+// process.stderr.write (e.g. leaving a monkey-patched function bound to a
+// captured-but-disposed closure, which surfaces as an EEXIST epoll_ctl
+// cascade when capture() calls .bind() on it).
+const pristineStderrWrite = process.stderr.write.bind(process.stderr);
+
 function tmpDir(prefix = "maw-install-test-"): string {
   const d = mkdtempSync(join(tmpdir(), prefix));
   created.push(d);
@@ -33,6 +39,9 @@ function tmpDir(prefix = "maw-install-test-"): string {
 function pluginsDir(): string { return process.env.MAW_PLUGINS_DIR!; }
 
 beforeEach(() => {
+  if (typeof process.stderr.write !== "function") {
+    (process.stderr as any).write = pristineStderrWrite;
+  }
   origPluginsDir = process.env.MAW_PLUGINS_DIR;
   origPluginsLock = process.env.MAW_PLUGINS_LOCK;
   // MAW_PLUGINS_DIR overrides ~/.maw/plugins/ in installRoot()+scanDirs().
