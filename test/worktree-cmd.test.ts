@@ -38,8 +38,22 @@ import { tmpdir } from "os";
 
 const TEST_HOME = join(tmpdir(), `maw-1331-test-${Date.now()}-${process.pid}`);
 process.env.MAW_HOME = TEST_HOME;
+// #1308 / shell-bg-verbs precedent: silence verbose "loaded config: …" lines
+// fired from src/cli/verbosity.ts via process.stderr.write. Linux Bun 1.3.13
+// hits an EEXIST/epoll_ctl bug when WriteStream is lazy-constructed for
+// stderr across many module loads; suppressing the writes side-steps it.
+process.env.MAW_QUIET = "1";
+process.env.MAW_TEST_MODE = "1";
 mkdirSync(join(TEST_HOME, "config", "fleet"), { recursive: true });
 const FLEET_DIR = join(TEST_HOME, "config", "fleet");
+
+// #1308 — guard against Bun runtime bug: prior test files (or our dynamic
+// imports) can corrupt process.stderr.write between bun:test boundaries,
+// leaving subsequent .bind() calls to crash with "undefined is not an
+// object". Snapshot the pristine reference at module load (before any maw
+// import) and restore in afterEach across both describe blocks.
+const PRISTINE_STDERR_WRITE = process.stderr.write?.bind?.(process.stderr);
+const PRISTINE_STDOUT_WRITE = process.stdout.write?.bind?.(process.stdout);
 
 // Also re-mock paths.ts: snapshot.test.ts (runs before us alphabetically)
 // mocks paths.ts to point FLEET_DIR at its OWN tmp dir, and bun's mock.module
@@ -154,6 +168,22 @@ function resetState(): void {
   listSessionsReturn = [];
 }
 
+/**
+ * #1308 defensive — re-install the pristine stderr/stdout writers if some
+ * prior test (or Bun's lazy WriteStream init) left them as undefined or
+ * monkey-patched. Costs ~0ms; prevents the EEXIST/epoll_ctl cascade where
+ * a later test's `.bind(process.stderr)` throws "undefined is not an
+ * object" because the captured reference was disposed mid-shard.
+ */
+function restorePristineStreams(): void {
+  if (PRISTINE_STDERR_WRITE && typeof process.stderr.write !== "function") {
+    (process.stderr as any).write = PRISTINE_STDERR_WRITE;
+  }
+  if (PRISTINE_STDOUT_WRITE && typeof process.stdout.write !== "function") {
+    (process.stdout as any).write = PRISTINE_STDOUT_WRITE;
+  }
+}
+
 function captureStderr(): { lines: string[]; restore: () => void } {
   const lines: string[] = [];
   const origErr = console.error;
@@ -169,6 +199,7 @@ function captureStderr(): { lines: string[]; restore: () => void } {
 
 describe("#1331 — maw worktree v1", () => {
   beforeEach(() => {
+    restorePristineStreams();
     resetState();
     // Wipe fleet dir per-test so configs from prior tests don't bleed in.
     try { rmSync(FLEET_DIR, { recursive: true, force: true }); } catch { /* expected */ }
@@ -177,6 +208,7 @@ describe("#1331 — maw worktree v1", () => {
 
   afterEach(() => {
     resetState();
+    restorePristineStreams();
   });
 
   // ────────────────────────────────────────────────────────────────────────
