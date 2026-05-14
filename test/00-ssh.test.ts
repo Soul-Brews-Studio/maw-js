@@ -181,12 +181,14 @@ describe("findWindow", () => {
         .toBeNull();
     });
 
-    test("falls through when session matches but window part doesn't", () => {
-      // 'mawjs:nowindow' → matches 08-mawjs but no window matches.
-      // Falls through to legacy substring match (which won't find it),
-      // ending at the colon-fallback.
+    test("returns null when session matches but window part is non-numeric and unmatched", () => {
+      // 'mawjs:nowindow' → matches 08-mawjs (oracle-name strip) but no window
+      // named 'nowindow'. Returning the raw query here was the shadow bug:
+      // routing then treated it as local tmux and skipped peer routing.
+      // New contract: non-numeric winPart with no window match → null so
+      // resolveTarget Step 2 can route to a peer (e.g. oracle-world:100-pulse).
       expect(findWindow(MAW_SESSIONS, "mawjs:nowindow"))
-        .toBe("mawjs:nowindow");
+        .toBeNull();
     });
   });
 });
