@@ -51,6 +51,16 @@ export type ResolveResult =
 /**
  * Resolve a query to a local target, remote peer, or null.
  * Pure + sync — no network calls, no side effects. Testable without mocks.
+ *
+ * Step ordering rationale (and open design question):
+ *   Step 1 (local findWindow) runs BEFORE Step 2 (node:prefix peer route).
+ *   This causes "local wins" when a query like `oracle-world:agent` has a
+ *   local session that strip-prefix-matches `oracle-world` (e.g.
+ *   `30-oracle-world`). PR #1322 patched the bottom of findWindow to
+ *   return null in that case so Step 2 can take over — but the deeper
+ *   question (should Step 2 run FIRST when the prefix matches a known
+ *   `namedPeer`?) is still open. See docs/federation/routing-syntax.md
+ *   § Footgun #2 and § Future Work for the Step 0 reorder proposal.
  */
 export function resolveTarget(
   query: string,
