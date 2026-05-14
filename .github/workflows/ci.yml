@@ -85,7 +85,12 @@ jobs:
       - name: Run unit tests (shard ${{ matrix.shard }}/8)
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bun test --shard=${{ matrix.shard }}/8 --isolate
+          MAW_TEST_MODE: "1"
+        run: |
+          bun test --shard=${{ matrix.shard }}/8 --isolate \
+            --path-ignore-patterns '**/test/isolated/**' \
+            --path-ignore-patterns '**/zz-mock-tmux-smoke*' \
+            --path-ignore-patterns '**/agents/**'
 
   # test-isolated is the slowest CI job — 79 test files × bun startup, all
   # sequential because Bun's mock.module is process-global. Each subprocess
