@@ -229,6 +229,9 @@ export async function invokeDirectHandler(
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
       "--dry-run": Boolean,
+      // #1346 — bypass the refuse-to-spawn guard when session exists but
+      // no oracle window is detected (e.g. user really wants to re-create).
+      "--force": Boolean,
     }, 0);
 
     const positional = flags._;
@@ -288,6 +291,7 @@ export async function invokeDirectHandler(
       split?: boolean;
       allLocal?: boolean;
       engine?: string;
+      force?: boolean;
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
@@ -300,6 +304,7 @@ export async function invokeDirectHandler(
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
+    if (flags["--force"]) opts.force = true;
 
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
