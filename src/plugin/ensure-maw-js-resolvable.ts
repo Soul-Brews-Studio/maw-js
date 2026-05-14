@@ -74,7 +74,21 @@ export interface EnsureResult {
  */
 export function ensureMawJsResolvable(): EnsureResult {
   const mawJsRoot = resolveMawJsRoot();
-  const nodeModulesDir = join(installRoot(), "node_modules");
+  // #1354 — place node_modules ONE LEVEL UP from installRoot(), not inside it.
+  // Original (#1339 Option E v1) wrote `<installRoot>/node_modules/maw-js`,
+  // which made `node_modules/` a SIBLING of plugin dirs under `~/.maw/plugins/`.
+  // That triggered two regressions:
+  //   (a) bun's symlink-aware module resolution from inside a plugin walks up
+  //       and finds maw-js via the symlink; but maw-js's own imports (and
+  //       plugin-discovery walks) then bounce back through the same symlink
+  //       creating "Maximum call stack size exceeded" on attach.
+  //   (b) bun observed a `node_modules` dir sibling to a "package-like"
+  //       layout and auto-populated 200+ dependencies into it, amplifying
+  //       both the cycle and disk usage. Sila@oracle-world hit this 2026-05-14.
+  // Moving the link one level up keeps bun's walk-up resolution working from
+  // any plugin dir (`<installRoot>/<plugin>/` ancestors include the parent's
+  // `node_modules`) WITHOUT making node_modules a sibling of plugin dirs.
+  const nodeModulesDir = join(installRoot(), "..", "node_modules");
   const linkPath = join(nodeModulesDir, "maw-js");
 
   if (!existsSync(mawJsRoot)) {
