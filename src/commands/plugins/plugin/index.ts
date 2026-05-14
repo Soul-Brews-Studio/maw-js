@@ -18,6 +18,8 @@ const USAGE =
   "                                        --pin: add to plugins.lock on first install\n" +
   "                                        --all: reinstall every entry in plugins.lock (#1277)\n" +
   "                                        --dry-run: with --all, list without installing\n" +
+  "                                        --tier <core|standard|extra>: bulk-install every plugin at that tier from mpr (#1338)\n" +
+  "                                          [--from <owner/repo>]: defaults to Soul-Brews-Studio/maw-plugin-registry\n" +
   "  install <owner/repo>[/<name>][@<ref>]   install from GitHub (Vercel-style)\n" +
   "    install owner/repo                  whole repo (single-plugin repo)\n" +
   "    install owner/repo/bg               subdir from monorepo (auto plugins/ prefix)\n" +
@@ -247,6 +249,30 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const dryRun = args.includes("--dry-run");
         const force = args.includes("--force");
         await cmdPluginInstallAll({ dryRun, force });
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      // #1338 — `install --tier <core|standard|extra> [--from <owner/repo>]`
+      // bulk-installs every plugin at that tier from a maw-plugin-registry.
+      // Same family as --all: enumerate a set, dispatch existing install per
+      // name, summary at end. Source-of-truth differs (registry vs lockfile)
+      // but the loop shape is identical — see install-tier-impl.ts.
+      if (args.includes("--tier")) {
+        const { cmdPluginInstallTier, isValidTier } = await import("./install-tier-impl");
+        const tierIdx = args.indexOf("--tier");
+        const tier = args[tierIdx + 1];
+        if (!tier || !isValidTier(tier)) {
+          return {
+            ok: false,
+            error: `--tier must be one of: core, standard, extra (got ${JSON.stringify(tier ?? "")})`,
+          };
+        }
+        const fromIdx = args.indexOf("--from");
+        const from = fromIdx >= 0 ? args[fromIdx + 1] : undefined;
+        if (fromIdx >= 0 && (!from || from.startsWith("-"))) {
+          return { ok: false, error: "--from requires a value (owner/repo)" };
+        }
+        const force = args.includes("--force");
+        await cmdPluginInstallTier({ tier, ...(from ? { from } : {}), force });
         return { ok: true, output: logs.join("\n") || undefined };
       }
       try {
