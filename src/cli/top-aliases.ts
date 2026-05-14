@@ -23,6 +23,7 @@
 
 import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdShow } from "../commands/shared/wake-show";
+import { cmdWorktree } from "../commands/shared/worktree-cmd";
 import { cmdTmuxLs } from "../commands/core/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdOracleList } from "../commands/plugins/oracle/impl";
@@ -54,6 +55,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   stall: "Detect stalled panes — notify-only (#976A)",
   show: "Print session launch script to stdout (pipe-able)",
   new: "Create a new oracle (alias for awaken — friendly door)",
+  worktree: "Add/remove a code-repo worktree (workspace + tmux window)",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -102,6 +104,12 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
 
   show: { kind: "direct", handler: "../commands/shared/wake-show:cmdShow" },
+
+  // `maw worktree add/remove` — code-repo workspace primitive (#1331).
+  // Sibling verb to `maw wake`: wake is for oracles, worktree is for arbitrary
+  // code repos. Routes the whole argv (including subcommand) to cmdWorktree
+  // which parses `add` vs `remove` itself.
+  worktree: { kind: "direct", handler: "../commands/shared/worktree-cmd:cmdWorktree" },
 };
 
 /**
@@ -318,6 +326,12 @@ export async function invokeDirectHandler(
 
   if (exportName === "cmdNew") {
     await cmdNew(argv);
+    return;
+  }
+
+  if (exportName === "cmdWorktree") {
+    // cmdWorktree owns its own subcommand + flag parsing (add vs remove).
+    await cmdWorktree(argv);
     return;
   }
 

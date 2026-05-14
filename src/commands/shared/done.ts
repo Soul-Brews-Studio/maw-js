@@ -4,10 +4,42 @@ import { homedir } from "os";
 import { listSessions, hostExec, tmux, FLEET_DIR, takeSnapshot } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
+import { UserError } from "../../core/util/user-error";
 
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  /**
+   * #1331 — bypass the dirty-tree refusal for code-repo (non-oracle)
+   * worktrees. Oracle worktrees keep the existing auto-save behavior
+   * regardless of this flag. `--force` still bypasses *all* auto-save.
+   */
+  allowUncommitted?: boolean;
+}
+
+/**
+ * #1331 — discriminator: is `windowNameLower` registered in any fleet config?
+ *
+ * Fleet-registered windows are oracle worktrees (vaults): the existing
+ * auto-save (commit + push) is intentional — uncommitted vault edits would
+ * be lost on cleanup. Non-fleet windows are CODE-repo worktrees (mpr, sila,
+ * ad-hoc): auto-save would publish WIP to feature branches and trigger CI,
+ * which is catastrophic. For those, we refuse on a dirty tree and skip
+ * auto-save entirely.
+ */
+function isFleetRegisteredWindow(windowNameLower: string): boolean {
+  try {
+    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+      try {
+        const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
+        const found = (config.windows || []).some(
+          (w: { name?: string }) => typeof w.name === "string" && w.name.toLowerCase() === windowNameLower,
+        );
+        if (found) return true;
+      } catch { /* skip malformed config */ }
+    }
+  } catch { /* no fleet dir → not fleet-registered */ }
+  return false;
 }
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
@@ -29,9 +61,44 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     signalParentInbox(windowName, sessionName, sessions as SessionInfo[]);
   }
 
-  if (sessionName !== null && windowIndex !== null && !opts.force) {
+  // #1331 — code-repo safety branch. For non-fleet-registered windows, the
+  // auto-save block (commit + push, intended for oracle VAULTS) is unsafe:
+  // it would publish WIP to a feature branch and trigger CI. Two rules:
+  //   1. If the worktree has uncommitted changes and --allow-uncommitted was
+  //      NOT passed, refuse (don't kill, don't remove — surface the dirty state).
+  //   2. Skip auto-save entirely. The window/worktree/branch cleanup below
+  //      still runs.
+  // Oracle worktrees (fleet-registered) keep the existing auto-save behavior.
+  const isFleetWindow = isFleetRegisteredWindow(windowNameLower);
+  const isCodeRepoWorktree = sessionName !== null && windowIndex !== null && !isFleetWindow;
+
+  if (isCodeRepoWorktree && !opts.force && !opts.allowUncommitted) {
+    const target = `${sessionName}:${windowName}`;
+    let paneCwd = "";
+    try { paneCwd = (await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim(); } catch { /* expected if pane missing */ }
+    if (paneCwd) {
+      let status = "";
+      try { status = (await hostExec(`git -C '${paneCwd}' status --porcelain 2>/dev/null`)).trim(); } catch { /* not a git dir → treat as clean */ }
+      if (status) {
+        const lines = status.split("\n");
+        const preview = lines.slice(0, 5).join("\n");
+        const more = lines.length > 5 ? `\n      ... (${lines.length - 5} more)` : "";
+        // UserError convention: print user-facing message at throw site.
+        console.error(
+          `\x1b[31m✗\x1b[0m maw done: '${windowName}' is a code-repo worktree with uncommitted changes:\n${preview}${more}\n` +
+          `  re-run with --allow-uncommitted (skip dirty check, no auto-save) or --force (legacy bypass).`,
+        );
+        throw new UserError(`done: dirty code-repo worktree (${windowName})`);
+      }
+    }
+  }
+
+  if (sessionName !== null && windowIndex !== null && !opts.force && !isCodeRepoWorktree) {
     await autoSave(windowName, sessionName, opts);
     if (opts.dryRun) return;
+  } else if (isCodeRepoWorktree && opts.dryRun) {
+    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] code-repo worktree '${windowName}' — auto-save SKIPPED (would only kill + remove)`);
+    return;
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
   }
