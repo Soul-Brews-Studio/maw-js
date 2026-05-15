@@ -44,7 +44,8 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
-  bring: "Bring an oracle HERE (split pane) — symmetric with `a` (go there)",
+  bring: "Bring an oracle HERE — symmetric with `a` (go there)",
+  b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
@@ -64,6 +65,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   cleanup: ["team", "cleanup", "--zombie-agents"],
   tile: ["tile"],
   bring: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
+  b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only

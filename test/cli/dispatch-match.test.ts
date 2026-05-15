@@ -10,7 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { resolvePluginMatch } from "../../src/cli/dispatch-match";
-import { parseBringArgs, resolveTopAlias } from "../../src/cli/top-aliases";
+import { ALIAS_DESCRIPTIONS, parseBringArgs, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
@@ -219,6 +219,18 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
   test("`bring neo` defaults to tab/window mode, not split", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
+  });
+
+  test("`b neo` is a direct shorthand for bring", () => {
+    const out = resolveTopAlias(["b", "neo"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdBring");
+      expect(out!.argv).toEqual(["neo"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.b).toContain("short form of `bring`");
   });
 
   test("`bring neo --split` opts into split mode", () => {
