@@ -82,7 +82,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build CLI
-        run: bun build --target=bun src/cli.ts
+        run: bun build src/cli.ts --outfile dist/maw --target=bun --minify --external @eclipse-zenoh/zenoh-ts
 
       - name: Validate plugin manifests
         run: |
