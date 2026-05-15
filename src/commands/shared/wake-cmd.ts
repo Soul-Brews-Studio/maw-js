@@ -8,6 +8,7 @@ import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detec
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
+import { assertAgentCapacity } from "./wake-concurrency";
 
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
@@ -81,6 +82,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   });
 
   if (!session && wakeDecision.wake) {
+    // #2 — refuse to spawn a brand-new session/agent once the fleet is at the
+    // configured concurrency cap (no-op when limits.maxConcurrentAgents is 0).
+    await assertAgentCapacity(oracle);
+
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
@@ -275,6 +280,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       return target;
     }
   } catch { /* session might be fresh */ }
+
+  // #2 — a new task/worktree window is a net-new agent pane: cap-check before
+  // spawning it (no-op when limits.maxConcurrentAgents is 0).
+  await assertAgentCapacity(oracle);
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));

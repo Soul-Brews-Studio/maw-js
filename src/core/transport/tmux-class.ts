@@ -8,6 +8,22 @@ import {
   type TmuxWindow,
 } from "./tmux-types";
 
+// --- sendText submit-confirmation tuning (#6) ---
+// The old sendText fired 3 blind `Enter` keys on a fixed ~1.9s schedule with
+// zero feedback. If the pane wasn't ready when they landed (agent still
+// rendering the paste, brief stall), every Enter missed and the command sat
+// in the input box unexecuted — this forced manual re-launch of dispatches
+// on 2026-05-14. We now send Enter, re-check the pane, and retry only while
+// input is still pending.
+/** Wait after paste/literal-send before the first Enter — lets the input settle. */
+const SEND_SETTLE_MS = 1500;
+/** Wait after each Enter before re-checking whether the input line cleared. */
+const SUBMIT_CONFIRM_MS = 700;
+/** Max Enter attempts before giving up and warning (was 3 blind, unconditional sends). */
+const MAX_SUBMIT_ATTEMPTS = 4;
+/** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
+
 /**
  * Typed wrapper around tmux CLI.
  * All methods build arg arrays and delegate to `run()`.
@@ -260,31 +276,65 @@ export class Tmux {
 
   /**
    * Smart text sending — uses load-buffer for multiline/long messages,
-   * send-keys for short single-line. Always appends Enter.
+   * send-keys for short single-line. Always submits with Enter.
    * Ported from old bash maw hey (Dec 2025).
+   *
+   * #6 — submit is now confirmed, not fire-and-forget. After placing the
+   * text we send Enter, re-inspect the pane, and retry the Enter only while
+   * the input line still holds un-submitted content (up to
+   * MAX_SUBMIT_ATTEMPTS). This closes the trailing-Enter race where blind
+   * staggered Enter keys landed before the pane was ready and the command
+   * was silently left unexecuted.
    */
   async sendText(target: string, text: string): Promise<void> {
     if (text.includes("\n") || text.length > 500) {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
       await this.pasteBuffer(target);
-      await new Promise(r => setTimeout(r, 1500));
-      // Staggered Enter — submit + 2 fallbacks
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 700));
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1200));
-      await this.sendKeys(target, "Enter");
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
-      await new Promise(r => setTimeout(r, 1500));
-      // Staggered Enter — submit + 2 fallbacks
+    }
+    await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
+    await this.submitWithConfirm(target);
+  }
+
+  /**
+   * Send Enter, then confirm the input line cleared before returning. Retries
+   * the Enter while input is still pending — see sendText for the #6 race.
+   * @internal — exported behavior is exercised via sendText in tests.
+   */
+  private async submitWithConfirm(target: string): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 700));
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1200));
-      await this.sendKeys(target, "Enter");
+      await new Promise(r => setTimeout(r, SUBMIT_CONFIRM_MS));
+      if (!(await this.paneInputPending(target))) return; // submitted — done
+    }
+    // Exhausted every retry and the input line still looks non-empty. The
+    // caller has no visibility into tmux pane state, so warn loudly — a
+    // silently-dropped dispatch is the exact failure mode #6 is about.
+    console.warn(
+      `[tmux] sendText: ${target} still shows pending input after ${MAX_SUBMIT_ATTEMPTS} Enter attempts — command may not have submitted`,
+    );
+  }
+
+  /**
+   * True when the pane's prompt line still holds un-submitted input.
+   * Mirrors checkPaneIdle (comm-send.ts #405) but inlined here to avoid a
+   * circular import — comm-send.ts already imports Tmux. A read failure
+   * returns false (assume submitted) so a flaky capture can't spin the retry
+   * loop.
+   */
+  private async paneInputPending(target: string): Promise<boolean> {
+    try {
+      const content = await this.capture(target, 5);
+      const lines = content.split("\n").filter(l => l.trim());
+      const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
+      // Prompt marker followed by non-whitespace → user/command text still
+      // sitting on the input line, i.e. Enter has not submitted it yet.
+      return /[#$%>❯»]\s+\S/.test(last);
+    } catch {
+      return false;
     }
   }
 

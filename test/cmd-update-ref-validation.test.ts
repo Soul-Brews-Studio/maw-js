@@ -18,7 +18,13 @@ async function runCli(
   const proc = Bun.spawn(["bun", cliPath, ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, MAW_CLI: "1", ...opts.env },
+    // MAW_TEST_MODE=1 is mandatory here: runUpdate mutates the *real*
+    // ~/.bun/bin/maw and ~/.bun/install/global/ (no sandbox seam). Without
+    // this guard a valid ref falls through into the destructive install path
+    // and wipes the developer's maw install on every `bun test` run. Set it
+    // explicitly so the test is safe even when run standalone (not just
+    // inheriting it from the suite-level env).
+    env: { ...process.env, MAW_CLI: "1", MAW_TEST_MODE: "1", ...opts.env },
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -89,16 +95,19 @@ describe("H3 — cmd-update ref allowlist (CLI subprocess)", () => {
     expect(stderr).toContain("invalid ref");
   }, 10_000);
 
-  it("valid ref 'main' passes the allowlist gate (reaches install, not ref guard)", async () => {
-    // We can't complete a real install in test, but the error must NOT be about
-    // "invalid ref" — it should be about network or bun, meaning REF_RE passed.
-    const { stderr } = await runCli(["update", "main", "--yes"]);
-    // The ref guard must NOT fire for "main"
+  it("valid ref 'main' passes the allowlist gate (reaches test-mode gate, not ref guard)", async () => {
+    // A valid ref must pass REF_RE and reach the destructive-op boundary.
+    // Under MAW_TEST_MODE that boundary is the test-mode guard, which prints
+    // "accepted" and stops — so we assert REF_RE did NOT reject AND the ref
+    // actually reached the gate (proof it traversed the whole allowlist path).
+    const { stdout, stderr } = await runCli(["update", "main", "--yes"]);
     expect(stderr).not.toContain("invalid ref");
+    expect(stdout).toContain('ref "main" accepted');
   }, 15_000);
 
   it("valid branch name 'feat/my-feature' passes the allowlist gate", async () => {
-    const { stderr } = await runCli(["update", "feat/my-feature", "--yes"]);
+    const { stdout, stderr } = await runCli(["update", "feat/my-feature", "--yes"]);
     expect(stderr).not.toContain("invalid ref");
+    expect(stdout).toContain('ref "feat/my-feature" accepted');
   }, 15_000);
 });
