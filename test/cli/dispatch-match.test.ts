@@ -258,6 +258,17 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
+  test("`new neo --no-attach` → direct-handler cmdNew friendly creation door", () => {
+    const out = resolveTopAlias(["new", "neo", "--no-attach"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("cmdNew");
+      expect(out!.argv).toEqual(["neo", "--no-attach"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.new).toContain("Create a new oracle");
+  });
+
   test("`bring neo` defaults to v1 split-and-attach mode", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
