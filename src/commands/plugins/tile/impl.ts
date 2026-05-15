@@ -110,8 +110,12 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
   }
 
-  // Apply tiled layout once after all spawns
-  await applyTiledLayout(window);
+  // Apply layout: even-horizontal for 1 tile (left|right), tiled for 2+ (grid)
+  if (count === 1) {
+    await hostExec(`tmux select-layout -t '${window}' even-horizontal`);
+  } else {
+    await applyTiledLayout(window);
+  }
   await enableBorderStatus(window);
 
   const flags = [
