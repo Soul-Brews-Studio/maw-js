@@ -245,6 +245,25 @@ describe("Tmux", () => {
     });
   });
 
+  describe("exitModeIfNeeded", () => {
+    test("cancels copy-mode before high-level text delivery", async () => {
+      sshResult = "1";
+      expect(await t.exitModeIfNeeded("s:0")).toBe(true);
+      expect(commands).toEqual([
+        "tmux display-message -t s:0 -p '#{pane_in_mode}'",
+        "tmux send-keys -t s:0 -X cancel",
+      ]);
+    });
+
+    test("does not cancel panes already in normal mode", async () => {
+      sshResult = "0";
+      expect(await t.exitModeIfNeeded("s:0")).toBe(false);
+      expect(commands).toEqual([
+        "tmux display-message -t s:0 -p '#{pane_in_mode}'",
+      ]);
+    });
+  });
+
   // --- Options ---
 
   describe("setOption", () => {

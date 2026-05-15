@@ -261,6 +261,38 @@ export class Tmux {
     await this.run("send-keys", "-t", target, "-l", text);
   }
 
+  /**
+   * Leave copy-mode / transient tmux modes before delivering text.
+   *
+   * tmux `send-keys -l` is not mode-safe: in copy-mode literal text is still
+   * interpreted by the mode key table, so uppercase/status text can exit the
+   * mode mid-string and make tmux print repeated "not in a mode" errors for
+   * the remaining characters. `maw hey` wants message delivery, not copy-mode
+   * navigation, so high-level text sends normalize the pane first while raw
+   * `Tmux.sendKeys()` remains available for callers that intentionally drive
+   * tmux modes.
+   */
+  async exitModeIfNeeded(target: string): Promise<boolean> {
+    let inMode = false;
+    try {
+      inMode = (await this.run("display-message", "-t", target, "-p", "#{pane_in_mode}")).trim() === "1";
+    } catch {
+      // If the probe fails, let the subsequent send surface the real target
+      // error (for example "can't find pane") instead of hiding it here.
+      return false;
+    }
+    if (!inMode) return false;
+    try {
+      await this.run("send-keys", "-t", target, "-X", "cancel");
+      return true;
+    } catch (e: any) {
+      // The pane can leave copy-mode between probe and cancel; that race is
+      // harmless and should not block delivery.
+      if (String(e?.message ?? e).includes("not in a mode")) return false;
+      throw e;
+    }
+  }
+
   // --- Buffers ---
 
   async loadBuffer(text: string): Promise<void> {
@@ -287,6 +319,7 @@ export class Tmux {
    * was silently left unexecuted.
    */
   async sendText(target: string, text: string): Promise<void> {
+    await this.exitModeIfNeeded(target);
     if (text.includes("\n") || text.length > 500) {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
