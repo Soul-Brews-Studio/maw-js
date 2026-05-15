@@ -53,6 +53,15 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "local", target: "13-mother:1" });
   });
 
+  test("session:window.pane tmux address stays local before node:agent routing (#1450)", () => {
+    const sessions: Session[] = [
+      ...SESSIONS,
+      { name: "47-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
+    ];
+    const r = resolveTarget("47-mawjs:1.0", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "47-mawjs:1.0" });
+  });
+
   // #3: NODE:AGENT → REMOTE PEER
   test("node:agent resolves to remote peer", () => {
     const r = resolveTarget("mba:homekeeper", BASE_CONFIG, SESSIONS);
@@ -69,6 +78,11 @@ describe("resolveTarget", () => {
   test("self-node prefix with no local match returns error", () => {
     const r = resolveTarget("white:ghost", BASE_CONFIG, SESSIONS);
     expect(r).toMatchObject({ type: "error", reason: "self_not_running" });
+  });
+
+  test("local: prefix is a self-node alias and resolves locally (#1450)", () => {
+    const r = resolveTarget("local:mawjs", BASE_CONFIG, SESSIONS);
+    expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
   });
 
   // #6: NODE:AGENT → UNKNOWN NODE
