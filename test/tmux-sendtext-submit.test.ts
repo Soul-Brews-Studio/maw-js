@@ -45,6 +45,9 @@ class FakeTmux extends Tmux {
   async pasteBuffer(_target: string): Promise<void> {
     this.calls.push("pasteBuffer");
   }
+  async exitModeIfNeeded(_target: string): Promise<boolean> {
+    return false;
+  }
 }
 
 const PROMPT_IDLE = "agent@host:~$ "; // prompt marker + trailing space → submitted

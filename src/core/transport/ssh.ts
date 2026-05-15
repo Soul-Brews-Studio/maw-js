@@ -141,6 +141,7 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     "\x15": "C-u",
   };
   if (SPECIAL_KEYS[text]) {
+    if (text !== "\x1b") await t.exitModeIfNeeded(target);
     await t.sendKeys(target, SPECIAL_KEYS[text]);
     return;
   }
@@ -151,12 +152,14 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
 
   // If only the enter was left after stripping, just send Enter
   if (!body) {
+    await t.exitModeIfNeeded(target);
     await t.sendKeys(target, "Enter");
     return;
   }
 
   if (body.startsWith("/")) {
     // Slash commands: send char by char for interactive tools (Claude Code, etc.)
+    await t.exitModeIfNeeded(target);
     for (const ch of body) {
       await t.sendKeysLiteral(target, ch);
     }
