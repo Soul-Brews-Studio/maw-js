@@ -10,6 +10,10 @@ describe("maw bring existing-session behavior", () => {
     expect(shouldOfferExistingSessionAttach({ split: true }, true)).toBe(false);
   });
 
+  test("bring default tab mode never offers the destructive attach prompt", () => {
+    expect(shouldOfferExistingSessionAttach({ bring: true }, true)).toBe(false);
+  });
+
   test("explicit attach skips the prompt because attach was already requested", () => {
     expect(shouldOfferExistingSessionAttach({ attach: true }, true)).toBe(false);
   });

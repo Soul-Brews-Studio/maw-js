@@ -10,7 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { resolvePluginMatch } from "../../src/cli/dispatch-match";
-import { resolveTopAlias } from "../../src/cli/top-aliases";
+import { parseBringArgs, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
@@ -214,6 +214,16 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       // argv passed to handler is everything AFTER the verb
       expect(out!.argv).toEqual(["neo", "--task", "X"]);
     }
+  });
+
+  test("`bring neo` defaults to tab/window mode, not split", () => {
+    const parsed = parseBringArgs(["neo"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
+  });
+
+  test("`bring neo --split` opts into split mode", () => {
+    const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

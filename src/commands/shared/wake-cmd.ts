@@ -6,18 +6,18 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
-import { maybeSplit } from "./wake-maybe-split";
+import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 
 export function shouldOfferExistingSessionAttach(
-  opts: { attach?: boolean; split?: boolean },
+  opts: { attach?: boolean; split?: boolean; bring?: boolean },
   isTTY = process.stdin.isTTY,
 ): boolean {
-  return !opts.attach && !opts.split && Boolean(isTTY);
+  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY);
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; bring?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -247,6 +247,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`);
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
+        await maybeOpenWindow(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
       }
       // Check if agent is actually alive in the pane
@@ -263,6 +264,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           await attachToSession(session);
         }
         await maybeSplit(target, opts);
+        await maybeOpenWindow(target, opts);
         return target;
       }
 
@@ -284,6 +286,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         await attachToSession(session);
       }
       await maybeSplit(target, opts);
+      await maybeOpenWindow(target, opts);
       return target;
     }
   } catch { /* session might be fresh */ }
@@ -306,6 +309,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   if (opts.attach) await attachToSession(session);
 
   await maybeSplit(`${session}:${windowName}`, opts);
+  await maybeOpenWindow(`${session}:${windowName}`, opts);
 
   takeSnapshot("wake").catch(() => {});
   return `${session}:${windowName}`;

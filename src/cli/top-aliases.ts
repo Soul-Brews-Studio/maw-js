@@ -102,6 +102,31 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
 }
 
+export function parseBringArgs(argv: string[]): {
+  oracle: string;
+  opts: { bring?: true; split?: boolean; engine?: string };
+} {
+  // `maw bring <oracle>` opens a new tmux window/tab by default. `--split`
+  // remains available as the opt-in layout-mutating form.
+  const flags = parseFlags(argv, {
+    "--engine": String, "-e": "--engine",
+    "--split": Boolean,
+  }, 0);
+  const oracle = (flags._ as string[])[0];
+  if (!oracle) {
+    console.error("usage: maw bring <oracle> [--split] [-e|--engine <name>]");
+    console.error("  Opens oracle in a new tmux window/tab by default.");
+    console.error("  Use --split to split the current pane instead.");
+    console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
+    throw new UserError("bring: missing oracle name");
+  }
+  const opts: { bring?: true; split?: boolean; engine?: string } = flags["--split"]
+    ? { split: true }
+    : { bring: true };
+  if (flags["--engine"]) opts.engine = flags["--engine"];
+  return { oracle, opts };
+}
+
 /**
  * Invoke a direct-handler alias. Used by `wake` and `ls`.
  *
@@ -200,19 +225,9 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdBring") {
-    // `maw bring <oracle> [-e <engine>]` — split current pane and wake oracle there.
-    const flags = parseFlags(argv, {
-      "--engine": String, "-e": "--engine",
-    }, 0);
-    const oracle = (flags._ as string[])[0];
-    if (!oracle) {
-      console.error("usage: maw bring <oracle> [-e|--engine <name>]");
-      console.error("  Splits current pane and wakes oracle there (non-destructive).");
-      console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
-      throw new UserError("bring: missing oracle name");
-    }
-    const opts: { split: true; engine?: string } = { split: true };
-    if (flags["--engine"]) opts.engine = flags["--engine"];
+    // `maw bring <oracle>` — show oracle here in a new tab by default.
+    // `--split` opts into current-pane splitting.
+    const { oracle, opts } = parseBringArgs(argv);
     await cmdWake(oracle, opts);
     return;
   }

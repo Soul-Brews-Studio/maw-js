@@ -10,7 +10,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   },
 }));
 
-const { maybeSplit } = await import("../../src/commands/shared/wake-maybe-split");
+const { maybeOpenWindow, maybeSplit } = await import("../../src/commands/shared/wake-maybe-split");
 
 describe("wake maybeSplit", () => {
   const originalTmux = process.env.TMUX;
@@ -46,6 +46,21 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls).toHaveLength(1);
     expect(hostExecCalls[0]).not.toContain("-t '%");
     expect(hostExecCalls[0]).toContain("tmux split-window -h -l 50%");
+  });
+
+  test("opens a new tmux window/tab for bring default mode", async () => {
+    await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
+
+    expect(hostExecCalls).toHaveLength(1);
+    expect(hostExecCalls[0]).toContain("tmux new-window");
+    expect(hostExecCalls[0]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[0]).toContain("TMUX= tmux attach-session -t");
+    expect(hostExecCalls[0]).toContain("20-homekeeper:homekeeper-oracle");
+  });
+
+  test("does not open a window when bring is not requested", async () => {
+    await maybeOpenWindow("20-homekeeper:homekeeper-oracle", {});
+    expect(hostExecCalls).toEqual([]);
   });
 
   afterAll(() => {
