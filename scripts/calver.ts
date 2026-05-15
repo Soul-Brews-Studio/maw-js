@@ -241,12 +241,18 @@ export function computeVersion(args: Args, tags: string[] = [], packageVersion: 
   const base = args.stable ? todayBase : effectiveBase(todayBase, packageVersion);
   if (args.stable) return base;
   const channel = args.channel ?? "alpha";
-  // HHMM scheme: pre-release ID is the local-time hour+minute. Naturally
-  // unique-per-minute, no tag-walk + package-walk reconciliation needed.
-  // tags + packageVersion params kept for back-compat with callers/tests.
-  void tags; void packageVersion;
-  const stamp = hhmmStamp(now);
-  return `${base}-${channel}.${stamp}`;
+  // HHMM is the preferred wall-clock stamp, but it is not strictly monotonic
+  // across midnight when package.json still carries the same CalVer base with
+  // a late-night suffix (for example 26.5.16-alpha.2356 at 00:27).
+  // Preserve wall-clock readability when possible, and fall back to max+1
+  // when tags/package.json prove that HHMM would be a semver downgrade.
+  const stamp = parseInt(hhmmStamp(now), 10);
+  const maxExisting = Math.max(
+    maxNFromTags(base, channel, tags),
+    maxNFromPackageJson(base, channel, packageVersion),
+  );
+  const next = Math.max(stamp, maxExisting + 1);
+  return `${base}-${channel}.${next}`;
 }
 
 async function tagExists(version: string): Promise<boolean> {
