@@ -10,6 +10,13 @@ import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 
+export function shouldOfferExistingSessionAttach(
+  opts: { attach?: boolean; split?: boolean },
+  isTTY = process.stdin.isTTY,
+): boolean {
+  return !opts.attach && !opts.split && Boolean(isTTY);
+}
+
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
@@ -260,7 +267,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       }
 
       console.log(`\x1b[32m⚡\x1b[0m '${existingWindow}' running in ${session}`);
-      if (!opts.attach && process.stdin.isTTY) {
+      if (shouldOfferExistingSessionAttach(opts)) {
         process.stdout.write(`  attach? [y/N] `);
         const { openSync, readSync, closeSync } = await import("fs");
         try {
@@ -303,4 +310,3 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   takeSnapshot("wake").catch(() => {});
   return `${session}:${windowName}`;
 }
-

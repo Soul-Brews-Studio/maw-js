@@ -1,5 +1,9 @@
 import { hostExec } from "../../sdk";
 
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /** @internal — exported for tests only. */
 export async function probeTmuxServer(): Promise<boolean> {
   try {
@@ -14,10 +18,14 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
   if (!opts.split) return;
   if (process.env.TMUX) {
     try {
-      const { cmdSplit } = await import("../plugins/split/impl");
-      await cmdSplit(target);
-    } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);
+      const anchor = process.env.TMUX_PANE;
+      const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
+      const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
+      await hostExec(`tmux split-window ${targetFlag}-h -l 50% ${shellArg(innerCmd)}`);
+      console.log(`  \x1b[32m✓\x1b[0m split beside — ${target} (50%)`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.log(`  \x1b[33m⚠\x1b[0m split failed: ${message}`);
     }
     return;
   }
