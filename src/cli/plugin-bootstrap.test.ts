@@ -83,6 +83,18 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     return dir;
   }
 
+  /** Helper: create a legacy maw-plugin-registry checkout plugin. */
+  function makeLegacyMawPluginRegistryPlugin(name: string) {
+    const root = join(workDir, `maw-plugin-registry-${name}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "maw-plugin-registry", version: "0.0.0-old" }));
+    const dir = join(root, "plugins", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name, weight: 80 }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ legacyMpr: true });\n`);
+    return dir;
+  }
+
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
     makeBundledPlugin("beta");
@@ -165,6 +177,20 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(pluginDir, "wake"))).toBe(currentWake);
+  });
+
+  it("#1507 — legacy maw-plugin-registry symlink is healed to current vendored plugin", async () => {
+    const currentInbox = makeVendoredPlugin("inbox");
+    const legacyInbox = makeLegacyMawPluginRegistryPlugin("inbox");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(legacyInbox, join(pluginDir, "inbox"));
+    expect(readlinkSync(join(pluginDir, "inbox"))).toBe(legacyInbox);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "inbox")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "inbox"))).toBe(currentInbox);
   });
 
   it("#1491 — symlinked user plugin override is not treated as stale maw-js bundle", async () => {

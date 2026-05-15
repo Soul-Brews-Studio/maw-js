@@ -50,12 +50,39 @@ function isMawJsPackageRoot(root: string | undefined): boolean {
   }
 }
 
+function mawPluginRegistryRoot(target: string, entry: string): string | undefined {
+  const normalized = target.replace(/\\/g, "/");
+  const suffix = `/plugins/${entry}`;
+  if (!normalized.endsWith(suffix)) return undefined;
+  return target.slice(0, target.length - suffix.length);
+}
+
+function isMawPluginRegistryRoot(root: string | undefined): boolean {
+  if (!root) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
+    if (pkg?.name === "maw-plugin-registry") return true;
+  } catch {}
+  return root.replace(/\\/g, "/").endsWith("/maw-plugin-registry");
+}
+
 function pointsAtStaleMawJsBundledPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
   try {
     const currentTarget = realpathSync(replacement);
     const existingTarget = realpathSync(symlinkPath);
     if (existingTarget === currentTarget) return false;
     return isMawJsPackageRoot(bundledMawJsRoot(existingTarget, entry));
+  } catch {
+    return false;
+  }
+}
+
+function pointsAtLegacyMawPluginRegistryPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
+  try {
+    const currentTarget = realpathSync(replacement);
+    const existingTarget = realpathSync(symlinkPath);
+    if (existingTarget === currentTarget) return false;
+    return isMawPluginRegistryRoot(mawPluginRegistryRoot(existingTarget, entry));
   } catch {
     return false;
   }
@@ -70,7 +97,11 @@ function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): {
       if (!lstatSync(p).isSymbolicLink()) continue;
       const replacement = replacementForPlugin(entry, bundledRoots);
       const targetIsValidPlugin = existsSync(p) && isPluginDir(p);
-      if (targetIsValidPlugin && (!replacement || !pointsAtStaleMawJsBundledPlugin(p, entry, replacement))) continue;
+      const shouldHealValidTarget = replacement && (
+        pointsAtStaleMawJsBundledPlugin(p, entry, replacement) ||
+        pointsAtLegacyMawPluginRegistryPlugin(p, entry, replacement)
+      );
+      if (targetIsValidPlugin && !shouldHealValidTarget) continue;
       unlinkSync(p);
       if (replacement) {
         symlinkSync(replacement, p);
