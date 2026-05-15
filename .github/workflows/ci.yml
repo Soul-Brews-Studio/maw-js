@@ -82,7 +82,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build CLI
-        run: bun build --target=bun src/cli.ts
+        run: bun build --target=bun src/cli.ts --outfile dist/maw
 
       - name: Validate plugin manifests
         run: |
