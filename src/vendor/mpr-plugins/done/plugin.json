@@ -10,7 +10,7 @@
     "aliases": [
       "finish"
     ],
-    "help": "maw done <window-name> [--force] [--dry-run] — clean up a finished worktree"
+    "help": "maw done <window-name> [--force] [--dry-run] | maw done --all [--force] [--dry-run] — clean up finished worktrees"
   },
   "api": {
     "path": "/api/done",

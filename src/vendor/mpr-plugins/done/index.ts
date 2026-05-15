@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { cmdDone } from "./impl";
+import { cmdDone, cmdDoneAll } from "./impl";
 
 export const command = {
   name: ["done", "finish"],
@@ -19,28 +19,34 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     else logs.push(a.map(String).join(" "));
   };
   try {
-    let name: string;
+    let name: string | undefined;
     let force: boolean | undefined;
     let dryRun: boolean | undefined;
+    let all: boolean | undefined;
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
       // Find first non-flag arg
       const positional = args.filter(a => !a.startsWith("--"));
-      if (!positional[0]) {
-        return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run]" };
-      }
-      name = positional[0];
       force = args.includes("--force");
       dryRun = args.includes("--dry-run");
+      all = args.includes("--all");
+      name = positional[0];
     } else {
       const args = ctx.args as Record<string, unknown>;
-      if (!args.name) {
-        return { ok: false, error: "name is required" };
-      }
-      name = args.name as string;
+      name = args.name as string | undefined;
       force = args.force as boolean | undefined;
       dryRun = args.dryRun as boolean | undefined;
+      all = args.all as boolean | undefined;
+    }
+
+    if (all) {
+      await cmdDoneAll({ force, dryRun });
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    if (!name) {
+      return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] or maw done --all [--force] [--dry-run]" };
     }
 
     await cmdDone(name, { force, dryRun });
