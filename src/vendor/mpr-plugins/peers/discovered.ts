@@ -67,6 +67,14 @@ export async function fetchDiscoveries(opts: { all?: boolean; limit?: number } =
   }
   if (!res.ok) {
     const body = await safeJson(res);
+    if (res.status === 404) {
+      return {
+        ok: false,
+        error: "discovery_endpoint_missing",
+        hint: "daemon doesn't expose /api/peers/discoveries — restart `maw serve` after upgrading",
+        status: 404,
+      };
+    }
     return {
       ok: false,
       error: body?.error ?? `http_${res.status}`,

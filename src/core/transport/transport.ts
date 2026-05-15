@@ -196,4 +196,19 @@ export class TransportRouter {
   status(): { name: string; connected: boolean }[] {
     return this.transports.map((t) => ({ name: t.name, connected: t.connected }));
   }
+
+  /** Collect discovery rows exposed by transports such as Scout. */
+  listDiscoveredPeers(): unknown[] {
+    const peers: unknown[] = [];
+    for (const transport of this.transports) {
+      const listPeers = (transport as Transport & { listPeers?: () => unknown[] }).listPeers;
+      if (typeof listPeers !== "function") continue;
+      try {
+        peers.push(...listPeers.call(transport));
+      } catch {
+        // Discovery should never break the router status/API surface.
+      }
+    }
+    return peers;
+  }
 }
