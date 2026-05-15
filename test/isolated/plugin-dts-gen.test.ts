@@ -23,6 +23,9 @@ import { cmdPluginBuild } from "../../src/commands/plugins/plugin/build-impl";
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
 const created: string[] = [];
+// CI shard load can push the external `bun x tsc` subprocess just past Bun's
+// default 5s test timeout. Keep the test deterministic while still bounding it.
+const DTS_TEST_TIMEOUT_MS = 15_000;
 
 function tmpDir(prefix = "maw-dts-test-"): string {
   const d = mkdtempSync(join(tmpdir(), prefix));
@@ -133,7 +136,7 @@ describe("generatePluginDts", () => {
     expect(content).toContain("greeting: string");
     // Must contain the default export signature
     expect(content).toContain("export default function handler");
-  });
+  }, DTS_TEST_TIMEOUT_MS);
 
   test("emitted .d.ts contains exported types from plugin source", () => {
     const dir = scaffoldPlugin({
@@ -159,7 +162,7 @@ export interface TypedOptions {
     expect(content).toContain('"read" | "write"');
     expect(content).toContain("TypedOptions");
     expect(content).toContain("timeout: number");
-  });
+  }, DTS_TEST_TIMEOUT_MS);
 
   test("throws when entry file does not exist", () => {
     const dir = tmpDir();
@@ -212,7 +215,7 @@ describe("cmdPluginBuild --types flag", () => {
     // Summary line includes types mention
     expect(stdout).toContain("types:");
     expect(stdout).toContain("greet.d.ts");
-  });
+  }, DTS_TEST_TIMEOUT_MS);
 
   test("does NOT emit .d.ts when --types is absent", async () => {
     const dir = scaffoldPlugin({ name: "notypes" });
