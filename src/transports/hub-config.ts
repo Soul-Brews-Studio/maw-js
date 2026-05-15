@@ -30,10 +30,11 @@ export function loadWorkspaceConfigs(): WorkspaceConfig[] {
   for (const file of files) {
     try {
       const raw = JSON.parse(readFileSync(join(WORKSPACES_DIR, file), "utf-8"));
-      if (validateWorkspaceConfig(raw)) {
+      const validation = validateWorkspaceConfig(raw);
+      if (validation.ok) {
         configs.push(raw as WorkspaceConfig);
       } else {
-        console.warn(`[hub] invalid workspace config: ${file}`);
+        console.warn(`[hub] invalid workspace config: ${file} (${validation.reason})`);
       }
     } catch (err) {
       console.warn(`[hub] failed to parse workspace config: ${file}`, err);
@@ -44,17 +45,19 @@ export function loadWorkspaceConfigs(): WorkspaceConfig[] {
 }
 
 /** Validate workspace config shape */
-function validateWorkspaceConfig(raw: any): boolean {
-  if (!raw || typeof raw !== "object") return false;
-  if (typeof raw.id !== "string" || raw.id.length === 0) return false;
-  if (typeof raw.hubUrl !== "string" || raw.hubUrl.length === 0) return false;
-  if (typeof raw.token !== "string" || raw.token.length === 0) return false;
-  if (!Array.isArray(raw.sharedAgents)) return false;
+export function validateWorkspaceConfig(raw: any): { ok: true } | { ok: false; reason: string } {
+  if (!raw || typeof raw !== "object") return { ok: false, reason: "not an object" };
+  if (typeof raw.id !== "string" || raw.id.length === 0) return { ok: false, reason: "missing/empty id" };
+  if (typeof raw.hubUrl !== "string" || raw.hubUrl.length === 0) return { ok: false, reason: "missing/empty hubUrl" };
+  if (typeof raw.token !== "string" || raw.token.length === 0) return { ok: false, reason: "missing/empty token" };
+  if (!Array.isArray(raw.sharedAgents)) return { ok: false, reason: "sharedAgents must be array" };
   try {
     const url = new URL(raw.hubUrl);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") return false;
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      return { ok: false, reason: `hubUrl must be ws:|wss: (got ${url.protocol})` };
+    }
   } catch {
-    return false;
+    return { ok: false, reason: "hubUrl not a valid URL" };
   }
-  return true;
+  return { ok: true };
 }
