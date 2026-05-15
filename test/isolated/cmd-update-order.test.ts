@@ -93,7 +93,20 @@ describe("cmd-update source-order invariants", () => {
     expect(src).toMatch(/for \(const key of \["maw-js", "maw"\]\)/);
   });
 
+  it("#1449: resolver metadata is cleared before the first `bun add`", () => {
+    const clearIdx = src.indexOf("const restoreResolverState = clearBunGlobalResolverState()");
+    const firstAddIdx = src.indexOf("let installCode = await spawnInstall().exited");
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(firstAddIdx).toBeGreaterThan(-1);
+    expect(clearIdx).toBeLessThan(firstAddIdx);
+  });
+
+  it("#1449: total install failure restores preflight resolver metadata", () => {
+    expect(src).toMatch(/if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{\s*restoreResolverState\(\)/);
+  });
+
   it("#950: direct-rm covers maw-js, maw, and @maw-js node_modules", () => {
     expect(src).toMatch(/for \(const name of \["maw-js", "maw", "@maw-js"\]\)/);
+
   });
 });

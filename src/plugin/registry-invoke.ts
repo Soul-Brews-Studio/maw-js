@@ -4,7 +4,8 @@
  * WASM plugins with a hard 5-second timeout.
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
+import { pathToFileURL } from "url";
 import {
   buildImportObject,
   preCacheBridge,
@@ -95,7 +96,7 @@ export async function invokePlugin(
   // honest behavior for Phase A (no sandbox).
   if (plugin.kind === "ts" && plugin.entryPath) {
     try {
-      const mod = await import(plugin.entryPath);
+      const mod = await import(pathToFileURL(realpathSync(plugin.entryPath)).href);
       const handler = mod.default || mod.handler;
       if (!handler) return { ok: false, error: "TS plugin has no default export or handler" };
 

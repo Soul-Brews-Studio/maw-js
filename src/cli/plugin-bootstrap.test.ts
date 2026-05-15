@@ -49,6 +49,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   let srcDir: string;
   let pluginDir: string;
   let bundledDir: string;
+  let vendoredDir: string;
 
   beforeEach(() => {
     // mkdtempSync is atomic — appends 6 random chars + creates the dir in one
@@ -58,6 +59,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     srcDir = join(workDir, "src");
     pluginDir = join(workDir, "plugins");
     bundledDir = join(srcDir, "commands", "plugins");
+    vendoredDir = join(srcDir, "vendor", "mpr-plugins");
     mkdirSync(bundledDir, { recursive: true });
   });
 
@@ -74,6 +76,15 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     } else {
       writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
     }
+    return dir;
+  }
+
+  /** Helper: create a vendored plugin dir that runBootstrap can heal to. */
+  function makeVendoredPlugin(name: string) {
+    const dir = join(vendoredDir, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
     return dir;
   }
 
@@ -198,6 +209,29 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(entries).toContain("alpha");
       // Warning was logged
       expect(warns.some(w => w.includes("2 broken plugin symlink"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
+    makeVendoredPlugin("wake");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync("/nonexistent/old-maw-js/packages/wake", join(pluginDir, "wake"));
+    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "wake"))).toBe(false);
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+
+    try {
+      await runBootstrap(pluginDir, srcDir);
+
+      expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+      expect(warns.some(w => w.includes("broken plugin symlink"))).toBe(false);
     } finally {
       console.warn = originalWarn;
     }

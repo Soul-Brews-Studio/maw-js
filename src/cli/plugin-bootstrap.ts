@@ -25,6 +25,10 @@ function isTransientPath(p: string): boolean {
   return /^(\/private)?\/tmp\//.test(p);
 }
 
+function isPluginDir(dir: string): boolean {
+  return existsSync(join(dir, "plugin.json")) || existsSync(join(dir, "index.ts"));
+}
+
 /**
  * Resolve the absolute path to the bundled-plugins directory.
  *
@@ -86,6 +90,28 @@ async function persistBundledPath(resolvedPath: string): Promise<void> {
   } catch {}
 }
 
+function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): { healed: number; pruned: number } {
+  let healed = 0;
+  let pruned = 0;
+  for (const entry of readdirSync(pluginDir)) {
+    const p = join(pluginDir, entry);
+    try {
+      if (!lstatSync(p).isSymbolicLink() || existsSync(p)) continue;
+      const replacement = bundledRoots
+        .map((root) => join(root, entry))
+        .find((candidate) => existsSync(candidate) && isPluginDir(candidate) && !isTransientPath(candidate));
+      unlinkSync(p);
+      if (replacement) {
+        symlinkSync(replacement, p);
+        healed++;
+      } else {
+        pruned++;
+      }
+    } catch {}
+  }
+  return { healed, pruned };
+}
+
 /**
  * Auto-bootstrap plugins into pluginDir.
  *
@@ -122,21 +148,14 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
     }
   } catch { /* never fatal on bootstrap */ }
 
-  // 0. #1015 — prune broken symlinks before anything else. After an update
-  //    removes bundled plugins from src/commands/plugins/, their old symlinks
-  //    in ~/.maw/plugins/ become dangling. readdirSync still lists them, but
-  //    existsSync returns false (target gone). The plugin loader silently
-  //    skips them, so the user sees "unknown command" with no explanation.
-  let pruned = 0;
-  for (const entry of readdirSync(pluginDir)) {
-    const p = join(pluginDir, entry);
-    try {
-      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
-        unlinkSync(p);
-        pruned++;
-      }
-    } catch {}
-  }
+  // 0. #1015/#1449 — heal broken symlinks before anything else. After an
+  //    update moves bundled plugins, old symlinks become dangling. If the
+  //    same plugin exists in the resolved bundled root, silently re-link it;
+  //    warn only for symlinks that cannot be healed.
+  const bundled = await resolveBundledPath(srcDir);
+  const vendored = join(srcDir, "vendor", "mpr-plugins");
+  const bundledRoots = [bundled, vendored].filter((p): p is string => !!p && existsSync(p));
+  const { pruned } = healOrPruneBrokenSymlinks(pluginDir, bundledRoots);
   if (pruned > 0) {
     console.warn(`[maw] removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} from ${pluginDir}`);
   }
@@ -149,15 +168,12 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   // Auto-heal: if dest is a symlink pointing to a path that's NOT under the
   //   current bundled root (e.g., a deleted clone path), re-link it. Prevents
   //   silent "unknown command: tmux" after migrating between maw-js checkouts.
-  const bundled = await resolveBundledPath(srcDir);
   if (bundled) {
     let healed = 0;
     for (const d of readdirSync(bundled)) {
       const src = join(bundled, d);
       const dest = join(pluginDir, d);
-      const isPlugin =
-        existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
-      if (!isPlugin) continue;
+      if (!isPluginDir(src)) continue;
       if (existsSync(dest)) {
         // Heal: if dest is a symlink pointing to a stale bundled location,
         // re-link to the current bundled path. Plain dirs (user overrides)
