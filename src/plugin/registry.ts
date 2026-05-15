@@ -113,6 +113,18 @@ export function discoverPackages(): LoadedPlugin[] {
 
       const m = loaded.manifest;
 
+      // #1341 — merge tier from registry.meta.json (mpr's canonical source).
+      // plugin.json doesn't declare tier; registry.meta.json does.
+      if (!m.tier) {
+        const metaPath = join(pkgDir, "registry.meta.json");
+        try {
+          if (existsSync(metaPath)) {
+            const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+            if (meta.tier) m.tier = meta.tier;
+          }
+        } catch { /* malformed meta — skip silently */ }
+      }
+
       // Gate 1: SDK semver. Mismatch → refuse with actionable error.
       if (!satisfies(runtimeVer, m.sdk)) {
         console.warn(formatSdkMismatchError(m.name, m.sdk, runtimeVer));
