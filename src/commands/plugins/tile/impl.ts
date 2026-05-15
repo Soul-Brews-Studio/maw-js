@@ -1,9 +1,17 @@
 import {
   nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
-  applyTiledLayout, getWindowTarget,
+  applyTiledLayout,
 } from "../tmux/layout-manager";
 import { hostExec } from "../../../sdk";
 import { withPaneLock } from "../../../core/transport/tmux-pane-lock";
+
+async function getWindow(): Promise<string> {
+  const pane = process.env.TMUX_PANE;
+  if (pane) {
+    return (await hostExec(`tmux display-message -t '${pane}' -p '#{window_id}'`)).trim();
+  }
+  return (await hostExec("tmux display-message -p '#{window_id}'")).trim();
+}
 
 export interface TileOpts {
   wt?: boolean;
@@ -18,7 +26,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     throw new Error("tile: max 10 panes (got " + count + ")");
   }
 
-  const window = await getWindowTarget();
+  const window = await getWindow();
 
   if (count === 0) {
     await applyTiledLayout(window);
@@ -28,7 +36,6 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
   const anchor = process.env.TMUX_PANE ?? "";
 
-  // Resolve engine command if specified
   let engineCmd = "";
   if (opts.engine) {
     const { loadConfig } = await import("../../../config");
@@ -36,7 +43,6 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     engineCmd = commands[opts.engine] || opts.engine;
   }
 
-  // Resolve repo info for worktree mode
   let repoPath = "";
   let parentDir = "";
   let repoName = "";
@@ -48,7 +54,6 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     const { dirname, basename } = await import("path");
     parentDir = dirname(repoPath);
     repoName = basename(repoPath).replace(/\.wt-.*$/, "");
-    // Use the main repo for worktree creation (not a worktree of a worktree)
     const mainRepo = `${parentDir}/${repoName}`;
     try {
       await hostExec(`git -C '${mainRepo}' rev-parse --git-dir 2>/dev/null`);
@@ -57,13 +62,13 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     existingWorktrees = await findWorktrees(parentDir, repoName);
   }
 
+  // Spawn all panes chained from previous (preserves index order for grid)
+  const paneIds: string[] = [];
+
   for (let i = 0; i < count; i++) {
     const name = `tile-${i + 1}`;
-    const color = nextAgentColor(i);
-    const targetFlag = anchor ? `-t '${anchor}' ` : "";
 
     let cwd = "";
-
     if (opts.wt) {
       const { createWorktree } = await import("../../shared/wake-session");
       const oracle = repoName.replace(/-oracle$/, "");
@@ -72,17 +77,17 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       existingWorktrees.push({ name, path: cwd });
     }
 
-    // Build shell command
     let shellCmd = "exec zsh";
     if (engineCmd) {
       shellCmd = `${engineCmd.replace(/'/g, "'\\''")}; exec zsh`;
     }
-
-    // Add cwd change for worktree panes
     if (cwd) {
       shellCmd = `cd '${cwd.replace(/'/g, "'\\''")}' && ${shellCmd}`;
     }
 
+    // Chain: split from last pane so idx order = spawn order
+    const splitFrom = paneIds.length > 0 ? paneIds[paneIds.length - 1] : anchor;
+    const targetFlag = splitFrom ? `-t '${splitFrom}' ` : "";
     let paneId = "";
     await withPaneLock(async () => {
       paneId = (await hostExec(
@@ -91,10 +96,11 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       await new Promise(r => setTimeout(r, 200));
     });
 
+    paneIds.push(paneId);
+
+    const color = nextAgentColor(i);
     const label = opts.wt ? `${name} 🌳` : name;
     await stylePaneBorder(paneId, label, color);
-    await applyTiledLayout(window);
-    await enableBorderStatus(window);
 
     const extras = [
       opts.wt ? `\x1b[90m${cwd}\x1b[0m` : "",
@@ -103,6 +109,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
   }
+
+  // Apply tiled layout once after all spawns
+  await applyTiledLayout(window);
+  await enableBorderStatus(window);
 
   const flags = [
     opts.wt ? "worktree" : "",
@@ -113,7 +123,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 }
 
 export async function cmdTileClean(): Promise<void> {
-  const window = await getWindowTarget();
+  const window = await getWindow();
   const myPane = process.env.TMUX_PANE ?? "";
 
   const raw = await hostExec(
