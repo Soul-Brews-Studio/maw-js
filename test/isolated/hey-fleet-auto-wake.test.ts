@@ -31,6 +31,7 @@ let fleetKnown: Set<string> = new Set();
 let cmdWakeCalls: Array<{ oracle: string; opts: unknown }> = [];
 let listSessionsCallCount = 0;
 let listSessionsAfterWake: Array<{ name: string; windows: { index: number; name: string; active: boolean }[] }> | null = null;
+let previousAgentName: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,8 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 }
 
 beforeEach(() => {
+  previousAgentName = process.env.CLAUDE_AGENT_NAME;
+  process.env.CLAUDE_AGENT_NAME = "test-node";
   mockActive = true;
   sendKeysCalls = [];
   cmdWakeCalls = [];
@@ -147,7 +150,12 @@ beforeEach(() => {
   process.env.MAW_QUIET = "1";
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (previousAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = previousAgentName;
+});
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
@@ -171,7 +179,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     // Auto-wake message printed (no y/N prompt path)
     expect(logs.some(l => l.includes("fleet-known") && l.includes("auto-wake"))).toBe(true);
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("hello");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello");
     expect(exitCode).toBeUndefined();
   });
 

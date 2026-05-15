@@ -68,6 +68,33 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
 }
 
 /**
+ * Visible internal federation attribution.
+ *
+ * Transport-level signing (`curlFetch(..., { from: "auto" })`) authenticates
+ * cross-node HTTP calls, but same-node tmux delivery has no protocol envelope.
+ * Internal Oracle convention is a body-level `[node:oracle]` prefix for human
+ * chat. Preserve executable slash/$ commands and already-signed messages so
+ * `maw hey target /skill` keeps invoking the command instead of turning into
+ * prose.
+ *
+ * @internal exported for regression tests.
+ */
+export function formatSignedMessage(
+  message: string,
+  config: Pick<ReturnType<typeof loadConfig>, "node">,
+  senderName: string,
+): string {
+  const leading = message.match(/^\s*/)?.[0] ?? "";
+  const body = message.slice(leading.length);
+  if (!body) return message;
+  if (body.startsWith("/") || body.startsWith("$")) return message;
+  if (/^\[[^\]\s:]+:[^\]]+\](?:\s|$)/.test(body)) return message;
+
+  const node = config.node || "local";
+  return `${leading}[${node}:${senderName}] ${body}`;
+}
+
+/**
  * Check if a pane is idle — i.e., no user input is in progress on the prompt line.
  * Uses capture-pane to inspect the last visible line. If a shell prompt marker
  * ($, %, >, ❯, #) is followed by non-whitespace text, the user is mid-input.
@@ -423,6 +450,9 @@ export async function cmdSend(
     }
   }
 
+  const senderName = resolveMyName(config);
+  const outboundMessage = formatSignedMessage(message, config, senderName);
+
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
   // panes (team-agents spawned beside it), `send-keys -t session:window`
@@ -450,16 +480,15 @@ export async function cmdSend(
         }
       }
     }
-    await sendKeys(target, message);
-    await runHook("after_send", { to: query, message });
+    await sendKeys(target, outboundMessage);
+    await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
-    const senderName = resolveMyName(config);
-    logMessage(senderName, query, message, "local");
-    emitFeed("MessageSend", senderName, config.node, `${query}: ${message.slice(0, 200)}`, config.port || 3456);
+    logMessage(senderName, query, outboundMessage, "local");
+    emitFeed("MessageSend", senderName, config.node, `${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
     await Bun.sleep(150);
     let lastLine = "";
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
-    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
+    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
   }
@@ -468,16 +497,15 @@ export async function cmdSend(
   if (result?.type === "peer") {
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: result.target, text: message }),
+      body: JSON.stringify({ target: result.target, text: outboundMessage }),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
-      const agentName = resolveMyName(config);
-      logMessage(agentName, query, message, `peer:${result.node}`);
-      emitFeed("MessageSend", agentName, config.node!, `${result.node}:${query}: ${message.slice(0, 200)}`, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
+      logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
+      emitFeed("MessageSend", senderName, config.node!, `${result.node}:${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
@@ -493,13 +521,13 @@ export async function cmdSend(
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: query, text: message }),
+      body: JSON.stringify({ target: query, text: outboundMessage }),
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     // Remote fetch was attempted but failed — surface the remote failure explicitly (#411).

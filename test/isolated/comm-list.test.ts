@@ -849,17 +849,17 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls).toHaveLength(1);
     expect(logMessageCalls[0]).toMatchObject({
-      from: "test-oracle", to: "white:mawjs", msg: "ping", route: "local",
+      from: "test-oracle", to: "white:mawjs", msg: "[white:test-oracle] ping", route: "local",
     });
     expect(emitFeedCalls).toHaveLength(1);
     expect(emitFeedCalls[0]).toMatchObject({
       event: "MessageSend", oracle: "test-oracle", node: "white", port: 4000,
     });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("08-mawjs:0: ping"))).toBe(true);
+    expect(outs.some((o) => o.includes("delivered") && o.includes("08-mawjs:0: [white:test-oracle] ping"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷ hello back"))).toBe(true);
   });
 
@@ -886,7 +886,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping", true));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(exitCode).toBeUndefined();
   });
 
@@ -921,7 +921,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(logMessageCalls[0].route).toBe("local");
   });
 
@@ -951,7 +951,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0.1", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0.1", text: "[white:test-oracle] ping" }]);
   });
 });
 
@@ -974,7 +974,7 @@ describe("cmdSend — peer target (federation)", () => {
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls[0]).toMatchObject({ from: "test-oracle", to: "mba:mawjs", route: "peer:mba" });
     expect(emitFeedCalls[0]).toMatchObject({ event: "MessageSend", node: "white", port: 5000 });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("mba") && o.includes("mawjs: ping"))).toBe(true);
+    expect(outs.some((o) => o.includes("delivered") && o.includes("mba") && o.includes("mawjs: [white:test-oracle] ping"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷ peer saw it"))).toBe(true);
   });
 

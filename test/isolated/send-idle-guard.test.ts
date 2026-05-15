@@ -78,6 +78,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 // Bun.sleep intercept — replace globally so checkPaneIdle retry doesn't stall
 const origSleep = Bun.sleep.bind(Bun);
+const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
 };
@@ -120,12 +121,15 @@ beforeEach(() => {
   resolveTargetReturn = { type: "local", target: "test-session:oracle.0" };
   delete process.env.MAW_QUIET;
   process.env.MAW_QUIET = "1"; // suppress tip output
+  process.env.CLAUDE_AGENT_NAME = "test-node";
 });
 
 afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
 });
 
 // ─── checkPaneIdle tests ─────────────────────────────────────────────────────
@@ -202,7 +206,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
     ];
     await run(() => cmdSend("test-node:oracle", "hello world"));
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("hello world");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello world");
     expect(exitCode).toBeUndefined();
   });
 
@@ -215,6 +219,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
     await run(() => cmdSend("test-node:oracle", "hello after retry"));
     expect(sleepCalls).toContain(500);
     expect(sendKeysCalls.length).toBe(1);
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello after retry");
     expect(exitCode).toBeUndefined();
   });
 
@@ -238,7 +243,7 @@ describe("cmdSend — idle guard integration (#405)", () => {
     ];
     await run(() => cmdSend("test-node:oracle", "forced message", /* force */ true));
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("forced message");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] forced message");
     expect(exitCode).toBeUndefined();
     // No 500ms sleep should have been triggered by idle check
     expect(sleepCalls.filter(ms => ms === 500).length).toBe(0);
