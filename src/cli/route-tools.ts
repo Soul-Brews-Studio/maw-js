@@ -130,7 +130,13 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const result = await tmuxHandler({
       source: "cli",
       args: args.slice(1),
-      writer: (...a: unknown[]) => console.log(...a),
+      // Do not pass `console.log` here. The core tmux handler temporarily
+      // wraps console.log so command implementations can keep using it; a
+      // writer that calls console.log re-enters that wrapper and recurses
+      // until "Maximum call stack size exceeded" (#1459).
+      writer: (...a: unknown[]) => {
+        process.stdout.write(`${a.map(String).join(" ")}\n`);
+      },
     });
     if (!result.ok) {
       if (result.error) console.error(result.error);
