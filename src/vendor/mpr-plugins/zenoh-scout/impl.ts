@@ -191,7 +191,7 @@ export async function runZenohScout(
       keyPrefix: config.keyPrefix,
       total: 0,
       peers: [],
-      error: "zenoh_unavailable",
+      error: classifyZenohFailure(message),
       hint: `${message} — ${zenohUnavailableHint(message)}`,
     };
   } finally {
@@ -252,4 +252,9 @@ function zenohUnavailableHint(message: string): string {
     return "install @eclipse-zenoh/zenoh-ts or run a maw build that bundles/externalizes it correctly";
   }
   return "start zenohd with the remote-api bridge or pass --locator";
+}
+
+function classifyZenohFailure(message: string): string {
+  if (/wasm|__wbindgen|WebAssembly/i.test(message)) return "zenoh_runtime_unsupported";
+  return "zenoh_unavailable";
 }

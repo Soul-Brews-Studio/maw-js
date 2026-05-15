@@ -138,4 +138,17 @@ describe("zenoh-scout plugin (#1455)", () => {
     expect(result.error).toBe("zenoh_unavailable");
     expect(result.hint).toContain("start zenohd");
   });
+
+  test("zenoh-ts runtime or wasm init failures are reported separately from bridge unavailability", async () => {
+    const cfg = readZenohScoutConfig({ node: "m5", oracle: "mawjs", zenoh: { scout: { enabled: true } } });
+    const result = await runZenohScout(cfg, {
+      importZenoh: async () => {
+        throw new Error("wasm.__wbindgen_start is not a function");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("zenoh_runtime_unsupported");
+    expect(result.hint).toContain("zenoh-ts failed to initialize in this runtime");
+  });
 });
