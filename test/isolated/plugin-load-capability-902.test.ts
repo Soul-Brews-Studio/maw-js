@@ -76,7 +76,7 @@ function makePluginDir(opts: {
 describe("#902 — load-time capability validator (single source of truth)", () => {
   test("KNOWN_CAPABILITY_NAMESPACES is the canonical set (#874 baseline)", () => {
     expect([...KNOWN_CAPABILITY_NAMESPACES].sort()).toEqual(
-      ["ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
+      ["attach", "ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
     );
   });
 
@@ -102,6 +102,17 @@ describe("#902 — load-time capability validator (single source of truth)", () 
     expect(shellWarns).toEqual([]);
   });
 
+  test("load-time: plugin with `attach:strategy` capability does NOT warn (#1383)", () => {
+    const dir = makePluginDir({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const loaded = loadManifestFromDir(dir);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.manifest.capabilities).toEqual(["attach:strategy"]);
+    const attachWarns = warnings.filter((w) =>
+      w.includes('unknown capability namespace "attach"'),
+    );
+    expect(attachWarns).toEqual([]);
+  });
+
   test("load-time: plugin with bogus namespace `foo` DOES warn", () => {
     const dir = makePluginDir({ name: "bogus-cap", capabilities: ["foo:bar"] });
     const loaded = loadManifestFromDir(dir);
@@ -125,9 +136,10 @@ describe("#902 — load-time capability validator (single source of truth)", () 
     for (const ns of KNOWN_CAPABILITY_NAMESPACES) {
       expect(fooWarn!).toContain(ns);
     }
-    // Specifically tmux + shell — the two #874 added — must appear.
+    // Specifically tmux + shell (#874) and attach (#1383) must appear.
     expect(fooWarn!).toContain("tmux");
     expect(fooWarn!).toContain("shell");
+    expect(fooWarn!).toContain("attach");
   });
 
   test("load-time: every canonical namespace passes silently (no warning per known ns)", () => {
@@ -149,12 +161,12 @@ describe("#902 — load-time capability validator (single source of truth)", () 
     }
   });
 
-  test("load-time: multi-capability plugin (tmux+shell+sdk) loads cleanly", () => {
+  test("load-time: multi-capability plugin (tmux+shell+sdk+attach) loads cleanly", () => {
     // Mirrors the #880 install-time test (plugin declaring multiple new
     // namespaces together) for the load path.
     const dir = makePluginDir({
       name: "multi-cap",
-      capabilities: ["tmux", "shell", "sdk:identity"],
+      capabilities: ["tmux", "shell", "sdk:identity", "attach:strategy"],
     });
     const loaded = loadManifestFromDir(dir);
     expect(loaded).not.toBeNull();
@@ -162,6 +174,7 @@ describe("#902 — load-time capability validator (single source of truth)", () 
       "tmux",
       "shell",
       "sdk:identity",
+      "attach:strategy",
     ]);
     const unknownWarns = warnings.filter((w) =>
       w.includes("unknown capability namespace"),

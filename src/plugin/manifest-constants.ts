@@ -8,9 +8,11 @@
  * #874 — added `tmux` and `shell` after community plugins (bg, rename, park,
  * shellenv) declared them. `tmux` covers tmux-socket spawning via the SDK's
  * tmux/Tmux helpers (src/core/transport/tmux). `shell` covers shell-eval style
- * stdout writes for shell-environment plugins. Both are advisory in Phase A —
- * mirroring the rest of this list — and gate-able once the runtime grows real
- * capability enforcement (#487 follow-up).
+ * stdout writes for shell-environment plugins.
+ *
+ * #1383 — added `attach` for attach-strategy providers such as attach-ssh.
+ * These namespaces are advisory in Phase A — mirroring the rest of this list —
+ * and gate-able once the runtime grows real capability enforcement (#487 follow-up).
  *
  * #902 — SINGLE SOURCE OF TRUTH. Every validator in the codebase must import
  * this set; do NOT hardcode the namespace list anywhere else (install,
@@ -28,6 +30,7 @@ export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "ffi",    // native FFI (bun:ffi)
   "tmux",   // tmux socket interaction (spawnSync("tmux", …) + SDK tmux helpers)
   "shell",  // shell-eval / stdout-writing plugins (shellenv-style)
+  "attach", // attach strategy providers (attach-ssh declares attach:strategy)
 ]);
 
 /**
