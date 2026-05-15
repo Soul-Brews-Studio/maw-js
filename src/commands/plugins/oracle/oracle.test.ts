@@ -17,6 +17,12 @@ mock.module("./impl", () => ({
   cmdOracleAbout: async (name: string) => {
     console.log(`Oracle — ${name}`);
   },
+  cmdOraclePrune: async () => {
+    console.log("pruned");
+  },
+  cmdOracleRegister: async (name: string) => {
+    console.log(`registered ${name}`);
+  },
 }));
 
 mock.module("./impl-nickname", () => ({
