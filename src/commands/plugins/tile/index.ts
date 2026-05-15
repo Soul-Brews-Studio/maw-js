@@ -23,14 +23,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const flags = parseFlags(args, {
       "--help": Boolean, "-h": "--help",
+      "--wt": Boolean,
+      "--engine": String, "-e": "--engine",
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw tile [N]");
+      console.log("usage: maw tile [N] [--wt] [--engine <name>]");
       console.log("");
-      console.log("  maw tile      apply tiled layout to current window");
-      console.log("  maw tile 3    spawn 3 empty panes and tile them");
-      console.log("  maw tile 6    spawn 6 empty panes and tile them (max 10)");
+      console.log("  maw tile           apply tiled layout to current window");
+      console.log("  maw tile 3         spawn 3 empty panes and tile them");
+      console.log("  maw tile 3 --wt    spawn 3 worktree-backed panes, each with own branch");
+      console.log("  maw tile 3 -e claude   spawn 3 panes running claude, tiled");
+      console.log("  maw tile 3 --wt -e claude   worktree + engine combined");
       return { ok: true, output: logs.join("\n") };
     }
 
@@ -43,7 +47,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: false, error: "invalid count" };
     }
 
-    await cmdTile(count);
+    await cmdTile(count, {
+      wt: !!flags["--wt"],
+      engine: flags["--engine"] as string | undefined,
+    });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
