@@ -181,7 +181,37 @@ export function checkSelfPeer(
 }
 
 /**
- * Check 6 — Casing duplicates in config.agents keys and fleet window names.
+ * Check 6 — agents entry shadows a namedPeer (#1323 / #1326).
+ *
+ * When config.agents has a key that matches a namedPeer name, bare-name
+ * routing (resolveTarget Step 3b) resolves locally and never reaches peer
+ * routing. E.g. agents["oracle-world"] = "m5" + namedPeers[{name:"oracle-world"}]
+ * → `maw hey oracle-world:pulse` resolves "oracle-world" to local agent "m5"
+ * instead of the remote peer URL.
+ */
+export function checkAgentPeerShadow(
+  agents: Record<string, string>,
+  peers: PeerConfig[],
+): DoctorFinding[] {
+  const findings: DoctorFinding[] = [];
+  const peerMap = new Map(peers.map(p => [p.name.toLowerCase(), p]));
+  for (const [agentName, agentNode] of Object.entries(agents)) {
+    const peer = peerMap.get(agentName.toLowerCase());
+    if (peer) {
+      findings.push({
+        level: "error",
+        check: "agent-peer-shadow",
+        fixable: true,
+        message: `agents['${agentName}'] = '${agentNode}' shadows namedPeer '${peer.name}' (${peer.url}) — bare-name routing will never reach the peer`,
+        detail: { agentName, agentNode, peerName: peer.name, peerUrl: peer.url },
+      });
+    }
+  }
+  return findings;
+}
+
+/**
+ * Check 7 — Casing duplicates in config.agents keys and fleet window names.
  *
  * Root cause of #1240: no normalization at write sites left thClaws and
  * thclaws as distinct keys, causing the wake resolver to present both.

@@ -109,7 +109,18 @@ export function autoFix(
     return true;
   });
 
-  // 3. Auto-add missing agents
+  // 3. Remove agents that shadow namedPeers (#1323 / #1326)
+  for (const f of findings) {
+    if (f.check !== "agent-peer-shadow" || !f.fixable || !f.detail) continue;
+    const agentName = f.detail.agentName as string | undefined;
+    if (agentName && currentAgents[agentName]) {
+      delete currentAgents[agentName];
+      applied.push(`removed config.agents['${agentName}'] (was shadowing namedPeer '${f.detail.peerName}')`);
+      touched = true;
+    }
+  }
+
+  // 4. Auto-add missing agents
   for (const f of findings) {
     if (f.check !== "missing-agent" || !f.fixable || !f.detail) continue;
     const oracle = f.detail.oracle as string | undefined;

@@ -5,6 +5,7 @@ import {
   checkOrphanRoutes,
   checkDuplicatePeers,
   checkSelfPeer,
+  checkAgentPeerShadow,
   checkMissingRepos,
   autoFix,
   type DoctorFinding,
@@ -193,6 +194,45 @@ describe("checkSelfPeer — federation loop prevention", () => {
   });
 });
 
+describe("checkAgentPeerShadow — #1323 / #1326 agents↔namedPeers collision", () => {
+  test("flags agent entry that shadows a namedPeer", () => {
+    const agents = { "oracle-world": "m5", mawjs: "local" };
+    const peers = [{ name: "oracle-world", url: "http://10.20.0.16:3456" }];
+    const out = checkAgentPeerShadow(agents, peers);
+    expect(out.length).toBe(1);
+    expect(out[0].check).toBe("agent-peer-shadow");
+    expect(out[0].level).toBe("error");
+    expect(out[0].fixable).toBe(true);
+    expect(out[0].detail).toEqual({
+      agentName: "oracle-world",
+      agentNode: "m5",
+      peerName: "oracle-world",
+      peerUrl: "http://10.20.0.16:3456",
+    });
+  });
+
+  test("case-insensitive match", () => {
+    const out = checkAgentPeerShadow(
+      { "Oracle-World": "m5" },
+      [{ name: "oracle-world", url: "http://10.20.0.16:3456" }],
+    );
+    expect(out.length).toBe(1);
+  });
+
+  test("no collision when names are different", () => {
+    const out = checkAgentPeerShadow(
+      { mawjs: "local", homekeeper: "local" },
+      [{ name: "white", url: "http://10.20.0.7:3456" }],
+    );
+    expect(out).toEqual([]);
+  });
+
+  test("empty agents or peers produce no findings", () => {
+    expect(checkAgentPeerShadow({}, [{ name: "white", url: "http://x" }])).toEqual([]);
+    expect(checkAgentPeerShadow({ mawjs: "local" }, [])).toEqual([]);
+  });
+});
+
 describe("checkMissingRepos — #237 wake cold-start signal", () => {
   test("flags fleet entry whose repo is not in ghq", () => {
     const entries = [
@@ -275,6 +315,26 @@ describe("autoFix — only safe transforms", () => {
     ];
     const applied = safeAutoFix(findings, config);
     expect(applied.some((m) => m.includes("volt-colab-ml") && m.includes("white"))).toBe(true);
+  });
+
+  test("removes agent that shadows a namedPeer (#1323)", () => {
+    const config = {
+      node: "oracle-world",
+      port: 3456,
+      namedPeers: [{ name: "oracle-world", url: "http://10.20.0.16:3456" }],
+      agents: { "oracle-world": "m5", mawjs: "local" },
+    } as unknown as MawConfig;
+    const findings: DoctorFinding[] = [
+      {
+        level: "error",
+        check: "agent-peer-shadow",
+        message: "",
+        fixable: true,
+        detail: { agentName: "oracle-world", agentNode: "m5", peerName: "oracle-world", peerUrl: "http://10.20.0.16:3456" },
+      },
+    ];
+    const applied = safeAutoFix(findings, config);
+    expect(applied.some((m) => m.includes("oracle-world") && m.includes("shadowing"))).toBe(true);
   });
 
   test("no-op when config is clean", () => {
