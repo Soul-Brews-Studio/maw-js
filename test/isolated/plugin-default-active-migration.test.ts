@@ -8,7 +8,10 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
-import { DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION } from "../../src/plugin/default-active";
+import {
+  DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
+} from "../../src/plugin/default-active";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const homes: string[] = [];
@@ -95,6 +98,52 @@ describe("#1500 default-active plugin migration", () => {
     const disk = readConfig(home);
     expect(disk.disabledPlugins).toEqual(["team"]);
     expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]).toBeUndefined();
+  });
+
+  test("#1514 re-enables split when #1500 already healed a stale profile list", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      migrations: { [DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]: true },
+      disabledPlugins: [
+        "split", "costs", "learn", "archive", "broadcast", "demo", "find",
+        "project", "scope", "tab", "trust", "workspace", "resume",
+      ],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("config.disabledPlugins migration (#1514)");
+
+    const disk = readConfig(home);
+    expect(disk.disabledPlugins).not.toContain("split");
+    expect(disk.disabledPlugins).toContain("costs");
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]).toBe(true);
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION]).toBe(true);
+  });
+
+  test("#1514 preserves a small manual split disable list", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      disabledPlugins: ["split"],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain("config.disabledPlugins migration (#1514)");
+
+    const disk = readConfig(home);
+    expect(disk.disabledPlugins).toEqual(["split"]);
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION]).toBeUndefined();
   });
 
   test("typing a disabled installed plugin explains the real fix", () => {

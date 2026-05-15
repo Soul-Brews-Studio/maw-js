@@ -10,6 +10,8 @@ import { validateConfig } from "./validate-ext";
 import { loadFleetAgents } from "./fleet-merge";
 import {
   DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
+  isDefaultActive1514Plugin,
   isDefaultActivePlugin,
 } from "../plugin/default-active";
 
@@ -77,6 +79,30 @@ function maybeMigrateDefaultActivePlugins(config: MawConfig): void {
     `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
   );
   persistLoadedConfig("config.disabledPlugins migration (#1500)");
+}
+
+function maybeMigrateSplitTopAliasPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1514Plugin);
+  if (promoted.length === 0) return;
+
+  // Same safety posture as #1500: avoid overriding a tiny, clearly manual
+  // disable list. If #1500 already ran, this is a continuation of that stale
+  // profile-generated list heal; otherwise require the legacy large-list shape.
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1514Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1514): re-enabled help-prominent plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1514)");
 }
 
 export function loadConfig(): MawConfig {
@@ -151,6 +177,7 @@ export function loadConfig(): MawConfig {
     persistLoadedConfig("config.host migration");
   }
   maybeMigrateDefaultActivePlugins(cached);
+  maybeMigrateSplitTopAliasPlugin(cached);
   // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
   // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
   // before their first wake. Additive only: hand-tuned config.agents entries
