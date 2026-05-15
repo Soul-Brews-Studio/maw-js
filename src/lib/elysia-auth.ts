@@ -161,7 +161,13 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
       console.warn(`[from-auth] accepted signed request from unknown peer ${decision.from} (no cached pubkey to verify against — alpha behavior; will harden at v27)`);
     }
     // accept-verified is the steady-state happy path; no log spam.
-  });
+  })
+  // SECURITY (#1): `.as('global')` propagates this onBeforeHandle to every
+  // sibling route module mounted alongside this plugin in src/api/index.ts.
+  // Without it, a named Elysia plugin's lifecycle hook is `local`-scoped — it
+  // guards only routes defined on THIS instance (which defines zero), so the
+  // hook would run for nothing and every protected route would be unguarded.
+  .as("global");
 
 /** Federation auth — Elysia plugin with onBeforeHandle HMAC verification */
 export const federationAuth = new Elysia({ name: "federation-auth" })
@@ -169,8 +175,13 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     const config = loadConfig();
     const token = config.federationToken;
 
-    // No token configured → auth disabled (backwards compat)
-    if (!token) return;
+    // Peers-require-token invariant (#3) — mirrors the Hono federation-auth.ts.
+    // A node with peers configured binds 0.0.0.0 (see core/server.ts) and is
+    // network-reachable, so "no token" in that posture is default-insecure-open,
+    // NOT single-node mode. We must reach the fail-closed check below before
+    // returning on `!token`, so the token short-circuit no longer happens here.
+    const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
+    const allowPeersWithoutToken = config.allowPeersWithoutToken === true;
 
     const url = new URL(request.url);
     // Strip /api prefix to match against PROTECTED set
@@ -195,6 +206,22 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     const clientIp = _bunServer?.requestIP?.(request)?.address;
 
     if (isLoopback(clientIp)) return;
+
+    // Fail-closed (#3): peers configured but no federationToken → the node is
+    // network-reachable with auth fully off. Refuse protected writes from
+    // non-loopback callers unless the operator explicitly opted into the
+    // legacy posture with `allowPeersWithoutToken: true`. Restores the
+    // invariant the Hono federation-auth.ts has always enforced.
+    if (!token && hasPeers && !allowPeersWithoutToken) {
+      console.warn(`[auth] rejected ${request.method} ${url.pathname} from ${clientIp ?? "?"}: federation_token_required (peers configured, no federationToken)`);
+      set.status = 401;
+      return { error: "federation auth required", reason: "federation_token_required" };
+    }
+
+    // No token configured AND no peers → local-only single-node mode.
+    // The server binds to 127.0.0.1 in this posture; preserve legacy
+    // pass-through so fresh single-node installs work unchanged.
+    if (!token) return;
 
     // #804 Step 4: when the request carries `x-maw-from`, the from-signing
     // layer owns the `x-maw-signature` slot and is verified by
@@ -229,4 +256,11 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     }
 
     // Auth passed — continue to handler
-  });
+  })
+  // SECURITY (#1): `.as('global')` propagates this onBeforeHandle to every
+  // sibling route module mounted alongside this plugin in src/api/index.ts
+  // (.use(sessionsApi), .use(feedApi), .use(transportApi), …). Without it the
+  // hook is `local`-scoped to this instance — which defines zero routes — so
+  // it guards NOTHING and every protected write endpoint accepts unsigned
+  // non-loopback requests. Empirically confirmed in maw-stress revalidation.
+  .as("global");

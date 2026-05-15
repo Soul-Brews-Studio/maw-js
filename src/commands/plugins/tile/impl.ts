@@ -110,9 +110,12 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
   }
 
-  // Apply layout: even-horizontal for 1 tile (left|right), tiled for 2+ (grid)
+  // Layout: 1 tile = left|right, 2-3 tiles = lead full-left + tiles stacked right,
+  // 4+ = even grid
   if (count === 1) {
     await hostExec(`tmux select-layout -t '${window}' even-horizontal`);
+  } else if (count <= 3) {
+    await hostExec(`tmux select-layout -t '${window}' main-vertical`);
   } else {
     await applyTiledLayout(window);
   }
@@ -140,7 +143,6 @@ export async function cmdTileClean(): Promise<void> {
     const [paneId, ...titleParts] = line.split(" ");
     const title = titleParts.join(" ");
     if (paneId === myPane) continue;
-    if (!title.startsWith("tile-")) continue;
 
     try {
       await hostExec(`tmux kill-pane -t '${paneId}'`);
