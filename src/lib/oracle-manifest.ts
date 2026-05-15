@@ -145,7 +145,7 @@ export function readFleetWindows(dir: string = FLEET_DIR): FleetSessionLite[] {
   try {
     files = readdirSync(dir).filter(
       (f) => f.endsWith(".json") && !f.endsWith(".disabled"),
-    );
+    ).sort();
   } catch {
     return [];
   }

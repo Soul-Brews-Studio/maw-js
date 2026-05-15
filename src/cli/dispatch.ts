@@ -8,7 +8,7 @@ import { UserError } from "../core/util/user-error";
 
 /** Core route names that are not plugins but are still "known commands". */
 const CORE_ROUTES = [
-  "hey",
+  "hey", "send",
   "plugins", "plugin", "artifacts", "artifact",
   "agents", "agent", "audit", "serve",
   "update", "upgrade", "version",
