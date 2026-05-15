@@ -1,7 +1,14 @@
-import { cmdSend } from "../commands/shared/comm";
+import { cmdPeek, cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
 export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
+  // `peek` is a federation-aware comm verb. Keep `maw tmux peek` as the raw
+  // tmux pane reader; top-level `maw peek <node>:<agent>` must reach cmdPeek.
+  if (cmd === "peek") {
+    await cmdPeek(args[1]);
+    return true;
+  }
+
   // `hey` and `send` stay core — they are message-delivery verbs.
   // #1388: restore `maw send` to the same submitted delivery path as `maw hey`.
   // The raw-text compositor plugin remains available through lower-level tmux

@@ -46,7 +46,7 @@ export async function cmdPeek(query?: string) {
   if (query && query.includes(":") && !query.includes("/")) {
     const [nodeName, agentName] = query.split(":", 2);
     const localNode = config.node || "local";
-    if (nodeName === localNode) {
+    if (nodeName === localNode || nodeName === "local") {
       // #362 — local node prefix: strip and fall through to local peek
       query = agentName;
     } else {

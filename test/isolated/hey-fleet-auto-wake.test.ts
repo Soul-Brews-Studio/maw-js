@@ -225,6 +225,19 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     expect(sendKeysCalls.length).toBe(1);
   });
 
+  test("auto-wakes on local: prefixed target", async () => {
+    fleetKnown.add("volt");
+    listSessionsReturn = [];
+    listSessionsAfterWake = [{ name: "volt-session", windows: [{ index: 0, name: "volt-oracle", active: true }] }];
+    resolveTargetReturn = { type: "self-node", target: "volt-session:volt-oracle.0" };
+
+    await run(() => cmdSend("local:volt", "yo"));
+
+    expect(cmdWakeCalls.length).toBe(1);
+    expect(cmdWakeCalls[0].oracle).toBe("volt");
+    expect(sendKeysCalls.length).toBe(1);
+  });
+
   test("does NOT prompt y/N — wake is silent on fleet-known", async () => {
     fleetKnown.add("colab");
     listSessionsReturn = [];

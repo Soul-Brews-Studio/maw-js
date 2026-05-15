@@ -93,8 +93,9 @@ export function resolveTarget(
     const agentName = query.slice(colonIdx + 1);
     if (!nodeName || !agentName) return { type: "error", reason: "empty_node_or_agent", detail: `invalid format: '${query}'`, hint: "use node:agent format (e.g. mba:homekeeper)" };
 
-    // Self-node check: "white:mawjs" from white → resolve locally
-    if (nodeName === selfNode) {
+    // Self-node check: "white:mawjs" from white, or advertised
+    // "local:mawjs" alias from any configured node → resolve locally.
+    if (nodeName === selfNode || nodeName === "local") {
       const selfTarget = findWindow(writable, agentName);
       if (selfTarget) return { type: "self-node", target: selfTarget };
       // Try fleet config resolution (#281)

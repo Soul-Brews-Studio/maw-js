@@ -9,15 +9,18 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 const calls: unknown[][] = [];
+const peekCalls: unknown[][] = [];
 
 mock.module("../../src/commands/shared/comm", () => ({
   cmdSend: async (...args: unknown[]) => { calls.push(args); },
+  cmdPeek: async (...args: unknown[]) => { peekCalls.push(args); },
 }));
 
 const { routeComm } = await import("../../src/cli/route-comm");
 
 beforeEach(() => {
   calls.length = 0;
+  peekCalls.length = 0;
 });
 
 describe("routeComm — top-level send uses core delivery (#1388)", () => {
@@ -46,5 +49,13 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
     expect(calls).toEqual([
       ["local:mawjs", "ping", false, { approve: false, trust: false }],
     ]);
+  });
+
+  test("maw peek routes through federation-aware cmdPeek, not tmux alias", async () => {
+    const handled = await routeComm("peek", ["peek", "m5:mawjs"]);
+
+    expect(handled).toBe(true);
+    expect(peekCalls).toEqual([["m5:mawjs"]]);
+    expect(calls).toEqual([]);
   });
 });

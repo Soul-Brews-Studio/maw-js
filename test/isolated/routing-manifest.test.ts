@@ -216,6 +216,23 @@ describe("resolveTarget — manifest as primary lookup (Sub-PR 3 of #841)", () =
     });
   });
 
+  test("local:agent form is a self-node alias and resolves local sessions", () => {
+    manifestEntries = [];
+    const r = resolveTarget("local:mawjs", BASE_CONFIG, SESSIONS);
+    expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
+  });
+
+  test("local:agent miss reports self-node local miss, not unknown peer", () => {
+    manifestEntries = [];
+    const r = resolveTarget("local:ghost", BASE_CONFIG, SESSIONS);
+    expect(r).toMatchObject({
+      type: "error",
+      reason: "self_not_running",
+      detail: "'ghost' not found in local sessions on white",
+      hint: "maw wake ghost",
+    });
+  });
+
   // 9. Manifest loader throws → resolveTarget recovers, falls through.
   test("manifest load error swallowed → falls through to agents map", () => {
     loadManifestThrows = true;
