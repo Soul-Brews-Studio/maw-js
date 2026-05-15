@@ -110,7 +110,9 @@ export function parseBringArgs(argv: string[]): {
 } {
   // v1 default (#1398, locked by #1430): `maw bring <oracle>` splits the
   // current pane and attaches there. `--split` is kept as a no-op alias for
-  // muscle memory, while `--tab` opts into the later top-right/bg-tab path.
+  // muscle memory, while `--tab` preserves the background tmux-window path.
+  // The top-right respawn experiment (#1422) is deliberately not wired to
+  // `--tab`: tab must be non-destructive.
   const flags = parseFlags(argv, {
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
@@ -122,7 +124,7 @@ export function parseBringArgs(argv: string[]): {
     throw new UserError("bring: missing oracle name");
   }
   const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
-    ? { bring: true }
+    ? { bring: true, tab: true }
     : { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
@@ -133,7 +135,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
   write("       maw b <oracle> [--split|--tab] [-e|--engine <name>]");
   write("  Default: split the current pane and attach (v1).");
   write("  --split is accepted as an explicit alias of the default.");
-  write("  Use --tab for the top-right tile/bg-tab form.");
+  write("  Use --tab for a non-destructive background tmux window.");
   write("  Symmetric with `maw a` (attach goes there, bring comes here).");
 }
 
@@ -236,7 +238,7 @@ export async function invokeDirectHandler(
 
   if (exportName === "cmdBring") {
     // `maw bring <oracle>` defaults to the v1 current-pane split path.
-    // `--tab` opts into the later top-right/bg-tab path.
+    // `--tab` opts into the non-destructive background tmux-window path.
     if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
       printBringUsage();
       return;

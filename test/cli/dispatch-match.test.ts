@@ -265,9 +265,9 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
   });
 
-  test("`bring neo --tab` opts into the top-right/bg-tab mode", () => {
+  test("`bring neo --tab` opts into non-destructive background-tab mode", () => {
     const parsed = parseBringArgs(["neo", "--tab"]);
-    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
+    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true, tab: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {
