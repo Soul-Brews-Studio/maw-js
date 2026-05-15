@@ -8,6 +8,8 @@
   "homepage": "https://github.com/Soul-Brews-Studio/maw-shellenv",
   "sdk": "^1.0.0-alpha",
   "target": "js",
+  "weight": 10,
+  "tier": "standard",
   "capabilities": [],
   "schemaVersion": 1,
   "entry": "./src/index.ts"
