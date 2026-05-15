@@ -29,6 +29,16 @@ async function restoreSplitLayout(anchor?: string): Promise<void> {
   }
 }
 
+async function isMawTilePane(anchor?: string): Promise<boolean> {
+  if (!anchor) return false;
+  try {
+    const raw = await hostExec(`tmux show-options -p -t ${shellArg(anchor)} -v @maw_tile 2>/dev/null || true`);
+    return String(raw).trim() === "1";
+  } catch {
+    return false;
+  }
+}
+
 export async function maybeSplit(target: string, opts: { split?: boolean }): Promise<void> {
   if (!opts.split) return;
   if (process.env.TMUX) {
@@ -37,7 +47,9 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
       await hostExec(`tmux split-window ${targetFlag}-h -l 50% ${shellArg(innerCmd)}`);
-      await restoreSplitLayout(anchor);
+      if (!(await isMawTilePane(anchor))) {
+        await restoreSplitLayout(anchor);
+      }
       console.log(`  \x1b[32m✓\x1b[0m split beside — ${target} (50%)`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
