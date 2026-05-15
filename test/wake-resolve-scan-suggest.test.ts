@@ -4,7 +4,7 @@
  *
  * All tests use injected deps — no real gh/ghq calls, no /dev/tty access.
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   extractGhqOrgs,
   buildOrgList,
@@ -20,7 +20,31 @@ import {
 
 // #770 — every test that exercises the org-scope filter must start from a
 // clean cache; otherwise a prior test's mocked execFn leaks across cases.
-beforeEach(() => { _resetAllowedOrgsCache(); });
+const realConsoleLog = console.log;
+const realConsoleError = console.error;
+const realStdoutWrite = process.stdout.write;
+const quietStdoutWrite = ((chunk: unknown, encoding?: unknown, cb?: unknown) => {
+  void chunk;
+  if (typeof encoding === "function") encoding();
+  if (typeof cb === "function") cb();
+  return true;
+}) as typeof process.stdout.write;
+
+beforeEach(() => {
+  _resetAllowedOrgsCache();
+  // These tests exercise the interactive scan renderer with mock gh/ghq deps.
+  // Keep CI logs focused on failures; assertions below still override and
+  // inspect console output when output itself is the behavior under test.
+  console.log = () => {};
+  console.error = () => {};
+  process.stdout.write = quietStdoutWrite;
+});
+
+afterEach(() => {
+  console.log = realConsoleLog;
+  console.error = realConsoleError;
+  process.stdout.write = realStdoutWrite;
+});
 
 // ---------------------------------------------------------------------------
 // extractGhqOrgs — unit tests

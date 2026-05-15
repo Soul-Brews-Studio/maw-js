@@ -215,7 +215,17 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   });
 
   it("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
-    makeVendoredPlugin("wake");
+    // Use a repo-local stable source path for the vendored replacement.
+    // On Linux CI, `tmpdir()` is `/tmp`, and #1314 intentionally refuses to
+    // heal plugin symlinks *to* transient/worktree paths. The user-facing
+    // #1449 case is a real package checkout, not a temp worktree.
+    const stableRoot = mkdtempSync(join(process.cwd(), ".tmp-maw-bootstrap-heal-"));
+    const stableSrcDir = join(stableRoot, "src");
+    const stableVendoredDir = join(stableSrcDir, "vendor", "mpr-plugins");
+    const wakeDir = join(stableVendoredDir, "wake");
+    mkdirSync(wakeDir, { recursive: true });
+    writeFileSync(join(wakeDir, "plugin.json"), JSON.stringify({ name: "wake" }));
+    writeFileSync(join(wakeDir, "index.ts"), `export default async () => ({ ok: true });\n`);
 
     mkdirSync(pluginDir, { recursive: true });
     symlinkSync("/nonexistent/old-maw-js/packages/wake", join(pluginDir, "wake"));
@@ -227,13 +237,14 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
 
     try {
-      await runBootstrap(pluginDir, srcDir);
+      await runBootstrap(pluginDir, stableSrcDir);
 
       expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
-      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(stableVendoredDir, "wake"));
       expect(warns.some(w => w.includes("broken plugin symlink"))).toBe(false);
     } finally {
       console.warn = originalWarn;
+      rmSync(stableRoot, { recursive: true, force: true });
     }
   });
 
