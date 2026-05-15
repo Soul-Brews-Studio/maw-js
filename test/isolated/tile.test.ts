@@ -31,6 +31,9 @@ function paneIdsFromPaneList(): string[] {
 }
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+  FLEET_DIR: "/tmp/fleet",
+  curlFetch: async () => ({ ok: false, status: 404, text: async () => "" }),
+  tmux: {},
   hostExec: async (cmd: string): Promise<string> => {
     commands.push(cmd);
 
@@ -47,6 +50,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     }
     if (cmd.includes("git rev-parse --show-toplevel")) return "/tmp/maw-js\n";
     if (cmd.includes("git -C '/tmp/maw-js' worktree list")) return worktreeList;
+    if (cmd.includes("show-ref --verify")) throw new Error("missing branch");
 
     return "";
   },
@@ -60,6 +64,7 @@ beforeEach(() => {
   paneList = "";
   worktreeList = "";
   rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
+  rmSync("/tmp/maw-js.wt-2-sess-tile-1", { recursive: true, force: true });
   process.env.TMUX_PANE = "%lead";
 });
 
@@ -69,9 +74,9 @@ describe("tile plugin layout", () => {
 
     const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
     expect(splitCommands[0]).toContain("MAW_TILE_PARENT='");
-    expect(splitCommands[0]).toContain("MAW_TILE_ROLE='\\''tile-1'\\''");
+    expect(splitCommands[0]).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
     expect(splitCommands[0]).toContain("MAW_TILE_TOTAL='\\''2'\\''");
-    expect(splitCommands[1]).toContain("MAW_TILE_ROLE='\\''tile-2'\\''");
+    expect(splitCommands[1]).toContain("MAW_TILE_ROLE='\\''sess-tile-2'\\''");
     expect(commands).toContain("tmux select-layout -t '@win' main-vertical");
     expect(commands).not.toContain("tmux select-layout -t '@win' tiled");
   });
@@ -93,7 +98,7 @@ describe("tile plugin layout", () => {
     await cmdTile(1);
 
     const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
-    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''tile-3'\\''");
+    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-3'\\''");
     expect(splitCommand).toContain("MAW_TILE_INDEX='\\''3'\\''");
     expect(splitCommand).toContain("MAW_TILE_TOTAL='\\''3'\\''");
     expect(commands).toContain("tmux select-layout -t '@win' main-vertical");
@@ -129,14 +134,23 @@ describe("tile plugin spawn metadata", () => {
 
     const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
     expect(splitCommand).toContain("MAW_TILE_PARENT='\\''sess:1.0'\\''");
-    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''tile-1'\\''");
+    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
     expect(splitCommand).toContain("MAW_TILE_INDEX='\\''1'\\''");
     expect(splitCommand).toContain("MAW_TILE_TOTAL='\\''1'\\''");
     expect(splitCommand).toContain("MAW_TILE_WINDOW='\\''sess:1'\\''");
     expect(splitCommand).toContain("; claude; exec zsh");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile '1'");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_parent 'sess:1.0'");
-    expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_role 'tile-1'");
+    expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_role 'sess-tile-1'");
+  });
+
+  test("uses scoped tile roles for worktree names and branches", async () => {
+    await cmdTile(1, { wt: true });
+
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js.wt-1-sess-tile-1' -b 'agents/1-sess-tile-1'");
+    const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommand).toContain("/tmp/maw-js.wt-1-sess-tile-1");
+    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
   });
 });
 
@@ -147,18 +161,21 @@ describe("tile clean", () => {
       "%p1|||tile-1|||1",
       "%p2|||zsh|||",
       "%p3|||tile-3 🌳|||",
+      "%p4|||sess-tile-4 🌳|||",
     ].join("\n");
 
     await cmdTileClean();
 
     expect(commands).toContain("tmux kill-pane -t '%p1'");
     expect(commands).toContain("tmux kill-pane -t '%p3'");
+    expect(commands).toContain("tmux kill-pane -t '%p4'");
     expect(commands).not.toContain("tmux kill-pane -t '%p2'");
     expect(commands).not.toContain("tmux kill-pane -t '%lead'");
   });
 
   test("removes tile worktrees and safely deletes matching tile branches", async () => {
     mkdirSync("/tmp/maw-js.wt-1-tile-1", { recursive: true });
+    mkdirSync("/tmp/maw-js.wt-2-sess-tile-1", { recursive: true });
     worktreeList = [
       "worktree /tmp/maw-js",
       "HEAD 1111111111111111111111111111111111111111",
@@ -168,18 +185,25 @@ describe("tile clean", () => {
       "HEAD 2222222222222222222222222222222222222222",
       "branch refs/heads/agents/1-tile-1",
       "",
-      "worktree /tmp/maw-js.wt-2-task",
+      "worktree /tmp/maw-js.wt-2-sess-tile-1",
       "HEAD 3333333333333333333333333333333333333333",
-      "branch refs/heads/agents/2-task",
+      "branch refs/heads/agents/2-sess-tile-1",
+      "",
+      "worktree /tmp/maw-js.wt-3-task",
+      "HEAD 3333333333333333333333333333333333333333",
+      "branch refs/heads/agents/3-task",
     ].join("\n");
 
     await cmdTileClean();
 
     expect(commands).toContain("git -C '/tmp/maw-js' worktree remove '/tmp/maw-js.wt-1-tile-1' --force 2>/dev/null");
     expect(commands).toContain("git -C '/tmp/maw-js' branch -d 'agents/1-tile-1' 2>/dev/null");
-    expect(commands.some(cmd => cmd.includes("agents/2-task"))).toBe(false);
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree remove '/tmp/maw-js.wt-2-sess-tile-1' --force 2>/dev/null");
+    expect(commands).toContain("git -C '/tmp/maw-js' branch -d 'agents/2-sess-tile-1' 2>/dev/null");
+    expect(commands.some(cmd => cmd.includes("agents/3-task"))).toBe(false);
 
     rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
+    rmSync("/tmp/maw-js.wt-2-sess-tile-1", { recursive: true, force: true });
   });
 });
 

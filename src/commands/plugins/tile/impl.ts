@@ -15,6 +15,22 @@ function envExport(assignments: Record<string, string>): string {
     .join(" ");
 }
 
+const TILE_TITLE_RE = /^(?:[A-Za-z0-9_.-]+-)?tile-\d+(?: 🌳)?$/;
+const TILE_WORKTREE_PATH_RE = /\.wt-\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+$/;
+const TILE_BRANCH_RE = /^agents\/\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+$/;
+
+function tileScope(parentAddress: string): string {
+  const parentSession = parentAddress.split(":")[0]?.trim() ?? "";
+  return parentSession
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function tileRole(parentAddress: string, tileIndex: number): string {
+  const scope = tileScope(parentAddress);
+  return scope ? `${scope}-tile-${tileIndex}` : `tile-${tileIndex}`;
+}
+
 async function getParentAddress(anchor: string): Promise<string> {
   if (!anchor) return "";
   try {
@@ -47,7 +63,7 @@ async function countExistingTilePanes(window: string): Promise<number> {
     const panes = await listPanes(window, "#{pane_id}|||#{pane_title}|||#{@maw_tile}");
     return panes.filter(line => {
       const [, title = "", marker = ""] = line.split("|||");
-      return marker === "1" || /^tile-\d+(?: 🌳)?$/.test(title);
+      return marker === "1" || TILE_TITLE_RE.test(title);
     }).length;
   } catch {
     return 0;
@@ -120,7 +136,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
   for (let i = 0; i < count; i++) {
     const tileIndex = existingTileCount + i + 1;
-    const name = `tile-${tileIndex}`;
+    const name = tileRole(parentAddress, tileIndex);
 
     let cwd = "";
     if (opts.wt) {
@@ -209,7 +225,7 @@ export async function cmdTileClean(): Promise<void> {
   for (const line of lines) {
     const [paneId, title = "", marker = ""] = line.split("|||");
     if (paneId === myPane) continue;
-    if (marker !== "1" && !/^tile-\d+(?: 🌳)?$/.test(title)) continue;
+    if (marker !== "1" && !TILE_TITLE_RE.test(title)) continue;
 
     try {
       await hostExec(`tmux kill-pane -t '${paneId}'`);
@@ -239,7 +255,7 @@ export async function cmdTileClean(): Promise<void> {
     }
     if (current) tileWts.push(current);
 
-    for (const wtInfo of tileWts.filter(w => /\.wt-\d+-tile-\d+$/.test(w.path))) {
+    for (const wtInfo of tileWts.filter(w => TILE_WORKTREE_PATH_RE.test(w.path))) {
       const wt = wtInfo.path;
       if (!existsSync(wt)) continue;
       try {
@@ -248,7 +264,7 @@ export async function cmdTileClean(): Promise<void> {
         killed++;
       } catch { /* ok */ }
       const branch = wtInfo.branch;
-      if (branch && /^agents\/\d+-tile-\d+$/.test(branch)) {
+      if (branch && TILE_BRANCH_RE.test(branch)) {
         try {
           await hostExec(`git -C ${shellArg(mainRepo)} branch -d ${shellArg(branch)} 2>/dev/null`);
           console.log(`  \x1b[31m✗\x1b[0m branch ${branch}`);
