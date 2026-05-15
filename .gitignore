@@ -40,3 +40,6 @@ ui/office/assets/
 
 # psi/ — ASCII alias of ψ/ vault runtime data (#451)
 psi/
+
+# Local Codex/OMX runtime state
+.omx/

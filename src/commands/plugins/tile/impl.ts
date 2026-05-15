@@ -110,11 +110,14 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
   }
 
-  // Layout: 1 tile = left|right, 2-3 tiles = lead full-left + tiles stacked right,
-  // 4+ = even grid
-  if (count === 1) {
+  // Layout decision uses TOTAL pane count (lead + all tiles), not just new spawns.
+  // 2 panes = lead | tile (even split), 3-4 = main-vertical (lead-left, tiles-right),
+  // 5+ = tiled grid. (#1394)
+  const paneCountRaw = (await hostExec(`tmux list-panes -t '${window}' | wc -l`)).trim();
+  const totalPanes = parseInt(paneCountRaw, 10) || (count + 1);
+  if (totalPanes === 2) {
     await hostExec(`tmux select-layout -t '${window}' even-horizontal`);
-  } else if (count <= 3) {
+  } else if (totalPanes <= 4) {
     await hostExec(`tmux select-layout -t '${window}' main-vertical`);
   } else {
     await applyTiledLayout(window);

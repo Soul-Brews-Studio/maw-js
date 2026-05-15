@@ -54,10 +54,30 @@ describe("tile plugin layout", () => {
     expect(commands).not.toContain("tmux select-layout -t '@win' main-vertical");
   });
 
+  test("incremental tile spawn chooses layout from total panes, not new spawn count", async () => {
+    paneList = "4\n";
+
+    await cmdTile(1);
+
+    expect(commands).toContain("tmux list-panes -t '@win' | wc -l");
+    expect(commands).toContain("tmux select-layout -t '@win' main-vertical");
+    expect(commands).not.toContain("tmux select-layout -t '@win' even-horizontal");
+  });
+
   test("four or more spawned tiles use the tiled grid", async () => {
     await cmdTile(4);
 
     expect(commands).toContain("tmux select-layout -t '@win' tiled");
+    expect(commands).not.toContain("tmux select-layout -t '@win' main-vertical");
+  });
+
+  test("incremental tile spawn switches to tiled grid once total pane count exceeds four", async () => {
+    paneList = "5\n";
+
+    await cmdTile(1);
+
+    expect(commands).toContain("tmux select-layout -t '@win' tiled");
+    expect(commands).not.toContain("tmux select-layout -t '@win' even-horizontal");
     expect(commands).not.toContain("tmux select-layout -t '@win' main-vertical");
   });
 });
