@@ -69,12 +69,24 @@ export interface MockPeer {
   sessions: MockSession[];
 }
 
+/** Shape returned by the mocked `tmux.listPanes()` — mirrors TmuxPane. */
+export interface MockPane {
+  id: string;
+  command: string;
+  target: string;
+  title?: string;
+  pid?: number;
+  cwd?: string;
+  lastActivity?: number;
+}
+
 // --- Internal state (cleared by resetMocks) ---
 
 let tmuxConfig: { sessions: MockSession[] } | null = null;
 let peersConfig: { peers: MockPeer[] } | null = null;
 let paneCommands: Record<string, string> = {};
 let capturedCommands: string[] = [];
+let panes: MockPane[] = [];
 
 // --- Shim install latches (shim stays live; config is what changes) ---
 
@@ -152,7 +164,7 @@ export function installTmuxMock(config: { sessions: MockSession[] }): void {
       },
       async listPanes() {
         capturedCommands.push("tmux list-panes -a");
-        return [];
+        return panes.map(p => ({ ...p }));
       },
       async killPane(target: string) {
         capturedCommands.push(`tmux kill-pane -t ${target}`);
@@ -328,6 +340,23 @@ export function setPaneCommands(cmds: Record<string, string>): void {
   paneCommands = { ...cmds };
 }
 
+/**
+ * Configure what `tmux.listPanes()` returns. Accepts partial panes — only
+ * `command` is required (the field most callers filter on); the rest are
+ * filled with deterministic placeholders. Replaces the previous list.
+ */
+export function setPanes(p: Array<Partial<MockPane> & { command: string }>): void {
+  panes = p.map((pane, i) => ({
+    id: pane.id ?? `%${i}`,
+    command: pane.command,
+    target: pane.target ?? `mock:${i}`,
+    title: pane.title,
+    pid: pane.pid,
+    cwd: pane.cwd,
+    lastActivity: pane.lastActivity,
+  }));
+}
+
 /** Captured tmux commands issued through the mock (for assertions). */
 export function getCapturedCommands(): string[] {
   return [...capturedCommands];
@@ -345,4 +374,5 @@ export function resetMocks(): void {
   peersConfig = null;
   paneCommands = {};
   capturedCommands = [];
+  panes = [];
 }

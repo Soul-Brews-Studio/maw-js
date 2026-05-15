@@ -47,6 +47,12 @@ export interface MawLimits {
   messageTruncate?: number;
   ptyCols?: number;
   ptyRows?: number;
+  /**
+   * Max concurrent agent panes across the fleet before `maw wake` refuses to
+   * spawn a new one (#2). `0` (the default) disables the cap entirely —
+   * operators opt in by setting a positive number.
+   */
+  maxConcurrentAgents?: number;
 }
 
 export interface MawConfig {
@@ -159,6 +165,6 @@ export interface MawConfig {
 export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
-  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200, maxConcurrentAgents: 0 } as const,
   hmacWindowSeconds: 300,
 } as const;
