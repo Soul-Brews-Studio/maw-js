@@ -124,6 +124,18 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   // #358 — reject -view suffix at the user-input boundary (before any session work).
   assertValidOracleName(oracle);
+  let preResolvedSession: string | null = null;
+  const numericFleetTarget = oracle.match(/^\d+-(.+)$/);
+  if (numericFleetTarget) {
+    // #1469 — a user may pass the exact live tmux session (`48-foo`) to
+    // bring/split. Prefer that exact session before resolving a repo; then
+    // strip the fleet prefix only for repo/oracle lookup (`foo-oracle`).
+    const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+    if (sessions.some(s => s.name === oracle)) {
+      preResolvedSession = oracle;
+      oracle = numericFleetTarget[1]!;
+    }
+  }
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
@@ -167,7 +179,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
     : repoName;
   console.log(`\x1b[36m→\x1b[0m found \x1b[1m${ghSlug}\x1b[0m (${repoPath})`);
-  let session = await detectSession(oracle, opts.urlRepoName);
+  let session = preResolvedSession ?? await detectSession(oracle, opts.urlRepoName);
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 

@@ -54,11 +54,80 @@ export async function resolveFromWorktrees(
   };
 }
 
+type LocalOracleResolution =
+  | { kind: "none" }
+  | { kind: "exact"; match: string }
+  | { kind: "fuzzy"; match: string }
+  | { kind: "ambiguous"; candidates: string[] };
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function stripOracleSuffix(name: string): string {
+  return name.replace(/-oracle$/i, "");
+}
+
+function stripNumericFleetPrefix(name: string): string {
+  return name.replace(/^\d+-/, "");
+}
+
+function localOracleIntentNames(oracle: string): string[] {
+  const raw = oracle.trim().toLowerCase();
+  const withoutNumeric = stripNumericFleetPrefix(raw);
+  return uniqueStrings([
+    raw,
+    stripOracleSuffix(raw),
+    withoutNumeric,
+    stripOracleSuffix(withoutNumeric),
+  ].filter(Boolean));
+}
+
+/**
+ * Pick a local ghq `*-oracle` repo for a user-typed oracle/session target.
+ *
+ * Exact intent wins before the #997 substring fuzzy fallback. This preserves
+ * "maw wake v3" style fuzzy lookup while preventing a full name like
+ * "mawjs-codex-oracle" (or fleet session "48-mawjs-codex") from being
+ * rejected as ambiguous just because "mawjs-oracle" is also local.
+ *
+ * @internal exported for targeted resolver regression tests.
+ */
+export function resolveLocalOracleRepoName(oracle: string, repos: string[]): LocalOracleResolution {
+  const oracleLower = oracle.trim().toLowerCase();
+  if (!oracleLower) return { kind: "none" };
+
+  const repoNames = repos
+    .filter(p => p.toLowerCase().endsWith("-oracle"))
+    .map(p => p.split("/").pop()!)
+    .filter(Boolean);
+
+  const intents = new Set(localOracleIntentNames(oracle));
+  const exact = uniqueStrings(repoNames.filter(name => {
+    const lower = name.toLowerCase();
+    const bare = stripOracleSuffix(lower);
+    return intents.has(lower) || intents.has(bare);
+  }));
+
+  if (exact.length === 1) return { kind: "exact", match: exact[0]! };
+  if (exact.length > 1) return { kind: "ambiguous", candidates: exact };
+
+  const candidates = uniqueStrings(repoNames.filter(name => {
+    const bare = stripOracleSuffix(name.toLowerCase());
+    return bare.includes(oracleLower) || oracleLower.includes(bare);
+  }));
+
+  if (candidates.length === 1) return { kind: "fuzzy", match: candidates[0]! };
+  if (candidates.length > 1) return { kind: "ambiguous", candidates };
+  return { kind: "none" };
+}
+
 export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
 ): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
-  const ghqHit = await ghqFind(`/${oracle}-oracle`);
+  const oracleRepoStem = oracle.toLowerCase().endsWith("-oracle") ? oracle : `${oracle}-oracle`;
+  const ghqHit = await ghqFind(`/${oracleRepoStem}`);
   if (ghqHit) {
     const repoPath = ghqHit;
     return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
@@ -69,23 +138,16 @@ export async function resolveOracle(
   try {
     const { ghqList } = await import("../../core/ghq");
     const repos = await ghqList();
-    const oracleLower = oracle.toLowerCase();
-    const candidates = repos
-      .filter(p => p.endsWith("-oracle"))
-      .map(p => p.split("/").pop()!)
-      .filter(name => {
-        const bare = name.replace(/-oracle$/, "");
-        return bare.includes(oracleLower) || oracleLower.includes(bare);
-      });
-    if (candidates.length === 1) {
-      const match = await ghqFind(`/${candidates[0]}`);
+    const resolvedLocal = resolveLocalOracleRepoName(oracle, repos);
+    if (resolvedLocal.kind === "exact" || resolvedLocal.kind === "fuzzy") {
+      const match = await ghqFind(`/${resolvedLocal.match}`);
       if (match) {
-        console.log(`\x1b[36m→\x1b[0m fuzzy match: ${candidates[0]}`);
+        if (resolvedLocal.kind === "fuzzy") console.log(`\x1b[36m→\x1b[0m fuzzy match: ${resolvedLocal.match}`);
         return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
       }
-    } else if (candidates.length > 1) {
-      console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${candidates.length} local oracles:`);
-      for (const c of candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
+    } else if (resolvedLocal.kind === "ambiguous") {
+      console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${resolvedLocal.candidates.length} local oracles:`);
+      for (const c of resolvedLocal.candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
       console.error(`\x1b[90m  use the full name: maw wake <exact-name>\x1b[0m`);
       process.exit(1);
     }
