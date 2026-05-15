@@ -3,14 +3,15 @@
   "version": "1.1.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Cleanup zombie agent panes and stale oracles.json entries.",
+  "description": "Clean zombie agent panes and prune stale Oracle registry entries.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "cleanup",
     "aliases": [],
     "help": "maw cleanup --zombie-agents [--yes] — kill orphan panes; maw cleanup --prune-stale [--yes|--ask|--dry-run] — prune dead oracles.json entries"
   },
-  "weight": 50,
+  "weight": 30,
   "license": "MIT",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "tier": "standard"
 }

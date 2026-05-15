@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Talk to a remote agent on another node.",
+  "description": "Send signed messages to another Oracle or agent through maw federation.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "talk-to",
@@ -16,7 +16,8 @@
       "--force": "boolean"
     }
   },
-  "weight": 50,
+  "weight": 30,
   "license": "MIT",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "tier": "standard"
 }

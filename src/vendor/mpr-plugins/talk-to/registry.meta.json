@@ -2,10 +2,10 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/talk-to@v0.1.0-talk-to",
   "sha256": "786a372c425803c9f4fdd90add6cffa457a3198726023cf8521fdb84cf1459a7",
-  "summary": "Talk to a remote agent on another node.",
+  "summary": "Send signed messages to another Oracle or agent through maw federation.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "addedAt": "2026-04-29T02:49:11Z",
-  "tier": "extra"
+  "tier": "standard"
 }

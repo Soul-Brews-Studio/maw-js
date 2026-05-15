@@ -2,10 +2,10 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/project@v0.1.0-project",
   "sha256": "9098f93596ae8228da6434a35a9cc349c0076c4400de12e66ad6b8496b8dbcef",
-  "summary": "Scaffold (stub): clone and track external repos (learn/incubate/find/list). Full impl lives in the Oracle /project skill \u2014 core plugin is a dispatcher shape only.",
+  "summary": "Expose project learn/incubate/find/list verbs and route users to the Oracle /project workflow while native execution lands.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "addedAt": "2026-04-29T01:39:41Z",
-  "tier": "extra"
+  "tier": "standard"
 }

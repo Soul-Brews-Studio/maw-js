@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 
 export const command = {
   name: "project",
-  description: "Scaffold (stub): clone and track external repos (learn/incubate/find/list).",
+  description: "Expose project discovery through the Oracle /project workflow.",
 };
 
 /**

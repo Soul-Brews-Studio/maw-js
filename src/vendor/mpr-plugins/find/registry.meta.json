@@ -2,10 +2,10 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/find@v0.1.0-find",
   "sha256": "6d80a8fea7c1ef2a536e364b082b7025d6a4edeb8d61d01cc0b6e51c5c07fb4e",
-  "summary": "Search across agents and fleet data.",
+  "summary": "Search agents, sessions, and fleet metadata for matching Oracle context.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "addedAt": "2026-04-29T01:40:01Z",
-  "tier": "extra"
+  "tier": "standard"
 }

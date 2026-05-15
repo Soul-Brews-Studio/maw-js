@@ -2,10 +2,10 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/learn@v0.1.0-learn",
   "sha256": "777d6a193879e998b448a43e00279b2ce6d64bcb3f83c10ee6828ce1c92d37e5",
-  "summary": "Scaffold (stub): explore a codebase with parallel agents. Full impl lives in the Oracle /learn skill \u2014 core plugin is a dispatcher shape only.",
+  "summary": "Expose the maw learn verb for codebase exploration and route users to the Oracle /learn workflow while native execution lands.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "addedAt": "2026-04-29T01:35:48Z",
-  "tier": "extra"
+  "tier": "standard"
 }

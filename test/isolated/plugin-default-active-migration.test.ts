@@ -13,6 +13,7 @@ import {
   DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION,
 } from "../../src/plugin/default-active";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -78,8 +79,12 @@ describe("#1500 default-active plugin migration", () => {
     expect(disk.disabledPlugins).not.toContain("fleet");
     expect(disk.disabledPlugins).not.toContain("pair");
     expect(disk.disabledPlugins).toContain("costs");
-    expect(disk.disabledPlugins).toContain("learn");
+    expect(disk.disabledPlugins).not.toContain("learn");
+    expect(disk.disabledPlugins).not.toContain("find");
+    expect(disk.disabledPlugins).not.toContain("project");
+    expect(disk.disabledPlugins).toContain("archive");
     expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]).toBe(true);
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION]).toBe(true);
   });
 
   test("small manual disable list is preserved", () => {
@@ -239,6 +244,55 @@ describe("#1500 default-active plugin migration", () => {
     const disk = readConfig(home);
     expect(disk.disabledPlugins).toEqual(["completions"]);
     expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION]).toBeUndefined();
+  });
+
+  test("#1531 re-enables Oracle workflow plugins after stale profile migrations", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      migrations: {
+        [DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION]: true,
+      },
+      disabledPlugins: ["learn", "find", "talk-to", "project", "workon", "cleanup", "costs"],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("config.disabledPlugins migration (#1531)");
+
+    const disk = readConfig(home);
+    for (const plugin of ["learn", "find", "talk-to", "project", "workon", "cleanup"]) {
+      expect(disk.disabledPlugins).not.toContain(plugin);
+    }
+    expect(disk.disabledPlugins).toContain("costs");
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION]).toBe(true);
+  });
+
+  test("#1531 preserves small manual Oracle workflow disable lists", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      disabledPlugins: ["learn", "project"],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain("config.disabledPlugins migration (#1531)");
+
+    const disk = readConfig(home);
+    expect(disk.disabledPlugins).toEqual(["learn", "project"]);
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION]).toBeUndefined();
   });
 
   test("typing a disabled installed plugin explains the real fix", () => {

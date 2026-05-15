@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 
 export const command = {
   name: "learn",
-  description: "Scaffold (stub): explore a codebase with parallel agents.",
+  description: "Expose codebase exploration through the Oracle /learn workflow.",
 };
 
 /**

@@ -3,13 +3,14 @@
   "version": "0.1.0-alpha.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Scaffold (stub): clone and track external repos (learn/incubate/find/list). Full impl lives in the Oracle /project skill — core plugin is a dispatcher shape only.",
+  "description": "Expose project learn/incubate/find/list verbs and route users to the Oracle /project workflow while native execution lands.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "project",
-    "help": "maw project <learn|incubate|find|list> ... — scaffold stub (impl pending, see Oracle skill /project)"
+    "help": "maw project <learn|incubate|find|list> ... — manage project discovery through the Oracle /project workflow"
   },
-  "weight": 50,
+  "weight": 30,
   "license": "MIT",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "tier": "standard"
 }

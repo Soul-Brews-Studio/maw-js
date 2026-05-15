@@ -2,10 +2,10 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/cleanup@v0.1.0-cleanup",
   "sha256": "88b83b29d037f067a5591c88a3ea31f9acf5817e25c29c1700f3f28a02b2bfac",
-  "summary": "Cleanup zombie agent panes.",
+  "summary": "Clean zombie agent panes and prune stale Oracle registry entries.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "addedAt": "2026-04-29T02:18:08Z",
-  "tier": "extra"
+  "tier": "standard"
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Start working on a repo with optional task context.",
+  "description": "Open or resume work on a repository with optional task context.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "workon",
@@ -12,7 +12,8 @@
     ],
     "help": "maw workon <repo> [task]"
   },
-  "weight": 50,
+  "weight": 30,
   "license": "MIT",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "tier": "standard"
 }
