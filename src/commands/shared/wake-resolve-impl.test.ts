@@ -30,7 +30,7 @@ mock.module(join(root, "config"), () => mockConfigModule(() => ({
   peers: [],
 })));
 
-const { detectSession, sanitizeBranchName } = await import("./wake-resolve-impl");
+const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName } = await import("./wake-resolve-impl");
 
 describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
   it("strips ALL leading dashes (--no-attach → no-attach)", () => {
@@ -103,6 +103,15 @@ describe("detectSession (#769) — URL-aware resolution", () => {
     expect(result).toBe("m5");
   });
 
+  it("exact numeric-prefixed session name resolves before suffix ambiguity", async () => {
+    tmuxSessions = [
+      { name: "47-mawjs" },
+      { name: "48-mawjs-codex" },
+    ];
+    const result = await detectSession("48-mawjs-codex");
+    expect(result).toBe("48-mawjs-codex");
+  });
+
   it("genuine multi-exact-match on full name still errors", async () => {
     tmuxSessions = [
       { name: "10-m5-oracle" },
@@ -120,5 +129,41 @@ describe("detectSession (#769) — URL-aware resolution", () => {
     } finally {
       process.exit = origExit;
     }
+  });
+});
+
+describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before fuzzy", () => {
+  const repos = [
+    "github.com/Soul-Brews-Studio/mawjs-oracle",
+    "github.com/Soul-Brews-Studio/mawjs-codex-oracle",
+    "github.com/Soul-Brews-Studio/arra-oracle-v3-oracle",
+  ];
+
+  it("prefers an exact full oracle repo name over a shorter fuzzy suffix", () => {
+    expect(resolveLocalOracleRepoName("mawjs-codex-oracle", repos)).toEqual({
+      kind: "exact",
+      match: "mawjs-codex-oracle",
+    });
+  });
+
+  it("prefers an exact bare oracle name over a shorter fuzzy suffix", () => {
+    expect(resolveLocalOracleRepoName("mawjs-codex", repos)).toEqual({
+      kind: "exact",
+      match: "mawjs-codex-oracle",
+    });
+  });
+
+  it("strips a numeric fleet session prefix before exact local oracle lookup", () => {
+    expect(resolveLocalOracleRepoName("48-mawjs-codex", repos)).toEqual({
+      kind: "exact",
+      match: "mawjs-codex-oracle",
+    });
+  });
+
+  it("keeps legacy fuzzy lookup for non-exact local oracle abbreviations", () => {
+    expect(resolveLocalOracleRepoName("v3", repos)).toEqual({
+      kind: "fuzzy",
+      match: "arra-oracle-v3-oracle",
+    });
   });
 });
