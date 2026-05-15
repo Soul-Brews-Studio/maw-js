@@ -39,4 +39,28 @@ describe("isAgentCommand", () => {
     expect(isAgentCommand("  claude  ")).toBe(true);
     expect(isAgentCommand("\t2.1.121\n")).toBe(true);
   });
+
+  // #10 — the guard regex used a loose substring match on `node`, so any
+  // command containing "node" passed. tmux #{pane_current_command} is a bare
+  // command basename, so `node` is now matched as the WHOLE name only.
+  test("rejects non-agent commands that merely contain 'node' (#10)", () => {
+    expect(isAgentCommand("nodemon")).toBe(false);
+    expect(isAgentCommand("node-red")).toBe(false);
+    expect(isAgentCommand("node-gyp")).toBe(false);
+    expect(isAgentCommand("nodejs")).toBe(false);
+    expect(isAgentCommand("anode")).toBe(false);
+  });
+
+  test("still matches bare 'node' regardless of case (#10)", () => {
+    expect(isAgentCommand("node")).toBe(true);
+    expect(isAgentCommand("Node")).toBe(true);
+    expect(isAgentCommand("NODE")).toBe(true);
+    expect(isAgentCommand("  node  ")).toBe(true);
+  });
+
+  test("claude / codex stay substring-matched (distinctive — no false positives)", () => {
+    expect(isAgentCommand("claude")).toBe(true);
+    expect(isAgentCommand("claude-code")).toBe(true);
+    expect(isAgentCommand("codex")).toBe(true);
+  });
 });

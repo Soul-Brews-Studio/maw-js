@@ -81,18 +81,30 @@ export async function getPaneCommand(target: string, host?: string): Promise<str
 
 /** Pane command looks like an AI agent — name match (claude/codex/node),
  *  Claude Code 2.1+ versioned-binary signature (e.g. "2.1.121"), or any
- *  binary from config.commands entries. */
+ *  binary from config.commands entries.
+ *
+ *  #10: `cmd` is a tmux `#{pane_current_command}` — a bare command basename,
+ *  not a command line. `claude` / `codex` are distinctive enough that a
+ *  substring match is safe (no benign command contains them), but `node` is
+ *  a substring of `nodemon`, the `node` REPL, `node-red`, and any number of
+ *  non-agent tools. So `node` (and configured binaries) are matched as the
+ *  WHOLE command name — not loose substrings — so non-agent node processes
+ *  don't pass. */
 export function isAgentCommand(cmd: string | null | undefined): boolean {
   const c = (cmd ?? "").trim();
   if (!c) return false;
-  if (/claude|codex|node/i.test(c)) return true;
+  if (/claude|codex/i.test(c)) return true;
+  if (/^node$/i.test(c)) return true;
   if (/^\d+\.\d+\.\d+$/.test(c)) return true;
   try {
     const { loadConfig } = require("../../config");
     const commands: Record<string, string> = loadConfig().commands || {};
+    const lc = c.toLowerCase();
     for (const v of Object.values(commands)) {
       const bin = v.split(/\s/)[0];
-      if (bin && bin !== "default" && c.toLowerCase().includes(bin.toLowerCase())) return true;
+      // Exact name match, not substring — a configured `node`-launched agent
+      // must not make every `nodemon`/`node-*` pane look like an agent.
+      if (bin && bin !== "default" && lc === bin.toLowerCase()) return true;
     }
   } catch {}
   return false;
