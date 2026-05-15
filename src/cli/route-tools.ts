@@ -9,7 +9,7 @@ const CORE_HELP: Record<string, string> = {
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
   audit: "usage: maw audit [limit]",
-  serve: "usage: maw serve [port] [--as <name>]",
+  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] | maw serve status|stop",
 };
 
 function hasHelpFlag(args: string[]): boolean {
@@ -113,9 +113,20 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     // applyInstancePreset() in cli.ts. Any OTHER flag is still a typo.
     const serveArgs = args.slice(1);
     const asIdx = serveArgs.indexOf("--as");
-    const filteredArgs = asIdx === -1
+    const forceIdx = serveArgs.indexOf("--force-takeover");
+    const withoutAs = asIdx === -1
       ? serveArgs
       : [...serveArgs.slice(0, asIdx), ...serveArgs.slice(asIdx + 2)];
+    const filteredArgs = forceIdx === -1
+      ? withoutAs
+      : withoutAs.filter(a => a !== "--force-takeover");
+    const sub = filteredArgs[0];
+    if (sub === "status" || sub === "stop") {
+      const { printServeStatus, stopServe } = await import("./instance-pid");
+      if (sub === "status") printServeStatus();
+      else stopServe();
+      return true;
+    }
     // Reject unknown flags BEFORE starting the server — alpha.72 gate already
     // caught --help (hasHelpFlag). Anything else starting with "-" is a typo.
     // Footgun without this: `maw serve --unknown-flag` silently started a
@@ -124,7 +135,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     if (unknownFlag) {
       const { UserError } = await import("../core/util/user-error");
       console.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
-      console.error(`  usage: maw serve [port] [--as <name>]  (run 'maw serve --help' for more)`);
+      console.error(`  usage: maw serve [port] [--as <name>] [--force-takeover]  (run 'maw serve --help' for more)`);
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));
@@ -132,7 +143,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     // under the same MAW_HOME.
     const { acquirePidLock } = await import("./instance-pid");
     const instanceName = asIdx === -1 ? null : serveArgs[asIdx + 1];
-    acquirePidLock(instanceName);
+    acquirePidLock(instanceName, { forceTakeover: forceIdx !== -1 });
     const { startServer } = await import("../core/server");
     startServer(portArg ? +portArg : 3456);
     return true;

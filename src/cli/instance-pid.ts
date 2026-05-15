@@ -9,6 +9,7 @@
  * file, so stale absence is the default state; nothing to reconcile.
  */
 import { openSync, readSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
+import { execFileSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -16,7 +17,7 @@ function resolveHome(): string {
   return process.env.MAW_HOME || join(homedir(), ".maw");
 }
 
-function pidFile(): string {
+export function pidFile(): string {
   return join(resolveHome(), "maw.pid");
 }
 
@@ -31,11 +32,85 @@ function isAlive(pid: number): boolean {
   }
 }
 
+function readPid(file = pidFile()): number {
+  let fd: number | null = null;
+  try {
+    fd = openSync(file, "r");
+    const buf = Buffer.alloc(64);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
+  } catch {
+    return NaN;
+  } finally {
+    if (fd !== null) { try { closeSync(fd); } catch {} }
+  }
+}
+
+function unlinkPid(file = pidFile()): void {
+  try { unlinkSync(file); } catch { /* already gone */ }
+}
+
+function processSummary(pid: number): string {
+  try {
+    const raw = execFileSync("ps", ["-p", String(pid), "-o", "pid=,etime=,command="], {
+      encoding: "utf-8",
+      timeout: 1000,
+    }).trim();
+    const line = raw.split("\n").at(-1)?.trim();
+    if (!line) return "";
+    const match = line.match(/^\s*\d+\s+(\S+)\s+(.+)$/);
+    if (!match) return "";
+    return `, uptime ${match[1]}, cmd: ${match[2].slice(0, 80)}`;
+  } catch {
+    return "";
+  }
+}
+
+export function serveStatus(): { pid: number | null; alive: boolean; file: string } {
+  const file = pidFile();
+  const pid = readPid(file);
+  if (!Number.isFinite(pid)) return { pid: null, alive: false, file };
+  const alive = isAlive(pid);
+  if (!alive) unlinkPid(file);
+  return { pid, alive, file };
+}
+
+export function printServeStatus(): void {
+  const status = serveStatus();
+  if (!status.pid) {
+    console.log(`maw serve: stopped (${status.file})`);
+    return;
+  }
+  if (status.alive) {
+    console.log(`maw serve: running (PID ${status.pid}${processSummary(status.pid)})`);
+  } else {
+    console.log(`maw serve: stopped — removed stale PID ${status.pid} (${status.file})`);
+  }
+}
+
+export function stopServe(): void {
+  const status = serveStatus();
+  if (!status.pid) {
+    console.log("maw serve: already stopped");
+    return;
+  }
+  if (!status.alive) {
+    console.log(`maw serve: removed stale PID ${status.pid}`);
+    return;
+  }
+  process.kill(status.pid, "SIGTERM");
+  unlinkPid(status.file);
+  console.log(`maw serve: stopped PID ${status.pid}`);
+}
+
 /**
  * Acquire the PID lock, or exit(1) with a clear error if another maw serve
  * is already running in this home.
  */
-export function acquirePidLock(instanceName: string | null): void {
+export function acquirePidLock(
+  instanceName: string | null,
+  opts: { forceTakeover?: boolean } = {},
+): void {
   const home = resolveHome();
   mkdirSync(home, { recursive: true });
   const file = pidFile();
@@ -55,28 +130,28 @@ export function acquirePidLock(instanceName: string | null): void {
       // fd-based read prevents path-TOCTOU (symlink swap between wx open and
       // the probe read). Mirrors the #562 / #581 fix in src/cli/update-lock.ts.
       // Fixed 64-byte buffer — PIDs are ≤20 digits, no fstatSync needed.
-      let prior = NaN;
-      let readFd: number | null = null;
-      try {
-        readFd = openSync(file, "r");
-        const buf = Buffer.alloc(64);
-        const n = readSync(readFd, buf, 0, buf.length, 0);
-        prior = parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
-      } catch { /* malformed — treat as stale */ }
-      finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
+      const prior = readPid(file);
       if (Number.isFinite(prior) && isAlive(prior)) {
+        if (opts.forceTakeover) {
+          process.kill(prior, "SIGTERM");
+          unlinkPid(file);
+          continue;
+        }
         const label = instanceName ? ` as ${instanceName}` : "";
-        console.error(`\x1b[31m✗\x1b[0m another maw serve is already running${label} (PID ${prior}). Stop it first.`);
+        console.error(`\x1b[31m✗\x1b[0m maw serve already running${label} (PID ${prior}${processSummary(prior)})`);
+        console.error(`  stop:  \x1b[36mmaw serve stop\x1b[0m`);
+        console.error(`  check: \x1b[36mmaw serve status\x1b[0m`);
+        console.error(`  force: \x1b[36mmaw serve --force-takeover\x1b[0m`);
         process.exit(1);
       }
       // Stale PID — remove and retry the atomic create once.
-      try { unlinkSync(file); } catch { /* already gone */ }
+      unlinkPid(file);
     }
   }
 
   // Clean up on clean shutdown. Best-effort — never crash if unlink fails.
   const cleanup = () => {
-    try { unlinkSync(file); } catch { /* already gone or disk full */ }
+    unlinkPid(file);
   };
   process.on("SIGTERM", () => { cleanup(); process.exit(0); });
   process.on("SIGINT", () => { cleanup(); process.exit(0); });
