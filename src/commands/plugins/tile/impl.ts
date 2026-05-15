@@ -111,3 +111,57 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
   console.log(`\x1b[32m✓\x1b[0m ${count} panes tiled${flags ? " (" + flags + ")" : ""}`);
 }
+
+export async function cmdTileClean(): Promise<void> {
+  const window = await getWindowTarget();
+  const myPane = process.env.TMUX_PANE ?? "";
+
+  const raw = await hostExec(
+    `tmux list-panes -t '${window}' -F '#{pane_id} #{pane_title}'`,
+  );
+  const lines = raw.split("\n").filter(Boolean);
+  let killed = 0;
+
+  for (const line of lines) {
+    const [paneId, ...titleParts] = line.split(" ");
+    const title = titleParts.join(" ");
+    if (paneId === myPane) continue;
+    if (!title.startsWith("tile-")) continue;
+
+    try {
+      await hostExec(`tmux kill-pane -t '${paneId}'`);
+      console.log(`  \x1b[31m✗\x1b[0m ${title} (${paneId})`);
+      killed++;
+    } catch { /* already gone */ }
+  }
+
+  // Clean up orphaned tile worktrees
+  const { existsSync } = await import("fs");
+  try {
+    const repoPath = (await hostExec("git rev-parse --show-toplevel")).trim();
+    const { dirname, basename } = await import("path");
+    const parentDir = dirname(repoPath);
+    const repoName = basename(repoPath).replace(/\.wt-.*$/, "");
+    const mainRepo = `${parentDir}/${repoName}`;
+    const wtRaw = await hostExec(`git -C '${mainRepo}' worktree list --porcelain 2>/dev/null`);
+    const tileWts = wtRaw.split("\n")
+      .filter(l => l.startsWith("worktree "))
+      .map(l => l.replace("worktree ", ""))
+      .filter(p => /\.wt-\d+-tile-\d+$/.test(p));
+
+    for (const wt of tileWts) {
+      if (!existsSync(wt)) continue;
+      try {
+        await hostExec(`git -C '${mainRepo}' worktree remove '${wt}' --force 2>/dev/null`);
+        console.log(`  \x1b[31m✗\x1b[0m worktree ${wt}`);
+        killed++;
+      } catch { /* ok */ }
+    }
+  } catch { /* not in a git repo */ }
+
+  if (killed === 0) {
+    console.log("\x1b[90mno tile panes or worktrees to clean\x1b[0m");
+  } else {
+    console.log(`\x1b[32m✓\x1b[0m cleaned ${killed} tiles`);
+  }
+}

@@ -29,17 +29,25 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (flags["--help"]) {
       console.log("usage: maw tile [N] [--wt] [--engine <name>]");
+      console.log("       maw tile clean");
       console.log("");
-      console.log("  maw tile           apply tiled layout to current window");
-      console.log("  maw tile 3         spawn 3 empty panes and tile them");
-      console.log("  maw tile 3 --wt    spawn 3 worktree-backed panes, each with own branch");
-      console.log("  maw tile 3 -e claude   spawn 3 panes running claude, tiled");
-      console.log("  maw tile 3 --wt -e claude   worktree + engine combined");
+      console.log("  maw tile              apply tiled layout to current window");
+      console.log("  maw tile 3            spawn 3 empty panes and tile them");
+      console.log("  maw tile 3 --wt       spawn 3 worktree-backed panes, each with own branch");
+      console.log("  maw tile 3 -e claude  spawn 3 panes running claude, tiled");
+      console.log("  maw tile clean        kill tile panes + remove tile worktrees");
       return { ok: true, output: logs.join("\n") };
     }
 
-    const { cmdTile } = await import("./impl");
     const positional = flags._ as string[];
+
+    if (positional[0] === "clean") {
+      const { cmdTileClean } = await import("./impl");
+      await cmdTileClean();
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    const { cmdTile } = await import("./impl");
     const count = positional[0] ? parseInt(positional[0], 10) : 0;
 
     if (isNaN(count)) {
