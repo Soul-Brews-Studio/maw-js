@@ -9,6 +9,51 @@ function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function envExport(assignments: Record<string, string>): string {
+  return Object.entries(assignments)
+    .map(([key, value]) => `${key}=${shellArg(value)}`)
+    .join(" ");
+}
+
+async function getParentAddress(anchor: string): Promise<string> {
+  if (!anchor) return "";
+  try {
+    return (await hostExec(
+      `tmux display-message -t '${anchor}' -p '#{session_name}:#{window_index}.#{pane_index}'`,
+    )).trim();
+  } catch {
+    return anchor;
+  }
+}
+
+async function getWindowAddress(anchor: string, window: string): Promise<string> {
+  if (!anchor) return window;
+  try {
+    return (await hostExec(
+      `tmux display-message -t '${anchor}' -p '#{session_name}:#{window_index}'`,
+    )).trim();
+  } catch {
+    return window;
+  }
+}
+
+async function listPanes(window: string, format = "#{pane_id}"): Promise<string[]> {
+  const raw = await hostExec(`tmux list-panes -t '${window}' -F '${format}'`);
+  return raw.split("\n").filter(Boolean);
+}
+
+async function countExistingTilePanes(window: string): Promise<number> {
+  try {
+    const panes = await listPanes(window, "#{pane_id}|||#{pane_title}|||#{@maw_tile}");
+    return panes.filter(line => {
+      const [, title = "", marker = ""] = line.split("|||");
+      return marker === "1" || /^tile-\d+(?: 🌳)?$/.test(title);
+    }).length;
+  } catch {
+    return 0;
+  }
+}
+
 async function getWindow(): Promise<string> {
   const pane = process.env.TMUX_PANE;
   if (pane) {
@@ -39,6 +84,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   }
 
   const anchor = process.env.TMUX_PANE ?? "";
+  const parentAddress = await getParentAddress(anchor);
+  const windowAddress = await getWindowAddress(anchor, window);
+  const existingTileCount = await countExistingTilePanes(window);
+  const finalTileTotal = existingTileCount + count;
 
   let engineCmd = "";
   if (opts.engine) {
@@ -70,7 +119,8 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   const paneIds: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    const name = `tile-${i + 1}`;
+    const tileIndex = existingTileCount + i + 1;
+    const name = `tile-${tileIndex}`;
 
     let cwd = "";
     if (opts.wt) {
@@ -81,12 +131,20 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       existingWorktrees.push({ name, path: cwd });
     }
 
-    let shellCmd = "exec zsh";
+    const tileEnv = envExport({
+      MAW_TILE_PARENT: parentAddress,
+      MAW_TILE_ROLE: name,
+      MAW_TILE_INDEX: String(tileIndex),
+      MAW_TILE_TOTAL: String(finalTileTotal),
+      MAW_TILE_WINDOW: windowAddress,
+    });
+
+    let shellCmd = `export ${tileEnv}; exec zsh`;
     if (engineCmd) {
-      shellCmd = `${engineCmd.replace(/'/g, "'\\''")}; exec zsh`;
+      shellCmd = `export ${tileEnv}; ${engineCmd}; exec zsh`;
     }
     if (cwd) {
-      shellCmd = `cd '${cwd.replace(/'/g, "'\\''")}' && ${shellCmd}`;
+      shellCmd = `cd ${shellArg(cwd)} && ${shellCmd}`;
     }
 
     // Chain: split from last pane so idx order = spawn order
@@ -95,7 +153,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     let paneId = "";
     await withPaneLock(async () => {
       paneId = (await hostExec(
-        `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${shellCmd}'`,
+        `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' ${shellArg(shellCmd)}`,
       )).trim();
       await new Promise(r => setTimeout(r, 200));
     });
@@ -105,6 +163,9 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     const color = nextAgentColor(i);
     const label = opts.wt ? `${name} 🌳` : name;
     await stylePaneBorder(paneId, label, color);
+    await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile '1'`);
+    await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_parent ${shellArg(parentAddress)}`);
+    await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_role ${shellArg(name)}`);
 
     const extras = [
       opts.wt ? `\x1b[90m${cwd}\x1b[0m` : "",
@@ -114,11 +175,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
   }
 
-  // Layout decision uses TOTAL pane count (lead + all tiles), not just new spawns.
-  // 2 panes = lead | tile (even split), 3-4 = main-vertical (lead-left, tiles-right),
-  // 5+ = tiled grid. (#1394)
-  const paneCountRaw = (await hostExec(`tmux list-panes -t '${window}' | wc -l`)).trim();
-  const totalPanes = parseInt(paneCountRaw, 10) || (count + 1);
+  const totalPanes = (await listPanes(window)).length;
+
+  // Layout by total panes after spawn: lead+1 = side-by-side, lead+2-3 =
+  // lead full-left with tiles stacked right, 5+ panes = even grid.
   if (totalPanes === 2) {
     await hostExec(`tmux select-layout -t '${window}' even-horizontal`);
   } else if (totalPanes <= 4) {
@@ -141,15 +201,15 @@ export async function cmdTileClean(): Promise<void> {
   const myPane = process.env.TMUX_PANE ?? "";
 
   const raw = await hostExec(
-    `tmux list-panes -t '${window}' -F '#{pane_id} #{pane_title}'`,
+    `tmux list-panes -t '${window}' -F '#{pane_id}|||#{pane_title}|||#{@maw_tile}'`,
   );
   const lines = raw.split("\n").filter(Boolean);
   let killed = 0;
 
   for (const line of lines) {
-    const [paneId, ...titleParts] = line.split(" ");
-    const title = titleParts.join(" ");
+    const [paneId, title = "", marker = ""] = line.split("|||");
     if (paneId === myPane) continue;
+    if (marker !== "1" && !/^tile-\d+(?: 🌳)?$/.test(title)) continue;
 
     try {
       await hostExec(`tmux kill-pane -t '${paneId}'`);
