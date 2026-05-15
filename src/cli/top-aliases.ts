@@ -44,6 +44,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
+  tile: "Tile current window or spawn N panes tiled",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
@@ -62,6 +63,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
+  tile: ["tile"],
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only

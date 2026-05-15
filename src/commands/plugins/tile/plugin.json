@@ -1,0 +1,12 @@
+{
+  "name": "tile",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Tile current window or spawn N colored panes in a tiled grid.",
+  "cli": {
+    "command": "tile",
+    "help": "maw tile [N] — tile window, or spawn N panes tiled"
+  },
+  "weight": 5
+}
