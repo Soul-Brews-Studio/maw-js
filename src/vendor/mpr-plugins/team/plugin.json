@@ -12,7 +12,8 @@
     ],
     "help": "maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
   },
-  "weight": 50,
+  "weight": 30,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }

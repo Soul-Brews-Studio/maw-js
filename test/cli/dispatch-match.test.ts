@@ -85,6 +85,21 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(out.kind).toBe("none");
   });
 
+  test("#1500: disabled plugins are skipped by default but detectable for UX hints", () => {
+    const team = plugin("team", "team");
+    team.disabled = true;
+
+    const skipped = resolvePluginMatch([team], "team status");
+    expect(skipped.kind).toBe("none");
+
+    const detected = resolvePluginMatch([team], "team status", { includeDisabled: true });
+    expect(detected.kind).toBe("match");
+    if (detected.kind === "match") {
+      expect(detected.plugin.manifest.name).toBe("team");
+      expect(detected.matchedName).toBe("team");
+    }
+  });
+
   test("non-dispatchable plugins (no cli, no entry, no wasm) are skipped", () => {
     // #899 — pure-hooks/api/cron plugins still get filtered out: no `cli`
     // field AND no entry/wasm to default to. The default-name fallback

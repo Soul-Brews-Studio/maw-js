@@ -25,7 +25,7 @@
     ],
     "help": "maw scout [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query opt-in Zenoh discovery"
   },
-  "weight": 50,
+  "weight": 30,
   "license": "MIT",
   "schemaVersion": 1
 }

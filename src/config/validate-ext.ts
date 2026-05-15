@@ -107,6 +107,19 @@ function validateExtFields(
     }
   }
 
+  // migrations: one-shot migration markers
+  if ("migrations" in raw) {
+    if (raw.migrations && typeof raw.migrations === "object" && !Array.isArray(raw.migrations)) {
+      const migrations: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(raw.migrations as Record<string, unknown>)) {
+        if (typeof v === "boolean") migrations[k] = v;
+      }
+      result.migrations = migrations;
+    } else {
+      warn("migrations", "must be an object of boolean markers");
+    }
+  }
+
   // node: string if present
   if ("node" in raw) {
     if (typeof raw.node === "string" && raw.node.trim().length > 0) {

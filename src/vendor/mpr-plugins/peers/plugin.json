@@ -12,7 +12,8 @@
     ],
     "help": "maw peers <add|list|info|remove> [...] — federation peer aliases (see issue #568)"
   },
-  "weight": 50,
+  "weight": 30,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }

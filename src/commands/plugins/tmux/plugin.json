@@ -9,5 +9,6 @@
     "command": "tmux",
     "help": "maw tmux <peek> — peek a pane by id (%N), session:w.p, or team-agent name"
   },
-  "weight": 10
+  "weight": 10,
+  "tier": "standard"
 }

@@ -28,6 +28,10 @@ export type DispatchMatch =
   | { kind: "ambiguous"; candidates: Array<{ plugin: string; name: string }> }
   | { kind: "none" };
 
+export interface ResolvePluginMatchOptions {
+  includeDisabled?: boolean;
+}
+
 /**
  * #899: a plugin is CLI-dispatchable if it has either a JS/TS entry or a
  * WASM module. Pure-API / pure-hooks / pure-cron plugins (no entry, no wasm,
@@ -61,6 +65,7 @@ export function pluginCliNames(p: LoadedPlugin): { command: string; aliases: str
 export function resolvePluginMatch(
   plugins: LoadedPlugin[],
   cmdName: string,
+  options: ResolvePluginMatchOptions = {},
 ): DispatchMatch {
   type Hit = { plugin: LoadedPlugin; matchedName: string };
   const exactCommand: Hit[] = [];
@@ -68,6 +73,7 @@ export function resolvePluginMatch(
   const prefixCommand: Hit[] = [];
   const prefixAlias: Hit[] = [];
   for (const p of plugins) {
+    if (p.disabled && !options.includeDisabled) continue;
     const cliNames = pluginCliNames(p);
     if (!cliNames) continue;
 

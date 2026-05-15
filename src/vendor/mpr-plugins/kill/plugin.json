@@ -19,6 +19,7 @@
     ]
   },
   "weight": 10,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }

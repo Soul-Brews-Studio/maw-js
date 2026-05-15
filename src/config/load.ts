@@ -8,6 +8,10 @@ import type { MawConfig } from "./types";
 import { D } from "./types";
 import { validateConfig } from "./validate-ext";
 import { loadFleetAgents } from "./fleet-merge";
+import {
+  DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
+  isDefaultActivePlugin,
+} from "../plugin/default-active";
 
 // #680 — ghqRoot is no longer resolved at config-load time. Callers that need
 // a filesystem path go through `getGhqRoot()` (src/config/ghq-root.ts), which
@@ -37,6 +41,43 @@ const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
  * harness forgot to set MAW_HOME / MAW_CONFIG_DIR.
  */
 const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
+
+function canPersistConfigMigration(): boolean {
+  return !(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG);
+}
+
+function persistLoadedConfig(label: string): void {
+  if (!cached) return;
+  if (!canPersistConfigMigration()) return;
+  try {
+    writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
+  } catch (e) {
+    process.stderr.write(
+      `[maw] ${label}: in-memory heal applied but disk persist failed: ` +
+      `${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+}
+
+function maybeMigrateDefaultActivePlugins(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  if (disabled.length < 20) return;
+
+  const promoted = disabled.filter(isDefaultActivePlugin);
+  // Guard against overriding a small manual disable list. The old profile bug
+  // produced a large list containing most default-active names.
+  if (promoted.length < 5) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActivePlugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1500): re-enabled default-active plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1500)");
+}
 
 export function loadConfig(): MawConfig {
   if (cached) return cached;
@@ -107,20 +148,9 @@ export function loadConfig(): MawConfig {
     // forgot to sandbox MAW_HOME (mirrors the #820 saveConfig guard).
     // Tests that DO sandbox via MAW_HOME=<tmpdir> still get the persist
     // (which is exactly what we want — they verify the disk write).
-    if (!(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG)) {
-      try {
-        writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
-      } catch (e) {
-        // Defensive — a persist failure (read-only FS, perms) must NOT
-        // break loadConfig. The in-memory heal still applies for this
-        // process; the warning will fire again next boot.
-        process.stderr.write(
-          `[maw] config.host migration: in-memory heal applied but disk persist failed: ` +
-          `${e instanceof Error ? e.message : String(e)}\n`,
-        );
-      }
-    }
+    persistLoadedConfig("config.host migration");
   }
+  maybeMigrateDefaultActivePlugins(cached);
   // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
   // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
   // before their first wake. Additive only: hand-tuned config.agents entries

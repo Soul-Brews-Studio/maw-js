@@ -10,7 +10,8 @@
     "aliases": [],
     "help": "maw pair | maw pair accept <code> [--at <url>] — ephemeral federation pairing"
   },
-  "weight": 50,
+  "weight": 30,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }

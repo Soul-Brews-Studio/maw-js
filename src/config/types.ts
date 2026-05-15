@@ -167,6 +167,8 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** One-shot config migrations already applied. */
+  migrations?: Record<string, boolean>;
 }
 
 /** Typed defaults for intervals, timeouts, limits (#172) */

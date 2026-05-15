@@ -9,7 +9,8 @@
     "command": "doctor",
     "help": "maw doctor [install] — run install-check (and future: config-check, peer-check)"
   },
-  "weight": 80,
+  "weight": 30,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }

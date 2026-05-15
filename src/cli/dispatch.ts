@@ -83,6 +83,24 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
     process.exit(0);
   }
 
+  const disabledDispatch = resolvePluginMatch(
+    plugins.filter(p => p.disabled),
+    cmdName,
+    { includeDisabled: true },
+  );
+  if (disabledDispatch.kind === "match") {
+    const pluginName = disabledDispatch.plugin.manifest.name;
+    console.error(`\x1b[31m✗\x1b[0m '${args[0]}' is installed but disabled.`);
+    console.error(`  Run: maw plugin enable ${pluginName}`);
+    throw new UserError(`disabled command: ${args[0]}`);
+  }
+  if (disabledDispatch.kind === "ambiguous") {
+    console.error(`\x1b[31m✗\x1b[0m '${args[0]}' matches disabled plugins.`);
+    console.error(`  candidates: ${disabledDispatch.candidates.map(c => c.plugin).join(", ")}`);
+    console.error(`  Run: maw plugin enable <name>`);
+    throw new UserError(`disabled command: ${args[0]}`);
+  }
+
   // #388.2 — unknown command: fuzzy-suggest against the plugin registry.
   // Only intercepts when cmd is NOT a known route/plugin/alias AND does
   // NOT strictly match an oracle session name. Preserves `maw mawjs`

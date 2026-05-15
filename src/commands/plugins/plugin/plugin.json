@@ -9,5 +9,6 @@
     "command": "plugin",
     "help": "maw plugin <init|build|dev|install> [args]"
   },
-  "weight": 10
+  "weight": 10,
+  "tier": "standard"
 }

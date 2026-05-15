@@ -9,7 +9,8 @@
     "command": "inbox",
     "help": "maw inbox [--unread] [--from <peer>] [--last N] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
   },
-  "weight": 50,
+  "weight": 30,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }
