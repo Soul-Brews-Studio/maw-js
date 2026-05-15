@@ -52,7 +52,7 @@ describe("wake maybeSplit", () => {
     await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
 
     expect(hostExecCalls).toHaveLength(1);
-    expect(hostExecCalls[0]).toContain("tmux new-window");
+    expect(hostExecCalls[0]).toContain("tmux new-window -d");
     expect(hostExecCalls[0]).toContain("-n 'bring-homekeeper-oracle'");
     expect(hostExecCalls[0]).toContain("TMUX= tmux attach-session -t");
     expect(hostExecCalls[0]).toContain("20-homekeeper:homekeeper-oracle");

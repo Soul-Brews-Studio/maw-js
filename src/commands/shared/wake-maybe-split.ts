@@ -52,8 +52,8 @@ export async function maybeOpenWindow(target: string, opts: { bring?: boolean })
       const targetWindow = target.split(":").slice(1).join(":") || session;
       const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
-      await hostExec(`tmux new-window -n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
-      console.log(`  \x1b[32m✓\x1b[0m opened tab — ${target}`);
+      await hostExec(`tmux new-window -d -n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
+      console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       console.log(`  \x1b[33m⚠\x1b[0m bring failed: ${message}`);
