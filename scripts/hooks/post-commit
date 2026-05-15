@@ -1,0 +1,68 @@
+#!/bin/bash
+# maw-js post-commit auto-deploy hook.
+#
+# Installed by: scripts/install-git-hooks.sh
+# Local config: .git/maw-hooks.env (copy of scripts/hooks/maw-hooks.env.example)
+#
+# Keep the build command delegated to `bun run build` so local hooks inherit
+# package.json/CI build flags such as `--external @eclipse-zenoh/zenoh-ts`.
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Load user config if present.
+[ -f "$REPO_ROOT/.git/maw-hooks.env" ] && . "$REPO_ROOT/.git/maw-hooks.env"
+
+# Defaults — override any of these in .git/maw-hooks.env.
+: "${MAW_HOOK_BUILD:=1}"
+: "${MAW_HOOK_DEPLOY:=$HOME/.local/bin/maw}"
+: "${MAW_HOOK_PM2:=}"                  # pm2 service name; empty = skip
+: "${MAW_HOOK_MIRROR:=}"               # mirror clone path; empty = skip
+: "${MAW_HOOK_MIRROR_BRANCH:=alpha}"
+
+echo "🚀 Auto-deploying..."
+
+if [ "$MAW_HOOK_BUILD" = "1" ]; then
+  BUILD_LOG=$(mktemp -t maw-build.XXXXXX)
+  if ! bun run build >"$BUILD_LOG" 2>&1; then
+    echo "❌ BUILD FAILED — dist/maw NOT updated"
+    echo ""
+    cat "$BUILD_LOG"
+    echo ""
+    echo "  fix the build, then run:  bash .git/hooks/post-commit"
+    mv "$BUILD_LOG" /tmp/maw-build-FAILED-$(date +%H%M%S).log
+    exit 1
+  fi
+  tail -1 "$BUILD_LOG"
+  mv "$BUILD_LOG" /tmp/maw-build-last.log
+
+  [ -f dist/maw ] || { echo "❌ build claimed success but dist/maw does not exist"; exit 1; }
+fi
+
+if [ -n "$MAW_HOOK_DEPLOY" ] && [ -f dist/maw ]; then
+  cp dist/maw "$MAW_HOOK_DEPLOY" 2>/dev/null \
+    || echo "⚠️  cp dist/maw → $MAW_HOOK_DEPLOY failed (non-fatal)"
+fi
+
+if [ -n "$MAW_HOOK_PM2" ]; then
+  pm2 restart "$MAW_HOOK_PM2" 2>/dev/null || true
+fi
+
+# Fleet-user mirror sync. The mirror is a SECOND clone owned by another
+# user account (e.g. /opt/Code/.../maw-js read by a mawjs system user while
+# Nat edits a linked/dev clone). The hook runs AFTER commit but BEFORE push,
+# so this only catches up on the NEXT commit — eventually consistent within
+# one commit cycle, which is good enough in practice.
+if [ -n "$MAW_HOOK_MIRROR" ] \
+   && [ -d "$MAW_HOOK_MIRROR/.git" ] \
+   && [ "$MAW_HOOK_MIRROR" != "$REPO_ROOT" ]; then
+  if git -C "$MAW_HOOK_MIRROR" fetch origin "$MAW_HOOK_MIRROR_BRANCH" >/dev/null 2>&1 \
+     && git -C "$MAW_HOOK_MIRROR" merge --ff-only "origin/$MAW_HOOK_MIRROR_BRANCH" >/dev/null 2>&1; then
+    echo "  ✓ mirror $MAW_HOOK_MIRROR synced to $(git -C "$MAW_HOOK_MIRROR" log --oneline -1 | cut -c1-12)"
+  else
+    echo "  ⚠ mirror sync failed — run: git -C $MAW_HOOK_MIRROR fetch + merge manually"
+  fi
+fi
+
+echo "✅ Deployed $(git log --oneline -1)"
