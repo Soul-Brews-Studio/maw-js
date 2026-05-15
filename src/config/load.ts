@@ -12,8 +12,10 @@ import {
   DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION,
   isDefaultActive1514Plugin,
   isDefaultActive1523Plugin,
+  isDefaultActive1524Plugin,
   isDefaultActivePlugin,
 } from "../plugin/default-active";
 
@@ -132,6 +134,29 @@ function maybeMigrateShellenvStandardPlugin(config: MawConfig): void {
   persistLoadedConfig("config.disabledPlugins migration (#1523)");
 }
 
+function maybeMigrateCompletionsStandardPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1524Plugin);
+  if (promoted.length === 0) return;
+
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1524Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1524): re-enabled completion plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1524)");
+}
+
 export function loadConfig(): MawConfig {
   if (cached) return cached;
   try {
@@ -206,6 +231,7 @@ export function loadConfig(): MawConfig {
   maybeMigrateDefaultActivePlugins(cached);
   maybeMigrateSplitTopAliasPlugin(cached);
   maybeMigrateShellenvStandardPlugin(cached);
+  maybeMigrateCompletionsStandardPlugin(cached);
   // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
   // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
   // before their first wake. Additive only: hand-tuned config.agents entries

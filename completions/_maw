@@ -1,8 +1,5 @@
 #compdef maw
 
-# maw — Multi-Agent Workflow completion
-# Dynamic oracle/window names from fleet configs via `maw completions`
-
 _maw_oracles() {
   local -a oracles
   oracles=(${(f)"$(maw completions oracles 2>/dev/null)"})
@@ -19,119 +16,38 @@ _maw() {
   local curcontext="$curcontext" state line
   typeset -A opt_args
 
-  local -a commands=(
-    'ls:List sessions + windows'
-    'peek:Peek agent screen'
-    'hey:Send message to agent'
-    'wake:Wake oracle in tmux'
-    'fleet:Fleet management'
-    'stop:Stop all fleet sessions'
-    'done:Clean up finished worktree'
-    'overview:War-room view'
-    'about:Oracle profile'
-    'oracle:Fleet status'
-    'pulse:Pulse task management'
-    'serve:Start web UI'
-  )
-
   _arguments -C \
     '1:command:->cmd' \
     '*::arg:->args'
 
   case $state in
     cmd)
-      # Commands + oracle names (shorthand mode)
-      local -a oracles
+      local -a commands oracles all
+      commands=(${(f)"$(maw completions commands 2>/dev/null)"})
       oracles=(${(f)"$(maw completions oracles 2>/dev/null)"})
-      local -a all_completions=($commands)
-      for o in $oracles; do
-        all_completions+=("$o:Oracle (peek/send shorthand)")
-      done
-      _describe 'command' all_completions
+      all=(${commands[@]})
+      for o in ${oracles[@]}; do all+=("$o:Oracle (peek/send shorthand)"); done
+      _describe 'command' all
       ;;
     args)
       case $line[1] in
-        peek|see)
+        peek|see|a|attach|bring|b|hey|send|tell|done|finish)
           _maw_windows
           ;;
-        hey|send|tell)
-          if (( CURRENT == 2 )); then
-            _maw_windows
-          fi
-          ;;
-        done|finish)
-          _maw_windows
-          ;;
-        about|info)
+        wake|about|info)
           _maw_oracles
           ;;
-        wake)
-          if (( CURRENT == 2 )); then
-            local -a wake_targets=('all:Wake entire fleet')
-            local -a oracles=(${(f)"$(maw completions oracles 2>/dev/null)"})
-            for o in $oracles; do wake_targets+=("$o:Oracle"); done
-            _describe 'target' wake_targets
-          else
-            _arguments \
-              '--new[Create new worktree]:name:' \
-              '--issue[Fetch GitHub issue]:number:' \
-              '--repo[Explicit repo]:repo:' \
-              '--kill[Kill existing sessions first]' \
-              '--all[Include dormant oracles]'
-          fi
+        completions)
+          _values 'completion mode' commands oracles windows zsh bash fish --help
           ;;
-        overview|warroom|ov)
-          _arguments \
-            '--kill[Tear down overview]' \
-            '*:oracle:_maw_oracles'
-          ;;
-        fleet)
-          local -a fleet_cmds=(
-            'init:Scan ghq repos, generate configs'
-            'ls:List fleet configs'
-            'renumber:Fix numbering conflicts'
-            'validate:Check for problems'
-            'sync:Add unregistered windows'
-          )
-          _describe 'fleet command' fleet_cmds
-          ;;
-        oracle|oracles)
-          local -a oracle_cmds=(
-            'ls:Fleet status'
-            'list:Fleet status'
-          )
-          _describe 'oracle command' oracle_cmds
-          ;;
-        pulse)
-          if (( CURRENT == 2 )); then
-            local -a pulse_cmds=(
-              'add:Create issue + wake oracle'
-              'ls:Board table'
-              'list:Board table'
-            )
-            _describe 'pulse command' pulse_cmds
-          else
-            case $line[2] in
-              add)
-                _arguments \
-                  '--oracle[Oracle to assign]:oracle:_maw_oracles' \
-                  '--priority[Priority level]:priority:(P0 P1 P2 P3)' \
-                  '--wt[Worktree repo]:repo:' \
-                  '--worktree[Worktree repo]:repo:' \
-                  '*:title:'
-                ;;
-              ls|list)
-                _arguments '--sync[Update daily thread checkboxes]'
-                ;;
-            esac
-          fi
+        plugin|plugins)
+          _values 'plugin action' ls list enable disable info standard full lean nuke
           ;;
         serve)
           _message 'port (default: 3456)'
           ;;
         *)
-          # Shorthand: maw <oracle> <message>
-          _message 'message'
+          _message 'argument'
           ;;
       esac
       ;;

@@ -9,7 +9,8 @@
     "command": "completions",
     "help": "maw completions [shell] — Generate shell completions for maw CLI"
   },
-  "weight": 50,
+  "weight": 10,
+  "tier": "standard",
   "license": "MIT",
   "schemaVersion": 1
 }
