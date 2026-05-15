@@ -1,14 +1,104 @@
 import { readdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { hostExec, tmux } from "../../../sdk";
-import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
+import { hostExec, tmux, tmuxCmd } from "../../../sdk";
+import { resolveByName, resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
+
+const PANE_TARGET_FORMAT = "#{pane_id}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{@maw_tile_role}|||#{pane_current_path}";
+
+export interface PaneTargetCandidate {
+  name: string;
+  resolved: string;
+  source: string;
+  target: string;
+}
+
+export type PaneTargetResolution =
+  | { kind: "none" }
+  | { kind: "match"; candidate: PaneTargetCandidate }
+  | { kind: "ambiguous"; candidates: PaneTargetCandidate[] };
+
+function basename(path: string): string {
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
+function worktreeNamesFromCwd(cwd: string): Array<{ name: string; source: string }> {
+  const base = basename(cwd);
+  if (!base) return [];
+  const out: Array<{ name: string; source: string }> = [{ name: base, source: "worktree-dir" }];
+
+  const match = base.match(/^(?<repo>.+)\.wt-\d+-(?<role>.+)$/);
+  const role = match?.groups?.role?.trim();
+  const repo = match?.groups?.repo?.trim();
+  if (role) {
+    out.push({ name: role, source: "worktree-role" });
+    // Natural user target for repo worktrees: mawjs-oracle.wt-7-codex →
+    // mawjs-codex. This covers orphan panes whose title diverges from the
+    // requested oracle-ish handle (#1502) while staying deterministic.
+    const repoStem = repo?.replace(/-oracle$/, "");
+    if (repoStem && repoStem !== repo) out.push({ name: `${repoStem}-${role}`, source: "worktree-alias" });
+  }
+
+  return out;
+}
+
+export function paneTargetCandidatesFromListPanesOutput(raw: string): PaneTargetCandidate[] {
+  const candidates: PaneTargetCandidate[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const [id = "", target = "", title = "", tileRole = "", cwd = ""] = line.split("|||");
+    const resolved = id.trim() || target.trim();
+    if (!resolved) continue;
+    const paneTarget = target.trim();
+    const add = (name: string, source: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      candidates.push({ name: trimmed, resolved, source, target: paneTarget });
+    };
+    add(title, "pane-title");
+    add(tileRole, "tile-role");
+    for (const wt of worktreeNamesFromCwd(cwd)) add(wt.name, wt.source);
+  }
+  return candidates;
+}
+
+function uniqueByResolved(candidates: PaneTargetCandidate[]): PaneTargetCandidate[] {
+  const seen = new Set<string>();
+  const out: PaneTargetCandidate[] = [];
+  for (const candidate of candidates) {
+    if (seen.has(candidate.resolved)) continue;
+    seen.add(candidate.resolved);
+    out.push(candidate);
+  }
+  return out;
+}
+
+export function resolvePaneTargetFromCandidates(target: string, candidates: readonly PaneTargetCandidate[]): PaneTargetResolution {
+  const exact = uniqueByResolved(candidates.filter(c => c.name.toLowerCase() === target.trim().toLowerCase()));
+  if (exact.length === 1) return { kind: "match", candidate: exact[0]! };
+  if (exact.length > 1) return { kind: "ambiguous", candidates: exact };
+
+  const byName = resolveByName(target, candidates);
+  if (byName.kind === "exact" || byName.kind === "fuzzy") return { kind: "match", candidate: byName.match };
+  if (byName.kind === "ambiguous") return { kind: "ambiguous", candidates: uniqueByResolved(byName.candidates) };
+  return { kind: "none" };
+}
+
+export function resolvePaneTargetFromListPanesOutput(target: string, raw: string): PaneTargetResolution {
+  return resolvePaneTargetFromCandidates(target, paneTargetCandidatesFromListPanesOutput(raw));
+}
+
+async function resolvePaneTargetForKill(target: string): Promise<PaneTargetResolution> {
+  const raw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
+  if (!raw.trim()) return { kind: "none" };
+  return resolvePaneTargetFromListPanesOutput(target, raw);
+}
 
 function listSessionNamesSync(): string[] {
   try {
@@ -463,7 +553,26 @@ export interface TmuxKillOpts {
 export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Promise<void> {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
-  const { resolved, source } = hit;
+  let { resolved, source } = hit;
+
+  // #1502 — top-level `maw kill` routes here (`maw tmux kill`). Unknown
+  // natural names used to fall through as a bare tmux session target and
+  // fail with "can't find pane" even when `maw ls -v` showed an orphan pane
+  // by title/worktree role. Preserve exact/session handling above, but when
+  // the resolver only reached the final session-name fallback, consult pane
+  // titles, @maw_tile_role, and worktree dirname aliases before killing.
+  if (!opts.session && source === "session-name" && resolved === target) {
+    const paneHit = await resolvePaneTargetForKill(target);
+    if (paneHit.kind === "match") {
+      resolved = paneHit.candidate.resolved;
+      source = `${paneHit.candidate.source} (${paneHit.candidate.name})`;
+    } else if (paneHit.kind === "ambiguous") {
+      const lines = paneHit.candidates
+        .map(c => `    • ${c.name} → ${c.resolved}${c.target ? ` (${c.target})` : ""} [${c.source}]`)
+        .join("\n");
+      throw new Error(`'${target}' is ambiguous — matches ${paneHit.candidates.length} panes:\n${lines}\n  use the pane id or full session:window.pane target`);
+    }
+  }
 
   // Fleet/view safety — extract session from resolved target
   const session = resolved.split(":")[0] ?? "";
