@@ -35,6 +35,24 @@ function isFreshSessionLookupRace(error: unknown, session: string): boolean {
   return message.includes(session) && /can't find (session|window|pane)/i.test(message);
 }
 
+export async function getLiveTileRoles(
+  session: string,
+  deps: { hostExecFn?: typeof hostExec } = {},
+): Promise<Set<string>> {
+  const run = deps.hostExecFn ?? hostExec;
+  try {
+    const raw = await run(`tmux list-panes -t '${session}' -F '#{@maw_tile_role}'`);
+    return new Set(
+      raw
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
 export async function waitForTmuxSessionReady(
   session: string,
   deps: {
@@ -238,8 +256,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
         const usedNames = new Set(existingWindows);
+        const liveTileRoles = await getLiveTileRoles(session);
         for (const wt of allWt) {
           const taskPart = wt.name.replace(/^\d+-/, "");
+          // #1445 — tile panes are split panes (role metadata), not windows.
+          // If the role is already alive in-session, skip respawn.
+          if (liveTileRoles.has(taskPart)) continue;
           let wtWindowName = `${oracle}-${taskPart}`;
           if (usedNames.has(wtWindowName)) {
             if (existingWindows.includes(wtWindowName)) continue;
