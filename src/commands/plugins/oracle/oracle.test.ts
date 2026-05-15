@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { join } from "path";
 import type { InvokeContext } from "../../../plugin/types";
 
 // Import real implementations that other test files depend on — mock.module
@@ -7,8 +8,13 @@ import type { InvokeContext } from "../../../plugin/types";
 // "export not found" SyntaxErrors AND preserves behavior for those tests.
 const realPrune = await import("./impl-prune");
 const realRegister = await import("./impl-register");
+const realHelpers = await import("./impl-helpers");
 
-mock.module("./impl", () => ({
+// Use absolute paths so Bun's mock.module resolves the same physical file
+// regardless of the import path used by other modules (e.g. src/sdk/index.ts
+// imports "../commands/plugins/oracle/impl" which is a different module key
+// than "./impl" from this test file's perspective).
+mock.module(join(import.meta.dir, "./impl"), () => ({
   cmdOracleList: async () => {
     console.log("Oracle Fleet  (1/2 awake)");
   },
@@ -26,9 +32,12 @@ mock.module("./impl", () => ({
   },
   cmdOraclePrune: realPrune.cmdOraclePrune,
   cmdOracleRegister: realRegister.cmdOracleRegister,
+  resolveOracleSafe: realHelpers.resolveOracleSafe,
+  discoverOracles: realHelpers.discoverOracles,
+  timeSince: realHelpers.timeSince,
 }));
 
-mock.module("./impl-nickname", () => ({
+mock.module(join(import.meta.dir, "./impl-nickname"), () => ({
   cmdOracleSetNickname: (name: string, nickname: string) => {
     console.log(`set-nickname ${name}=${nickname}`);
   },

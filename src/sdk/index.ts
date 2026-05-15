@@ -131,9 +131,9 @@ export {
   cmdOracleScan,
   cmdOracleFleet,
   cmdOracleScanStale,
-  cmdOraclePrune,
-  cmdOracleRegister,
 } from "../commands/plugins/oracle/impl";
+export { cmdOraclePrune } from "../commands/plugins/oracle/impl-prune";
+export { cmdOracleRegister } from "../commands/plugins/oracle/impl-register";
 
 // ─── definePlugin — the plugin contract ──────────────────────────────────────
 
