@@ -213,3 +213,7 @@ Plugins can be discovered and installed peer-to-peer (Shape A, no central
 registry required). See
 [`docs/plugins/shape-a-demo.md`](docs/plugins/shape-a-demo.md) for a
 7-step walkthrough — peers, federated search, `@peer` install, consent.
+
+For fresh-install bootstrap, plugin source tiers, vendored registry plugins,
+and `maw plugin install` trust/lock behavior, see
+[`docs/plugins/install-architecture.md`](docs/plugins/install-architecture.md).
