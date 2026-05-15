@@ -216,7 +216,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`bring neo` defaults to tab/window mode, not split", () => {
+  test("`bring neo` defaults to bring-pane mode, not split", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
   });
@@ -236,6 +236,11 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
   test("`bring neo --split` opts into split mode", () => {
     const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
+  });
+
+  test("`bring neo --tab` forces the old background tab mode", () => {
+    const parsed = parseBringArgs(["neo", "--tab"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true, tab: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

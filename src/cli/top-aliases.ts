@@ -106,25 +106,28 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
 
 export function parseBringArgs(argv: string[]): {
   oracle: string;
-  opts: { bring?: true; split?: boolean; engine?: string };
+  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
 } {
-  // `maw bring <oracle>` opens a new tmux window/tab by default. `--split`
-  // remains available as the opt-in layout-mutating form.
+  // `maw bring <oracle>` replaces the top-right pane when possible. `--split`
+  // remains available as the opt-in layout-mutating form, while `--tab`
+  // preserves the old background-tab behavior explicitly.
   const flags = parseFlags(argv, {
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
+    "--tab": Boolean,
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
-    console.error("usage: maw bring <oracle> [--split] [-e|--engine <name>]");
-    console.error("  Opens oracle in a new tmux window/tab by default.");
+    console.error("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
+    console.error("  Replaces the top-right pane by default when one exists.");
     console.error("  Use --split to split the current pane instead.");
+    console.error("  Use --tab to force a background tmux tab.");
     console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; engine?: string } = flags["--split"]
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--split"]
     ? { split: true }
-    : { bring: true };
+    : { bring: true, ...(flags["--tab"] ? { tab: true } : {}) };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
 }

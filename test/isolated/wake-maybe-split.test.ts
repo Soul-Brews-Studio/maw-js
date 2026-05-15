@@ -4,17 +4,21 @@ import { join } from "path";
 let hostExecCalls: string[] = [];
 let listPanesResponse = "3\n";
 let tileMarkerResponse = "";
+let paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (cmd.includes("show-options") && cmd.includes("@maw_tile")) return tileMarkerResponse;
+    if (cmd.includes("list-panes") && cmd.includes("#{pane_id}|#{pane_top}|#{pane_left}|#{@maw_tile}")) {
+      return paneGeometryResponse;
+    }
     if (cmd.includes("list-panes")) return listPanesResponse;
     return "";
   },
 }));
 
-const { maybeOpenWindow, maybeSplit } = await import("../../src/commands/shared/wake-maybe-split");
+const { findTopRightPane, maybeOpenWindow, maybeSplit } = await import("../../src/commands/shared/wake-maybe-split");
 
 describe("wake maybeSplit", () => {
   const originalTmux = process.env.TMUX;
@@ -24,6 +28,7 @@ describe("wake maybeSplit", () => {
     hostExecCalls = [];
     listPanesResponse = "3\n";
     tileMarkerResponse = "";
+    paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
     process.env.TMUX = "/tmp/tmux-501/default,123,0";
     process.env.TMUX_PANE = "%42";
   });
@@ -80,14 +85,38 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[3]).toContain("tmux select-layout -t '%42' tiled");
   });
 
-  test("opens a new tmux window/tab for bring default mode", async () => {
+  test("finds the top-right tile pane, excluding the caller", async () => {
+    const pane = await findTopRightPane("%42");
+
+    expect(pane).toBe("%43");
+  });
+
+  test("replaces the top-right pane for bring default mode", async () => {
     await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
+
+    expect(hostExecCalls).toHaveLength(2);
+    expect(hostExecCalls[0]).toContain("tmux list-panes -t '%42' -F");
+    expect(hostExecCalls[1]).toContain("tmux respawn-pane -k -t '%43'");
+    expect(hostExecCalls[1]).toContain("TMUX= tmux attach-session -t");
+    expect(hostExecCalls[1]).toContain("20-homekeeper:homekeeper-oracle");
+  });
+
+  test("falls back to a background tab when no replacement pane exists", async () => {
+    paneGeometryResponse = "%42|0|0|\n";
+
+    await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
+
+    expect(hostExecCalls).toHaveLength(2);
+    expect(hostExecCalls[0]).toContain("tmux list-panes -t '%42' -F");
+    expect(hostExecCalls[1]).toContain("tmux new-window -d");
+    expect(hostExecCalls[1]).toContain("-n 'bring-homekeeper-oracle'");
+  });
+
+  test("can force the old background-tab behavior", async () => {
+    await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true, tab: true });
 
     expect(hostExecCalls).toHaveLength(1);
     expect(hostExecCalls[0]).toContain("tmux new-window -d");
-    expect(hostExecCalls[0]).toContain("-n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[0]).toContain("TMUX= tmux attach-session -t");
-    expect(hostExecCalls[0]).toContain("20-homekeeper:homekeeper-oracle");
   });
 
   test("does not open a window when bring is not requested", async () => {
