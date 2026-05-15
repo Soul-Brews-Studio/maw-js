@@ -45,6 +45,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
+  bring: "Bring an oracle HERE (split pane) — symmetric with `a` (go there)",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
@@ -64,6 +65,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
   tile: ["tile"],
+  bring: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
@@ -195,6 +197,24 @@ export async function invokeDirectHandler(
       }
     }
 
+    await cmdWake(oracle, opts);
+    return;
+  }
+
+  if (exportName === "cmdBring") {
+    // `maw bring <oracle> [-e <engine>]` — split current pane and wake oracle there.
+    const flags = parseFlags(argv, {
+      "--engine": String, "-e": "--engine",
+    }, 0);
+    const oracle = (flags._ as string[])[0];
+    if (!oracle) {
+      console.error("usage: maw bring <oracle> [-e|--engine <name>]");
+      console.error("  Splits current pane and wakes oracle there (non-destructive).");
+      console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
+      throw new UserError("bring: missing oracle name");
+    }
+    const opts: { split: true; engine?: string } = { split: true };
+    if (flags["--engine"]) opts.engine = flags["--engine"];
     await cmdWake(oracle, opts);
     return;
   }
