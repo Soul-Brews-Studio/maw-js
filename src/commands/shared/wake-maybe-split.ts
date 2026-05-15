@@ -14,6 +14,21 @@ export async function probeTmuxServer(): Promise<boolean> {
   }
 }
 
+
+async function restoreSplitLayout(anchor?: string): Promise<void> {
+  try {
+    const windowTarget = anchor || process.env.TMUX_PANE;
+    const targetFlag = windowTarget ? `-t ${shellArg(windowTarget)} ` : "";
+    const raw = await hostExec(`tmux list-panes ${targetFlag}| wc -l`);
+    const total = Number.parseInt(String(raw).trim(), 10);
+    const layout = Number.isFinite(total) && total > 4 ? "tiled" : "main-vertical";
+    await hostExec(`tmux select-layout ${targetFlag}${layout}`);
+  } catch {
+    // Best-effort polish only: split succeeded, so never fail delivery because
+    // the caller's tmux cannot reflow the current window.
+  }
+}
+
 export async function maybeSplit(target: string, opts: { split?: boolean }): Promise<void> {
   if (!opts.split) return;
   if (process.env.TMUX) {
@@ -22,6 +37,7 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
       await hostExec(`tmux split-window ${targetFlag}-h -l 50% ${shellArg(innerCmd)}`);
+      await restoreSplitLayout(anchor);
       console.log(`  \x1b[32m✓\x1b[0m split beside — ${target} (50%)`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
