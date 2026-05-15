@@ -74,6 +74,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
   }
 
   for (const tier of tiers) {
+    tier.plugins.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
     if (tier.plugins.length === 0) continue;
     console.log(`\n\x1b[1m${tier.label}\x1b[0m (${tier.plugins.length})`);
     const rows = tier.plugins.map(p => {
