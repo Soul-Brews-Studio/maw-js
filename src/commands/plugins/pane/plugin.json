@@ -1,0 +1,12 @@
+{
+  "name": "pane",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Pane workflow helpers such as swapping panes in the current tmux window.",
+  "cli": {
+    "command": "pane",
+    "help": "maw pane swap <a> <b> — swap panes in the current tmux window"
+  },
+  "weight": 5
+}

@@ -5,6 +5,10 @@ import {
 import { hostExec } from "../../../sdk";
 import { withPaneLock } from "../../../core/transport/tmux-pane-lock";
 
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 async function getWindow(): Promise<string> {
   const pane = process.env.TMUX_PANE;
   if (pane) {
@@ -183,4 +187,54 @@ export async function cmdTileClean(): Promise<void> {
   } else {
     console.log(`\x1b[32m✓\x1b[0m cleaned ${killed} tiles`);
   }
+}
+
+type PaneRow = {
+  index: string;
+  paneId: string;
+  title: string;
+  top: number;
+};
+
+async function listPaneRows(window: string): Promise<PaneRow[]> {
+  const raw = await hostExec(
+    `tmux list-panes -t '${window}' -F '#{pane_index}|||#{pane_id}|||#{pane_title}|||#{pane_top}'`,
+  );
+  return raw.split("\n").filter(Boolean).map((line) => {
+    const [index = "", paneId = "", title = "", topRaw = "0"] = line.split("|||");
+    return { index, paneId, title, top: parseInt(topRaw, 10) || 0 };
+  }).filter(row => row.paneId);
+}
+
+function resolveSwapPane(spec: string, rows: PaneRow[]): PaneRow | null {
+  const normalized = spec.trim();
+  if (!normalized) return null;
+
+  if (normalized === "top") {
+    return [...rows].sort((a, b) => a.top - b.top || parseInt(a.index, 10) - parseInt(b.index, 10))[0] ?? null;
+  }
+  if (normalized === "bottom") {
+    return [...rows].sort((a, b) => b.top - a.top || parseInt(b.index, 10) - parseInt(a.index, 10))[0] ?? null;
+  }
+  if (normalized.startsWith("%")) {
+    return rows.find(row => row.paneId === normalized) ?? { index: "", paneId: normalized, title: normalized, top: 0 };
+  }
+  if (/^\d+$/.test(normalized)) {
+    return rows.find(row => row.index === normalized) ?? null;
+  }
+  return rows.find(row => row.title === normalized || row.title.startsWith(normalized)) ?? null;
+}
+
+export async function cmdTileSwap(a: string, b: string): Promise<void> {
+  const window = await getWindow();
+  const rows = await listPaneRows(window);
+  const source = resolveSwapPane(a, rows);
+  const target = resolveSwapPane(b, rows);
+
+  if (!source) throw new Error(`tile swap: could not resolve pane '${a}'`);
+  if (!target) throw new Error(`tile swap: could not resolve pane '${b}'`);
+  if (source.paneId === target.paneId) throw new Error("tile swap: source and target are the same pane");
+
+  await hostExec(`tmux swap-pane -s ${shellArg(source.paneId)} -t ${shellArg(target.paneId)}`);
+  console.log(`\x1b[32m✓\x1b[0m swapped ${source.title || source.paneId} ↔ ${target.title || target.paneId}`);
 }

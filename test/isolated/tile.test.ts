@@ -27,7 +27,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   },
 }));
 
-const { cmdTile, cmdTileClean } = await import("../../src/commands/plugins/tile/impl");
+const { cmdTile, cmdTileClean, cmdTileSwap } = await import("../../src/commands/plugins/tile/impl");
 
 beforeEach(() => {
   commands = [];
@@ -95,5 +95,37 @@ describe("tile clean", () => {
     expect(commands).toContain("tmux kill-pane -t '%p1'");
     expect(commands).toContain("tmux kill-pane -t '%p2'");
     expect(commands).not.toContain("tmux kill-pane -t '%lead'");
+  });
+});
+
+describe("tile swap", () => {
+  beforeEach(() => {
+    paneList = [
+      "0|||%lead|||lead|||0",
+      "1|||%p1|||tile-1|||4",
+      "2|||%p2|||tile-2 🌳|||14",
+    ].join("\n");
+  });
+
+  test("swaps panes by current-window pane index", async () => {
+    await cmdTileSwap("1", "2");
+
+    expect(commands).toContain("tmux swap-pane -s '%p1' -t '%p2'");
+  });
+
+  test("swaps panes by tile title prefix", async () => {
+    await cmdTileSwap("tile-1", "tile-2");
+
+    expect(commands).toContain("tmux swap-pane -s '%p1' -t '%p2'");
+  });
+
+  test("swaps top and bottom panes by pane_top", async () => {
+    await cmdTileSwap("top", "bottom");
+
+    expect(commands).toContain("tmux swap-pane -s '%lead' -t '%p2'");
+  });
+
+  test("rejects unresolved pane targets", async () => {
+    await expect(cmdTileSwap("missing", "tile-2")).rejects.toThrow(/could not resolve pane 'missing'/);
   });
 });

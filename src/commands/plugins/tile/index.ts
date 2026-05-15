@@ -30,12 +30,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (flags["--help"]) {
       console.log("usage: maw tile [N] [--wt] [--engine <name>]");
       console.log("       maw tile clean");
+      console.log("       maw tile swap <a> <b>");
       console.log("");
       console.log("  maw tile              apply tiled layout to current window");
       console.log("  maw tile 3            spawn 3 empty panes and tile them");
       console.log("  maw tile 3 --wt       spawn 3 worktree-backed panes, each with own branch");
       console.log("  maw tile 3 -e claude  spawn 3 panes running claude, tiled");
       console.log("  maw tile clean        kill tile panes + remove tile worktrees");
+      console.log("  maw tile swap 1 2     swap pane indices in the current window");
+      console.log("  maw tile swap top bottom | tile-1 tile-2 | %1 %2");
       return { ok: true, output: logs.join("\n") };
     }
 
@@ -44,6 +47,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (positional[0] === "clean") {
       const { cmdTileClean } = await import("./impl");
       await cmdTileClean();
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    if (positional[0] === "swap") {
+      const a = positional[1];
+      const b = positional[2];
+      if (!a || !b) {
+        console.log("usage: maw tile swap <pane-a> <pane-b>");
+        return { ok: false, error: "two pane targets required", output: logs.join("\n") };
+      }
+      const { cmdTileSwap } = await import("./impl");
+      await cmdTileSwap(a, b);
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
