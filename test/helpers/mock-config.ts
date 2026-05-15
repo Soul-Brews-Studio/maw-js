@@ -7,10 +7,7 @@
  * @target-module src/config.ts
  * (Checked by scripts/check-mock-export-sync.sh — #435)
  */
-import type { MawConfig, MawIntervals, MawTimeouts, MawLimits } from "../../src/config";
-// #1126 — Use real buildCommand. The stub returning "echo test" was clobbering
-// command-simplified.test.ts when it ran after any test mocking '../src/config'.
-import { buildCommand as realBuildCommand, buildCommandInDir as realBuildCommandInDir } from "../../src/config/command";
+import type { MawConfig, MawIntervals, MawTimeouts, MawLimits } from "../../src/config/types";
 
 const INTERVALS: Record<keyof MawIntervals, number> = {
   capture: 50, sessions: 5000, status: 3000, teams: 3000,
@@ -29,6 +26,11 @@ const LIMITS: Record<keyof MawLimits, number> = {
   maxConcurrentAgents: 0,
 };
 
+function commandFrom(loadConfig: () => Partial<MawConfig>, agentName: string, engine?: string): string {
+  const commands = loadConfig().commands || {};
+  return (engine && commands[engine]) || commands[agentName] || commands.default || "claude";
+}
+
 export const TEST_D = {
   intervals: INTERVALS,
   timeouts: TIMEOUTS,
@@ -44,8 +46,10 @@ export function mockConfigModule(loadConfig: () => Partial<MawConfig>) {
     saveConfig: () => {},
     validateConfigShape: (c: any) => c,
     configForDisplay: () => ({}),
-    buildCommand: realBuildCommand,
-    buildCommandInDir: realBuildCommandInDir,
+    buildCommand: (agentName: string, engine?: string) => commandFrom(loadConfig, agentName, engine),
+    buildCommandInDir: (agentName: string, _cwd: string, engine?: string) => commandFrom(loadConfig, agentName, engine),
+    buildShellFunction: (agentName: string, engine?: string) => commandFrom(loadConfig, agentName, engine),
+    writeSessionScript: (agentName: string) => `/tmp/maw-${agentName}.sh`,
     getEnvVars: () => ({}),
     D: TEST_D,
     cfgInterval: (k: keyof MawIntervals) => INTERVALS[k],
