@@ -1,8 +1,8 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
-// Drives loadConfig() via a per-test mutable fixture so we can exercise the
-// post-#541 buildCommand branches (bare cmd, --continue fallback, pattern
-// match, --resume injection, no-cd/no-direnv invariant).
+// Drives the pure command builder with a per-test mutable fixture so we can
+// exercise the post-#541 branches without being affected by Bun's process-global
+// module mocks from other test files.
 let fakeConfig: any = {
   host: "local",
   port: 3456,
@@ -16,18 +16,19 @@ let fakeConfig: any = {
 };
 let fakeSessionIds: Record<string, string> = {};
 
-mock.module("../src/config/load", () => ({
-  loadConfig: () => ({ ...fakeConfig, sessionIds: fakeSessionIds }),
-  resetConfig: () => {},
-  saveConfig: () => fakeConfig,
-  configForDisplay: () => ({ ...fakeConfig, envMasked: {} }),
-  cfgInterval: () => 1000,
-  cfgTimeout: () => 1000,
-  cfgLimit: () => 100,
-  cfg: (k: string) => (fakeConfig as any)[k],
-}));
+const { buildCommandFromConfig, buildCommandInDirFromConfig } = await import("../src/config/command-logic");
 
-const { buildCommand, buildCommandInDir } = await import("../src/config/command");
+function testConfig() {
+  return { ...fakeConfig, sessionIds: fakeSessionIds };
+}
+
+function buildCommand(agentName: string, engine?: string): string {
+  return buildCommandFromConfig(testConfig(), agentName, engine);
+}
+
+function buildCommandInDir(agentName: string, cwd: string, engine?: string): string {
+  return buildCommandInDirFromConfig(testConfig(), agentName, cwd, engine);
+}
 
 // buildCommand strips --dangerously-skip-permissions when process.getuid() === 0
 // (root-stripping from #181). Tests below assert the flag is preserved in the
