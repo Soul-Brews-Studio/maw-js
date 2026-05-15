@@ -16,6 +16,7 @@
 
 import { describe, test, expect, beforeAll, mock, spyOn } from "bun:test";
 import { Elysia } from "elysia";
+import { mockSshModule } from "../helpers/mock-ssh";
 
 // ---- Capture calls to Bun.spawn -------------------------------------------
 
@@ -47,7 +48,7 @@ Bun.spawn = (cmd: string[], _opts?: unknown) => {
 
 // ---- Stub dependencies so pulse.ts can be imported -----------------------
 
-mock.module("../../src/core/transport/ssh", () => ({
+mock.module("../../src/core/transport/ssh", () => mockSshModule({
   hostExec: async (_cmd: string) => "[]",
 }));
 

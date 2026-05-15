@@ -27,6 +27,7 @@
  */
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { join } from "path";
+import { mockSshModule } from "../helpers/mock-ssh";
 
 const root = join(import.meta.dir, "../../src");
 
@@ -34,7 +35,7 @@ const root = join(import.meta.dir, "../../src");
 let stubFindOutput: string = "";
 let stubSessions: Array<{ name: string; windows: Array<{ name: string; index: number; active: boolean }> }> = [];
 
-mock.module(join(root, "core/transport/ssh"), () => ({
+mock.module(join(root, "core/transport/ssh"), () => mockSshModule({
   hostExec: async (cmd: string) => {
     if (cmd.includes("find ") && cmd.includes(".wt-")) {
       return stubFindOutput;
@@ -42,7 +43,6 @@ mock.module(join(root, "core/transport/ssh"), () => ({
     if (cmd.includes("rev-parse --abbrev-ref")) {
       return "agents/935-test";
     }
-    // Suppress prunable-worktree probe — return empty so no orphans appear
     return "";
   },
   listSessions: async () => stubSessions,

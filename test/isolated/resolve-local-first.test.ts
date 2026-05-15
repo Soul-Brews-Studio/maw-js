@@ -25,6 +25,7 @@ let curlFetchUrl = "";
 // ─── Module mocks (must be before any imports of the modules under test) ─────
 
 import { mockConfigModule } from "../helpers/mock-config";
+import { mockSshModule } from "../helpers/mock-ssh";
 
 mock.module("../../src/config", () => mockConfigModule(() => ({
   node: "white",
@@ -34,7 +35,7 @@ mock.module("../../src/config", () => mockConfigModule(() => ({
   sessions: {},
 })));
 
-mock.module("../../src/core/transport/ssh", () => ({
+mock.module("../../src/core/transport/ssh", () => mockSshModule({
   listSessions: async () => fakeSessions,
   sendKeys: async () => { sendKeysCalled = true; },
   capture: async () => "",
@@ -42,7 +43,6 @@ mock.module("../../src/core/transport/ssh", () => ({
   getPaneCommands: async () => [],
   getPaneInfos: async () => ({}),
   hostExec: async () => { throw new Error("tmux unavailable in test"); },
-  HostExecError: class HostExecError extends Error {},
 }));
 
 mock.module("../../src/core/transport/curl-fetch", () => ({
