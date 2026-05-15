@@ -4,20 +4,44 @@ import { join } from "path";
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
+function isPluginDir(dir: string): boolean {
+  return existsSync(join(dir, "plugin.json")) || existsSync(join(dir, "index.ts"));
+}
+
 function linkBundledPlugins(pluginDir: string, bundled: string): number {
   if (!existsSync(bundled)) return 0;
   let linked = 0;
   for (const d of readdirSync(bundled)) {
     const src = join(bundled, d);
     const dest = join(pluginDir, d);
-    const isPlugin =
-      existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
-    if (!isPlugin) continue;
+    if (!isPluginDir(src)) continue;
     if (existsSync(dest)) continue; // already linked / user dir / valid symlink
     symlinkSync(src, dest);
     linked++;
   }
   return linked;
+}
+
+function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): { healed: number; pruned: number } {
+  let healed = 0;
+  let pruned = 0;
+  for (const entry of readdirSync(pluginDir)) {
+    const p = join(pluginDir, entry);
+    try {
+      if (!lstatSync(p).isSymbolicLink() || existsSync(p)) continue;
+      const replacement = bundledRoots
+        .map((root) => join(root, entry))
+        .find((candidate) => existsSync(candidate) && isPluginDir(candidate));
+      unlinkSync(p);
+      if (replacement) {
+        symlinkSync(replacement, p);
+        healed++;
+      } else {
+        pruned++;
+      }
+    } catch {}
+  }
+  return { healed, pruned };
 }
 
 /**
@@ -46,16 +70,11 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   //    in ~/.maw/plugins/ become dangling. readdirSync still lists them, but
   //    existsSync returns false (target gone). The plugin loader silently
   //    skips them, so the user sees "unknown command" with no explanation.
-  let pruned = 0;
-  for (const entry of readdirSync(pluginDir)) {
-    const p = join(pluginDir, entry);
-    try {
-      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
-        unlinkSync(p);
-        pruned++;
-      }
-    } catch {}
-  }
+  const bundledRoots = [
+    join(srcDir, "commands", "plugins"),
+    join(srcDir, "vendor", "mpr-plugins"),
+  ];
+  const { pruned } = healOrPruneBrokenSymlinks(pluginDir, bundledRoots);
   if (pruned > 0) {
     console.warn(`[maw] removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} from ${pluginDir}`);
   }
@@ -64,13 +83,13 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
   //    runs every boot. Cheap (fs stat + symlink), no network.
-  linkBundledPlugins(pluginDir, join(srcDir, "commands", "plugins"));
+  linkBundledPlugins(pluginDir, bundledRoots[0]);
 
   // #1339 — fresh installs must also get the maw-plugin-registry command
   // surface (`wake`, `attach`, `done`, `send-enter`, ...). The vendored copy is
   // source-only and intentionally uses the same pluginDir symlink mechanism as
   // in-tree plugins so user-installed plugins keep precedence.
-  linkBundledPlugins(pluginDir, join(srcDir, "vendor", "mpr-plugins"));
+  linkBundledPlugins(pluginDir, bundledRoots[1]);
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
   //    should not retry every boot).

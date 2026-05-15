@@ -61,7 +61,7 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
       } catch { /* treat as stale — holderPid stays NaN */ }
       finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (!isAlive(holderPid)) {
-        console.warn(`\x1b[33m⚠\x1b[0m stale update lock (pid ${holderPid || "?"} gone) — taking over`);
+        console.log(`  \x1b[90m⋯ stale update lock (pid ${holderPid || "?"} gone) — taking over\x1b[0m`);
         try { unlinkSync(LOCK_PATH); } catch {}
         continue;
       }

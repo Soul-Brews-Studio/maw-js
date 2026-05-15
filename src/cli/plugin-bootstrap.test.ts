@@ -221,6 +221,29 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     }
   });
 
+  it("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
+    makeVendoredPlugin("wake");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync("/nonexistent/old-maw-js/packages/wake", join(pluginDir, "wake"));
+    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "wake"))).toBe(false);
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+
+    try {
+      await runBootstrap(pluginDir, srcDir);
+
+      expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+      expect(warns.some(w => w.includes("broken plugin symlink"))).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it("pluginSources URL-fetch path is gated behind wasEmpty (only logs on first install)", async () => {
     // The `[maw] bootstrapped N plugins` console.log is inside the `wasEmpty`
     // branch alongside the URL-fetch logic — its presence/absence is a

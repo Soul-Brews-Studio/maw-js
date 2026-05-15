@@ -10,6 +10,91 @@ import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
 import { withUpdateLock } from "./update-lock";
 
+function clearBunGlobalResolverState(): () => void {
+  // #1449 — Bun can reject `bun add -g github:...#newRef` before it mutates
+  // anything when the global package.json/lock still pins maw-js to a
+  // different GitHub ref. Remove only resolver metadata before the *first*
+  // install attempt; keep the current bin + node_modules in place so a
+  // network/auth failure still leaves the running maw usable.
+  const bunGlobal = join(homedir(), ".bun", "install", "global");
+  const globalPkg = join(bunGlobal, "package.json");
+  let pkgBackup: string | null = null;
+  try {
+    pkgBackup = readFileSync(globalPkg, "utf-8");
+    const data = JSON.parse(pkgBackup);
+    let dirty = false;
+    for (const key of ["maw-js", "maw"]) {
+      if (data.dependencies?.[key]) { delete data.dependencies[key]; dirty = true; }
+    }
+    if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
+  } catch { /* best effort — fallback path still handles resolver wedges */ }
+
+  try {
+    for (const f of ["bun.lock", "bun.lockb"]) {
+      const p = join(bunGlobal, f);
+      try { if (existsSync(p)) unlinkSync(p); } catch {}
+    }
+  } catch {}
+  try {
+    const cacheDir = join(homedir(), ".bun", "install", "cache");
+    if (existsSync(cacheDir)) {
+      for (const entry of readdirSync(cacheDir)) {
+        if (entry.includes("maw-js")) {
+          try { rmSync(join(cacheDir, entry), { recursive: true, force: true }); } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  return () => {
+    if (pkgBackup === null) return;
+    try { writeFileSync(globalPkg, pkgBackup); } catch {}
+  };
+}
+
+function isPluginSourceDir(dir: string): boolean {
+  return existsSync(join(dir, "plugin.json")) || existsSync(join(dir, "index.ts"));
+}
+
+function linkBundledPluginRoots(pluginDir: string, roots: string[]): number {
+  let refreshed = 0;
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const d of readdirSync(root)) {
+      const src = join(root, d);
+      if (!isPluginSourceDir(src)) continue;
+      const dest = join(pluginDir, d);
+      try {
+        if (lstatSync(dest).isSymbolicLink() && !existsSync(dest)) unlinkSync(dest);
+      } catch {}
+      if (!existsSync(dest)) { symlinkSync(src, dest); refreshed++; }
+    }
+  }
+  return refreshed;
+}
+
+function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { healed: number; pruned: number } {
+  let healed = 0;
+  let pruned = 0;
+  for (const entry of readdirSync(pluginDir)) {
+    const p = join(pluginDir, entry);
+    try {
+      if (!lstatSync(p).isSymbolicLink() || existsSync(p)) continue;
+      const replacement = roots
+        .map((root) => join(root, entry))
+        .find((candidate) => existsSync(candidate) && isPluginSourceDir(candidate));
+      unlinkSync(p);
+      if (replacement) {
+        symlinkSync(replacement, p);
+        healed++;
+      } else {
+        pruned++;
+      }
+    } catch {}
+  }
+  return { healed, pruned };
+}
+
 export async function runUpdate(args: string[]): Promise<void> {
   const { repository } = require("../../package.json");
   // args[0] is "update"; first non-flag positional is the ref.
@@ -156,6 +241,7 @@ export async function runUpdate(args: string[]): Promise<void> {
       stdio: ["inherit", "inherit", "inherit"],
     });
 
+    const restoreResolverState = clearBunGlobalResolverState();
     let installCode = await spawnInstall().exited;
     if (installCode !== 0) {
       console.warn(`\x1b[33m⚠\x1b[0m first install attempt failed — clearing stale global refs and retrying`);
@@ -350,6 +436,7 @@ export async function runUpdate(args: string[]): Promise<void> {
       }
     }
     if (installCode !== 0) {
+      restoreResolverState();
       console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
       console.error(``);
       console.error(`  Manual recovery (bypass bun resolver — release tags only):`);
@@ -389,33 +476,19 @@ export async function runUpdate(args: string[]): Promise<void> {
       mkdirSync(pluginDir, { recursive: true });
       const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
       const mawSrc = dirname(realpathSync(mawBin));
-      const bundled = join(mawSrc, "commands", "plugins");
-      if (existsSync(bundled)) {
-        let refreshed = 0;
-        for (const d of readdirSync(bundled)) {
-          if (existsSync(join(bundled, d, "plugin.json")) || existsSync(join(bundled, d, "index.ts"))) {
-            const dest = join(pluginDir, d);
-            // Replace old symlink or missing entry
-            try { if (lstatSync(dest).isSymbolicLink()) unlinkSync(dest); } catch {}
-            if (!existsSync(dest)) { symlinkSync(join(bundled, d), dest); refreshed++; }
-          }
-        }
+      const bundledRoots = [
+        join(mawSrc, "commands", "plugins"),
+        join(mawSrc, "vendor", "mpr-plugins"),
+      ];
+      if (bundledRoots.some((root) => existsSync(root))) {
+        const healed = healBrokenPluginSymlinks(pluginDir, bundledRoots);
+        const refreshed = linkBundledPluginRoots(pluginDir, bundledRoots);
         if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
 
-        // #1015 — prune symlinks that point to plugins no longer in the bundle.
-        let pruned = 0;
-        for (const entry of readdirSync(pluginDir)) {
-          const p = join(pluginDir, entry);
-          try {
-            if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
-              unlinkSync(p);
-              pruned++;
-            }
-          } catch {}
-        }
-        if (pruned > 0) {
-          console.log(`\n  \x1b[33m⚠\x1b[0m removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} (targets no longer exist)`);
-          console.log(`    run \x1b[90mmaw plugin install standard\x1b[0m to restore from registry`);
+        // #1449 — silently heal broken symlinks when the same plugin is now
+        // bundled under src/vendor/mpr-plugins. Warn only for genuine losses.
+        if (healed.pruned > 0) {
+          console.log(`\n  \x1b[33m⚠\x1b[0m removed ${healed.pruned} broken plugin symlink${healed.pruned === 1 ? "" : "s"} (targets no longer exist)`);
         }
       }
     } catch {}

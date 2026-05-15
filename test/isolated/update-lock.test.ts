@@ -214,19 +214,16 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     stubDateNow([0, 500, 500]);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
-    const origWarn = console.warn;
     const origLog = console.log;
-    const warns: string[] = [];
-    console.warn = (...a: unknown[]) => warns.push(a.map(String).join(" "));
-    console.log = () => {};
+    const logs: string[] = [];
+    console.log = (...a: unknown[]) => logs.push(a.map(String).join(" "));
     try {
       await withUpdateLock(async () => {});
     } finally {
-      console.warn = origWarn;
       console.log = origLog;
     }
 
-    expect(warns.some((w) => w.includes("stale update lock") && w.includes("taking over"))).toBe(true);
+    expect(logs.some((w) => w.includes("stale update lock") && w.includes("taking over"))).toBe(true);
     // Successful-open fd (5) eventually closed in finally.
     expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 5)).toBe(true);
   });
