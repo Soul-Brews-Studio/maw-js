@@ -62,6 +62,26 @@ export async function cmdKill(target: string, opts: KillOpts = {}) {
   if (opts.pane !== undefined) {
     // Default to window 0 if no window given
     const win = rawWindow || String(r.match.windows[0]?.index ?? 0);
+    const winTarget = `${session}:${win}`;
+    const paneIndexesRaw = await hostExec(
+      `${tmux} list-panes -t '${winTarget}' -F '#{pane_index}'`,
+    ).catch((e: any) => {
+      throw new Error(`list-panes failed for ${winTarget}: ${e?.message || e}`);
+    });
+    const validPaneIndexes = paneIndexesRaw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isInteger(n));
+
+    if (!validPaneIndexes.includes(opts.pane)) {
+      const valid = validPaneIndexes.length
+        ? validPaneIndexes.join(", ")
+        : "(none)";
+      throw new Error(`pane ${opts.pane} does not exist in window ${winTarget} (valid: ${valid})`);
+    }
+
     const pane = `${session}:${win}.${opts.pane}`;
     try {
       await hostExec(`${tmux} kill-pane -t '${pane}'`);
