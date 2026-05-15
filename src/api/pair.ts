@@ -12,13 +12,18 @@ import { randomBytes } from "crypto";
 import { loadConfig } from "../config";
 import { register, lookup, consume, isValidShape, normalize, pretty, generateCode } from "../lib/pair-codes";
 import { cmdAdd } from "../lib/peers/impl";
+import { getPeerKey } from "../lib/peer-key";
+import { signAutoPairProof, type AutoPairIdentity } from "../transports/scout-pair-proof";
 
 export const pairApi = new Elysia();
 
 const DEFAULT_TTL_MS = 120_000;
 const results = new Map<string, { consumedAt: number; remoteNode: string; remoteUrl: string }>();
 
-const me = () => { const c = loadConfig(); return { node: c.node ?? "local", port: c.port ?? 3456 }; };
+const me = () => {
+  const c = loadConfig();
+  return { node: c.node ?? "local", oracle: c.oracle ?? "mawjs", port: c.port ?? 3456 };
+};
 
 pairApi.post("/pair/generate", ({ body, set }) => {
   const b = (body ?? {}) as { ttlMs?: number; expires?: number };
@@ -79,7 +84,7 @@ export function recordHelloZid(zid: string): void {
 }
 
 pairApi.post("/pair/auto", async ({ body, set }) => {
-  const b = (body ?? {}) as { node?: string; oracle?: string; url?: string; zid?: string; capabilities?: string[] };
+  const b = (body ?? {}) as { node?: string; oracle?: string; url?: string; zid?: string; pubkey?: string; capabilities?: string[] };
 
   if (!b.node || !b.url || !b.zid) {
     set.status = 400;
@@ -94,16 +99,47 @@ pairApi.post("/pair/auto", async ({ body, set }) => {
   }
 
   const id = me();
+  let oneWay: boolean | undefined;
   try {
-    await cmdAdd({ alias: b.node, url: b.url, node: b.node });
-  } catch {}
+    const addResult = await cmdAdd({
+      alias: b.node,
+      url: b.url,
+      node: b.node,
+      pubkey: typeof b.pubkey === "string" && b.pubkey.length > 0 ? b.pubkey : undefined,
+      identity: b.oracle ? { oracle: b.oracle, node: b.node } : undefined,
+      markSymmetricCheck: true,
+    });
+    if (addResult.pubkeyMismatch) {
+      set.status = 409;
+      return { ok: false, error: addResult.pubkeyMismatch.message };
+    }
+    oneWay = addResult.peer.oneWay;
+  } catch (err) {
+    set.status = 400;
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 
   recentHellos.delete(b.zid);
+  const config = loadConfig();
+  const pubkey = getPeerKey();
+  const url = `http://localhost:${id.port}`;
+  const identity: AutoPairIdentity = {
+    node: id.node,
+    oracle: id.oracle,
+    url,
+    pubkey,
+  };
+  const proof = config.federationToken
+    ? signAutoPairProof(identity, config.federationToken)
+    : undefined;
 
   return {
     ok: true,
     node: id.node,
-    oracle: "mawjs",
-    url: `http://localhost:${id.port}`,
+    oracle: id.oracle,
+    url,
+    pubkey,
+    proof,
+    oneWay,
   };
 });
