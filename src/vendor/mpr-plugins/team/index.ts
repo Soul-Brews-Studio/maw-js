@@ -84,6 +84,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const { readTeamCharter, planTeamCharter, formatTeamCharterPlan } = await import("./team-charter");
       logs.push(formatTeamCharterPlan(planTeamCharter(readTeamCharter(args[1]))));
+    } else if (sub === "load") {
+      if (!args[1]) {
+        logs.push("usage: maw team load <team.yaml|team.json> --no-spawn");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      if (!args.includes("--no-spawn")) {
+        logs.push("usage: maw team load <team.yaml|team.json> --no-spawn");
+        logs.push("Phase 1 only supports materializing charter files; spawning remains a separate future step.");
+        return { ok: false, error: "--no-spawn required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, loadTeamCharter, formatTeamCharterLoad } = await import("./team-charter");
+      logs.push(formatTeamCharterLoad(loadTeamCharter(readTeamCharter(args[1]), { noSpawn: true })));
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
         logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
@@ -285,7 +297,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|load|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

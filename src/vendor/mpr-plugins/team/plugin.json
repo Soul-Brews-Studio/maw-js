@@ -10,7 +10,7 @@
     "aliases": [
       "t"
     ],
-    "help": "maw team <create|plan|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
+    "help": "maw team <create|plan|load|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
   },
   "weight": 30,
   "tier": "standard",

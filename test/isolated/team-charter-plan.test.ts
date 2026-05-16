@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 
 import teamHandler from "../../src/vendor/mpr-plugins/team/index";
-import { formatTeamCharterPlan, parseTeamCharterText, planTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
+import { formatTeamCharterLoad, formatTeamCharterPlan, loadTeamCharter, parseTeamCharterText, planTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
+import { _setDirs, TEAMS_DIR, TASKS_DIR } from "../../src/vendor/mpr-plugins/team/team-helpers";
 
 const tmpDirs: string[] = [];
 
 afterEach(() => {
+  _setDirs(join(homedir(), ".claude/teams"), join(homedir(), ".claude/tasks"));
   for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -18,6 +20,24 @@ function tmpFile(name: string, content: string): string {
   const file = join(dir, name);
   writeFileSync(file, content, "utf-8");
   return file;
+}
+
+async function withIsolatedTeamStores<T>(fn: (root: string) => T | Promise<T>): Promise<T> {
+  const originalCwd = process.cwd();
+  const originalTeams = TEAMS_DIR;
+  const originalTasks = TASKS_DIR;
+  const root = mkdtempSync(join(tmpdir(), "maw-team-charter-store-"));
+  tmpDirs.push(root);
+  mkdirSync(join(root, "ψ"), { recursive: true });
+  writeFileSync(join(root, "CLAUDE.md"), "test oracle\n", "utf-8");
+  _setDirs(join(root, "teams"), join(root, "tasks"));
+  process.chdir(root);
+  try {
+    return await fn(root);
+  } finally {
+    process.chdir(originalCwd);
+    _setDirs(originalTeams, originalTasks);
+  }
 }
 
 describe("team charter plan (#1594)", () => {
@@ -89,5 +109,86 @@ members:
     expect(result.output).toContain("inboxes/scout.json");
     expect(result.output).toContain("no tmux panes changed");
     expect(result.output).toContain("target 'existing:mawjs-oracle' is planned only");
+  });
+
+  test("loads a charter into config, inboxes, and vault manifest only when --no-spawn is set", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const charter = parseTeamCharterText(`
+name: load-team
+members:
+  - role: scout
+    target: auto
+    model: spark
+  - role: bridge
+    target: existing:mawjs-oracle
+governance:
+  requires_human_approval: true
+`);
+
+      const result = loadTeamCharter(charter, { noSpawn: true, now: () => 123 });
+      const rendered = formatTeamCharterLoad(result);
+      const configPath = join(root, "teams", "load-team", "config.json");
+      const scoutInbox = join(root, "teams", "load-team", "inboxes", "scout.json");
+      const bridgeInbox = join(root, "teams", "load-team", "inboxes", "bridge.json");
+      const manifestPath = join(root, "ψ", "memory", "mailbox", "teams", "load-team", "manifest.json");
+
+      expect(rendered).toContain("team charter loaded: load-team");
+      expect(rendered).toContain("--no-spawn respected");
+      expect(rendered).toContain("no tmux panes changed");
+      expect(rendered).toContain("no claude processes spawned");
+      expect(existsSync(configPath)).toBe(true);
+      expect(JSON.parse(readFileSync(configPath, "utf-8"))).toMatchObject({
+        name: "load-team",
+        createdAt: 123,
+        members: [
+          { name: "scout", model: "spark" },
+          { name: "bridge", backendType: "existing:mawjs-oracle" },
+        ],
+      });
+      expect(JSON.parse(readFileSync(scoutInbox, "utf-8"))).toEqual([]);
+      expect(JSON.parse(readFileSync(bridgeInbox, "utf-8"))).toEqual([]);
+      expect(JSON.parse(readFileSync(manifestPath, "utf-8"))).toMatchObject({
+        name: "load-team",
+        source: "team-charter",
+        members: ["scout", "bridge"],
+        charter: { governance: { requires_human_approval: true } },
+      });
+    });
+  });
+
+  test("handler refuses load without explicit --no-spawn", async () => {
+    const file = tmpFile("team.yaml", `
+name: require-safe-load
+members:
+  - role: scout
+`);
+
+    const result = await teamHandler({ source: "cli", args: ["load", file] });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("--no-spawn required");
+    expect(result.output).toContain("maw team load <team.yaml|team.json> --no-spawn");
+  });
+
+  test("handler load subcommand materializes files without spawning", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const file = join(root, "team.yaml");
+      writeFileSync(file, `
+name: handler-load
+members:
+  - role: scout
+    target: auto
+`, "utf-8");
+
+      const result = await teamHandler({ source: "cli", args: ["load", file, "--no-spawn"] });
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("team charter loaded: handler-load");
+      expect(result.output).toContain("no tmux panes changed");
+      expect(result.output).toContain("no claude processes spawned");
+      expect(existsSync(join(root, "teams", "handler-load", "config.json"))).toBe(true);
+      expect(existsSync(join(root, "teams", "handler-load", "inboxes", "scout.json"))).toBe(true);
+      expect(existsSync(join(root, "ψ", "memory", "mailbox", "teams", "handler-load", "manifest.json"))).toBe(true);
+    });
   });
 });

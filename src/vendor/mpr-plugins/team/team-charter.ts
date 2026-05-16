@@ -1,7 +1,7 @@
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
-import { resolvePsi } from "./team-helpers";
+import { assertValidOracleName } from "maw-js/core/fleet/validate";
+import { resolvePsi, TEAMS_DIR, type TeamConfig, type TeamMember } from "./team-helpers";
 
 export interface TeamCharterMember {
   role: string;
@@ -25,6 +25,12 @@ export interface TeamCharterPlan {
   artifacts: string[];
   actions: string[];
   warnings: string[];
+}
+
+export interface TeamCharterLoadResult {
+  plan: TeamCharterPlan;
+  writtenArtifacts: string[];
+  actions: string[];
 }
 
 function stripComment(line: string): string {
@@ -199,12 +205,12 @@ export function readTeamCharter(path: string): TeamCharter {
 }
 
 export function planTeamCharter(charter: TeamCharter): TeamCharterPlan {
-  const teamDir = join(homedir(), ".claude", "teams", charter.name);
+  const teamDir = join(TEAMS_DIR, charter.name);
   const psi = resolvePsi();
   const warnings: string[] = [];
   for (const member of charter.members) {
     const target = member.target ?? "auto";
-    if (target !== "auto") warnings.push(`${member.role}: target '${target}' is planned only; Phase 0 does not spawn or mutate panes`);
+    if (target !== "auto") warnings.push(`${member.role}: target '${target}' is planned only; charter flow does not spawn or mutate panes yet`);
   }
   if (charter.governance?.requires_human_approval === true) {
     warnings.push("governance requires human approval before any future load/spawn action");
@@ -251,5 +257,90 @@ export function formatTeamCharterPlan(plan: TeamCharterPlan): string {
   if (plan.warnings.length) {
     lines.push("", "warnings:", ...plan.warnings.map((warning) => `  - ${warning}`));
   }
+  return lines.join("\n");
+}
+
+
+export function loadTeamCharter(charter: TeamCharter, opts: { noSpawn?: boolean; now?: () => number } = {}): TeamCharterLoadResult {
+  if (!opts.noSpawn) throw new Error("team charter load currently requires --no-spawn");
+  assertValidOracleName(charter.name);
+
+  const plan = planTeamCharter(charter);
+  const createdAt = opts.now?.() ?? Date.now();
+  const teamDir = join(TEAMS_DIR, charter.name);
+  const inboxDir = join(teamDir, "inboxes");
+  const toolConfigPath = join(teamDir, "config.json");
+  const psi = resolvePsi();
+  const vaultTeamDir = join(psi, "memory", "mailbox", "teams", charter.name);
+  const vaultManifestPath = join(vaultTeamDir, "manifest.json");
+
+  const existing = [
+    existsSync(toolConfigPath) ? toolConfigPath : undefined,
+    existsSync(vaultManifestPath) ? vaultManifestPath : undefined,
+  ].filter((value): value is string => Boolean(value));
+  if (existing.length) {
+    throw new Error(`team '${charter.name}' already exists; refusing to overwrite ${existing.join(", ")}`);
+  }
+
+  const members: TeamMember[] = charter.members.map((member) => ({
+    name: member.role,
+    ...(member.model ? { model: member.model } : {}),
+    ...(member.target && member.target !== "auto" ? { backendType: member.target } : {}),
+  }));
+  const config: TeamConfig = {
+    name: charter.name,
+    ...(charter.description ? { description: charter.description } : {}),
+    members,
+    createdAt,
+  };
+  const manifest = {
+    name: charter.name,
+    createdAt,
+    description: charter.description ?? "",
+    goal: charter.goal ?? "",
+    members: charter.members.map((member) => member.role),
+    source: "team-charter",
+    charter: {
+      members: charter.members,
+      ...(charter.lifecycle ? { lifecycle: charter.lifecycle } : {}),
+      ...(charter.governance ? { governance: charter.governance } : {}),
+    },
+  };
+
+  mkdirSync(inboxDir, { recursive: true });
+  mkdirSync(vaultTeamDir, { recursive: true });
+  writeFileSync(toolConfigPath, JSON.stringify(config, null, 2));
+  for (const member of charter.members) {
+    writeFileSync(join(inboxDir, `${member.role}.json`), JSON.stringify([], null, 2));
+  }
+  writeFileSync(vaultManifestPath, JSON.stringify(manifest, null, 2));
+
+  return {
+    plan,
+    writtenArtifacts: [toolConfigPath, ...charter.members.map((member) => join(inboxDir, `${member.role}.json`)), vaultManifestPath],
+    actions: [
+      "--no-spawn respected",
+      "no tmux panes changed",
+      "no claude processes spawned",
+      "no maw bud or fleet writes",
+    ],
+  };
+}
+
+export function formatTeamCharterLoad(result: TeamCharterLoadResult): string {
+  const { charter } = result.plan;
+  const lines = [
+    `team charter loaded: ${charter.name}`,
+    "",
+    "wrote artifacts:",
+    ...result.writtenArtifacts.map((artifact) => `  - ${artifact}`),
+    "",
+    "load safety:",
+    ...result.actions.map((action) => `  - ${action}`),
+  ];
+  if (result.plan.warnings.length) {
+    lines.push("", "warnings:", ...result.plan.warnings.map((warning) => `  - ${warning}`));
+  }
+  lines.push("", `next: maw team list`);
   return lines.join("\n");
 }
