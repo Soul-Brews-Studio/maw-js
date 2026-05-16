@@ -30,6 +30,15 @@ async function restoreSplitLayout(anchor?: string): Promise<void> {
   }
 }
 
+async function refreshSplitClient(): Promise<void> {
+  try {
+    await hostExec("tmux refresh-client -S");
+  } catch {
+    // Best-effort redraw nudge only (#1562): if tmux rejects refresh-client
+    // in a headless or old-server environment, keep the successful split.
+  }
+}
+
 async function isMawTilePane(anchor?: string): Promise<boolean> {
   if (!anchor) return false;
   try {
@@ -89,6 +98,7 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
       if (!(await isMawTilePane(anchor))) {
         await restoreSplitLayout(anchor);
       }
+      await refreshSplitClient();
       console.log(`  \x1b[32m✓\x1b[0m split beside — ${target} (50%)`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
