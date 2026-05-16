@@ -195,7 +195,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
