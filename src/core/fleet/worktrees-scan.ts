@@ -28,10 +28,13 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   const fleetDir = FLEET_DIR;
 
   // 1. Find all .wt- directories
+  // #1553 — dedupe paths; `find` can surface the same .wt-* dir multiple times
+  // when nested ghq layouts walk through symlinks or overlapping prefixes,
+  // turning N worktrees into N×K classification rows + ambiguity error spam.
   let wtPaths: string[] = [];
   try {
     const raw = await hostExec(`find ${reposRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
-    wtPaths = raw.split("\n").filter(Boolean);
+    wtPaths = [...new Set(raw.split("\n").filter(Boolean))];
   } catch { /* no worktrees */ }
 
   // 2. Get running tmux windows for matching
@@ -112,20 +115,34 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     const parentSessions = sessions.filter(s =>
       s.name === parentOracleName || s.name.endsWith(`-${parentOracleName}`)
     );
+    // #1553 — try the full wtName first (preserves sequence prefix). Without
+    // this, two worktrees `1-tile-1` and `6-tile-1` both collapse to `tile-1`
+    // and ambiguously match windows `mawjs-tile-1` + `mawjs-6-tile-1`. Trying
+    // full wtName first lets `6-tile-1` cleanly bind via `-6-tile-1` suffix.
     let resolved: ReturnType<typeof resolveWorktreeTarget> | undefined;
     if (parentSessions.length > 0) {
       const scopedWindows = [
         ...new Map(parentSessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
       ];
-      const localResolved = resolveWorktreeTarget(taskPart, scopedWindows);
-      if (localResolved.kind === "exact" || localResolved.kind === "fuzzy") {
-        resolved = localResolved;
+      const fullScoped = resolveWorktreeTarget(wtName, scopedWindows);
+      if (fullScoped.kind === "exact" || fullScoped.kind === "fuzzy") {
+        resolved = fullScoped;
+      } else {
+        const localResolved = resolveWorktreeTarget(taskPart, scopedWindows);
+        if (localResolved.kind === "exact" || localResolved.kind === "fuzzy") {
+          resolved = localResolved;
+        }
       }
     }
     // Fall back to global search (existing behavior) when no parent session
     // exists or when the scoped search did not produce a clean bind.
     if (!resolved) {
-      resolved = resolveWorktreeTarget(taskPart, allWindows);
+      const fullGlobal = resolveWorktreeTarget(wtName, allWindows);
+      if (fullGlobal.kind === "exact" || fullGlobal.kind === "fuzzy") {
+        resolved = fullGlobal;
+      } else {
+        resolved = resolveWorktreeTarget(taskPart, allWindows);
+      }
     }
     switch (resolved.kind) {
       case "exact":

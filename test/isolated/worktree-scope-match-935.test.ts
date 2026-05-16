@@ -34,6 +34,7 @@ const root = join(import.meta.dir, "../../src");
 // Mutable stubs so each test can reshape the world
 let stubFindOutput: string = "";
 let stubSessions: Array<{ name: string; windows: Array<{ name: string; index: number; active: boolean }> }> = [];
+let revParseCalls = 0;
 
 mock.module(join(root, "core/transport/ssh"), () => mockSshModule({
   hostExec: async (cmd: string) => {
@@ -41,6 +42,7 @@ mock.module(join(root, "core/transport/ssh"), () => mockSshModule({
       return stubFindOutput;
     }
     if (cmd.includes("rev-parse --abbrev-ref")) {
+      revParseCalls += 1;
       return "agents/935-test";
     }
     return "";
@@ -66,6 +68,7 @@ const win = (name: string, index = 1) => ({ name, index, active: false });
 beforeEach(() => {
   stubFindOutput = "";
   stubSessions = [];
+  revParseCalls = 0;
 });
 
 describe("scanWorktrees (#935) — scope window match to parent oracle session", () => {
@@ -203,5 +206,45 @@ describe("scanWorktrees (#935) — scope window match to parent oracle session",
     // Single global match remains — current behavior preserved.
     expect(wt!.status).toBe("active");
     expect(wt!.tmuxWindow).toBe("timekeeper--no-attach");
+  });
+
+  it("#1553 full worktree name wins before stripped tile suffix fallback", async () => {
+    // `6-tile-1` must resolve against `mawjs-6-tile-1` before it strips to
+    // `tile-1`; otherwise both `mawjs-tile-1` and `mawjs-6-tile-1` match
+    // suffix `tile-1` and the scan reports ambiguity spam.
+    stubFindOutput = wtPath("Soul-Brews-Studio", "mawjs-oracle", "6-tile-1");
+    stubSessions = [
+      { name: "54-mawjs", windows: [win("mawjs-tile-1"), win("mawjs-6-tile-1")] },
+    ];
+
+    const errLogs: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: unknown[]) => { errLogs.push(a.map(String).join(" ")); };
+
+    try {
+      const results = await scanWorktrees();
+      const wt = results.find(r => r.name === "6-tile-1");
+      expect(wt).toBeDefined();
+      expect(wt!.status).toBe("active");
+      expect(wt!.tmuxWindow).toBe("mawjs-6-tile-1");
+      expect(errLogs.join("\n")).not.toContain("ambiguous");
+    } finally {
+      console.error = origErr;
+    }
+  });
+
+  it("#1553 duplicate find paths are scanned only once", async () => {
+    const path = wtPath("Soul-Brews-Studio", "mawjs-oracle", "6-tile-1");
+    stubFindOutput = [path, path, path].join("\n");
+    stubSessions = [
+      { name: "54-mawjs", windows: [win("mawjs-6-tile-1")] },
+    ];
+
+    const results = await scanWorktrees();
+    const matches = results.filter(r => r.path === path);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.status).toBe("active");
+    expect(matches[0]!.tmuxWindow).toBe("mawjs-6-tile-1");
+    expect(revParseCalls).toBe(1);
   });
 });
