@@ -106,10 +106,8 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   const entry = TOP_ALIASES[verb];
   if (!entry) return null;
 
-  if (Array.isArray(entry)) {
-    // Argv-rewrite: replace args[0] with the canonical chain, keep rest.
-    return { kind: "argv", argv: [...entry, ...args.slice(1)] };
-  }
+  // Argv-rewrite: replace args[0] with the canonical chain, keep rest.
+  if (Array.isArray(entry)) return { kind: "argv", argv: [...entry, ...args.slice(1)] };
 
   // Direct-handler: pass the rest of argv (everything after the verb) as-is.
   return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
