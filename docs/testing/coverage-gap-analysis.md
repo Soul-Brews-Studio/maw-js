@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T22:07:43.539Z
+Generated: 2026-05-16T22:18:50.573Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **19.2%** (9596/50093)
-Overall function coverage: **65.2%** (1051/1612)
+Overall line coverage: **19.6%** (9804/50053)
+Overall function coverage: **66.7%** (1082/1621)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **65.2%** (1051/1612)
 | other | 174 | 93 | 19.0% (2730/14336) | 55.2% (278/504) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 2 | 53.4% (1342/2513) | 76.3% (270/354) | n/a (0/0) |
+| transport | 28 | 2 | 62.7% (1550/2473) | 82.9% (301/363) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -44,9 +44,9 @@ Overall function coverage: **65.2%** (1051/1612)
 | 15 | medium | other | `src/commands/plugins/tmux/index.ts` | 260 | 0.0% | n/a | absent from LCOV |
 | 16 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
 | 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/index.ts` | 250 | 0.0% | n/a | absent from LCOV |
-| 18 | critical | transport | `src/transports/scout.ts` | 248 | 8.5% | 0.0% | partial coverage |
-| 19 | medium | other | `src/commands/plugins/plugin/index.ts` | 246 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/commands/plugins/oracle/index.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 18 | medium | other | `src/commands/plugins/plugin/index.ts` | 246 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | other | `src/commands/plugins/oracle/index.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/impl.ts` | 243 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -119,6 +119,7 @@ Overall function coverage: **65.2%** (1051/1612)
 | transport | `src/transports/scout-pair-proof.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-protocol.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-state.ts` | 100.0% | 100.0% |
+| transport | `src/transports/scout.ts` | 100.0% | 100.0% |
 | transport | `src/transports/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/transports/zenoh-scout.ts` | 90.3% | 66.7% |
 | transport | `src/transports/zenoh.ts` | 100.0% | 100.0% |
@@ -127,7 +128,6 @@ Overall function coverage: **65.2%** (1051/1612)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| transport | `src/transports/scout.ts` | 248 | 8.5% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 226 | 28.7% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
@@ -137,10 +137,11 @@ Overall function coverage: **65.2%** (1051/1612)
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
 | fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
+| fleet | `src/core/fleet/claude-sessions.ts` | 126 | 14.9% |
 
 ## Critical gaps to prioritize
 
-- `src/transports/scout.ts` (transport): 248 uncovered lines, 8.5% line coverage.
+No critical files appeared in the top 20 uncovered files.
 
 ## Prioritization guidance
 

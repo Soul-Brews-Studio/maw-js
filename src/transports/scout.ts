@@ -197,7 +197,7 @@ export class ScoutTransport implements Transport {
   canReach(target: TransportTarget): boolean {
     if (!target.host || target.host === "local" || target.host === "localhost")
       return false;
-    return this.findPeer(target) !== null;
+    return this.findPeer(target) != null;
   }
 
   listPeers() {
