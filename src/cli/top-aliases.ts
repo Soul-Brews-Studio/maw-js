@@ -148,7 +148,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--dry-run] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [--bud] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--dry-run] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for the creation door.");
@@ -156,6 +156,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
     write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
   }
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
+  write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
 }
 
 /**
@@ -220,6 +221,7 @@ export async function invokeDirectHandler(
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
       "--fresh": Boolean,
+      "--bud": Boolean,
       "--attach": Boolean, "-a": "--attach",
       "--list": Boolean,
       "--dry-run": Boolean,
@@ -247,6 +249,7 @@ export async function invokeDirectHandler(
       dryRun?: boolean;
       noRehydrate?: boolean;
       split?: boolean;
+      bud?: boolean;
       allLocal?: boolean;
       engine?: string;
     } = {};
@@ -255,6 +258,7 @@ export async function invokeDirectHandler(
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--bud"]) opts.bud = true;
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
     if (flags["--dry-run"]) opts.dryRun = true;

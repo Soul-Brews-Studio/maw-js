@@ -9,6 +9,47 @@ import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-se
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+
+export interface WakeBudLineageInput {
+  parentOracle: string;
+  task: string;
+  branch?: string;
+  buddedAt?: string;
+  buddedBy?: string;
+}
+
+function yamlScalar(value: string): string {
+  return JSON.stringify(value);
+}
+
+function wakeBudActor(): string {
+  return process.env.CLAUDE_AGENT_NAME
+    || process.env.MAW_ORACLE_NAME
+    || process.env.TMUX_PANE
+    || process.env.USER
+    || "unknown";
+}
+
+export function buildWakeBudLineage(input: WakeBudLineageInput): string {
+  const rows: [string, string][] = [
+    ["budded_from", input.parentOracle],
+    ["budded_at", input.buddedAt ?? new Date().toISOString()],
+    ["budded_by", input.buddedBy ?? wakeBudActor()],
+    ["branch", input.branch ?? ""],
+    ["task", input.task],
+  ];
+  return `${rows.map(([key, value]) => `${key}: ${yamlScalar(value)}`).join("\n")}\n`;
+}
+
+export function writeWakeBudLineage(worktreePath: string, input: WakeBudLineageInput): string {
+  const psiDir = join(worktreePath, "ψ");
+  mkdirSync(psiDir, { recursive: true });
+  const file = join(psiDir, ".lineage.yaml");
+  writeFileSync(file, buildWakeBudLineage(input), "utf-8");
+  return file;
+}
 
 export function shouldOfferExistingSessionAttach(
   opts: { attach?: boolean; split?: boolean; bring?: boolean },
@@ -156,7 +197,7 @@ async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Prom
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; bud?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -213,6 +254,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   const { repoPath, repoName, parentDir } = resolved;
 
+  if (opts.bud && !opts.task && !opts.wt) {
+    throw new Error("--bud requires --task <slug> or --wt <slug>");
+  }
+
   // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
   // update oracle to the resolved name so session/window names are correct.
   const resolvedOracle = repoName.replace(/-oracle$/, "");
@@ -266,6 +311,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
     if (opts.task || opts.wt) {
       console.log(`\x1b[33m⚡\x1b[0m would wake worktree/task: ${sanitizeBranchName(opts.wt || opts.task!)}`);
+      if (opts.bud) console.log(`\x1b[90m🌱 would stamp wake-bud lineage for ${oracle}\x1b[0m`);
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
 
@@ -394,6 +440,17 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees);
       targetPath = result.wtPath;
       windowName = result.windowName;
+    }
+
+    if (opts.bud) {
+      const safePath = targetPath.replace(/'/g, "'\\''");
+      const branch = (await hostExec(`git -C '${safePath}' branch --show-current 2>/dev/null || true`)).trim();
+      const lineageFile = writeWakeBudLineage(targetPath, {
+        parentOracle: oracle,
+        task: name,
+        branch,
+      });
+      console.log(`\x1b[32m🌱\x1b[0m lineage: ${lineageFile}`);
     }
   }
 
