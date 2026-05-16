@@ -3,7 +3,9 @@
  */
 
 /** Capability namespaces seeded in Phase A. Unknown namespaces emit a
- * validation warning (not a hard fail). New namespaces need an ADR.
+ * validation warning (not a hard fail). Plugins can also declare
+ * manifest-local namespaces via `capabilityNamespaces` (#1566) when they own
+ * a new advisory domain that core should not hardcode.
  *
  * #874 — added `tmux` and `shell` after community plugins (bg, rename, park,
  * shellenv) declared them. `tmux` covers tmux-socket spawning via the SDK's

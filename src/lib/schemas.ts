@@ -76,6 +76,7 @@ export const FeedEvent = Type.Object({
   project: Type.String(),
   sessionId: Type.String(),
   message: Type.String(),
+  data: Type.Optional(Type.Unknown()),
 });
 export type TFeedEvent = Static<typeof FeedEvent>;
 

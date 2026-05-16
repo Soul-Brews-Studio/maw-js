@@ -1,0 +1,52 @@
+{
+  "name": "messages",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "standard",
+  "description": "SQLite-backed hey/message lifecycle ledger with CLI/API query surfaces (#1566).",
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "messages:ledger",
+    "storage:sqlite",
+    "events:message-lifecycle"
+  ],
+  "hooks": {
+    "on": [
+      "MessageSend",
+      "MessageDeliver",
+      "MessageFail"
+    ]
+  },
+  "api": {
+    "path": "/api/message-ledger",
+    "methods": [
+      "GET"
+    ]
+  },
+  "cli": {
+    "command": "messages",
+    "aliases": [
+      "message-log",
+      "hey-log"
+    ],
+    "help": "maw messages [--limit N] [--from ID] [--to ID] [--direction outbound|inbound|forwarded] [--state queued|delivered|failed] [--q text] [--json] \u2014 query the message ledger",
+    "flags": {
+      "--limit": "number",
+      "--from": "string",
+      "--to": "string",
+      "--direction": "string",
+      "--state": "string",
+      "--q": "string",
+      "--json": "boolean"
+    }
+  },
+  "weight": 31,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "capabilityNamespaces": [
+    "messages",
+    "storage",
+    "events"
+  ]
+}

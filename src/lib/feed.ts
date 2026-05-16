@@ -37,6 +37,8 @@ export interface FeedEvent {
   sessionId: string;
   message: string;
   ts: number;
+  /** Optional structured payload for newer events. Legacy feed.log lines omit it. */
+  data?: unknown;
 }
 
 /**

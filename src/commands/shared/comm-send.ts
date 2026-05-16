@@ -10,6 +10,7 @@ import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
+import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -93,6 +94,11 @@ export function formatSignedMessage(
 
   const node = config.node || "local";
   return `${leading}[${node}:${senderName}] ${body}`;
+}
+
+function emitMessageFeed(input: MessageLifecycleInput, port: number) {
+  const event = buildMessageLifecycleFeedEvent(input);
+  emitFeed(event.event, event.oracle, event.host, event.message, port, event.data);
 }
 
 /**
@@ -537,10 +543,21 @@ export async function cmdSend(
     await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
     logMessage(senderName, query, outboundMessage, "local");
-    emitFeed("MessageSend", senderName, config.node, `${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
     await Bun.sleep(150);
     let lastLine = "";
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
+    emitMessageFeed({
+      direction: "outbound",
+      state: "delivered",
+      channel: "hey",
+      route: "local",
+      from: `${config.node}:${senderName}`,
+      to: query,
+      target,
+      text: outboundMessage,
+      lastLine,
+      signed: true,
+    }, config.port || 3456);
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
@@ -555,13 +572,38 @@ export async function cmdSend(
     });
     if (res.ok && res.data?.ok) {
       logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
-      emitFeed("MessageSend", senderName, config.node!, `${result.node}:${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
+      emitMessageFeed({
+        direction: "outbound",
+        state: res.data.state === "queued" ? "queued" : "delivered",
+        channel: "hey",
+        route: "peer",
+        from: `${config.node!}:${senderName}`,
+        to: `${result.node}:${result.target}`,
+        target: res.data.target || result.target,
+        peerUrl: result.peerUrl,
+        text: outboundMessage,
+        lastLine: res.data.lastLine || "",
+        signed: true,
+      }, config.port || 3456);
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "failed",
+      channel: "hey",
+      route: "peer",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: `${result.node}:${result.target}`,
+      target: result.target,
+      peerUrl: result.peerUrl,
+      text: outboundMessage,
+      error: underlying,
+      signed: true,
+    }, config.port || 3456);
     console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${result.peerUrl} (${result.node}): ${underlying}`);
     console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);
@@ -578,6 +620,20 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
+      logMessage(senderName, query, outboundMessage, "discovery");
+      emitMessageFeed({
+        direction: "outbound",
+        state: res.data.state === "queued" ? "queued" : "delivered",
+        channel: "hey",
+        route: "discovery",
+        from: `${config.node ?? "local"}:${senderName}`,
+        to: query,
+        target: res.data.target || query,
+        peerUrl,
+        text: outboundMessage,
+        lastLine: res.data.lastLine || "",
+        signed: true,
+      }, config.port || 3456);
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
@@ -586,6 +642,19 @@ export async function cmdSend(
     // Remote fetch was attempted but failed — surface the remote failure explicitly (#411).
     // Never fall through to "not found in local sessions" when the real problem is network.
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "failed",
+      channel: "hey",
+      route: "discovery",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: query,
+      target: query,
+      peerUrl,
+      text: outboundMessage,
+      error: underlying,
+      signed: true,
+    }, config.port || 3456);
     console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peerUrl}: ${underlying}`);
     console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);

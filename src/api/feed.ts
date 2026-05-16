@@ -44,6 +44,7 @@ feedApi.post("/feed", async ({ body }) => {
     sessionId: b.sessionId || "",
     message: b.message || "",
     ts: b.ts || Date.now(),
+    ...(b.data !== undefined ? { data: b.data } : {}),
   };
   pushFeedEvent(event);
   markRealFeedEvent(event.oracle);
@@ -60,5 +61,6 @@ feedApi.post("/feed", async ({ body }) => {
     sessionId: t.Optional(t.String()),
     message: t.Optional(t.String()),
     ts: t.Optional(t.Number()),
+    data: t.Optional(t.Unknown()),
   }),
 });

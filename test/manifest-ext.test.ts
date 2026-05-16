@@ -204,6 +204,28 @@ describe("new manifest fields accepted", () => {
     }
   });
 
+  test("accepts plugin-owned capability namespaces", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "message-ledger-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          capabilityNamespaces: ["messages", "storage", "events"],
+          capabilities: ["messages:ledger", "storage:sqlite", "events:message-lifecycle"],
+        }),
+        dir,
+      );
+      expect(m.capabilityNamespaces).toEqual(["messages", "storage", "events"]);
+      expect(m.capabilities).toEqual(["messages:ledger", "storage:sqlite", "events:message-lifecycle"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("TS plugin with all new fields validates cleanly", () => {
     const dir = makeTempDir();
     try {
@@ -339,6 +361,27 @@ describe("new field validation failures", () => {
           dir,
         ),
       ).toThrow(/dependencies\.plugins/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("capabilityNamespaces with invalid slug is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad-capns",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            capabilityNamespaces: ["Bad Namespace"],
+          }),
+          dir,
+        ),
+      ).toThrow(/capabilityNamespaces/);
     } finally {
       rmSync(dir, { recursive: true });
     }

@@ -114,7 +114,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Plugin system — built-in + user plugins
   try {
-    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("../plugins/index");
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
     const { homedir } = require("os");
     const { join, resolve, dirname } = require("path");
     const plugins = new PluginSystem();
@@ -126,6 +126,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     // User plugins (file-drop: ~/.oracle/plugins/)
     const userPluginsDir = join(homedir(), ".oracle", "plugins");
     await loadPlugins(plugins, userPluginsDir, "user");
+
+    // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins
+    // subscribe to feed events without direct core imports (#1566).
+    await registerManifestHooks(plugins);
 
     // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
     // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.

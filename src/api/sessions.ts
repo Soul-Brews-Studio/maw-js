@@ -10,8 +10,35 @@ import { processMirror } from "../lib/process-mirror";
 import { resolveFleetSession } from "../commands/shared/wake";
 import { WakeBody, SleepBody, SendBody, PaneKeysBody, ProbeBody } from "../lib/schemas";
 import { Tmux } from "../core/transport/tmux";
+import { pushFeedEvent } from "./feed";
+import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../lib/message-events";
 
 export const sessionsApi = new Elysia();
+
+function localMessageIdentity(config: ReturnType<typeof loadConfig>): string {
+  return `${config.node ?? "local"}:${config.oracle ?? "mawjs"}`;
+}
+
+function requestMessageFrom(request: Request, config: ReturnType<typeof loadConfig>): string {
+  const from = request.headers.get("x-maw-from");
+  if (!from) return localMessageIdentity(config);
+  // Wire auth uses <oracle>:<node>; user-facing/message ledger uses <node>:<oracle>.
+  const idx = from.indexOf(":");
+  if (idx > 0 && idx < from.length - 1) return `${from.slice(idx + 1)}:${from.slice(0, idx)}`;
+  return from;
+}
+
+function messageSignedRequest(request: Request): boolean {
+  return Boolean(request.headers.get("x-maw-from"));
+}
+
+function emitMessageLifecycle(input: MessageLifecycleInput) {
+  try {
+    pushFeedEvent(buildMessageLifecycleFeedEvent(input));
+  } catch {
+    // Ledger/event hooks must never change /api/send delivery semantics.
+  }
+}
 
 /**
  * Dedupe windows within each session by window name (#732).
@@ -102,7 +129,7 @@ sessionsApi.get("/mirror", async ({ query, set}) => {
   }),
 });
 
-sessionsApi.post("/send", async ({ body, set}) => {
+sessionsApi.post("/send", async ({ body, request, set}) => {
   try {
     const { target, text, force, attachments } = body;
     const message = attachments?.length
@@ -110,6 +137,9 @@ sessionsApi.post("/send", async ({ body, set}) => {
       : text;
 
     const config = loadConfig();
+    const messageFrom = requestMessageFrom(request, config);
+    const messageTo = localMessageIdentity(config);
+    const messageSigned = messageSignedRequest(request);
     const local = await listSessions();
 
     // --- Unified resolution via resolveTarget (#201) ---
@@ -131,6 +161,19 @@ sessionsApi.post("/send", async ({ body, set}) => {
           idleCheck = await checkPaneIdle(resolved.target);
           if (!idleCheck.idle) {
             set.status = 409;
+            emitMessageLifecycle({
+              direction: "inbound",
+              state: "failed",
+              channel: "api-send",
+              route: resolved.type,
+              from: messageFrom,
+              to: messageTo,
+              target: resolved.target,
+              text: message,
+              error: "pane not idle",
+              lastLine: idleCheck.lastInput,
+              signed: messageSigned,
+            });
             return { ok: false, error: "pane not idle", target: resolved.target, lastInput: idleCheck.lastInput };
           }
         }
@@ -149,6 +192,18 @@ sessionsApi.post("/send", async ({ body, set}) => {
         lastLine = lines.pop() || "";
         if (/Press up to edit queued messages/i.test(content)) state = "queued";
       } catch {}
+      emitMessageLifecycle({
+        direction: "inbound",
+        state,
+        channel: "api-send",
+        route: resolved.type,
+        from: messageFrom,
+        to: messageTo,
+        target: resolved.target,
+        text: message,
+        lastLine,
+        signed: messageSigned,
+      });
       return { ok: true, target: resolved.target, text, source: "local", lastLine, state };
     }
 
@@ -161,8 +216,34 @@ sessionsApi.post("/send", async ({ body, set}) => {
         from: "auto", // #804 Step 4 SIGN — sign cross-node forwarded /api/send
       });
       if (res.ok && res.data?.ok) {
+        emitMessageLifecycle({
+          direction: "forwarded",
+          state: res.data.state === "queued" ? "queued" : "delivered",
+          channel: "api-send",
+          route: "peer",
+          from: messageFrom,
+          to: `${resolved.node}:${resolved.target}`,
+          target: res.data.target || resolved.target,
+          peerUrl: resolved.peerUrl,
+          text: message,
+          lastLine: res.data.lastLine || "",
+          signed: messageSigned,
+        });
         return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state: res.data.state ?? "delivered" };
       }
+      emitMessageLifecycle({
+        direction: "forwarded",
+        state: "failed",
+        channel: "api-send",
+        route: "peer",
+        from: messageFrom,
+        to: `${resolved.node}:${resolved.target}`,
+        target: resolved.target,
+        peerUrl: resolved.peerUrl,
+        text: message,
+        error: `${resolved.node} → ${resolved.target} send failed`,
+        signed: messageSigned,
+      });
       set.status = 502; return { error: `${resolved.node} → ${resolved.target} send failed`, target, source: resolved.peerUrl };
     }
 
@@ -170,6 +251,19 @@ sessionsApi.post("/send", async ({ body, set}) => {
     const peerUrl = await findPeerForTarget(target, local);
     if (peerUrl) {
       const ok = await sendKeysToPeer(peerUrl, target, message);
+      emitMessageLifecycle({
+        direction: "forwarded",
+        state: ok ? "delivered" : "failed",
+        channel: "api-send",
+        route: "discovery",
+        from: messageFrom,
+        to: target,
+        target,
+        peerUrl,
+        text: message,
+        error: ok ? undefined : "Failed to send to peer",
+        signed: messageSigned,
+      });
       if (ok) return { ok: true, target, text, source: peerUrl, state: "delivered" as const };
       set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
     }
@@ -202,6 +296,19 @@ sessionsApi.post("/send", async ({ body, set}) => {
                 idleCheck = await checkPaneIdle(retry.target);
                 if (!idleCheck.idle) {
                   set.status = 409;
+                  emitMessageLifecycle({
+                    direction: "inbound",
+                    state: "failed",
+                    channel: "api-send",
+                    route: "local",
+                    from: messageFrom,
+                    to: messageTo,
+                    target: retry.target,
+                    text: message,
+                    error: "pane not idle",
+                    lastLine: idleCheck.lastInput,
+                    signed: messageSigned,
+                  });
                   return { ok: false, error: "pane not idle", target: retry.target, lastInput: idleCheck.lastInput };
                 }
               }
@@ -210,6 +317,18 @@ sessionsApi.post("/send", async ({ body, set}) => {
             await Bun.sleep(150);
             let lastLine = "";
             try { const content = await capture(retry.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
+            emitMessageLifecycle({
+              direction: "inbound",
+              state: "delivered",
+              channel: "api-send",
+              route: "local",
+              from: messageFrom,
+              to: messageTo,
+              target: retry.target,
+              text: message,
+              lastLine,
+              signed: messageSigned,
+            });
             return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target };
           }
         } catch { /* wake best-effort — fall through to 404 */ }
@@ -217,6 +336,18 @@ sessionsApi.post("/send", async ({ body, set}) => {
     }
 
     const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
+    emitMessageLifecycle({
+      direction: "inbound",
+      state: "failed",
+      channel: "api-send",
+      route: "local",
+      from: messageFrom,
+      to: messageTo,
+      target,
+      text: message,
+      error: errDetail.detail || `target not found: ${target}`,
+      signed: messageSigned,
+    });
     set.status = 404; return { error: `target not found: ${target}`, target, ...errDetail };
   } catch (err) {
     set.status = 500; return { error: String(err) };

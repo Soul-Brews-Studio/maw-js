@@ -55,6 +55,7 @@ afterEach(() => {
 function makePluginDir(opts: {
   name: string;
   capabilities?: string[];
+  capabilityNamespaces?: string[];
   extra?: Record<string, unknown>;
 }): string {
   const dir = tmpDir();
@@ -65,6 +66,7 @@ function makePluginDir(opts: {
     sdk: "^1.0.0",
     entry: "./index.ts",
     ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
+    ...(opts.capabilityNamespaces ? { capabilityNamespaces: opts.capabilityNamespaces } : {}),
     ...(opts.extra ?? {}),
   };
   writeFileSync(join(dir, "plugin.json"), JSON.stringify(manifest));
@@ -121,6 +123,31 @@ describe("#902 — load-time capability validator (single source of truth)", () 
       w.includes('unknown capability namespace "foo"'),
     );
     expect(fooWarns.length).toBe(1);
+  });
+
+  test("#1566 — plugin-declared capability namespaces do NOT warn", () => {
+    const dir = makePluginDir({
+      name: "messages",
+      capabilityNamespaces: ["messages", "storage", "events"],
+      capabilities: ["messages:ledger", "storage:sqlite", "events:message-lifecycle"],
+    });
+    const loaded = loadManifestFromDir(dir);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.manifest.capabilityNamespaces).toEqual(["messages", "storage", "events"]);
+    expect(loaded!.manifest.capabilities).toEqual(["messages:ledger", "storage:sqlite", "events:message-lifecycle"]);
+    const unknownWarns = warnings.filter((w) =>
+      w.includes("unknown capability namespace"),
+    );
+    expect(unknownWarns).toEqual([]);
+  });
+
+  test("#1566 — invalid plugin-declared capability namespace is rejected", () => {
+    const dir = makePluginDir({
+      name: "bad-namespace",
+      capabilityNamespaces: ["Bad Namespace"],
+      capabilities: ["Bad Namespace:thing"],
+    });
+    expect(() => loadManifestFromDir(dir)).toThrow("capabilityNamespaces must be an array of slug strings");
   });
 
   test("load-time warning text lists ALL canonical namespaces (no stale 6-name list)", () => {

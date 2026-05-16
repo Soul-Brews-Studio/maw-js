@@ -155,7 +155,21 @@ export function parseTarget(r: Record<string, unknown>): PluginManifest["target"
  * Both paths must use the same canonical set — never hardcode the list
  * anywhere else. See #902 / test/isolated/plugin-load-capability-902.test.ts.
  */
-export function parseCapabilities(r: Record<string, unknown>): PluginManifest["capabilities"] {
+export function parseCapabilityNamespaces(r: Record<string, unknown>): PluginManifest["capabilityNamespaces"] {
+  if (r.capabilityNamespaces === undefined) return undefined;
+  if (
+    !Array.isArray(r.capabilityNamespaces) ||
+    r.capabilityNamespaces.some((ns: unknown) => typeof ns !== "string" || !NAME_RE.test(ns))
+  ) {
+    throw new Error("plugin.json: capabilityNamespaces must be an array of slug strings");
+  }
+  return [...new Set(r.capabilityNamespaces as string[])];
+}
+
+export function parseCapabilities(
+  r: Record<string, unknown>,
+  extraNamespaces: Iterable<string> = [],
+): PluginManifest["capabilities"] {
   if (r.capabilities === undefined) return undefined;
   if (
     !Array.isArray(r.capabilities) ||
@@ -167,10 +181,11 @@ export function parseCapabilities(r: Record<string, unknown>): PluginManifest["c
   for (const cap of capabilities) {
     const idx = cap.indexOf(":");
     const ns = idx === -1 ? cap : cap.slice(0, idx);
-    if (!KNOWN_CAPABILITY_NAMESPACES.has(ns)) {
+    const allowedNamespaces = new Set([...KNOWN_CAPABILITY_NAMESPACES, ...extraNamespaces]);
+    if (!allowedNamespaces.has(ns)) {
       console.warn(
         `plugin.json: unknown capability namespace "${ns}" in "${cap}" ` +
-          `(known: ${[...KNOWN_CAPABILITY_NAMESPACES].join(", ")})\n` +
+          `(known: ${[...allowedNamespaces].join(", ")})\n` +
           `  ↳ runtime: ${getRuntimeVersionString()} — if this namespace is expected, update maw: ` +
           `bun add -g github:Soul-Brews-Studio/maw-js#alpha`,
       );

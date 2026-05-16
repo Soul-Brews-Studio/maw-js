@@ -14,6 +14,7 @@ let pluginFixtures: any[] = [];
 // before registerManifestHooks (which dynamic-imports the registry) is called.
 mock.module("../src/plugin/registry", () => ({
   discoverPackages: () => pluginFixtures,
+  invokePlugin: async () => ({ ok: true }),
 }));
 
 // --- Mock entry modules (absolute paths so they never hit the filesystem) ---
@@ -163,5 +164,27 @@ describe("registerManifestHooks", () => {
     const count = await registerManifestHooks(system);
     expect(count).toBe(0);
     expect(system._registered).toHaveLength(0);
+  });
+
+  test("disabled package plugin hooks are skipped", async () => {
+    pluginFixtures = [
+      {
+        manifest: {
+          name: "disabled-plugin",
+          version: "1.0.0",
+          sdk: "^1.0.0",
+          hooks: { on: ["MessageSend"] },
+        },
+        dir: "/tmp/disabled",
+        wasmPath: "",
+        entryPath: ON_ENTRY,
+        kind: "ts",
+        disabled: true,
+      },
+    ];
+    const system = makeSystem();
+    const count = await registerManifestHooks(system);
+    expect(count).toBe(0);
+    expect(system._hookCalls.on).toHaveLength(0);
   });
 });

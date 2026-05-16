@@ -14,6 +14,7 @@ import {
   parseModule,
   parseTransport,
   parseTarget,
+  parseCapabilityNamespaces,
   parseCapabilities,
   parseDependencies,
   parseArtifact,
@@ -91,7 +92,8 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   const module_ = parseModule(r);
   const transport = parseTransport(r);
   const target = parseTarget(r);
-  const capabilities = parseCapabilities(r);
+  const capabilityNamespaces = parseCapabilityNamespaces(r);
+  const capabilities = parseCapabilities(r, capabilityNamespaces);
   const dependencies = parseDependencies(r);
   const artifact = parseArtifact(r);
   const tier = parseTier(r);
@@ -113,6 +115,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
     ...(module_ ? { module: module_ } : {}),
     ...(transport ? { transport } : {}),
     ...(target ? { target } : {}),
+    ...(capabilityNamespaces ? { capabilityNamespaces } : {}),
     ...(capabilities ? { capabilities } : {}),
     ...(dependencies ? { dependencies } : {}),
     ...(artifact ? { artifact } : {}),

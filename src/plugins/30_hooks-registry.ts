@@ -19,6 +19,7 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
 
   let registered = 0;
   for (const plugin of plugins) {
+    if (plugin.disabled) continue;
     if (!plugin.manifest.hooks || plugin.kind !== "ts" || !plugin.entryPath) continue;
 
     let mod: any;

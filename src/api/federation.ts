@@ -18,6 +18,7 @@ import { getPeerKey } from "../lib/peer-key";
  */
 const ADVERTISED_ENDPOINTS: string[] = [
   "/api/identity",
+  "/api/messages",
   "/api/pane-keys",
   "/api/probe",
   "/api/send",
@@ -77,11 +78,28 @@ federationApi.get("/identity", async () => {
   };
 });
 
-/** Message log — query maw-log.jsonl for federation link data */
-federationApi.get("/messages", ({ query }) => {
+/** Message log — query SQLite message ledger, falling back to legacy maw-log.jsonl. */
+federationApi.get("/messages", async ({ query }) => {
   const from = query.from;
   const to = query.to;
   const limit = Math.min(parseInt(query.limit || "100"), 1000);
+  try {
+    const { listMessageLedgerEvents, messageLedgerDbPath } = await import("../vendor/mpr-plugins/messages/ledger");
+    const messages = listMessageLedgerEvents({
+      from,
+      to,
+      limit,
+      direction: query.direction as any,
+      state: query.state as any,
+      q: query.q,
+    });
+    if (messages.length > 0) {
+      return { messages, total: messages.length, source: "sqlite", dbPath: messageLedgerDbPath() };
+    }
+  } catch {
+    // Keep legacy endpoint non-fatal; fall through to JSONL.
+  }
+
   const logFile = join(homedir(), ".oracle", "maw-log.jsonl");
   try {
     const lines = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
@@ -98,6 +116,9 @@ federationApi.get("/messages", ({ query }) => {
     from: t.Optional(t.String()),
     to: t.Optional(t.String()),
     limit: t.Optional(t.String()),
+    direction: t.Optional(t.String()),
+    state: t.Optional(t.String()),
+    q: t.Optional(t.String()),
   }),
 });
 
