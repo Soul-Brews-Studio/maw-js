@@ -49,6 +49,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
+  awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   new: "Create a new oracle (friendly door for awaken)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
 };
@@ -78,6 +79,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
+  awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
@@ -142,6 +144,16 @@ function printBringUsage(write: (line: string) => void = console.log): void {
   write("  Symmetric with `maw a` (attach goes there, bring comes here).");
 }
 
+function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
+  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]`);
+  if (verb === "awake") {
+    write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
+    write("  Use `maw awaken` for the awakening ritual; use `maw new` for the creation door.");
+  } else {
+    write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
+  }
+}
+
 /**
  * Invoke a direct-handler alias. Used by `wake` and `ls`.
  *
@@ -178,7 +190,13 @@ export async function invokeDirectHandler(
     return;
   }
 
-  if (exportName === "cmdWake") {
+  if (exportName === "cmdWake" || exportName === "cmdAwake") {
+    const verb = exportName === "cmdAwake" ? "awake" : "wake";
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printWakeAliasUsage(verb);
+      return;
+    }
+
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
@@ -195,8 +213,8 @@ export async function invokeDirectHandler(
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
-      throw new UserError("wake: missing oracle name");
+      printWakeAliasUsage(verb, console.error);
+      throw new UserError(`${verb}: missing oracle name`);
     }
 
     const opts: {

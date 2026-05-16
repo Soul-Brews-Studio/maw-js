@@ -288,6 +288,19 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
+  test("`awake neo -e codex` → direct launch handler, not awaken prefix", () => {
+    const out = resolveTopAlias(["awake", "neo", "-e", "codex"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdAwake");
+      expect(out!.argv).toEqual(["neo", "-e", "codex"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.awake).toContain("Launch");
+    expect(ALIAS_DESCRIPTIONS.awake).toContain("does not trigger /awaken");
+  });
+
   test("`new neo --no-attach` → direct-handler cmdNew friendly creation door", () => {
     const out = resolveTopAlias(["new", "neo", "--no-attach"]);
     expect(out).not.toBeNull();
