@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T22:28:38.332Z
+Generated: 2026-05-16T22:38:06.542Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **20.0%** (9976/50000)
-Overall function coverage: **67.4%** (1102/1636)
+Overall line coverage: **20.3%** (10134/49974)
+Overall function coverage: **68.4%** (1125/1644)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **67.4%** (1102/1636)
 | other | 174 | 93 | 19.0% (2730/14336) | 55.2% (278/504) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 2 | 62.7% (1550/2473) | 82.9% (301/363) | n/a (0/0) |
+| transport | 28 | 2 | 69.8% (1708/2447) | 87.3% (324/371) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -116,6 +116,7 @@ Overall function coverage: **67.4%** (1102/1636)
 | transport | `src/transports/hub-transport.ts` | 99.2% | 92.0% |
 | transport | `src/transports/hub.ts` | 100.0% | 100.0% |
 | transport | `src/transports/lora.ts` | 100.0% | 90.9% |
+| transport | `src/transports/mdns.ts` | 100.0% | 100.0% |
 | transport | `src/transports/nanoclaw.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-pair-proof.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-protocol.ts` | 100.0% | 100.0% |
@@ -129,7 +130,6 @@ Overall function coverage: **67.4%** (1102/1636)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | routing/aliases | `src/cli/top-aliases.ts` | 148 | 41.3% |
@@ -139,6 +139,7 @@ Overall function coverage: **67.4%** (1102/1636)
 | fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
 | fleet | `src/core/fleet/claude-sessions.ts` | 126 | 14.9% |
 | cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
+| cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
 
 ## Critical gaps to prioritize
 
