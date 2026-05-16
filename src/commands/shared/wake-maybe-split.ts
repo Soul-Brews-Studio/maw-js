@@ -21,7 +21,8 @@ async function restoreSplitLayout(anchor?: string): Promise<void> {
     const targetFlag = windowTarget ? `-t ${shellArg(windowTarget)} ` : "";
     const raw = await hostExec(`tmux list-panes ${targetFlag}| wc -l`);
     const total = Number.parseInt(String(raw).trim(), 10);
-    const layout = Number.isFinite(total) && total > 4 ? "tiled" : "main-vertical";
+    if (!Number.isFinite(total) || total <= 2) return;
+    const layout = total > 4 ? "tiled" : "main-vertical";
     await hostExec(`tmux select-layout ${targetFlag}${layout}`);
   } catch {
     // Best-effort polish only: split succeeded, so never fail delivery because

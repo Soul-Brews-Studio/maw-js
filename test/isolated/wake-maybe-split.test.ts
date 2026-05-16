@@ -52,6 +52,18 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[3]).toContain("tmux select-layout -t '%42' main-vertical");
   });
 
+  test("does not reset layout when split leaves only two panes", async () => {
+    listPanesResponse = "2\n";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls).toHaveLength(3);
+    expect(hostExecCalls[0]).toContain("tmux split-window");
+    expect(hostExecCalls[1]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[2]).toContain("tmux list-panes -t '%42'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux select-layout"))).toBe(false);
+  });
+
   test("preserves horizontal split when splitting from a maw tile pane", async () => {
     tileMarkerResponse = "1\n";
 
