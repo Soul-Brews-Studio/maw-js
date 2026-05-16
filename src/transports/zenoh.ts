@@ -22,6 +22,17 @@ export interface ZenohTransportConfig {
   node: string;
 }
 
+export interface ZenohRuntime {
+  open(config: unknown): Promise<unknown>;
+  Config: new (locator: string) => unknown;
+}
+
+export interface ZenohTransportDeps {
+  importZenoh?: () => Promise<ZenohRuntime>;
+  now?: () => number;
+  logger?: Pick<Console, "log" | "warn">;
+}
+
 export class ZenohTransport implements Transport {
   readonly name = "zenoh";
   private _connected = false;
@@ -32,9 +43,11 @@ export class ZenohTransport implements Transport {
   private feedHandlers = new Set<(e: FeedEvent) => void>();
   private subscribers: any[] = [];
   private livelinessToken: any = null;
+  private deps: ZenohTransportDeps;
 
-  constructor(config: ZenohTransportConfig) {
+  constructor(config: ZenohTransportConfig, deps: ZenohTransportDeps = {}) {
     this.config = config;
+    this.deps = deps;
   }
 
   get connected() {
@@ -43,9 +56,9 @@ export class ZenohTransport implements Transport {
 
   async connect(): Promise<void> {
     try {
-      const { open, Config } = await import("@eclipse-zenoh/zenoh-ts");
+      const { open, Config } = await this.importZenoh();
       const config = new Config(this.config.locator);
-      this.session = await open(config);
+      this.session = await open(config) as any;
       this._connected = true;
 
       // Declare liveliness token for presence
@@ -100,11 +113,11 @@ export class ZenohTransport implements Transport {
       });
       this.subscribers.push(feedSub);
 
-      console.log(
+      (this.deps.logger ?? console).log(
         `[zenoh] connected to ${this.config.locator} as ${this.config.node}`,
       );
     } catch (err) {
-      console.warn(
+      (this.deps.logger ?? console).warn(
         `[zenoh] connect failed: ${err instanceof Error ? err.message : err}`,
       );
       this._connected = false;
@@ -141,7 +154,7 @@ export class ZenohTransport implements Transport {
         from: this.config.node,
         to: target.oracle,
         body: message,
-        timestamp: Date.now(),
+        timestamp: (this.deps.now ?? Date.now)(),
         transport: "zenoh" as any,
       };
       await this.session.put(topic, new TextEncoder().encode(JSON.stringify(msg)));
@@ -183,5 +196,10 @@ export class ZenohTransport implements Transport {
     if (!target.host || target.host === "local" || target.host === "localhost")
       return false;
     return this._connected;
+  }
+
+  private async importZenoh(): Promise<ZenohRuntime> {
+    if (this.deps.importZenoh) return this.deps.importZenoh();
+    return import("@eclipse-zenoh/zenoh-ts") as Promise<ZenohRuntime>;
   }
 }
