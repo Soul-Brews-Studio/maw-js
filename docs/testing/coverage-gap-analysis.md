@@ -1,26 +1,26 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T21:05:18.178Z
+Generated: 2026-05-16T21:17:34.599Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **17.1%** (8650/50593)
-Overall function coverage: **62.4%** (939/1504)
+Overall line coverage: **17.4%** (8786/50488)
+Overall function coverage: **65.2%** (1003/1538)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 88 | 21 | 33.4% (2504/7496) | 66.0% (258/391) | n/a (0/0) |
-| config/runtime | 19 | 2 | 45.2% (528/1167) | 42.5% (37/87) | n/a (0/0) |
+| config/runtime | 19 | 2 | 45.3% (529/1167) | 43.7% (38/87) | n/a (0/0) |
 | fleet | 17 | 0 | 38.8% (407/1050) | 54.8% (40/73) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 98 | 18.7% (2699/14401) | 57.6% (278/483) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 2 | 46.1% (1207/2618) | 64.7% (207/320) | n/a (0/0) |
+| transport | 28 | 2 | 53.4% (1342/2513) | 76.3% (270/354) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -44,9 +44,9 @@ Overall function coverage: **62.4%** (939/1504)
 | 15 | medium | other | `src/commands/plugins/tile/impl.ts` | 283 | 0.0% | n/a | absent from LCOV |
 | 16 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 280 | 24.9% | 18.8% | partial coverage |
 | 17 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 269 | 0.0% | n/a | absent from LCOV |
-| 18 | critical | transport | `src/core/transport/tmux-class.ts` | 267 | 15.2% | 30.4% | partial coverage |
-| 19 | medium | other | `src/commands/plugins/tmux/index.ts` | 260 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
+| 18 | medium | other | `src/commands/plugins/tmux/index.ts` | 260 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/peers/index.ts` | 250 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -103,6 +103,7 @@ Overall function coverage: **62.4%** (939/1504)
 | plugin dispatch | `src/plugin/registry-semver.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
+| transport | `src/core/transport/tmux-class.ts` | 87.1% | 96.3% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
 | transport | `src/transports/http.ts` | 100.0% | 100.0% |
@@ -126,20 +127,19 @@ Overall function coverage: **62.4%** (939/1504)
 | cli/dispatch | `src/commands/shared/comm-send.ts` | 469 | 16.8% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 443 | 30.9% |
 | cli/dispatch | `src/cli/cmd-update.ts` | 308 | 28.7% |
-| transport | `src/core/transport/tmux-class.ts` | 267 | 15.2% |
 | transport | `src/transports/scout.ts` | 248 | 8.5% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 226 | 28.7% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | routing/aliases | `src/cli/top-aliases.ts` | 148 | 41.3% |
+| plugin dispatch | `src/plugin/registry.ts` | 147 | 8.1% |
 
 ## Critical gaps to prioritize
 
 - `src/commands/shared/comm-send.ts` (cli/dispatch): 469 uncovered lines, 16.8% line coverage.
 - `src/commands/shared/wake-cmd.ts` (cli/dispatch): 443 uncovered lines, 30.9% line coverage.
 - `src/cli/cmd-update.ts` (cli/dispatch): 308 uncovered lines, 28.7% line coverage.
-- `src/core/transport/tmux-class.ts` (transport): 267 uncovered lines, 15.2% line coverage.
 
 ## Prioritization guidance
 
