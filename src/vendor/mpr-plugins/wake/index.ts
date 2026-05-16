@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --main skips worktree rehydrate\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
         };
       }
 
@@ -54,6 +54,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
         "--list": Boolean, "--ls": "--list",
         "--dry-run": Boolean,
+        "--from-snapshot": Boolean,
+        "--snapshot": String,
         "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
         "--split": Boolean,
         "--all-local": Boolean,
@@ -69,6 +71,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean;
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
+        fromSnapshot?: boolean; snapshotId?: string;
       } = {};
       let issueNum: number | null = flags["--issue"] ?? null;
       let repo: string | undefined = flags["--repo"];
@@ -90,6 +93,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (flags["--no-attach"]) wakeOpts.attach = false; // #823 Bug B — explicit opt-out; preserves default when neither flag is set
       if (flags["--list"]) wakeOpts.listWt = true;
       if (flags["--dry-run"]) wakeOpts.dryRun = true;
+      if (flags["--from-snapshot"]) wakeOpts.fromSnapshot = true;
+      if (flags["--snapshot"]) {
+        wakeOpts.snapshotId = flags["--snapshot"];
+        wakeOpts.fromSnapshot = true;
+      }
       if (flags["--main"]) wakeOpts.noRehydrate = true;
       if (flags["--split"]) wakeOpts.split = true;
       if (flags["--all-local"]) wakeOpts.allLocal = true;
@@ -124,6 +132,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const wakeOpts: {
       task?: string; prompt?: string; wt?: string;
       fresh?: boolean; attach?: boolean; dryRun?: boolean; noRehydrate?: boolean;
+      fromSnapshot?: boolean; snapshotId?: string;
     } = {};
     if (body.task) wakeOpts.task = body.task as string;
     if (body.wt) wakeOpts.wt = body.wt as string;
@@ -141,6 +150,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (body.attach) wakeOpts.attach = true;
     if (body.dryRun) wakeOpts.dryRun = true;
     if (body.noRehydrate || body.main || body.solo) wakeOpts.noRehydrate = true;
+    if (body.fromSnapshot) wakeOpts.fromSnapshot = true;
+    if (typeof body.snapshot === "string") {
+      wakeOpts.snapshotId = body.snapshot;
+      wakeOpts.fromSnapshot = true;
+    }
 
     await cmdWake(oracle, wakeOpts);
     return { ok: true, output: logs.join("\n") || undefined };

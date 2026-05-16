@@ -6,18 +6,21 @@ const wakeCmdSrc = readFileSync(join(import.meta.dir, "../../src/commands/shared
 
 describe("wake --list readonly preview (#1563)", () => {
   test("handles listWt before tmux session detection or respawn side effects", () => {
-    const listIdx = wakeCmdSrc.indexOf("if (opts.listWt)");
-    const detectIdx = wakeCmdSrc.indexOf("let session = preResolvedSession");
-    const setEnvIdx = wakeCmdSrc.indexOf("await setSessionEnv(session)");
-    const newSessionIdx = wakeCmdSrc.indexOf("await tmux.newSession");
-    const newWindowIdx = wakeCmdSrc.indexOf("await tmux.newWindow(session");
+    const cmdWakeIdx = wakeCmdSrc.indexOf("export async function cmdWake");
+    const cmdWakeSrc = wakeCmdSrc.slice(cmdWakeIdx);
+    const listIdx = cmdWakeSrc.indexOf("if (opts.listWt)");
+    const detectIdx = cmdWakeSrc.indexOf("let session = preResolvedSession");
+    const setEnvIdx = cmdWakeSrc.indexOf("await setSessionEnv(session)");
+    const newSessionIdx = cmdWakeSrc.indexOf("await tmux.newSession");
+    const newWindowIdx = cmdWakeSrc.indexOf("await tmux.newWindow(session");
 
+    expect(cmdWakeIdx).toBeGreaterThan(-1);
     expect(listIdx).toBeGreaterThan(-1);
     expect(detectIdx).toBeGreaterThan(-1);
     expect(listIdx).toBeLessThan(detectIdx);
     expect(listIdx).toBeLessThan(setEnvIdx);
     expect(listIdx).toBeLessThan(newSessionIdx);
     expect(listIdx).toBeLessThan(newWindowIdx);
-    expect(wakeCmdSrc.indexOf("if (opts.listWt)", listIdx + 1)).toBe(-1);
+    expect(cmdWakeSrc.indexOf("if (opts.listWt)", listIdx + 1)).toBe(-1);
   });
 });

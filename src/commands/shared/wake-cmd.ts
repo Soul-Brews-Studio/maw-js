@@ -11,6 +11,7 @@ import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { writeSignal } from "../../core/fleet/leaf";
+import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -185,6 +186,35 @@ export type RehydrateWorktreePlan = {
   path: string;
 };
 
+export type SnapshotRestorePlan = {
+  windowName: string;
+  cwd: string;
+  source: "repo" | "worktree";
+};
+
+export interface WakeOptions {
+  task?: string;
+  wt?: string;
+  prompt?: string;
+  incubate?: string;
+  fresh?: boolean;
+  attach?: boolean;
+  listWt?: boolean;
+  dryRun?: boolean;
+  noRehydrate?: boolean;
+  split?: boolean;
+  bring?: boolean;
+  tab?: boolean;
+  bud?: boolean;
+  signalOnBirth?: boolean;
+  repoPath?: string;
+  urlRepoName?: string;
+  allLocal?: boolean;
+  engine?: string;
+  fromSnapshot?: boolean;
+  snapshotId?: string;
+}
+
 export function planRehydrateWorktreeWindows(
   oracle: string,
   worktrees: { name: string; path: string }[],
@@ -211,6 +241,93 @@ export function planRehydrateWorktreeWindows(
   return planned;
 }
 
+function stripFleetPrefix(name: string): string {
+  return name.replace(/^\d+-/, "");
+}
+
+export function findWakeSnapshotSession(
+  snapshot: Snapshot,
+  oracle: string,
+  session?: string | null,
+): SnapshotSession | null {
+  if (session) {
+    const exact = snapshot.sessions.find(s => s.name === session);
+    if (exact) return exact;
+  }
+
+  const oracleBase = stripFleetPrefix(oracle);
+  return snapshot.sessions.find(s => {
+    const sessionBase = stripFleetPrefix(s.name);
+    return sessionBase === oracleBase
+      || s.name === oracleBase
+      || s.name.endsWith(`-${oracleBase}`);
+  }) ?? null;
+}
+
+export function planSnapshotRestoreWindows(
+  oracle: string,
+  snapshotSession: SnapshotSession,
+  existingWindows: Iterable<string>,
+  worktrees: { name: string; path: string }[],
+  repoPath: string,
+): SnapshotRestorePlan[] {
+  const existing = new Set(existingWindows);
+  const planned: SnapshotRestorePlan[] = [];
+  const seen = new Set<string>();
+
+  for (const win of snapshotSession.windows) {
+    const windowName = win.name?.trim();
+    if (!windowName || existing.has(windowName) || seen.has(windowName)) continue;
+    seen.add(windowName);
+
+    let cwd = repoPath;
+    let source: SnapshotRestorePlan["source"] = "repo";
+    const prefix = `${oracle}-`;
+    if (windowName.startsWith(prefix)) {
+      const suffix = windowName.slice(prefix.length);
+      const wt = worktrees.find(w =>
+        w.name === suffix
+        || stripFleetPrefix(w.name) === suffix
+        || `${oracle}-${w.name}` === windowName
+        || `${oracle}-${stripFleetPrefix(w.name)}` === windowName
+      );
+      if (wt) {
+        cwd = wt.path;
+        source = "worktree";
+      }
+    }
+
+    planned.push({ windowName, cwd, source });
+  }
+
+  return planned;
+}
+
+function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
+  return snapshotId ? loadSnapshot(snapshotId) : latestSnapshot();
+}
+
+async function restoreSnapshotWindows(
+  oracle: string,
+  session: string,
+  snapshotSession: SnapshotSession,
+  existingWindows: Set<string>,
+  worktrees: { name: string; path: string }[],
+  repoPath: string,
+  engine?: string,
+): Promise<number> {
+  const planned = planSnapshotRestoreWindows(oracle, snapshotSession, existingWindows, worktrees, repoPath);
+  for (const win of planned) {
+    await tmux.newWindow(session, win.windowName, { cwd: win.cwd });
+    await new Promise(r => setTimeout(r, 300));
+    await tmux.sendText(`${session}:${win.windowName}`, buildCommandInDir(win.windowName, win.cwd, engine));
+    existingWindows.add(win.windowName);
+    const label = win.source === "worktree" ? "worktree" : "repo";
+    console.log(`\x1b[36m↻\x1b[0m snapshot window: ${win.windowName}  \x1b[90m${label}: ${win.cwd}\x1b[0m`);
+  }
+  return planned.length;
+}
+
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
   const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || urlRepoName || oracle;
   if (/^\d+-/.test(baseName)) return baseName;
@@ -225,7 +342,7 @@ async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Prom
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; bud?: boolean; signalOnBirth?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -320,6 +437,15 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
+  const requestedSnapshot = opts.fromSnapshot ? loadRequestedSnapshot(opts.snapshotId) : null;
+  if (opts.fromSnapshot && !requestedSnapshot) {
+    throw new Error(opts.snapshotId ? `snapshot not found: ${opts.snapshotId}` : "no snapshot found");
+  }
+  const requestedSnapshotSession = requestedSnapshot ? findWakeSnapshotSession(requestedSnapshot, oracle, session) : null;
+  if (opts.fromSnapshot && requestedSnapshot && !requestedSnapshotSession) {
+    throw new Error(`snapshot ${requestedSnapshot.timestamp} has no session for ${oracle}`);
+  }
+
   // #835 — consult unified shouldAutoWake. cmdWake is idempotent: if the
   // session already exists, the helper returns wake=false and we skip the
   // session-create branch (we still proceed to attach/select-window below).
@@ -348,15 +474,24 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
 
+    const allWt = await findWorktrees(parentDir, repoName);
+    const existingWindows = session
+      ? (await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name)
+      : [];
+    if (requestedSnapshotSession) {
+      const planned = planSnapshotRestoreWindows(oracle, requestedSnapshotSession, existingWindows, allWt, repoPath);
+      if (planned.length === 0) {
+        console.log(`\x1b[90m↻ would restore snapshot windows: none\x1b[0m`);
+      } else {
+        for (const win of planned) console.log(`\x1b[36m↻\x1b[0m would restore snapshot window: ${win.windowName}  \x1b[90m${win.cwd}\x1b[0m`);
+      }
+    }
+
     if (opts.noRehydrate) {
       console.log(`\x1b[90m↻ worktree rehydrate skipped (--main/--solo/--no-rehydrate)\x1b[0m`);
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
 
-    const allWt = await findWorktrees(parentDir, repoName);
-    const existingWindows = session
-      ? (await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name)
-      : [];
     const liveTileRoles = session ? await getLiveTileRoles(session) : new Set<string>();
     const planned = planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles);
     if (planned.length === 0) {
@@ -403,12 +538,20 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
 
+    let existingWindows = new Set((await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name));
+    if (requestedSnapshotSession) {
+      const allWt = await findWorktrees(parentDir, repoName);
+      const restored = await restoreSnapshotWindows(oracle, session, requestedSnapshotSession, existingWindows, allWt, repoPath, opts.engine);
+      console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
+    }
+
     if (!opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
-      for (const wt of planRehydrateWorktreeWindows(oracle, allWt)) {
+      for (const wt of planRehydrateWorktreeWindows(oracle, allWt, [...existingWindows])) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
         await tmux.sendText(`${session}:${wt.windowName}`, buildCommandInDir(wt.windowName, wt.path, opts.engine));
+        existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}`);
       }
     }
@@ -417,6 +560,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
+
+    if (requestedSnapshotSession) {
+      const allWt = await findWorktrees(parentDir, repoName);
+      const restored = await restoreSnapshotWindows(oracle, session, requestedSnapshotSession, preExistingWindows, allWt, repoPath, opts.engine);
+      console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
+    }
 
     if (!opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
