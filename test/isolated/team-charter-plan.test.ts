@@ -4,7 +4,7 @@ import { join } from "path";
 import { homedir, tmpdir } from "os";
 
 import teamHandler from "../../src/vendor/mpr-plugins/team/index";
-import { formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
+import { composeTeamCharterMemberPrompt, formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { _setDirs, TEAMS_DIR, TASKS_DIR } from "../../src/vendor/mpr-plugins/team/team-helpers";
 
 const tmpDirs: string[] = [];
@@ -217,6 +217,101 @@ members:
     expect(result.ok).toBe(false);
     expect(result.error).toBe("--no-spawn required");
     expect(result.output).toContain("maw team load <team.yaml|team.json> --no-spawn");
+  });
+
+
+
+  test("composes shared goal before each member prompt for charter spawn", () => {
+    const charter = parseTeamCharterText(`
+name: prompt-team
+goal: |
+  Ship the thing.
+members:
+  - role: builder
+    prompt: |
+      Build narrowly.
+`);
+
+    const prompt = composeTeamCharterMemberPrompt(charter, charter.members[0]);
+
+    expect(prompt).toContain("## Team goal\nShip the thing.");
+    expect(prompt).toContain("## Role prompt\nBuild narrowly.");
+    expect(prompt.indexOf("## Team goal")).toBeLessThan(prompt.indexOf("## Role prompt"));
+  });
+
+  test("handler spawn-from blocks governance approval before writing files", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const file = join(root, "team.yaml");
+      writeFileSync(file, `
+name: guarded-spawn
+members:
+  - role: scout
+    target: auto
+governance:
+  requires_human_approval: true
+`, "utf-8");
+
+      const result = await teamHandler({ source: "cli", args: ["spawn-from", file] });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("governance requires human approval");
+      expect(existsSync(join(root, "teams", "guarded-spawn", "config.json"))).toBe(false);
+      expect(existsSync(join(root, "ψ", "memory", "mailbox", "teams", "guarded-spawn", "manifest.json"))).toBe(false);
+    });
+  });
+
+  test("handler spawn-from blocks non-auto targets before writing files", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const file = join(root, "team.yaml");
+      writeFileSync(file, `
+name: remote-blocked
+members:
+  - role: bridge
+    target: existing:mawjs-oracle
+`, "utf-8");
+
+      const result = await teamHandler({ source: "cli", args: ["spawn-from", file, "--approve"] });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("supports only target:auto");
+      expect(existsSync(join(root, "teams", "remote-blocked", "config.json"))).toBe(false);
+      expect(existsSync(join(root, "ψ", "memory", "mailbox", "teams", "remote-blocked", "manifest.json"))).toBe(false);
+    });
+  });
+
+  test("handler spawn-from materializes local target:auto spawn prompts without --exec", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const file = join(root, "team.yaml");
+      writeFileSync(file, `
+name: local-spawn
+description: Local charter spawn
+goal: |
+  Ship charter spawn.
+members:
+  - role: scout
+    target: auto
+    model: spark
+    prompt: |
+      Scout narrowly.
+governance:
+  requires_human_approval: true
+`, "utf-8");
+
+      const result = await teamHandler({ source: "cli", args: ["spawn-from", file, "--approve"] });
+      const promptPath = join(root, "ψ", "memory", "mailbox", "teams", "local-spawn", "scout-spawn-prompt.md");
+      const configPath = join(root, "teams", "local-spawn", "config.json");
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("team charter spawn complete: local-spawn");
+      expect(result.output).toContain("spawn prompts written; no tmux panes spawned without --exec");
+      expect(existsSync(configPath)).toBe(true);
+      expect(JSON.parse(readFileSync(configPath, "utf-8"))).toMatchObject({
+        name: "local-spawn",
+        members: [{ name: "scout", model: "spark" }],
+      });
+      expect(readFileSync(promptPath, "utf-8")).toContain("## Team goal\nShip charter spawn.");
+      expect(readFileSync(promptPath, "utf-8")).toContain("## Role prompt\nScout narrowly.");
+    });
   });
 
   test("handler load subcommand materializes files without spawning", async () => {

@@ -107,6 +107,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const { readTeamCharter, loadTeamCharter, formatTeamCharterLoad } = await import("./team-charter");
       logs.push(formatTeamCharterLoad(loadTeamCharter(readTeamCharter(args[1]), { noSpawn: true })));
+    } else if (sub === "spawn-from") {
+      if (!args[1]) {
+        logs.push("usage: maw team spawn-from <team.yaml|team.json> [--approve] [--exec]");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, spawnFromTeamCharter, formatTeamCharterSpawn } = await import("./team-charter");
+      const approve = args.includes("--approve");
+      const exec = args.includes("--exec");
+      const result = await spawnFromTeamCharter(readTeamCharter(args[1]), { approve, exec });
+      logs.push(formatTeamCharterSpawn(result));
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
         logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
@@ -308,7 +318,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|spawn-from|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

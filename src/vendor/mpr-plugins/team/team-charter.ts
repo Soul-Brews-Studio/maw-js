@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { resolvePsi, TEAMS_DIR, type TeamConfig, type TeamMember } from "./team-helpers";
+import { cmdTeamCreate, cmdTeamSpawn } from "./team-lifecycle";
 
 export interface TeamCharterMember {
   role: string;
@@ -30,6 +31,12 @@ export interface TeamCharterPlan {
 export interface TeamCharterLoadResult {
   plan: TeamCharterPlan;
   writtenArtifacts: string[];
+  actions: string[];
+}
+
+export interface TeamCharterSpawnResult {
+  charter: TeamCharter;
+  spawnedRoles: string[];
   actions: string[];
 }
 
@@ -450,6 +457,67 @@ export function formatTeamCharterPreflight(result: TeamCharterPreflightResult): 
     ...result.checks.map((check) => `  ${icon(check.level)} ${check.label}: ${check.detail}`),
     "",
     "preflight safety:",
+    ...result.actions.map((action) => `  - ${action}`),
+  ].join("\n");
+}
+
+
+export function composeTeamCharterMemberPrompt(charter: TeamCharter, member: TeamCharterMember): string {
+  return [
+    charter.goal ? `## Team goal\n${charter.goal}` : undefined,
+    member.prompt ? `## Role prompt\n${member.prompt}` : undefined,
+  ].filter((part): part is string => Boolean(part)).join("\n\n");
+}
+
+export async function spawnFromTeamCharter(
+  charter: TeamCharter,
+  opts: { approve?: boolean; exec?: boolean } = {},
+): Promise<TeamCharterSpawnResult> {
+  const preflight = preflightTeamCharter(charter);
+  if (preflight.errors.length > 0) {
+    throw new Error(`preflight failed: ${preflight.errors.map((check) => `${check.label}: ${check.detail}`).join("; ")}`);
+  }
+  if (charter.governance?.requires_human_approval === true && !opts.approve) {
+    throw new Error("governance requires human approval; re-run with --approve to spawn local target:auto members");
+  }
+  const unsupportedTargets = charter.members
+    .filter((member) => (member.target ?? "auto") !== "auto")
+    .map((member) => `${member.role}=${member.target}`);
+  if (unsupportedTargets.length > 0) {
+    throw new Error(`charter spawn currently supports only target:auto; blocked ${unsupportedTargets.join(", ")}`);
+  }
+
+  cmdTeamCreate(charter.name, { description: charter.description });
+  const spawnedRoles: string[] = [];
+  for (const member of charter.members) {
+    await cmdTeamSpawn(charter.name, member.role, {
+      model: member.model,
+      cwd: member.cwd,
+      prompt: composeTeamCharterMemberPrompt(charter, member),
+      exec: opts.exec,
+    });
+    spawnedRoles.push(member.role);
+  }
+  return {
+    charter,
+    spawnedRoles,
+    actions: [
+      "preflight passed",
+      opts.approve ? "governance approval flag present" : "no governance approval required",
+      opts.exec ? "--exec passed through to local cmdTeamSpawn" : "spawn prompts written; no tmux panes spawned without --exec",
+      "existing:* and new:* targets blocked in this implementation",
+    ],
+  };
+}
+
+export function formatTeamCharterSpawn(result: TeamCharterSpawnResult): string {
+  return [
+    `team charter spawn complete: ${result.charter.name}`,
+    "",
+    `roles (${result.spawnedRoles.length}):`,
+    ...result.spawnedRoles.map((role) => `  - ${role}`),
+    "",
+    "spawn safety:",
     ...result.actions.map((action) => `  - ${action}`),
   ].join("\n");
 }
