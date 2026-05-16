@@ -9,7 +9,12 @@
     "aliases": [
       "oracles"
     ],
-    "help": "maw oracle [ls|scan|fleet|about <name>]"
+    "help": "maw oracle [ls|scan|fleet|about <name>|search <query>] [--json]",
+    "flags": {
+      "--json": "boolean",
+      "--awake": "boolean",
+      "--org": "string"
+    }
   },
   "api": {
     "path": "/api/oracle",

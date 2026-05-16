@@ -10,7 +10,15 @@
     "aliases": [
       "fed"
     ],
-    "help": "maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]"
+    "help": "maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]",
+    "flags": {
+      "--dry-run": "boolean",
+      "--check": "boolean",
+      "--prune": "boolean",
+      "--force": "boolean",
+      "--verify": "boolean",
+      "--json": "boolean"
+    }
   },
   "weight": 10
 }

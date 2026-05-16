@@ -7,7 +7,14 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "tmux",
-    "help": "maw tmux <peek> — peek a pane by id (%N), session:w.p, or team-agent name"
+    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom> [...] — tmux pane/session tools; ls supports --json",
+    "flags": {
+      "--json": "boolean",
+      "--all": "boolean",
+      "--compact": "boolean",
+      "--verbose": "boolean",
+      "--roster": "boolean"
+    }
   },
   "weight": 10,
   "tier": "standard"

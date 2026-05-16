@@ -10,7 +10,12 @@
     "aliases": [
       "list"
     ],
-    "help": "maw ls [<peer>] [--all] [--json] [--fix] — list live sessions; see maw fleet ls for registered fleet config"
+    "help": "maw ls [<peer>] [--all] [--json] [--fix] — list live sessions; see maw fleet ls for registered fleet config",
+    "flags": {
+      "--all": "boolean",
+      "--json": "boolean",
+      "--fix": "boolean"
+    }
   },
   "weight": 0,
   "license": "MIT",

@@ -6,7 +6,11 @@
   "description": "Locate an oracle — repo path, session, fleet config, federation node. Diagnostic, no side effects.",
   "cli": {
     "command": "locate",
-    "help": "maw locate <oracle> [--path | --json]"
+    "help": "maw locate <oracle> [--path | --json]",
+    "flags": {
+      "--path": "boolean",
+      "--json": "boolean"
+    }
   },
   "weight": 15,
   "license": "MIT",

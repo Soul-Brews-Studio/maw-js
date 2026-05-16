@@ -10,7 +10,13 @@
     "aliases": [
       "peer"
     ],
-    "help": "maw peers <add|list|info|remove> [...] — federation peer aliases (see issue #568)"
+    "help": "maw peers <add|list|info|remove> [...] — federation peer aliases; list supports --discovered --all --json --limit N",
+    "flags": {
+      "--discovered": "boolean",
+      "--all": "boolean",
+      "--json": "boolean",
+      "--limit": "number"
+    }
   },
   "weight": 30,
   "tier": "standard",

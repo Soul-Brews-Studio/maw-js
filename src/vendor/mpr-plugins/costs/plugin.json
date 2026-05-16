@@ -7,7 +7,12 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "costs",
-    "help": "maw costs — show token usage and cost breakdown per agent"
+    "help": "maw costs [--daily] [--days N] [--json] — show token usage and cost breakdown per agent",
+    "flags": {
+      "--daily": "boolean",
+      "--days": "number",
+      "--json": "boolean"
+    }
   },
   "weight": 50,
   "license": "MIT",

@@ -23,7 +23,13 @@
       "discover",
       "zenoh-scout"
     ],
-    "help": "maw scout [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query opt-in Zenoh discovery"
+    "help": "maw scout [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query opt-in Zenoh discovery",
+    "flags": {
+      "--force": "boolean",
+      "--json": "boolean",
+      "--locator": "string",
+      "--timeout": "number"
+    }
   },
   "weight": 30,
   "license": "MIT",
