@@ -67,6 +67,16 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
       session.cleanupTimer = null;
     }
     session.viewers.add(ws);
+    // Late viewer: cached PTY only streams *new* output, so without a replay
+    // the screen stays empty until something happens in the pane → looks like
+    // "black pane covering tmux". Mirror the new-session capture-pane block.
+    try {
+      const cap = Bun.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
+      if (cap.stdout && cap.stdout.length > 0) {
+        ws.send(cap.stdout);
+        ws.send(new TextEncoder().encode("\r\n"));
+      }
+    } catch { /* expected: capture-pane may fail if target gone or tmux missing */ }
     ws.send(JSON.stringify({ type: "attached", target: safe }));
     return;
   }
@@ -94,6 +104,18 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
     ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
     return;
   }
+
+  // Replay scrollback history so xterm.js can scroll up. Without this, tmux
+  // attach only redraws current pane → viewer's local buffer has no history.
+  // capture-pane reads tmux server-side history (limit set by history-limit).
+  // -p stdout, -e include ANSI attrs, -S -2000 last 2000 lines, -J join wrapped.
+  try {
+    const cap = Bun.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
+    if (cap.stdout && cap.stdout.length > 0) {
+      ws.send(cap.stdout);
+      ws.send(new TextEncoder().encode("\r\n"));
+    }
+  } catch { /* expected: capture-pane may fail if target gone or tmux missing */ }
 
   // Spawn PTY wrapper — attach to our grouped session (not the original).
   //
