@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 
 export const command = {
   name: "park",
-  description: "Park (pause) a tmux window or list parked windows.",
+  description: "Park or list paused tmux windows with git context for later resume.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

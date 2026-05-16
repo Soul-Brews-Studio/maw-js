@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/dream@v0.1.0-dream",
   "sha256": null,
-  "summary": "Cross-repo pattern discovery — finds pains, plans, gains, lost work, and feelings across all repositories.",
+  "summary": "Discover cross-repo patterns across pains, plans, gains, lost work, memory, and feelings.",
   "author": "Soul-Brews-Studio",
   "license": "BUSL-1.1",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

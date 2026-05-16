@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/token@v0.1.0-token",
   "sha256": null,
-  "summary": "Store & restore .envrc files via pass, manage active Claude OAuth tokens (#54).",
+  "summary": "Store and restore .envrc files via pass, and manage active Claude OAuth tokens.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

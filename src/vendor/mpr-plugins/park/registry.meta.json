@@ -2,7 +2,7 @@
   "version": "0.1.2",
   "source": "soul-brews-studio/maw-plugin-registry/park@v0.1.2-park",
   "sha256": "73cba3fe50950b881c197ae29410717fb863861dd294b8672d0b7ac4171ea441",
-  "summary": "Park (pause) tmux windows with git context for later resume",
+  "summary": "Park or list paused tmux windows with git context for later resume.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-park",

@@ -14,7 +14,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 export const command = {
   name: "oracle-skills",
   description:
-    "Wraps the arra-oracle-skills CLI — install Oracle skills to AI coding agents.",
+    "Pass through to arra-oracle-skills to manage Oracle skills across AI coding agents.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

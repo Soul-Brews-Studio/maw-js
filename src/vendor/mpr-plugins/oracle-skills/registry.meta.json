@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/oracle-skills@v0.1.0-oracle-skills",
   "sha256": null,
-  "summary": "Wraps the arra-oracle-skills CLI — install Oracle skills to Claude Code, OpenCode, Cursor, and 11+ AI coding agents.",
+  "summary": "Pass through to arra-oracle-skills to manage Oracle skills across AI coding agents.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

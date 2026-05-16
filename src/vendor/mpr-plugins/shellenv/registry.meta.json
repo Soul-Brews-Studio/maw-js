@@ -2,7 +2,7 @@
   "version": "0.1.2",
   "source": "soul-brews-studio/maw-plugin-registry/shellenv@v0.1.2-shellenv",
   "sha256": "356a007e5bf066cf08c343a40b40b691a132d1ba45237e581a3e51bb915b206d",
-  "summary": "Emit shell init code for the maw warp ergonomic \u2014 eval-style install for zsh/bash",
+  "summary": "Emit shell init code for eval-style zsh/bash integration, including maw warp.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-shellenv",

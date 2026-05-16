@@ -2,11 +2,24 @@
   "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
   "name": "dream",
   "version": "0.1.0",
-  "description": "Cross-repo pattern discovery — finds pains, plans, gains, lost work, and feelings across all repositories.",
+  "description": "Discover cross-repo patterns across pains, plans, gains, lost work, memory, and feelings.",
   "author": "Soul-Brews-Studio",
   "license": "BUSL-1.1",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
   "sdk": "^1.0.0",
   "schemaVersion": 1,
-  "entry": "./index.ts"
+  "entry": "./index.ts",
+  "cli": {
+    "command": "dream",
+    "help": "maw dream [--pain|--plan|--gain|--all|--speculate|--between] [--project <name>] — discover cross-repo patterns",
+    "flags": {
+      "--pain": "boolean",
+      "--plan": "boolean",
+      "--gain": "boolean",
+      "--all": "boolean",
+      "--speculate": "boolean",
+      "--between": "boolean",
+      "--project": "string"
+    }
+  }
 }

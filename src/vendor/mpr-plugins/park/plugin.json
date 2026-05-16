@@ -2,7 +2,7 @@
   "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
   "name": "park",
   "version": "0.1.2",
-  "description": "Park (pause) tmux windows with git context for later resume",
+  "description": "Park or list paused tmux windows with git context for later resume.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-park",
@@ -13,5 +13,9 @@
     "fs"
   ],
   "schemaVersion": 1,
-  "entry": "./src/index.ts"
+  "entry": "./src/index.ts",
+  "cli": {
+    "command": "park",
+    "help": "maw park [<window>] [note] | maw park ls — pause a tmux window with git context for later resume"
+  }
 }

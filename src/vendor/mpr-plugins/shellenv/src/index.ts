@@ -5,7 +5,7 @@ import { parseFlags } from "./internal/parse-flags";
 export const command = {
   name: "shellenv",
   description:
-    "Emit shell init code for eval-style installation (adds maw warp).",
+    "Emit shell init code for eval-style zsh/bash integration, including maw warp.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

@@ -22,7 +22,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 export const command = {
   name: "token",
   description:
-    "Store & restore .envrc files via pass, manage active Claude OAuth tokens.",
+    "Store and restore .envrc files via pass, and manage active Claude OAuth tokens.",
 };
 
 function helpText(): string {

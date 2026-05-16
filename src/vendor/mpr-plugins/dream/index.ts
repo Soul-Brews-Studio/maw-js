@@ -3,7 +3,7 @@ import { cmdDream } from "./impl";
 
 export const command = {
   name: "dream",
-  description: "Cross-repo pattern discovery — pains, plans, gains, lost work, feelings.",
+  description: "Discover cross-repo patterns across pains, plans, gains, lost work, memory, and feelings.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

@@ -75,9 +75,19 @@ describe("#1531 command-surface help copy", () => {
     expect(usage).toContain("maw rename");
   });
 
+  test("remaining real CLI plugins have explicit metadata and appear in usage", () => {
+    const names = ["dream", "oracle-skills", "park", "shellenv", "token"];
+    const usage = formatUsage(names.map((name) => plugin(`src/vendor/mpr-plugins/${name}`)));
+    for (const name of names) {
+      expect(help(`src/vendor/mpr-plugins/${name}/plugin.json`)).toContain(`maw ${name}`);
+      expect(usage).toContain(`maw ${name}`);
+    }
+  });
+
   test("vendored registry summaries mirror updated manifest descriptions", () => {
     for (const name of [
-      "ls", "peek", "capture", "view", "kill", "done", "sleep", "panes", "tab", "bg", "rename",
+      "ls", "peek", "capture", "view", "kill", "done", "sleep", "panes", "tab",
+      "bg", "rename", "dream", "oracle-skills", "park", "shellenv", "token",
     ]) {
       expect(summary(`src/vendor/mpr-plugins/${name}/registry.meta.json`)).toBe(
         desc(`src/vendor/mpr-plugins/${name}/plugin.json`),
