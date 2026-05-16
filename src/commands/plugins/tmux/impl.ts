@@ -307,8 +307,10 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     return;
   }
 
+  const targetWidth = Math.max(28, ...scope.map(p => p.target.length));
+
   console.log();
-  console.log(`  \x1b[36;1m  ${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  console.log(`  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
   for (const p of scope) {
     const dot = STATUS_DOT[p.status];
     const age = formatAge(p.lastActivitySec);
@@ -319,7 +321,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       : "";
     const annPad = pad(p.annotation, 30);
     const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
-    console.log(`  ${dot} ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+    console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
 }

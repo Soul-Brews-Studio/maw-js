@@ -167,6 +167,28 @@ describe("Tmux", () => {
 
   // --- Panes ---
 
+  describe("listPanes", () => {
+    test("uses stable window-name targets, not window indexes (#1567)", async () => {
+      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000";
+
+      const panes = await t.listPanes();
+
+      expect(commands[0]).toContain("#{session_name}:#{window_name}.#{pane_index}");
+      expect(commands[0]).not.toContain("#{session_name}:#{window_index}.#{pane_index}");
+      expect(panes).toEqual([
+        {
+          id: "%42",
+          command: "claude",
+          target: "54-mawjs:mawjs-oracle.0",
+          title: "oracle title",
+          pid: 1234,
+          cwd: "/tmp/maw",
+          lastActivity: 1715840000,
+        },
+      ]);
+    });
+  });
+
   describe("resizePane", () => {
     test("clamps values", async () => {
       await t.resizePane("s:0", 9999, -5);

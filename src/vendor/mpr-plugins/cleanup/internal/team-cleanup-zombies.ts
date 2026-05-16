@@ -141,8 +141,10 @@ export function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
   // guard prevents killing the operator's live oracle Claude. Team-spawned
   // agents always land in window 2+ or pane 1+, never window 1, pane 0.
   const isPrimaryOraclePane = (target: string): boolean => {
-    const m = /^[^:]+:(\d+)\.(\d+)$/.exec(target);
-    return m !== null && m[1] === "1" && m[2] === "0";
+    const indexed = /^[^:]+:(\d+)\.(\d+)$/.exec(target);
+    if (indexed) return indexed[1] === "1" && indexed[2] === "0";
+    const named = /^[^:]+:[^.]+-oracle\.(\d+)$/.exec(target);
+    return named !== null && named[1] === "0";
   };
 
   const isFleetPane = (target: string): boolean => {

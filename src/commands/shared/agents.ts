@@ -33,12 +33,16 @@ export function buildAgentRows(
   const rows: AgentRow[] = [];
 
   for (const pane of panes) {
-    // target format from listPanes(): "session_name:window_index.pane_index"
-    const m = pane.target.match(/^(.+):(\d+)\.\d+$/);
+    // target format from listPanes(): "session_name:window_name.pane_index"
+    // Older callers/tests may still pass "session_name:window_index.pane_index";
+    // keep both so the command survives mixed alpha/dev surfaces.
+    const m = pane.target.match(/^(.+):(.+)\.\d+$/);
     if (!m) continue;
-    const [, session, winIdxStr] = m;
+    const [, session, winPart] = m;
 
-    const windowName = windowNames.get(`${session}:${winIdxStr}`) ?? "";
+    const windowName = /^\d+$/.test(winPart)
+      ? windowNames.get(`${session}:${winPart}`) ?? ""
+      : winPart;
     const isOracle = windowName.endsWith(ORACLE_SUFFIX);
 
     if (!opts.all && !isOracle) continue;
