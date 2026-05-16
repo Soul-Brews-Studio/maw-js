@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   paneTargetCandidatesFromListPanesOutput,
   resolvePaneTargetFromListPanesOutput,
-} from "../../src/commands/plugins/tmux/impl";
+} from "../../src/commands/shared/pane-target-resolver";
 
 const raw = [
   "%101|||47-mawjs:1.0|||codex-headless-demo-layout|||tile-1|||/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle.wt-7-codex-headless",

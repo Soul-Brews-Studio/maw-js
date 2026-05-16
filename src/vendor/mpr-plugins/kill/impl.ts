@@ -1,5 +1,9 @@
 import { listSessions, hostExec, tmuxCmd } from "maw-js/sdk";
 import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
+import {
+  PANE_TARGET_FORMAT,
+  resolvePaneTargetFromListPanesOutput,
+} from "../../../commands/shared/pane-target-resolver";
 
 export interface KillOpts {
   /** Pane index — narrows kill to a specific pane of the resolved window. */
@@ -45,6 +49,32 @@ export async function cmdKill(target: string, opts: KillOpts = {}) {
     throw new Error(`'${rawSession}' is ambiguous`);
   }
   if (r.kind === "none") {
+    if (!rawWindow && opts.pane === undefined) {
+      const paneRaw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
+      if (paneRaw.trim()) {
+        const paneHit = resolvePaneTargetFromListPanesOutput(rawSession, paneRaw);
+        if (paneHit.kind === "match") {
+          const pane = paneHit.candidate.resolved;
+          await hostExec(`${tmuxCmd()} kill-pane -t '${pane}'`);
+          console.log(
+            `  \x1b[32m✓\x1b[0m killed pane ${rawSession} → ${pane} ` +
+            `\x1b[90m[${paneHit.candidate.source} (${paneHit.candidate.name})]\x1b[0m`,
+          );
+          return;
+        }
+        if (paneHit.kind === "ambiguous") {
+          console.error(`  \x1b[31m✗\x1b[0m '${rawSession}' is ambiguous — matches ${paneHit.candidates.length} panes:`);
+          for (const candidate of paneHit.candidates) {
+            console.error(
+              `  \x1b[90m    • ${candidate.name} → ${candidate.resolved}` +
+              `${candidate.target ? ` (${candidate.target})` : ""} [${candidate.source}]\x1b[0m`,
+            );
+          }
+          console.error(`  \x1b[90m  use the pane id or full session:window.pane target\x1b[0m`);
+          throw new Error(`'${rawSession}' is ambiguous`);
+        }
+      }
+    }
     console.error(`  \x1b[31m✗\x1b[0m session '${rawSession}' not found`);
     if (r.hints && r.hints.length > 0) {
       console.error(`  \x1b[90m  did you mean:\x1b[0m`);

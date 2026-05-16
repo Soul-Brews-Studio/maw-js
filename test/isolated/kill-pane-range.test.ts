@@ -13,6 +13,10 @@ mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (cmd.includes("list-panes -t '47-mawjs:0'")) return "0\n1\n2\n";
+    if (cmd.includes("list-panes -a -F")) {
+      return "%101|||47-mawjs:1.0|||codex-headless-demo-layout|||tile-1|||/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle.wt-7-codex-headless";
+    }
+    if (cmd.includes("kill-pane -t '%101'")) return "";
     if (cmd.includes("kill-pane -t '47-mawjs:0.2'")) return "";
     throw new Error(`unexpected command: ${cmd}`);
   },
@@ -39,5 +43,12 @@ describe("kill --pane range validation (#1441)", () => {
 
     expect(hostExecCalls[0]).toContain("list-panes -t '47-mawjs:0'");
     expect(hostExecCalls[1]).toContain("kill-pane -t '47-mawjs:0.2'");
+  });
+
+  test("falls back to pane-title/worktree aliases when no session matches", async () => {
+    await expect(cmdKill("mawjs-codex-headless")).resolves.toBeUndefined();
+
+    expect(hostExecCalls[0]).toContain("list-panes -a -F");
+    expect(hostExecCalls[1]).toContain("kill-pane -t '%101'");
   });
 });
