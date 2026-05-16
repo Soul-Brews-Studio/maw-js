@@ -110,7 +110,53 @@ export async function retryFreshSessionTmuxStep<T>(
   throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; bring?: boolean; tab?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export type RehydrateWorktreePlan = {
+  worktreeName: string;
+  windowName: string;
+  path: string;
+};
+
+export function planRehydrateWorktreeWindows(
+  oracle: string,
+  worktrees: { name: string; path: string }[],
+  existingWindows: string[] = [],
+  liveTileRoles: Set<string> = new Set(),
+): RehydrateWorktreePlan[] {
+  const usedNames = new Set(existingWindows);
+  const planned: RehydrateWorktreePlan[] = [];
+  for (const wt of worktrees) {
+    const taskPart = wt.name.replace(/^\d+-/, "");
+    // #1445 — tile panes are split panes (role metadata), not windows.
+    // If the role is already alive in-session, skip respawn.
+    if (liveTileRoles.has(taskPart)) continue;
+    let wtWindowName = `${oracle}-${taskPart}`;
+    if (usedNames.has(wtWindowName)) {
+      if (existingWindows.includes(wtWindowName)) continue;
+      wtWindowName = `${oracle}-${wt.name}`;
+    }
+    const altName = `${oracle}-${wt.name}`;
+    if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
+    usedNames.add(wtWindowName);
+    planned.push({ worktreeName: wt.name, windowName: wtWindowName, path: wt.path });
+  }
+  return planned;
+}
+
+async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
+  const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || urlRepoName || oracle;
+  if (/^\d+-/.test(baseName)) return baseName;
+  // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
+  // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
+  const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+  let maxNum = 0;
+  for (const s of sessions) {
+    const m = s.name.match(/^(\d+)-/);
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+  }
+  return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
+}
+
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -207,6 +253,41 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     isLive: Boolean(session),
   });
 
+  const mainWindowName = `${oracle}-oracle`;
+
+  if (opts.dryRun) {
+    console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
+    if (!session && wakeDecision.wake) {
+      const plannedSession = await chooseWakeSessionName(oracle, opts.urlRepoName);
+      console.log(`\x1b[32m+\x1b[0m would create session '${plannedSession}' (main: ${mainWindowName})`);
+    } else if (session) {
+      console.log(`\x1b[36m→\x1b[0m would reuse session: ${session}`);
+    }
+
+    if (opts.task || opts.wt) {
+      console.log(`\x1b[33m⚡\x1b[0m would wake worktree/task: ${sanitizeBranchName(opts.wt || opts.task!)}`);
+      return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
+    }
+
+    if (opts.noRehydrate) {
+      console.log(`\x1b[90m↻ worktree rehydrate skipped (--main/--solo/--no-rehydrate)\x1b[0m`);
+      return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
+    }
+
+    const allWt = await findWorktrees(parentDir, repoName);
+    const existingWindows = session
+      ? (await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name)
+      : [];
+    const liveTileRoles = session ? await getLiveTileRoles(session) : new Set<string>();
+    const planned = planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles);
+    if (planned.length === 0) {
+      console.log(`\x1b[90m↻ would respawn: none\x1b[0m`);
+    } else {
+      for (const wt of planned) console.log(`\x1b[32m↻\x1b[0m would respawn: ${wt.windowName}  \x1b[90m${wt.path}\x1b[0m`);
+    }
+    return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
+  }
+
   if (!session && wakeDecision.wake) {
     // #2 — refuse to spawn a brand-new session/agent once the fleet is at the
     // configured concurrency cap (no-op when limits.maxConcurrentAgents is 0).
@@ -215,24 +296,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
-    const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
-
-    // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
-    // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
-    let session_: string;
-    if (/^\d+-/.test(baseName)) {
-      session_ = baseName;
-    } else {
-      const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
-      let maxNum = 0;
-      for (const s of sessions) {
-        const m = s.name.match(/^(\d+)-/);
-        if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
-      }
-      session_ = `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
-    }
-    session = session_;
-    const mainWindowName = `${oracle}-oracle`;
+    session = await chooseWakeSessionName(oracle, opts.urlRepoName);
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await waitForTmuxSessionReady(session);
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session));
@@ -258,18 +322,13 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       console.log(`\x1b[32m+\x1b[0m team '${oracle}' auto-created`);
     }
 
-    if (!opts.task && !opts.wt) {
+    if (!opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
-      const usedNames = new Set<string>();
-      for (const wt of allWt) {
-        const taskPart = wt.name.replace(/^\d+-/, "");
-        let wtWindowName = `${oracle}-${taskPart}`;
-        if (usedNames.has(wtWindowName)) wtWindowName = `${oracle}-${wt.name}`;
-        usedNames.add(wtWindowName);
-        await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
+      for (const wt of planRehydrateWorktreeWindows(oracle, allWt)) {
+        await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
-        console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
+        await tmux.sendText(`${session}:${wt.windowName}`, buildCommandInDir(wt.windowName, wt.path, opts.engine));
+        console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}`);
       }
     }
   } else {
@@ -277,29 +336,16 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
 
-    if (!opts.task && !opts.wt) {
+    if (!opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
-        const usedNames = new Set(existingWindows);
         const liveTileRoles = await getLiveTileRoles(session);
-        for (const wt of allWt) {
-          const taskPart = wt.name.replace(/^\d+-/, "");
-          // #1445 — tile panes are split panes (role metadata), not windows.
-          // If the role is already alive in-session, skip respawn.
-          if (liveTileRoles.has(taskPart)) continue;
-          let wtWindowName = `${oracle}-${taskPart}`;
-          if (usedNames.has(wtWindowName)) {
-            if (existingWindows.includes(wtWindowName)) continue;
-            wtWindowName = `${oracle}-${wt.name}`;
-          }
-          const altName = `${oracle}-${wt.name}`;
-          if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
-          usedNames.add(wtWindowName);
-          await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
+        for (const wt of planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles)) {
+          await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
-          console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
+          await tmux.sendText(`${session}:${wt.windowName}`, buildCommandInDir(wt.windowName, wt.path, opts.engine));
+          console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}`);
         }
       }
     }
@@ -313,7 +359,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   if (reordered > 0) console.log(`\x1b[36m↻ ${reordered} window(s) reordered to saved positions.\x1b[0m`);
 
   let targetPath = repoPath;
-  let windowName = `${oracle}-oracle`;
+  let windowName = mainWindowName;
 
   if (opts.wt || opts.task) {
     const name = sanitizeBranchName(opts.wt || opts.task!);

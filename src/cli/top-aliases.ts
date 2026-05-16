@@ -148,7 +148,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--dry-run] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for the creation door.");
@@ -222,6 +222,8 @@ export async function invokeDirectHandler(
       "--fresh": Boolean,
       "--attach": Boolean, "-a": "--attach",
       "--list": Boolean,
+      "--dry-run": Boolean,
+      "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
       "--split": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
@@ -242,6 +244,8 @@ export async function invokeDirectHandler(
       fresh?: boolean;
       attach?: boolean;
       listWt?: boolean;
+      dryRun?: boolean;
+      noRehydrate?: boolean;
       split?: boolean;
       allLocal?: boolean;
       engine?: string;
@@ -253,6 +257,8 @@ export async function invokeDirectHandler(
     if (flags["--fresh"]) opts.fresh = true;
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
+    if (flags["--dry-run"]) opts.dryRun = true;
+    if (flags["--main"]) opts.noRehydrate = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
