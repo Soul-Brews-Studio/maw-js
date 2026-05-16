@@ -80,6 +80,40 @@ describe("parseManifest happy path", () => {
     }
   });
 
+
+  test("preserves feed hooks and lifecycle hook declarations", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "index.ts"), "export default () => ({ ok: true })\n");
+      const manifest = parseManifest(
+        JSON.stringify({
+          name: "life-plugin",
+          version: "1.0.0",
+          entry: "index.ts",
+          sdk: "*",
+          hooks: {
+            on: ["MessageSend"],
+            wake: { script: "setup.ts", handler: "onWake", ensures: ["storage:sqlite"], policy: "best-effort" },
+            sleep: { handler: "onSleep" },
+            serve: { script: "serve.ts", policy: "fail-fast" },
+          },
+        }),
+        dir,
+      );
+
+      expect(manifest.hooks?.on).toEqual(["MessageSend"]);
+      expect(manifest.hooks?.wake).toEqual({
+        script: "setup.ts",
+        handler: "onWake",
+        ensures: ["storage:sqlite"],
+        policy: "best-effort",
+      });
+      expect(manifest.hooks?.sleep).toEqual({ handler: "onSleep" });
+      expect(manifest.hooks?.serve).toEqual({ script: "serve.ts", policy: "fail-fast" });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
   test("accepts * as sdk range", () => {
     const dir = makeTempDir();
     try {
@@ -104,6 +138,27 @@ describe("parseManifest validation failures", () => {
     expect(() => parseManifest("not json!", "/tmp")).toThrow(/JSON/);
   });
 
+
+  test("throws on invalid lifecycle hook declarations", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "index.ts"), "export default () => ({ ok: true })\n");
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-life", version: "1.0.0", entry: "index.ts", sdk: "*", hooks: { wake: [] } }),
+          dir,
+        ),
+      ).toThrow(/hooks\.wake must be an object/);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-policy", version: "1.0.0", entry: "index.ts", sdk: "*", hooks: { serve: { policy: "always" } } }),
+          dir,
+        ),
+      ).toThrow(/hooks\.serve\.policy/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
   test("throws on invalid name (uppercase, special chars)", () => {
     const dir = makeTempDir();
     try {

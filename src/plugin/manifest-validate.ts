@@ -3,7 +3,7 @@
  * Each function validates and shapes one optional manifest section.
  */
 
-import type { PluginManifest, PluginTier } from "./types";
+import type { PluginLifecycleHook, PluginManifest, PluginTier } from "./types";
 import { KNOWN_CAPABILITY_NAMESPACES, NAME_RE } from "./manifest-constants";
 import { getRuntimeVersionString } from "../core/runtime/build-info";
 
@@ -60,6 +60,35 @@ export function parseApi(r: Record<string, unknown>): PluginManifest["api"] {
   return { path: a.path, methods: a.methods as ("GET" | "POST")[] };
 }
 
+function parseLifecycleHook(hooks: Record<string, unknown>, key: "wake" | "sleep" | "serve"): PluginLifecycleHook | undefined {
+  const raw = hooks[key];
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`plugin.json: hooks.${key} must be an object`);
+  }
+  const h = raw as Record<string, unknown>;
+  if (h.script !== undefined && (typeof h.script !== "string" || !h.script)) {
+    throw new Error(`plugin.json: hooks.${key}.script must be a non-empty string`);
+  }
+  if (h.handler !== undefined && (typeof h.handler !== "string" || !h.handler)) {
+    throw new Error(`plugin.json: hooks.${key}.handler must be a non-empty string`);
+  }
+  if (h.ensures !== undefined) {
+    if (!Array.isArray(h.ensures) || (h.ensures as unknown[]).some((e: unknown) => typeof e !== "string" || !e)) {
+      throw new Error(`plugin.json: hooks.${key}.ensures must be an array of non-empty strings`);
+    }
+  }
+  if (h.policy !== undefined && h.policy !== "best-effort" && h.policy !== "fail-fast") {
+    throw new Error(`plugin.json: hooks.${key}.policy must be "best-effort" or "fail-fast"`);
+  }
+  return {
+    ...(typeof h.script === "string" ? { script: h.script } : {}),
+    ...(typeof h.handler === "string" ? { handler: h.handler } : {}),
+    ...(Array.isArray(h.ensures) ? { ensures: h.ensures as string[] } : {}),
+    ...(typeof h.policy === "string" ? { policy: h.policy as PluginLifecycleHook["policy"] } : {}),
+  };
+}
+
 export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] {
   if (r.hooks === undefined) return undefined;
   if (!r.hooks || typeof r.hooks !== "object" || Array.isArray(r.hooks)) {
@@ -73,11 +102,17 @@ export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] 
       }
     }
   }
+  const wake = parseLifecycleHook(h, "wake");
+  const sleep = parseLifecycleHook(h, "sleep");
+  const serve = parseLifecycleHook(h, "serve");
   return {
     ...(Array.isArray(h.gate) ? { gate: h.gate as string[] } : {}),
     ...(Array.isArray(h.filter) ? { filter: h.filter as string[] } : {}),
     ...(Array.isArray(h.on) ? { on: h.on as string[] } : {}),
     ...(Array.isArray(h.late) ? { late: h.late as string[] } : {}),
+    ...(wake ? { wake } : {}),
+    ...(sleep ? { sleep } : {}),
+    ...(serve ? { serve } : {}),
   };
 }
 

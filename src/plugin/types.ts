@@ -30,6 +30,17 @@ export interface PluginArtifact {
   sha256: string | null;    // sha256 of the bundle, or null if unbuilt
 }
 
+export interface PluginLifecycleHook {
+  /** Relative script/module path reserved for lifecycle runners (#1576). */
+  script?: string;
+  /** Exported handler name; defaults to the lifecycle name when omitted. */
+  handler?: string;
+  /** Advisory resources/capabilities this hook ensures before the lifecycle continues. */
+  ensures?: string[];
+  /** Failure policy for future runners; manifest parsing only in this slice. */
+  policy?: "best-effort" | "fail-fast";
+}
+
 export interface PluginManifest {
   name: string;           // unique id, slug-safe /^[a-z0-9-]+$/
   version: string;        // semver e.g. "1.0.0"
@@ -59,6 +70,9 @@ export interface PluginManifest {
     filter?: string[];  // event names to filter
     on?: string[];      // event names to handle
     late?: string[];    // event names for cleanup
+    wake?: PluginLifecycleHook;  // lifecycle: oracle/session wake (#1576)
+    sleep?: PluginLifecycleHook; // lifecycle: oracle/session sleep (#1576)
+    serve?: PluginLifecycleHook; // lifecycle: plugin persistent serve (#1576)
   };
   cron?: {
     schedule: string;   // cron expression
