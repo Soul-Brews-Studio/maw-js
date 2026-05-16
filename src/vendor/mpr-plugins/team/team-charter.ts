@@ -33,6 +33,22 @@ export interface TeamCharterLoadResult {
   actions: string[];
 }
 
+export type TeamCharterPreflightLevel = "ok" | "warn" | "error";
+
+export interface TeamCharterPreflightCheck {
+  level: TeamCharterPreflightLevel;
+  label: string;
+  detail: string;
+}
+
+export interface TeamCharterPreflightResult {
+  charter: TeamCharter;
+  checks: TeamCharterPreflightCheck[];
+  errors: TeamCharterPreflightCheck[];
+  warnings: TeamCharterPreflightCheck[];
+  actions: string[];
+}
+
 function stripComment(line: string): string {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i++) {
@@ -343,4 +359,97 @@ export function formatTeamCharterLoad(result: TeamCharterLoadResult): string {
   }
   lines.push("", `next: maw team list`);
   return lines.join("\n");
+}
+
+
+function addPreflightCheck(
+  checks: TeamCharterPreflightCheck[],
+  level: TeamCharterPreflightLevel,
+  label: string,
+  detail: string,
+): void {
+  checks.push({ level, label, detail });
+}
+
+export function preflightTeamCharter(charter: TeamCharter): TeamCharterPreflightResult {
+  const checks: TeamCharterPreflightCheck[] = [];
+  try {
+    assertValidOracleName(charter.name);
+    addPreflightCheck(checks, "ok", "team name", `'${charter.name}' is accepted`);
+  } catch (e: any) {
+    addPreflightCheck(checks, "error", "team name", e?.message || String(e));
+  }
+
+  const roles = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const member of charter.members) {
+    if (roles.has(member.role)) duplicates.add(member.role);
+    roles.add(member.role);
+  }
+  if (duplicates.size > 0) {
+    addPreflightCheck(checks, "error", "member roles", `duplicate role(s): ${[...duplicates].join(", ")}`);
+  } else {
+    addPreflightCheck(checks, "ok", "member roles", `${charter.members.length} unique role(s)`);
+  }
+
+  const plan = planTeamCharter(charter);
+  const existing = plan.artifacts.filter((artifact) => existsSync(artifact));
+  if (existing.length > 0) {
+    addPreflightCheck(checks, "error", "existing artifacts", `would refuse to overwrite: ${existing.join(", ")}`);
+  } else {
+    addPreflightCheck(checks, "ok", "existing artifacts", "no config/inbox/manifest collisions found");
+  }
+
+  for (const member of charter.members) {
+    const target = member.target ?? "auto";
+    if (target === "auto") {
+      addPreflightCheck(checks, "ok", `target:${member.role}`, "auto target stays local and deferred");
+    } else if (/^existing:[^:]+$/.test(target)) {
+      addPreflightCheck(checks, "warn", `target:${member.role}`, `${target} needs a future existing-oracle resolver and human-visible preflight`);
+    } else if (/^new:[^:]+$/.test(target)) {
+      addPreflightCheck(checks, "warn", `target:${member.role}`, `${target} needs a future new-oracle/bud governance gate`);
+    } else {
+      addPreflightCheck(checks, "error", `target:${member.role}`, `unsupported target '${target}' (expected auto, existing:<oracle>, or new:<stem>)`);
+    }
+
+    if (member.cwd) {
+      if (existsSync(member.cwd)) addPreflightCheck(checks, "ok", `cwd:${member.role}`, member.cwd);
+      else addPreflightCheck(checks, "warn", `cwd:${member.role}`, `${member.cwd} does not exist on this machine yet`);
+    }
+  }
+
+  if (charter.governance?.requires_human_approval === true) {
+    addPreflightCheck(checks, "warn", "governance", "human approval is required before future spawn/load escalation");
+  } else {
+    addPreflightCheck(checks, "ok", "governance", "no explicit human-approval gate requested");
+  }
+
+  return {
+    charter,
+    checks,
+    errors: checks.filter((check) => check.level === "error"),
+    warnings: checks.filter((check) => check.level === "warn"),
+    actions: [
+      "read-only preflight only",
+      "no files written",
+      "no tmux panes changed",
+      "no claude processes spawned",
+      "no maw bud or fleet writes",
+    ],
+  };
+}
+
+export function formatTeamCharterPreflight(result: TeamCharterPreflightResult): string {
+  const status = result.errors.length > 0 ? "failed" : result.warnings.length > 0 ? "passed with warnings" : "passed";
+  const icon = (level: TeamCharterPreflightLevel) => level === "ok" ? "✓" : level === "warn" ? "⚠" : "✗";
+  return [
+    `team charter preflight: ${result.charter.name}`,
+    `status: ${status}`,
+    "",
+    "checks:",
+    ...result.checks.map((check) => `  ${icon(check.level)} ${check.label}: ${check.detail}`),
+    "",
+    "preflight safety:",
+    ...result.actions.map((action) => `  - ${action}`),
+  ].join("\n");
 }

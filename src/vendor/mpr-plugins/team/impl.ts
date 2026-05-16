@@ -10,7 +10,7 @@ export { cmdTeamShutdown, cmdTeamCreate, cmdTeamSpawn, mergeTeamKnowledge } from
 export { cmdTeamSend } from "./team-comms";
 export { cmdTeamResume, cmdTeamLives } from "./team-reincarnation";
 export { cmdCleanupZombies } from "./team-cleanup-zombies";
-export { parseTeamCharterText, readTeamCharter, planTeamCharter, formatTeamCharterPlan, loadTeamCharter, formatTeamCharterLoad } from "./team-charter";
+export { parseTeamCharterText, readTeamCharter, planTeamCharter, formatTeamCharterPlan, preflightTeamCharter, formatTeamCharterPreflight, loadTeamCharter, formatTeamCharterLoad } from "./team-charter";
 
 /**
  * Scan vault for CLI-created team manifests (#393 Bug B).

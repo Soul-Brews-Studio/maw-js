@@ -4,7 +4,7 @@ import { join } from "path";
 import { homedir, tmpdir } from "os";
 
 import teamHandler from "../../src/vendor/mpr-plugins/team/index";
-import { formatTeamCharterLoad, formatTeamCharterPlan, loadTeamCharter, parseTeamCharterText, planTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
+import { formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { _setDirs, TEAMS_DIR, TASKS_DIR } from "../../src/vendor/mpr-plugins/team/team-helpers";
 
 const tmpDirs: string[] = [];
@@ -109,6 +109,55 @@ members:
     expect(result.output).toContain("inboxes/scout.json");
     expect(result.output).toContain("no tmux panes changed");
     expect(result.output).toContain("target 'existing:mawjs-oracle' is planned only");
+  });
+
+
+
+  test("preflights charters without writing files", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const charter = parseTeamCharterText(`
+name: preflight-team
+members:
+  - role: scout
+    target: auto
+  - role: bridge
+    target: existing:mawjs-oracle
+governance:
+  requires_human_approval: true
+`);
+
+      const result = preflightTeamCharter(charter);
+      const rendered = formatTeamCharterPreflight(result);
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(rendered).toContain("team charter preflight: preflight-team");
+      expect(rendered).toContain("status: passed with warnings");
+      expect(rendered).toContain("read-only preflight only");
+      expect(rendered).toContain("no files written");
+      expect(rendered).toContain("target:bridge");
+      expect(existsSync(join(root, "teams", "preflight-team", "config.json"))).toBe(false);
+      expect(existsSync(join(root, "ψ", "memory", "mailbox", "teams", "preflight-team", "manifest.json"))).toBe(false);
+    });
+  });
+
+  test("handler preflight fails loudly for duplicate roles and unsupported targets", async () => {
+    const file = tmpFile("team.yaml", `
+name: bad-preflight
+members:
+  - role: scout
+    target: auto
+  - role: scout
+    target: nowhere
+`);
+
+    const result = await teamHandler({ source: "cli", args: ["preflight", file] });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("preflight failed");
+    expect(result.output).toContain("team charter preflight: bad-preflight");
+    expect(result.output).toContain("duplicate role(s): scout");
+    expect(result.output).toContain("unsupported target 'nowhere'");
   });
 
   test("loads a charter into config, inboxes, and vault manifest only when --no-spawn is set", async () => {
