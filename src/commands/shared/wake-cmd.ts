@@ -7,6 +7,7 @@ import { assertValidOracleName } from "../../core/fleet/validate";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
+import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { writeSignal } from "../../core/fleet/leaf";
@@ -391,6 +392,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       console.log(`\x1b[32m+\x1b[0m team '${oracle}' auto-created`);
     }
 
+    await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
+
     if (!opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       for (const wt of planRehydrateWorktreeWindows(oracle, allWt)) {
@@ -402,6 +405,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     }
   } else {
     await setSessionEnv(session);
+    await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
 
