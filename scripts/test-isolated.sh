@@ -11,8 +11,10 @@
 # changes required.
 #
 # Usage:
-#   bash scripts/test-isolated.sh                 # normal run
-#   bash scripts/test-isolated.sh --randomize     # passes --randomize to each file
+#   bash scripts/test-isolated.sh                         # normal run
+#   bash scripts/test-isolated.sh --randomize             # passes --randomize to each file
+#   bash scripts/test-isolated.sh test/isolated/foo.test.ts # fast targeted run, still isolated
+#   bash scripts/test-isolated.sh test/isolated/foo.test.ts --randomize
 set -eo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,18 +28,44 @@ IGNORE_ARGS=(
   --path-ignore-patterns '**/agents/**'
 )
 
-EXTRA_ARGS=("$@")
+BUN_EXTRA_ARGS=()
+REQUESTED_FILES=()
 
-FILES=(test/isolated/*.test.ts)
+for arg in "$@"; do
+  if [[ "$arg" == -* ]]; then
+    BUN_EXTRA_ARGS+=("$arg")
+  elif [[ -d "$arg" ]]; then
+    while IFS= read -r file; do
+      REQUESTED_FILES+=("$file")
+    done < <(find "$arg" -type f -name '*.test.ts' | sort)
+  elif [[ -f "$arg" ]]; then
+    REQUESTED_FILES+=("$arg")
+  else
+    echo "error: unknown test path: $arg" >&2
+    exit 2
+  fi
+done
+
+if [ "${#REQUESTED_FILES[@]}" -gt 0 ]; then
+  FILES=("${REQUESTED_FILES[@]}")
+else
+  FILES=(test/isolated/*.test.ts)
+fi
+
 TOTAL=${#FILES[@]}
 PASSED=0
 FAILED=0
 FAILED_FILES=()
 
+if [ "$TOTAL" -eq 0 ]; then
+  echo "error: no isolated test files matched" >&2
+  exit 2
+fi
+
 echo "=== test-isolated.sh: $TOTAL files, one process each ==="
 for f in "${FILES[@]}"; do
   printf -- "--- %s ---\n" "$f"
-  if bun test "$f" "${IGNORE_ARGS[@]}" "${EXTRA_ARGS[@]}"; then
+  if bun test "$f" "${IGNORE_ARGS[@]}" "${BUN_EXTRA_ARGS[@]}"; then
     PASSED=$((PASSED + 1))
   else
     FAILED=$((FAILED + 1))
