@@ -155,6 +155,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   } else {
     write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
   }
+  write("  --list previews worktrees only; it does not create sessions or respawn windows.");
 }
 
 /**

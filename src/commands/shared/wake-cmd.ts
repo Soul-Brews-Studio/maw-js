@@ -179,6 +179,20 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
     : repoName;
   console.log(`\x1b[36m→\x1b[0m found \x1b[1m${ghSlug}\x1b[0m (${repoPath})`);
+
+  // #1563 — `maw wake <oracle> --list` is a preview/read-only query.
+  // Keep it before detectSession/newSession/respawn so it never creates or
+  // rehydrates tmux windows just to show worktrees.
+  if (opts.listWt) {
+    const worktrees = await findWorktrees(parentDir, repoName);
+    if (!worktrees.length) { console.log(`\x1b[90mNo worktrees for ${oracle}.\x1b[0m`); }
+    else {
+      console.log(`\n\x1b[36mWorktrees for ${oracle}\x1b[0m (${worktrees.length})\n`);
+      for (const wt of worktrees) console.log(`  \x1b[32m●\x1b[0m ${wt.name}  \x1b[90m${wt.path}\x1b[0m`);
+    }
+    return `${oracle}:list`;
+  }
+
   let session = preResolvedSession ?? await detectSession(oracle, opts.urlRepoName);
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
@@ -300,16 +314,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   let targetPath = repoPath;
   let windowName = `${oracle}-oracle`;
-
-  if (opts.listWt) {
-    const worktrees = await findWorktrees(parentDir, repoName);
-    if (!worktrees.length) { console.log(`\x1b[90mNo worktrees for ${oracle}.\x1b[0m`); }
-    else {
-      console.log(`\n\x1b[36mWorktrees for ${oracle}\x1b[0m (${worktrees.length})\n`);
-      for (const wt of worktrees) console.log(`  \x1b[32m●\x1b[0m ${wt.name}  \x1b[90m${wt.path}\x1b[0m`);
-    }
-    return `${session}:${windowName}`;
-  }
 
   if (opts.wt || opts.task) {
     const name = sanitizeBranchName(opts.wt || opts.task!);

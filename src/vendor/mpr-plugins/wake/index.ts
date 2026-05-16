@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
         };
       }
 
