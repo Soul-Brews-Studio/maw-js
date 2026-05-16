@@ -1,5 +1,7 @@
 import { NAME_RE } from "../plugin/manifest-constants";
 import type { FeedEvent } from "../lib/feed";
+import { homedir, tmpdir } from "os";
+import { resolve, sep } from "path";
 
 export interface EnginePluginRegistrationInput {
   plugin: string;
@@ -17,6 +19,9 @@ export interface EnginePluginRegistration extends EnginePluginRegistrationInput 
 }
 
 const registrations = new Map<string, EnginePluginRegistration>();
+
+type EngineFetchTarget = { url: URL; unix?: string };
+type BunUnixRequestInit = RequestInit & { unix?: string };
 
 function normalizePrefix(prefix: string): string {
   const trimmed = prefix.trim();
@@ -36,14 +41,21 @@ function normalizePrefix(prefix: string): string {
 }
 
 function normalizeUpstream(upstream: string): string {
+  const raw = upstream.trim();
+  if (raw.startsWith("unix:") && /(?:\.\.|%2e)/i.test(raw)) {
+    throw new Error("engine unix upstream path must not contain traversal");
+  }
   let url: URL;
   try {
-    url = new URL(upstream);
+    url = new URL(raw);
   } catch {
     throw new Error("engine upstream must be a URL");
   }
+  if (url.protocol === "unix:") {
+    return normalizeUnixUpstream(url);
+  }
   if (url.protocol !== "http:") {
-    throw new Error("engine upstream must be loopback http:// for this alpha slice");
+    throw new Error("engine upstream must be loopback http:// or local unix://");
   }
   const host = url.hostname;
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && host !== "[::1]") {
@@ -52,6 +64,53 @@ function normalizeUpstream(upstream: string): string {
   url.hash = "";
   if (url.pathname !== "/") url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString().replace(/\/$/, "");
+}
+
+function normalizeUnixUpstream(url: URL): string {
+  if (url.hostname || url.search || url.hash) {
+    throw new Error("engine unix upstream must be unix:///absolute/path.sock with no host, query, or hash");
+  }
+  const socketPath = decodeURIComponent(url.pathname);
+  return `unix://${normalizeUnixSocketPath(socketPath)}`;
+}
+
+function activeMawHome(): string {
+  return process.env.MAW_HOME || `${homedir()}/.maw`;
+}
+
+function isInside(path: string, root: string): boolean {
+  const normalizedRoot = resolve(root);
+  return path === normalizedRoot || path.startsWith(`${normalizedRoot}${sep}`);
+}
+
+function normalizeUnixSocketPath(socketPath: string): string {
+  if (!socketPath.startsWith("/")) {
+    throw new Error("engine unix upstream must use an absolute socket path");
+  }
+  if (socketPath.includes("\0") || /\s/.test(socketPath)) {
+    throw new Error("engine unix upstream path must not contain null bytes or whitespace");
+  }
+  if (!socketPath.endsWith(".sock")) {
+    throw new Error("engine unix upstream path must end with .sock");
+  }
+  const normalized = resolve(socketPath);
+  if (normalized !== socketPath) {
+    throw new Error("engine unix upstream path must not contain traversal");
+  }
+
+  // Do not let a dynamic engine registration turn maw into a reverse proxy for
+  // privileged local sockets such as /var/run/docker.sock. Plugin sockets must
+  // live in operator-owned temp space or MAW_HOME.
+  const allowedRoots = [
+    tmpdir(),
+    "/tmp",
+    "/private/tmp",
+    activeMawHome(),
+  ].map((root) => resolve(root));
+  if (!allowedRoots.some((root) => isInside(normalized, root))) {
+    throw new Error("engine unix upstream path must live under tmpdir or MAW_HOME");
+  }
+  return normalized;
 }
 
 function normalizeStringArray(value: string[] | undefined, field: string): string[] | undefined {
@@ -144,7 +203,26 @@ export function findEnginePluginRegistration(pathname: string): EnginePluginRegi
   return candidates[0];
 }
 
-function targetUrlFor(req: Request, registration: EnginePluginRegistration): URL {
+function isUnixUpstream(upstream: string): boolean {
+  return upstream.startsWith("unix://");
+}
+
+function unixSocketPath(upstream: string): string {
+  return upstream.slice("unix://".length);
+}
+
+function targetForRequest(req: Request, registration: EnginePluginRegistration): EngineFetchTarget {
+  if (isUnixUpstream(registration.upstream)) {
+    const incoming = new URL(req.url);
+    const suffix = incoming.pathname.slice(registration.prefix.length);
+    const target = new URL(`http://localhost${suffix || "/"}`);
+    target.search = incoming.search;
+    return { url: target, unix: unixSocketPath(registration.upstream) };
+  }
+  return { url: targetUrlForHttp(req, registration) };
+}
+
+function targetUrlForHttp(req: Request, registration: EnginePluginRegistration): URL {
   const incoming = new URL(req.url);
   const base = new URL(registration.upstream);
   const suffix = incoming.pathname.slice(registration.prefix.length);
@@ -154,28 +232,36 @@ function targetUrlFor(req: Request, registration: EnginePluginRegistration): URL
   return base;
 }
 
-function targetUrlForHealth(registration: EnginePluginRegistration): URL | undefined {
+function targetForHealth(registration: EnginePluginRegistration): EngineFetchTarget | undefined {
   if (!registration.health) return undefined;
-  return targetUrlForPath(registration, registration.health);
+  return targetForPath(registration, registration.health);
 }
 
-function targetUrlForEvent(registration: EnginePluginRegistration): URL {
-  return targetUrlForPath(registration, registration.eventPath ?? "/events")!;
+function targetForEvent(registration: EnginePluginRegistration): EngineFetchTarget {
+  return targetForPath(registration, registration.eventPath ?? "/events")!;
 }
 
-function targetUrlForPath(registration: EnginePluginRegistration, path: string): URL | undefined {
+function targetForPath(registration: EnginePluginRegistration, path: string): EngineFetchTarget | undefined {
+  if (isUnixUpstream(registration.upstream)) {
+    return { url: new URL(`http://localhost${path}`), unix: unixSocketPath(registration.upstream) };
+  }
   const base = new URL(registration.upstream);
   const basePath = base.pathname === "/" ? "" : base.pathname.replace(/\/+$/, "");
   base.pathname = `${basePath}${path}`;
   base.search = "";
-  return base;
+  return { url: base };
+}
+
+function engineFetch(target: EngineFetchTarget, init: RequestInit): Promise<Response> {
+  const opts: BunUnixRequestInit = target.unix ? { ...init, unix: target.unix } : init;
+  return fetch(target.url, opts);
 }
 
 export async function checkEnginePluginHealth(registration: EnginePluginRegistration): Promise<boolean> {
-  const target = targetUrlForHealth(registration);
+  const target = targetForHealth(registration);
   if (!target) return true;
   try {
-    const response = await fetch(target, {
+    const response = await engineFetch(target, {
       method: "GET",
       headers: {
         "x-maw-engine-plugin": registration.plugin,
@@ -221,9 +307,9 @@ export async function dispatchEnginePluginEvent(event: FeedEvent): Promise<{ del
   let removed = 0;
 
   for (const registration of current) {
-    const target = targetUrlForEvent(registration);
+    const target = targetForEvent(registration);
     try {
-      const response = await fetch(target, {
+      const response = await engineFetch(target, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -251,7 +337,7 @@ export async function dispatchEnginePluginEvent(event: FeedEvent): Promise<{ del
 }
 
 export async function proxyEnginePluginRequest(req: Request, registration: EnginePluginRegistration): Promise<Response> {
-  const target = targetUrlFor(req, registration);
+  const target = targetForRequest(req, registration);
   const headers = new Headers(req.headers);
   headers.delete("host");
   headers.set("x-maw-engine-plugin", registration.plugin);
@@ -267,7 +353,7 @@ export async function proxyEnginePluginRequest(req: Request, registration: Engin
   }
 
   try {
-    const upstream = await fetch(target, init);
+    const upstream = await engineFetch(target, init);
     const responseHeaders = new Headers(upstream.headers);
     responseHeaders.set("x-maw-engine-plugin", registration.plugin);
     responseHeaders.set("x-forwarded-prefix", registration.prefix);
