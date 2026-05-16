@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { buildMessageLifecycleFeedEvent } from "../../src/lib/message-events";
 import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
-import { onEvent } from "../../src/vendor/mpr-plugins/messages/index";
+import { messagesEngineFetch, onEvent } from "../../src/vendor/mpr-plugins/messages/index";
 import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
 
@@ -124,5 +124,47 @@ describe("messages browser view", () => {
 
     expect(html).toContain("textContent");
     expect(html).not.toContain("innerHTML");
+  });
+});
+
+describe("messages engine serve surface", () => {
+  test("serves health, query, and event ingestion endpoints", async () => {
+    const health = await messagesEngineFetch(new Request("http://plugin.local/health"));
+    await expect(health.json()).resolves.toMatchObject({ ok: true, plugin: "messages" });
+
+    const event = buildMessageLifecycleFeedEvent({
+      id: "engine-1",
+      ts: "2026-05-16T01:05:03.000Z",
+      direction: "outbound",
+      state: "delivered",
+      channel: "hey",
+      route: "local",
+      from: "m5:mawjs-codex",
+      to: "m5:mawjs-oracle",
+      text: "engine event",
+      signed: true,
+    }) as FeedEvent;
+
+    const ingest = await messagesEngineFetch(new Request("http://plugin.local/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(event),
+    }));
+    await expect(ingest.json()).resolves.toMatchObject({ ok: true, recorded: true });
+
+    const ignored = await messagesEngineFetch(new Request("http://plugin.local/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event: "Notification", message: "ignore" }),
+    }));
+    await expect(ignored.json()).resolves.toMatchObject({ ok: true, recorded: false });
+
+    const query = await messagesEngineFetch(new Request("http://plugin.local/?limit=5&q=engine"));
+    await expect(query.json()).resolves.toMatchObject({
+      ok: true,
+      total: 1,
+      source: "sqlite",
+      messages: [{ id: "engine-1", text: "engine event" }],
+    });
   });
 });

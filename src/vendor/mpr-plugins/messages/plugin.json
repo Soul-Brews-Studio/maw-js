@@ -24,15 +24,30 @@
       "GET"
     ]
   },
+  "engine": {
+    "serve": {
+      "command": "maw messages serve",
+      "prefix": "/api/message-ledger",
+      "health": "/health",
+      "eventPath": "/events",
+      "events": [
+        "MessageSend",
+        "MessageDeliver",
+        "MessageFail"
+      ]
+    }
+  },
   "cli": {
     "command": "messages",
     "aliases": [
       "message-log",
       "hey-log"
     ],
-    "help": "maw messages [--limit N] [--from ID] [--to ID] [--direction outbound|inbound|forwarded] [--state queued|delivered|failed] [--q text] [--json] \u2014 query the message ledger",
+    "help": "maw messages [serve [--engine URL] [--port N] | --limit N --from ID --to ID --direction outbound|inbound|forwarded --state queued|delivered|failed --q text --json] \u2014 query or serve the message ledger",
     "flags": {
+      "--engine": "string",
       "--limit": "number",
+      "--port": "number",
       "--from": "string",
       "--to": "string",
       "--direction": "string",
