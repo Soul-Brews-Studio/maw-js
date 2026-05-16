@@ -47,7 +47,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — split current pane and attach",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (compact, -a roster, -v detail)",
+  ls: "List sessions (detail default, -c compact, -a roster)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   new: "Create a new oracle (friendly door for awaken)",
@@ -71,9 +71,10 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
-  //   maw ls      → compact, live sessions only
-  //   maw ls -a   → compact + sleeping oracles (roster)
-  //   maw ls -v   → full per-pane detail
+  //   maw ls      → full per-pane detail (#1556)
+  //   maw ls -v   → no-op alias for muscle memory (same as default)
+  //   maw ls -c   → compact live-session summary
+  //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
   ls: { kind: "direct", handler: "cmdLs" },
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
@@ -161,9 +162,34 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  * help-text rendering, but the path is no longer used at runtime —
  * dispatch is by `exportName` against a static handler map.
  *
- * For `ls`, `-a` = roster (sleeping oracles), `-v` = full detail.
+ * For `ls`, detail is the default; `-v` is a no-op alias, `-c` returns the
+ * compact summary, and `-a` preserves the legacy compact+roster behavior.
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
+export function parseLsAliasOpts(argv: string[]) {
+  const flags = parseFlags(argv, {
+    "--all": Boolean, "-a": "--all",
+    "--compact": Boolean, "-c": "--compact",
+    "--verbose": Boolean, "-v": "--verbose",
+    "--fix": Boolean,
+    "--json": Boolean,
+  }, 0);
+
+  // #1556 — Nat's UX preference: detailed per-pane output is the default,
+  // `-v` stays accepted as a no-op muscle-memory alias, and `-c/--compact`
+  // is the opt-in condensed summary. `-a/--all` historically meant
+  // "include sleeping roster" on top-level `maw ls`; keep that legacy shape
+  // by rendering the compact roster view.
+  const compact = !!flags["--compact"] || !!flags["--all"];
+  return {
+    all: true,
+    compact,
+    verbose: !compact,
+    roster: !!flags["--all"],
+    json: !!flags["--json"],
+  };
+}
+
 export async function invokeDirectHandler(
   handler: string,
   argv: string[],
@@ -174,19 +200,7 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdLs") {
-    const flags = parseFlags(argv, {
-      "--all": Boolean, "-a": "--all",
-      "--verbose": Boolean, "-v": "--verbose",
-      "--fix": Boolean,
-      "--json": Boolean,
-    }, 0);
-    await cmdTmuxLs({
-      all: true,
-      compact: !flags["--verbose"],
-      verbose: !!flags["--verbose"],
-      roster: !!flags["--all"],
-      json: !!flags["--json"],
-    });
+    await cmdTmuxLs(parseLsAliasOpts(argv));
     return;
   }
 

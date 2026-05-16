@@ -142,9 +142,9 @@ export interface TmuxLsOpts {
   all?: boolean;
   /** JSON output for scripting. */
   json?: boolean;
-  /** Compact: one line per session. Default for `maw ls`. Use -v for full detail. */
+  /** Compact: one line per session. Top-level `maw ls -c` uses this mode. */
   compact?: boolean;
-  /** Verbose: full per-pane detail. Overrides --compact. */
+  /** Verbose: full per-pane detail. Top-level `maw ls` defaults to this mode. */
   verbose?: boolean;
   /** Roster: include sleeping oracles from ghq (compact mode only). */
   roster?: boolean;
@@ -302,7 +302,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
 
     console.log();
-    console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
+    console.log(`\x1b[90m  → maw ls       full detail\x1b[0m`);
     console.log();
     return;
   }

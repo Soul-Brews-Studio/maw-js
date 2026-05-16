@@ -10,7 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { resolvePluginMatch } from "../../src/cli/dispatch-match";
-import { ALIAS_DESCRIPTIONS, parseBringArgs, resolveTopAlias } from "../../src/cli/top-aliases";
+import { ALIAS_DESCRIPTIONS, parseBringArgs, parseLsAliasOpts, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
@@ -229,7 +229,7 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
 });
 
 describe("resolveTopAlias — RFC #954 verb aliases", () => {
-  test("`ls` → direct-handler cmdLs (compact, no roster)", () => {
+  test("`ls` → direct-handler cmdLs (detail default)", () => {
     const out = resolveTopAlias(["ls"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -239,7 +239,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`ls -a` → direct-handler cmdLs with -a (roster)", () => {
+  test("`ls -a` → direct-handler cmdLs with -a (compact roster)", () => {
     const out = resolveTopAlias(["ls", "-a"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -249,7 +249,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`ls -v` → direct-handler cmdLs with -v (verbose)", () => {
+  test("`ls -v` → direct-handler cmdLs with -v (no-op detail alias)", () => {
     const out = resolveTopAlias(["ls", "-v"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -257,6 +257,50 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       expect(out!.handler).toBe("cmdLs");
       expect(out!.argv).toEqual(["-v"]);
     }
+  });
+
+  test("#1556 parse ls opts: default and -v both render per-pane detail", () => {
+    expect(parseLsAliasOpts([])).toEqual({
+      all: true,
+      compact: false,
+      verbose: true,
+      roster: false,
+      json: false,
+    });
+    expect(parseLsAliasOpts(["-v"])).toEqual({
+      all: true,
+      compact: false,
+      verbose: true,
+      roster: false,
+      json: false,
+    });
+  });
+
+  test("#1556 parse ls opts: -c/--compact opt into condensed summary", () => {
+    expect(parseLsAliasOpts(["-c"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+    });
+    expect(parseLsAliasOpts(["--compact"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+    });
+  });
+
+  test("#1556 parse ls opts: -a keeps legacy compact roster behavior", () => {
+    expect(parseLsAliasOpts(["-a"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: true,
+      json: false,
+    });
   });
 
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
