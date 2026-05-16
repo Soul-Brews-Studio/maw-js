@@ -30,13 +30,20 @@ import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../.
  * error path surfaces correctly.
  */
 /** @internal */
-export async function resolveOraclePane(target: string): Promise<string> {
+export async function resolveOraclePane(
+  target: string,
+  deps: {
+    tmuxRun?: (...args: string[]) => Promise<string>;
+    isAgentCommandFn?: typeof isAgentCommand;
+  } = {},
+): Promise<string> {
   // Already pane-specific — honor caller's choice.
   if (/\.[0-9]+$/.test(target)) return target;
 
   try {
-    const t = new Tmux();
-    const raw = await t.run("list-panes", "-t", target, "-F", "#{pane_index} #{pane_current_command}");
+    const run = deps.tmuxRun ?? ((...args: string[]) => new Tmux().run(...args));
+    const isAgent = deps.isAgentCommandFn ?? isAgentCommand;
+    const raw = await run("list-panes", "-t", target, "-F", "#{pane_index} #{pane_current_command}");
     const lines = raw.split("\n").map((l: string) => l.trim()).filter(Boolean);
     if (lines.length <= 1) return target; // single-pane window: active pane is the only pane
 
@@ -46,7 +53,7 @@ export async function resolveOraclePane(target: string): Promise<string> {
       if (spaceIdx < 0) continue;
       const idx = parseInt(line.slice(0, spaceIdx), 10);
       const cmd = line.slice(spaceIdx + 1);
-      if (Number.isFinite(idx) && isAgentCommand(cmd)) {
+      if (Number.isFinite(idx) && isAgent(cmd)) {
         agentIndexes.push(idx);
       }
     }
@@ -108,9 +115,14 @@ function emitMessageFeed(input: MessageLifecycleInput, port: number) {
  * Errors and non-shell panes (running agent) conservatively return idle=true.
  * (#405 — idle guard before send-keys)
  */
-export async function checkPaneIdle(target: string, host?: string): Promise<{ idle: boolean; lastInput: string }> {
+export async function checkPaneIdle(
+  target: string,
+  host?: string,
+  deps: { captureFn?: typeof capture } = {},
+): Promise<{ idle: boolean; lastInput: string }> {
+  const capturePane = deps.captureFn ?? capture;
   try {
-    const content = await capture(target, 5, host);
+    const content = await capturePane(target, 5, host);
     const lines = content.split("\n").filter(l => l.trim());
     const lastLine = lines.at(-1) ?? "";
     // Strip ANSI escape codes
