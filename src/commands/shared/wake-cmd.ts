@@ -95,6 +95,15 @@ function isFreshSessionLookupRace(error: unknown, session: string): boolean {
   return message.includes(session) && /can't find (session|window|pane)/i.test(message);
 }
 
+async function recordWakeSnapshot(): Promise<void> {
+  try {
+    await takeSnapshot("wake");
+  } catch {
+    // Snapshotting is recovery metadata. A transient tmux/config read failure
+    // must not turn an otherwise-successful wake into a failed wake.
+  }
+}
+
 export async function getLiveTileRoles(
   session: string,
   deps: { hostExecFn?: typeof hostExec } = {},
@@ -502,6 +511,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
         await maybeOpenWindow(`${session}:${existingWindow}`, opts);
+        await recordWakeSnapshot();
         return `${session}:${existingWindow}`;
       }
       // Check if agent is actually alive in the pane
@@ -519,6 +529,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         }
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
+        await recordWakeSnapshot();
         return target;
       }
 
@@ -541,6 +552,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       }
       await maybeSplit(target, opts);
       await maybeOpenWindow(target, opts);
+      await recordWakeSnapshot();
       return target;
     }
   } catch { /* session might be fresh */ }
@@ -565,6 +577,6 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   await maybeSplit(`${session}:${windowName}`, opts);
   await maybeOpenWindow(`${session}:${windowName}`, opts);
 
-  takeSnapshot("wake").catch(() => {});
+  await recordWakeSnapshot();
   return `${session}:${windowName}`;
 }
