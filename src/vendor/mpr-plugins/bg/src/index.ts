@@ -9,10 +9,9 @@
  *   bg kill <slug> | --all                      reap session(s)
  *   bg gc [--dry-run] [--older-than DUR]        reap stale "done" sessions
  *
- * The host (`maw-js`) calls into this module with an array of argv tokens
- * (everything after `maw bg`). The default export returns an InvokeResult
- * shape compatible with `src/plugin/types` in maw-js — see the bundled
- * `wake` plugin for the closest behavioral cousin.
+ * The host (`maw-js`) may call this module with either an InvokeContext
+ * (`plugin/registry.ts`) or a raw argv array (legacy/new command registry
+ * paths). The default export normalizes both to "everything after maw bg".
  */
 
 import {
@@ -36,6 +35,17 @@ export interface InvokeResult {
   exitCode?: number;
 }
 
+type DualCtx = string[] | {
+  source?: "cli" | "api" | "peer";
+  args?: string[] | Record<string, unknown>;
+};
+
+function extractArgs(ctx: DualCtx): string[] {
+  if (Array.isArray(ctx)) return ctx;
+  if (ctx?.source === "cli" && Array.isArray(ctx.args)) return ctx.args;
+  return [];
+}
+
 const HELP = `maw bg — run long commands in detached tmux without blocking the current pane
 
 usage:
@@ -51,7 +61,8 @@ usage:
 slug refs accept full slug, hash suffix (4 hex), or unique stem prefix.
 `;
 
-export default async function handler(argv: string[]): Promise<InvokeResult> {
+export default async function handler(ctx: DualCtx): Promise<InvokeResult> {
+  const argv = extractArgs(ctx);
   try {
     if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
       return { ok: true, output: HELP };

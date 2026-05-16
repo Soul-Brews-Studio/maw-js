@@ -12,5 +12,18 @@
     "tmux"
   ],
   "schemaVersion": 1,
-  "entry": "./src/index.ts"
+  "entry": "./src/index.ts",
+  "cli": {
+    "command": "bg",
+    "help": "maw bg \"<cmd>\" [--name X] | maw bg <ls|tail|attach|kill|gc> [args] — run commands in detached tmux without blocking",
+    "flags": {
+      "--name": "string",
+      "--json": "boolean",
+      "--lines": "number",
+      "--follow": "boolean",
+      "--all": "boolean",
+      "--dry-run": "boolean",
+      "--older-than": "string"
+    }
+  }
 }

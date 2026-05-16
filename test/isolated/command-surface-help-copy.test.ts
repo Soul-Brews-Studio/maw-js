@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { formatUsage } from "../../src/cli/usage";
+import { loadManifestFromDir } from "../../src/plugin/manifest";
 
 function json<T = any>(rel: string): T {
   return JSON.parse(readFileSync(join(process.cwd(), rel), "utf8")) as T;
@@ -16,6 +18,12 @@ function desc(rel: string): string {
 
 function summary(rel: string): string {
   return json<{ summary?: string }>(rel).summary ?? "";
+}
+
+function plugin(rel: string) {
+  const loaded = loadManifestFromDir(join(process.cwd(), rel));
+  if (!loaded) throw new Error(`expected plugin at ${rel}`);
+  return loaded;
 }
 
 describe("#1531 command-surface help copy", () => {
@@ -54,6 +62,17 @@ describe("#1531 command-surface help copy", () => {
     expect(desc("src/vendor/mpr-plugins/tab/plugin.json")).toContain("peek a tab");
     expect(desc("src/vendor/mpr-plugins/bg/plugin.json")).toContain("without blocking");
     expect(desc("src/vendor/mpr-plugins/rename/plugin.json")).toContain("Oracle-prefix");
+    expect(help("src/vendor/mpr-plugins/bg/plugin.json")).toContain("maw bg");
+    expect(help("src/vendor/mpr-plugins/rename/plugin.json")).toContain("maw tab");
+  });
+
+  test("bg and rename explicit cli metadata makes them visible in top-level usage", () => {
+    const usage = formatUsage([
+      plugin("src/vendor/mpr-plugins/bg"),
+      plugin("src/vendor/mpr-plugins/rename"),
+    ]);
+    expect(usage).toContain("maw bg");
+    expect(usage).toContain("maw rename");
   });
 
   test("vendored registry summaries mirror updated manifest descriptions", () => {

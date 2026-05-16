@@ -12,5 +12,9 @@
     "tmux"
   ],
   "schemaVersion": 1,
-  "entry": "./src/index.ts"
+  "entry": "./src/index.ts",
+  "cli": {
+    "command": "rename",
+    "help": "maw rename <tab# or name> <new-name> — rename a tmux tab/window; see maw tab to list tabs"
+  }
 }
