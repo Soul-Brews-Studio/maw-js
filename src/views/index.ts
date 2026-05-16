@@ -3,6 +3,7 @@ import { federationView } from "./federation";
 import { timemachineView } from "./timemachine";
 import { demoView } from "./demo";
 import { infoView } from "./info";
+import { messagesView } from "./messages";
 
 // UI moved to Soul-Brews-Studio/maw-ui (dev server on :5173).
 // Only keep standalone HTML views that are self-contained.
@@ -11,4 +12,5 @@ export function mountViews(app: Hono) {
   app.route("/demo", demoView);
   app.route("/timemachine", timemachineView);
   app.route("/federation", federationView);
+  app.route("/messages", messagesView);
 }

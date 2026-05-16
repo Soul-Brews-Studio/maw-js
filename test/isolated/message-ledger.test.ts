@@ -5,6 +5,7 @@ import { join } from "path";
 import { buildMessageLifecycleFeedEvent } from "../../src/lib/message-events";
 import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
 import { onEvent } from "../../src/vendor/mpr-plugins/messages/index";
+import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
 
 let tmp: string;
@@ -104,5 +105,24 @@ describe("messages plugin ledger", () => {
     expect(listMessageLedgerEvents({ direction: "inbound" })).toMatchObject([
       { id: "m3", state: "delivered", lastLine: "received" },
     ]);
+  });
+});
+
+describe("messages browser view", () => {
+  test("serves a standalone page backed by /api/messages", async () => {
+    const response = await messagesView.request("/");
+    const html = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(html).toContain("maw messages");
+    expect(html).toContain("/api/messages");
+    expect(html).toContain("message ledger");
+  });
+
+  test("renders ledger rows with textContent, not innerHTML", () => {
+    const html = messagesHtml();
+
+    expect(html).toContain("textContent");
+    expect(html).not.toContain("innerHTML");
   });
 });
