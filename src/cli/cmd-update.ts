@@ -10,13 +10,14 @@ import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
 import { withUpdateLock } from "./update-lock";
 
-function clearBunGlobalResolverState(): () => void {
+/** @internal exported for default-run coverage tests. */
+export function clearBunGlobalResolverState(home = homedir()): () => void {
   // #1449 — Bun can reject `bun add -g github:...#newRef` before it mutates
   // anything when the global package.json/lock still pins maw-js to a
   // different GitHub ref. Remove only resolver metadata before the *first*
   // install attempt; keep the current bin + node_modules in place so a
   // network/auth failure still leaves the running maw usable.
-  const bunGlobal = join(homedir(), ".bun", "install", "global");
+  const bunGlobal = join(home, ".bun", "install", "global");
   const globalPkg = join(bunGlobal, "package.json");
   let pkgBackup: string | null = null;
   try {
@@ -36,7 +37,7 @@ function clearBunGlobalResolverState(): () => void {
     }
   } catch {}
   try {
-    const cacheDir = join(homedir(), ".bun", "install", "cache");
+    const cacheDir = join(home, ".bun", "install", "cache");
     if (existsSync(cacheDir)) {
       for (const entry of readdirSync(cacheDir)) {
         if (entry.includes("maw-js")) {
@@ -52,11 +53,13 @@ function clearBunGlobalResolverState(): () => void {
   };
 }
 
-function isPluginSourceDir(dir: string): boolean {
+/** @internal exported for default-run coverage tests. */
+export function isPluginSourceDir(dir: string): boolean {
   return existsSync(join(dir, "plugin.json")) || existsSync(join(dir, "index.ts"));
 }
 
-function linkBundledPluginRoots(pluginDir: string, roots: string[]): number {
+/** @internal exported for default-run coverage tests. */
+export function linkBundledPluginRoots(pluginDir: string, roots: string[]): number {
   let refreshed = 0;
   for (const root of roots) {
     if (!existsSync(root)) continue;
@@ -73,7 +76,8 @@ function linkBundledPluginRoots(pluginDir: string, roots: string[]): number {
   return refreshed;
 }
 
-function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { healed: number; pruned: number } {
+/** @internal exported for default-run coverage tests. */
+export function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { healed: number; pruned: number } {
   let healed = 0;
   let pruned = 0;
   for (const entry of readdirSync(pluginDir)) {
