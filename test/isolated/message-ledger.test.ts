@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildMessageLifecycleFeedEvent } from "../../src/lib/message-events";
 import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
-import { messagesEngineFetch, onEvent } from "../../src/vendor/mpr-plugins/messages/index";
+import messagesHandler, { messagesEngineFetch, onEvent } from "../../src/vendor/mpr-plugins/messages/index";
 import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
 
@@ -166,5 +166,63 @@ describe("messages engine serve surface", () => {
       source: "sqlite",
       messages: [{ id: "engine-1", text: "engine event" }],
     });
+  });
+});
+
+describe("messages engine supervisor CLI", () => {
+  function engineStub(registrations: Array<Record<string, unknown>> = []) {
+    return Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname === "/api/_engine/registrations") {
+          return Response.json({ ok: true, registrations });
+        }
+        if (req.method === "POST" && url.pathname === "/api/_engine/unregister") {
+          registrations.length = 0;
+          return Response.json({ ok: true, removed: true });
+        }
+        return Response.json({ ok: false, error: "not_found" }, { status: 404 });
+      },
+    });
+  }
+
+  test("reports stopped detached status with supervisor paths", async () => {
+    process.env.MAW_HOME = tmp;
+    const engine = engineStub();
+    try {
+      const result = await messagesHandler({
+        source: "cli",
+        args: ["status", "--engine", `http://127.0.0.1:${engine.port}`],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("maw messages serve: stopped");
+      expect(result.output).toContain(`engine: http://127.0.0.1:${engine.port}`);
+      expect(result.output).toContain(join(tmp, "engine-plugins", "messages.log"));
+    } finally {
+      engine.stop(true);
+    }
+  });
+
+  test("stop removes stale detached pid files", async () => {
+    process.env.MAW_HOME = tmp;
+    mkdirSync(join(tmp, "engine-plugins"), { recursive: true });
+    const stalePidFile = join(tmp, "engine-plugins", "messages.pid");
+    writeFileSync(stalePidFile, "999999\n", "utf-8");
+    const engine = engineStub();
+    try {
+      const result = await messagesHandler({
+        source: "cli",
+        args: ["stop", "--engine", `http://127.0.0.1:${engine.port}`],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("maw messages serve already stopped");
+      expect(result.output).toContain("removed stale pid file");
+      expect(existsSync(stalePidFile)).toBe(false);
+    } finally {
+      engine.stop(true);
+    }
   });
 });

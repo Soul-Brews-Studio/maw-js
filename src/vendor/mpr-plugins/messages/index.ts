@@ -2,6 +2,10 @@ import type { FeedEvent } from "maw-js/lib/feed";
 import { isMessageLifecycleData, type MessageDirection, type MessageState } from "maw-js/lib/message-events";
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent, type MessageLedgerQuery } from "./ledger";
+import { spawn } from "child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 
 const ENGINE_PREFIX = "/api/message-ledger";
 const ENGINE_EVENTS = ["MessageSend", "MessageDeliver", "MessageFail"];
@@ -109,6 +113,99 @@ function parsePort(args: string[]): number {
   return port;
 }
 
+function activeMawHome(): string {
+  return process.env.MAW_HOME || join(homedir(), ".maw");
+}
+
+function supervisorDir(): string {
+  return join(activeMawHome(), "engine-plugins");
+}
+
+function pidPath(): string {
+  return join(supervisorDir(), "messages.pid");
+}
+
+function logPath(): string {
+  return join(supervisorDir(), "messages.log");
+}
+
+function ensureSupervisorDir(): void {
+  mkdirSync(supervisorDir(), { recursive: true });
+}
+
+function readPid(): number | null {
+  try {
+    const pid = Number(readFileSync(pidPath(), "utf-8").trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePid(pid: number): void {
+  ensureSupervisorDir();
+  writeFileSync(pidPath(), `${pid}\n`, "utf-8");
+}
+
+function removePidFile(): void {
+  try {
+    unlinkSync(pidPath());
+  } catch {
+    // Best-effort cleanup: stale pid files should not make stop/status fail.
+  }
+}
+
+function isAlive(pid: number | null): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    return err?.code === "EPERM";
+  }
+}
+
+function tailLog(maxBytes = 1200): string {
+  try {
+    const raw = readFileSync(logPath());
+    return raw.subarray(Math.max(0, raw.length - maxBytes)).toString("utf-8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function currentMawCommand(): { command: string; argsPrefix: string[] } {
+  if (process.argv[0] && process.argv[1]) return { command: process.argv[0], argsPrefix: [process.argv[1]] };
+  return { command: "maw", argsPrefix: [] };
+}
+
+async function engineRegistration(engineUrl: string): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`${engineUrl}/api/_engine/registrations`, { signal: AbortSignal.timeout(1_000) });
+  if (!response.ok) return null;
+  const body = await response.json() as { registrations?: Array<Record<string, unknown>> };
+  return body.registrations?.find((registration) => registration.plugin === "messages") ?? null;
+}
+
+async function waitForRegistration(engineUrl: string, wantPresent: boolean, timeoutMs = 2_500): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const present = Boolean(await engineRegistration(engineUrl).catch(() => null));
+    if (present === wantPresent) return true;
+    await Bun.sleep(100);
+  }
+  return false;
+}
+
+async function waitForPidExit(pid: number | null, timeoutMs = 2_500): Promise<boolean> {
+  if (!pid) return true;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true;
+    await Bun.sleep(100);
+  }
+  return !isAlive(pid);
+}
+
 function isRecordableMessageEvent(event: unknown): event is FeedEvent {
   if (!event || typeof event !== "object") return false;
   const e = event as FeedEvent;
@@ -161,6 +258,8 @@ async function unregisterFromEngine(engineUrl: string): Promise<void> {
 
 async function serveEngine(ctx: InvokeContext, args: string[]): Promise<InvokeResult> {
   const logs: string[] = [];
+  if (args.includes("--detach")) return detachEngine(ctx, args.filter((arg) => arg !== "--detach"));
+
   const engineUrl = engineUrlFromArgs(args);
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -195,10 +294,138 @@ async function serveEngine(ctx: InvokeContext, args: string[]): Promise<InvokeRe
   return { ok: true, output: logs.join("\n") };
 }
 
+async function detachEngine(ctx: InvokeContext, args: string[]): Promise<InvokeResult> {
+  const logs: string[] = [];
+  const engineUrl = engineUrlFromArgs(args);
+  const existingPid = readPid();
+  const existingRegistration = await engineRegistration(engineUrl).catch(() => null);
+  if (isAlive(existingPid) && existingRegistration) {
+    return {
+      ok: true,
+      output: `maw messages serve already running (PID ${existingPid}, ${ENGINE_PREFIX} registered)\nlog: ${logPath()}`,
+    };
+  }
+  if (isAlive(existingPid) && !existingRegistration) {
+    try {
+      process.kill(existingPid!, "SIGTERM");
+    } catch {
+      removePidFile();
+    }
+    if (!(await waitForPidExit(existingPid, 1_000))) {
+      return {
+        ok: false,
+        error: `maw messages serve has a live PID ${existingPid} but ${ENGINE_PREFIX} is not registered on ${engineUrl}\nrun: maw messages stop --engine ${engineUrl}`,
+      };
+    }
+    removePidFile();
+  }
+  if (existingPid && !isAlive(existingPid)) removePidFile();
+
+  ensureSupervisorDir();
+  const outFd = openSync(logPath(), "a");
+  const childArgs = ["messages", "serve"];
+  const engine = readOption(args, "--engine");
+  const port = readOption(args, "--port");
+  if (engine) childArgs.push("--engine", engine);
+  if (port) childArgs.push("--port", port);
+
+  const maw = currentMawCommand();
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(maw.command, [...maw.argsPrefix, ...childArgs], {
+      detached: true,
+      stdio: ["ignore", outFd, outFd],
+      env: {
+        ...process.env,
+        MAW_ENGINE_URL: engineUrl,
+      },
+    });
+  } catch (err) {
+    closeSync(outFd);
+    return { ok: false, error: `failed to spawn maw messages serve: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  closeSync(outFd);
+  if (!child.pid) {
+    return { ok: false, error: `failed to spawn maw messages serve: no child PID\nlog: ${logPath()}` };
+  }
+  child.unref();
+  writePid(child.pid);
+
+  const registered = await waitForRegistration(engineUrl, true);
+  if (!registered) {
+    return {
+      ok: false,
+      error: [
+        `maw messages serve --detach did not register ${ENGINE_PREFIX}`,
+        `pid: ${child.pid}`,
+        `log: ${logPath()}`,
+        tailLog() ? `tail:\n${tailLog()}` : "",
+      ].filter(Boolean).join("\n"),
+    };
+  }
+
+  emit(ctx, logs, `maw messages serve detached (PID ${child.pid})`);
+  emit(ctx, logs, `registered: ${ENGINE_PREFIX} on ${engineUrl}`);
+  emit(ctx, logs, `log: ${logPath()}`);
+  return { ok: true, output: logs.join("\n") };
+}
+
+async function statusEngine(args: string[]): Promise<InvokeResult> {
+  const engineUrl = engineUrlFromArgs(args);
+  const pid = readPid();
+  const alive = isAlive(pid);
+  const registration = await engineRegistration(engineUrl).catch(() => null);
+  const lines = [
+    `maw messages serve: ${alive ? "running" : "stopped"}${pid ? ` (PID ${pid})` : ""}`,
+    `engine: ${engineUrl}`,
+    `registered: ${registration ? `${registration.prefix ?? ENGINE_PREFIX} → ${registration.upstream ?? "unknown"}` : "no"}`,
+    `db: ${messageLedgerDbPath()}`,
+    `log: ${logPath()}`,
+  ];
+  if (!alive && pid && existsSync(pidPath())) lines.push("note: stale pid file present");
+  return { ok: true, output: lines.join("\n") };
+}
+
+async function stopEngine(args: string[]): Promise<InvokeResult> {
+  const engineUrl = engineUrlFromArgs(args);
+  const pid = readPid();
+  const lines: string[] = [];
+  if (isAlive(pid)) {
+    try {
+      process.kill(pid!, "SIGTERM");
+      lines.push(`sent SIGTERM to PID ${pid}`);
+    } catch (err) {
+      lines.push(`PID ${pid} was already gone (${err instanceof Error ? err.message : String(err)})`);
+      removePidFile();
+    }
+    if (await waitForPidExit(pid)) {
+      lines.push(`stopped PID ${pid}`);
+      removePidFile();
+    } else {
+      return { ok: false, error: [...lines, `PID ${pid} did not exit after SIGTERM`, `log: ${logPath()}`].join("\n") };
+    }
+  } else {
+    lines.push("maw messages serve already stopped");
+    if (pid && existsSync(pidPath())) {
+      removePidFile();
+      lines.push("removed stale pid file");
+    }
+  }
+
+  const unregistered = await waitForRegistration(engineUrl, false);
+  if (!unregistered) {
+    await unregisterFromEngine(engineUrl);
+    lines.push(`forced unregister ${ENGINE_PREFIX}`);
+  }
+  return { ok: true, output: lines.join("\n") };
+}
+
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult & Record<string, unknown>> {
   const logs: string[] = [];
   const args = cliArgs(ctx);
   if (args[0] === "serve") return serveEngine(ctx, args.slice(1));
+  if (args[0] === "status") return statusEngine(args.slice(1));
+  if (args[0] === "stop") return stopEngine(args.slice(1));
 
   const query = queryFrom(ctx);
   const rows = listMessageLedgerEvents(query);

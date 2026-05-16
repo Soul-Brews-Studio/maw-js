@@ -43,8 +43,9 @@
       "message-log",
       "hey-log"
     ],
-    "help": "maw messages [serve [--engine URL] [--port N] | --limit N --from ID --to ID --direction outbound|inbound|forwarded --state queued|delivered|failed --q text --json] \u2014 query or serve the message ledger",
+    "help": "maw messages [serve [--detach] [--engine URL] [--port N] | status [--engine URL] | stop [--engine URL] | --limit N --from ID --to ID --direction outbound|inbound|forwarded --state queued|delivered|failed --q text --json] \u2014 query or serve the message ledger",
     "flags": {
+      "--detach": "boolean",
       "--engine": "string",
       "--limit": "number",
       "--port": "number",
