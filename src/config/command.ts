@@ -60,6 +60,17 @@ export interface BuildCommandOpts {
    * pane lands at an empty shell with the prompt discarded.
    */
   fresh?: boolean;
+  /**
+   * First-message prompt for the agent. Baked into the command as
+   * `-p '<escaped>'` — INSIDE the `{ … }` brace group and BEFORE the
+   * `; <reset>` suffix. Appending `-p` to buildCommand()'s *return value*
+   * (the pre-#541 pattern, reintroduced by the LOC-round-4 refactor) puts
+   * the flag on the trailing `clear`, not on `claude`, so the prompt is
+   * silently dropped and the pane lands idle at an empty input box. When
+   * the `||` fallback is emitted the prompt is baked into BOTH branches so
+   * it lands regardless of which one runs.
+   */
+  prompt?: string;
 }
 
 export function buildCommand(agentName: string, optsOrEngine?: string | BuildCommandOpts): string {
@@ -170,15 +181,26 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // Reset terminal after Claude TUI exits — prevents frozen prompt (#1091)
   const reset = 'printf "\\e[?1049l\\e[0m"; stty sane 2>/dev/null; clear';
 
+  // Bake the first-message prompt into the agent command. This MUST happen
+  // before the `; ${reset}` suffix is appended and, for the fallback form,
+  // inside the `{ … }` brace group on BOTH branches — otherwise `-p` lands
+  // on the trailing `clear` and the prompt is silently lost (#wake-no-prompt
+  // regression: watcher wakes landed idle at an empty input box).
+  const withPrompt = (c: string): string => {
+    if (!opts.prompt) return c;
+    const escaped = opts.prompt.replace(/'/g, "'\\''");
+    return `${c} -p '${escaped}'`;
+  };
+
   // Skip the || fallback for fresh runs — the cmd has no --continue/--resume
   // so there's nothing to fall back from.
   if (!opts.fresh && (cmd.includes("--continue") || cmd.includes("--resume"))) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    return `{ ${cmd} || ${fallback}; }; ${reset}`;
+    return `{ ${withPrompt(cmd)} || ${withPrompt(fallback)}; }; ${reset}`;
   }
 
-  return `${cmd}; ${reset}`;
+  return `${withPrompt(cmd)}; ${reset}`;
 }
 
 /**

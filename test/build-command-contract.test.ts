@@ -117,8 +117,12 @@ describe("buildCommand — post-#541 contract", () => {
 
   test("buildCommandInDir returns buildCommand verbatim (no cd preamble; #1091 reset is part of contract now)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
-    const direct = buildCommand("foo");
-    const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
+    // Pin `fresh` so the buildCommandInDir auto-fresh JSONL probe (#54263ef)
+    // doesn't diverge from buildCommand for a cwd that happens to have no
+    // continuable session — this test is about the no-`cd`-preamble contract,
+    // not the probe (the probe has its own coverage).
+    const direct = buildCommand("foo", { fresh: false });
+    const inDir = buildCommandInDir("foo", "/tmp/some where/nested", { fresh: false });
     expect(inDir).toBe(direct);
     expect(inDir).not.toContain("cd ");
   });
@@ -203,5 +207,53 @@ describe("buildCommand — post-#541 contract", () => {
         expect(inDir.startsWith("cd ")).toBe(false);
       }
     }
+  });
+});
+
+// Prompt baking — regression guard for the directed-inbox `failed_no_prompt`
+// silent-fail. The LOC-round-4 refactor dropped `prompt` from buildCommand and
+// reintroduced the pre-#541 pattern of appending ` -p '…'` to the *return
+// value* of buildCommand — which puts the flag AFTER the `; <reset>` suffix,
+// so `-p` lands on the trailing `clear`, not `claude`. The agent wakes idle at
+// an empty input box. buildCommand must bake the prompt INSIDE the command.
+describe("buildCommand — prompt baking (#wake-no-prompt regression)", () => {
+  test("bare claude default: prompt baked into BOTH || fallback branches", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommand("any-agent", { prompt: "hello world" })).toBe(
+      wrapFallback("claude --continue -p 'hello world'", "claude -p 'hello world'"),
+    );
+  });
+
+  test("fresh run: prompt baked before the reset suffix (no fallback)", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("any-agent", { fresh: true, prompt: "do the thing" });
+    expect(out).toBe(wrap("claude -p 'do the thing'"));
+    // -p must precede the reset suffix — never trail `clear`.
+    expect(out).not.toMatch(/clear\s+-p/);
+    expect(out.indexOf("-p '")).toBeLessThan(out.indexOf("; printf"));
+  });
+
+  test("-p sits inside the brace group, never after the closing `}`", () => {
+    fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
+    const out = buildCommand("any-agent", { prompt: "task" });
+    expect(out.indexOf("-p 'task'")).toBeLessThan(out.indexOf("; }"));
+    expect(out).not.toMatch(/\}\S*\s*-p/);
+  });
+
+  test("single quotes in the prompt are shell-escaped", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("any-agent", { fresh: true, prompt: "it's a 'quoted' task" });
+    expect(out).toBe(wrap("claude -p 'it'\\''s a '\\''quoted'\\'' task'"));
+  });
+
+  test("no prompt → command is byte-identical to the prompt-less form", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommand("any-agent", { prompt: undefined })).toBe(buildCommand("any-agent"));
+  });
+
+  test("buildCommandInDir forwards the prompt opt", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommandInDir("foo", "/tmp/x", { fresh: true, prompt: "hi" }))
+      .toBe(wrap("claude -p 'hi'"));
   });
 });

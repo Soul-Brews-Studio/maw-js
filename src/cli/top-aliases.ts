@@ -194,9 +194,19 @@ export async function invokeDirectHandler(
       allLocal?: boolean;
       engine?: string;
     } = {};
-    if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
+    // `--task` is the fire-and-forget PROMPT flag (see wake-flags.test.ts —
+    // "--task sets prompt and noAttach, no window label created"). The
+    // LOC-round-4 refactor wrongly routed it to `opts.task` (a worktree-name
+    // selector), so every watcher that delivers a prompt via `--task`
+    // (inbox-watcher, w2-watcher) had its prompt silently dropped and woke
+    // agents idle. Restore the contract: `--task` → prompt + fire-and-forget.
+    // `--prompt`/`-p` wins if both are supplied.
+    if (flags["--task"] && !opts.prompt) {
+      opts.prompt = flags["--task"];
+      opts.noAttach = true;
+    }
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
     if (flags["--resume"]) opts.resume = flags["--resume"];

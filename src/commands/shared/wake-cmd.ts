@@ -266,8 +266,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     if (existingWindow) {
       if (opts.prompt) {
         await tmux.selectWindow(`${session}:${existingWindow}`);
-        const escaped = opts.prompt.replace(/'/g, "'\\''");
-        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine)} -p '${escaped}'`);
+        // Prompt is baked into the command by buildCommand (inside the brace
+        // group, before the reset suffix). Do NOT append ` -p '…'` here — it
+        // would land on the trailing `clear` and the prompt would be lost.
+        await tmux.sendText(`${session}:${existingWindow}`, buildCommandInDir(existingWindow, targetPath, { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }));
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
@@ -301,13 +303,14 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  const cmd = buildCommandInDir(windowName, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine);
-  if (opts.prompt) {
-    const escaped = opts.prompt.replace(/'/g, "'\\''");
-    await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);
-  } else {
-    await tmux.sendText(`${session}:${windowName}`, cmd);
-  }
+  // Prompt (when set) is baked into the command by buildCommand — inside the
+  // brace group, before the reset suffix. Appending ` -p '…'` to the returned
+  // string puts the flag on the trailing `clear`, not `claude`, so the prompt
+  // never reaches the agent (the directed-inbox `failed_no_prompt` regression).
+  const cmd = buildCommandInDir(windowName, targetPath, opts.resume || opts.fresh || opts.prompt
+    ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }
+    : opts.engine);
+  await tmux.sendText(`${session}:${windowName}`, cmd);
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
   if (opts.attach) await attachToSession(session);
