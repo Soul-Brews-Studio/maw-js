@@ -68,6 +68,7 @@
     "./cli/parse-args": "./src/cli/parse-args.ts",
     "./plugin/types": "./src/plugin/types.ts",
     "./plugin/manifest": "./src/plugin/manifest.ts",
+    "./plugin/lifecycle": "./src/plugin/lifecycle.ts",
     "./plugin/registry": "./src/plugin/registry.ts",
     "./core/consent": "./src/core/consent/index.ts",
     "./core/fleet/audit": "./src/core/fleet/audit.ts",

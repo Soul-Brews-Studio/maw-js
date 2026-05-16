@@ -19,6 +19,8 @@ export interface PluginLifecycleContext {
   plugin: { name: string; dir: string };
   oracle?: string;
   session?: string;
+  window?: string;
+  target?: string;
   repoPath?: string;
   repoName?: string;
   ensures?: string[];
@@ -29,6 +31,13 @@ export interface WakeLifecycleContextInput {
   session: string;
   repoPath: string;
   repoName: string;
+}
+
+export interface SleepLifecycleContextInput {
+  oracle: string;
+  session: string;
+  window: string;
+  target: string;
 }
 
 export interface LifecycleRunSummary {
@@ -136,4 +145,11 @@ export function runWakeLifecycleHooks(
   discover?: LifecycleDiscover,
 ): Promise<LifecycleRunSummary> {
   return runLifecycleHooks("wake", context, discover);
+}
+
+export function runSleepLifecycleHooks(
+  context: SleepLifecycleContextInput,
+  discover?: LifecycleDiscover,
+): Promise<LifecycleRunSummary> {
+  return runLifecycleHooks("sleep", context, discover);
 }

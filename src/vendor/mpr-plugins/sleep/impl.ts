@@ -6,6 +6,7 @@ import { appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { takeSnapshot } from "maw-js/sdk";
+import { runSleepLifecycleHooks } from "maw-js/plugin/lifecycle";
 import { resolveSleepTarget } from "./resolve-target";
 
 /**
@@ -43,6 +44,12 @@ export async function cmdSleepOne(target: string, windowOverride?: string) {
 
   // Save tab order before sleeping (so wake can restore positions)
   await saveTabOrder(session);
+  await runSleepLifecycleHooks({
+    oracle: target,
+    target,
+    session,
+    window: windowName,
+  });
 
   await doSleep(session, windowName, target);
 }

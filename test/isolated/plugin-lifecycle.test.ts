@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { LoadedPlugin } from "../../src/plugin/types";
-import { runLifecycleHooks, runWakeLifecycleHooks } from "../../src/plugin/lifecycle";
+import { runLifecycleHooks, runSleepLifecycleHooks, runWakeLifecycleHooks } from "../../src/plugin/lifecycle";
 
 const tempDirs: string[] = [];
 
@@ -95,6 +95,25 @@ describe("plugin lifecycle hooks (#1576)", () => {
 
     expect(summary).toEqual({ phase: "wake", ran: 1, skipped: 0, failed: 0 });
     expect(readFileSync(log, "utf8")).toBe("scripted:storage:sqlite\n");
+  });
+
+  test("sleep hooks receive resolved session/window context", async () => {
+    const log = makeLog();
+    const plugin = makePlugin("sleeper", {
+      hook: { sleep: { script: "cleanup.ts", handler: "onSleep" } },
+      files: {
+        "index.ts": "export function sleep() { throw new Error('entry should not run') }\n",
+        "cleanup.ts": `export function onSleep(ctx) { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, [ctx.oracle, ctx.target, ctx.session, ctx.window, ctx.phase].join(":") + "\\n"); }\n`,
+      },
+    });
+
+    const summary = await runSleepLifecycleHooks(
+      { oracle: "mawjs", target: "mawjs", session: "54-mawjs", window: "mawjs-oracle" },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "sleep", ran: 1, skipped: 0, failed: 0 });
+    expect(readFileSync(log, "utf8")).toBe("mawjs:mawjs:54-mawjs:mawjs-oracle:sleep\n");
   });
 
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {

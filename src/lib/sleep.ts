@@ -20,6 +20,7 @@ import { detectSession } from "../commands/shared/wake";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { runSleepLifecycleHooks } from "../plugin/lifecycle";
 
 export async function cmdSleepOne(oracle: string, window?: string) {
   const session = await detectSession(oracle);
@@ -31,6 +32,12 @@ export async function cmdSleepOne(oracle: string, window?: string) {
 
   // Save tab order before sleeping (so wake can restore positions)
   await saveTabOrder(session);
+  await runSleepLifecycleHooks({
+    oracle,
+    target: oracle,
+    session,
+    window: windowName,
+  });
 
   let windows;
   try {
