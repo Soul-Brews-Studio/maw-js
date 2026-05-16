@@ -366,6 +366,16 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.scaffold).toContain("skeleton");
   });
 
+  test("`snapshots list --json` → fleet snapshots top-level alias", () => {
+    const out = resolveTopAlias(["snapshots", "list", "--json"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") {
+      expect(out!.argv).toEqual(["fleet", "snapshots", "list", "--json"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.snapshots).toContain("recovery snapshots");
+  });
+
   test("`bring neo` defaults to v1 split-and-attach mode", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });

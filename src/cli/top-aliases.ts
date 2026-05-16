@@ -53,6 +53,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   new: "Create a new oracle (friendly door for awaken)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
+  snapshots: "List and inspect fleet recovery snapshots",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -86,6 +87,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
+  snapshots: ["fleet", "snapshots"],
 };
 
 /**
