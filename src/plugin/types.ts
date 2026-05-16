@@ -40,6 +40,9 @@ export interface PluginManifest {
   sdk: string;            // semver range e.g. "^1.0.0"
   target?: PluginTarget;  // compile target (Phase A: "js" only)
   capabilities?: string[];// declared capability strings "namespace:verb" (advisory in Phase A)
+  dependencies?: {        // other maw plugins this plugin needs before dispatch
+    plugins?: string[];
+  };
   artifact?: PluginArtifact; // built-plugin artifact descriptor
   cli?: {
     command: string;

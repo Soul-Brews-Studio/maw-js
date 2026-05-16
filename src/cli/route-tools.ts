@@ -2,8 +2,8 @@
 // pass through invokePlugin, so they need their own --help guard to prevent
 // `maw plugin list --help` / `maw agents --help` from running real work.
 const CORE_HELP: Record<string, string> = {
-  plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name>|disable <name>] [--json] [--all] [--force]",
-  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable|disable> [args]",
+  plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name...>|disable <name>] [--json] [--all] [--force]",
+  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]",
   artifacts: "usage: maw artifacts [ls|get] [team] [task-id] [--json]",
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",

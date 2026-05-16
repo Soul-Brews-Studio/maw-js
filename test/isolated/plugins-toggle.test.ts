@@ -135,6 +135,14 @@ function plug(name: string, weight?: number, cli?: LoadedPlugin["manifest"]["cli
   } as LoadedPlugin;
 }
 
+function plugWithDeps(name: string, deps: string[]): LoadedPlugin {
+  const p = plug(name);
+  return {
+    ...p,
+    manifest: { ...p.manifest, dependencies: { plugins: deps } },
+  } as LoadedPlugin;
+}
+
 // ─── nuke-test scratch home ─────────────────────────────────────────────────
 
 const nukeHomes: string[] = [];
@@ -248,6 +256,26 @@ describe("doEnable — enable branch", () => {
     expect(saveConfigCalls).toEqual([{ disabledPlugins: [] }]);
     expect(resetDiscoverCacheCalls).toBe(1);
     expect(outs.join("\n")).toContain("enabled about");
+  });
+
+  test("#1547 — enable includes disabled plugin dependencies before target", () => {
+    configStore = { disabledPlugins: ["trace", "dig", "foo"] };
+    discoverPackagesReturn = [plug("trace"), plug("dig"), plugWithDeps("foo", ["trace", "dig"])];
+
+    run(() => doEnable("foo"));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: [] }]);
+    expect(outs.join("\n")).toContain("enabled trace, dig, foo");
+  });
+
+  test("#1547 — enable accepts multiple plugin names", () => {
+    configStore = { disabledPlugins: ["trace", "dig", "other"] };
+    discoverPackagesReturn = [plug("trace"), plug("dig"), plug("other")];
+
+    run(() => doEnable(["trace", "dig"]));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: ["other"] }]);
+    expect(outs.join("\n")).toContain("enabled trace, dig");
   });
 
   test("preserves OTHER disabled plugins unchanged", () => {

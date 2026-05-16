@@ -76,6 +76,18 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   }
   if (dispatch.kind === "match") {
     const matchedWords = dispatch.matchedName.split(/\s+/).filter(Boolean).length;
+    const { dependencyStatus } = await import("../plugin/dependencies");
+    const deps = dependencyStatus(dispatch.plugin, plugins);
+    if (deps.missing.length > 0) {
+      console.error(`\x1b[31m✗\x1b[0m '${dispatch.matchedName}' needs missing plugins: ${deps.missing.join(", ")}`);
+      console.error("  Install or link them, then retry.");
+      throw new UserError(`missing plugin dependency: ${dispatch.matchedName}`);
+    }
+    if (deps.disabled.length > 0) {
+      console.error(`\x1b[31m✗\x1b[0m '${dispatch.matchedName}' needs disabled plugins: ${deps.disabled.join(", ")}`);
+      console.error(`  Run: maw plugin enable ${deps.disabled.join(" ")}`);
+      throw new UserError(`disabled plugin dependency: ${dispatch.matchedName}`);
+    }
     const remaining = args.slice(matchedWords);
     const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining });
     if (result.ok && result.output) console.log(result.output);
@@ -90,8 +102,13 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   );
   if (disabledDispatch.kind === "match") {
     const pluginName = disabledDispatch.plugin.manifest.name;
-    console.error(`\x1b[31m✗\x1b[0m '${args[0]}' is installed but disabled.`);
-    console.error(`  Run: maw plugin enable ${pluginName}`);
+    const { enablePlanFor } = await import("../plugin/dependencies");
+    const plan = enablePlanFor(disabledDispatch.plugin, plugins, true);
+    const label = args[0].toLowerCase() === pluginName.toLowerCase()
+      ? `'${args[0]}' is installed but disabled.`
+      : `'${args[0]}' is provided by disabled plugin '${pluginName}'.`;
+    console.error(`\x1b[31m✗\x1b[0m ${label}`);
+    console.error(`  Run: maw plugin enable ${(plan.length ? plan : [pluginName]).join(" ")}`);
     throw new UserError(`disabled command: ${args[0]}`);
   }
   if (disabledDispatch.kind === "ambiguous") {

@@ -68,8 +68,8 @@ export async function cmdPlugins(
       }
       return doRemove(name, discover);
     case "enable": {
-      if (!name) { console.error("usage: maw plugin enable <name>"); process.exit(1); }
-      return doEnable(name);
+      if (!name) { console.error("usage: maw plugin enable <name> [more...]"); process.exit(1); }
+      return doEnable(flags._);
     }
     case "disable": {
       if (!name) { console.error("usage: maw plugin disable <name>"); process.exit(1); }

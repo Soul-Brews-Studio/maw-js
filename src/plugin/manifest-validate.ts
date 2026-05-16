@@ -4,7 +4,7 @@
  */
 
 import type { PluginManifest, PluginTier } from "./types";
-import { KNOWN_CAPABILITY_NAMESPACES } from "./manifest-constants";
+import { KNOWN_CAPABILITY_NAMESPACES, NAME_RE } from "./manifest-constants";
 import { getRuntimeVersionString } from "../core/runtime/build-info";
 
 const VALID_TIERS = new Set<PluginTier>(["core", "standard", "extra"]);
@@ -177,6 +177,27 @@ export function parseCapabilities(r: Record<string, unknown>): PluginManifest["c
     }
   }
   return capabilities;
+}
+
+export function parseDependencies(r: Record<string, unknown>): PluginManifest["dependencies"] {
+  if (r.dependencies === undefined) return undefined;
+
+  const raw = r.dependencies;
+  let plugins: unknown;
+  if (Array.isArray(raw)) {
+    // Compact legacy-friendly shape: "dependencies": ["trace", "dig"]
+    plugins = raw;
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    plugins = (raw as Record<string, unknown>).plugins;
+  } else {
+    throw new Error("plugin.json: dependencies must be an object or array of plugin names");
+  }
+
+  if (plugins === undefined) return {};
+  if (!Array.isArray(plugins) || plugins.some((p: unknown) => typeof p !== "string" || !NAME_RE.test(p))) {
+    throw new Error("plugin.json: dependencies.plugins must be an array of plugin names");
+  }
+  return { plugins: plugins as string[] };
 }
 
 export function parseArtifact(r: Record<string, unknown>): PluginManifest["artifact"] {

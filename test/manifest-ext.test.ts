@@ -184,6 +184,26 @@ describe("new manifest fields accepted", () => {
     }
   });
 
+  test("accepts plugin dependencies", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "dep-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          dependencies: { plugins: ["trace", "dig"] },
+        }),
+        dir,
+      );
+      expect(m.dependencies?.plugins).toEqual(["trace", "dig"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("TS plugin with all new fields validates cleanly", () => {
     const dir = makeTempDir();
     try {
@@ -298,6 +318,27 @@ describe("new field validation failures", () => {
           dir,
         ),
       ).toThrow(/cli\.flags/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("dependencies.plugins with invalid names is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            dependencies: { plugins: ["Trace"] },
+          }),
+          dir,
+        ),
+      ).toThrow(/dependencies\.plugins/);
     } finally {
       rmSync(dir, { recursive: true });
     }

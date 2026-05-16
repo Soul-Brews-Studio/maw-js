@@ -15,6 +15,7 @@ import {
   parseTransport,
   parseTarget,
   parseCapabilities,
+  parseDependencies,
   parseArtifact,
   parseTier,
 } from "./manifest-validate";
@@ -91,6 +92,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   const transport = parseTransport(r);
   const target = parseTarget(r);
   const capabilities = parseCapabilities(r);
+  const dependencies = parseDependencies(r);
   const artifact = parseArtifact(r);
   const tier = parseTier(r);
 
@@ -112,6 +114,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
     ...(transport ? { transport } : {}),
     ...(target ? { target } : {}),
     ...(capabilities ? { capabilities } : {}),
+    ...(dependencies ? { dependencies } : {}),
     ...(artifact ? { artifact } : {}),
   };
 }

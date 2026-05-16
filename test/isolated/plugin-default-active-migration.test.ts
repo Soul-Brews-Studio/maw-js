@@ -34,6 +34,13 @@ function makePluginDir(): string {
   return dir;
 }
 
+function writeTsPlugin(root: string, manifest: Record<string, unknown>, source = "export default async () => ({ ok: true, output: 'ran' });\n"): void {
+  const dir = join(root, manifest.name as string);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "index.ts"), source);
+  writeFileSync(join(dir, "plugin.json"), JSON.stringify({ version: "1.0.0", sdk: "*", entry: "index.ts", ...manifest }, null, 2) + "\n");
+}
+
 function loadInSubprocess(home: string) {
   return spawnSync("bun", ["-e", `
     const { loadConfig } = await import("${REPO_ROOT}/src/config/load.ts");
@@ -352,6 +359,79 @@ describe("#1500 default-active plugin migration", () => {
     expect(result.stderr).toContain("'completions' is installed but disabled");
     expect(result.stderr).toContain("maw plugin enable completions");
     expect(result.stderr).not.toContain("did you mean: completions");
+  });
+
+  test("#1547: active plugin with disabled dependencies prints enable plan before dispatch", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      disabledPlugins: ["trace", "dig"],
+    });
+    const pluginDir = makePluginDir();
+    writeTsPlugin(pluginDir, { name: "trace", cli: { command: "trace" } });
+    writeTsPlugin(pluginDir, { name: "dig", cli: { command: "dig" } });
+    writeTsPlugin(pluginDir, {
+      name: "needs-context",
+      cli: { command: "needs-context" },
+      dependencies: { plugins: ["trace", "dig"] },
+    });
+
+    const result = spawnSync("bun", ["src/cli.ts", "--quiet", "needs-context"], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        MAW_HOME: home,
+        MAW_PLUGINS_DIR: pluginDir,
+        MAW_TEST_MODE: "1",
+      },
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain("ran");
+    expect(result.stderr).toContain("'needs-context' needs disabled plugins: trace, dig");
+    expect(result.stderr).toContain("maw plugin enable trace dig");
+  });
+
+  test("#1547: disabled command hint includes dependency-first enable plan", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      disabledPlugins: ["trace", "dig", "needs-context"],
+    });
+    const pluginDir = makePluginDir();
+    writeTsPlugin(pluginDir, { name: "trace", cli: { command: "trace" } });
+    writeTsPlugin(pluginDir, { name: "dig", cli: { command: "dig" } });
+    writeTsPlugin(pluginDir, {
+      name: "needs-context",
+      cli: { command: "needs-context", aliases: ["nc"] },
+      dependencies: { plugins: ["trace", "dig"] },
+    });
+
+    const result = spawnSync("bun", ["src/cli.ts", "--quiet", "nc"], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        MAW_HOME: home,
+        MAW_PLUGINS_DIR: pluginDir,
+        MAW_TEST_MODE: "1",
+      },
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("'nc' is provided by disabled plugin 'needs-context'");
+    expect(result.stderr).toContain("maw plugin enable trace dig needs-context");
   });
 
   test("completions plugin emits command list plus zsh/bash scripts", () => {
