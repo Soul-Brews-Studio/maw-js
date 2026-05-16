@@ -222,6 +222,17 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(lstatSync(userWake).isSymbolicLink()).toBe(false);
   });
 
+  it("#1531 — valid in-tree plugin wins when a vendored plugin has the same name", async () => {
+    const builtinSwarm = makeBundledPlugin("swarm");
+    makeVendoredPlugin("swarm");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["swarm"]);
+    expect(lstatSync(join(pluginDir, "swarm")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "swarm"))).toBe(builtinSwarm);
+  });
+
   it("non-empty pluginDir with N-1 of N plugins → 1 new symlink, others untouched", async () => {
     makeBundledPlugin("alpha");
     makeBundledPlugin("beta");

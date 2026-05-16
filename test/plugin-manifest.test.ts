@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { parseManifest, loadManifestFromDir } from "../src/plugin/manifest";
 import { discoverPackages, invokePlugin } from "../src/plugin/registry";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -205,6 +205,37 @@ describe("discoverPackages", () => {
   test("returns an array without throwing (dirs may not exist)", () => {
     const packages = discoverPackages();
     expect(Array.isArray(packages)).toBe(true);
+  });
+});
+
+describe("bundled plugin source tree", () => {
+  test("#1531 — in-tree and vendored bundled plugin names do not overlap", () => {
+    const roots = [
+      "src/commands/plugins",
+      "src/vendor/mpr-plugins",
+    ];
+    const byName = new Map<string, string[]>();
+
+    for (const root of roots) {
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const dir = join(root, entry.name);
+        let manifest: { name?: string };
+        try {
+          manifest = JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8"));
+        } catch {
+          continue;
+        }
+        const name = manifest.name ?? entry.name;
+        byName.set(name, [...(byName.get(name) ?? []), dir]);
+      }
+    }
+
+    const duplicates = [...byName.entries()]
+      .filter(([, dirs]) => dirs.length > 1)
+      .map(([name, dirs]) => `${name}: ${dirs.join(", ")}`);
+
+    expect(duplicates).toEqual([]);
   });
 });
 
