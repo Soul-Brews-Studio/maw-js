@@ -9,6 +9,7 @@ import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-se
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
+import { writeSignal } from "../../core/fleet/leaf";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -49,6 +50,23 @@ export function writeWakeBudLineage(worktreePath: string, input: WakeBudLineageI
   const file = join(psiDir, ".lineage.yaml");
   writeFileSync(file, buildWakeBudLineage(input), "utf-8");
   return file;
+}
+
+export function writeWakeBudBirthSignal(
+  parentRoot: string,
+  childName: string,
+  input: WakeBudLineageInput & { worktreePath: string },
+): string {
+  return writeSignal(parentRoot, childName, {
+    kind: "info",
+    message: `wake-bud born: ${childName}`,
+    context: {
+      buddedFrom: input.parentOracle,
+      task: input.task,
+      branch: input.branch ?? "",
+      worktreePath: input.worktreePath,
+    },
+  });
 }
 
 export function shouldOfferExistingSessionAttach(
@@ -197,7 +215,7 @@ async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Prom
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; bud?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; dryRun?: boolean; noRehydrate?: boolean; split?: boolean; bring?: boolean; tab?: boolean; bud?: boolean; signalOnBirth?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -258,6 +276,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     throw new Error("--bud requires --task <slug> or --wt <slug>");
   }
 
+  if (opts.signalOnBirth && !opts.bud) {
+    throw new Error("--signal-on-birth requires --bud");
+  }
+
   // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
   // update oracle to the resolved name so session/window names are correct.
   const resolvedOracle = repoName.replace(/-oracle$/, "");
@@ -312,6 +334,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     if (opts.task || opts.wt) {
       console.log(`\x1b[33m⚡\x1b[0m would wake worktree/task: ${sanitizeBranchName(opts.wt || opts.task!)}`);
       if (opts.bud) console.log(`\x1b[90m🌱 would stamp wake-bud lineage for ${oracle}\x1b[0m`);
+      if (opts.bud && opts.signalOnBirth) console.log(`\x1b[90m⬡ would drop wake-bud birth signal in ${oracle}'s ψ/memory/signals/\x1b[0m`);
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
 
@@ -445,12 +468,20 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     if (opts.bud) {
       const safePath = targetPath.replace(/'/g, "'\\''");
       const branch = (await hostExec(`git -C '${safePath}' branch --show-current 2>/dev/null || true`)).trim();
-      const lineageFile = writeWakeBudLineage(targetPath, {
+      const lineage = {
         parentOracle: oracle,
         task: name,
         branch,
-      });
+      };
+      const lineageFile = writeWakeBudLineage(targetPath, lineage);
       console.log(`\x1b[32m🌱\x1b[0m lineage: ${lineageFile}`);
+      if (opts.signalOnBirth) {
+        const signalFile = writeWakeBudBirthSignal(repoPath, `${oracle}-${name}`, {
+          ...lineage,
+          worktreePath: targetPath,
+        });
+        console.log(`\x1b[36m⬡\x1b[0m signal: ${signalFile}`);
+      }
     }
   }
 

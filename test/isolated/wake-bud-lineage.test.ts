@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildWakeBudLineage, writeWakeBudLineage } from "../../src/commands/shared/wake-cmd";
+import { buildWakeBudLineage, writeWakeBudBirthSignal, writeWakeBudLineage } from "../../src/commands/shared/wake-cmd";
 
 describe("wake --bud lineage", () => {
   test("builds deterministic YAML for a lineage-stamped worktree", () => {
@@ -40,6 +40,34 @@ describe("wake --bud lineage", () => {
       expect(readFileSync(file, "utf-8")).toContain('task: "channel"');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("can drop an optional parent ψ/memory/signals birth signal", () => {
+    const parentRoot = mkdtempSync(join(tmpdir(), "maw-wake-bud-parent-"));
+    try {
+      const file = writeWakeBudBirthSignal(parentRoot, "mawjs-channel", {
+        parentOracle: "mawjs",
+        task: "channel",
+        branch: "agents/7-channel",
+        worktreePath: "/tmp/mawjs-oracle.wt-7-channel",
+      });
+
+      expect(file.startsWith(join(parentRoot, "ψ", "memory", "signals"))).toBe(true);
+      expect(existsSync(file)).toBe(true);
+      expect(readdirSync(join(parentRoot, "ψ", "memory", "signals"))).toHaveLength(1);
+      const signal = JSON.parse(readFileSync(file, "utf-8"));
+      expect(signal.bud).toBe("mawjs-channel");
+      expect(signal.kind).toBe("info");
+      expect(signal.message).toBe("wake-bud born: mawjs-channel");
+      expect(signal.context).toEqual({
+        buddedFrom: "mawjs",
+        task: "channel",
+        branch: "agents/7-channel",
+        worktreePath: "/tmp/mawjs-oracle.wt-7-channel",
+      });
+    } finally {
+      rmSync(parentRoot, { recursive: true, force: true });
     }
   });
 });
