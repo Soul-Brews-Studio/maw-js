@@ -23,6 +23,7 @@ mock.module("../src/core/paths", () => ({
 }));
 
 import { mockConfigModule } from "./helpers/mock-config";
+import { mockSshModule } from "./helpers/mock-ssh";
 mock.module("../src/config", () => mockConfigModule(() => ({ node: "test-node" })));
 
 // Mock listSessions to return predictable data
@@ -31,17 +32,10 @@ let mockSessions: MockSession[] = [
   { name: "04-homekeeper", windows: [{ name: "homekeeper-oracle", index: 1 }] },
 ];
 
-mock.module("../src/core/transport/ssh", () => ({
+mock.module("../src/core/transport/ssh", () => mockSshModule({
   listSessions: async (): Promise<MockSession[]> => mockSessions,
   hostExec: async (): Promise<string> => "",
   ssh: async (): Promise<string> => "",
-  capture: async (): Promise<string> => "",
-  sendKeys: async (): Promise<void> => {},
-  getPaneCommand: async (): Promise<string> => "",
-  getPaneCommands: async (): Promise<Record<string, string>> => ({}),
-  getPaneInfos: async (): Promise<Record<string, { command: string; cwd: string }>> => ({}),
-  isAgentCommand: (): boolean => false,
-  HostExecError: class HostExecError extends Error {},
   // Stub: real findWindow is tested in 00-ssh.test.ts (loads first alphabetically)
   findWindow: (): string | null => null,
 }));
