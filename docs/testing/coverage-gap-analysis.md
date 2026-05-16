@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T22:18:50.573Z
+Generated: 2026-05-16T22:28:38.332Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **19.6%** (9804/50053)
-Overall function coverage: **66.7%** (1082/1621)
+Overall line coverage: **20.0%** (9976/50000)
+Overall function coverage: **67.4%** (1102/1636)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 88 | 18 | 45.8% (3283/7166) | 68.9% (306/444) | n/a (0/0) |
+| cli/dispatch | 88 | 18 | 48.6% (3455/7113) | 71.0% (326/459) | n/a (0/0) |
 | config/runtime | 19 | 2 | 45.3% (529/1167) | 43.7% (38/87) | n/a (0/0) |
 | fleet | 17 | 0 | 38.8% (407/1050) | 54.8% (40/73) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -81,6 +81,7 @@ Overall function coverage: **66.7%** (1082/1621)
 | cli/dispatch | `src/commands/shared/plugins-ui.ts` | 96.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 84.1% | 85.5% |
+| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 99.6% | 97.6% |
 | cli/dispatch | `src/commands/shared/wake-resolve.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-target.ts` | 80.0% | 80.0% |
 | cli/dispatch | `src/commands/shared/wake.ts` | 100.0% | 100.0% |
@@ -128,7 +129,6 @@ Overall function coverage: **66.7%** (1082/1621)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 226 | 28.7% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
@@ -138,6 +138,7 @@ Overall function coverage: **66.7%** (1082/1621)
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
 | fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
 | fleet | `src/core/fleet/claude-sessions.ts` | 126 | 14.9% |
+| cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
 
 ## Critical gaps to prioritize
 
