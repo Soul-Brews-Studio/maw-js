@@ -77,6 +77,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const descIdx = args.indexOf("--description");
       const description = descIdx !== -1 ? args.slice(descIdx + 1).join(" ") : undefined;
       cmdTeamCreate(args[1], { description });
+    } else if (sub === "plan") {
+      if (!args[1]) {
+        logs.push("usage: maw team plan <team.yaml|team.json>");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, planTeamCharter, formatTeamCharterPlan } = await import("./team-charter");
+      logs.push(formatTeamCharterPlan(planTeamCharter(readTeamCharter(args[1]))));
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
         logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
@@ -278,7 +285,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
