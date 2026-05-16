@@ -120,6 +120,36 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(miss.kind).toBe("none");
   });
 
+  test("entry-backed API or capability plugins without cli are skipped as headless", () => {
+    const apiOnly: LoadedPlugin = {
+      manifest: {
+        name: "cross-team-queue",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        api: { path: "/cross-team-queue", methods: ["GET"] },
+      } as LoadedPlugin["manifest"],
+      dir: "/tmp/cross-team-queue",
+      wasmPath: "",
+      entryPath: "/tmp/cross-team-queue/src/index.ts",
+      kind: "ts",
+    };
+    const strategy: LoadedPlugin = {
+      manifest: {
+        name: "attach-ssh",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        capabilities: ["attach:strategy"],
+      } as LoadedPlugin["manifest"],
+      dir: "/tmp/attach-ssh",
+      wasmPath: "",
+      entryPath: "/tmp/attach-ssh/index.ts",
+      kind: "ts",
+    };
+
+    expect(resolvePluginMatch([apiOnly], "cross-team-queue").kind).toBe("none");
+    expect(resolvePluginMatch([strategy], "attach-ssh").kind).toBe("none");
+  });
+
   test("two plugins sharing same exact command → ambiguous", () => {
     const a = plugin("first", "share");
     const b = plugin("second", "share");

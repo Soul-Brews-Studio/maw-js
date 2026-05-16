@@ -31,6 +31,8 @@ function tsPlugin(opts: {
   name: string;
   cli?: { command: string; aliases?: string[] };
   entry?: boolean;
+  api?: boolean;
+  capabilities?: string[];
 }): LoadedPlugin {
   return {
     manifest: {
@@ -38,6 +40,8 @@ function tsPlugin(opts: {
       version: "1.0.0",
       sdk: "^1.0.0",
       ...(opts.cli ? { cli: { command: opts.cli.command, aliases: opts.cli.aliases ?? [], help: "" } } : {}),
+      ...(opts.api ? { api: { path: `/${opts.name}`, methods: ["GET"] } } : {}),
+      ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
     } as LoadedPlugin["manifest"],
     dir: `/tmp/${opts.name}`,
     wasmPath: "",
@@ -95,6 +99,14 @@ describe("#899 — pluginCliNames default-name derivation", () => {
       // no entryPath
     };
     expect(pluginCliNames(p)).toBeNull();
+  });
+
+  test("strategy/API plugins with entry but no cli are headless, not implicit commands", () => {
+    const strategy = tsPlugin({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const api = tsPlugin({ name: "cross-team-queue", api: true });
+
+    expect(pluginCliNames(strategy)).toBeNull();
+    expect(pluginCliNames(api)).toBeNull();
   });
 
   test("aliases default to empty array when cli omits them", () => {
@@ -162,6 +174,14 @@ describe("#899 — resolvePluginMatch routes default-name plugins", () => {
     };
     const out = resolvePluginMatch([headless], "ghost");
     expect(out.kind).toBe("none");
+  });
+
+  test("entry-backed strategy/API plugins without cli do not default-name dispatch", () => {
+    const attachSsh = tsPlugin({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const queue = tsPlugin({ name: "cross-team-queue", api: true });
+
+    expect(resolvePluginMatch([attachSsh], "attach-ssh")).toEqual({ kind: "none" });
+    expect(resolvePluginMatch([queue], "cross-team-queue")).toEqual({ kind: "none" });
   });
 
   test("unknown command still returns kind:none with a default-name registry", () => {

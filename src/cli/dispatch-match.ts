@@ -33,23 +33,52 @@ export interface ResolvePluginMatchOptions {
 }
 
 /**
- * #899: a plugin is CLI-dispatchable if it has either a JS/TS entry or a
- * WASM module. Pure-API / pure-hooks / pure-cron plugins (no entry, no wasm,
- * no artifact) are not dispatchable — the default-cli-name path skips them
- * so unknown commands still error correctly instead of silently matching a
- * headless plugin and crashing inside invokePlugin.
+ * #899: a plugin is CLI-dispatchable if it has either an explicit `cli`
+ * manifest or an implicit legacy command surface. The implicit path exists
+ * for old source plugins that shipped `entry`/`wasm` but no `cli`. It must
+ * NOT catch strategy/API/module/hook surfaces such as attach-ssh or
+ * cross-team-queue: those have executable implementation files, but they are
+ * invoked by another host surface, not as `maw <plugin-name>`.
  */
-function isDispatchable(p: LoadedPlugin): boolean {
+function hasExecutableSurface(p: LoadedPlugin): boolean {
   if (p.kind === "ts" && p.entryPath) return true;
   if (p.kind === "wasm" && p.wasmPath) return true;
   return false;
 }
 
+function hasNonCliSurface(p: LoadedPlugin): boolean {
+  const m = p.manifest;
+  return Boolean(
+    m.api ||
+    m.hooks ||
+    m.cron ||
+    m.module ||
+    m.transport ||
+    (m.capabilities && m.capabilities.length > 0),
+  );
+}
+
+function isImplicitCliDispatchable(p: LoadedPlugin): boolean {
+  return hasExecutableSurface(p) && !hasNonCliSurface(p);
+}
+
+export function pluginNonCliSurfaces(p: LoadedPlugin): string[] {
+  const m = p.manifest;
+  const surfaces: string[] = [];
+  if (m.api) surfaces.push(`api:${m.api.methods.join("/")} ${m.api.path}`);
+  if (m.capabilities?.length) surfaces.push(`capability:${m.capabilities.join(",")}`);
+  if (m.hooks) surfaces.push(`hooks:${Object.keys(m.hooks).join(",")}`);
+  if (m.cron) surfaces.push(`cron:${m.cron.schedule}`);
+  if (m.module) surfaces.push(`module:${m.module.exports.join(",")}`);
+  if (m.transport?.peer) surfaces.push("peer");
+  return surfaces;
+}
+
 /**
  * #899: derive the CLI command names for a plugin. If `manifest.cli` is
  * present, use it (canonical command + aliases). Otherwise default to
- * `manifest.name` IFF the plugin is dispatchable. Returns `null` for
- * plugins that should not participate in CLI dispatch.
+ * `manifest.name` IFF the plugin is an implicit legacy CLI plugin. Returns
+ * `null` for plugins that should not participate in CLI dispatch.
  */
 export function pluginCliNames(p: LoadedPlugin): { command: string; aliases: string[] } | null {
   if (p.manifest.cli) {
@@ -58,7 +87,7 @@ export function pluginCliNames(p: LoadedPlugin): { command: string; aliases: str
       aliases: p.manifest.cli.aliases ?? [],
     };
   }
-  if (!isDispatchable(p)) return null;
+  if (!isImplicitCliDispatchable(p)) return null;
   return { command: p.manifest.name, aliases: [] };
 }
 

@@ -64,7 +64,7 @@ export async function dispatchCommand(cmd: string, args: string[]): Promise<void
  */
 async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void> {
   const { discoverPackages, invokePlugin } = await import("../plugin/registry");
-  const { resolvePluginMatch, pluginCliNames } = await import("./dispatch-match");
+  const { resolvePluginMatch, pluginCliNames, pluginNonCliSurfaces } = await import("./dispatch-match");
   const plugins = discoverPackages();
   const cmdName = args.join(" ").toLowerCase();
   const dispatch = resolvePluginMatch(plugins, cmdName);
@@ -99,6 +99,19 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
     console.error(`  candidates: ${disabledDispatch.candidates.map(c => c.plugin).join(", ")}`);
     console.error(`  Run: maw plugin enable <name>`);
     throw new UserError(`disabled command: ${args[0]}`);
+  }
+
+  const headlessPlugin = plugins.find(p =>
+    !p.disabled &&
+    p.manifest.name.toLowerCase() === args[0].toLowerCase() &&
+    !pluginCliNames(p)
+  );
+  if (headlessPlugin) {
+    const surfaces = pluginNonCliSurfaces(headlessPlugin);
+    console.error(`\x1b[31m✗\x1b[0m '${args[0]}' is installed but has no CLI command.`);
+    if (surfaces.length > 0) console.error(`  surfaces: ${surfaces.join(", ")}`);
+    console.error(`  Run: maw plugin ls -v`);
+    throw new UserError(`headless plugin: ${args[0]}`);
   }
 
   // #388.2 — unknown command: fuzzy-suggest against the plugin registry.
