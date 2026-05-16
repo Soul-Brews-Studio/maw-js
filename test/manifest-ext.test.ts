@@ -226,6 +226,38 @@ describe("new manifest fields accepted", () => {
     }
   });
 
+  test("accepts engine.serve persistent process metadata", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "engine-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          engine: {
+            serve: {
+              command: "bun run serve",
+              prefix: "/api/hey-ledger",
+              health: "/health",
+              events: ["MessageSend", "MessageDeliver"],
+            },
+          },
+        }),
+        dir,
+      );
+      expect(m.engine?.serve).toEqual({
+        command: "bun run serve",
+        prefix: "/api/hey-ledger",
+        health: "/health",
+        events: ["MessageSend", "MessageDeliver"],
+      });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("TS plugin with all new fields validates cleanly", () => {
     const dir = makeTempDir();
     try {
@@ -244,6 +276,7 @@ describe("new manifest fields accepted", () => {
           cron: { schedule: "*/5 * * * *" },
           module: { exports: ["doStuff"], path: "./lib.ts" },
           transport: { peer: true },
+          engine: { serve: { prefix: "/api/full", health: "/health" } },
         }),
         dir,
       );
@@ -253,6 +286,7 @@ describe("new manifest fields accepted", () => {
       expect(m.cron?.schedule).toBe("*/5 * * * *");
       expect(m.module?.exports).toEqual(["doStuff"]);
       expect(m.transport?.peer).toBe(true);
+      expect(m.engine?.serve?.prefix).toBe("/api/full");
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -382,6 +416,27 @@ describe("new field validation failures", () => {
           dir,
         ),
       ).toThrow(/capabilityNamespaces/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("engine.serve with non-api prefix is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad-engine",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            engine: { serve: { prefix: "/hey-ledger" } },
+          }),
+          dir,
+        ),
+      ).toThrow(/engine\.serve\.prefix/);
     } finally {
       rmSync(dir, { recursive: true });
     }

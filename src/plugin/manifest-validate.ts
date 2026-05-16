@@ -163,6 +163,45 @@ export function parseTransport(r: Record<string, unknown>): PluginManifest["tran
   };
 }
 
+export function parseEngine(r: Record<string, unknown>): PluginManifest["engine"] {
+  if (r.engine === undefined) return undefined;
+  if (!r.engine || typeof r.engine !== "object" || Array.isArray(r.engine)) {
+    throw new Error("plugin.json: engine must be an object");
+  }
+  const e = r.engine as Record<string, unknown>;
+  if (e.serve === undefined) return {};
+  if (!e.serve || typeof e.serve !== "object" || Array.isArray(e.serve)) {
+    throw new Error("plugin.json: engine.serve must be an object");
+  }
+  const serve = e.serve as Record<string, unknown>;
+  if (serve.command !== undefined && (typeof serve.command !== "string" || !serve.command)) {
+    throw new Error("plugin.json: engine.serve.command must be a non-empty string");
+  }
+  if (serve.prefix !== undefined) {
+    if (typeof serve.prefix !== "string" || !serve.prefix.startsWith("/api/")) {
+      throw new Error("plugin.json: engine.serve.prefix must start with /api/");
+    }
+  }
+  if (serve.health !== undefined) {
+    if (typeof serve.health !== "string" || !serve.health.startsWith("/")) {
+      throw new Error("plugin.json: engine.serve.health must be an absolute path");
+    }
+  }
+  if (serve.events !== undefined) {
+    if (!Array.isArray(serve.events) || serve.events.some((event: unknown) => typeof event !== "string" || !event)) {
+      throw new Error("plugin.json: engine.serve.events must be an array of non-empty strings");
+    }
+  }
+  return {
+    serve: {
+      ...(typeof serve.command === "string" ? { command: serve.command } : {}),
+      ...(typeof serve.prefix === "string" ? { prefix: serve.prefix } : {}),
+      ...(typeof serve.health === "string" ? { health: serve.health } : {}),
+      ...(Array.isArray(serve.events) ? { events: serve.events as string[] } : {}),
+    },
+  };
+}
+
 export function parseTarget(r: Record<string, unknown>): PluginManifest["target"] {
   if (r.target === undefined) return undefined;
   if (typeof r.target !== "string") {

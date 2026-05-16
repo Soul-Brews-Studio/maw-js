@@ -13,6 +13,7 @@ import {
   parseCron,
   parseModule,
   parseTransport,
+  parseEngine,
   parseTarget,
   parseCapabilityNamespaces,
   parseCapabilities,
@@ -91,6 +92,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   const cron = parseCron(r);
   const module_ = parseModule(r);
   const transport = parseTransport(r);
+  const engine = parseEngine(r);
   const target = parseTarget(r);
   const capabilityNamespaces = parseCapabilityNamespaces(r);
   const capabilities = parseCapabilities(r, capabilityNamespaces);
@@ -114,6 +116,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
     ...(cron ? { cron } : {}),
     ...(module_ ? { module: module_ } : {}),
     ...(transport ? { transport } : {}),
+    ...(engine ? { engine } : {}),
     ...(target ? { target } : {}),
     ...(capabilityNamespaces ? { capabilityNamespaces } : {}),
     ...(capabilities ? { capabilities } : {}),

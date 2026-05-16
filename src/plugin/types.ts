@@ -41,6 +41,17 @@ export interface PluginLifecycleHook {
   policy?: "best-effort" | "fail-fast";
 }
 
+export interface PluginEngineServe {
+  /** Command a future runner may use to start the persistent plugin process. */
+  command?: string;
+  /** Gateway prefix the process will register, e.g. /api/hey-ledger. */
+  prefix?: string;
+  /** Health endpoint on the plugin process, e.g. /health. */
+  health?: string;
+  /** Feed events the process wants to subscribe to through the engine. */
+  events?: string[];
+}
+
 export interface PluginManifest {
   name: string;           // unique id, slug-safe /^[a-z0-9-]+$/
   version: string;        // semver e.g. "1.0.0"
@@ -84,6 +95,9 @@ export interface PluginManifest {
   };
   transport?: {
     peer?: boolean;     // enable maw hey plugin:<name>
+  };
+  engine?: {
+    serve?: PluginEngineServe; // persistent process + reverse-proxy metadata (#1566)
   };
 }
 

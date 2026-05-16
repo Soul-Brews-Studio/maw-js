@@ -16,6 +16,11 @@ import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
+import {
+  findEnginePluginRegistration,
+  proxyEnginePluginRequest,
+  startEnginePluginHealthPolling,
+} from "./engine-plugin-registry";
 
 // --- Version info (computed once at startup) ---
 
@@ -197,6 +202,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     }
     // Elysia handles all /api/* routes (has its own CORS)
     if (url.pathname.startsWith("/api")) {
+      const enginePlugin = findEnginePluginRegistration(url.pathname);
+      if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
       return api.handle(req);
     }
     // Hono handles views + static — clone response with CORS headers
@@ -247,6 +254,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
   setBunServer(server);
+  startEnginePluginHealthPolling();
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
 

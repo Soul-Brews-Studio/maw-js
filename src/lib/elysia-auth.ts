@@ -30,6 +30,8 @@ const PROTECTED = new Set([
   "/transport/send",
   "/triggers/fire",
   "/worktrees/cleanup",
+  "/_engine/register",
+  "/_engine/unregister",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
