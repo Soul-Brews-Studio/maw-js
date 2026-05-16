@@ -166,7 +166,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const instanceName = asIdx === -1 ? null : serveArgs[asIdx + 1];
     acquirePidLock(instanceName, { forceTakeover: forceIdx !== -1 });
     const { startServer } = await import("../core/server");
-    startServer(portArg ? +portArg : 3456);
+    await startServer(portArg ? +portArg : 3456);
     return true;
   }
   return false;

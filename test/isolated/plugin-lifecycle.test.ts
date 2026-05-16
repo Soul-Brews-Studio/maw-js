@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { LoadedPlugin } from "../../src/plugin/types";
-import { runLifecycleHooks, runSleepLifecycleHooks, runWakeLifecycleHooks } from "../../src/plugin/lifecycle";
+import { runLifecycleHooks, runServeLifecycleHooks, runSleepLifecycleHooks, runWakeLifecycleHooks } from "../../src/plugin/lifecycle";
 
 const tempDirs: string[] = [];
 
@@ -114,6 +114,25 @@ describe("plugin lifecycle hooks (#1576)", () => {
 
     expect(summary).toEqual({ phase: "sleep", ran: 1, skipped: 0, failed: 0 });
     expect(readFileSync(log, "utf8")).toBe("mawjs:mawjs:54-mawjs:mawjs-oracle:sleep\n");
+  });
+
+  test("serve hooks receive maw serve gateway context", async () => {
+    const log = makeLog();
+    const plugin = makePlugin("server", {
+      hook: { serve: { script: "serve.ts", handler: "onServe" } },
+      files: {
+        "index.ts": "export function serve() { throw new Error('entry should not run') }\n",
+        "serve.ts": `export function onServe(ctx) { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, [ctx.phase, ctx.plugin.name, ctx.port, ctx.httpUrl, ctx.wsUrl, ctx.hostname].join("|") + "\\n"); }\n`,
+      },
+    });
+
+    const summary = await runServeLifecycleHooks(
+      { port: 4567, httpUrl: "http://localhost:4567", wsUrl: "ws://localhost:4567/ws", hostname: "127.0.0.1" },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "serve", ran: 1, skipped: 0, failed: 0 });
+    expect(readFileSync(log, "utf8")).toBe("serve|server|4567|http://localhost:4567|ws://localhost:4567/ws|127.0.0.1\n");
   });
 
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {

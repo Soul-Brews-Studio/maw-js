@@ -15,6 +15,7 @@ import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
+import { runServeLifecycleHooks } from "../plugin/lifecycle";
 
 // --- Version info (computed once at startup) ---
 
@@ -248,6 +249,18 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   setBunServer(server);
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
+
+  try {
+    await runServeLifecycleHooks({
+      port,
+      httpUrl: HTTP_URL,
+      wsUrl: WS_URL,
+      hostname,
+    });
+  } catch (err) {
+    try { server.stop(true); } catch { /* best effort */ }
+    throw err;
+  }
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;

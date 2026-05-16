@@ -23,6 +23,10 @@ export interface PluginLifecycleContext {
   target?: string;
   repoPath?: string;
   repoName?: string;
+  port?: number;
+  httpUrl?: string;
+  wsUrl?: string;
+  hostname?: string;
   ensures?: string[];
 }
 
@@ -38,6 +42,13 @@ export interface SleepLifecycleContextInput {
   session: string;
   window: string;
   target: string;
+}
+
+export interface ServeLifecycleContextInput {
+  port: number;
+  httpUrl: string;
+  wsUrl: string;
+  hostname: string;
 }
 
 export interface LifecycleRunSummary {
@@ -152,4 +163,11 @@ export function runSleepLifecycleHooks(
   discover?: LifecycleDiscover,
 ): Promise<LifecycleRunSummary> {
   return runLifecycleHooks("sleep", context, discover);
+}
+
+export function runServeLifecycleHooks(
+  context: ServeLifecycleContextInput,
+  discover?: LifecycleDiscover,
+): Promise<LifecycleRunSummary> {
+  return runLifecycleHooks("serve", context, discover);
 }
