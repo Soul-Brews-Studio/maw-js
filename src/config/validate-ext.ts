@@ -89,6 +89,20 @@ function validateExtFields(
     if (Object.keys(zenoh).length > 0) result.zenoh = zenoh;
   }
 
+  // discovery: { transport?: "scout" | "zenoh" | "both" | "off" }
+  if ("discovery" in raw && raw.discovery && typeof raw.discovery === "object" && !Array.isArray(raw.discovery)) {
+    const d = raw.discovery as Record<string, unknown>;
+    const discovery: NonNullable<MawConfig["discovery"]> = {};
+    if ("transport" in d) {
+      if (d.transport === "scout" || d.transport === "zenoh" || d.transport === "both" || d.transport === "off") {
+        discovery.transport = d.transport;
+      } else {
+        warn("discovery.transport", "must be one of: scout, zenoh, both, off");
+      }
+    }
+    if (Object.keys(discovery).length > 0) result.discovery = discovery;
+  }
+
   // pluginSources: string[] of URLs
   if ("pluginSources" in raw) {
     if (Array.isArray(raw.pluginSources)) {

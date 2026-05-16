@@ -59,7 +59,7 @@ export function toDiscoveryResponse(
 export function createPeerDiscoveriesApi(
   listPeers: () => DiscoveredPeer[] = () => getTransportRouter().listDiscoveredPeers() as DiscoveredPeer[],
 ) {
-  return new Elysia().get("/peers/discoveries", ({ query, set }) => {
+  const handler = ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number } }) => {
     const all = query.all === "1" || query.all === "true";
     const limit = query.limit === undefined
       ? undefined
@@ -73,7 +73,10 @@ export function createPeerDiscoveriesApi(
       };
     }
     return toDiscoveryResponse(listPeers(), { all, limit });
-  });
+  };
+  return new Elysia()
+    .get("/peers/discoveries", handler)
+    .get("/peers/discovered", handler);
 }
 
 export const peerDiscoveriesApi = createPeerDiscoveriesApi();

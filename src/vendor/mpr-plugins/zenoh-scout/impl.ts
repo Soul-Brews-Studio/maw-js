@@ -223,7 +223,7 @@ export function formatZenohScoutResult(result: ZenohScoutResult): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function keyexprFromReply(reply: unknown): string | null {
+export function keyexprFromReply(reply: unknown): string | null {
   const maybeResult = typeof (reply as any)?.result === "function" ? (reply as any).result() : reply;
   const maybeSample = maybeResult && typeof (maybeResult as any).keyexpr === "function" ? maybeResult : null;
   if (!maybeSample) return null;

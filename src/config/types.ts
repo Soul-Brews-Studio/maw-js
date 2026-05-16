@@ -153,6 +153,10 @@ export interface MawConfig {
       keyPrefix?: string;
     };
   };
+  /** Discovery provider selection for peer presence candidates. */
+  discovery?: {
+    transport?: "scout" | "zenoh" | "both" | "off";
+  };
   /** Polling intervals (ms) */
   intervals?: MawIntervals;
   /** HTTP/operation timeouts (ms) */

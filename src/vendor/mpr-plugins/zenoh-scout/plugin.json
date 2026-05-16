@@ -23,10 +23,13 @@
       "discover",
       "zenoh-scout"
     ],
-    "help": "maw scout [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query opt-in Zenoh discovery",
+    "help": "maw scout [--transport zenoh|scout|both] [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query peer discovery",
     "flags": {
+      "--transport": "string",
       "--force": "boolean",
+      "--all": "boolean",
       "--json": "boolean",
+      "--limit": "number",
       "--locator": "string",
       "--timeout": "number"
     }

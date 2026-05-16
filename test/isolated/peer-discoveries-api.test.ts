@@ -59,6 +59,20 @@ describe("peer discoveries API (#1526)", () => {
     expect(body.peers[0].zid).toBe("newer");
   });
 
+  test("GET /api/peers/discovered aliases the canonical discoveries route", async () => {
+    const app = new Elysia({ prefix: "/api" }).use(createPeerDiscoveriesApi(() => [
+      peer({ zid: "zenoh-row", node: "zenoh-node", lastSeen: NOW - 1_000 }),
+    ]));
+
+    const res = await app.handle(new Request("http://local/api/peers/discovered?all=1"));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.peers[0]).toMatchObject({
+      zid: "zenoh-row",
+      node: "zenoh-node",
+    });
+  });
+
   test("GET /api/peers/discoveries rejects invalid limits", async () => {
     const app = new Elysia({ prefix: "/api" }).use(createPeerDiscoveriesApi(() => []));
     const res = await app.handle(new Request("http://local/api/peers/discoveries?limit=wat"));
