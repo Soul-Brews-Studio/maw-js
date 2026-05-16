@@ -187,6 +187,11 @@ export function parseEngine(r: Record<string, unknown>): PluginManifest["engine"
       throw new Error("plugin.json: engine.serve.health must be an absolute path");
     }
   }
+  if (serve.eventPath !== undefined) {
+    if (typeof serve.eventPath !== "string" || !serve.eventPath.startsWith("/")) {
+      throw new Error("plugin.json: engine.serve.eventPath must be an absolute path");
+    }
+  }
   if (serve.events !== undefined) {
     if (!Array.isArray(serve.events) || serve.events.some((event: unknown) => typeof event !== "string" || !event)) {
       throw new Error("plugin.json: engine.serve.events must be an array of non-empty strings");
@@ -198,6 +203,7 @@ export function parseEngine(r: Record<string, unknown>): PluginManifest["engine"
       ...(typeof serve.prefix === "string" ? { prefix: serve.prefix } : {}),
       ...(typeof serve.health === "string" ? { health: serve.health } : {}),
       ...(Array.isArray(serve.events) ? { events: serve.events as string[] } : {}),
+      ...(typeof serve.eventPath === "string" ? { eventPath: serve.eventPath } : {}),
     },
   };
 }

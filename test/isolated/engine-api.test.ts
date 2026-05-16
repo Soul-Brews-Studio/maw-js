@@ -14,6 +14,7 @@ describe("dynamic engine API (#1566)", () => {
         prefix: "/api/hey-ledger",
         upstream: "http://127.0.0.1:45678",
         events: ["MessageSend"],
+        eventPath: "/events",
         health: "/health",
       }),
     }));
@@ -22,6 +23,7 @@ describe("dynamic engine API (#1566)", () => {
     expect(register.status).toBe(201);
     expect(registered.ok).toBe(true);
     expect(registered.registration.prefix).toBe("/api/hey-ledger");
+    expect(registered.registration.eventPath).toBe("/events");
 
     const list = await engineApi.handle(new Request("http://maw.local/_engine/registrations"));
     const listed = await list.json() as Record<string, any>;

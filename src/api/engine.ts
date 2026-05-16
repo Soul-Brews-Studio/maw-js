@@ -38,6 +38,7 @@ engineApi.post(
       prefix: t.String(),
       upstream: t.String(),
       events: t.Optional(t.Array(t.String())),
+      eventPath: t.Optional(t.String()),
       health: t.Optional(t.String()),
     }),
   },

@@ -17,6 +17,7 @@ import { handlePtyMessage, handlePtyClose } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import {
+  dispatchEnginePluginEvent,
   findEnginePluginRegistration,
   proxyEnginePluginRequest,
   startEnginePluginHealthPolling,
@@ -117,6 +118,11 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
+  feedListeners.add((event) => {
+    dispatchEnginePluginEvent(event).catch((err) => {
+      console.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  });
 
   // Plugin system — built-in + user plugins
   try {

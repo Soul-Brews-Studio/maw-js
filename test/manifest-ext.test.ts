@@ -241,6 +241,7 @@ describe("new manifest fields accepted", () => {
               command: "bun run serve",
               prefix: "/api/hey-ledger",
               health: "/health",
+              eventPath: "/events",
               events: ["MessageSend", "MessageDeliver"],
             },
           },
@@ -251,6 +252,7 @@ describe("new manifest fields accepted", () => {
         command: "bun run serve",
         prefix: "/api/hey-ledger",
         health: "/health",
+        eventPath: "/events",
         events: ["MessageSend", "MessageDeliver"],
       });
     } finally {
@@ -276,7 +278,7 @@ describe("new manifest fields accepted", () => {
           cron: { schedule: "*/5 * * * *" },
           module: { exports: ["doStuff"], path: "./lib.ts" },
           transport: { peer: true },
-          engine: { serve: { prefix: "/api/full", health: "/health" } },
+          engine: { serve: { prefix: "/api/full", health: "/health", eventPath: "/events" } },
         }),
         dir,
       );
@@ -287,6 +289,7 @@ describe("new manifest fields accepted", () => {
       expect(m.module?.exports).toEqual(["doStuff"]);
       expect(m.transport?.peer).toBe(true);
       expect(m.engine?.serve?.prefix).toBe("/api/full");
+      expect(m.engine?.serve?.eventPath).toBe("/events");
     } finally {
       rmSync(dir, { recursive: true });
     }

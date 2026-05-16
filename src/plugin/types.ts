@@ -50,6 +50,8 @@ export interface PluginEngineServe {
   health?: string;
   /** Feed events the process wants to subscribe to through the engine. */
   events?: string[];
+  /** HTTP path on the plugin process that receives subscribed feed events. */
+  eventPath?: string;
 }
 
 export interface PluginManifest {

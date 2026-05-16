@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   clearEnginePluginRegistrations,
+  dispatchEnginePluginEvent,
   findEnginePluginRegistration,
   listEnginePluginRegistrations,
   pollEnginePluginHealth,
@@ -17,6 +18,7 @@ describe("engine plugin registry (#1566)", () => {
       prefix: "/api/hey-ledger/",
       upstream: "http://127.0.0.1:43210/",
       events: ["MessageSend", "MessageDeliver", "MessageSend"],
+      eventPath: "/events",
       health: "/health",
     });
     const nested = registerEnginePlugin({
@@ -27,6 +29,7 @@ describe("engine plugin registry (#1566)", () => {
 
     expect(root.prefix).toBe("/api/hey-ledger");
     expect(root.events).toEqual(["MessageSend", "MessageDeliver"]);
+    expect(root.eventPath).toBe("/events");
     expect(listEnginePluginRegistrations().map((r) => r.prefix)).toEqual([
       "/api/hey-ledger",
       "/api/hey-ledger/admin",
@@ -94,6 +97,92 @@ describe("engine plugin registry (#1566)", () => {
     } finally {
       upstream.stop(true);
     }
+  });
+
+  test("delivers subscribed feed events to plugin-owned event endpoints", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(req) {
+        const url = new URL(req.url);
+        seen.push({
+          path: url.pathname,
+          plugin: req.headers.get("x-maw-engine-plugin"),
+          prefix: req.headers.get("x-forwarded-prefix"),
+          body: await req.json(),
+        });
+        return Response.json({ ok: true });
+      },
+    });
+    try {
+      registerEnginePlugin({
+        plugin: "hey-ledger",
+        prefix: "/api/hey-ledger",
+        upstream: `http://127.0.0.1:${upstream.port}/engine`,
+        events: ["MessageSend"],
+        eventPath: "/events",
+      });
+
+      const ignored = await dispatchEnginePluginEvent({
+        timestamp: "2026-05-16T01:02:02.000Z",
+        oracle: "mawjs-codex",
+        host: "m5",
+        event: "Notification",
+        project: "",
+        sessionId: "",
+        message: "ignored",
+        ts: Date.now(),
+      });
+      const delivered = await dispatchEnginePluginEvent({
+        timestamp: "2026-05-16T01:02:03.000Z",
+        oracle: "mawjs-codex",
+        host: "m5",
+        event: "MessageSend",
+        project: "",
+        sessionId: "",
+        message: "hello",
+        ts: Date.now(),
+        data: { id: "m1", text: "hello" },
+      });
+
+      expect(ignored).toEqual({ delivered: 0, failed: 0, removed: 0 });
+      expect(delivered).toEqual({ delivered: 1, failed: 0, removed: 0 });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({
+        path: "/engine/events",
+        plugin: "hey-ledger",
+        prefix: "/api/hey-ledger",
+      });
+      expect(seen[0].body).toMatchObject({ event: "MessageSend", message: "hello", data: { id: "m1" } });
+    } finally {
+      upstream.stop(true);
+    }
+  });
+
+  test("event delivery connection failures unbind crashed plugin engines", async () => {
+    const upstream = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ ok: true }) });
+    registerEnginePlugin({
+      plugin: "event-crashy",
+      prefix: "/api/event-crashy",
+      upstream: `http://127.0.0.1:${upstream.port}`,
+      events: ["MessageDeliver"],
+    });
+    upstream.stop(true);
+
+    const result = await dispatchEnginePluginEvent({
+      timestamp: "2026-05-16T01:02:04.000Z",
+      oracle: "mawjs-oracle",
+      host: "m5",
+      event: "MessageDeliver",
+      project: "",
+      sessionId: "",
+      message: "inbound",
+      ts: Date.now(),
+    });
+
+    expect(result).toEqual({ delivered: 0, failed: 1, removed: 1 });
+    expect(findEnginePluginRegistration("/api/event-crashy/messages")).toBeUndefined();
   });
 
   test("unregisters crashed upstreams and returns a 503", async () => {

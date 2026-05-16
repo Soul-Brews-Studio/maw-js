@@ -1,10 +1,12 @@
 import { NAME_RE } from "../plugin/manifest-constants";
+import type { FeedEvent } from "../lib/feed";
 
 export interface EnginePluginRegistrationInput {
   plugin: string;
   prefix: string;
   upstream: string;
   events?: string[];
+  eventPath?: string;
   health?: string;
 }
 
@@ -61,10 +63,18 @@ function normalizeStringArray(value: string[] | undefined, field: string): strin
 }
 
 function normalizeHealth(health: string | undefined): string | undefined {
-  if (health === undefined) return undefined;
-  const trimmed = health.trim();
+  return normalizeCleanPath(health, "health");
+}
+
+function normalizeEventPath(eventPath: string | undefined): string | undefined {
+  return normalizeCleanPath(eventPath, "eventPath");
+}
+
+function normalizeCleanPath(value: string | undefined, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
   if (!trimmed || !trimmed.startsWith("/") || trimmed.includes("..") || trimmed.includes("//") || /\s/.test(trimmed)) {
-    throw new Error("engine health must be a clean absolute path");
+    throw new Error(`engine ${field} must be a clean absolute path`);
   }
   return trimmed;
 }
@@ -80,6 +90,7 @@ export function registerEnginePlugin(input: EnginePluginRegistrationInput): Engi
   const prefix = normalizePrefix(input.prefix);
   const upstream = normalizeUpstream(input.upstream);
   const events = normalizeStringArray(input.events, "events");
+  const eventPath = normalizeEventPath(input.eventPath);
   const health = normalizeHealth(input.health);
 
   // One live dynamic surface per plugin in this alpha slice. A plugin can
@@ -94,6 +105,7 @@ export function registerEnginePlugin(input: EnginePluginRegistrationInput): Engi
     upstream,
     registeredAt: new Date().toISOString(),
     ...(events ? { events } : {}),
+    ...(eventPath ? { eventPath } : {}),
     ...(health ? { health } : {}),
   };
   registrations.set(prefix, registration);
@@ -144,9 +156,17 @@ function targetUrlFor(req: Request, registration: EnginePluginRegistration): URL
 
 function targetUrlForHealth(registration: EnginePluginRegistration): URL | undefined {
   if (!registration.health) return undefined;
+  return targetUrlForPath(registration, registration.health);
+}
+
+function targetUrlForEvent(registration: EnginePluginRegistration): URL {
+  return targetUrlForPath(registration, registration.eventPath ?? "/events")!;
+}
+
+function targetUrlForPath(registration: EnginePluginRegistration, path: string): URL | undefined {
   const base = new URL(registration.upstream);
   const basePath = base.pathname === "/" ? "" : base.pathname.replace(/\/+$/, "");
-  base.pathname = `${basePath}${registration.health}`;
+  base.pathname = `${basePath}${path}`;
   base.search = "";
   return base;
 }
@@ -190,6 +210,44 @@ export function startEnginePluginHealthPolling(intervalMs = 5_000): () => void {
   }, intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
+}
+
+export async function dispatchEnginePluginEvent(event: FeedEvent): Promise<{ delivered: number; failed: number; removed: number }> {
+  const current = listEnginePluginRegistrations().filter((registration) =>
+    registration.events?.includes(event.event),
+  );
+  let delivered = 0;
+  let failed = 0;
+  let removed = 0;
+
+  for (const registration of current) {
+    const target = targetUrlForEvent(registration);
+    try {
+      const response = await fetch(target, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-maw-engine-plugin": registration.plugin,
+          "x-forwarded-prefix": registration.prefix,
+        },
+        body: JSON.stringify(event),
+        signal: AbortSignal.timeout(1_000),
+      });
+      if (response.ok) {
+        delivered++;
+      } else {
+        failed++;
+        console.warn(`[engine-plugin] event delivery to ${registration.plugin} returned ${response.status} for ${event.event}`);
+      }
+    } catch (err) {
+      failed++;
+      removed++;
+      registrations.delete(registration.prefix);
+      console.warn(`[engine-plugin] unbound ${registration.plugin} at ${registration.prefix}: event delivery failed (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
+  return { delivered, failed, removed };
 }
 
 export async function proxyEnginePluginRequest(req: Request, registration: EnginePluginRegistration): Promise<Response> {
