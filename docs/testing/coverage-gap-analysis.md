@@ -1,20 +1,20 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T20:48:05.083Z
+Generated: 2026-05-16T21:05:18.178Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **16.6%** (8411/50591)
-Overall function coverage: **61.8%** (917/1484)
+Overall line coverage: **17.1%** (8650/50593)
+Overall function coverage: **62.4%** (939/1504)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 88 | 22 | 30.5% (2283/7482) | 64.2% (238/371) | n/a (0/0) |
-| config/runtime | 19 | 2 | 43.3% (510/1179) | 40.2% (35/87) | n/a (0/0) |
+| cli/dispatch | 88 | 21 | 33.4% (2504/7496) | 66.0% (258/391) | n/a (0/0) |
+| config/runtime | 19 | 2 | 45.2% (528/1167) | 42.5% (37/87) | n/a (0/0) |
 | fleet | 17 | 0 | 38.8% (407/1050) | 54.8% (40/73) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 98 | 18.7% (2699/14401) | 57.6% (278/483) | n/a (0/0) |
@@ -62,6 +62,7 @@ Overall function coverage: **61.8%** (917/1484)
 | cli/dispatch | `src/cli/usage.ts` | 89.6% | 92.9% |
 | cli/dispatch | `src/cli/verbosity.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/done.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-apply.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-diff.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-identity.ts` | 100.0% | 100.0% |
@@ -128,10 +129,10 @@ Overall function coverage: **61.8%** (917/1484)
 | transport | `src/core/transport/tmux-class.ts` | 267 | 15.2% |
 | transport | `src/transports/scout.ts` | 248 | 8.5% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 226 | 28.7% |
-| cli/dispatch | `src/commands/shared/done.ts` | 207 | 0.0% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
+| routing/aliases | `src/cli/top-aliases.ts` | 148 | 41.3% |
 
 ## Critical gaps to prioritize
 

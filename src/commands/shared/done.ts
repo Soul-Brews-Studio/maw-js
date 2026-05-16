@@ -12,10 +12,63 @@ export interface DoneOpts {
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
-export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
+type DoneFs = {
+  appendFileSync: typeof appendFileSync;
+  mkdirSync: typeof mkdirSync;
+  readdirSync: typeof readdirSync;
+  readFileSync: typeof readFileSync;
+  writeFileSync: typeof writeFileSync;
+};
+
+type DoneLogger = Pick<typeof console, "error" | "log">;
+
+export interface DoneDeps {
+  listSessions?: () => Promise<SessionInfo[]>;
+  hostExec?: (command: string) => Promise<string>;
+  tmux?: {
+    killWindow?: (target: string) => Promise<unknown>;
+    sendText?: (target: string, text: string) => Promise<unknown>;
+  };
+  fleetDir?: string;
+  ghqRoot?: string;
+  homeDir?: string;
+  takeSnapshot?: (trigger: string) => Promise<unknown>;
+  now?: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+  fs?: Partial<DoneFs>;
+  logger?: DoneLogger;
+}
+
+function doneDeps(deps: DoneDeps = {}) {
+  return {
+    listSessions: deps.listSessions ?? (listSessions as () => Promise<SessionInfo[]>),
+    hostExec: deps.hostExec ?? hostExec,
+    tmux: {
+      killWindow: deps.tmux?.killWindow ?? tmux.killWindow,
+      sendText: deps.tmux?.sendText ?? tmux.sendText,
+    },
+    fleetDir: deps.fleetDir ?? FLEET_DIR,
+    ghqRoot: deps.ghqRoot ?? getGhqRoot(),
+    homeDir: deps.homeDir ?? homedir(),
+    takeSnapshot: deps.takeSnapshot ?? takeSnapshot,
+    now: deps.now ?? (() => new Date()),
+    sleep: deps.sleep ?? Bun.sleep,
+    fs: {
+      appendFileSync: deps.fs?.appendFileSync ?? appendFileSync,
+      mkdirSync: deps.fs?.mkdirSync ?? mkdirSync,
+      readdirSync: deps.fs?.readdirSync ?? readdirSync,
+      readFileSync: deps.fs?.readFileSync ?? readFileSync,
+      writeFileSync: deps.fs?.writeFileSync ?? writeFileSync,
+    },
+    logger: deps.logger ?? console,
+  };
+}
+
+export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: DoneDeps = {}) {
+  const d = doneDeps(deps);
   let windowName = normalizeTarget(windowName_);
-  const sessions = await listSessions();
-  const reposRoot = join(getGhqRoot(), "github.com");
+  const sessions = await d.listSessions();
+  const reposRoot = join(d.ghqRoot, "github.com");
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
@@ -26,125 +79,131 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   if (sessionName) {
-    signalParentInbox(windowName, sessionName, sessions as any);
+    signalParentInbox(windowName, sessionName, sessions, deps);
   }
 
   if (sessionName !== null && windowIndex !== null && !opts.force) {
-    await autoSave(windowName, sessionName, opts);
+    await autoSave(windowName, sessionName, opts, deps);
     if (opts.dryRun) return;
   } else if (opts.dryRun) {
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
   }
 
   if (sessionName !== null && windowIndex !== null) {
     try {
-      await tmux.killWindow(`${sessionName}:${windowName}`);
-      console.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
+      await d.tmux.killWindow(`${sessionName}:${windowName}`);
+      d.logger.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
     } catch {
-      console.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
+      d.logger.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
     }
   } else {
-    console.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
+    d.logger.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
   }
 
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps);
   }
   if (!removedWorktree) {
-    console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+    d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
   }
 
-  const removedFromConfig = removeFromFleetConfig(windowNameLower);
+  const removedFromConfig = removeFromFleetConfig(windowNameLower, deps);
   if (!removedFromConfig) {
-    console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
+    d.logger.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
 
-  takeSnapshot("done").catch(() => {});
-  console.log();
+  d.takeSnapshot("done").catch(() => {});
+  d.logger.log();
 }
 
-function signalParentInbox(
+export function signalParentInbox(
   windowName: string,
   sessionName: string,
   sessions: SessionInfo[],
+  deps: DoneDeps = {},
 ): void {
+  const d = doneDeps(deps);
   const from = process.env.CLAUDE_AGENT_NAME || windowName;
   const parentWindow = sessions.find(s => s.name === sessionName)?.windows[0]?.name;
   if (!parentWindow) return;
   const parentTarget = parentWindow.replace(/[^a-zA-Z0-9_-]/g, "");
-  const inboxDir = join(homedir(), ".oracle", "inbox");
+  const inboxDir = join(d.homeDir, ".oracle", "inbox");
   const signal =
-    JSON.stringify({ ts: new Date().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
+    JSON.stringify({ ts: d.now().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
   try {
-    mkdirSync(inboxDir, { recursive: true });
-    appendFileSync(join(inboxDir, `${parentTarget}.jsonl`), signal);
+    d.fs.mkdirSync(inboxDir, { recursive: true });
+    d.fs.appendFileSync(join(inboxDir, `${parentTarget}.jsonl`), signal);
   } catch (e) {
-    console.error(`  \x1b[33m⚠\x1b[0m inbox signal failed: ${e}`);
+    d.logger.error(`  \x1b[33m⚠\x1b[0m inbox signal failed: ${e}`);
   }
 }
 
-async function autoSave(
+export async function autoSave(
   windowName: string,
   sessionName: string,
   opts: DoneOpts,
+  deps: DoneDeps = {},
 ): Promise<void> {
+  const d = doneDeps(deps);
   const target = `${sessionName}:${windowName}`;
 
   let paneCwd = "";
   try {
-    paneCwd = (await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
+    paneCwd = (await d.hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
   } catch { /* pane may not exist */ }
 
   if (opts.dryRun) {
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send /rrr to ${target} and wait 10s`);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send /rrr to ${target} and wait 10s`);
     if (paneCwd) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${target}`);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree + fleet config`);
-    console.log();
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${target}`);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree + fleet config`);
+    d.logger.log();
     return;
   }
 
-  console.log(`  \x1b[36m⏳\x1b[0m sending /rrr to ${target}...`);
+  d.logger.log(`  \x1b[36m⏳\x1b[0m sending /rrr to ${target}...`);
   try {
-    await tmux.sendText(target, "/rrr");
-    await new Promise(r => setTimeout(r, 10_000));
-    console.log(`  \x1b[32m✓\x1b[0m /rrr sent (waited 10s)`);
+    await d.tmux.sendText(target, "/rrr");
+    await d.sleep(10_000);
+    d.logger.log(`  \x1b[32m✓\x1b[0m /rrr sent (waited 10s)`);
   } catch {
-    console.log(`  \x1b[33m⚠\x1b[0m could not send /rrr (agent may not be running)`);
+    d.logger.log(`  \x1b[33m⚠\x1b[0m could not send /rrr (agent may not be running)`);
   }
 
   if (paneCwd) {
-    console.log(`  \x1b[36m⏳\x1b[0m git auto-save in ${paneCwd}...`);
+    d.logger.log(`  \x1b[36m⏳\x1b[0m git auto-save in ${paneCwd}...`);
     try {
-      await hostExec(`git -C '${paneCwd}' add -A`);
+      await d.hostExec(`git -C '${paneCwd}' add -A`);
       try {
-        await hostExec(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
-        console.log(`  \x1b[32m✓\x1b[0m committed changes`);
+        await d.hostExec(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m committed changes`);
       } catch {
-        console.log(`  \x1b[90m○\x1b[0m nothing to commit`);
+        d.logger.log(`  \x1b[90m○\x1b[0m nothing to commit`);
       }
       try {
-        await hostExec(`git -C '${paneCwd}' push`);
-        console.log(`  \x1b[32m✓\x1b[0m pushed to remote`);
+        await d.hostExec(`git -C '${paneCwd}' push`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m pushed to remote`);
       } catch {
-        console.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
+        d.logger.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
       }
     } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
+      d.logger.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
     }
   }
 }
 
-async function removeWorktreeViaConfig(
+export async function removeWorktreeViaConfig(
   windowNameLower: string,
   reposRoot: string,
+  deps: DoneDeps = {},
 ): Promise<boolean> {
+  const d = doneDeps(deps);
   try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
+    for (const file of d.fs.readdirSync(d.fleetDir).filter(f => f.endsWith(".json"))) {
+      const config = JSON.parse(d.fs.readFileSync(join(d.fleetDir, file), "utf-8"));
       const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
       if (!win?.repo) continue;
 
@@ -159,31 +218,33 @@ async function removeWorktreeViaConfig(
 
       try {
         let branch = "";
-        try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        await hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
-        await hostExec(`git -C '${mainPath}' worktree prune`);
-        console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
+        try { branch = (await d.hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
+        await d.hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
+        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await hostExec(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
         }
         return true;
       } catch (e: any) {
-        console.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
+        d.logger.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
       }
       break;
     }
-  } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`); }
+  } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`); }
   return false;
 }
 
-async function removeWorktreeByGhqScan(
+export async function removeWorktreeByGhqScan(
   windowName: string,
   reposRoot: string,
+  deps: DoneDeps = {},
 ): Promise<boolean> {
+  const d = doneDeps(deps);
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, "");
-    const ghqOut = await hostExec(`find ${reposRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const ghqOut = await d.hostExec(`find ${reposRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
       const base = p.split("/").pop()!;
@@ -196,31 +257,32 @@ async function removeWorktreeByGhqScan(
       const mainPath = wtPath.replace(base, mainRepo);
       try {
         let branch = "";
-        try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
-        await hostExec(`git -C '${mainPath}' worktree prune`);
-        console.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
+        try { branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
+        await d.hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
+        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await hostExec(`git -C '${mainPath}' branch -d '${branch}'`); console.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
         }
-      } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
+      } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
     }
-  } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
+  } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
   return removed;
 }
 
-function removeFromFleetConfig(windowNameLower: string): boolean {
+export function removeFromFleetConfig(windowNameLower: string, deps: DoneDeps = {}): boolean {
+  const d = doneDeps(deps);
   let removed = false;
   try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const filePath = join(FLEET_DIR, file);
-      const config = JSON.parse(readFileSync(filePath, "utf-8"));
+    for (const file of d.fs.readdirSync(d.fleetDir).filter(f => f.endsWith(".json"))) {
+      const filePath = join(d.fleetDir, file);
+      const config = JSON.parse(d.fs.readFileSync(filePath, "utf-8"));
       const before = config.windows?.length || 0;
       config.windows = (config.windows || []).filter((w: any) => w.name.toLowerCase() !== windowNameLower);
       if (config.windows.length < before) {
-        writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n");
-        console.log(`  \x1b[32m✓\x1b[0m removed from ${file}`);
+        d.fs.writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n");
+        d.logger.log(`  \x1b[32m✓\x1b[0m removed from ${file}`);
         removed = true;
       }
     }
