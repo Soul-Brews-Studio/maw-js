@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 
 export const command = {
   name: "pane",
-  description: "Pane workflow helpers such as swapping panes in the current tmux window.",
+  description: "Swap panes in the current tmux window; use panes to list metadata or tile to arrange grids.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -23,21 +23,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const sub = args[0]?.toLowerCase();
 
     if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw pane swap <pane-a> <pane-b>");
+      console.log("usage: maw pane swap <pane-a> <pane-b>  (see: maw panes to list, maw tile for grids)");
       console.log("  pane targets: index (1), pane id (%1), title prefix (tile-1), top, bottom");
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
     if (sub !== "swap") {
       console.log(`unknown pane subcommand: ${sub}`);
-      console.log("usage: maw pane swap <pane-a> <pane-b>");
+      console.log("usage: maw pane swap <pane-a> <pane-b>  (see: maw panes to list, maw tile for grids)");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
     const a = args[1];
     const b = args[2];
     if (!a || !b) {
-      console.log("usage: maw pane swap <pane-a> <pane-b>");
+      console.log("usage: maw pane swap <pane-a> <pane-b>  (see: maw panes to list, maw tile for grids)");
       return { ok: false, error: "two pane targets required", output: logs.join("\n") };
     }
 

@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/done@v0.1.0-done",
   "sha256": "b27124336937bf46bc30d7bd80611d78956157975b3d5f7c708e3ca4a8772f75",
-  "summary": "Clean up a finished worktree window: rrr, git save, kill, remove worktree.",
+  "summary": "Finish a worktree session: retrospective/save, kill window, and remove worktree; use sleep/kill for non-worktree shutdown.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

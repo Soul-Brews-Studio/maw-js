@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Gracefully stop a single Oracle agent's tmux window.",
+  "description": "Gracefully stop one Oracle window; use kill for immediate tmux removal or done for worktree cleanup.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "sleep",
-    "help": "maw sleep <oracle> [window] — gracefully stop an oracle window"
+    "help": "maw sleep <oracle> [window] — gracefully stop one Oracle window; see maw kill for immediate removal and maw done for worktrees"
   },
   "api": {
     "path": "/api/sleep",

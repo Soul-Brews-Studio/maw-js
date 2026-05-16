@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Capture tmux pane content — visible history or full scrollback.",
+  "description": "Capture visible pane output or full scrollback; use peek for a quick latest-output glance.",
   "cli": {
     "command": "capture",
-    "help": "maw capture <target> [--pane N] [--lines N] [--full]",
+    "help": "maw capture <target> [--pane N] [--lines N] [--full] — capture pane output or scrollback; see maw peek for a quick glance",
     "flags": {
       "--pane": "number",
       "--lines": "number",

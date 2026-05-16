@@ -2,19 +2,20 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdList } from "maw-js/commands/shared/comm";
 import { parseFlags } from "maw-js/cli/parse-args";
 
-export const command = { name: "ls", description: "List all agents and their status." };
+export const command = { name: "ls", description: "List live sessions and agents; use maw fleet ls for registered fleet config." };
 
 const HELP = [
-  "maw ls — list sessions (local or cross-node)",
+  "maw ls — list live sessions (local or cross-node)",
   "",
   "Usage:",
-  "  maw ls                  list local sessions (default)",
+  "  maw ls                  list live local sessions (default)",
   "  maw ls <peer>           list sessions on a federation peer",
   "  maw ls --all            aggregate sessions from all known peers",
   "  maw ls --json           emit JSON (combine with <peer> or --all)",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
   "Peer aliases are resolved from ~/.maw/peers.json (see: maw peers list).",
+  "For registered fleet config, use maw fleet ls.",
 ].join("\n");
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

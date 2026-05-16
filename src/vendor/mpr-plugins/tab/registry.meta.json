@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/tab@v0.1.0-tab",
   "sha256": "fa1cb5b76e700b03750c198f71af6a52bc65e349582827995e6c66175376ceef",
-  "summary": "Manage tmux tabs.",
+  "summary": "List tmux tabs/windows, peek a tab, or send a message to it; use rename to change tab names.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

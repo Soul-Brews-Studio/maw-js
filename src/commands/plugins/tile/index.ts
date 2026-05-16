@@ -3,7 +3,7 @@ import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
   name: "tile",
-  description: "Tile current window or spawn N colored panes in a tiled grid.",
+  description: "Arrange the current window into a grid or spawn tile panes; use panes to inspect and pane swap to move panes.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -28,11 +28,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw tile [N] [--wt] [--engine <name>]");
+      console.log("usage: maw tile [N] [--wt] [--engine <name>]  (see: maw panes to inspect, maw pane swap to move)");
       console.log("       maw tile clean");
       console.log("       maw tile swap <a> <b>");
       console.log("");
-      console.log("  maw tile              apply tiled layout to current window");
+      console.log("  maw tile              apply tiled layout to current window (pane grid)");
       console.log("  maw tile 3            spawn 3 empty panes and tile them");
       console.log("  maw tile 3 --wt       spawn 3 worktree-backed panes, each with own branch");
       console.log("  maw tile 3 -e claude  spawn 3 panes running claude, tiled");

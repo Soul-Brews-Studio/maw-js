@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 
 export const command = {
   name: "tab",
-  description: "Manage tmux tabs.",
+  description: "List tmux tabs/windows, peek a tab, or send a message to it; use rename to change tab names.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

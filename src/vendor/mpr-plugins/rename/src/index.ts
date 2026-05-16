@@ -3,7 +3,7 @@ import { cmdRename } from "./impl";
 
 export const command = {
   name: "rename",
-  description: "Rename a tmux tab or agent.",
+  description: "Rename tmux tabs/windows with Oracle-prefix auto-formatting; use tab to list or message tabs.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -21,7 +21,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     if (!args[0] || !args[1]) {
-      throw new Error("usage: maw rename <tab# or name> <new-name>");
+      throw new Error("usage: maw rename <tab# or name> <new-name>  (see: maw tab to list tabs)");
     }
     await cmdRename(args[0], args[1]);
     return { ok: true, output: logs.join("\n") || undefined };

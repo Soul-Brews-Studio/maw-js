@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/view@v0.1.0-view",
   "sha256": "a4d46e5120ebc282576de42498397f3c850f5ac8fa642b18b47ffae690426b16",
-  "summary": "Create or attach to an agent's tmux view.",
+  "summary": "Create or attach to an agent tmux view; use peek/capture for read-only inspection.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

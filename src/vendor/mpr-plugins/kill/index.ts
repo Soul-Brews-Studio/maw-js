@@ -4,7 +4,7 @@ import { parseFlags } from "maw-js/cli/parse-args";
 
 export const command = {
   name: "kill",
-  description: "Kill a tmux session, window, or pane.",
+  description: "Immediately kill a tmux session, window, or pane; use sleep for graceful stop or done for worktrees.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -29,10 +29,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       target = flags._[0];
       if (!target || target === "--help" || target === "-h") {
-        return { ok: false, error: "usage: maw kill <target>[:window] [--pane N] [--peer <alias>]" };
+        return { ok: false, error: "usage: maw kill <target>[:window] [--pane N] [--peer <alias>]  (see: maw sleep for graceful stop, maw done for worktrees)" };
       }
       if (target.startsWith("-")) {
-        return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw kill <target>` };
+        return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw kill <target>  (see: maw sleep for graceful stop, maw done for worktrees)` };
       }
 
       if (flags["--peer"]) {

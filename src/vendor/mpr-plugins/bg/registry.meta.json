@@ -2,7 +2,7 @@
   "version": "0.1.2",
   "source": "soul-brews-studio/maw-plugin-registry/bg@v0.1.2-bg",
   "sha256": "b14f2689c2904d4646c18e661d18e50f621d013c783833829a8909c627ce8e20",
-  "summary": "Run long commands in detached tmux; sample output non-destructively",
+  "summary": "Run long commands in detached tmux and sample output without blocking the current pane.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-bg",

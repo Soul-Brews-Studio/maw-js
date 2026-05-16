@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "List tmux panes with metadata (index, size, command, title).",
+  "description": "List pane metadata; use pane swap to move panes or tile to arrange/spawn grids.",
   "cli": {
     "command": "panes",
-    "help": "maw panes [target] [--pid] [--all|-a] — list panes in current window, or all panes in <target>, or --all to list every pane across every session",
+    "help": "maw panes [target] [--pid] [--all|-a] — list pane metadata; see maw pane swap to move panes and maw tile for grids",
     "flags": {
       "--pid": "boolean",
       "--all": "boolean"

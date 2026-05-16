@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/sleep@v0.1.0-sleep",
   "sha256": "7f53cf07b44f47ef575d538f6a9e896ef2f516525f52bc26a21aaa8c8c1709fd",
-  "summary": "Gracefully stop a single Oracle agent's tmux window.",
+  "summary": "Gracefully stop one Oracle window; use kill for immediate tmux removal or done for worktree cleanup.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

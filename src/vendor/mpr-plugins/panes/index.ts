@@ -4,7 +4,7 @@ import { parseFlags } from "maw-js/cli/parse-args";
 
 export const command = {
   name: "panes",
-  description: "List tmux panes with metadata.",
+  description: "List pane metadata; use pane swap to move panes or tile to arrange/spawn grids.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -31,10 +31,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const first = flags._[0];
       if (first === "--help" || first === "-h") {
-        return { ok: false, error: "usage: maw panes [target] [--pid] [--all|-a]" };
+        return { ok: false, error: "usage: maw panes [target] [--pid] [--all|-a]  (see: maw pane swap, maw tile)" };
       }
       if (first && first.startsWith("-")) {
-        return { ok: false, error: `"${first}" looks like a flag, not a target.\n  usage: maw panes [target] [--pid] [--all|-a]` };
+        return { ok: false, error: `"${first}" looks like a flag, not a target.\n  usage: maw panes [target] [--pid] [--all|-a]  (see: maw pane swap, maw tile)` };
       }
       target = first;
       pid = !!flags["--pid"];

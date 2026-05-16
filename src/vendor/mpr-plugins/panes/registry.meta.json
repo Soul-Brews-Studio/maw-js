@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/panes@v0.1.0-panes",
   "sha256": "cd98d6bb4fdfd22286e85c66fae96cf7918878565e39930babe525c2eecce1d3",
-  "summary": "List tmux panes with metadata (index, size, command, title).",
+  "summary": "List pane metadata; use pane swap to move panes or tile to arrange/spawn grids.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

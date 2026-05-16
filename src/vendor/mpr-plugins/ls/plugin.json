@@ -3,14 +3,14 @@
   "version": "1.1.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "List sessions — local, on a federation peer, or aggregated across all peers.",
+  "description": "List live sessions and agents; use maw fleet ls for registered fleet config.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "ls",
     "aliases": [
       "list"
     ],
-    "help": "maw ls [<peer>] [--all] [--json] [--fix] — list local or cross-node sessions"
+    "help": "maw ls [<peer>] [--all] [--json] [--fix] — list live sessions; see maw fleet ls for registered fleet config"
   },
   "weight": 0,
   "license": "MIT",

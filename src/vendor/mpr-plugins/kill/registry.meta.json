@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/kill@v0.1.0-kill",
   "sha256": "a1f3101cd6065e1191e880707b4ee08d86ef7f4b33c2176ca5d9409153b9b3b4",
-  "summary": "Kill a tmux session, window, or pane (trusts the user \u2014 no --force).",
+  "summary": "Immediately kill a tmux session, window, or pane; use sleep for graceful single-agent shutdown or done for finished worktrees.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

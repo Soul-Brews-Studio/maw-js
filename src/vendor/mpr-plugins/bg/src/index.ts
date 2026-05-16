@@ -25,7 +25,7 @@ import { parseFlags } from "./internal/parse-flags";
 export const manifest = {
   name: "bg",
   version: "0.1.0",
-  description: "Run long commands in detached tmux; sample output non-destructively",
+  description: "Run long commands in detached tmux and sample output without blocking the current pane.",
 };
 
 export interface InvokeResult {
@@ -36,7 +36,7 @@ export interface InvokeResult {
   exitCode?: number;
 }
 
-const HELP = `maw bg — run long commands in detached tmux
+const HELP = `maw bg — run long commands in detached tmux without blocking the current pane
 
 usage:
   maw bg "<cmd>" [--name X]              spawn detached tmux session

@@ -2,7 +2,7 @@
   "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
   "name": "rename",
   "version": "0.1.2",
-  "description": "Tmux window rename with oracle-prefix auto-format",
+  "description": "Rename tmux tabs/windows with Oracle-prefix auto-formatting; use tab to list or message tabs.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-rename",

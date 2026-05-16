@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 
 export const command = {
   name: "view",
-  description: "Create or attach to an agent's tmux view.",
+  description: "Create or attach to an agent tmux view; use peek/capture for read-only inspection.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -43,7 +43,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (!scanned[0]) {
       return {
         ok: false,
-        error: "usage: maw view <agent> [window] [--clean] [--kill] [--split[=<anchor>]]",
+        error: "usage: maw view <agent> [window] [--clean] [--kill] [--split[=<anchor>]]  (see: maw peek/capture for read-only inspection)",
       };
     }
 

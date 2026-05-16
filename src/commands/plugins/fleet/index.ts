@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 
 export const command = {
   name: "fleet",
-  description: "Fleet management — init, sync, health, doctor, snapshots.",
+  description: "Manage the persistent fleet registry; use maw ls for currently live sessions.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -107,7 +107,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>`,
+        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet ls shows registered fleet config; maw ls shows live sessions`,
       };
     }
 

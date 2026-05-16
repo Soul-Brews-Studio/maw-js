@@ -3,7 +3,7 @@ import { cmdDone, cmdDoneAll } from "./impl";
 
 export const command = {
   name: ["done", "finish"],
-  description: "Clean up a finished worktree window: rrr, git save, kill, remove worktree.",
+  description: "Finish a worktree session: retrospective/save, kill window, and remove worktree.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -46,7 +46,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     if (!name) {
-      return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] or maw done --all [--force] [--dry-run]" };
+      return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] or maw done --all [--force] [--dry-run]  (see: maw sleep/kill for non-worktree shutdown)" };
     }
 
     await cmdDone(name, { force, dryRun });

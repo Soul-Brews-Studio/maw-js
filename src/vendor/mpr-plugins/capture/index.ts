@@ -4,7 +4,7 @@ import { parseFlags } from "maw-js/cli/parse-args";
 
 export const command = {
   name: "capture",
-  description: "Capture tmux pane content.",
+  description: "Capture visible pane output or full scrollback; use peek for a quick latest-output glance.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -33,10 +33,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       target = flags._[0];
       if (!target || target === "--help" || target === "-h") {
-        return { ok: false, error: "usage: maw capture <target> [--pane N] [--lines N] [--full]" };
+        return { ok: false, error: "usage: maw capture <target> [--pane N] [--lines N] [--full]  (see: maw peek for quick glance)" };
       }
       if (target.startsWith("-")) {
-        return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw capture <target>` };
+        return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw capture <target>  (see: maw peek for quick glance)` };
       }
       opts = {
         pane: flags["--pane"],

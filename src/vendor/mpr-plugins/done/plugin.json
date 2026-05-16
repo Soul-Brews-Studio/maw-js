@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Clean up a finished worktree window: rrr, git save, kill, remove worktree.",
+  "description": "Finish a worktree session: retrospective/save, kill window, and remove worktree; use sleep/kill for non-worktree shutdown.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "done",
     "aliases": [
       "finish"
     ],
-    "help": "maw done <window-name> [--force] [--dry-run] | maw done --all [--force] [--dry-run] — clean up finished worktrees"
+    "help": "maw done <window-name> [--force] [--dry-run] | maw done --all [--force] [--dry-run] — finish worktrees; see maw sleep/kill for non-worktree shutdown"
   },
   "api": {
     "path": "/api/done",

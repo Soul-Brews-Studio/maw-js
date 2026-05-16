@@ -2,7 +2,7 @@
   "version": "0.1.2",
   "source": "soul-brews-studio/maw-plugin-registry/rename@v0.1.2-rename",
   "sha256": "f09816a8e9214fb01b7c5555f31fbe4b2a787b21f7f198c835d5c78c153a560b",
-  "summary": "Tmux window rename with oracle-prefix auto-format",
+  "summary": "Rename tmux tabs/windows with Oracle-prefix auto-formatting; use tab to list or message tabs.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-rename",

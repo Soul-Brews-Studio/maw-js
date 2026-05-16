@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/capture@v0.1.0-capture",
   "sha256": "db636cbd88ca442492eba49c513d08614f9c96cf24aff5e7e94a54cc9c2aa874",
-  "summary": "Capture tmux pane content \u2014 visible history or full scrollback.",
+  "summary": "Capture visible pane output or full scrollback; use peek for a quick latest-output glance.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

@@ -2,7 +2,7 @@
   "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
   "name": "bg",
   "version": "0.1.2",
-  "description": "Run long commands in detached tmux; sample output non-destructively",
+  "description": "Run long commands in detached tmux and sample output without blocking the current pane.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-bg",

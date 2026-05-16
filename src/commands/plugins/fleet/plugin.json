@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Fleet management — init, sync, health, doctor, snapshots.",
+  "description": "Manage the persistent fleet registry; use maw ls for currently live sessions.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "fleet",
-    "help": "maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot> [args]"
+    "help": "maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot> [args] — manage registered fleet config; see maw ls for live sessions"
   },
   "weight": 10,
   "tier": "standard"

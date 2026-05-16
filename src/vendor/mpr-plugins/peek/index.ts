@@ -1,7 +1,7 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdPeek } from "maw-js/commands/shared/comm";
 
-export const command = { name: "peek", description: "Peek at an agent's latest output." };
+export const command = { name: "peek", description: "Peek at the latest output from an agent without attaching; use capture for scrollback or view to attach." };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];

@@ -3,7 +3,7 @@ import { cmdSleepOne } from "./impl";
 
 export const command = {
   name: ["sleep"],
-  description: "Gracefully stop a single Oracle agent's tmux window.",
+  description: "Gracefully stop one Oracle window; use kill for immediate tmux removal or done for worktree cleanup.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -25,7 +25,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
       if (!args[0]) {
-        return { ok: false, error: "usage: maw sleep <oracle> [window]" };
+        return { ok: false, error: "usage: maw sleep <oracle> [window]  (see: maw kill for immediate removal, maw done for worktrees)" };
       }
       if (args[0] === "--all-done") {
         logs.push("(placeholder) maw sleep --all-done — sleep ALL agents. Not yet implemented.");
@@ -36,7 +36,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       const args = ctx.args as Record<string, unknown>;
       if (!args.oracle) {
-        return { ok: false, error: "oracle is required" };
+        return { ok: false, error: "oracle is required (usage: maw sleep <oracle> [window])" };
       }
       oracle = args.oracle as string;
       window = args.window as string | undefined;
