@@ -1,6 +1,17 @@
 import { cmdPeek, cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
+function printCommUsage(cmd: "hey" | "send", write: (line: string) => void = console.log): void {
+  write(`usage: maw ${cmd} <target> <message> [--force] [--approve] [--trust]`);
+  write("  target forms (#759 Phase 2 — bare names removed):");
+  write("    local:<agent>                this node");
+  write("    <node>:<session>             canonical cross-node form (window 1)");
+  write("    <node>:<session>:<window>    target a specific tmux window (#410)");
+  write(`  e.g. maw ${cmd} local:mawjs "hello from neo"`);
+  write(`       maw ${cmd} phaith:01-hojo:3 "hello hojo-hermes"`);
+  write("       run `maw locate <agent>` to enumerate across federation");
+}
+
 export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
   // `peek` is a federation-aware comm verb. Keep `maw tmux peek` as the raw
   // tmux pane reader; top-level `maw peek <node>:<agent>` must reach cmdPeek.
@@ -14,6 +25,11 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
   // The raw-text compositor plugin remains available through lower-level tmux
   // verbs; top-level `send` must not leave text buffered without Enter.
   if (cmd === "hey" || cmd === "send") {
+    if (args[1] === "--help" || args[1] === "-h" || args[1] === "-help") {
+      printCommUsage(cmd);
+      return true;
+    }
+
     const force = args.includes("--force");
     // #842 Sub-C — `--approve` bypasses the cross-scope ACL queue gate.
     // Operator-explicit opt-in for THIS message; mirrors the consent
@@ -33,14 +49,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // same "usage:" error. Now the missing-message case names the target
     // so the user sees their input got through.
     if (!target) {
-      console.error(`usage: maw ${cmd} <target> <message> [--force]`);
-      console.error("  target forms (#759 Phase 2 — bare names removed):");
-      console.error("    local:<agent>                this node");
-      console.error("    <node>:<session>             canonical cross-node form (window 1)");
-      console.error("    <node>:<session>:<window>    target a specific tmux window (#410)");
-      console.error(`  e.g. maw ${cmd} local:mawjs "hello from neo"`);
-      console.error(`       maw ${cmd} phaith:01-hojo:3 "hello hojo-hermes"`);
-      console.error("       run `maw locate <agent>` to enumerate across federation");
+      printCommUsage(cmd, console.error);
       throw new UserError("missing target and message");
     }
     if (!msgArgs.length) {
