@@ -3,11 +3,14 @@ import { UserError } from "../core/util/user-error";
 
 function printCommUsage(cmd: "hey" | "send", write: (line: string) => void = console.log): void {
   write(`usage: maw ${cmd} <target> <message> [--force] [--approve] [--trust]`);
-  write("  target forms (#759 Phase 2 — bare names removed):");
-  write("    local:<agent>                this node");
+  write("  target forms:");
+  write("    <oracle-window>              same-node window name (local-only)");
+  write("    local:<agent>                explicit same-node target");
+  write("    <session>:<window>[.<pane>]  paste a TARGET from maw ls -v");
   write("    <node>:<session>             canonical cross-node form (window 1)");
   write("    <node>:<session>:<window>    target a specific tmux window (#410)");
-  write(`  e.g. maw ${cmd} local:mawjs "hello from neo"`);
+  write(`  e.g. maw ${cmd} mawjs-oracle "hello from neo"`);
+  write(`       maw ${cmd} local:mawjs "hello from neo"`);
   write(`       maw ${cmd} phaith:01-hojo:3 "hello hojo-hermes"`);
   write("       run `maw locate <agent>` to enumerate across federation");
 }

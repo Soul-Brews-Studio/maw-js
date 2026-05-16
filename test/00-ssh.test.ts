@@ -142,6 +142,11 @@ describe("findWindow", () => {
         .toBe("08-mawjs:1");
     });
 
+    test("full session name + window name + pane suffix", () => {
+      expect(findWindow(MAW_SESSIONS, "08-mawjs:mawjs-oracle.0"))
+        .toBe("08-mawjs:1.0");
+    });
+
     test("oracle short name resolves to NN-prefixed session, not substring collision", () => {
       // 'mawjs' must NOT route to 'mawjs-view' — it should hit '08-mawjs'
       // because 'mawjs' is the oracle-name match (08-mawjs strip → mawjs).

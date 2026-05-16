@@ -7,6 +7,7 @@ import {
   curlFetch, runHook,
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
+import { AmbiguousMatchError } from "../../core/runtime/find-window";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 
@@ -121,16 +122,11 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
 }
 
 /**
- * Phase 2 of #759 — bare-name hard rejection. The bare-name path is removed
- * outright: cmdSend prints this error to stderr and exits non-zero before
- * any resolution attempt. Replaces the Phase 1 `formatBareNameDeprecation`
- * warning. Shape is fixed per the issue and exercised by
- * test/isolated/hey-bare-name-rejection.test.ts.
+ * #1572 — bare oracle names are allowed only as a same-node convenience.
  *
- * The triple `<node>:<session>:<agent>` form keeps `<node>` and `<session>`
- * as literal placeholders — the user is meant to run `maw locate <agent>`
- * to enumerate concrete candidates across the federation. Only `<agent>`
- * is substituted with the bare query the user actually typed.
+ * `maw hey <oracle-window> "..."` now resolves locally first. If there is no
+ * local window match, we still refuse to fall through to peer discovery or the
+ * agents map: cross-node delivery must keep an explicit `<node>:` prefix.
  *
  * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts).
  *   The production caller is `cmdSend` in this same file. No other module
@@ -142,16 +138,83 @@ export function formatBareNameError(query: string): string {
   const D = "\x1b[90m";   // dim — for explanatory tail
   const R = "\x1b[0m";
   return [
-    `${RED}error${R}: bare-name target removed — node prefix required`,
+    `${RED}error${R}: bare target '${query}' not found locally`,
     ``,
-    `  this node:`,
+    `  same-node targets:`,
     `    ${C}maw hey local:${query} "..."${R}`,
+    `    ${D}or copy a TARGET from \`maw ls -v\`${R}`,
     ``,
-    `  cross-node candidates:`,
-    `    ${C}maw hey <node>:<session>:${query} "..."${R}`,
+    `  cross-node targets:`,
+    `    ${C}maw hey <node>:${query} "..."${R}`,
+    `    ${C}maw hey <node>:<session>:<window> "..."${R}`,
     ``,
-    `  ${D}run \`maw locate ${query}\` to enumerate across federation${R}`,
+    `  ${D}bare names are local-only; run \`maw locate ${query}\` to enumerate federation candidates${R}`,
   ].join("\n");
+}
+
+/** @internal exported for tests only. */
+export function formatBareNameAmbiguousError(query: string, candidates: string[]): string {
+  const RED = "\x1b[31m";
+  const C = "\x1b[36m";
+  const R = "\x1b[0m";
+  return [
+    `${RED}error${R}: bare target '${query}' is ambiguous — matches ${candidates.length} local windows:`,
+    ...candidates.map((candidate) => `  ${C}${candidate}${R}`),
+    ``,
+    `Use one full TARGET from \`maw ls -v\`, for example:`,
+    `  ${C}maw hey ${candidates[0] ?? `local:${query}`} "..."${R}`,
+  ].join("\n");
+}
+
+function isBareLocalHeyTarget(query: string): boolean {
+  return query.length > 0 && !query.includes(":") && !query.includes("/");
+}
+
+function formatAmbiguousCandidates(query: string, candidates: string[]): string[] {
+  if (candidates.length) return candidates;
+  return [query];
+}
+
+function rejectBareMiss(query: string): never {
+  console.error(formatBareNameError(query));
+  process.exit(1);
+}
+
+function rejectBareAmbiguous(query: string, candidates: string[]): never {
+  console.error(formatBareNameAmbiguousError(query, formatAmbiguousCandidates(query, candidates)));
+  process.exit(1);
+}
+
+function normalizeBareLocalResult(
+  query: string,
+  result: ReturnType<typeof resolveTarget>,
+): ReturnType<typeof resolveTarget> | null {
+  if (!result) return null;
+  if (result.type === "local" || result.type === "self-node") return result;
+  // A bare query may discover a remote peer via config.agents/manifest. Do not
+  // use that implicit remote route: #1572 makes bare names local-only so
+  // operators must spell cross-node delivery with `<node>:`.
+  return null;
+}
+
+function assertBareLocalTarget(
+  query: string,
+  config: ReturnType<typeof loadConfig>,
+  sessions: Awaited<ReturnType<typeof listSessions>>,
+): ReturnType<typeof resolveTarget> | null {
+  if (!isBareLocalHeyTarget(query)) return null;
+
+  try {
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions));
+    if (localResult) return localResult;
+  } catch (e) {
+    if (e instanceof AmbiguousMatchError) {
+      rejectBareAmbiguous(query, e.candidates);
+    }
+    throw e;
+  }
+
+  rejectBareMiss(query);
 }
 
 /**
@@ -178,17 +241,6 @@ export async function cmdSend(
   opts: CmdSendOptions = {},
 ) {
   const config = loadConfig();
-
-  // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
-  // resolution work so users get a fast, deterministic failure pushing them
-  // onto the canonical `<node>:<agent>` form. `team:` and `plugin:` prefixes
-  // are special-cased downstream and have their own colon, so they pass.
-  // `/` is reserved for path-style targets. MAW_QUIET no longer suppresses —
-  // Phase 1's quiet-opt-out was a deprecation-window concession only.
-  if (!query.includes(":") && !query.includes("/")) {
-    console.error(formatBareNameError(query));
-    process.exit(1);
-  }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
   if (query.startsWith("team:")) {
@@ -256,6 +308,7 @@ export async function cmdSend(
   }
 
   let sessions = await listSessions();
+  const bareLocalResult = assertBareLocalTarget(query, config, sessions);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -350,7 +403,7 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const result = resolveTarget(query, config, sessions);
+  const result = bareLocalResult ?? resolveTarget(query, config, sessions);
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //

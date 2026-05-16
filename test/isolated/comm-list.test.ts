@@ -797,14 +797,11 @@ describe("resolveOraclePane", () => {
 // comm-send.ts — cmdSend (bare-name tip, local, peer, plugin, error paths)
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
-  // History: Phase 1 emitted a deprecation warning on bare-name targets but
-  // still resolved them. Phase 2 (#759) removes the bare-name path entirely
-  // — cmdSend now exits non-zero with a hard error before any resolution.
-  // The Phase 1 warning + MAW_QUIET escape hatch are gone. Coverage of the
-  // new error-shape lives in test/isolated/hey-bare-name-rejection.test.ts.
+describe("cmdSend — bare-name local-only routing (#1572)", () => {
+  // Bare names are a same-node convenience only. A local resolver hit is
+  // allowed, but a miss must not fall through to implicit peer routing.
 
-  test("bare name → hard error + exit 1, no deprecation phrasing", async () => {
+  test("bare name miss → local-only error + exit 1, no deprecation phrasing", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
@@ -812,9 +809,8 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
-    // New Phase 2 shape — no longer the yellow ⚠ deprecation
-    expect(joined).toContain("bare-name target removed");
-    expect(joined).toContain("node prefix required");
+    expect(joined).toContain("not found locally");
+    expect(joined).toContain("bare names are local-only");
     expect(joined).not.toContain("deprecation");
   });
 
@@ -824,11 +820,11 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
 
     await run(() => cmdSend("white:mawjs", "hi"));
 
-    // Bare-name guard does not fire on prefixed queries
-    expect(errs.some((e) => e.includes("bare-name target removed"))).toBe(false);
+    // Bare-name local-only guard does not fire on prefixed queries
+    expect(errs.some((e) => e.includes("not found locally"))).toBe(false);
   });
 
-  test("MAW_QUIET=1 does NOT bypass the rejection — Phase 1 escape hatch is gone", async () => {
+  test("MAW_QUIET=1 does NOT bypass local-only miss — Phase 1 escape hatch is gone", async () => {
     process.env.MAW_QUIET = "1";
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
@@ -836,7 +832,7 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
     await run(() => cmdSend("mawjs", "hi"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("bare-name target removed");
+    expect(errs.join("\n")).toContain("not found locally");
   });
 });
 

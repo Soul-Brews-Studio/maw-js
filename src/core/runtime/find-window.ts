@@ -64,7 +64,10 @@ export function findWindow(sessions: Session[], query: string): string | null {
   // session:window syntax — strict session match to prevent node:agent collision (#186)
   // "white:mawjs" must NOT match "105-whitekeeper" via substring
   if (query.includes(":")) {
-    const [sessPart, winPart] = q.split(":", 2);
+    const [sessPart, rawWinPart = ""] = q.split(":", 2);
+    const paneMatch = rawWinPart.match(/^(.+)\.(\d+)$/);
+    const winPart = paneMatch ? paneMatch[1] : rawWinPart;
+    const paneSuffix = paneMatch ? `.${paneMatch[2]}` : "";
     const sess = matchSession(sessions, sessPart, true);
     if (sess) {
       // Empty window part → return session's first window
@@ -72,7 +75,7 @@ export function findWindow(sessions: Session[], query: string): string | null {
         if (sess.windows.length > 0) return `${sess.name}:${sess.windows[0].index}`;
       } else {
         for (const w of sess.windows) {
-          if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}`;
+          if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}${paneSuffix}`;
         }
       }
     }

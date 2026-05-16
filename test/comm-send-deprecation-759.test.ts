@@ -1,38 +1,32 @@
 /**
- * #759 Phase 2 — bare-name hard rejection error formatter.
+ * #1572 — bare-name local-only error formatter.
  *
- * The Phase 1 deprecation warning has been converted into a hard error. The
- * formatter is tested directly (pure function). The cmdSend wiring (early
- * exit, gating on `!query.includes(":")`) is covered by the isolated test
- * `test/isolated/hey-bare-name-rejection.test.ts`.
- *
- * History: this file used to assert `formatBareNameDeprecation` — Phase 2
- * renamed the export to `formatBareNameError` and changed the shape from
- * yellow `⚠ deprecation` to red `error:`. See issue #759.
+ * Bare names are accepted only when they resolve to a local tmux window.
+ * Misses stay local-only and must not silently fall through to remote peer
+ * routing.
  */
 import { describe, test, expect } from "bun:test";
-import { formatBareNameError } from "../src/commands/shared/comm-send";
+import { formatBareNameAmbiguousError, formatBareNameError } from "../src/commands/shared/comm-send";
 
-describe("#759 Phase 2 — bare-name hard rejection", () => {
-  test("error marker, removal phrase, and node-prefix demand are all present", () => {
+describe("#1572 — bare-name local-only errors", () => {
+  test("error marker, local miss, and cross-node demand are all present", () => {
     const out = formatBareNameError("mawjs-oracle");
     expect(out).toContain("error");
-    expect(out).toContain("bare-name target removed");
-    expect(out).toContain("node prefix required");
+    expect(out).toContain("not found locally");
+    expect(out).toContain("bare names are local-only");
   });
 
   test("shows local: form with the user's bare query substituted", () => {
     const out = formatBareNameError("mawjs-oracle");
-    expect(out).toContain("this node:");
+    expect(out).toContain("same-node targets:");
     expect(out).toContain("maw hey local:mawjs-oracle");
   });
 
-  test("shows cross-node placeholder form with <node>:<session>: literal", () => {
+  test("shows explicit cross-node placeholder forms", () => {
     const out = formatBareNameError("mawjs-oracle");
-    expect(out).toContain("cross-node candidates:");
-    // <node> and <session> stay as literal placeholders — the user runs
-    // `maw locate` to enumerate concrete candidates. Only <agent> substitutes.
-    expect(out).toContain("maw hey <node>:<session>:mawjs-oracle");
+    expect(out).toContain("cross-node targets:");
+    expect(out).toContain("maw hey <node>:mawjs-oracle");
+    expect(out).toContain("maw hey <node>:<session>:<window>");
   });
 
   test("references `maw locate <agent>` for federation enumeration", () => {
@@ -53,11 +47,22 @@ describe("#759 Phase 2 — bare-name hard rejection", () => {
     const stripped = out.replace(/\x1b\[[0-9;]*m/g, "");
     const lines = stripped.split("\n");
     // First line is the error header
-    expect(lines[0]).toBe("error: bare-name target removed — node prefix required");
-    expect(lines.some(l => l.trim() === "this node:")).toBe(true);
+    expect(lines[0]).toBe("error: bare target 'mawjs-oracle' not found locally");
+    expect(lines.some(l => l.trim() === "same-node targets:")).toBe(true);
     expect(lines.some(l => l.trim().startsWith("maw hey local:mawjs-oracle"))).toBe(true);
-    expect(lines.some(l => l.trim() === "cross-node candidates:")).toBe(true);
-    expect(lines.some(l => l.trim().startsWith("maw hey <node>:<session>:mawjs-oracle"))).toBe(true);
+    expect(lines.some(l => l.trim() === "cross-node targets:")).toBe(true);
+    expect(lines.some(l => l.trim().startsWith("maw hey <node>:mawjs-oracle"))).toBe(true);
     expect(lines.some(l => l.includes("maw locate mawjs-oracle"))).toBe(true);
+  });
+
+  test("ambiguous formatter lists local candidates", () => {
+    const out = formatBareNameAmbiguousError("mawjs-oracle", [
+      "47-mawjs:mawjs-oracle",
+      "54-mawjs:mawjs-oracle",
+    ]).replace(/\x1b\[[0-9;]*m/g, "");
+    expect(out).toContain("ambiguous");
+    expect(out).toContain("matches 2 local windows");
+    expect(out).toContain("47-mawjs:mawjs-oracle");
+    expect(out).toContain("maw hey 47-mawjs:mawjs-oracle");
   });
 });
