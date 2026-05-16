@@ -9,7 +9,7 @@ const CORE_HELP: Record<string, string> = {
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
   audit: "usage: maw audit [limit]",
-  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] | maw serve status|stop",
+  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] | maw serve status|--status|stop",
 };
 
 function hasHelpFlag(args: string[]): boolean {
@@ -141,10 +141,10 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const filteredArgs = forceIdx === -1
       ? withoutAs
       : withoutAs.filter(a => a !== "--force-takeover");
-    const sub = filteredArgs[0];
+    const sub = filteredArgs[0] === "--status" ? "status" : filteredArgs[0];
     if (sub === "status" || sub === "stop") {
-      const { printServeStatus, stopServe } = await import("./instance-pid");
-      if (sub === "status") printServeStatus();
+      const { printServeStatusWithPlugins, stopServe } = await import("./instance-pid");
+      if (sub === "status") await printServeStatusWithPlugins();
       else stopServe();
       return true;
     }

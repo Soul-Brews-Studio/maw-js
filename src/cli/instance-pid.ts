@@ -88,6 +88,53 @@ export function printServeStatus(): void {
   }
 }
 
+function defaultEngineUrl(): string {
+  return (process.env.MAW_ENGINE_URL || `http://127.0.0.1:${process.env.MAW_PORT || "3456"}`).replace(/\/+$/, "");
+}
+
+function formatEngineRegistration(registration: Record<string, unknown>): string {
+  const plugin = typeof registration.plugin === "string" ? registration.plugin : "unknown";
+  const prefix = typeof registration.prefix === "string" ? registration.prefix : "unknown-prefix";
+  const upstream = typeof registration.upstream === "string" ? registration.upstream : "unknown-upstream";
+  const health = typeof registration.health === "string" ? ` health=${registration.health}` : "";
+  const events = Array.isArray(registration.events) && registration.events.length > 0
+    ? ` events=${registration.events.join(",")}`
+    : "";
+  return `  - ${plugin}: ${prefix} → ${upstream}${health}${events}`;
+}
+
+async function fetchEngineRegistrations(engineUrl = defaultEngineUrl()): Promise<
+  | { ok: true; engineUrl: string; registrations: Array<Record<string, unknown>> }
+  | { ok: false; engineUrl: string; error: string }
+> {
+  try {
+    const response = await fetch(`${engineUrl}/api/_engine/registrations`, { signal: AbortSignal.timeout(1_000) });
+    if (!response.ok) return { ok: false, engineUrl, error: `HTTP ${response.status}` };
+    const body = await response.json() as { registrations?: Array<Record<string, unknown>> };
+    return { ok: true, engineUrl, registrations: Array.isArray(body.registrations) ? body.registrations : [] };
+  } catch (err) {
+    return { ok: false, engineUrl, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function printServeStatusWithPlugins(engineUrl = defaultEngineUrl()): Promise<void> {
+  printServeStatus();
+  const status = serveStatus();
+  if (!status.alive) return;
+
+  const result = await fetchEngineRegistrations(engineUrl);
+  if (!result.ok) {
+    console.log(`engine plugins: unavailable (${result.engineUrl}: ${result.error})`);
+    return;
+  }
+  if (result.registrations.length === 0) {
+    console.log(`engine plugins: none (${result.engineUrl})`);
+    return;
+  }
+  console.log(`engine plugins (${result.engineUrl}):`);
+  for (const registration of result.registrations) console.log(formatEngineRegistration(registration));
+}
+
 export function stopServe(): void {
   const status = serveStatus();
   if (!status.pid) {

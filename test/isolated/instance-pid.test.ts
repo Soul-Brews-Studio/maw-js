@@ -6,12 +6,14 @@ import { tmpdir } from "os";
 import {
   acquirePidLock,
   pidFile,
+  printServeStatusWithPlugins,
   serveStatus,
   stopServe,
 } from "../../src/cli/instance-pid";
 
 let tempHome = "";
 const origHome = process.env.MAW_HOME;
+const origEngineUrl = process.env.MAW_ENGINE_URL;
 const origExit = process.exit;
 const origKill = process.kill;
 
@@ -23,6 +25,8 @@ beforeEach(() => {
 afterEach(() => {
   if (origHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = origHome;
+  if (origEngineUrl === undefined) delete process.env.MAW_ENGINE_URL;
+  else process.env.MAW_ENGINE_URL = origEngineUrl;
   process.exit = origExit;
   process.kill = origKill;
   rmSync(tempHome, { recursive: true, force: true });
@@ -96,5 +100,45 @@ describe("maw serve PID lock UX (#1434)", () => {
       { pid: 4242, signal: "SIGTERM" },
     ]);
     expect(serveStatus()).toEqual({ pid: null, alive: false, file: pidFile() });
+  });
+
+  test("serve status includes registered engine plugins when the gateway is reachable", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/api/_engine/registrations") {
+          return Response.json({
+            ok: true,
+            registrations: [{
+              plugin: "messages",
+              prefix: "/api/message-ledger",
+              upstream: "unix:///tmp/maw-messages.sock",
+              health: "/health",
+              events: ["MessageSend"],
+            }],
+          });
+        }
+        return Response.json({ ok: false }, { status: 404 });
+      },
+    });
+    const lines: string[] = [];
+    const origLog = console.log;
+    writeFileSync(pidFile(), String(process.pid));
+    process.env.MAW_ENGINE_URL = `http://127.0.0.1:${server.port}`;
+    console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+
+    try {
+      await printServeStatusWithPlugins();
+    } finally {
+      console.log = origLog;
+      server.stop(true);
+    }
+
+    const text = lines.join("\n");
+    expect(text).toContain("maw serve: running");
+    expect(text).toContain("engine plugins");
+    expect(text).toContain("messages: /api/message-ledger");
+    expect(text).toContain("events=MessageSend");
   });
 });
