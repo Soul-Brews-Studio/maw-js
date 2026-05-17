@@ -96,10 +96,9 @@ export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] 
   }
   const h = r.hooks as Record<string, unknown>;
   for (const key of ["gate", "filter", "on", "late"] as const) {
-    if (h[key] !== undefined) {
-      if (!Array.isArray(h[key]) || (h[key] as unknown[]).some((e: unknown) => typeof e !== "string")) {
-        throw new Error(`plugin.json: hooks.${key} must be an array of strings`);
-      }
+    const value = h[key];
+    if (value !== undefined && (!Array.isArray(value) || value.some((e: unknown) => typeof e !== "string"))) {
+      throw new Error(`plugin.json: hooks.${key} must be an array of strings`);
     }
   }
   const wake = parseLifecycleHook(h, "wake");
