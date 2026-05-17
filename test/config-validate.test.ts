@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateBasicFields, validateConfigShape } from "../src/config/validate";
+const { validateBasicFields, validateConfigShape } = await import(`${process.cwd()}/src/config/validate.ts?config-validate-${Date.now()}`);
 
 function collectBasic(raw: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
