@@ -100,6 +100,29 @@ describe("POST /upload", () => {
     const body = await res.json();
     expect(body.error).toBeDefined();
   });
+
+  test("write failure → 500", async () => {
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["fake png bytes"], "broken.png", { type: "image/png" }),
+    );
+
+    const origWrite = Bun.write;
+    (Bun as any).write = async () => {
+      throw new Error("disk full");
+    };
+    try {
+      const res = await app.handle(
+        new Request("http://localhost/upload", { method: "POST", body: form }),
+      );
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe("disk full");
+    } finally {
+      (Bun as any).write = origWrite;
+    }
+  });
 });
 
 // --- GET /files ---
@@ -111,6 +134,18 @@ describe("GET /files", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
+  });
+
+  test("returns empty array when inbox listing fails", async () => {
+    rmSync(INBOX, { recursive: true, force: true });
+    mkdirSync(join(INBOX, ".."), { recursive: true });
+    writeFileSync(INBOX, "not a directory");
+
+    const res = await app.handle(new Request("http://localhost/files"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+
+    rmSync(INBOX, { force: true });
   });
 });
 
