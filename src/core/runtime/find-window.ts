@@ -83,19 +83,28 @@ export function findWindow(sessions: Session[], query: string): string | null {
   }
 
   // Two-pass bare-name resolution (#414):
-  //   Pass 1 collects exact matches (window name, session name, stripped
-  //   oracle-name). Pass 2 collects substring matches only if Pass 1 was
-  //   empty. Multi-candidate in either pass → AmbiguousMatchError.
+  //   Pass 1a collects exact session/oracle-name matches. These beat exact
+  //   window-name matches because a stale session may still have a window named
+  //   `<name>-oracle` while the live session itself is named `NN-<name>-oracle`
+  //   (#1752). Pass 1b collects exact window matches only when no exact session
+  //   match exists. Pass 2 collects substring matches only if Pass 1 was empty.
+  //   Multi-candidate inside any pass → AmbiguousMatchError.
+  const exactSessions = new Set<string>();
+  for (const s of sessions) {
+    if (s.windows.length > 0) {
+      const sn = s.name.toLowerCase();
+      if (sn === q || sn.replace(/^\d+-/, "") === q) {
+        exactSessions.add(`${s.name}:${s.windows[0].index}`);
+      }
+    }
+  }
+  if (exactSessions.size === 1) return [...exactSessions][0];
+  if (exactSessions.size > 1) throw new AmbiguousMatchError(query, [...exactSessions]);
+
   const exact = new Set<string>();
   for (const s of sessions) {
     for (const w of s.windows) {
       if (w.name.toLowerCase() === q) exact.add(`${s.name}:${w.index}`);
-    }
-    if (s.windows.length > 0) {
-      const sn = s.name.toLowerCase();
-      if (sn === q || sn.replace(/^\d+-/, "") === q) {
-        exact.add(`${s.name}:${s.windows[0].index}`);
-      }
     }
   }
   if (exact.size === 1) return [...exact][0];

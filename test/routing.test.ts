@@ -94,6 +94,15 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
   });
 
+  test("local:<name>-oracle exact session wins over stale same-name window (#1752)", () => {
+    const sessions: Session[] = [
+      { name: "38-odin", windows: [{ index: 1, name: "odin-oracle", active: false }] },
+      { name: "61-odin-oracle", windows: [{ index: 1, name: "odin-oracle", active: true }] },
+    ];
+    const r = resolveTarget("local:odin-oracle", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "self-node", target: "61-odin-oracle:1" });
+  });
+
   test("local: prefix miss is local/self miss, not unknown peer", () => {
     const r = resolveTarget("local:ghost", BASE_CONFIG, SESSIONS);
     expect(r).toMatchObject({ type: "error", reason: "self_not_running" });

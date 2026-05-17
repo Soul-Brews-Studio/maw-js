@@ -121,6 +121,19 @@ describe("findWindow", () => {
       // session name too (dedup keeps them consistent).
       expect(findWindow(MOTHER_SESSIONS, "view")).toBe("mother-view:1");
     });
+
+    test("bare '<name>-oracle' exact session match beats stale exact window matches (#1752)", () => {
+      const odin: Session[] = [
+        { name: "38-odin", windows: [
+          { index: 1, name: "odin-oracle", active: false },
+        ]},
+        { name: "61-odin-oracle", windows: [
+          { index: 1, name: "odin-oracle", active: true },
+        ]},
+      ];
+
+      expect(findWindow(odin, "odin-oracle")).toBe("61-odin-oracle:1");
+    });
   });
 
   describe("session:window syntax (#186)", () => {
