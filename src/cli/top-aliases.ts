@@ -113,7 +113,10 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
 }
 
-export function parseBringArgs(argv: string[]): {
+export function parseBringArgs(
+  argv: string[],
+  writeUsage: (line: string) => void = console.error,
+): {
   oracle: string;
   opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
 } {
@@ -129,7 +132,7 @@ export function parseBringArgs(argv: string[]): {
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
-    printBringUsage(console.error);
+    printBringUsage(writeUsage);
     throw new UserError("bring: missing oracle name");
   }
   const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
@@ -217,24 +220,44 @@ export function parseLsAliasOpts(argv: string[]) {
   return opts;
 }
 
+type MaybePromise<T = unknown> = T | Promise<T>;
+
+export interface TopAliasHandlerDeps {
+  cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
+  cmdNew?: (argv: string[]) => MaybePromise;
+  cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
+  loadConfig?: () => { commands?: Record<string, unknown> };
+  log?: (line: string) => void;
+  error?: (line: string) => void;
+}
+
 export async function invokeDirectHandler(
   handler: string,
   argv: string[],
+  deps: TopAliasHandlerDeps = {},
 ): Promise<void> {
   const exportName = handler.includes(":") ? handler.split(":")[1] : handler;
   if (!exportName) {
     throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>' or name`);
   }
 
+  const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directCmdWake = deps.cmdWake ?? cmdWake;
+  const directCmdNew = deps.cmdNew ?? cmdNew;
+  const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
+  const log = deps.log ?? console.log;
+  const error = deps.error ?? console.error;
+
   if (exportName === "cmdLs") {
-    await cmdTmuxLs(parseLsAliasOpts(argv));
+    await directCmdTmuxLs(parseLsAliasOpts(argv));
     return;
   }
 
   if (exportName === "cmdWake" || exportName === "cmdAwake") {
     const verb = exportName === "cmdAwake" ? "awake" : "wake";
     if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
-      printWakeAliasUsage(verb);
+      printWakeAliasUsage(verb, log);
       return;
     }
 
@@ -261,7 +284,7 @@ export async function invokeDirectHandler(
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      printWakeAliasUsage(verb, console.error);
+      printWakeAliasUsage(verb, error);
       throw new UserError(`${verb}: missing oracle name`);
     }
 
@@ -308,7 +331,7 @@ export async function invokeDirectHandler(
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
     if (!opts.engine) {
-      const { loadConfig } = await import("../config");
+      const loadConfig = deps.loadConfig ?? (await import("../config")).loadConfig;
       const commands = loadConfig().commands || {};
       for (const arg of (flags._ as string[])) {
         if (arg.startsWith("--") && commands[arg.slice(2)]) {
@@ -318,7 +341,7 @@ export async function invokeDirectHandler(
       }
     }
 
-    await cmdWake(oracle, opts);
+    await directCmdWake(oracle, opts);
     return;
   }
 
@@ -326,22 +349,22 @@ export async function invokeDirectHandler(
     // `maw bring <oracle>` defaults to the v1 current-pane split path.
     // `--tab` opts into the non-destructive background tmux-window path.
     if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
-      printBringUsage();
+      printBringUsage(log);
       return;
     }
-    const { oracle, opts } = parseBringArgs(argv);
-    await cmdWake(oracle, opts);
+    const { oracle, opts } = parseBringArgs(argv, error);
+    await directCmdWake(oracle, opts);
     return;
   }
 
   if (exportName === "cmdNew") {
-    await cmdNew(argv);
+    await directCmdNew(argv);
     return;
   }
 
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
-    await cmdPreflight({ fix: !!flags["--fix"] });
+    await directCmdPreflight({ fix: !!flags["--fix"] });
     return;
   }
 
