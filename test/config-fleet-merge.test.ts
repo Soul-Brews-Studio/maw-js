@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -78,6 +78,13 @@ describe("readFleetDir (#736 Phase 1.1)", () => {
 
   test("returns [] when directory does not exist", () => {
     expect(readFleetDir(join(dir, "does-not-exist"))).toEqual([]);
+  });
+
+  test("returns [] when directory exists but cannot be read as a directory", () => {
+    const filePath = join(dir, "not-a-directory");
+    writeFileSync(filePath, "not a fleet dir");
+
+    expect(readFleetDir(filePath)).toEqual([]);
   });
 
   test("loads every *.json file, skips *.disabled", () => {
