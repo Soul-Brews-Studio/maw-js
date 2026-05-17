@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T09:54:45.572Z
+Generated: 2026-05-17T10:12:44.328Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **28.1%** (14130/50313)
-Overall function coverage: **78.8%** (1604/2035)
+Overall line coverage: **28.3%** (14239/50316)
+Overall function coverage: **79.2%** (1619/2045)
 
 ## Module summary
 
@@ -15,7 +15,7 @@ Overall function coverage: **78.8%** (1604/2035)
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 90 | 15 | 57.9% (4273/7384) | 77.0% (411/534) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
-| fleet | 17 | 0 | 37.1% (394/1061) | 54.4% (37/68) | n/a (0/0) |
+| fleet | 17 | 0 | 47.3% (503/1064) | 66.7% (52/78) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 69 | 36.7% (5290/14413) | 74.4% (569/765) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 69.8% (849/1217) | 83.8% (67/80) | n/a (0/0) |
@@ -139,7 +139,6 @@ Overall function coverage: **78.8%** (1604/2035)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| fleet | `src/core/fleet/claude-sessions.ts` | 150 | 5.7% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | routing/aliases | `src/cli/top-aliases.ts` | 148 | 40.8% |
 | plugin dispatch | `src/plugin/registry.ts` | 147 | 8.1% |
@@ -149,6 +148,7 @@ Overall function coverage: **78.8%** (1604/2035)
 | cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
 | cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
+| cli/dispatch | `src/commands/shared/queue-store.ts` | 104 | 11.1% |
 
 ## Critical gaps to prioritize
 
