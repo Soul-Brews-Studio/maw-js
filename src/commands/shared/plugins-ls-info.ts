@@ -22,7 +22,15 @@ function tierIcon(tier: PluginTier, disabled: boolean): string {
   }
 }
 
-export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlugin[]): void {
+export function doLs(
+  json: boolean,
+  showAll: boolean,
+  discover: () => LoadedPlugin[],
+  load: () => { disabledPlugins?: string[] } = () => {
+    const { loadConfig } = require("../../config");
+    return loadConfig();
+  },
+): void {
   const allPlugins = discover();
 
   if (json) {
@@ -47,8 +55,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
     return;
   }
 
-  const { loadConfig } = require("../../config");
-  const disabledSet = new Set((loadConfig().disabledPlugins ?? []) as string[]);
+  const disabledSet = new Set((load().disabledPlugins ?? []) as string[]);
 
   const activeCount = allPlugins.filter(p => !disabledSet.has(p.manifest.name)).length;
   const disabledCount = allPlugins.length - activeCount;
