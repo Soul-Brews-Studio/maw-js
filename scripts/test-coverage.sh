@@ -13,3 +13,4 @@ MAW_TEST_MODE=1 bun test test/ \
   --path-ignore-patterns '**/agents/**'
 
 bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md
+bun scripts/coverage-badge.ts coverage/lcov.info coverage/maw-js-coverage.json
