@@ -23,6 +23,7 @@ import { mockSshModule } from "../helpers/mock-ssh";
 type SpawnCall = { args: string[] };
 const spawnCalls: SpawnCall[] = [];
 let spawnShouldFail = false;
+let hostExecShouldFail = false;
 
 // Mock Bun.spawn before the module under test loads
 const origSpawn = Bun.spawn.bind(Bun);
@@ -49,7 +50,10 @@ Bun.spawn = (cmd: string[], _opts?: unknown) => {
 // ---- Stub dependencies so pulse.ts can be imported -----------------------
 
 mock.module("../../src/core/transport/ssh", () => mockSshModule({
-  hostExec: async (_cmd: string) => "[]",
+  hostExec: async (_cmd: string) => {
+    if (hostExecShouldFail) throw new Error("gh list failed");
+    return "[]";
+  },
 }));
 
 mock.module("../../src/config", () => ({
@@ -69,7 +73,32 @@ beforeAll(async () => {
 function resetSpawn() {
   spawnCalls.length = 0;
   spawnShouldFail = false;
+  hostExecShouldFail = false;
 }
+
+
+// ---- GET /pulse — list issues ------------------------------------------------
+
+describe("GET /pulse — list issues through hostExec", () => {
+  test("uses configured repo and default query values", async () => {
+    resetSpawn();
+    const res = await app.handle(new Request("http://localhost/api/pulse"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ repo: "test-org/test-repo", issues: [] });
+    expect(spawnCalls.length).toBe(0);
+  });
+
+  test("surfaces hostExec list failures", async () => {
+    resetSpawn();
+    hostExecShouldFail = true;
+
+    const res = await app.handle(new Request("http://localhost/api/pulse?repo=owner/repo"));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "gh list failed", repo: "owner/repo" });
+  });
+});
 
 // ---- assertLabels / POST /pulse — Sink 1+2 --------------------------------
 
@@ -259,6 +288,22 @@ describe("PATCH /pulse/:id — Sink 3: addLabels + removeLabels via ghSpawn", ()
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].args).toContain("close");
     expect(spawnCalls[0].args).toContain("99");
+  });
+
+
+  test("state:open — ghSpawn called with issue reopen args", async () => {
+    resetSpawn();
+    const res = await app.handle(
+      new Request("http://localhost/api/pulse/100", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: "open" }),
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].args).toContain("reopen");
+    expect(spawnCalls[0].args).toContain("100");
   });
 
   test("nothing to update — 400, no ghSpawn", async () => {
