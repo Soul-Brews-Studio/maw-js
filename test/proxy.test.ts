@@ -29,6 +29,7 @@ import {
   proxyApi,
 } from "../src/api/proxy";
 import { relayHttpToPeer } from "../src/api/proxy-relay";
+import { createProxyApi } from "../src/api/proxy-routes";
 
 // ---- Pure helper tests ---------------------------------------------------
 
@@ -524,6 +525,52 @@ describe("POST /api/proxy (trust flow)", () => {
     } finally {
       globalThis.fetch = oldFetch;
     }
+  });
+
+
+  test("allowlisted mutations relay with shell trust tier", async () => {
+    const relayCalls: any[] = [];
+    const app = new Elysia({ prefix: "/api" }).use(createProxyApi({
+      hasValidProxySessionCookie: () => true,
+      parseProxySignature: () => ({ originHost: "trusted-host", originAgent: "operator", isAnon: false }),
+      isKnownMethod: () => true,
+      isReadOnlyMethod: () => false,
+      isProxyShellPeerAllowed: (origin) => origin === "trusted-host",
+      isPathProxyable: () => true,
+      resolveProxyPeerUrl: () => "http://peer.local:3456",
+      relayHttpToPeer: (async (peerUrl, method, path, forwardBody) => {
+        relayCalls.push({ peerUrl, method, path, forwardBody });
+        return { status: 202, headers: { "content-type": "application/json" }, body: "accepted", elapsedMs: 7 };
+      }) as typeof relayHttpToPeer,
+    }));
+
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "proxy_session=fake" },
+      body: JSON.stringify({
+        peer: "peer",
+        method: "POST",
+        path: "/api/ping",
+        body: "{}",
+        signature: "[trusted-host:operator]",
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: 202,
+      headers: { "content-type": "application/json" },
+      body: "accepted",
+      from: "http://peer.local:3456",
+      elapsed_ms: 7,
+      trust_tier: "shell_allowlisted",
+    });
+    expect(relayCalls).toEqual([{
+      peerUrl: "http://peer.local:3456",
+      method: "POST",
+      path: "/api/ping",
+      forwardBody: "{}",
+    }]);
   });
 
   test("relay failures surface as 502 with peer URL and reason", async () => {
