@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 import { loadManifestFromDir } from "../src/plugin/manifest";
 import { validateConfig } from "../src/config/validate-ext";
@@ -219,11 +219,32 @@ describe("zenoh-scout plugin (#1455)", () => {
       importZenoh: async () => fakeZenoh,
       now: () => new Date("2026-05-16T00:00:00.000Z"),
     });
+    let intervalTick: (() => void) | undefined;
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const presence: string[] = [];
+    (globalThis as any).setInterval = (callback: () => void) => {
+      intervalTick = callback;
+      return 1;
+    };
+    (globalThis as any).clearInterval = () => {};
+    transport.onMessage(() => {});
+    transport.onPresence((p) => presence.push(`${p.oracle}@${p.host}:${p.status}`));
+    transport.onFeed(() => {});
     await transport.connect();
     try {
+      await transport.publishPresence({ oracle: "mawjs", host: "m5", status: "ready", timestamp: 1 });
+      const originalRefresh = (transport as any).refresh;
+      (transport as any).refresh = () => Promise.reject(new Error("poll failed"));
+      intervalTick?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      (transport as any).refresh = originalRefresh;
+      await transport.publishFeed({} as any);
       expect(transport.connected).toBe(true);
       expect(transport.canReach({ oracle: "pulse", host: "clinic" })).toBe(false);
       expect(await transport.send({ oracle: "pulse", host: "clinic" }, "hello")).toBe(false);
+      expect(presence).toContain("pulse@clinic:4567:ready");
       expect(transport.listPeers()).toEqual([
         expect.objectContaining({
           zid: expect.stringContaining("zenoh:"),
@@ -238,6 +259,97 @@ describe("zenoh-scout plugin (#1455)", () => {
       ]);
     } finally {
       await transport.disconnect();
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
     }
+  });
+
+
+  test("ZenohScoutTransport disconnect swallows zenoh cleanup failures", async () => {
+    const local = readZenohScoutConfig({ node: "m5", oracle: "mawjs", port: 3456, zenoh: { scout: { enabled: true } } });
+
+    class FakeConfig {
+      constructor(public locator: string, public timeoutMs?: number) {}
+    }
+    class FakeKeyExpr {
+      constructor(public key: string) {}
+      toString() { return this.key; }
+    }
+
+    const fakeSession = {
+      liveliness() {
+        return {
+          async declareToken() {
+            return { async undeclare() { throw new Error("token cleanup failed"); } };
+          },
+          async get() {
+            return (async function* () {})();
+          },
+        };
+      },
+      async close() { throw new Error("session cleanup failed"); },
+    };
+
+    const fakeZenoh: ZenohApi = {
+      Config: FakeConfig,
+      KeyExpr: FakeKeyExpr,
+      Session: { open: async () => fakeSession },
+    };
+
+    const transport = new ZenohScoutTransport({
+      ...local,
+      enabled: true,
+      pollMs: 60_000,
+      importZenoh: async () => fakeZenoh,
+    });
+
+    await transport.connect();
+    await expect(transport.disconnect()).resolves.toBeUndefined();
+    expect(transport.connected).toBe(false);
+    expect(transport.listPeers()).toEqual([]);
+  });
+
+
+  test("ZenohScoutTransport uses the default zenoh-ts importer when no override is injected", async () => {
+    const local = readZenohScoutConfig({ node: "m5", oracle: "mawjs", port: 3456, zenoh: { scout: { enabled: true } } });
+
+    class FakeConfig {
+      constructor(public locator: string, public timeoutMs?: number) {}
+    }
+    class FakeKeyExpr {
+      constructor(public key: string) {}
+      toString() { return this.key; }
+    }
+
+    const fakeSession = {
+      liveliness() {
+        return {
+          async declareToken() {
+            return { async undeclare() {} };
+          },
+          async get() {
+            return (async function* () {})();
+          },
+        };
+      },
+      async close() {},
+    };
+
+    mock.module("@eclipse-zenoh/zenoh-ts", () => ({
+      Config: FakeConfig,
+      KeyExpr: FakeKeyExpr,
+      Session: { open: async () => fakeSession },
+    }));
+
+    const transport = new ZenohScoutTransport({
+      ...local,
+      enabled: true,
+      pollMs: 60_000,
+    });
+
+    await transport.publishPresence({ oracle: "mawjs", host: "m5", status: "ready", timestamp: 1 });
+    expect(transport.connected).toBe(true);
+    expect(transport.listPeers()).toEqual([]);
+    await transport.disconnect();
   });
 });
