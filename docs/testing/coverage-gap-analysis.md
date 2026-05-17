@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T13:04:26.074Z
+Generated: 2026-05-17T13:15:43.907Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **31.2%** (15680/50221)
-Overall function coverage: **81.4%** (1772/2177)
+Overall line coverage: **31.4%** (15781/50245)
+Overall function coverage: **81.8%** (1789/2187)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **81.4%** (1772/2177)
 | other | 174 | 69 | 37.1% (5343/14391) | 75.1% (575/766) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
-| transport | 28 | 1 | 84.1% (2030/2414) | 92.9% (380/409) | n/a (0/0) |
+| transport | 28 | 1 | 87.4% (2131/2438) | 94.7% (397/419) | n/a (0/0) |
 | vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -127,6 +127,7 @@ Overall function coverage: **81.4%** (1772/2177)
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
 | transport | `src/core/transport/peers.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/pty.ts` | 100.0% | 89.5% |
+| transport | `src/core/transport/ssh.ts` | 100.0% | 90.9% |
 | transport | `src/core/transport/tmux-class.ts` | 90.3% | 97.5% |
 | transport | `src/core/transport/tmux-types.ts` | 80.0% | 66.7% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
@@ -160,7 +161,7 @@ Overall function coverage: **81.4%** (1772/2177)
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
 | transport | `src/transports/index.ts` | 78 | 29.7% |
-| transport | `src/core/transport/ssh.ts` | 77 | 29.4% |
+| cli/dispatch | `src/commands/shared/pulse-thread.ts` | 75 | 13.8% |
 
 ## Critical gaps to prioritize
 
