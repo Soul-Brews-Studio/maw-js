@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T12:35:05.751Z
+Generated: 2026-05-17T12:51:00.824Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **30.7%** (15413/50211)
-Overall function coverage: **81.3%** (1738/2139)
+Overall line coverage: **30.9%** (15526/50217)
+Overall function coverage: **81.3%** (1755/2158)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 90 | 12 | 68.4% (5055/7391) | 82.1% (503/613) | n/a (0/0) |
+| cli/dispatch | 90 | 10 | 69.9% (5168/7397) | 82.3% (520/632) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.6% (776/1166) | 74.0% (71/96) | n/a (0/0) |
 | fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -77,6 +77,7 @@ Overall function coverage: **81.3%** (1738/2139)
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks.ts` | 97.5% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 87.3% | 40.0% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-wake-failsoft.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-as.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
@@ -151,7 +152,6 @@ Overall function coverage: **81.3%** (1738/2139)
 | --- | --- | ---: | ---: |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
-| cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100 | 0.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 97 | 46.4% |
 | fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 93 | 6.1% |
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 92 | 12.4% |
@@ -159,6 +159,7 @@ Overall function coverage: **81.3%** (1738/2139)
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
+| transport | `src/transports/index.ts` | 78 | 29.7% |
 
 ## Critical gaps to prioritize
 
