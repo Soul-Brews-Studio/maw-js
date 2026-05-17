@@ -3,6 +3,37 @@ import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
 import { loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";
 
+export interface FleetManageDeps {
+  loadFleetEntries: typeof loadFleetEntries;
+  getSessionNames: typeof getSessionNames;
+  readdirSync: typeof readdirSync;
+  fleetDir: string;
+  writeFile: (path: string, contents: string) => Promise<unknown>;
+  renameSync: typeof renameSync;
+  existsSync: typeof existsSync;
+  unlinkSync: typeof unlinkSync;
+  join: typeof join;
+  tmuxRun: (...args: string[]) => Promise<string>;
+  log: (...args: unknown[]) => void;
+}
+
+export function fleetManageDeps(overrides: Partial<FleetManageDeps> = {}): FleetManageDeps {
+  return {
+    loadFleetEntries,
+    getSessionNames,
+    readdirSync,
+    fleetDir: FLEET_DIR,
+    writeFile: Bun.write.bind(Bun) as (path: string, contents: string) => Promise<unknown>,
+    renameSync,
+    existsSync,
+    unlinkSync,
+    join,
+    tmuxRun: tmux.run.bind(tmux) as (...args: string[]) => Promise<string>,
+    log: console.log.bind(console) as (...args: unknown[]) => void,
+    ...overrides,
+  };
+}
+
 function displaySessionName(entry: FleetEntry): string {
   const session = entry.session as unknown as { name?: unknown } | null | undefined;
   return typeof session?.name === "string" && session.name.length > 0
@@ -58,16 +89,18 @@ export function renderFleetLs(entries: FleetEntry[], disabled: number, runningSe
   return lines;
 }
 
-export async function cmdFleetLs() {
-  const entries = loadFleetEntries();
-  const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
+export async function cmdFleetLs(deps: Partial<FleetManageDeps> = {}) {
+  const io = fleetManageDeps(deps);
+  const entries = io.loadFleetEntries();
+  const disabled = io.readdirSync(io.fleetDir).filter(f => f.endsWith(".disabled")).length;
 
-  const runningSessions = await getSessionNames();
-  for (const line of renderFleetLs(entries, disabled, runningSessions)) console.log(line);
+  const runningSessions = await io.getSessionNames();
+  for (const line of renderFleetLs(entries, disabled, runningSessions)) io.log(line);
 }
 
-export async function cmdFleetRenumber() {
-  const entries = loadFleetEntries();
+export async function cmdFleetRenumber(deps: Partial<FleetManageDeps> = {}) {
+  const io = fleetManageDeps(deps);
+  const entries = io.loadFleetEntries();
 
   // Check for conflicts first
   const numCount = new Map<number, number>();
@@ -75,13 +108,13 @@ export async function cmdFleetRenumber() {
   const hasConflicts = [...numCount.values()].some(c => c > 1);
 
   if (!hasConflicts) {
-    console.log("\n  \x1b[32mNo conflicts found.\x1b[0m Fleet numbering is clean.\n");
+    io.log("\n  \x1b[32mNo conflicts found.\x1b[0m Fleet numbering is clean.\n");
     return;
   }
 
-  const runningSessions = await getSessionNames();
+  const runningSessions = await io.getSessionNames();
 
-  console.log("\n  \x1b[36mRenumbering fleet...\x1b[0m\n");
+  io.log("\n  \x1b[36mRenumbering fleet...\x1b[0m\n");
 
   // Sort by current number, then by name for stability
   const sorted = [...entries].sort((a, b) => a.num - b.num || a.groupName.localeCompare(b.groupName));
@@ -99,14 +132,14 @@ export async function cmdFleetRenumber() {
     if (newFile !== e.file) {
       // Update config.name in JSON — write to temp file then atomically rename
       e.session.name = newName;
-      const tmpPath = join(FLEET_DIR, `.tmp-${newFile}`);
-      await Bun.write(tmpPath, JSON.stringify(e.session, null, 2) + "\n");
-      renameSync(tmpPath, join(FLEET_DIR, newFile));
+      const tmpPath = io.join(io.fleetDir, `.tmp-${newFile}`);
+      await io.writeFile(tmpPath, JSON.stringify(e.session, null, 2) + "\n");
+      io.renameSync(tmpPath, io.join(io.fleetDir, newFile));
 
       // Remove old file (only if name changed)
-      const oldPath = join(FLEET_DIR, e.file);
-      if (existsSync(oldPath) && newFile !== e.file) {
-        unlinkSync(oldPath);
+      const oldPath = io.join(io.fleetDir, e.file);
+      if (io.existsSync(oldPath) && newFile !== e.file) {
+        io.unlinkSync(oldPath);
       }
 
       // Rename running tmux session (#84) — try exact name first, then pattern match
@@ -114,19 +147,19 @@ export async function cmdFleetRenumber() {
         || runningSessions.find(s => s.replace(/^\d+-/, "") === e.groupName);
       if (runningMatch && runningMatch !== newName) {
         try {
-          await tmux.run("rename-session", "-t", runningMatch, newName);
-          console.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux: ${runningMatch} → ${newName})`);
+          await io.tmuxRun("rename-session", "-t", runningMatch, newName);
+          io.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux: ${runningMatch} → ${newName})`);
         } catch {
-          console.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux rename failed: ${runningMatch})`);
+          io.log(`  ${e.file.padEnd(28)} → ${newFile}  (tmux rename failed: ${runningMatch})`);
         }
       } else {
-        console.log(`  ${e.file.padEnd(28)} → ${newFile}`);
+        io.log(`  ${e.file.padEnd(28)} → ${newFile}`);
       }
     } else {
-      console.log(`  ${e.file.padEnd(28)}   (unchanged)`);
+      io.log(`  ${e.file.padEnd(28)}   (unchanged)`);
     }
     num++;
   }
 
-  console.log(`\n  \x1b[32mDone.\x1b[0m ${regular.length} configs renumbered.\n`);
+  io.log(`\n  \x1b[32mDone.\x1b[0m ${regular.length} configs renumbered.\n`);
 }
