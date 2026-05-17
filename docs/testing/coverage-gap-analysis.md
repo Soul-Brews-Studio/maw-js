@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T13:15:43.907Z
+Generated: 2026-05-17T13:26:36.854Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **31.4%** (15781/50245)
-Overall function coverage: **81.8%** (1789/2187)
+Overall line coverage: **31.6%** (15866/50255)
+Overall function coverage: **82.1%** (1801/2193)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 90 | 10 | 69.9% (5168/7397) | 82.3% (520/632) | n/a (0/0) |
+| cli/dispatch | 90 | 10 | 70.9% (5253/7407) | 83.4% (532/638) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.6% (776/1166) | 74.0% (71/96) | n/a (0/0) |
 | fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -87,6 +87,7 @@ Overall function coverage: **81.8%** (1789/2187)
 | cli/dispatch | `src/commands/shared/plugins-ui.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/pulse-thread.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/queue-store.ts` | 98.2% | 100.0% |
 | cli/dispatch | `src/commands/shared/receiver-inbox.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 100.0% | 100.0% |
@@ -161,7 +162,7 @@ Overall function coverage: **81.8%** (1789/2187)
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
 | transport | `src/transports/index.ts` | 78 | 29.7% |
-| cli/dispatch | `src/commands/shared/pulse-thread.ts` | 75 | 13.8% |
+| plugin dispatch | `src/plugin/registry-invoke.ts` | 75 | 51.0% |
 
 ## Critical gaps to prioritize
 
