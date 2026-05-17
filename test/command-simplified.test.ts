@@ -67,6 +67,13 @@ describe("buildCommand — post-#541 contract", () => {
     );
   });
 
+  test("strips --dangerously-skip-permissions when running as root", () => {
+    (process as any).getuid = () => 0;
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions" };
+
+    expect(buildCommand("root-agent")).toBe("claude");
+  });
+
   test("pattern-match wins over default", () => {
     fakeConfig.commands = { default: "claude", "foo-*": "echo hi" };
     expect(buildCommand("foo-bar")).toBe("echo hi");
@@ -102,6 +109,16 @@ describe("buildCommand — post-#541 contract", () => {
     expect(primary).toContain('--resume "uuid-2"');
     expect(fallback).toContain('--session-id "uuid-2"');
     expect(fallback).not.toContain("--resume");
+  });
+
+  test("sessionId supports glob fallback when there is no exact agent key", () => {
+    fakeConfig.commands = { default: "claude" };
+    fakeSessionIds = { "*-oracle": "uuid-glob" };
+
+    const out = buildCommand("mawjs-oracle");
+
+    expect(out).toContain('--resume "uuid-glob"');
+    expect(out).toContain('--session-id "uuid-glob"');
   });
 
   test("buildCommandInDir returns buildCommand verbatim (no cd, no wrapper)", () => {
