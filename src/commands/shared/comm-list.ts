@@ -9,7 +9,50 @@
  * Regression test: test/isolated/cmd-list-no-new-session-957.test.ts.
  */
 
-import { listSessions, getPaneInfos, scanWorktrees, cleanupWorktree, isAgentCommand } from "../../sdk";
+import {
+  listSessions as defaultListSessions,
+  getPaneInfos as defaultGetPaneInfos,
+  scanWorktrees as defaultScanWorktrees,
+  cleanupWorktree as defaultCleanupWorktree,
+  isAgentCommand as defaultIsAgentCommand,
+} from "../../sdk";
+
+type LatestSnapshot = {
+  timestamp: string;
+  sessions: Array<{ name: string }>;
+};
+
+export interface CommListDeps {
+  listSessions?: typeof defaultListSessions;
+  getPaneInfos?: typeof defaultGetPaneInfos;
+  scanWorktrees?: typeof defaultScanWorktrees;
+  cleanupWorktree?: typeof defaultCleanupWorktree;
+  isAgentCommand?: typeof defaultIsAgentCommand;
+  latestSnapshot?: () => LatestSnapshot | null;
+  log?: Pick<Console, "log" | "error">;
+  env?: Record<string, string | undefined>;
+  now?: () => number;
+}
+
+function commListDeps(deps: CommListDeps) {
+  return {
+    listSessions: deps.listSessions ?? defaultListSessions,
+    getPaneInfos: deps.getPaneInfos ?? defaultGetPaneInfos,
+    scanWorktrees: deps.scanWorktrees ?? defaultScanWorktrees,
+    cleanupWorktree: deps.cleanupWorktree ?? defaultCleanupWorktree,
+    isAgentCommand: deps.isAgentCommand ?? defaultIsAgentCommand,
+    latestSnapshot: deps.latestSnapshot,
+    log: deps.log ?? console,
+    env: deps.env ?? process.env,
+    now: deps.now ?? Date.now,
+  };
+}
+
+async function loadLatestSnapshot(depsLatestSnapshot?: () => LatestSnapshot | null): Promise<LatestSnapshot | null> {
+  if (depsLatestSnapshot) return depsLatestSnapshot();
+  const { latestSnapshot } = await import("../../core/fleet/snapshot");
+  return latestSnapshot();
+}
 
 /**
  * #359 — render a session header line for `maw ls`.
@@ -44,8 +87,9 @@ function isViewDiag(name: string): boolean {
  *                  Threaded from the alias-dispatch path
  *                  (src/cli/top-aliases.ts → invokeDirectHandler).
  */
-export async function cmdList(opts: { fix?: boolean } = {}) {
-  const rawSessions = await listSessions();
+export async function cmdList(opts: { fix?: boolean } = {}, deps: CommListDeps = {}) {
+  const d = commListDeps(deps);
+  const rawSessions = await d.listSessions();
   const sessions = rawSessions.filter(s => !isViewDiag(s.name));
 
   // Batch-check process + cwd for each pane
@@ -53,14 +97,14 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
   for (const s of sessions) {
     for (const w of s.windows) targets.push(`${s.name}:${w.index}`);
   }
-  const infos = await getPaneInfos(targets);
+  const infos = await d.getPaneInfos(targets);
 
   for (const s of sessions) {
-    console.log(renderSessionName(s.name));
+    d.log.log(renderSessionName(s.name));
     for (const w of s.windows) {
       const target = `${s.name}:${w.index}`;
       const info = infos[target] || { command: "", cwd: "" };
-      const isAgent = isAgentCommand(info.command);
+      const isAgent = d.isAgentCommand(info.command);
       const cwdBroken = info.cwd.includes("(deleted)") || info.cwd.includes("(dead)");
 
       let dot: string;
@@ -76,55 +120,54 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
         dot = "\x1b[31m●\x1b[0m"; // red — dead (shell only)
         suffix = `  \x1b[90m(${info.command || "?"})\x1b[0m`;
       }
-      console.log(`  ${dot} ${w.index}: ${w.name}${suffix}`);
+      d.log.log(`  ${dot} ${w.index}: ${w.name}${suffix}`);
     }
   }
 
   // Detect orphaned worktree directories (on disk but no tmux window)
-  let orphans: Awaited<ReturnType<typeof scanWorktrees>> = [];
+  let orphans: Awaited<ReturnType<typeof defaultScanWorktrees>> = [];
   try {
-    const worktrees = await scanWorktrees();
+    const worktrees = await d.scanWorktrees();
     orphans = worktrees.filter(wt => wt.status === "stale" || wt.status === "orphan");
     if (orphans.length > 0) {
-      console.log("");
+      d.log.log("");
       for (const wt of orphans) {
         const dirName = wt.path.split("/").pop() || wt.name;
         const label = wt.status === "orphan" ? "orphaned (prunable)" : "no tmux window";
-        console.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
+        d.log.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
       }
-      console.log("");
+      d.log.log("");
       if (!opts.fix) {
-        console.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
+        d.log.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
       }
     }
   } catch (e: any) {
     // Don't crash maw ls on scan failure (non-critical) — but surface the error in debug mode
     // so silent failures have a diagnosable cause.
-    if (process.env.MAW_DEBUG) {
-      console.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${e?.message || e}\x1b[0m`);
+    if (d.env.MAW_DEBUG) {
+      d.log.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${e?.message || e}\x1b[0m`);
     }
   }
 
   if (sessions.length === 0 && orphans.length === 0) {
-    console.log("\x1b[90mNo active sessions.\x1b[0m");
+    d.log.log("\x1b[90mNo active sessions.\x1b[0m");
 
     try {
-      const { latestSnapshot } = await import("../../core/fleet/snapshot");
-      const snap = latestSnapshot();
+      const snap = await loadLatestSnapshot(d.latestSnapshot);
       if (snap) {
-        const ageMs = Date.now() - new Date(snap.timestamp).getTime();
+        const ageMs = d.now() - new Date(snap.timestamp).getTime();
         if (ageMs < 24 * 60 * 60 * 1000) {
           const mins = Math.round(ageMs / 60000);
           const ageStr = mins >= 60 ? `${Math.round(mins / 60)}h ago` : `${mins}m ago`;
-          console.log(`\n\x1b[36m📸\x1b[0m Last snapshot (${ageStr}):`);
-          for (const s of snap.sessions) console.log(`   \x1b[33m${s.name}\x1b[0m`);
-          console.log(`\n\x1b[90m  → maw fleet restore --all   wake all from snapshot\x1b[0m`);
+          d.log.log(`\n\x1b[36m📸\x1b[0m Last snapshot (${ageStr}):`);
+          for (const s of snap.sessions) d.log.log(`   \x1b[33m${s.name}\x1b[0m`);
+          d.log.log(`\n\x1b[90m  → maw fleet restore --all   wake all from snapshot\x1b[0m`);
         }
       }
     } catch {}
 
-    console.log("\x1b[90m  → maw bud <name>     create new oracle\x1b[0m");
-    console.log("\x1b[90m  → maw wake <name>    attach existing\x1b[0m");
+    d.log.log("\x1b[90m  → maw bud <name>     create new oracle\x1b[0m");
+    d.log.log("\x1b[90m  → maw wake <name>    attach existing\x1b[0m");
   }
 
   // --fix — prune orphans we just listed. Calls cleanupWorktree() per
@@ -132,24 +175,24 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
   // matches user expectations from existing maintenance commands.
   // Read-only contract above is preserved when --fix is absent (default).
   if (opts.fix && orphans.length > 0) {
-    console.log("");
-    console.log(`\x1b[36m→ pruning ${orphans.length} orphan${orphans.length === 1 ? "" : "s"}…\x1b[0m`);
+    d.log.log("");
+    d.log.log(`\x1b[36m→ pruning ${orphans.length} orphan${orphans.length === 1 ? "" : "s"}…\x1b[0m`);
     let pruned = 0;
     for (const wt of orphans) {
       const dirName = wt.path.split("/").pop() || wt.name;
       try {
-        const log = await cleanupWorktree(wt.path);
-        console.log(`  \x1b[32m✓\x1b[0m ${dirName}`);
-        for (const line of log) console.log(`    \x1b[90m${line}\x1b[0m`);
+        const log = await d.cleanupWorktree(wt.path);
+        d.log.log(`  \x1b[32m✓\x1b[0m ${dirName}`);
+        for (const line of log) d.log.log(`    \x1b[90m${line}\x1b[0m`);
         pruned++;
       } catch (e: any) {
-        console.log(`  \x1b[31m✗\x1b[0m ${dirName} \x1b[90m(${e?.message || e})\x1b[0m`);
+        d.log.log(`  \x1b[31m✗\x1b[0m ${dirName} \x1b[90m(${e?.message || e})\x1b[0m`);
       }
     }
-    console.log("");
-    console.log(`\x1b[90m  pruned ${pruned}/${orphans.length}\x1b[0m`);
+    d.log.log("");
+    d.log.log(`\x1b[90m  pruned ${pruned}/${orphans.length}\x1b[0m`);
   } else if (opts.fix && orphans.length === 0) {
-    console.log("");
-    console.log(`\x1b[90m  → nothing to prune\x1b[0m`);
+    d.log.log("");
+    d.log.log(`\x1b[90m  → nothing to prune\x1b[0m`);
   }
 }
