@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T13:26:36.854Z
+Generated: 2026-05-17T13:35:47.405Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **31.6%** (15866/50255)
-Overall function coverage: **82.1%** (1801/2193)
+Overall line coverage: **31.7%** (15931/50255)
+Overall function coverage: **82.2%** (1806/2196)
 
 ## Module summary
 
@@ -18,7 +18,7 @@ Overall function coverage: **82.1%** (1801/2193)
 | fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 69 | 37.1% (5343/14391) | 75.1% (575/766) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 86.6% (1015/1172) | 89.9% (80/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
 | transport | 28 | 1 | 87.4% (2131/2438) | 94.7% (397/419) | n/a (0/0) |
 | vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
@@ -120,6 +120,7 @@ Overall function coverage: **82.1%** (1801/2193)
 | plugin dispatch | `src/plugin/manifest-parse.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest-validate.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest.ts` | 100.0% | 100.0% |
+| plugin dispatch | `src/plugin/registry-invoke.ts` | 93.5% | 66.7% |
 | plugin dispatch | `src/plugin/registry-semver.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/registry.ts` | 99.1% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
@@ -162,7 +163,7 @@ Overall function coverage: **82.1%** (1801/2193)
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
 | transport | `src/transports/index.ts` | 78 | 29.7% |
-| plugin dispatch | `src/plugin/registry-invoke.ts` | 75 | 51.0% |
+| cli/dispatch | `src/commands/shared/artifacts.ts` | 72 | 1.4% |
 
 ## Critical gaps to prioritize
 
