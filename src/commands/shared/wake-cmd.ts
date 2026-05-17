@@ -6,7 +6,7 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { UserError } from "../../core/util/user-error";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
-import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
+import { attachToSession, ensureSessionRunning, createWorktree, injectWorktreeSymlinks } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 
@@ -195,7 +195,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
@@ -251,6 +251,9 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
+      // Backfill gitignored symlinks (.agent, .secrets) for worktrees created
+      // before injection was wired — idempotent, a no-op once they exist.
+      await injectWorktreeSymlinks(repoPath, match.path, repoName);
     } else {
       const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees);
       targetPath = result.wtPath;
