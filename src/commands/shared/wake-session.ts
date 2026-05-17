@@ -58,6 +58,60 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
 }
 
 /**
+ * Inject the gitignored symlinks a worktree needs but `git worktree add` can't
+ * carry over:
+ *
+ *   .agent   — mirrors the main tree's `.agent` symlink (central agent memory).
+ *   .secrets — links to the per-repo fleet secret store, when one exists at
+ *              ~/.arra-oracle-v2/fleet-secrets/<repo>/ .
+ *
+ * Both paths are gitignored, so a fresh worktree never inherits them. For
+ * `.secrets` this previously forced agents to reconstruct the file by hand in
+ * every fresh worktree — and some values (e.g. a hosted DB password) cannot be
+ * reconstructed from any API at all. The central store is the single source of
+ * truth; worktrees just symlink to it. Onboarding another repo to this scheme
+ * is purely a matter of populating `fleet-secrets/<repo>/` — no code change.
+ *
+ * Idempotent: each link is created only when the destination is absent, so this
+ * is safe to call on worktree creation AND on every reuse/wake — a worktree
+ * created before this was wired gets backfilled the next time it is woken.
+ */
+export async function injectWorktreeSymlinks(
+  repoPath: string,
+  wtPath: string,
+  repoName: string,
+): Promise<void> {
+  const { lstatSync, statSync, readlinkSync, symlinkSync } = await import("fs");
+  const { homedir } = await import("os");
+
+  // .agent — mirror the main tree's symlink target verbatim.
+  try {
+    const agentSrc = `${repoPath}/.agent`;
+    const agentDst = `${wtPath}/.agent`;
+    if (
+      lstatSync(agentSrc, { throwIfNoEntry: false })?.isSymbolicLink() &&
+      !lstatSync(agentDst, { throwIfNoEntry: false })
+    ) {
+      symlinkSync(readlinkSync(agentSrc), agentDst);
+      console.log(`\x1b[32m+\x1b[0m .agent symlink: ${agentDst}`);
+    }
+  } catch { /* non-fatal */ }
+
+  // .secrets — link to the central per-repo fleet secret store, by convention.
+  try {
+    const storeDir = `${homedir()}/.arra-oracle-v2/fleet-secrets/${repoName}`;
+    const secretsDst = `${wtPath}/.secrets`;
+    if (
+      statSync(storeDir, { throwIfNoEntry: false })?.isDirectory() &&
+      !lstatSync(secretsDst, { throwIfNoEntry: false })
+    ) {
+      symlinkSync(storeDir, secretsDst);
+      console.log(`\x1b[32m+\x1b[0m .secrets symlink: ${secretsDst} → ${storeDir}`);
+    }
+  } catch { /* non-fatal */ }
+}
+
+/**
  * Create a new git worktree for an oracle task.
  * Returns the worktree path and window name.
  */
@@ -92,16 +146,8 @@ export async function createWorktree(
   }
   const baseArg = baseRef ? ` '${safe(baseRef)}'` : "";
   await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'${baseArg}`);
-  // Mirror .agent symlink from main tree — it's gitignored so worktrees don't inherit it
-  try {
-    const agentSrc = `${repoPath}/.agent`;
-    const agentDst = `${wtPath}/.agent`;
-    const { lstatSync, readlinkSync, symlinkSync } = await import("fs");
-    if (lstatSync(agentSrc, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      symlinkSync(readlinkSync(agentSrc), agentDst);
-      console.log(`\x1b[32m+\x1b[0m .agent symlink: ${agentDst}`);
-    }
-  } catch { /* non-fatal */ }
+  // Inject gitignored symlinks (.agent, .secrets) the fresh worktree can't inherit.
+  await injectWorktreeSymlinks(repoPath, wtPath, repoName);
   console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
   return { wtPath, windowName: `${oracle}-${name}` };
 }
