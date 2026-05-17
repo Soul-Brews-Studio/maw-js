@@ -1,6 +1,6 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.4.18--alpha.19-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=alpha)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Aalpha) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.5.17--alpha.752-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Tests](https://img.shields.io/badge/tests-1700%2B_passing-brightgreen)](./test)
 
 > Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
 
@@ -9,8 +9,6 @@ an agent in a tmux window, send it tasks, watch its screen, and see what
 it cost — all from one terminal. One node or twenty; same commands. Built
 on [Bun](https://bun.sh) and [Claude Code](https://claude.com/claude-code).
 
-<!-- TODO: record via scripts/record-demo.sh after this lands (see #453) -->
-![maw demo](docs/demo.svg)
 
 ## Install
 
@@ -25,7 +23,7 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
-> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{hour}]` (e.g. `v26.4.18-alpha.19`). Migrated from SemVer alpha on 2026-04-18. Cutting a release? See [CONTRIBUTING.md → Versioning](./CONTRIBUTING.md#versioning). Background: [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) · umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
+> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{HHMM}]` (e.g. `v26.5.17-alpha.752`). Migrated from SemVer alpha on 2026-04-18. Cutting a release? See [CONTRIBUTING.md → Versioning](./CONTRIBUTING.md#versioning). Background: [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) · umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
 
 ## Recovering from `maw: command not found`
 
@@ -174,7 +172,7 @@ maw-js (backend + CLI)              maw-ui (frontend)
 ├── src/api/       (19 endpoints)   ├── src/hooks/
 ├── src/engine/    (WebSocket)      ├── src/lib/
 ├── src/transports/ (HTTP/tmux/hub) └── 16 HTML entry points
-├── test/          (94 test files)
+├── test/          (275+ test files)
 └── install.sh
 ```
 
@@ -185,7 +183,7 @@ Oct 2025   maw.env.sh            30+ shell commands
 Mar 2026   maw.js                 Bun/TS rewrite, tmux orchestration
 Mar 2026   maw-js + maw-ui        Backend/frontend split
 Apr 2026   v2.0.0-alpha.66        Plugin OS, 896 commits, 57 commands,
-                                   19 API endpoints, 1043 tests
+                                   19 API endpoints, 1700+ tests
 ```
 
 ## Federation testing
