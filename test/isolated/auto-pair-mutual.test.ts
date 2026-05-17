@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { Elysia } from "elysia";
+import { randomBytes } from "crypto";
 
 const TEST_HOME = mkdtempSync(join(tmpdir(), "maw-auto-pair-1494-"));
 const TOKEN = "0123456789abcdef-auto-pair-token";
@@ -24,11 +25,32 @@ writeFileSync(
   }, null, 2),
 );
 
-const { pairApi, recordHelloZid } = await import("../../src/api/pair");
-const { verifyAutoPairProof } = await import("../../src/transports/scout-pair-proof");
+const { createPairApi, recordHelloZid } = await import("../../src/api/pair");
+const pairCodes = await import("../../src/lib/pair-codes");
+const { cmdAdd } = await import("../../src/lib/peers/impl");
+const { getPeerKey } = await import("../../src/lib/peer-key");
+const { signAutoPairProof, verifyAutoPairProof } = await import("../../src/transports/scout-pair-proof");
 const { initiatePair } = await import("../../src/transports/scout-pair");
 
-const app = new Elysia().use(pairApi);
+function loadTestConfig() {
+  return JSON.parse(readFileSync(join(TEST_HOME, "config", "maw.config.json"), "utf-8"));
+}
+
+const app = new Elysia().use(createPairApi({
+  loadConfig: loadTestConfig as any,
+  randomBytes,
+  register: pairCodes.register,
+  lookup: pairCodes.lookup,
+  consume: pairCodes.consume,
+  isValidShape: pairCodes.isValidShape,
+  normalize: pairCodes.normalize,
+  pretty: pairCodes.pretty,
+  generateCode: pairCodes.generateCode,
+  cmdAdd,
+  getPeerKey,
+  signAutoPairProof,
+  now: Date.now,
+}));
 
 afterAll(() => {
   rmSync(TEST_HOME, { recursive: true, force: true });

@@ -123,8 +123,8 @@ mock.module(join(import.meta.dir, "../src/lib/peers/store"), () => ({
 
 mock.module(join(import.meta.dir, "../src/transports/scout-pair"), () => ({
   ..._rPair,
-  initiatePair: async (peer: any, localNode: string, localOracle: string, localPort: number) => {
-    if (!mockActive) return real.initiatePair(peer, localNode, localOracle, localPort);
+  initiatePair: async (peer: any, localNode: string, localOracle: string, localPort: number, deps?: any) => {
+    if (!mockActive) return real.initiatePair(peer, localNode, localOracle, localPort, deps);
     pairCalls.push({ zid: peer.zid, localNode, localOracle, localPort });
     return pairResults.shift() ?? { ok: true };
   },
@@ -132,8 +132,8 @@ mock.module(join(import.meta.dir, "../src/transports/scout-pair"), () => ({
 
 mock.module(join(import.meta.dir, "../src/api/pair"), () => ({
   ..._rApiPair,
-  recordHelloZid: (zid: string) => {
-    if (!mockActive) return real.recordHelloZid(zid);
+  recordHelloZid: (zid: string, now?: number) => {
+    if (!mockActive) return real.recordHelloZid(zid, now);
     recordHelloCalls.push(zid);
   },
 }));
