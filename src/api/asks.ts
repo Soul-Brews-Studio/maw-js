@@ -4,24 +4,42 @@ import { join } from "path";
 
 const asksPath = join(import.meta.dir, "../../asks.json");
 
-export const asksApi = new Elysia();
+export interface AsksApiDeps {
+  asksPath: string;
+  existsSync: typeof existsSync;
+  readFileSync: typeof readFileSync;
+  writeFileSync: typeof writeFileSync;
+}
 
-asksApi.get("/asks", () => {
-  try {
-    if (!existsSync(asksPath)) return [];
-    return JSON.parse(readFileSync(asksPath, "utf-8"));
-  } catch {
-    return [];
-  }
-});
+export function createAsksApi(deps: AsksApiDeps = {
+  asksPath,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+}) {
+  const api = new Elysia();
 
-asksApi.post("/asks", async ({ body, set}) => {
-  try {
-    writeFileSync(asksPath, JSON.stringify(body, null, 2), "utf-8");
-    return { ok: true };
-  } catch (e: any) {
-    set.status = 400; return { error: e.message };
-  }
-}, {
-  body: t.Unknown(),
-});
+  api.get("/asks", () => {
+    try {
+      if (!deps.existsSync(deps.asksPath)) return [];
+      return JSON.parse(deps.readFileSync(deps.asksPath, "utf-8") as string);
+    } catch {
+      return [];
+    }
+  });
+
+  api.post("/asks", async ({ body, set}) => {
+    try {
+      deps.writeFileSync(deps.asksPath, JSON.stringify(body, null, 2), "utf-8");
+      return { ok: true };
+    } catch (e: any) {
+      set.status = 400; return { error: e.message };
+    }
+  }, {
+    body: t.Unknown(),
+  });
+
+  return api;
+}
+
+export const asksApi = createAsksApi();
