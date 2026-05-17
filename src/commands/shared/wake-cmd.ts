@@ -4,7 +4,7 @@ import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../con
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
-import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
+import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
@@ -643,23 +643,30 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const worktrees = await findWorktrees(parentDir, repoName);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
-      const resolvedTarget = resolveWorktreeTarget(name, worktrees);
-      switch (resolvedTarget.kind) {
-        case "exact":
-        case "fuzzy":
-          match = resolvedTarget.match;
-          break;
-        case "ambiguous": {
-          const lines = [
-            `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolvedTarget.candidates.length} worktrees:`,
-            ...resolvedTarget.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
-            `\x1b[90m  use the full name: maw wake ${oracle} --task <exact-worktree>\x1b[0m`,
-          ];
-          throw new Error(lines.join("\n"));
+      // #1775 — use the slug as the primary key across the whole ghq org path.
+      // Some oracles resolve to a different main repo name over time
+      // (homekeeper → homelab), but their preserved Claude history may live in
+      // an older sibling worktree (homekeeper-oracle.wt-2-white).
+      match = findReusableWorktreeBySlug(parentDir, name);
+      if (!match) {
+        const resolvedTarget = resolveWorktreeTarget(name, worktrees);
+        switch (resolvedTarget.kind) {
+          case "exact":
+          case "fuzzy":
+            match = resolvedTarget.match;
+            break;
+          case "ambiguous": {
+            const lines = [
+              `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolvedTarget.candidates.length} worktrees:`,
+              ...resolvedTarget.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
+              `\x1b[90m  use the full name: maw wake ${oracle} --task <exact-worktree>\x1b[0m`,
+            ];
+            throw new Error(lines.join("\n"));
+          }
+          case "none":
+            match = null;
+            break;
         }
-        case "none":
-          match = null;
-          break;
       }
     }
 

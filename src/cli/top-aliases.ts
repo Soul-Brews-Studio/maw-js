@@ -152,7 +152,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -161,6 +161,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   }
   write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
+  write("  --pick is accepted as an explicit alias for the default reusable worktree lookup.");
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
   write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
@@ -269,6 +270,7 @@ export async function invokeDirectHandler(
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
       "--fresh": Boolean, "--new": "--fresh",
+      "--pick": Boolean,
       "--bud": Boolean,
       "--signal-on-birth": Boolean,
       "--attach": Boolean, "-a": "--attach",
@@ -296,6 +298,7 @@ export async function invokeDirectHandler(
       prompt?: string;
       incubate?: string;
       fresh?: boolean;
+      pick?: boolean;
       attach?: boolean;
       listWt?: boolean;
       dryRun?: boolean;
@@ -314,6 +317,7 @@ export async function invokeDirectHandler(
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--pick"]) opts.pick = true;
     if (flags["--bud"]) opts.bud = true;
     if (flags["--signal-on-birth"]) opts.signalOnBirth = true;
     if (flags["--attach"]) opts.attach = true;

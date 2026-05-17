@@ -73,6 +73,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveFleetSession: () => null,
+  findReusableWorktreeBySlug: () => null,
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => ({

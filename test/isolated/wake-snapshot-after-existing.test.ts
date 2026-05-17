@@ -47,6 +47,7 @@ mock.module(join(import.meta.dir, "../../src/config"), () => ({
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveOracle: async () => ({ repoPath, repoName: "mawjs-oracle", parentDir: "/repo" }),
   findWorktrees: async () => { findWorktreesCalls++; return []; },
+  findReusableWorktreeBySlug: () => null,
   getSessionMap: () => ({}),
   resolveFleetSession: () => null,
   detectSession: async () => "54-mawjs",

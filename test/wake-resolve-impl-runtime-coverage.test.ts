@@ -146,6 +146,7 @@ mock.module(join(import.meta.dir, "../src/commands/shared/wake-resolve-scan-sugg
 
 const {
   detectSession,
+  findReusableWorktreeBySlug,
   findWorktrees,
   resolveOracle,
   setSessionEnv,
@@ -400,6 +401,21 @@ describe("findWorktrees and detectSession runtime paths", () => {
       { path: "/repos/mawjs-oracle.wt-feature", name: "feature" },
       { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
     ]);
+  });
+
+  test("findReusableWorktreeBySlug finds matching slug across repo names in the org path", () => {
+    const orgDir = join(tempRoot, "laris-co");
+    rmSync(orgDir, { recursive: true, force: true });
+    mkdirSync(join(orgDir, "homelab.wt-1-blue"), { recursive: true });
+    mkdirSync(join(orgDir, "homekeeper-oracle.wt-2-white"), { recursive: true });
+    writeFileSync(join(orgDir, "not-a-dir.wt-3-white"), "file");
+
+    expect(findReusableWorktreeBySlug(orgDir, "white")).toEqual({
+      path: join(orgDir, "homekeeper-oracle.wt-2-white"),
+      name: "2-white",
+    });
+    expect(findReusableWorktreeBySlug(orgDir, "missing")).toBeNull();
+    expect(findReusableWorktreeBySlug(join(orgDir, "missing"), "white")).toBeNull();
   });
 
   test("detectSession honors configured maps, URL repo names, and numbered URL sessions", async () => {

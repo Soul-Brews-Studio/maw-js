@@ -319,6 +319,10 @@ mock.module(
       });
       return worktrees;
     },
+    findReusableWorktreeBySlug: (parentDirArg: string, slug: string) =>
+      mockActive
+        ? null
+        : realWakeResolve.findReusableWorktreeBySlug(parentDirArg, slug),
     getSessionMap: () =>
       mockActive ? sessionMap : realWakeResolve.getSessionMap(),
     resolveFleetSession: (oracle: string) =>

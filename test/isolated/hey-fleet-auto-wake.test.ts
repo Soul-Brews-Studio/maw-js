@@ -75,6 +75,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveFleetSession: (oracle: string) => fleetKnown.has(oracle) ? `${oracle}-session` : null,
+  findReusableWorktreeBySlug: () => null,
 }));
 
 // Sub-PR 4 of #841: comm-send now consults OracleManifest's `findOracle()`

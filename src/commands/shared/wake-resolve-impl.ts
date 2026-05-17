@@ -2,7 +2,7 @@ import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind } from "../../core/ghq";
 import { resolveSessionTarget } from "../../core/matcher/resolve-target";
-import { readdirSync, readFileSync, existsSync } from "fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
@@ -300,6 +300,32 @@ export async function findWorktrees(parentDir: string, repoName: string): Promis
   return lsOut.split("\n").filter(Boolean).map(p => ({
     path: p, name: p.split("/").pop()!.replace(`${repoName}.wt-`, ""),
   }));
+}
+
+export function findReusableWorktreeBySlug(
+  parentDir: string,
+  slug: string,
+  deps: { readdirSync?: typeof readdirSync; statSync?: typeof statSync } = {},
+): { path: string; name: string } | null {
+  const readDir = deps.readdirSync ?? readdirSync;
+  const stat = deps.statSync ?? statSync;
+  const suffix = `-${slug}`;
+  try {
+    const matches = readDir(parentDir)
+      .filter((entry) => entry.includes(".wt-") && entry.endsWith(suffix))
+      .map((entry) => join(parentDir, entry))
+      .filter((path) => {
+        try { return stat(path).isDirectory(); }
+        catch { return false; }
+      })
+      .sort();
+    const path = matches[0];
+    if (!path) return null;
+    const name = path.split("/").pop()!.split(".wt-").slice(1).join(".wt-");
+    return { path, name };
+  } catch {
+    return null;
+  }
 }
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
