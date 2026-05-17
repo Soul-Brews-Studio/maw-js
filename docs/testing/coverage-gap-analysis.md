@@ -1,52 +1,52 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T22:38:06.542Z
+Generated: 2026-05-17T09:54:45.572Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **20.3%** (10134/49974)
-Overall function coverage: **68.4%** (1125/1644)
+Overall line coverage: **28.1%** (14130/50313)
+Overall function coverage: **78.8%** (1604/2035)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 88 | 18 | 48.6% (3455/7113) | 71.0% (326/459) | n/a (0/0) |
-| config/runtime | 19 | 2 | 45.3% (529/1167) | 43.7% (38/87) | n/a (0/0) |
-| fleet | 17 | 0 | 38.8% (407/1050) | 54.8% (40/73) | n/a (0/0) |
+| cli/dispatch | 90 | 15 | 57.9% (4273/7384) | 77.0% (411/534) | n/a (0/0) |
+| config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
+| fleet | 17 | 0 | 37.1% (394/1061) | 54.4% (37/68) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
-| other | 174 | 93 | 19.0% (2730/14336) | 55.2% (278/504) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 2 | 69.8% (1708/2447) | 87.3% (324/371) | n/a (0/0) |
-| vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
+| other | 174 | 69 | 36.7% (5290/14413) | 74.4% (569/765) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 69.8% (849/1217) | 83.8% (67/80) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 69.2% (456/659) | 90.0% (63/70) | n/a (0/0) |
+| transport | 28 | 2 | 77.8% (1876/2410) | 93.1% (363/390) | n/a (0/0) |
+| vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 885 | 0.0% | n/a | absent from LCOV |
-| 2 | medium | other | `src/commands/plugins/tmux/impl.ts` | 590 | 5.1% | 0.0% | partial coverage |
+| 2 | medium | other | `src/commands/plugins/tmux/impl.ts` | 605 | 5.2% | 0.0% | partial coverage |
 | 3 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-charter.ts` | 482 | 0.0% | n/a | absent from LCOV |
 | 4 | medium | other | `src/commands/plugins/team/index.ts` | 477 | 0.0% | n/a | absent from LCOV |
 | 5 | low | vendor plugins | `src/vendor/mpr-plugins/messages/index.ts` | 398 | 0.0% | n/a | absent from LCOV |
-| 6 | medium | other | `src/api/sessions.ts` | 372 | 16.8% | 12.5% | partial coverage |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles.ts` | 366 | 0.0% | n/a | absent from LCOV |
-| 8 | medium | other | `src/core/engine-plugin-registry.ts` | 336 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 332 | 0.0% | n/a | absent from LCOV |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 314 | 0.0% | n/a | absent from LCOV |
-| 11 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/impl.ts` | 297 | 0.0% | n/a | absent from LCOV |
-| 12 | medium | other | `src/commands/plugins/tile/impl.ts` | 283 | 0.0% | n/a | absent from LCOV |
-| 13 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 280 | 24.9% | 18.8% | partial coverage |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 269 | 0.0% | n/a | absent from LCOV |
-| 15 | medium | other | `src/commands/plugins/tmux/index.ts` | 260 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/index.ts` | 250 | 0.0% | n/a | absent from LCOV |
-| 18 | medium | other | `src/commands/plugins/plugin/index.ts` | 246 | 0.0% | n/a | absent from LCOV |
-| 19 | medium | other | `src/commands/plugins/oracle/index.ts` | 243 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/impl.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles.ts` | 366 | 0.0% | n/a | absent from LCOV |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 332 | 0.0% | n/a | absent from LCOV |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 316 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/impl.ts` | 297 | 0.0% | n/a | absent from LCOV |
+| 10 | medium | other | `src/commands/plugins/tile/impl.ts` | 283 | 0.0% | n/a | absent from LCOV |
+| 11 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 280 | 24.9% | 18.8% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 269 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/peers/index.ts` | 250 | 0.0% | n/a | absent from LCOV |
+| 15 | medium | other | `src/commands/plugins/plugin/index.ts` | 246 | 0.0% | n/a | absent from LCOV |
+| 16 | medium | other | `src/commands/plugins/oracle/index.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/impl.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 18 | medium | other | `src/commands/plugins/oracle/impl-list.ts` | 241 | 2.8% | 0.0% | partial coverage |
+| 19 | medium | other | `src/commands/plugins/team/team-lifecycle.ts` | 234 | 0.0% | n/a | absent from LCOV |
+| 20 | medium | other | `src/core/server.ts` | 224 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -62,13 +62,15 @@ Overall function coverage: **68.4%** (1125/1644)
 | cli/dispatch | `src/cli/parse-args.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/usage.ts` | 89.6% | 92.9% |
 | cli/dispatch | `src/cli/verbosity.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/comm-send.ts` | 88.2% | 92.6% |
+| cli/dispatch | `src/commands/shared/comm-list.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/comm-send.ts` | 93.3% | 97.2% |
 | cli/dispatch | `src/commands/shared/comm.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/done.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-apply.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-diff.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-identity.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-sync.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/federation.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks.ts` | 97.5% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 87.3% | 40.0% |
@@ -77,14 +79,18 @@ Overall function coverage: **68.4%** (1125/1644)
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 82.7% | 75.0% |
 | cli/dispatch | `src/commands/shared/plugin-create.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/plugins-ls-info.ts` | 87.1% | 90.0% |
-| cli/dispatch | `src/commands/shared/plugins-ui.ts` | 96.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/plugins-ls-info.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/plugins-ui.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/receiver-inbox.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/wake-cmd.ts` | 84.1% | 85.5% |
+| cli/dispatch | `src/commands/shared/wake-cmd.ts` | 84.1% | 85.2% |
+| cli/dispatch | `src/commands/shared/wake-maybe-split.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 99.6% | 97.6% |
 | cli/dispatch | `src/commands/shared/wake-resolve.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-target.ts` | 80.0% | 80.0% |
 | cli/dispatch | `src/commands/shared/wake.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/workspace-agents.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/workspace-query.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/workspace.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/leaf.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/oracle-registry.ts` | 100.0% | 100.0% |
@@ -101,13 +107,16 @@ Overall function coverage: **68.4%** (1125/1644)
 | plugin dispatch | `src/plugin/lifecycle.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest-constants.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest-load.ts` | 100.0% | 100.0% |
-| plugin dispatch | `src/plugin/manifest-parse.ts` | 96.3% | 100.0% |
-| plugin dispatch | `src/plugin/manifest-validate.ts` | 89.7% | 100.0% |
+| plugin dispatch | `src/plugin/manifest-parse.ts` | 100.0% | 100.0% |
+| plugin dispatch | `src/plugin/manifest-validate.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/registry-semver.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
+| routing/aliases | `src/cli/route-tools.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
-| transport | `src/core/transport/tmux-class.ts` | 87.1% | 96.3% |
+| transport | `src/core/transport/peers.ts` | 100.0% | 100.0% |
+| transport | `src/core/transport/tmux-class.ts` | 90.3% | 97.5% |
+| transport | `src/core/transport/tmux-types.ts` | 80.0% | 66.7% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
 | transport | `src/transports/http.ts` | 100.0% | 100.0% |
@@ -123,23 +132,23 @@ Overall function coverage: **68.4%** (1125/1644)
 | transport | `src/transports/scout-state.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout.ts` | 100.0% | 100.0% |
 | transport | `src/transports/tmux.ts` | 100.0% | 100.0% |
-| transport | `src/transports/zenoh-scout.ts` | 90.3% | 66.7% |
+| transport | `src/transports/zenoh-scout.ts` | 100.0% | 100.0% |
 | transport | `src/transports/zenoh.ts` | 100.0% | 100.0% |
 
 ## Critical files below the 80% line target (next queue)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| transport | `src/core/transport/peers.ts` | 176 | 31.3% |
+| fleet | `src/core/fleet/claude-sessions.ts` | 150 | 5.7% |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
-| routing/aliases | `src/cli/top-aliases.ts` | 148 | 41.3% |
+| routing/aliases | `src/cli/top-aliases.ts` | 148 | 40.8% |
 | plugin dispatch | `src/plugin/registry.ts` | 147 | 8.1% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
 | fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
-| fleet | `src/core/fleet/claude-sessions.ts` | 126 | 14.9% |
 | cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
 | cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
+| cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
 
 ## Critical gaps to prioritize
 
