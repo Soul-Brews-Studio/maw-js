@@ -1,9 +1,7 @@
 import { Elysia} from "elysia";
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join, basename } from "path";
+import { join } from "path";
 import { homedir } from "os";
-
-export const costsApi = new Elysia();
 
 // Cost per million tokens (USD)
 const COST_PER_MTOK: Record<string, { input: number; output: number }> = {
@@ -42,42 +40,6 @@ interface SessionUsage {
   lastTimestamp: string;
 }
 
-function scanSession(filePath: string): SessionUsage | null {
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const lines = content.split("\n").filter(Boolean);
-
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let cacheReadTokens = 0;
-    let cacheCreateTokens = 0;
-    let turns = 0;
-    let model = "";
-    let lastTimestamp = "";
-
-    for (const line of lines) {
-      let obj: any;
-      try { obj = JSON.parse(line); } catch { continue; }
-      if (obj.type !== "assistant" || !obj.message?.usage) continue;
-
-      const u = obj.message.usage;
-      inputTokens += u.input_tokens || 0;
-      outputTokens += u.output_tokens || 0;
-      cacheReadTokens += u.cache_read_input_tokens || 0;
-      cacheCreateTokens += u.cache_creation_input_tokens || 0;
-      turns++;
-
-      if (obj.message.model && !model) model = obj.message.model;
-      if (obj.timestamp) lastTimestamp = obj.timestamp;
-    }
-
-    if (turns === 0) return null;
-    return { inputTokens, outputTokens, cacheReadTokens, cacheCreateTokens, turns, model, lastTimestamp };
-  } catch {
-    return null;
-  }
-}
-
 function estimateCost(usage: SessionUsage): number {
   const tier = modelTier(usage.model);
   const rates = COST_PER_MTOK[tier] || COST_PER_MTOK.sonnet;
@@ -112,158 +74,216 @@ function makeBuckets(n: number): string[] {
   });
 }
 
-costsApi.get("/costs/daily", ({ query, set }) => {
-  const days = Number(query.days ?? 7);
-  if (isNaN(days) || days < 1 || days > 365) {
-    set.status = 400;
-    return { error: "days must be 1–365" };
-  }
+export interface CostsApiDeps {
+  projectsDir: string;
+  readdirSync: typeof readdirSync;
+  readFileSync: typeof readFileSync;
+  statSync: typeof statSync;
+  join: typeof join;
+}
 
-  const buckets = makeBuckets(days);
-  const bucketIndex = new Map(buckets.map((b, i) => [b, i]));
-
-  const projectsDir = join(homedir(), ".claude", "projects");
-  let dirs: string[];
-  try {
-    dirs = readdirSync(projectsDir).filter((d) => {
-      try { return statSync(join(projectsDir, d)).isDirectory(); } catch { return false; }
-    });
-  } catch {
-    set.status = 500;
-    return { error: "Cannot read ~/.claude/projects/" };
-  }
-
-  // agentName → { costs: number[], hadActivity: boolean[] }
-  const agentDailyMap = new Map<string, { costs: number[]; hadActivity: boolean[] }>();
-
-  for (const dir of dirs) {
-    const dirPath = join(projectsDir, dir);
-    let files: string[];
+export function createCostsApi(deps: CostsApiDeps = {
+  projectsDir: join(homedir(), ".claude", "projects"),
+  readdirSync,
+  readFileSync,
+  statSync,
+  join,
+}) {
+  function scanSessionWithDeps(filePath: string): SessionUsage | null {
     try {
-      files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
-    } catch { continue; }
+      const content = deps.readFileSync(filePath, "utf-8");
+      return scanSessionContent(String(content));
+    } catch {
+      return null;
+    }
+  }
 
-    if (files.length === 0) continue;
-    const agentName = agentNameFromDir(dir);
-
-    if (!agentDailyMap.has(agentName)) {
-      agentDailyMap.set(agentName, {
-        costs: Array(days).fill(0),
-        hadActivity: Array(days).fill(false),
+  function projectDirs(set: { status?: number }) {
+    try {
+      return deps.readdirSync(deps.projectsDir).filter((d) => {
+        try { return deps.statSync(deps.join(deps.projectsDir, d)).isDirectory(); } catch { return false; }
       });
-    }
-
-    const entry = agentDailyMap.get(agentName)!;
-
-    for (const file of files) {
-      const usage = scanSession(join(dirPath, file));
-      if (!usage || !usage.lastTimestamp) continue;
-
-      const dateStr = localDateStr(usage.lastTimestamp);
-      const idx = bucketIndex.get(dateStr);
-      if (idx === undefined) continue; // outside the window
-
-      entry.costs[idx] += estimateCost(usage);
-      entry.hadActivity[idx] = true;
+    } catch {
+      set.status = 500;
+      return null;
     }
   }
 
-  const agents = [...agentDailyMap.entries()]
-    .filter(([, d]) => d.costs.reduce((s, v) => s + v, 0) > 0)
-    .map(([name, d]) => ({
-      name,
-      dailyCosts: d.costs,
-      totalCost: d.costs.reduce((s, v) => s + v, 0),
-      hadActivity: d.hadActivity,
-    }))
-    .sort((a, b) => b.totalCost - a.totalCost);
+  const api = new Elysia();
 
-  const totalCost = agents.reduce((s, a) => s + a.totalCost, 0);
-  return { window: days, buckets, agents, total: { cost: totalCost, agents: agents.length } };
-});
-
-costsApi.get("/costs", ({ set }) => {
-  const projectsDir = join(homedir(), ".claude", "projects");
-  let dirs: string[];
-  try {
-    dirs = readdirSync(projectsDir).filter((d) => {
-      try { return statSync(join(projectsDir, d)).isDirectory(); } catch { return false; }
-    });
-  } catch {
-    set.status = 500; return { error: "Cannot read ~/.claude/projects/" };
-  }
-
-  const agents: Record<string, {
-    name: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheCreateTokens: number;
-    totalTokens: number;
-    estimatedCost: number;
-    sessions: number;
-    turns: number;
-    models: Record<string, number>;
-    lastActive: string;
-  }> = {};
-
-  for (const dir of dirs) {
-    const dirPath = join(projectsDir, dir);
-    let files: string[];
-    try {
-      files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
-    } catch { continue; }
-
-    if (files.length === 0) continue;
-    const agentName = agentNameFromDir(dir);
-
-    if (!agents[agentName]) {
-      agents[agentName] = {
-        name: agentName,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheCreateTokens: 0,
-        totalTokens: 0,
-        estimatedCost: 0,
-        sessions: 0,
-        turns: 0,
-        models: {},
-        lastActive: "",
-      };
+  api.get("/costs/daily", ({ query, set }) => {
+    const days = Number(query.days ?? 7);
+    if (isNaN(days) || days < 1 || days > 365) {
+      set.status = 400;
+      return { error: "days must be 1–365" };
     }
 
-    for (const file of files) {
-      const usage = scanSession(join(dirPath, file));
-      if (!usage) continue;
+    const buckets = makeBuckets(days);
+    const bucketIndex = new Map(buckets.map((b, i) => [b, i]));
 
-      const a = agents[agentName];
-      a.inputTokens += usage.inputTokens;
-      a.outputTokens += usage.outputTokens;
-      a.cacheReadTokens += usage.cacheReadTokens;
-      a.cacheCreateTokens += usage.cacheCreateTokens;
-      a.totalTokens += usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreateTokens;
-      a.estimatedCost += estimateCost(usage);
-      a.sessions++;
-      a.turns += usage.turns;
+    const dirs = projectDirs(set);
+    if (!dirs) return { error: "Cannot read ~/.claude/projects/" };
 
-      const tier = modelTier(usage.model);
-      a.models[tier] = (a.models[tier] || 0) + usage.turns;
+    // agentName → { costs: number[], hadActivity: boolean[] }
+    const agentDailyMap = new Map<string, { costs: number[]; hadActivity: boolean[] }>();
 
-      if (usage.lastTimestamp > a.lastActive) a.lastActive = usage.lastTimestamp;
+    for (const dir of dirs) {
+      const dirPath = deps.join(deps.projectsDir, dir);
+      let files: string[];
+      try {
+        files = deps.readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
+      } catch { continue; }
+
+      if (files.length === 0) continue;
+      const agentName = agentNameFromDir(dir);
+
+      if (!agentDailyMap.has(agentName)) {
+        agentDailyMap.set(agentName, {
+          costs: Array(days).fill(0),
+          hadActivity: Array(days).fill(false),
+        });
+      }
+
+      const entry = agentDailyMap.get(agentName)!;
+
+      for (const file of files) {
+        const usage = scanSessionWithDeps(deps.join(dirPath, file));
+        if (!usage || !usage.lastTimestamp) continue;
+
+        const dateStr = localDateStr(usage.lastTimestamp);
+        const idx = bucketIndex.get(dateStr);
+        if (idx === undefined) continue; // outside the window
+
+        entry.costs[idx] += estimateCost(usage);
+        entry.hadActivity[idx] = true;
+      }
     }
+
+    const agents = [...agentDailyMap.entries()]
+      .filter(([, d]) => d.costs.reduce((s, v) => s + v, 0) > 0)
+      .map(([name, d]) => ({
+        name,
+        dailyCosts: d.costs,
+        totalCost: d.costs.reduce((s, v) => s + v, 0),
+        hadActivity: d.hadActivity,
+      }))
+      .sort((a, b) => b.totalCost - a.totalCost);
+
+    const totalCost = agents.reduce((s, a) => s + a.totalCost, 0);
+    return { window: days, buckets, agents, total: { cost: totalCost, agents: agents.length } };
+  });
+
+  api.get("/costs", ({ set }) => {
+    const dirs = projectDirs(set);
+    if (!dirs) return { error: "Cannot read ~/.claude/projects/" };
+
+    const agents: Record<string, {
+      name: string;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreateTokens: number;
+      totalTokens: number;
+      estimatedCost: number;
+      sessions: number;
+      turns: number;
+      models: Record<string, number>;
+      lastActive: string;
+    }> = {};
+
+    for (const dir of dirs) {
+      const dirPath = deps.join(deps.projectsDir, dir);
+      let files: string[];
+      try {
+        files = deps.readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
+      } catch { continue; }
+
+      if (files.length === 0) continue;
+      const agentName = agentNameFromDir(dir);
+
+      if (!agents[agentName]) {
+        agents[agentName] = {
+          name: agentName,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreateTokens: 0,
+          totalTokens: 0,
+          estimatedCost: 0,
+          sessions: 0,
+          turns: 0,
+          models: {},
+          lastActive: "",
+        };
+      }
+
+      for (const file of files) {
+        const usage = scanSessionWithDeps(deps.join(dirPath, file));
+        if (!usage) continue;
+
+        const a = agents[agentName];
+        a.inputTokens += usage.inputTokens;
+        a.outputTokens += usage.outputTokens;
+        a.cacheReadTokens += usage.cacheReadTokens;
+        a.cacheCreateTokens += usage.cacheCreateTokens;
+        a.totalTokens += usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreateTokens;
+        a.estimatedCost += estimateCost(usage);
+        a.sessions++;
+        a.turns += usage.turns;
+
+        const tier = modelTier(usage.model);
+        a.models[tier] = (a.models[tier] || 0) + usage.turns;
+
+        if (usage.lastTimestamp > a.lastActive) a.lastActive = usage.lastTimestamp;
+      }
+    }
+
+    const agentList = Object.values(agents)
+      .filter((a) => a.sessions > 0)
+      .sort((a, b) => b.estimatedCost - a.estimatedCost);
+
+    const total = {
+      tokens: agentList.reduce((s, a) => s + a.totalTokens, 0),
+      cost: agentList.reduce((s, a) => s + a.estimatedCost, 0),
+      sessions: agentList.reduce((s, a) => s + a.sessions, 0),
+      agents: agentList.length,
+    };
+
+    return { agents: agentList, total };
+  });
+
+  return api;
+}
+
+function scanSessionContent(content: string): SessionUsage | null {
+  const lines = content.split("\n").filter(Boolean);
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreateTokens = 0;
+  let turns = 0;
+  let model = "";
+  let lastTimestamp = "";
+
+  for (const line of lines) {
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { continue; }
+    if (obj.type !== "assistant" || !obj.message?.usage) continue;
+
+    const u = obj.message.usage;
+    inputTokens += u.input_tokens || 0;
+    outputTokens += u.output_tokens || 0;
+    cacheReadTokens += u.cache_read_input_tokens || 0;
+    cacheCreateTokens += u.cache_creation_input_tokens || 0;
+    turns++;
+
+    if (obj.message.model && !model) model = obj.message.model;
+    if (obj.timestamp) lastTimestamp = obj.timestamp;
   }
 
-  const agentList = Object.values(agents)
-    .filter((a) => a.sessions > 0)
-    .sort((a, b) => b.estimatedCost - a.estimatedCost);
+  if (turns === 0) return null;
+  return { inputTokens, outputTokens, cacheReadTokens, cacheCreateTokens, turns, model, lastTimestamp };
+}
 
-  const total = {
-    tokens: agentList.reduce((s, a) => s + a.totalTokens, 0),
-    cost: agentList.reduce((s, a) => s + a.estimatedCost, 0),
-    sessions: agentList.reduce((s, a) => s + a.sessions, 0),
-    agents: agentList.length,
-  };
-
-  return { agents: agentList, total };
-});
+export const costsApi = createCostsApi();
