@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T12:51:00.824Z
+Generated: 2026-05-17T13:04:26.074Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **30.9%** (15526/50217)
-Overall function coverage: **81.3%** (1755/2158)
+Overall line coverage: **31.2%** (15680/50221)
+Overall function coverage: **81.4%** (1772/2177)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **81.3%** (1755/2158)
 | other | 174 | 69 | 37.1% (5343/14391) | 75.1% (575/766) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
-| transport | 28 | 2 | 77.8% (1876/2410) | 93.1% (363/390) | n/a (0/0) |
+| transport | 28 | 1 | 84.1% (2030/2414) | 92.9% (380/409) | n/a (0/0) |
 | vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -126,6 +126,7 @@ Overall function coverage: **81.3%** (1755/2158)
 | routing/aliases | `src/cli/top-aliases.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
 | transport | `src/core/transport/peers.ts` | 100.0% | 100.0% |
+| transport | `src/core/transport/pty.ts` | 100.0% | 89.5% |
 | transport | `src/core/transport/tmux-class.ts` | 90.3% | 97.5% |
 | transport | `src/core/transport/tmux-types.ts` | 80.0% | 66.7% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
@@ -150,7 +151,6 @@ Overall function coverage: **81.3%** (1755/2158)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 97 | 46.4% |
 | fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 93 | 6.1% |
@@ -160,6 +160,7 @@ Overall function coverage: **81.3%** (1755/2158)
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
 | transport | `src/transports/index.ts` | 78 | 29.7% |
+| transport | `src/core/transport/ssh.ts` | 77 | 29.4% |
 
 ## Critical gaps to prioritize
 

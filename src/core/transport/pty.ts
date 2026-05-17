@@ -2,22 +2,66 @@ import { tmux, tmuxCmd } from "./tmux";
 import { loadConfig, cfgTimeout, cfgLimit } from "../../config";
 import type { MawWS } from "../types";
 
-let nextPtyId = 0;
+type PtyProc = ReturnType<typeof Bun.spawn>;
+type PtySpawn = typeof Bun.spawn;
+type PtySpawnSync = typeof Bun.spawnSync;
+type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">;
+
+export interface PtyDeps {
+  tmux: PtyTmux;
+  tmuxCmd: typeof tmuxCmd;
+  loadConfig: typeof loadConfig;
+  cfgTimeout: typeof cfgTimeout;
+  cfgLimit: typeof cfgLimit;
+  spawn: PtySpawn;
+  spawnSync: PtySpawnSync;
+  env: () => NodeJS.ProcessEnv;
+  platform: () => NodeJS.Platform;
+  now: () => number;
+  setTimeout: typeof setTimeout;
+  clearTimeout: typeof clearTimeout;
+}
+
+export function ptyDeps(overrides: Partial<PtyDeps> = {}): PtyDeps {
+  return {
+    tmux,
+    tmuxCmd,
+    loadConfig,
+    cfgTimeout,
+    cfgLimit,
+    spawn: ((args, opts) => Bun.spawn(args, opts)) as PtySpawn,
+    spawnSync: ((args) => Bun.spawnSync(args)) as PtySpawnSync,
+    env: () => process.env,
+    platform: () => process.platform,
+    now: () => Date.now(),
+    setTimeout,
+    clearTimeout,
+    ...overrides,
+  };
+}
 
 interface PtySession {
-  proc: ReturnType<typeof Bun.spawn>;
+  proc: PtyProc;
   target: string;
   ptySessionName: string;
   viewers: Set<MawWS>;
   cleanupTimer: ReturnType<typeof setTimeout> | null;
 }
 
-const sessions = new Map<string, PtySession>();
-const attaching = new Set<string>();
+interface PtyHandlers {
+  handlePtyMessage: (ws: MawWS, msg: string | Buffer) => void;
+  handlePtyClose: (ws: MawWS) => void;
+}
+
+export function createPtyHandlers(overrides: Partial<PtyDeps> = {}): PtyHandlers {
+  const io = ptyDeps(overrides);
+  let nextPtyId = 0;
+  const sessions = new Map<string, PtySession>();
+  const attaching = new Set<string>();
 
 function isLocalHost(): boolean {
   // #713: with bind/host split, config.host is never a bind address (0.0.0.0 etc.)
-  const host = process.env.MAW_HOST || loadConfig().host || "local";
+  const host = io.env().MAW_HOST || io.loadConfig().host || "local";
   return host === "local" || host === "localhost";
 }
 
@@ -27,7 +71,7 @@ function findSession(ws: MawWS): PtySession | undefined {
   }
 }
 
-export function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
+function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
   if (typeof msg !== "string") {
     // Binary → keystroke to PTY stdin
     const session = findSession(ws);
@@ -47,7 +91,7 @@ export function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
   } catch { /* expected: malformed WS message */ }
 }
 
-export function handlePtyClose(ws: MawWS) {
+function handlePtyClose(ws: MawWS) {
   detach(ws);
 }
 
@@ -63,7 +107,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
   let session = sessions.get(safe);
   if (session) {
     if (session.cleanupTimer) {
-      clearTimeout(session.cleanupTimer);
+      io.clearTimeout(session.cleanupTimer);
       session.cleanupTimer = null;
     }
     session.viewers.add(ws);
@@ -71,7 +115,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
     // the screen stays empty until something happens in the pane → looks like
     // "black pane covering tmux". Mirror the new-session capture-pane block.
     try {
-      const cap = Bun.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
+      const cap = io.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
       if (cap.stdout && cap.stdout.length > 0) {
         ws.send(cap.stdout);
         ws.send(new TextEncoder().encode("\r\n"));
@@ -87,18 +131,18 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
 
   const sessionName = safe.split(":")[0];
   const windowPart = safe.includes(":") ? safe.split(":").slice(1).join(":") : "";
-  const c = Math.max(1, Math.min(cfgLimit("ptyCols"), Math.floor(cols)));
-  const r = Math.max(1, Math.min(cfgLimit("ptyRows"), Math.floor(rows)));
+  const c = Math.max(1, Math.min(io.cfgLimit("ptyCols"), Math.floor(cols)));
+  const r = Math.max(1, Math.min(io.cfgLimit("ptyRows"), Math.floor(rows)));
 
   // Create a grouped session — shares windows but has independent client sizing.
   // This prevents the web terminal from shrinking the real terminal.
-  const ptySessionName = `maw-pty-${Date.now()}-${++nextPtyId}`;
+  const ptySessionName = `maw-pty-${io.now()}-${++nextPtyId}`;
   try {
-    await tmux.newGroupedSession(sessionName, ptySessionName, {
+    await io.tmux.newGroupedSession(sessionName, ptySessionName, {
       cols: c, rows: r, window: windowPart || undefined,
     });
     // Hide status bar in PTY sessions so it doesn't appear in terminal output
-    await tmux.setOption(ptySessionName, "status", "off").catch(() => { /* expected: option may not apply */ });
+    await io.tmux.setOption(ptySessionName, "status", "off").catch(() => { /* expected: option may not apply */ });
   } catch {
     attaching.delete(safe);
     ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
@@ -110,7 +154,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
   // capture-pane reads tmux server-side history (limit set by history-limit).
   // -p stdout, -e include ANSI attrs, -S -2000 last 2000 lines, -J join wrapped.
   try {
-    const cap = Bun.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
+    const cap = io.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
     if (cap.stdout && cap.stdout.length > 0) {
       ws.send(cap.stdout);
       ws.send(new TextEncoder().encode("\r\n"));
@@ -136,8 +180,8 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
   // every macOS.
   let args: string[];
   if (isLocalHost()) {
-    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
-    if (process.platform === "darwin") {
+    const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${io.tmuxCmd()} attach-session -t '${ptySessionName}'`;
+    if (io.platform() === "darwin") {
       // Shell-escape cmd for embedding inside expect's double-quoted string.
       const esc = cmd.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
       args = ["/usr/bin/expect", "-c", `spawn -noecho sh -c "${esc}"; interact`];
@@ -145,15 +189,15 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
       args = ["script", "-qfc", cmd, "/dev/null"];
     }
   } else {
-    const host = process.env.MAW_HOST || loadConfig().host || "local";
-    args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
+    const host = io.env().MAW_HOST || io.loadConfig().host || "local";
+    args = ["ssh", "-tt", host, `TERM=xterm-256color ${io.tmuxCmd()} attach-session -t '${ptySessionName}'`];
   }
 
-  const proc = Bun.spawn(args, {
+  const proc = io.spawn(args, {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
-    env: { ...process.env, TERM: "xterm-256color" },
+    env: { ...io.env(), TERM: "xterm-256color" },
     windowsHide: true,
   });
 
@@ -184,7 +228,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
     } catch { /* expected: PTY stream ended */ }
     // PTY process ended — clean up grouped session
     sessions.delete(safe);
-    tmux.killSession(s.ptySessionName);
+    io.tmux.killSession(s.ptySessionName);
     for (const v of s.viewers) {
       try { v.send(JSON.stringify({ type: "detached", target: safe })); } catch { /* expected: viewer may have disconnected */ }
     }
@@ -203,11 +247,19 @@ function detach(ws: MawWS) {
     session.viewers.delete(ws);
     if (session.viewers.size === 0) {
       // Grace period before killing PTY
-      session.cleanupTimer = setTimeout(() => {
+      session.cleanupTimer = io.setTimeout(() => {
         try { session.proc.kill(); } catch { /* expected: process may already be dead */ }
-        tmux.killSession(session.ptySessionName);
+        io.tmux.killSession(session.ptySessionName);
         sessions.delete(target);
-      }, cfgTimeout("pty"));
+      }, io.cfgTimeout("pty"));
     }
   }
 }
+
+  return { handlePtyMessage, handlePtyClose };
+}
+
+const defaultPtyHandlers = createPtyHandlers();
+
+export const handlePtyMessage = defaultPtyHandlers.handlePtyMessage;
+export const handlePtyClose = defaultPtyHandlers.handlePtyClose;
