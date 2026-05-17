@@ -668,7 +668,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {
-      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees);
+      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, { fresh: !!opts.fresh });
       targetPath = result.wtPath;
       windowName = result.windowName;
     }

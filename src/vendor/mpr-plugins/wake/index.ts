@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       (--new is a deprecated alias for --wt, removed in alpha.114)",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh|--new] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot",
         };
       }
 
@@ -42,15 +42,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: true, output: logs.join("\n") || undefined };
       }
 
-      if (args.includes("--new")) {
-        console.error("\x1b[33m⚠\x1b[0m --new renamed to --wt (removed in alpha.114)");
-      }
-
       const flags = parseFlags(args, {
-        "--wt": String, "--new": "--wt",
+        "--wt": String,
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
-        "--fresh": Boolean, "--attach": Boolean, "-a": "--attach",
+        "--fresh": Boolean, "--new": "--fresh", "--attach": Boolean, "-a": "--attach",
         "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
         "--list": Boolean, "--ls": "--list",
         "--dry-run": Boolean,

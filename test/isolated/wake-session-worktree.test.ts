@@ -38,10 +38,20 @@ describe("createWorktree", () => {
     expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-tile-1' -b 'agents/1-tile-1'");
   });
 
-  test("skips stale branch names instead of clobbering them", async () => {
+  test("reattaches an existing stale branch at the stable reusable slot", async () => {
     existingBranches.add("agents/1-tile-1");
 
     await createWorktree("/repo", "/tmp", "repo", "oracle", "tile-1", []);
+
+    expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
+    expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/1-tile-1'");
+    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-tile-1' 'agents/1-tile-1'");
+  });
+
+  test("fresh mode skips stale branch names instead of clobbering them", async () => {
+    existingBranches.add("agents/1-tile-1");
+
+    await createWorktree("/repo", "/tmp", "repo", "oracle", "tile-1", [], { fresh: true });
 
     expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
     expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/1-tile-1'");

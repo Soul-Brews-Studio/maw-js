@@ -344,12 +344,18 @@ mock.module(
   join(import.meta.dir, "../src/commands/shared/wake-session"),
   () => ({
     ..._rWakeSession,
-    attachToSession: async (session: string) => {
-      if (!mockActive) return realWakeSession.attachToSession(session);
+    attachToSession: async (
+      ...args: Parameters<typeof _rWakeSession.attachToSession>
+    ) => {
+      if (!mockActive) return realWakeSession.attachToSession(...args);
+      const [session] = args;
       attachCalls.push(session);
     },
-    ensureSessionRunning: async (session: string) => {
-      if (!mockActive) return realWakeSession.ensureSessionRunning(session);
+    ensureSessionRunning: async (
+      ...args: Parameters<typeof _rWakeSession.ensureSessionRunning>
+    ) => {
+      if (!mockActive) return realWakeSession.ensureSessionRunning(...args);
+      const [session] = args;
       ensureSessionRunningCalls.push(session);
       return ensureSessionRunningReturn;
     },
@@ -359,6 +365,8 @@ mock.module(
       repoNameArg: string,
       oracleArg: string,
       name: string,
+      existingWorktrees: { name: string; path: string }[] = [],
+      deps?: Parameters<typeof _rWakeSession.createWorktree>[6],
     ) => {
       if (!mockActive)
         return realWakeSession.createWorktree(
@@ -367,7 +375,8 @@ mock.module(
           repoNameArg,
           oracleArg,
           name,
-          [],
+          existingWorktrees,
+          deps,
         );
       createdWorktrees.push({
         repoPath: repoPathArg,

@@ -33,6 +33,7 @@ function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefin
     "--repo": String,
     "--task": String,
     "--fresh": Boolean,
+    "--new": "--fresh",
     "--no-attach": Boolean,
     "--list": Boolean,
     "--ls": "--list",
@@ -150,6 +151,12 @@ describe("wake preview/control flags (#1563)", () => {
     expect(buildWakeOpts(["wake", "neo", "--main"]).opts.noRehydrate).toBe(true);
     expect(buildWakeOpts(["wake", "neo", "--solo"]).opts.noRehydrate).toBe(true);
     expect(buildWakeOpts(["wake", "neo", "--no-rehydrate"]).opts.noRehydrate).toBe(true);
+  });
+
+  test("--new is an alias for --fresh, not --wt", () => {
+    const { opts } = buildWakeOpts(["wake", "neo", "--wt", "white", "--new"]);
+    expect(opts.wt).toBe("white");
+    expect(opts.fresh).toBe(true);
   });
 });
 

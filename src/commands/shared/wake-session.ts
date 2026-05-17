@@ -2,12 +2,43 @@ import { hostExec, tmux } from "../../sdk";
 import { buildCommand, buildCommandInDir, cfgTimeout } from "../../config";
 import { execSync } from "child_process";
 
+type WakeTmuxDeps = Pick<typeof tmux, "switchClient" | "listWindows" | "getPaneCommands" | "sendText">;
+
+export interface WakeSessionDeps {
+  hostExec: typeof hostExec;
+  tmux: WakeTmuxDeps;
+  buildCommand: typeof buildCommand;
+  buildCommandInDir: typeof buildCommandInDir;
+  cfgTimeout: typeof cfgTimeout;
+  execSync: typeof execSync;
+  sleep: (ms: number) => Promise<void>;
+  log: (...args: unknown[]) => void;
+  /** Force a new numbered worktree slot instead of preferring a stable reusable slot. */
+  fresh: boolean;
+}
+
+export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
+  return {
+    hostExec,
+    tmux,
+    buildCommand,
+    buildCommandInDir,
+    cfgTimeout,
+    execSync,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log: console.log.bind(console),
+    fresh: false,
+    ...overrides,
+  };
+}
+
 /** Attach to tmux session — switch-client if inside tmux, attach if fresh shell */
-export async function attachToSession(session: string) {
+export async function attachToSession(session: string, deps: Partial<WakeSessionDeps> = {}) {
+  const d = wakeSessionDeps(deps);
   if (process.env.TMUX) {
-    await tmux.switchClient(session);
+    await d.tmux.switchClient(session);
   } else {
-    execSync(`tmux attach-session -t ${session}`, { stdio: "inherit" });
+    d.execSync(`tmux attach-session -t ${session}`, { stdio: "inherit" });
   }
 }
 
@@ -16,40 +47,47 @@ export async function attachToSession(session: string) {
  * Returns true when the shell has no children → safe to retry.
  * Returns true on error as a fail-safe (preserves existing retry behavior).
  */
-export async function isPaneIdle(paneTarget: string): Promise<boolean> {
+export async function isPaneIdle(paneTarget: string, deps: Partial<WakeSessionDeps> = {}): Promise<boolean> {
+  const d = wakeSessionDeps(deps);
   try {
-    const panePid = (await hostExec(
+    const panePid = (await d.hostExec(
       `tmux display-message -t '${paneTarget}' -p '#{pane_pid}'`
     )).trim();
     if (!panePid) return true;
     // pgrep -P shows direct children — if any, the shell is busy
-    const children = (await hostExec(`pgrep -P ${panePid} 2>/dev/null || true`)).trim();
+    const children = (await d.hostExec(`pgrep -P ${panePid} 2>/dev/null || true`)).trim();
     return children.length === 0;
   } catch {
     return true; // fail-safe to current behavior
   }
 }
 
-export async function ensureSessionRunning(session: string, excludeNames?: Set<string>, cwdMap?: Record<string, string>): Promise<number> {
+export async function ensureSessionRunning(
+  session: string,
+  excludeNames?: Set<string>,
+  cwdMap?: Record<string, string>,
+  deps: Partial<WakeSessionDeps> = {},
+): Promise<number> {
+  const d = wakeSessionDeps(deps);
   let retried = 0;
   let windows: { index: number; name: string; active: boolean }[];
-  try { windows = await tmux.listWindows(session); } catch { return 0; }
+  try { windows = await d.tmux.listWindows(session); } catch { return 0; }
 
   const targets = windows.map(w => `${session}:${w.name}`);
-  const cmds = await tmux.getPaneCommands(targets);
+  const cmds = await d.tmux.getPaneCommands(targets);
 
   for (const win of windows) {
     if (excludeNames?.has(win.name)) continue;
     const target = `${session}:${win.name}`;
     const paneCmd = (cmds[target] || "").trim().toLowerCase();
     if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
-      if (!(await isPaneIdle(target))) continue; // shell has children → mid-startup, skip
+      if (!(await isPaneIdle(target, d))) continue; // shell has children → mid-startup, skip
       try {
-        await new Promise(r => setTimeout(r, cfgTimeout("wakeRetry")));
+        await d.sleep(d.cfgTimeout("wakeRetry"));
         const cwd = cwdMap?.[win.name];
-        const cmd = cwd ? buildCommandInDir(win.name, cwd) : buildCommand(win.name);
-        await tmux.sendText(target, cmd);
-        console.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
+        const cmd = cwd ? d.buildCommandInDir(win.name, cwd) : d.buildCommand(win.name);
+        await d.tmux.sendText(target, cmd);
+        d.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
         retried++;
       } catch { /* window may have been killed */ }
     }
@@ -68,17 +106,20 @@ export async function createWorktree(
   oracle: string,
   name: string,
   existingWorktrees: { name: string; path: string }[],
+  deps: Partial<WakeSessionDeps> = {},
 ): Promise<{ wtPath: string; windowName: string }> {
+  const d = wakeSessionDeps(deps);
   const nums = existingWorktrees.map(w => parseInt(w.name) || 0);
-  let nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+  let nextNum = d.fresh && nums.length > 0 ? Math.max(...nums) + 1 : 1;
   const safe = (s: string) => s.replace(/'/g, "'\\''");
-  try { await hostExec(`git -C '${safe(repoPath)}' rev-parse HEAD 2>/dev/null`); } catch {
-    await hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
+  try { await d.hostExec(`git -C '${safe(repoPath)}' rev-parse HEAD 2>/dev/null`); } catch {
+    await d.hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
   }
 
   let wtName = "";
   let wtPath = "";
   let branch = "";
+  let branchExists = false;
   let allocated = false;
   for (let attempts = 0; attempts < 1000; attempts++) {
     wtName = `${nextNum}-${name}`;
@@ -90,20 +131,27 @@ export async function createWorktree(
       continue;
     }
     try {
-      await hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
-      nextNum++;
-      continue;
+      await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
+      branchExists = true;
+      if (d.fresh) {
+        nextNum++;
+        continue;
+      }
     } catch {
-      allocated = true;
-      break;
+      branchExists = false;
     }
+    allocated = true;
+    break;
   }
 
   if (!allocated || !wtName || !wtPath || !branch) {
     throw new Error(`could not allocate worktree for ${name}`);
   }
 
-  await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'`);
-  console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
+  const addArgs = branchExists
+    ? `'${safe(wtPath)}' '${safe(branch)}'`
+    : `'${safe(wtPath)}' -b '${safe(branch)}'`;
+  await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
+  d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
   return { wtPath, windowName: `${oracle}-${name}` };
 }

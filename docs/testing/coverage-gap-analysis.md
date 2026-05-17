@@ -1,27 +1,27 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T13:35:47.405Z
+Generated: 2026-05-17T13:55:27.509Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **31.7%** (15931/50255)
-Overall function coverage: **82.2%** (1806/2196)
+Overall line coverage: **31.9%** (16036/50277)
+Overall function coverage: **82.5%** (1819/2206)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 90 | 10 | 70.9% (5253/7407) | 83.4% (532/638) | n/a (0/0) |
+| cli/dispatch | 90 | 10 | 72.1% (5357/7431) | 84.1% (545/648) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.6% (776/1166) | 74.0% (71/96) | n/a (0/0) |
 | fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 69 | 37.1% (5343/14391) | 75.1% (575/766) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 86.6% (1015/1172) | 89.9% (80/89) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 91.4% (583/638) | 94.5% (69/73) | n/a (0/0) |
 | transport | 28 | 1 | 87.4% (2131/2438) | 94.7% (397/419) | n/a (0/0) |
-| vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
+| vendor plugins | 245 | 243 | 0.8% (181/21958) | 66.7% (16/24) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -95,6 +95,7 @@ Overall function coverage: **82.2%** (1806/2196)
 | cli/dispatch | `src/commands/shared/wake-maybe-split.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 99.6% | 97.6% |
 | cli/dispatch | `src/commands/shared/wake-resolve.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/wake-session.ts` | 98.2% | 92.9% |
 | cli/dispatch | `src/commands/shared/wake-target.ts` | 80.0% | 80.0% |
 | cli/dispatch | `src/commands/shared/wake.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/workspace-agents.ts` | 100.0% | 100.0% |
@@ -160,10 +161,10 @@ Overall function coverage: **82.2%** (1806/2196)
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 92 | 12.4% |
 | fleet | `src/core/fleet/worktrees-cleanup.ts` | 88 | 7.4% |
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
-| cli/dispatch | `src/commands/shared/wake-session.ts` | 82 | 6.8% |
 | transport | `src/transports/scout-pair.ts` | 80 | 9.1% |
 | transport | `src/transports/index.ts` | 78 | 29.7% |
 | cli/dispatch | `src/commands/shared/artifacts.ts` | 72 | 1.4% |
+| cli/dispatch | `src/commands/shared/plugins-toggle.ts` | 70 | 6.7% |
 
 ## Critical gaps to prioritize
 
