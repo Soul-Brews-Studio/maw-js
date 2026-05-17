@@ -1,23 +1,23 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T11:36:55.933Z
+Generated: 2026-05-17T12:01:01.665Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **29.5%** (14800/50209)
-Overall function coverage: **80.6%** (1669/2071)
+Overall line coverage: **29.8%** (14956/50191)
+Overall function coverage: **80.8%** (1680/2078)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 90 | 15 | 60.8% (4488/7377) | 80.0% (436/545) | n/a (0/0) |
-| config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
+| cli/dispatch | 90 | 15 | 62.4% (4598/7371) | 80.6% (445/552) | n/a (0/0) |
+| config/runtime | 19 | 2 | 66.6% (776/1166) | 74.0% (71/96) | n/a (0/0) |
 | fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
-| other | 174 | 69 | 36.8% (5303/14402) | 74.9% (574/766) | n/a (0/0) |
+| other | 174 | 69 | 37.1% (5343/14391) | 75.1% (575/766) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
 | transport | 28 | 2 | 77.8% (1876/2410) | 93.1% (363/390) | n/a (0/0) |
@@ -69,6 +69,7 @@ Overall function coverage: **80.6%** (1669/2071)
 | cli/dispatch | `src/commands/shared/federation-apply.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-diff.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-identity.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-sync.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
@@ -147,13 +148,13 @@ Overall function coverage: **80.6%** (1669/2071)
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
-| cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 101 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100 | 0.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 97 | 46.4% |
 | fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 93 | 6.1% |
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 92 | 12.4% |
+| cli/dispatch | `src/commands/shared/comm-peek.ts` | 90 | 5.3% |
 
 ## Critical gaps to prioritize
 
