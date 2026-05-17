@@ -368,20 +368,30 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   return null;
 }
 
-export async function setSessionEnv(session: string): Promise<void> {
-  for (const [key, val] of Object.entries(getEnvVars())) {
+export interface SetSessionEnvDeps {
+  getEnvVars?: typeof getEnvVars;
+  spawn?: typeof Bun.spawn;
+  setEnvironment?: typeof tmux.setEnvironment;
+}
+
+export async function setSessionEnv(session: string, deps: SetSessionEnvDeps = {}): Promise<void> {
+  const readEnvVars = deps.getEnvVars ?? getEnvVars;
+  const spawn = deps.spawn ?? Bun.spawn;
+  const setEnvironment = deps.setEnvironment ?? tmux.setEnvironment.bind(tmux);
+
+  for (const [key, val] of Object.entries(readEnvVars())) {
     if (val.startsWith("pass:")) {
       const secretName = val.slice(5);
-      const proc = Bun.spawn(["pass", "show", secretName], { stdout: "pipe", stderr: "pipe" });
+      const proc = spawn(["pass", "show", secretName], { stdout: "pipe", stderr: "pipe" });
       const [secret, , code] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
         proc.exited,
       ]);
       if (code !== 0) throw new Error(`pass show '${secretName}' failed (exit ${code})`);
-      await tmux.setEnvironment(session, key, secret.trimEnd());
+      await setEnvironment(session, key, secret.trimEnd());
     } else {
-      await tmux.setEnvironment(session, key, val);
+      await setEnvironment(session, key, val);
     }
   }
 }

@@ -25,7 +25,6 @@ import {
   resolvePeerUrl,
   relayToPeer,
   createPeerExecApi,
-  peerExecApi,
 } from "../src/api/peer-exec";
 
 // ---- Pure helper tests ---------------------------------------------------
@@ -121,37 +120,38 @@ describe("isShellPeerAllowed", () => {
   });
 
   test("unknown origin is denied (no config.wormhole.shellPeers entry)", () => {
-    // The real config probably doesn't have any wormhole.shellPeers yet,
-    // so any origin returns false. This test locks that default.
-    expect(isShellPeerAllowed("some-random-host-xyz-does-not-exist")).toBe(false);
+    expect(isShellPeerAllowed("some-random-host-xyz-does-not-exist", {
+      loadConfig: () => ({ wormhole: { shellPeers: [] } }) as any,
+    })).toBe(false);
   });
 });
 
 describe("resolvePeerUrl", () => {
+  const noNamedPeers = { loadConfig: () => ({ namedPeers: [] }) as any };
+
   test("resolves a bare host:port to http://host:port", () => {
-    expect(resolvePeerUrl("10.20.0.7:3456")).toBe("http://10.20.0.7:3456");
-    expect(resolvePeerUrl("localhost:3457")).toBe("http://localhost:3457");
+    expect(resolvePeerUrl("10.20.0.7:3456", noNamedPeers)).toBe("http://10.20.0.7:3456");
+    expect(resolvePeerUrl("localhost:3457", noNamedPeers)).toBe("http://localhost:3457");
   });
 
   test("returns a full http:// URL unchanged", () => {
-    expect(resolvePeerUrl("http://oracle-world.example:3456")).toBe(
+    expect(resolvePeerUrl("http://oracle-world.example:3456", noNamedPeers)).toBe(
       "http://oracle-world.example:3456",
     );
   });
 
   test("returns a full https:// URL unchanged", () => {
-    expect(resolvePeerUrl("https://local.buildwithoracle.com")).toBe(
+    expect(resolvePeerUrl("https://local.buildwithoracle.com", noNamedPeers)).toBe(
       "https://local.buildwithoracle.com",
     );
   });
 
   test("returns null for an unknown bare peer name", () => {
-    // Assuming the real config doesn't have "ghost-peer-xyz" in namedPeers
-    expect(resolvePeerUrl("ghost-peer-xyz")).toBeNull();
+    expect(resolvePeerUrl("ghost-peer-xyz", noNamedPeers)).toBeNull();
   });
 
   test("returns null for empty input", () => {
-    expect(resolvePeerUrl("")).toBeNull();
+    expect(resolvePeerUrl("", noNamedPeers)).toBeNull();
   });
 });
 
@@ -227,7 +227,7 @@ describe("relayToPeer", () => {
 // Mount peerExecApi on an Elysia app so we can call it with app.handle().
 // This avoids booting the full server and keeps the tests deterministic.
 
-function makeApp() {
+function makeApp(deps: Parameters<typeof createPeerExecApi>[0] = {}) {
   return new Elysia({ prefix: "/api" })
     .onError(({ code, set }) => {
       if (code === "PARSE") {
@@ -235,7 +235,11 @@ function makeApp() {
         return { error: "invalid_body" };
       }
     })
-    .use(peerExecApi);
+    .use(createPeerExecApi({
+      isShellPeerAllowed: () => false,
+      resolvePeerUrl: () => null,
+      ...deps,
+    }));
 }
 
 // Force production mode so the cookie check is active (dev bypass off).

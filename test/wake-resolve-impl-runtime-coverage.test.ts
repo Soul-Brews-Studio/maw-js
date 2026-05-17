@@ -73,6 +73,16 @@ const originalLog = console.log;
 const originalError = console.error;
 let spawnSpy: ReturnType<typeof spyOn> | null = null;
 
+function setSessionEnvTestDeps() {
+  return {
+    getEnvVars: () => envVars,
+    setEnvironment: async (session: string, key: string, val: string) => {
+      setEnvCalls.push({ session, key, val });
+    },
+    spawn: Bun.spawn,
+  };
+}
+
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
   FLEET_DIR: fleetRoot,
@@ -448,7 +458,7 @@ describe("setSessionEnv runtime paths", () => {
     envVars = { FOO: "bar", EMPTY: "" };
     spawnSpy = spyOn(Bun, "spawn");
 
-    await setSessionEnv("mysession");
+    await setSessionEnv("mysession", setSessionEnvTestDeps());
 
     expect(setEnvCalls).toEqual([
       { session: "mysession", key: "FOO", val: "bar" },
@@ -471,7 +481,7 @@ describe("setSessionEnv runtime paths", () => {
     };
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(fakeProc as any);
 
-    await setSessionEnv("mysession");
+    await setSessionEnv("mysession", setSessionEnvTestDeps());
 
     expect(spawnSpy).toHaveBeenCalledWith(["pass", "show", "path/to/secret"], { stdout: "pipe", stderr: "pipe" });
     expect(setEnvCalls).toEqual([{ session: "mysession", key: "SECRET", val: "resolved" }]);
@@ -491,7 +501,7 @@ describe("setSessionEnv runtime paths", () => {
     };
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(fakeProc as any);
 
-    await expect(setSessionEnv("mysession")).rejects.toThrow("pass show 'missing' failed (exit 2)");
+    await expect(setSessionEnv("mysession", setSessionEnvTestDeps())).rejects.toThrow("pass show 'missing' failed (exit 2)");
     expect(setEnvCalls).toEqual([]);
   });
 });
