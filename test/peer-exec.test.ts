@@ -23,6 +23,8 @@ import {
   isReadOnlyCmd,
   isShellPeerAllowed,
   resolvePeerUrl,
+  relayToPeer,
+  createPeerExecApi,
   peerExecApi,
 } from "../src/api/peer-exec";
 
@@ -150,6 +152,73 @@ describe("resolvePeerUrl", () => {
 
   test("returns null for empty input", () => {
     expect(resolvePeerUrl("")).toBeNull();
+  });
+});
+
+describe("relayToPeer", () => {
+  test("posts JSON, signs when a federation token exists, and reports elapsed time", async () => {
+    const requests: any[] = [];
+    const ticks = [100, 137];
+
+    const result = await relayToPeer(
+      "http://peer.local:3456",
+      { cmd: "/dig", args: ["--deep"], signature: "[local:oracle]" },
+      {
+        loadConfig: () => ({ federationToken: "secret" }) as any,
+        signHeaders: (token, method, path) => ({
+          "x-signed": `${token}:${method}:${path}`,
+        }),
+        now: () => ticks.shift() ?? 137,
+        fetch: (async (url, init) => {
+          requests.push({ url, init });
+          return new Response("accepted", { status: 202 });
+        }) as typeof fetch,
+      },
+    );
+
+    expect(result).toEqual({
+      output: "accepted",
+      from: "http://peer.local:3456",
+      elapsedMs: 37,
+      status: 202,
+    });
+    expect(requests).toEqual([
+      {
+        url: "http://peer.local:3456/api/peer/exec",
+        init: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-signed": "secret:POST:/api/peer/exec",
+          },
+          body: JSON.stringify({
+            cmd: "/dig",
+            args: ["--deep"],
+            signature: "[local:oracle]",
+          }),
+        },
+      },
+    ]);
+  });
+
+  test("omits signing headers when no federation token exists", async () => {
+    const requests: any[] = [];
+
+    const result = await relayToPeer(
+      "http://peer.local:3456",
+      { cmd: "/recap", args: [], signature: "[local:anon]" },
+      {
+        loadConfig: () => ({}) as any,
+        fetch: (async (url, init) => {
+          requests.push({ url, init });
+          return new Response("readonly", { status: 200 });
+        }) as typeof fetch,
+      },
+    );
+
+    expect(result.output).toBe("readonly");
+    expect(requests[0].init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(typeof result.elapsedMs).toBe("number");
   });
 });
 
@@ -285,6 +354,68 @@ describe("POST /api/peer/exec (trust flow)", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as any;
     expect(body.error).toBe("unknown_peer");
+  });
+
+  test("allowlisted shell peers relay with shell trust tier", async () => {
+    const relayCalls: any[] = [];
+    const app = new Elysia({ prefix: "/api" }).use(createPeerExecApi({
+      hasValidSessionCookie: () => true,
+      parseSignature: () => ({ originHost: "trusted-host", originAgent: "operator", isAnon: false }),
+      isReadOnlyCmd: () => false,
+      isShellPeerAllowed: (origin) => origin === "trusted-host",
+      resolvePeerUrl: () => "http://peer.local:3456",
+      relayToPeer: (async (peerUrl, body) => {
+        relayCalls.push({ peerUrl, body });
+        return { output: "done", from: peerUrl, elapsedMs: 9, status: 201 };
+      }) as typeof relayToPeer,
+    }));
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "peer",
+        cmd: "/awaken",
+        args: ["--fast"],
+        signature: "[trusted-host:operator]",
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      output: "done",
+      from: "http://peer.local:3456",
+      elapsed_ms: 9,
+      status: 201,
+      trust_tier: "shell_allowlisted",
+    });
+    expect(relayCalls).toEqual([{
+      peerUrl: "http://peer.local:3456",
+      body: { cmd: "/awaken", args: ["--fast"], signature: "[trusted-host:operator]" },
+    }]);
+  });
+
+  test("relay failures surface as 502", async () => {
+    const app = new Elysia({ prefix: "/api" }).use(createPeerExecApi({
+      hasValidSessionCookie: () => true,
+      parseSignature: () => ({ originHost: "local", originAgent: "anon", isAnon: true }),
+      isReadOnlyCmd: () => true,
+      resolvePeerUrl: () => "http://peer.local:3456",
+      relayToPeer: (async () => { throw new Error("peer offline"); }) as typeof relayToPeer,
+    }));
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({ peer: "peer", cmd: "/dig", signature: "[local:anon]" }),
+    }));
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: "relay_failed",
+      peer: "http://peer.local:3456",
+      reason: "peer offline",
+    });
   });
 
   test("invalid JSON body → 400 invalid_body", async () => {
