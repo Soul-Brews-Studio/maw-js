@@ -39,6 +39,21 @@ describe("dynamic engine API (#1566)", () => {
     expect(listEnginePluginRegistrations()).toEqual([]);
   });
 
+
+  test("bad unregister requests return 400 instead of throwing", async () => {
+    const response = await engineApi.handle(new Request("http://maw.local/_engine/unregister", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ plugin: "Bad_Plugin" }),
+    }));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(String(body.error)).toContain("engine plugin must match");
+    expect(listEnginePluginRegistrations()).toEqual([]);
+  });
+
   test("bad registrations return 400 instead of binding unsafe routes", async () => {
     const response = await engineApi.handle(new Request("http://maw.local/_engine/register", {
       method: "POST",
