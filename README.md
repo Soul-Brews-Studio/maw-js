@@ -43,9 +43,9 @@ Full runbook: [`docs/install-recovery.md`](docs/install-recovery.md).
 maw serve                                # start API + UI on :3456
 maw ui install                           # download the federation lens
 maw ui                                   # → http://localhost:3456/federation_2d.html
-maw ls                                   # list sessions + windows
-maw wake neo                             # wake an oracle
-maw hey neo "what are you working on?"   # talk to it
+maw ls --recent 5                        # find recent sessions
+maw wake neo --split                     # wake side-by-side with an oracle
+maw hey neo "what are you working on?"   # bare-name addressing works
 ```
 
 ## Installing the UI
@@ -131,25 +131,77 @@ Frontend repo: [Soul-Brews-Studio/maw-ui](https://github.com/Soul-Brews-Studio/m
 ## CLI
 
 ```bash
-maw ls                           # list sessions + windows
+maw ls                           # compact session summary
+maw ls -v / -c                   # detailed / compact views
+maw ls --recent [n]              # sort by creation time
 maw peek [agent]                 # see agent screen
 maw hey <agent> <msg>            # send message
 maw wake <oracle> [task]         # wake oracle in tmux
+maw wake --dry-run/--list        # preview without side effects
+maw wake --from-snapshot         # restore from a wake snapshot
 maw sleep <oracle>               # gracefully stop
-maw done <window>                # auto-save + clean up
+maw done <window>                # auto-save + clean up worktree/branch
+maw new <name>                   # create a workspace session
+maw team bring <team>            # bring oracles into a workspace
+maw team create/oracle-invite    # team management
+maw scaffold <name>              # structure-only project creation
+maw snapshots list/show          # browse wake snapshots
 maw bud <name> [--from parent]   # spawn new oracle
-maw fleet ls                     # list fleet configs
-maw fleet health                 # fleet health report
-maw fleet doctor                 # config doctor
+maw fleet ls/health/doctor       # fleet config + health tools
 maw oracle scan                  # discover oracles across nodes
-maw contacts                     # list oracle contacts
-maw soul-sync                    # sync memory across peers
-maw find <keyword>               # search memory across oracles
+maw plugin install <name>        # install a registry or peer plugin
+maw <plugin> serve               # run plugin-owned browser/process UIs
+maw fck                          # command correction plugin
+maw fleet-ui serve               # fleet dashboard plugin
+maw messages serve               # message ledger browser plugin
 maw ui                           # open federation lens
 maw serve [port]                 # start API server (default: 3456)
 ```
 
 Full command reference: `maw --help`
+
+## Plugin Ecosystem
+
+`maw` is now a plugin OS as much as a CLI. Core commands stay small,
+while registry plugins add focused tools that can be enabled, served,
+or removed without changing the engine.
+
+```bash
+maw plugin ls                    # installed + tiered plugins
+maw plugin install <name>        # install from maw-plugin-registry or peers
+maw plugin enable <name>         # opt into disabled-but-installed tools
+maw <plugin> serve               # run a plugin-owned browser/process UI
+```
+
+The plugin manifest supports CLI commands, capabilities, APIs, lifecycle
+hooks, and engine-backed `serve` processes. Registry plugins such as
+`fleet-ui`, `messages`, and `fck` can extend the operator surface without
+promoting every experiment into core.
+
+## Team Workspaces
+
+Use `maw new` to create a shared tmux workspace, then bring a team of
+oracles into it. This is the dynamic version of a static MAWK profile:
+one lead shell plus one window per specialist.
+
+```bash
+maw new project-room --no-attach
+maw team create project-room
+maw team oracle-invite mawjs-issuer --team project-room
+maw team bring project-room
+```
+
+## Wake Lifecycle
+
+Wake is now a lifecycle, not just a launch command. Plugins can declare
+`hooks.wake`, `hooks.serve`, and `hooks.sleep` in `plugin.json`; maw can
+preview wake plans, record snapshots, and restore from a previous launch.
+
+```bash
+maw wake neo --dry-run           # inspect target/session/plugin effects
+maw snapshots list               # list captured wake state
+maw wake neo --from-snapshot <id>
+```
 
 ## Federation API
 
@@ -168,11 +220,12 @@ Full reference: [`docs/federation.md`](docs/federation.md)
 
 ```
 maw-js (backend + CLI)              maw-ui (frontend)
-├── src/commands/  (57 commands)    ├── src/components/
-├── src/api/       (19 endpoints)   ├── src/hooks/
-├── src/engine/    (WebSocket)      ├── src/lib/
-├── src/transports/ (HTTP/tmux/hub) └── 16 HTML entry points
-├── test/          (275+ test files)
+├── src/commands/  (CLI + plugin dispatch) ├── src/components/
+├── src/api/       (engine + plugin APIs)   ├── src/hooks/
+├── src/engine/    (WebSocket + serve proxy)├── src/lib/
+├── src/transports/ (HTTP/tmux/hub)         └── 16 HTML entry points
+├── plugins        (89 installed plugin surfaces)
+├── test/          (1700+ passing tests)
 └── install.sh
 ```
 
@@ -182,8 +235,12 @@ maw-js (backend + CLI)              maw-ui (frontend)
 Oct 2025   maw.env.sh            30+ shell commands
 Mar 2026   maw.js                 Bun/TS rewrite, tmux orchestration
 Mar 2026   maw-js + maw-ui        Backend/frontend split
-Apr 2026   v2.0.0-alpha.66        Plugin OS, 896 commits, 57 commands,
-                                   19 API endpoints, 1700+ tests
+Apr 2026   v2.0.0-alpha.66        Plugin OS foundation, Bun runtime,
+                                   federation API + maw-ui split
+May 2026   v26.5.17-alpha.752     Plugin engine, lifecycle hooks,
+                                   team workspaces, 89 plugins,
+                                   1700+ tests, 70% function coverage,
+                                   portable Rust spec fixtures
 ```
 
 ## Federation testing
