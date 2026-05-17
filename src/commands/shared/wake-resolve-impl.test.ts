@@ -14,12 +14,13 @@ const root = join(import.meta.dir, "../..");
 const { mockConfigModule } = await import("../../../test/helpers/mock-config");
 
 let tmuxSessions: Array<{ name: string }> = [];
+let hostExecOut = "";
 
 mock.module(join(root, "sdk"), () => ({
   tmux: {
     listSessions: async () => tmuxSessions,
   },
-  hostExec: async () => "",
+  hostExec: async () => hostExecOut,
   curlFetch: async () => ({ ok: false }),
   FLEET_DIR: "/tmp/maw-test-nonexistent-fleet",
 }));
@@ -30,7 +31,7 @@ mock.module(join(root, "config"), () => mockConfigModule(() => ({
   peers: [],
 })));
 
-const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName } = await import("./wake-resolve-impl");
+const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName, findWorktrees } = await import("./wake-resolve-impl");
 
 describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
   it("strips ALL leading dashes (--no-attach → no-attach)", () => {
@@ -178,5 +179,14 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
         "Soul-Brews-Studio/pulse-oracle",
       ],
     });
+  });
+});
+
+describe("findWorktrees (#1775) — cross-repo slug fallback", () => {
+  it("reuses a matching slug even when the repo stem changed", async () => {
+    hostExecOut = "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white";
+    await expect(findWorktrees("/ghq/github.com/laris-co", "homelab", "white")).resolves.toEqual([
+      { path: "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white", name: "2-white" },
+    ]);
   });
 });

@@ -640,7 +640,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   if (opts.wt || opts.task) {
     const name = sanitizeBranchName(opts.wt || opts.task!);
-    const worktrees = await findWorktrees(parentDir, repoName);
+    const worktrees = await findWorktrees(parentDir, repoName, opts.fresh ? undefined : name);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
       // #1775 — use the slug as the primary key across the whole ghq org path.

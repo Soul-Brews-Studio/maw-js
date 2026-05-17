@@ -126,7 +126,7 @@ let listWindowsThrowOnCall: number | null;
 let logs: string[];
 let hostExecCalls: string[];
 let detectSessionCalls: Array<{ oracle: string; urlRepoName?: string }>;
-let findWorktreesCalls: Array<{ parentDir: string; repoName: string }>;
+let findWorktreesCalls: Array<{ parentDir: string; repoName: string; taskSlug?: string }>;
 let setSessionEnvCalls: string[];
 let newSessionCalls: Array<{ name: string; opts: any }>;
 let newWindowCalls: Array<{ session: string; name: string; opts: any }>;
@@ -310,12 +310,13 @@ mock.module(
     resolveOracle: async (
       ...args: Parameters<typeof _rWakeResolve.resolveOracle>
     ) => (mockActive ? resolvedOracle : realWakeResolve.resolveOracle(...args)),
-    findWorktrees: async (parentDirArg: string, repoNameArg: string) => {
+    findWorktrees: async (parentDirArg: string, repoNameArg: string, taskSlug?: string) => {
       if (!mockActive)
-        return realWakeResolve.findWorktrees(parentDirArg, repoNameArg);
+        return realWakeResolve.findWorktrees(parentDirArg, repoNameArg, taskSlug);
       findWorktreesCalls.push({
         parentDir: parentDirArg,
         repoName: repoNameArg,
+        taskSlug,
       });
       return worktrees;
     },
@@ -726,6 +727,32 @@ describe("cmdWake main-suite coverage", () => {
     expect(newWindowCalls).toEqual([]);
     expect(sendTextCalls).toEqual([]);
     expect(logs.join("\n")).toContain("'mawjs-oracle' running in 54-mawjs");
+  });
+
+  test("reuses a cross-repo worktree for --wt when the slug matches (#1775)", async () => {
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "04-homekeeper" }];
+    hasSessions = new Set(["04-homekeeper"]);
+    detectSessionReturn = "04-homekeeper";
+    windowsBySession = {
+      "04-homekeeper": [{ index: 0, name: "homekeeper-oracle", active: true, cwd: repoPath }],
+    };
+    worktrees = [{ name: "2-white", path: join(parentDir, "homekeeper-oracle.wt-2-white") }];
+
+    const { result, logs } = await captureLogs(() => cmdWake("homekeeper", { wt: "white" }));
+
+    expect(result).toBe("04-homekeeper:homekeeper-white");
+    expect(findWorktreesCalls).toContainEqual({ parentDir, repoName: "homelab", taskSlug: "white" });
+    expect(createdWorktrees).toEqual([]);
+    expect(newWindowCalls).toContainEqual({
+      session: "04-homekeeper",
+      name: "homekeeper-white",
+      opts: { cwd: join(parentDir, "homekeeper-oracle.wt-2-white") },
+    });
+    expect(logs.join("\n")).toContain("reusing worktree");
   });
 
   test("creates a wake-bud worktree, stamps lineage, emits birth signal, and launches with prompt", async () => {

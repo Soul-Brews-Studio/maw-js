@@ -295,10 +295,14 @@ export async function resolveOracle(
   process.exit(1);
 }
 
-export async function findWorktrees(parentDir: string, repoName: string): Promise<{ path: string; name: string }[]> {
-  const lsOut = await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
+export async function findWorktrees(parentDir: string, repoName: string, taskSlug?: string): Promise<{ path: string; name: string }[]> {
+  const safe = (s: string) => s.replace(/'/g, "'\\''");
+  let lsOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
+  if (!lsOut.trim() && taskSlug) {
+    lsOut = await hostExec(`find '${safe(parentDir)}' -maxdepth 1 -type d -name '*.wt-*-${safe(taskSlug)}' 2>/dev/null || true`);
+  }
   return lsOut.split("\n").filter(Boolean).map(p => ({
-    path: p, name: p.split("/").pop()!.replace(`${repoName}.wt-`, ""),
+    path: p, name: p.split("/").pop()!.replace(/^.*\.wt-/, ""),
   }));
 }
 
