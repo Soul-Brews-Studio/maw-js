@@ -5,9 +5,8 @@
  *   - parseCronField(expr, min, max) → Set<number>
  *   - wouldFireAt(cronExpr, now)     → Date | null (strictly > now, ≤ ~1y)
  *
- * Isolated by convention with the 15 preceding alpha coverage tests, but
- * the Bun mock.module gotcha catalog is N/A for this target — it has no
- * seams to mock:
+ * Default-suite coverage: this target has no mock.module seams, no I/O, and no
+ * global timers. Keeping it under test/ makes it visible to `test:coverage`:
  *   (1) Capture real fn refs BEFORE mock.module    — nothing imported
  *   (2) Passthrough wrappers use (...args)          — no wrappers needed
  *   (3) os.homedir() caching                        — no fs/os calls
@@ -16,7 +15,7 @@
  * Date.now state leaks to sibling suites.
  */
 import { describe, test, expect } from "bun:test";
-import { parseCronField, wouldFireAt } from "../../src/core/runtime/triggers-cron";
+import { parseCronField, wouldFireAt } from "../src/core/runtime/triggers-cron";
 
 // ─── parseCronField ─────────────────────────────────────────────────────────
 
