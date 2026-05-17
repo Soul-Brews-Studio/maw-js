@@ -57,7 +57,7 @@ export function toDiscoveryResponse(
 }
 
 export function createPeerDiscoveriesApi(
-  listPeers: () => DiscoveredPeer[] = () => getTransportRouter().listDiscoveredPeers() as DiscoveredPeer[],
+  listPeers?: () => DiscoveredPeer[],
 ) {
   const handler = ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number } }) => {
     const all = query.all === "1" || query.all === "true";
@@ -72,7 +72,8 @@ export function createPeerDiscoveriesApi(
         hint: "limit must be a positive number",
       };
     }
-    return toDiscoveryResponse(listPeers(), { all, limit });
+    const peers = listPeers ? listPeers() : getTransportRouter().listDiscoveredPeers() as DiscoveredPeer[];
+    return toDiscoveryResponse(peers, { all, limit });
   };
   return new Elysia()
     .get("/peers/discoveries", handler)
