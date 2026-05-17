@@ -62,6 +62,7 @@ describe("parseManifest happy path", () => {
           version: "2.3.4",
           wasm: "plugin.wasm",
           sdk: "~1.2.0",
+          weight: 25,
           cli: { command: "greet", help: "Say hello" },
           api: { path: "/greet", methods: ["GET", "POST"] },
           description: "A greeting plugin",
@@ -69,6 +70,7 @@ describe("parseManifest happy path", () => {
         }),
         dir,
       );
+      expect(manifest.weight).toBe(25);
       expect(manifest.cli?.command).toBe("greet");
       expect(manifest.cli?.help).toBe("Say hello");
       expect(manifest.api?.path).toBe("/greet");
@@ -138,6 +140,25 @@ describe("parseManifest validation failures", () => {
     expect(() => parseManifest("not json!", "/tmp")).toThrow(/JSON/);
   });
 
+  test("throws when plugin.json is not an object", () => {
+    expect(() => parseManifest("null", "/tmp")).toThrow(/must be a JSON object/);
+    expect(() => parseManifest("[]", "/tmp")).toThrow(/must be a JSON object/);
+  });
+
+  test("throws on invalid weight", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-weight", version: "1.0.0", wasm: "plugin.wasm", sdk: "*", weight: 100 }),
+          dir,
+        ),
+      ).toThrow(/weight/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 
   test("throws on invalid lifecycle hook declarations", () => {
     const dir = makeTempDir();
@@ -198,6 +219,20 @@ describe("parseManifest validation failures", () => {
           dir,
         ),
       ).toThrow(/wasm/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("throws when entry file does not exist on disk", () => {
+    const dir = makeTempDir();
+    try {
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "my-plugin", version: "1.0.0", entry: "missing.ts", sdk: "*" }),
+          dir,
+        ),
+      ).toThrow(/entry file not found/);
     } finally {
       rmSync(dir, { recursive: true });
     }
