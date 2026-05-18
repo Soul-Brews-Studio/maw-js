@@ -20,6 +20,65 @@ export function shouldOfferExistingSessionAttach(
 const FRESH_SESSION_READY_ATTEMPTS = 8;
 const FRESH_SESSION_READY_DELAY_MS = 150;
 
+/**
+ * Worktree picker hooks for #1768. Wrapped in an object so tests can mock
+ * both the TTY check and the keystroke read — matches the `_tty` pattern in
+ * src/commands/plugins/tmux/impl.ts. Kept local to wake-cmd to keep this
+ * PR self-contained (no shared-helper churn across resolve files).
+ *
+ * @internal — exported for src/commands/shared/wake-cmd.test.ts.
+ */
+export const _wtPicker = {
+  isStdoutTTY: (): boolean => {
+    try {
+      const { isatty } = require("node:tty") as typeof import("node:tty");
+      return isatty(1);
+    } catch {
+      return !!process.stdout.isTTY;
+    }
+  },
+  readChoice: (): string | null => {
+    try {
+      const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+      const fd = openSync("/dev/tty", "r");
+      const buf = Buffer.alloc(8);
+      const n = readSync(fd, buf, 0, buf.length, null);
+      closeSync(fd);
+      return buf.slice(0, n).toString().trim();
+    } catch { return null; }
+  },
+};
+
+/**
+ * Show a numbered picker when `--wt <host>` matches multiple existing
+ * worktrees (#1768). Returns the picked candidate, or null if the choice is
+ * invalid / not made — caller falls back to the loud error so scripted
+ * callers still fail fast.
+ *
+ * The picker mirrors the `maw a` UX so wake feels consistent (#1781 does the
+ * same for ambiguous oracle resolution at a different layer).
+ *
+ * @internal — exported for tests.
+ */
+export function promptAmbiguousWorktreePick<T extends { name: string; path: string }>(
+  host: string,
+  candidates: T[],
+): T | null {
+  if (!_wtPicker.isStdoutTTY()) return null;
+  console.log("");
+  console.log(`  '${host}' matches ${candidates.length} worktrees — wake which?`);
+  for (let i = 0; i < candidates.length; i++) {
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidates[i]!.name}  \x1b[90m${candidates[i]!.path}\x1b[0m`);
+  }
+  console.log("");
+  process.stdout.write(`  Select [1-${candidates.length}]: `);
+  const raw = _wtPicker.readChoice();
+  if (!raw) return null;
+  const choice = parseInt(raw, 10);
+  if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
+  return candidates[choice - 1]!;
+}
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function errorMessage(error: unknown): string {
@@ -323,6 +382,16 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           match = resolvedTarget.match;
           break;
         case "ambiguous": {
+          // #1768 — show a numbered picker on TTY so users with multiple
+          // `<N>-<host>` worktrees can keep working on the right one instead
+          // of being forced to retype the exact name. Non-TTY (CI, scripts,
+          // redirected stdout) and invalid input fall back to the loud error
+          // so automation still fails fast.
+          const picked = promptAmbiguousWorktreePick(name, resolvedTarget.candidates);
+          if (picked) {
+            match = picked;
+            break;
+          }
           const lines = [
             `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolvedTarget.candidates.length} worktrees:`,
             ...resolvedTarget.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
