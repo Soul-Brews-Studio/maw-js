@@ -1,29 +1,23 @@
 name: Coverage Badge
 
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [alpha]
-    types: [completed]
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: coverage-badge-alpha
+  group: coverage-badge
   cancel-in-progress: true
 
 jobs:
   update:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: oven-sh/setup-bun@v2
         with:
