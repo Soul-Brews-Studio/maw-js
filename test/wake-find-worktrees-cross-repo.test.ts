@@ -21,6 +21,8 @@ beforeAll(() => {
     "homekeeper-oracle.wt-2-white",
     "homekeeper.wt-3-white",
     "other-repo.wt-9-white",
+    "mother-oracle",
+    "volt-oracle.wt-1-white",
   ]) {
     mkdirSync(join(TMP_BASE, name), { recursive: true });
   }
@@ -63,5 +65,15 @@ describe("findWorktrees · #1775 cross-repo scan", () => {
     const wts = await findWorktrees(TMP_BASE, "homelab", "homelab");
     const paths = wts.map(w => w.path);
     expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  test("#1780 guard: oracle=mother does NOT match volt-oracle.wt-*", async () => {
+    // Mimic real #1780 symptom — mother shouldn't attach to volt's wt
+    const wts = await findWorktrees(TMP_BASE, "mother-oracle", "mother");
+    const names = wts.map(w => w.path.split("/").pop()!);
+    for (const n of names) {
+      expect(n.startsWith("volt-")).toBe(false);
+      expect(n.startsWith("homekeeper-")).toBe(false);
+    }
   });
 });
