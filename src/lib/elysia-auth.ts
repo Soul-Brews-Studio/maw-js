@@ -105,8 +105,27 @@ export function lookupCachedPubkey(from: string): string | undefined {
   return undefined;
 }
 
+// #1790: cache raw body bytes per request, captured BEFORE Elysia's body
+// parser consumes the stream. WeakMap so entries are GC'd with the Request.
+const rawBodyCache = new WeakMap<Request, Uint8Array>();
+
 /** Federation auth — from: + signature plugin (#804 Step 4). */
 export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
+  // #1790: capture raw body in onParse (before schema validation consumes
+  // the stream). Returning undefined lets Elysia's default body parser run
+  // afterwards using the bytes we just buffered (Bun's body parser reads
+  // from request.body; we don't consume request directly here, only clone).
+  .onParse(async ({ request }) => {
+    if (!loadConfig().federationToken) return;
+    if (!request.headers.get("x-maw-from")) return;
+    if (rawBodyCache.has(request)) return;
+    try {
+      const buf = new Uint8Array(await request.clone().arrayBuffer());
+      rawBodyCache.set(request, buf);
+    } catch {
+      // best-effort; auth hook will still try clone and return body_read_failed
+    }
+  })
   .onBeforeHandle(async ({ request, set }) => {
     const config = loadConfig();
     // Backwards compat: no fleet token configured → single-node, no peer
@@ -121,15 +140,18 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
     const clientIp = _bunServer?.requestIP?.(request)?.address;
     if (isLoopback(clientIp)) return;
 
-    // Read body once (clone). We need the bytes for the body-hash binding.
-    let body: Uint8Array | undefined;
-    try {
-      const clone = request.clone();
-      body = new Uint8Array(await clone.arrayBuffer());
-    } catch (err) {
-      console.warn(`[from-auth] body read failed for ${request.method} ${path}: ${err instanceof Error ? err.message : String(err)}`);
-      set.status = 401;
-      return { error: "from-signing failed", reason: "body_read_failed" };
+    // #1790: prefer the pre-parse cached bytes; fall back to clone for
+    // unprotected→protected route additions where onParse hasn't run yet.
+    let body: Uint8Array | undefined = rawBodyCache.get(request);
+    if (body === undefined) {
+      try {
+        const clone = request.clone();
+        body = new Uint8Array(await clone.arrayBuffer());
+      } catch (err) {
+        console.warn(`[from-auth] body read failed for ${request.method} ${path}: ${err instanceof Error ? err.message : String(err)}`);
+        set.status = 401;
+        return { error: "from-signing failed", reason: "body_read_failed" };
+      }
     }
 
     const decision: FromVerifyDecision = verifyRequest({
