@@ -30,7 +30,7 @@ mock.module(join(root, "config"), () => mockConfigModule(() => ({
   peers: [],
 })));
 
-const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName } = await import("./wake-resolve-impl");
+const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName, promptAmbiguousOracleChoice, _picker } = await import("./wake-resolve-impl");
 
 describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
   it("strips ALL leading dashes (--no-attach → no-attach)", () => {
@@ -165,5 +165,45 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
       kind: "fuzzy",
       match: "arra-oracle-v3-oracle",
     });
+  });
+});
+
+describe("promptAmbiguousOracleChoice (#1781) — numbered picker on ambiguous wake", () => {
+  const candidates = ["mother-oracle", "mother-roots-oracle"];
+
+  it("returns the picked candidate when stdin reads a valid choice", () => {
+    _picker.isStdoutTTY = () => true;
+    _picker.readChoice = () => "2";
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBe("mother-roots-oracle");
+  });
+
+  it("returns null on non-TTY so caller falls back to loud error", () => {
+    _picker.isStdoutTTY = () => false;
+    _picker.readChoice = () => "1";
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBeNull();
+  });
+
+  it("returns null when read fails (e.g. /dev/tty unavailable)", () => {
+    _picker.isStdoutTTY = () => true;
+    _picker.readChoice = () => null;
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBeNull();
+  });
+
+  it("returns null when choice is out of range", () => {
+    _picker.isStdoutTTY = () => true;
+    _picker.readChoice = () => "9";
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBeNull();
+  });
+
+  it("returns null when choice is non-numeric", () => {
+    _picker.isStdoutTTY = () => true;
+    _picker.readChoice = () => "abc";
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBeNull();
+  });
+
+  it("returns null on empty/whitespace input", () => {
+    _picker.isStdoutTTY = () => true;
+    _picker.readChoice = () => "";
+    expect(promptAmbiguousOracleChoice("mother", candidates)).toBeNull();
   });
 });

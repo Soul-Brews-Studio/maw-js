@@ -60,6 +60,60 @@ type LocalOracleResolution =
   | { kind: "fuzzy"; match: string }
   | { kind: "ambiguous"; candidates: string[] };
 
+/**
+ * Picker hooks for the ambiguous-oracle UX (#1781). Wrapped in an object so
+ * tests can mock both the TTY check and the keystroke read — matches the
+ * `_tty` pattern in tmux/impl.ts.
+ *
+ * @internal — exported for test/wake-resolve-picker.test.ts.
+ */
+export const _picker = {
+  isStdoutTTY: (): boolean => {
+    try {
+      const { isatty } = require("node:tty") as typeof import("node:tty");
+      return isatty(1);
+    } catch {
+      return !!process.stdout.isTTY;
+    }
+  },
+  readChoice: (): string | null => {
+    try {
+      const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+      const fd = openSync("/dev/tty", "r");
+      const buf = Buffer.alloc(8);
+      const n = readSync(fd, buf, 0, buf.length, null);
+      closeSync(fd);
+      return buf.slice(0, n).toString().trim();
+    } catch { return null; }
+  },
+};
+
+/**
+ * Show a numbered picker on ambiguous oracle resolution and return the picked
+ * candidate, or null if the choice is invalid / not made (caller falls back to
+ * the loud error). #1781 — mirrors the `maw a` picker UX so wake feels the same.
+ *
+ * @internal — exported for tests.
+ */
+export function promptAmbiguousOracleChoice(
+  oracle: string,
+  candidates: string[],
+): string | null {
+  if (!_picker.isStdoutTTY()) return null;
+  console.log("");
+  console.log(`  '${oracle}' matches ${candidates.length} local oracles — wake which?`);
+  for (let i = 0; i < candidates.length; i++) {
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidates[i]}`);
+  }
+  console.log("");
+  process.stdout.write(`  Select [1-${candidates.length}]: `);
+  const raw = _picker.readChoice();
+  if (!raw) return null;
+  const choice = parseInt(raw, 10);
+  if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
+  return candidates[choice - 1]!;
+}
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -146,6 +200,16 @@ export async function resolveOracle(
         return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
       }
     } else if (resolvedLocal.kind === "ambiguous") {
+      // #1781 — show numbered picker on TTY, mirroring `maw a` UX. Fall back
+      // to the loud non-TTY error so scripted callers still fail fast.
+      const picked = promptAmbiguousOracleChoice(oracle, resolvedLocal.candidates);
+      if (picked) {
+        const match = await ghqFind(`/${picked}`);
+        if (match) {
+          console.log(`\x1b[36m→\x1b[0m selected: ${picked}`);
+          return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
+        }
+      }
       console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${resolvedLocal.candidates.length} local oracles:`);
       for (const c of resolvedLocal.candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
       console.error(`\x1b[90m  use the full name: maw wake <exact-name>\x1b[0m`);
