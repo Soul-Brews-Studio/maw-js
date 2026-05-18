@@ -302,7 +302,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   let windowName = `${oracle}-oracle`;
 
   if (opts.listWt) {
-    const worktrees = await findWorktrees(parentDir, repoName);
+    const worktrees = await findWorktrees(parentDir, repoName, oracle);
     if (!worktrees.length) { console.log(`\x1b[90mNo worktrees for ${oracle}.\x1b[0m`); }
     else {
       console.log(`\n\x1b[36mWorktrees for ${oracle}\x1b[0m (${worktrees.length})\n`);
@@ -313,7 +313,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
   if (opts.wt || opts.task) {
     const name = sanitizeBranchName(opts.wt || opts.task!);
-    const worktrees = await findWorktrees(parentDir, repoName);
+    const worktrees = await findWorktrees(parentDir, repoName, oracle);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
       const resolvedTarget = resolveWorktreeTarget(name, worktrees);

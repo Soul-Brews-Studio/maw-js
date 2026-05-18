@@ -279,11 +279,43 @@ export async function resolveOracle(
   process.exit(1);
 }
 
-export async function findWorktrees(parentDir: string, repoName: string): Promise<{ path: string; name: string }[]> {
-  const lsOut = await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
-  return lsOut.split("\n").filter(Boolean).map(p => ({
-    path: p, name: p.split("/").pop()!.replace(`${repoName}.wt-`, ""),
-  }));
+export async function findWorktrees(
+  parentDir: string,
+  repoName: string,
+  oracle?: string,
+): Promise<{ path: string; name: string }[]> {
+  // #1775: scan multiple naming variants for cross-repo worktrees.
+  // When oracle "homekeeper" resolves to repo "homelab", existing wt may be
+  // under "homekeeper-oracle.wt-*" or "homekeeper.wt-*" — without these we
+  // miss them and create a new homelab.wt-1 duplicate.
+  // Patterns are disjoint by literal prefix; no over-glob risk (per #1780).
+  const patterns = new Set<string>([`${repoName}.wt-*`]);
+  if (oracle && oracle !== repoName) {
+    patterns.add(`${oracle}-oracle.wt-*`);
+    patterns.add(`${oracle}.wt-*`);
+  }
+
+  const seen = new Set<string>();
+  const results: { path: string; name: string }[] = [];
+  for (const pattern of patterns) {
+    const lsOut = await hostExec(`ls -d ${parentDir}/${pattern} 2>/dev/null || true`);
+    for (const p of lsOut.split("\n").filter(Boolean)) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      const base = p.split("/").pop()!;
+      // Try each prefix in order to find the right strip:
+      const prefixes = [`${repoName}.wt-`];
+      if (oracle && oracle !== repoName) {
+        prefixes.push(`${oracle}-oracle.wt-`, `${oracle}.wt-`);
+      }
+      let name = base;
+      for (const prefix of prefixes) {
+        if (base.startsWith(prefix)) { name = base.slice(prefix.length); break; }
+      }
+      results.push({ path: p, name });
+    }
+  }
+  return results;
 }
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
