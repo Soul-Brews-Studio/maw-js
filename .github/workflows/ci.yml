@@ -10,16 +10,36 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # Don't cancel sibling shards/suites when one fails — we want to see
+      # all failures in a single CI run, not chase reruns one at a time.
+      fail-fast: false
       matrix:
         suite:
-          - name: unit
+          # `unit` (the default-suite, 2200+ tests) is split into 4 parallel
+          # shards via Bun's native --shard=N/M flag. Each shard runs ~1/4 of
+          # the test files, so wall-clock drops ~4x and mock pollution
+          # (#1585, #1586, #1627, #1751) can't leak across shards.
+          - name: unit-1
             script: test
+            args: --shard=1/4
+          - name: unit-2
+            script: test
+            args: --shard=2/4
+          - name: unit-3
+            script: test
+            args: --shard=3/4
+          - name: unit-4
+            script: test
+            args: --shard=4/4
           - name: isolated
             script: test:isolated
+            args: ""
           - name: plugin
             script: test:plugin
+            args: ""
           - name: mock-smoke
             script: test:mock-smoke
+            args: ""
     name: test-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@v6
@@ -59,7 +79,10 @@ jobs:
         # is a belt-and-braces measure to keep CI green while we monitor.
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bun run ${{ matrix.suite.script }}
+        # `bun run <script> <extra...>` appends extra args to the script's
+        # underlying command, so `bun run test --shard=N/4` reaches
+        # `bun test test/ ... --shard=N/4` without touching package.json.
+        run: bun run ${{ matrix.suite.script }} ${{ matrix.suite.args }}
 
   build:
     runs-on: ubuntu-latest
