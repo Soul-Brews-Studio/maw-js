@@ -143,6 +143,17 @@ export async function createWorktree(
   } catch { /* origin/HEAD not set — fall back to HEAD */ }
   if (baseRef) {
     try { await hostExec(`git -C '${safe(repoPath)}' fetch origin --quiet`); } catch { /* offline OK */ }
+    // Fast-forward LOCAL default branch from the just-fetched remote ref.
+    // Without this, an agent's `git checkout main` inside the fresh worktree
+    // lands on whatever stale ref the primary last pulled (thread #199 /
+    // parent #181 — wt-48 / PR #215 stale-base trap). update-ref refuses
+    // when the default branch is checked out in some worktree — that's the
+    // correct signal that primary branch discipline (§3c) regressed; we
+    // fall back silently rather than blocking spawn.
+    const localName = baseRef.replace(/^origin\//, "");
+    try {
+      await hostExec(`git -C '${safe(repoPath)}' update-ref 'refs/heads/${safe(localName)}' 'refs/remotes/${safe(baseRef)}'`);
+    } catch { /* default branch checked out somewhere — agent should branch off origin/<default> */ }
   }
   const baseArg = baseRef ? ` '${safe(baseRef)}'` : "";
   await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'${baseArg}`);
