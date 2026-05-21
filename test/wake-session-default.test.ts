@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, readlinkSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   attachToSession,
   createWorktree,
@@ -283,6 +286,32 @@ describe("createWorktree", () => {
 
     expect(result.wtPath).toBe("/tmp/repo.wt-osmosis-white");
     expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' 'agents/osmosis-white'");
+  });
+
+  test("shares the parent .claude directory with newly-created worktrees", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-wt-claude-"));
+    const repoPath = join(root, "repo");
+    const wtPath = join(root, "repo.wt-1-white");
+    mkdirSync(join(repoPath, ".claude", "skills"), { recursive: true });
+    const logs: string[] = [];
+
+    try {
+      const result = await createWorktree(repoPath, root, "repo", "oracle", "white", [], {
+        hostExec: async (cmd: string) => {
+          if (cmd.includes("rev-parse HEAD")) return "abc\n";
+          if (cmd.includes("show-ref")) throw new Error("missing branch");
+          if (cmd.includes("worktree add")) mkdirSync(wtPath, { recursive: true });
+          return "";
+        },
+        log: (...args: unknown[]) => logs.push(args.map(String).join(" ")),
+      });
+
+      expect(result.wtPath).toBe(wtPath);
+      expect(readlinkSync(join(wtPath, ".claude"))).toBe("../repo/.claude");
+      expect(logs.join("\n")).toContain(".claude:");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("bootstraps unborn repos, escapes shell args, and errors after allocation exhaustion", async () => {

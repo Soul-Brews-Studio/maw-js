@@ -117,6 +117,15 @@ export interface MawConfig {
   /** Node identity (e.g. "white", "mba") */
   node?: string;
   /**
+   * Optional service user for multi-user hosts (#1814).
+   *
+   * When set, federation-visible identity becomes `<nodeUser>@<node>` while
+   * `node` remains the host-level identity for backwards-compatible config.
+   */
+  nodeUser?: string;
+  /** @deprecated Alias for nodeUser during early #1814 rollout. */
+  serviceUser?: string;
+  /**
    * Oracle name (e.g. "mawjs", "neo", "colab") — the family identity component
    * of `<oracle>:<node>` per ADR docs/federation/0001-peer-identity.md.
    *

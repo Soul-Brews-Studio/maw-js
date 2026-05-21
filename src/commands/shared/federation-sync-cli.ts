@@ -7,6 +7,11 @@ import type { MawConfig } from "../../config";
 import { fetchPeerIdentities } from "./federation-fetch";
 import { computeSyncDiff } from "./federation-diff";
 import { applySyncDiff } from "./federation-apply";
+import {
+  peerTargetsToConfigs,
+  resolvePeerSources,
+  type PeerSourceMode,
+} from "./peer-sources";
 
 const C = {
   red: "\x1b[31m",
@@ -24,6 +29,7 @@ export interface SyncOptions {
   prune?: boolean;
   force?: boolean;
   json?: boolean;
+  peers?: PeerSourceMode;
 }
 
 export interface FederationSyncDeps {
@@ -31,6 +37,7 @@ export interface FederationSyncDeps {
   fetchPeerIdentities: typeof fetchPeerIdentities;
   computeSyncDiff: typeof computeSyncDiff;
   applySyncDiff: typeof applySyncDiff;
+  resolvePeerSources: typeof resolvePeerSources;
   log: (...args: unknown[]) => void;
   exit: (code?: number) => never;
 }
@@ -41,6 +48,7 @@ export function federationSyncDeps(overrides: Partial<FederationSyncDeps> = {}):
     fetchPeerIdentities,
     computeSyncDiff,
     applySyncDiff,
+    resolvePeerSources,
     log: (...args: unknown[]) => console.log(...args),
     exit: (code?: number): never => process.exit(code),
     ...overrides,
@@ -64,16 +72,26 @@ export async function cmdFederationSync(
   const io = federationSyncDeps(deps);
   const config = io.loadConfig();
   const localNode = config.node || "local";
-  const peers = config.namedPeers || [];
+  const peerSource = await io.resolvePeerSources(config, opts.peers ?? "config");
+  const peers = peerTargetsToConfigs(peerSource.peers);
   const agents = config.agents || {};
 
   if (peers.length === 0) {
     if (opts.json) {
-      io.log(JSON.stringify({ node: localNode, diff: null, reason: "no peers" }));
+      io.log(JSON.stringify({
+        node: localNode,
+        diff: null,
+        reason: "no peers",
+        ...(peerSource.warnings.length > 0 ? { peerWarnings: peerSource.warnings } : {}),
+      }));
       io.exit(0);
     }
     io.log();
-    io.log(`  ${C.gray}no namedPeers configured — nothing to sync${C.reset}`);
+    for (const warning of peerSource.warnings) {
+      io.log(`  ${C.yellow}!${C.reset} ${C.gray}${warning}${C.reset}`);
+    }
+    const sourceLabel = (opts.peers ?? "config") === "config" ? "namedPeers configured" : "peers configured or discovered";
+    io.log(`  ${C.gray}no ${sourceLabel} — nothing to sync${C.reset}`);
     io.log();
     io.exit(0);
   }
@@ -82,12 +100,21 @@ export async function cmdFederationSync(
   const diff = io.computeSyncDiff(agents, identities, localNode);
 
   if (opts.json) {
-    io.log(JSON.stringify({ node: localNode, diff, dryRun: !!opts.dryRun }, null, 2));
+    io.log(JSON.stringify({
+      node: localNode,
+      diff,
+      dryRun: !!opts.dryRun,
+      ...(peerSource.warnings.length > 0 ? { peerWarnings: peerSource.warnings } : {}),
+    }, null, 2));
     const dirty = diff.add.length + diff.stale.length + diff.conflict.length > 0;
     io.exit(opts.check && dirty ? 1 : 0);
   }
 
   io.log();
+  for (const warning of peerSource.warnings) {
+    io.log(`  ${C.yellow}!${C.reset} ${C.gray}${warning}${C.reset}`);
+  }
+  if (peerSource.warnings.length > 0) io.log();
   io.log(
     `  ${C.blue}${C.bold}🔄 Federation Sync${C.reset}  ${C.gray}node: ${localNode} · ${peers.length} peers · ${Object.keys(agents).length} agents${C.reset}`,
   );

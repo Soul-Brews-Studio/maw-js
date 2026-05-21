@@ -9,11 +9,15 @@
     "aliases": [
       "oracles"
     ],
-    "help": "maw oracle [ls|scan|fleet|about <name>|search <query>] [--json]",
+    "help": "maw oracle [ls|scan|fleet|about <name>|search <query>] [--json] [--sort-by born]",
     "flags": {
       "--json": "boolean",
       "--awake": "boolean",
-      "--org": "string"
+      "--org": "string",
+      "--path": "boolean",
+      "--scan": "boolean",
+      "--stale": "boolean",
+      "--sort-by": "string"
     }
   },
   "api": {

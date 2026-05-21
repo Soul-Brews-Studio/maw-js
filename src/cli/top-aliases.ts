@@ -22,11 +22,12 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
-import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
+import { activeDurationArg, cmdTmuxLayout, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
+import { parseBringToTarget } from "../commands/shared/bring-flags";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -34,13 +35,13 @@ export type AliasResolution =
   | { kind: "direct"; handler: string; argv: string[] };
 
 export const ALIAS_DESCRIPTIONS: Record<string, string> = {
-  a: "Attach to a tmux session",
+  a: "Attach to a tmux session; use --shell for a repo shell pane",
   kill: "Kill a tmux pane or session",
   split: "Split pane and attach to a session",
   open: "Bring back hidden panes (join-pane)",
   close: "Hide panes without killing (break-pane)",
   t: "Team — create, spawn, send, shutdown",
-  layout: "Apply team layout (main-vertical or tiled)",
+  layout: "Apply tmux layout to the current window",
   zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
@@ -58,13 +59,13 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
-  a: ["tmux", "attach"],
+  a: ["attach"],
   kill: ["tmux", "kill"],
   split: ["split"],
   open: ["tmux", "open"],
   close: ["tmux", "close"],
   t: ["team"],
-  layout: ["team", "layout"],
+  layout: { kind: "direct", handler: "cmdLayout" },
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
@@ -119,7 +120,7 @@ export function parseBringArgs(
   writeUsage: (line: string) => void = console.error,
 ): {
   oracle: string;
-  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
+  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string; pick?: boolean; session?: string; splitTarget?: string };
 } {
   // #1799: `maw bring <oracle>` is a thin `maw wake <oracle> --split`
   // alias. Keep this tiny parser for legacy unit tests and usage validation;
@@ -128,22 +129,40 @@ export function parseBringArgs(
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
     "--tab": Boolean,
+    "--to": String,
+    "--pick": Boolean,
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
     printBringUsage(writeUsage);
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = { split: true };
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string; pick?: boolean; session?: string; splitTarget?: string } = { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
+  if (flags["--pick"]) opts.pick = true;
+  if (flags["--to"]) {
+    const target = parseBringToTarget(flags["--to"]);
+    opts.session = target.session;
+    if (target.window) opts.splitTarget = `${target.session}:${target.window}`;
+  }
   return { oracle, opts };
 }
 
+function printLayoutUsage(write: (line: string) => void = console.log): void {
+  write("usage: maw layout <preset>");
+  write("  Re-apply a tmux layout preset to the current window.");
+  write("  presets: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled");
+  write("  For explicit targets, use: maw tmux layout <target> <preset>");
+}
+
 function printBringUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw bring <oracle> [wake flags...]");
-  write("       maw b <oracle> [wake flags...]");
+  write("usage: maw bring <oracle> [--to <session[:window]>] [wake flags...]");
+  write("       maw b <oracle> [--to <session[:window]>] [wake flags...]");
   write("  Thin alias: maw bring <oracle> ≡ maw wake <oracle> --split");
   write("  Supports the same flags as `maw wake`, including --task, --wt, --dry-run, and -e/--engine.");
+  write("  --to <session[:window]> targets a workspace session, optionally splitting inside a specific tab (#1816).");
+  write("  --pick prompts when a fuzzy live window match needs an explicit bring target (#1816).");
+  write("  Refuses to split-bring an oracle into its own pane (set MAW_ALLOW_SELF_BRING=1 to override).");
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
@@ -187,6 +206,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--active": Boolean,
     "--node": String,
     "--channels": Boolean,
+    "--verify": Boolean,
   }, 0);
 
   // #1613 — restore the original compact default. `-v/--verbose` opts into
@@ -207,6 +227,8 @@ export function parseLsAliasOpts(argv: string[]) {
     activeThresholdSec?: number;
     filter?: string;
     channels?: boolean;
+    oracleOnly?: boolean;
+    verify?: boolean;
   } = {
     all: true,
     compact,
@@ -215,6 +237,8 @@ export function parseLsAliasOpts(argv: string[]) {
     json: !!flags["--json"],
   };
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
+  if (compact && !flags["--all"] && !flags["--channels"]) opts.oracleOnly = true;
+  if (flags["--verify"]) opts.verify = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
   const filterPositionals = activeArg
@@ -243,6 +267,7 @@ type MaybePromise<T = unknown> = T | Promise<T>;
 
 export interface TopAliasHandlerDeps {
   cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
@@ -262,6 +287,7 @@ export async function invokeDirectHandler(
   }
 
   const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directCmdTmuxLayout = deps.cmdTmuxLayout ?? cmdTmuxLayout;
   const directCmdWake = deps.cmdWake ?? cmdWake;
   const directCmdNew = deps.cmdNew ?? cmdNew;
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
@@ -270,6 +296,21 @@ export async function invokeDirectHandler(
 
   if (exportName === "cmdLs") {
     await directCmdTmuxLs(parseLsAliasOpts(argv));
+    return;
+  }
+
+  if (exportName === "cmdLayout") {
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printLayoutUsage(log);
+      return;
+    }
+    const flags = parseFlags(argv, {}, 0);
+    const preset = (flags._ as string[])[0];
+    if (!preset) {
+      printLayoutUsage(error);
+      throw new UserError("layout: missing preset");
+    }
+    await directCmdTmuxLayout(".", preset);
     return;
   }
 
@@ -298,6 +339,8 @@ export async function invokeDirectHandler(
       "--snapshot": String,
       "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
       "--split": Boolean,
+      "--split-target": String,
+      "--bring-alias": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
     }, 0);
@@ -323,6 +366,8 @@ export async function invokeDirectHandler(
       dryRun?: boolean;
       noRehydrate?: boolean;
       split?: boolean;
+      splitTarget?: string;
+      bringAlias?: boolean;
       bud?: boolean;
       signalOnBirth?: boolean;
       allLocal?: boolean;
@@ -350,6 +395,8 @@ export async function invokeDirectHandler(
     }
     if (flags["--main"]) opts.noRehydrate = true;
     if (flags["--split"]) opts.split = true;
+    if (flags["--split-target"]) opts.splitTarget = flags["--split-target"];
+    if (flags["--bring-alias"]) opts.bringAlias = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
 
@@ -376,7 +423,14 @@ export async function invokeDirectHandler(
       printBringUsage(log);
       return;
     }
-    await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", [...argv, "--split"], deps);
+    // #1816 — translate bring-shaped `--to <session>` to wake-shaped
+    // `--session <session>` before dispatching. Pure helper, fixture-tested.
+    const { translateBringToFlag } = await import("../commands/shared/bring-flags");
+    await invokeDirectHandler(
+      "../commands/shared/wake-cmd:cmdWake",
+      [...translateBringToFlag(argv), "--split", "--bring-alias"],
+      deps,
+    );
     return;
   }
 

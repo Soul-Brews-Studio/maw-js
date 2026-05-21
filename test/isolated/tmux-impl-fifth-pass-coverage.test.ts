@@ -186,7 +186,7 @@ describe("tmux impl fifth-pass isolated branch coverage", () => {
       "/opt/Code/github.com/Soul-Brews-Studio/sleeping-friend-oracle",
     ];
 
-    const { logs } = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, roster: true }));
+    const { logs } = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, roster: true, verify: true }));
 
     expect(logs).toContain("SESSION");
     expect(logs).toContain("CREATED");

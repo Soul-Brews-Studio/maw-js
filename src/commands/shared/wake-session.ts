@@ -65,6 +65,24 @@ export async function isPaneIdle(paneTarget: string, deps: Partial<WakeSessionDe
   }
 }
 
+async function shareParentClaudeDir(repoPath: string, wtPath: string, log: WakeSessionDeps["log"]): Promise<void> {
+  const { existsSync } = await import("fs");
+  const { symlink } = await import("fs/promises");
+  const { join, relative } = await import("path");
+  const parentClaudeDir = join(repoPath, ".claude");
+  const wtClaudeLink = join(wtPath, ".claude");
+  if (!existsSync(parentClaudeDir) || existsSync(wtClaudeLink)) return;
+
+  const target = relative(wtPath, parentClaudeDir) || parentClaudeDir;
+  try {
+    await symlink(target, wtClaudeLink, "dir");
+    log(`\x1b[32m+\x1b[0m .claude: ${wtClaudeLink} → ${target}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`\x1b[33m⚠\x1b[0m .claude share skipped: ${message}`);
+  }
+}
+
 export async function ensureSessionRunning(
   session: string,
   excludeNames?: Set<string>,
@@ -171,6 +189,7 @@ export async function createWorktree(
     ? `'${safe(wtPath)}' '${safe(branch)}'`
     : `'${safe(wtPath)}' -b '${safe(branch)}'`;
   await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
+  await shareParentClaudeDir(repoPath, wtPath, d.log);
   d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
   return { wtPath, windowName: `${oracle}-${name}` };
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -173,6 +173,20 @@ describe("team-lifecycle coverage", () => {
     expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model opus");
   });
 
+  test("spawn still succeeds when launch prompt mirror cannot write to the tool store", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    rmSync(join(teamsDir, "qa-team"), { recursive: true, force: true });
+    writeFileSync(join(teamsDir, "qa-team"), "not a directory");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "reviewer", { model: "opus" });
+
+    const vaultPromptPath = join(root, "ψ/memory/mailbox/teams/qa-team/reviewer-spawn-prompt.md");
+    expect(readFileSync(vaultPromptPath, "utf-8")).toBe("You are 'reviewer' on team 'qa-team'.");
+    expect(json(join(root, "ψ/memory/mailbox/teams/qa-team/manifest.json")).members).toEqual(["reviewer"]);
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).toContain("ψ/memory/mailbox/teams/qa-team/reviewer-spawn-prompt.md");
+  });
+
   test("spawn --exec outside tmux leaves a manual command instead of spawning", async () => {
     lifecycle.cmdTeamCreate("qa-team");
 
@@ -196,6 +210,26 @@ describe("team-lifecycle coverage", () => {
     const member = json(join(teamsDir, "qa-team/config.json")).members[0];
     expect(member).toMatchObject({ name: "builder", model: "opus", tmuxPaneId: "%42", color: "green", agentId: "builder@qa-team" });
     expect(logs.join("\n")).toContain("--exec");
+  });
+
+  test("spawn --exec launches from an ASCII prompt copy when the vault path contains Unicode", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    process.env.TMUX = "/tmp/tmux,1,0";
+    process.env.TMUX_PANE = "%leader";
+
+    await lifecycle.cmdTeamSpawn("qa-team", "builder-λ", { exec: true, model: "opus" });
+
+    const command = (layoutCalls[0] as unknown[])[2] as string;
+    expect(command).toContain("claude --model opus --system-prompt-file");
+    expect(command).not.toContain("/ψ/");
+    expect(command).not.toContain("λ");
+    const launchFiles = readdirSync(join(teamsDir, "qa-team")).filter((name) => name.endsWith("-spawn-prompt.md"));
+    expect(launchFiles).toHaveLength(1);
+    expect(launchFiles[0]).not.toContain("λ");
+    const launchPrompt = join(teamsDir, "qa-team", launchFiles[0]);
+    expect(command).toContain(launchPrompt);
+    expect(readFileSync(launchPrompt, "utf-8")).toContain("You are 'builder-λ' on team 'qa-team'.");
+    expect(existsSync(join(root, "ψ/memory/mailbox/teams/qa-team/builder-λ-spawn-prompt.md"))).toBe(true);
   });
 
   test("spawn reports missing teams and falls back when pane creation fails", async () => {

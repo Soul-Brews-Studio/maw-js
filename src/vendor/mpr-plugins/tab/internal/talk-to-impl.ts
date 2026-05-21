@@ -115,8 +115,6 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
 
   // Step 2: Build notification with context
   const from = process.env.CLAUDE_AGENT_NAME || "cli";
-  const preview = message.length > 80 ? message.slice(0, 77) + "..." : message;
-
   let notification: string;
   if (threadResult) {
     const info = await getThreadInfo(threadResult.thread_id);
@@ -124,13 +122,15 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
     notification = [
       `💬 channel:${target} (#${threadResult.thread_id}) — ${msgCount} msgs`,
       `From: ${from}`,
-      `Preview: "${preview}"`,
-      `→ อ่านเต็มที่ thread #${threadResult.thread_id} หรือพิมพ์ /talk-to #${threadResult.thread_id}`,
+      "Message:",
+      message,
+      `→ Full copy saved in thread #${threadResult.thread_id}`,
     ].join("\n");
   } else {
     notification = [
       `💬 from ${from}`,
-      `"${preview}"`,
+      "Message:",
+      message,
     ].join("\n");
   }
 

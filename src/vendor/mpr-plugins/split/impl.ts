@@ -1,6 +1,55 @@
 import { listSessions, hostExec, withPaneLock } from "maw-js/sdk";
 import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
+import { isClaudeLikePane } from "../../../commands/plugins/tmux/safety";
+
+export type ClaudePanePolicy = "split" | "background-tab" | "link-window" | "refuse";
+
+export interface SplitPolicyInput {
+  paneCurrentCommand?: string;
+  noAttach?: boolean;
+  requestedPolicy?: ClaudePanePolicy | string;
+  forceSplit?: boolean;
+}
+
+export interface SplitPolicyDecision {
+  action: ClaudePanePolicy;
+  reason: "not-attaching" | "force-split" | "not-claude" | "claude-policy";
+}
+
+const CLAUDE_PANE_POLICIES = new Set<ClaudePanePolicy>([
+  "split",
+  "background-tab",
+  "link-window",
+  "refuse",
+]);
+
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function backgroundAttachCommand(target: string): string {
+  // Detached background tabs run a nested tmux client inside a fresh pane.
+  // Clear/reset that pane before attach so stale redraw artifacts from the
+  // caller are not mirrored into the new tab (#1816 live smear at cccbd33c).
+  return `TMUX=; printf '\\033c'; clear 2>/dev/null || true; exec tmux attach-session -t ${shellArg(target)}`;
+}
+
+function validateClaudePanePolicy(value: unknown): ClaudePanePolicy | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !CLAUDE_PANE_POLICIES.has(value as ClaudePanePolicy)) {
+    throw new Error(`--claude-pane-policy must be one of: ${[...CLAUDE_PANE_POLICIES].join(", ")}`);
+  }
+  return value as ClaudePanePolicy;
+}
+
+export function decideSplitPolicy(input: SplitPolicyInput): SplitPolicyDecision {
+  const requestedPolicy = validateClaudePanePolicy(input.requestedPolicy);
+  if (input.noAttach) return { action: "split", reason: "not-attaching" };
+  if (input.forceSplit) return { action: "split", reason: "force-split" };
+  if (!isClaudeLikePane(input.paneCurrentCommand)) return { action: "split", reason: "not-claude" };
+  return { action: requestedPolicy ?? "background-tab", reason: "claude-policy" };
+}
 
 export interface SplitOpts {
   /** Split percentage (1-99). Default: 50. */
@@ -18,6 +67,8 @@ export interface SplitOpts {
    *  implicit active-pane-drift that caused fractal-split cascade (#545).
    *  Accepts: "%N" (pane id), "session:window.pane", or "session:window". */
   anchorPane?: string;
+  /** Policy for Claude-like source panes. Default: background-tab. */
+  claudePanePolicy?: ClaudePanePolicy | string;
 }
 
 /**
@@ -105,29 +156,167 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
   // Precedence: opts.anchorPane (explicit, from cmdView) > $TMUX_PANE (caller's
   // pane) > none. Explicit anchor breaks the active-pane-drift that caused
   // fractal-split cascade in #545/#546.
-  const direction = opts.vertical ? "-v" : "-h";
-  const innerCmd = opts.noAttach ? "bash" : `TMUX= tmux attach-session -t ${resolved}`;
   const anchor = opts.anchorPane ?? process.env.TMUX_PANE;
-  const targetFlag = anchor ? `-t '${anchor.replace(/'/g, "'\\''")}' ` : "";
-  const cmd = `tmux split-window ${targetFlag}${direction} -l ${pct}% "${innerCmd}"`;
+  const requestedPolicy = validateClaudePanePolicy(opts.claudePanePolicy);
+  const paneCurrentCommand = await readAnchorPaneCommand(anchor, opts.noAttach);
+  const policy = decideSplitPolicy({
+    paneCurrentCommand,
+    noAttach: opts.noAttach,
+    requestedPolicy,
+    forceSplit: process.env.MAW_FORCE_SPLIT === "1" || process.env.MAW_ALLOW_CLAUDE_SPLIT === "1",
+  });
 
   try {
-    if (opts.lock) {
-      // Serialize against other in-process pane spawns; settle before release
-      // so tmux has a tick to register the new pane index.
-      const settleMs = opts.settleMs ?? 200;
-      await withPaneLock(async () => {
-        await hostExec(cmd);
-        if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
-      });
-    } else {
-      await hostExec(cmd);
+    switch (policy.action) {
+      case "split":
+        await splitIntoPane(resolved, pct, opts, anchor);
+        break;
+      case "background-tab":
+        await openBackgroundTab(resolved, opts, anchor);
+        break;
+      case "link-window":
+        await linkWindowIntoSourceSession(resolved, opts, anchor);
+        break;
+      case "refuse":
+        throw new Error(`refusing to split from Claude-like pane '${anchor}' (#1816); use --claude-pane-policy split, background-tab, or link-window`);
     }
-    const side = opts.vertical ? "below" : "beside";
-    const action = opts.noAttach ? "empty pane" : resolved;
-    const anchorLabel = opts.anchorPane ? ` (anchored at ${opts.anchorPane})` : "";
-    console.log(`  \x1b[32m✓\x1b[0m split ${side} — ${action} (${pct}%)${anchorLabel}`);
   } catch (e: any) {
     throw new Error(`split failed: ${e.message || e}`);
   }
+}
+
+async function runWithOptionalLock(opts: SplitOpts, fn: () => Promise<void>): Promise<void> {
+  if (opts.lock) {
+    // Serialize against other in-process pane spawns; settle before release
+    // so tmux has a tick to register the new pane index.
+    const settleMs = opts.settleMs ?? 200;
+    await withPaneLock(async () => {
+      await fn();
+      if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
+    });
+    return;
+  }
+  await fn();
+}
+
+async function readAnchorPaneCommand(anchor: string | undefined, noAttach: boolean | undefined): Promise<string | undefined> {
+  if (!anchor || noAttach) return undefined;
+  try {
+    const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{pane_current_command}'`);
+    return String(raw).trim();
+  } catch {
+    // Fail open: split preserved previous behavior when tmux cannot inspect the
+    // source pane. The user can still force a non-split policy via callers that
+    // pass an explicit policy after a successful probe.
+    return undefined;
+  }
+}
+
+async function readAnchorSession(anchor: string | undefined): Promise<string | null> {
+  if (!anchor) return null;
+  try {
+    const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{session_name}'`);
+    const session = String(raw).trim();
+    return session.length > 0 ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+async function bestEffortTmux(command: string): Promise<void> {
+  try {
+    await hostExec(command);
+  } catch {
+    // Best-effort repaint only: the user action already succeeded.
+  }
+}
+
+async function refreshSourceClient(anchor: string | undefined): Promise<void> {
+  if (anchor) {
+    try {
+      const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
+      const client = String(raw).trim();
+      if (client.length > 0) {
+        // Full-client repaint plus a targeted status redraw. Keep this aligned
+        // with wake-maybe-split so every background-tab caller gets the same
+        // smear fix (#1816 live repro after cccbd33c).
+        await bestEffortTmux(`tmux refresh-client -c -t ${shellArg(client)}`);
+        await bestEffortTmux(`tmux refresh-client -S -t ${shellArg(client)}`);
+        return;
+      }
+    } catch {
+      // Fall through to global redraws.
+    }
+  }
+  await bestEffortTmux("tmux refresh-client -c");
+  await bestEffortTmux("tmux refresh-client -S");
+}
+
+async function repaintSourcePane(anchor: string | undefined): Promise<void> {
+  if (!anchor) return;
+  try {
+    await hostExec(`tmux send-keys -R -t ${shellArg(anchor)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(anchor)}`);
+  } catch {
+    // Keep going: the full-client refresh below is often the more important
+    // part of clearing stale lower-half redraw artifacts.
+  }
+  await refreshSourceClient(anchor);
+}
+
+async function clearNewTabPane(target: string): Promise<void> {
+  try {
+    await hostExec(`tmux send-keys -R -t ${shellArg(target)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(target)}`);
+  } catch {
+    // Best-effort repaint only: a failed clear must not hide the newly opened
+    // background tab from the caller.
+  }
+}
+
+function backgroundWindowName(target: string): string {
+  const session = target.split(":")[0] || target;
+  const targetWindow = target.split(":").slice(1).join(":") || session;
+  return `split-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "split";
+}
+
+async function splitIntoPane(resolved: string, pct: number, opts: SplitOpts, anchor: string | undefined): Promise<void> {
+  const direction = opts.vertical ? "-v" : "-h";
+  const innerCmd = opts.noAttach ? "bash" : `TMUX= tmux attach-session -t ${resolved}`;
+  const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
+  const cmd = `tmux split-window ${targetFlag}${direction} -l ${pct}% "${innerCmd}"`;
+  await runWithOptionalLock(opts, () => hostExec(cmd));
+  const side = opts.vertical ? "below" : "beside";
+  const action = opts.noAttach ? "empty pane" : resolved;
+  const anchorLabel = opts.anchorPane ? ` (anchored at ${opts.anchorPane})` : "";
+  console.log(`  \x1b[32m✓\x1b[0m split ${side} — ${action} (${pct}%)${anchorLabel}`);
+}
+
+async function openBackgroundTab(resolved: string, opts: SplitOpts, anchor: string | undefined): Promise<void> {
+  const destinationSession = await readAnchorSession(anchor);
+  const destination = destinationSession ? `-t ${shellArg(`${destinationSession}:`)} ` : "";
+  const innerCmd = backgroundAttachCommand(resolved);
+  await repaintSourcePane(anchor);
+  let openedWindow = "";
+  await runWithOptionalLock(opts, async () => {
+    const opened = await hostExec(`tmux new-window -P -F '#{window_id}' -d ${destination}-n ${shellArg(backgroundWindowName(resolved))} ${shellArg(innerCmd)}`);
+    openedWindow = String(opened).trim();
+  });
+  if (openedWindow.length > 0) await clearNewTabPane(openedWindow);
+  if (anchor) {
+    await repaintSourcePane(anchor);
+  }
+  console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${resolved}`);
+}
+
+async function linkWindowIntoSourceSession(resolved: string, opts: SplitOpts, anchor: string | undefined): Promise<void> {
+  const destinationSession = await readAnchorSession(anchor);
+  if (!destinationSession) {
+    throw new Error("link-window policy requires an anchor pane with a tmux session");
+  }
+  await runWithOptionalLock(opts, () =>
+    hostExec(`tmux link-window -d -s ${shellArg(resolved)} -t ${shellArg(`${destinationSession}:`)}`),
+  );
+  await refreshSourceClient(anchor);
+  console.log(`  \x1b[32m✓\x1b[0m linked background tab — ${resolved}`);
 }

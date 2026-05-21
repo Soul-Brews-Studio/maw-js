@@ -32,8 +32,8 @@ mock.module("../../src/core/transport/tmux", () => ({
 const { restoreTabOrder, saveTabOrder } = await import("../../src/core/fleet/tab-order");
 
 beforeEach(() => {
-  rmSync(join(home, "config", "tab-order"), { recursive: true, force: true });
-  mkdirSync(join(home, "config", "tab-order"), { recursive: true });
+  rmSync(join(home, "tab-order"), { recursive: true, force: true });
+  mkdirSync(join(home, "tab-order"), { recursive: true });
   listWindowsQueue = [];
   runCalls = [];
   runQueue = [];
@@ -48,7 +48,7 @@ afterAll(() => {
 });
 
 function tabOrderPath(session: string) {
-  return join(home, "config", "tab-order", `${session}.json`);
+  return join(home, "tab-order", `${session}.json`);
 }
 
 function writeSavedOrder(session: string, contents: string) {

@@ -124,7 +124,7 @@ describe("comm-list default-suite seams", () => {
     expect(text()).not.toContain("diag-pane");
   });
 
-  test("orphan scan renders stale/orphan warnings and keeps default listing read-only", async () => {
+  test("default listing suppresses orphan diagnostics until --verify", async () => {
     sessions = [session("08-mawjs", [{ index: 0, name: "mawjs-oracle", active: true }])];
     paneInfos = { "08-mawjs:0": { command: "claude", cwd: "/home/nat" } };
     worktrees = [
@@ -136,6 +136,12 @@ describe("comm-list default-suite seams", () => {
     await cmdList({}, deps());
 
     expect(cleanupCalls).toEqual([]);
+    expect(text()).not.toContain("repo.wt-1-stale");
+    expect(text()).not.toContain("→ maw ls --fix");
+
+    logs = [];
+    await cmdList({ verify: true }, deps());
+
     expect(text()).toContain("repo.wt-1-stale");
     expect(text()).toContain("(no tmux window)");
     expect(text()).toContain("fallback-orphan");

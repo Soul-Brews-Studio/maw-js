@@ -57,13 +57,20 @@ export async function removeWorktreeByGhqScan(
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
-    const ghqOut = await hostExec(`find ${reposRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const safeRoot = reposRoot.replace(/'/g, "'\''");
+    const ghqOut = await hostExec(`find '${safeRoot}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
       const base = p.split("/").pop()!;
       const wtSuffix = base.replace(/^.*\.wt-(?:\d+-)?/, "");
       return wtSuffix.toLowerCase() === suffix.toLowerCase();
     });
+    if (exactMatch.length > 1) {
+      console.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${exactMatch.length} repos:`);
+      for (const wtPath of exactMatch) console.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
+      console.error(`  \x1b[90m  use fleet config or remove the exact worktree manually\x1b[0m`);
+      return false;
+    }
     for (const wtPath of exactMatch) {
       const base = wtPath.split("/").pop()!;
       const mainRepo = base.split(".wt-")[0];

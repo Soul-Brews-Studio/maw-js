@@ -1,7 +1,7 @@
 /**
  * maw trust — storage layer (#842 Sub-B).
  *
- * Atomic read/write of `<CONFIG_DIR>/trust.json`. Holds the pairwise
+ * Atomic read/write of `<STATE_DIR>/trust.json`. Holds the pairwise
  * trust list consulted by `evaluateAcl()` (Sub-A, #872) when neither
  * sender nor target share a scope. Trust is symmetric: an entry
  * `{sender: a, target: b}` allows BOTH directions a→b and b→a.
@@ -17,9 +17,9 @@
  *     ...
  *   ]
  *
- * Path resolution mirrors `scope/impl.ts::scopesDir()` — a function
- * (not a const) so tests setting `MAW_CONFIG_DIR` / `MAW_HOME` per-test
- * pick up a fresh path each call.
+ * Path resolution is state-primary via `mawStatePath("trust.json")`.
+ * Legacy config-path files remain readable so existing approvals keep
+ * working and the next write migrates forward into state.
  *
  * Atomic writes via tmp + rename(2) — same trick as
  * `src/commands/plugins/peers/store.ts::writeAtomic`. A crash mid-write
@@ -40,8 +40,8 @@ import {
   renameSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
-import { dirname, join } from "path";
+import { dirname } from "path";
+import { mawConfigPath, mawStatePath } from "../../../core/xdg";
 
 /**
  * On-disk trust entry. `sender` / `target` are oracle names matching
@@ -63,24 +63,20 @@ export interface TrustEntryOnDisk {
 /** A flat list of on-disk trust entries. May be empty. */
 export type TrustListOnDisk = TrustEntryOnDisk[];
 
-/**
- * Resolve the active config dir at call time (not import time) so tests
- * can point the directory at a temp path per-test by setting
- * `MAW_CONFIG_DIR` / `MAW_HOME` in beforeEach. Mirrors the precedence
- * logic in `src/core/paths.ts` and `scope/impl.ts::activeConfigDir`.
- *
- *   1. `MAW_HOME` → `<MAW_HOME>/config` (instance mode, see #566)
- *   2. `MAW_CONFIG_DIR` override (legacy)
- *   3. Default singleton `~/.config/maw/`
- */
-function activeConfigDir(): string {
-  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
-  if (process.env.MAW_CONFIG_DIR) return process.env.MAW_CONFIG_DIR;
-  return join(homedir(), ".config", "maw");
+export function trustPath(): string {
+  return mawStatePath("trust.json");
 }
 
-export function trustPath(): string {
-  return join(activeConfigDir(), "trust.json");
+function legacyTrustPath(): string {
+  return mawConfigPath("trust.json");
+}
+
+function readableTrustPath(): string | null {
+  const primary = trustPath();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyTrustPath();
+  if (legacy !== primary && existsSync(legacy)) return legacy;
+  return null;
 }
 
 /**
@@ -89,8 +85,8 @@ export function trustPath(): string {
  * never written a trust entry still gets a working empty list.
  */
 export function loadTrust(): TrustListOnDisk {
-  const path = trustPath();
-  if (!existsSync(path)) return [];
+  const path = readableTrustPath();
+  if (!path) return [];
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
@@ -117,7 +113,7 @@ export function loadTrust(): TrustListOnDisk {
 }
 
 /**
- * Write the trust list atomically (tmp + rename). Creates the config
+ * Write the trust list atomically (tmp + rename). Creates the state
  * directory if missing. Mirrors `peers/store.ts::writeAtomic`.
  */
 export function saveTrust(list: TrustListOnDisk): void {

@@ -11,13 +11,13 @@
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 import { hashFile } from "../../../plugin/registry";
 import { readManifest } from "./install-manifest-helpers";
 import { extractTarball } from "./install-extraction";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
+import { mawDataPath } from "../../../core/xdg";
 
 export const LOCK_SCHEMA = 1;
 
@@ -44,7 +44,7 @@ function emptyLock(): Lock {
 
 /** Resolve lock path. Honors MAW_PLUGINS_LOCK for tests. */
 export function lockPath(): string {
-  return process.env.MAW_PLUGINS_LOCK || join(homedir(), ".maw", "plugins.lock");
+  return process.env.MAW_PLUGINS_LOCK || mawDataPath("plugins.lock");
 }
 
 /** Validate sha256 is a canonical "sha256:" + 64 lowercase hex, or bare 64-hex. */

@@ -4,7 +4,6 @@ import type { WSData } from "./types";
 import { loadConfig } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { serveStatic } from "hono/bun";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
@@ -23,6 +22,7 @@ import {
   proxyEnginePluginRequest,
   startEnginePluginHealthPolling,
 } from "./engine-plugin-registry";
+import { mawDataPath } from "./xdg";
 
 // --- Version info (computed once at startup) ---
 
@@ -51,7 +51,7 @@ import { resolveBindHost } from "./bind-host";
 // --- Views + static (Hono keeps these) ---
 
 export function createViews(
-  mawUiDir = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist"),
+  mawUiDir = process.env.MAW_UI_DIR || mawDataPath("ui", "dist"),
   doorHtmlPath = join(import.meta.dir, "static", "door.html"),
 ) {
   const views = new Hono();

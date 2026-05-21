@@ -324,6 +324,17 @@ export declare function loadProfile(name: string): TProfile | null;
 /** Atomically write the active-profile pointer file. */
 export declare function setActiveProfile(name: string): void;
 
+// --- src/plugin/registry ---
+
+/**
+ * Import a whitelisted named symbol from another installed plugin's module surface.
+ * The provider plugin must declare plugin.json module.path + module.exports.
+ */
+export declare function importPluginSymbol<T = unknown>(
+  pluginName: string,
+  symbolName: string,
+): Promise<T>;
+
 // --- src/lib/artifacts ---
 
 export interface ArtifactMeta {

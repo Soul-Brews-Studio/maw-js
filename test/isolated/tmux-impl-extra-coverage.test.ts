@@ -333,7 +333,7 @@ describe("tmux impl extra coverage", () => {
       "/opt/Code/github.com/Soul-Brews-Studio/sleepy-oracle",
     ];
 
-    const { logs } = await capture(() => cmdTmuxLs({ compact: true, roster: true }));
+    const { logs } = await capture(() => cmdTmuxLs({ compact: true, roster: true, verify: true }));
 
     expect(logs).toContain("current-session");
     expect(logs).not.toContain("other-session");
@@ -403,7 +403,7 @@ describe("tmux impl extra coverage", () => {
       ].join("\n"),
     );
 
-    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, recentLimit: 2 }));
+    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, recentLimit: 2, verify: true }));
     expect(compact.logs).toContain("SESSION");
     expect(compact.logs).toContain("newest");
     expect(compact.logs).toContain("middle");

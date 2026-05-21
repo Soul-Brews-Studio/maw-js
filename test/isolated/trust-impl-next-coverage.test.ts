@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -16,12 +16,14 @@ import {
 describe("trust impl next coverage", () => {
   const originalMawHome = process.env.MAW_HOME;
   const originalConfigDir = process.env.MAW_CONFIG_DIR;
+  const originalStateDir = process.env.MAW_STATE_DIR;
   let dir: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "maw-trust-impl-next-"));
     delete process.env.MAW_HOME;
     process.env.MAW_CONFIG_DIR = join(dir, "config");
+    process.env.MAW_STATE_DIR = join(dir, "state");
   });
 
   afterEach(() => {
@@ -31,11 +33,14 @@ describe("trust impl next coverage", () => {
     if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
     else process.env.MAW_CONFIG_DIR = originalConfigDir;
 
+    if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+    else process.env.MAW_STATE_DIR = originalStateDir;
+
     rmSync(dir, { recursive: true, force: true });
   });
 
   test("validates add/remove inputs and resolves the live trust path", () => {
-    expect(trustPath()).toBe(join(dir, "config", "trust.json"));
+    expect(trustPath()).toBe(join(dir, "state", "trust.json"));
     expect(loadTrust()).toEqual([]);
 
     expect(() => cmdAdd("", "target")).toThrow("trust add: sender must be a non-empty string");
@@ -45,6 +50,18 @@ describe("trust impl next coverage", () => {
     expect(() => cmdRemove("", "target")).toThrow("trust remove: sender must be a non-empty string");
     expect(() => cmdRemove("sender", "")).toThrow("trust remove: target must be a non-empty string");
     expect(() => cmdRemove("missing", "pair")).toThrow('trust remove: no entry found for "missing↔pair"');
+  });
+
+  test("loads legacy config trust entries before state writes exist", () => {
+    const legacyPath = join(dir, "config", "trust.json");
+    mkdirSync(join(dir, "config"), { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify([
+      { sender: "legacy", target: "peer", addedAt: "2026-05-18T01:00:00.000Z" },
+    ]));
+
+    expect(loadTrust()).toEqual([
+      { sender: "legacy", target: "peer", addedAt: "2026-05-18T01:00:00.000Z" },
+    ]);
   });
 
   test("sorts, formats, dedupes, and removes symmetric pairs", () => {

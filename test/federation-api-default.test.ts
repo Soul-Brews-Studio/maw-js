@@ -21,11 +21,15 @@ describe("federation API identity/status/snapshot routes", () => {
       loadSnapshot: (id: string) => id === "s1" ? ({ id, sessions: [] }) as any : null,
       loadConfig: (() => ({
         node: "m5",
+        nodeUser: "codex",
+        port: 4567,
         oracle: "mawjs-oracle",
-        agents: { codex: { repo: "/repo", session: "54-mawjs" } },
+        agents: { codex: "m5", buddy: "codex@m5" },
         federationToken: "abcd-secret",
       })) as any,
-      hostedAgents: ((agents: any, node: string) => [{ node, name: Object.keys(agents)[0] }]) as any,
+      hostedAgents: ((agents: any, node: string) => Object.entries(agents)
+        .filter(([, n]) => n === node)
+        .map(([name]) => ({ node, name }))) as any,
       getPeerKey: () => "peer-public-key",
       packageVersion: "v.test",
       uptime: () => 42.9,
@@ -41,10 +45,13 @@ describe("federation API identity/status/snapshot routes", () => {
     expect(await readJson(missing)).toEqual({ error: "snapshot not found" });
 
     expect(await readJson(await app.handle(new Request("http://localhost/identity")))).toEqual({
-      node: "m5",
+      node: "codex@m5",
+      host: "m5",
+      user: "codex",
+      port: 4567,
       oracle: "mawjs-oracle",
       version: "v.test",
-      agents: [{ node: "m5", name: "codex" }],
+      agents: [{ node: "codex@m5", name: "buddy" }, { node: "m5", name: "codex" }],
       uptime: 42,
       clockUtc: "2026-05-17T00:00:00.000Z",
       endpoints: [
@@ -94,8 +101,10 @@ describe("federation API identity/status/snapshot routes", () => {
     const tmp = mkdtempSync(join(tmpdir(), "maw-federation-api-"));
     const savedPeerKey = process.env.MAW_PEER_KEY;
     const savedConfigDir = process.env.MAW_CONFIG_DIR;
+    const savedDataDir = process.env.MAW_DATA_DIR;
     process.env.MAW_PEER_KEY = "test-peer-key";
     process.env.MAW_CONFIG_DIR = tmp;
+    process.env.MAW_DATA_DIR = join(tmp, "data");
     try {
       const app = makeApp({
         homedir: () => tmp,
@@ -114,6 +123,8 @@ describe("federation API identity/status/snapshot routes", () => {
       else process.env.MAW_PEER_KEY = savedPeerKey;
       if (savedConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
       else process.env.MAW_CONFIG_DIR = savedConfigDir;
+      if (savedDataDir === undefined) delete process.env.MAW_DATA_DIR;
+      else process.env.MAW_DATA_DIR = savedDataDir;
       rmSync(tmp, { recursive: true, force: true });
     }
   });

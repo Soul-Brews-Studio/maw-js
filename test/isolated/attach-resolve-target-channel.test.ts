@@ -121,4 +121,98 @@ describe("attach resolver channel-session filtering", () => {
     expect(result).toEqual({ tier: 2, fleetName: "Somwind-oracle" });
   });
 
+  test("resolves node-qualified attach targets by oracle part", async () => {
+    const result = await resolveAttachTarget("m5:mawjs", {
+      listSessions: async () => [
+        { name: "50-mawjs", windows: [{ name: "mawjs-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjs" });
+  });
+
+  test("keeps tmux numeric window suffixes as session targets", async () => {
+    const result = await resolveAttachTarget("neo:0", {
+      listSessions: async () => [
+        { name: "neo:0", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "neo:0" });
+  });
+
+  test("matches legacy dash-stripped fleet session names for canonical hyphenated input", async () => {
+    const result = await resolveAttachTarget("mawjs-codex", {
+      listSessions: async () => [
+        { name: "50-mawjscodex", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjscodex" });
+  });
+
+  test("prefers live canonical dash session over sleeping fleet ghosts", async () => {
+    const result = await resolveAttachTarget("codex", {
+      listSessions: async () => [
+        { name: "50-mawjs-codex", windows: [{ name: "mawjs-codex-oracle" }] },
+      ],
+      loadFleet: () => [
+        { name: "codexstark-oracle", windows: [{ name: "codexstark-oracle" }] },
+        { name: "mawjs-codex-oracle", windows: [{ name: "mawjs-codex-oracle" }] },
+      ],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjs-codex" });
+  });
+
+  test("resolves custom session names through oracle window aliases", async () => {
+    const result = await resolveAttachTarget("mawjs-codex", {
+      listSessions: async () => [
+        { name: "50-custom-admin", windows: [{ name: "mawjs-codex-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-custom-admin" });
+  });
+
+  test("resolves custom session names through oracle repo metadata aliases", async () => {
+    const result = await resolveAttachTarget("mawjs-codex", {
+      listSessions: async () => [
+        {
+          name: "50-custom-admin",
+          windows: [{ name: "main", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }],
+        },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-custom-admin" });
+  });
+
+  test("reports ambiguity when multiple custom sessions share oracle repo aliases", async () => {
+    const result = await resolveAttachTarget("mawjs-codex", {
+      listSessions: async () => [
+        {
+          name: "50-custom-admin",
+          windows: [{ name: "main", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }],
+        },
+        {
+          name: "51-custom-backup",
+          windows: [{ name: "ops", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }],
+        },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({
+      tier: 1,
+      sessionName: "50-custom-admin",
+      ambiguousCandidates: ["50-custom-admin", "51-custom-backup"],
+    });
+  });
+
 });

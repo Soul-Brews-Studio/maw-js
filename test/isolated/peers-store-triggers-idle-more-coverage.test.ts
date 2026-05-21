@@ -40,6 +40,9 @@ mock.module(import.meta.resolve("../../src/core/runtime/triggers-engine.ts"), ()
 const { checkIdleTriggers, markAgentActive } = await import("../../src/core/runtime/triggers-idle.ts?peers-store-triggers-idle-more-coverage");
 
 const originalPeersFile = process.env.PEERS_FILE;
+const originalHome = process.env.HOME;
+const originalMawHome = process.env.MAW_HOME;
+const originalMawStateDir = process.env.MAW_STATE_DIR;
 const originalDateNow = Date.now;
 
 let tempDir = "";
@@ -71,10 +74,42 @@ afterEach(() => {
   Date.now = originalDateNow;
   if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
   else process.env.PEERS_FILE = originalPeersFile;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalMawHome === undefined) delete process.env.MAW_HOME;
+  else process.env.MAW_HOME = originalMawHome;
+  if (originalMawStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalMawStateDir;
   rmSync(tempDir, { recursive: true, force: true });
 });
 
 describe("src/lib/peers/store focused branches", () => {
+  test("state path is primary and legacy home peers migrate forward on mutation", () => {
+    delete process.env.PEERS_FILE;
+    delete process.env.MAW_HOME;
+    process.env.HOME = join(tempDir, "home");
+    process.env.MAW_STATE_DIR = join(tempDir, "state");
+
+    const legacyDir = join(process.env.HOME, ".maw");
+    const legacyFile = join(legacyDir, "peers.json");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyFile, JSON.stringify({
+      version: 1,
+      peers: { alpha: samplePeer("http://legacy-alpha:3210", "legacy-node") },
+    }));
+
+    expect(peersPath()).toBe(join(process.env.MAW_STATE_DIR, "peers.json"));
+    expect(loadPeers().peers.alpha.node).toBe("legacy-node");
+
+    const migrated = mutatePeers((data) => {
+      data.peers.beta = samplePeer("http://state-beta:3210", "state-node");
+    });
+
+    expect(Object.keys(migrated.peers).sort()).toEqual(["alpha", "beta"]);
+    expect(JSON.parse(readFileSync(peersPath(), "utf-8")).peers.alpha.node).toBe("legacy-node");
+    expect(JSON.parse(readFileSync(legacyFile, "utf-8")).peers.beta).toBeUndefined();
+  });
+
   test("loadPeers handles missing, unreadable, missing-peers, corrupt, and invalid-shape stores", () => {
     expect(peersPath()).toBe(peersFile);
     expect(emptyStore()).toEqual({ version: 1, peers: {} });

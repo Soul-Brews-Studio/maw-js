@@ -42,6 +42,8 @@ export type TPeer = Static<typeof Peer>;
 
 export const FederationStatus = Type.Object({
   localUrl: Type.String(),
+  localReachable: Type.Optional(Type.Boolean()),
+  localLatency: Type.Optional(Type.Number()),
   peers: Type.Array(Peer),
   totalPeers: Type.Number(),
   reachablePeers: Type.Number(),

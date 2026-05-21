@@ -79,8 +79,45 @@ async function getWindow(): Promise<string> {
 }
 
 export interface TileOpts {
-  wt?: boolean;
+  wt?: boolean | string;
+  path?: string;
+  cmd?: string;
+  shell?: boolean;
   engine?: string;
+}
+
+function expandHome(raw: string): string {
+  if (raw === "~") return process.env.HOME || raw;
+  if (raw.startsWith("~/")) return `${process.env.HOME || "~"}${raw.slice(1)}`;
+  return raw;
+}
+
+async function resolveTileCwd(raw?: string, baseDir?: string): Promise<string> {
+  if (raw === undefined) return baseDir ?? "";
+  if (!raw.trim()) throw new Error("tile: --path cannot be empty");
+
+  const { isAbsolute, resolve } = await import("path");
+  const { stat } = await import("fs/promises");
+  const expanded = expandHome(raw);
+  const cwd = baseDir && !isAbsolute(expanded) ? resolve(baseDir, expanded) : resolve(expanded);
+  let info;
+  try {
+    info = await stat(cwd);
+  } catch {
+    throw new Error(`tile: path does not exist: ${raw}`);
+  }
+  if (!info.isDirectory()) throw new Error(`tile: path is not a directory: ${raw}`);
+  return cwd;
+}
+
+function normalizeTileCommand(raw?: string): string {
+  if (raw === undefined) return "";
+  if (!raw.trim()) throw new Error("tile: --cmd cannot be empty");
+  return raw;
+}
+
+function namedWorktree(opts: TileOpts): string {
+  return typeof opts.wt === "string" ? opts.wt.trim() : "";
 }
 
 export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void> {
@@ -90,6 +127,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   if (count > 10) {
     throw new Error("tile: max 10 panes (got " + count + ")");
   }
+
+  const requestedWt = namedWorktree(opts);
+  const requestedCwd = opts.wt ? "" : await resolveTileCwd(opts.path);
+  const requestedCmd = normalizeTileCommand(opts.cmd);
 
   const window = await getWindow();
 
@@ -116,9 +157,11 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   let parentDir = "";
   let repoName = "";
   let existingWorktrees: { name: string; path: string }[] = [];
+  let sharedWtPath = "";
+  let sharedWtName = "";
 
   if (opts.wt) {
-    const { findWorktrees } = await import("../../shared/wake-resolve-impl");
+    const { findWorktrees, sanitizeBranchName } = await import("../../shared/wake-resolve-impl");
     repoPath = (await hostExec("git rev-parse --show-toplevel")).trim();
     const { dirname, basename } = await import("path");
     parentDir = dirname(repoPath);
@@ -129,6 +172,30 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       repoPath = mainRepo;
     } catch { /* already main */ }
     existingWorktrees = await findWorktrees(parentDir, repoName);
+
+    if (requestedWt) {
+      sharedWtName = sanitizeBranchName(requestedWt);
+      if (!sharedWtName) throw new Error("tile: --wt requires a worktree name");
+      const expectedPath = `${parentDir}/${repoName}.wt-${sharedWtName}`;
+      const existing = existingWorktrees.find(w => w.name === sharedWtName || w.path === expectedPath);
+      if (existing) {
+        sharedWtPath = existing.path;
+      } else {
+        const { createWorktree } = await import("../../shared/wake-session");
+        const oracle = repoName.replace(/-oracle$/, "");
+        const result = await createWorktree(
+          repoPath,
+          parentDir,
+          repoName,
+          oracle,
+          sharedWtName,
+          existingWorktrees,
+          { named: true },
+        );
+        sharedWtPath = result.wtPath;
+        existingWorktrees.push({ name: sharedWtName, path: sharedWtPath });
+      }
+    }
   }
 
   // Spawn all panes chained from previous (preserves index order for grid)
@@ -138,13 +205,15 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     const tileIndex = existingTileCount + i + 1;
     const name = tileRole(parentAddress, tileIndex);
 
-    let cwd = "";
-    if (opts.wt) {
+    let cwd = requestedCwd;
+    if (sharedWtPath) {
+      cwd = await resolveTileCwd(opts.path, sharedWtPath);
+    } else if (opts.wt) {
       const { createWorktree } = await import("../../shared/wake-session");
       const oracle = repoName.replace(/-oracle$/, "");
       const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, existingWorktrees);
-      cwd = result.wtPath;
-      existingWorktrees.push({ name, path: cwd });
+      cwd = await resolveTileCwd(opts.path, result.wtPath);
+      existingWorktrees.push({ name, path: result.wtPath });
     }
 
     const tileEnv = envExport({
@@ -156,11 +225,12 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     });
 
     let shellCmd = `export ${tileEnv}; exec zsh`;
-    if (engineCmd) {
-      shellCmd = `export ${tileEnv}; ${engineCmd}; exec zsh`;
+    const launchCmd = requestedCmd || engineCmd;
+    if (launchCmd) {
+      shellCmd = `export ${tileEnv}; ${launchCmd}; exec zsh`;
     }
     if (cwd) {
-      shellCmd = `cd ${shellArg(cwd)} && ${shellCmd}`;
+      shellCmd = `cd ${shellArg(cwd)} || exit $?; ${shellCmd}`;
     }
 
     // Chain: split from last pane so idx order = spawn order
@@ -177,15 +247,16 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     paneIds.push(paneId);
 
     const color = nextAgentColor(i);
-    const label = opts.wt ? `${name} 🌳` : name;
+    const label = sharedWtName ? `${name} 🌳 ${sharedWtName}` : opts.wt ? `${name} 🌳` : name;
     await stylePaneBorder(paneId, label, color);
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile '1'`);
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_parent ${shellArg(parentAddress)}`);
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_role ${shellArg(name)}`);
 
     const extras = [
-      opts.wt ? `\x1b[90m${cwd}\x1b[0m` : "",
-      opts.engine ? `\x1b[90m${opts.engine}\x1b[0m` : "",
+      cwd ? `\x1b[90m${cwd}\x1b[0m` : "",
+      requestedCmd ? `\x1b[90mcmd\x1b[0m` : "",
+      opts.engine && !requestedCmd ? `\x1b[90m${opts.engine}\x1b[0m` : "",
     ].filter(Boolean).join(" ");
 
     console.log(`  \x1b[${colorAnsi(color)}m●\x1b[0m ${label} → ${paneId}${extras ? "  " + extras : ""}`);
@@ -205,8 +276,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   await enableBorderStatus(window);
 
   const flags = [
-    opts.wt ? "worktree" : "",
-    opts.engine || "",
+    sharedWtName ? `worktree:${sharedWtName}` : opts.wt ? "worktree" : "",
+    opts.path ? "path" : "",
+    requestedCmd ? "cmd" : "",
+    opts.engine && !requestedCmd ? opts.engine : "",
   ].filter(Boolean).join(", ");
 
   console.log(`\x1b[32m✓\x1b[0m ${count} panes tiled${flags ? " (" + flags + ")" : ""}`);

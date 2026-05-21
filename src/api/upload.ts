@@ -1,10 +1,10 @@
 import { Elysia } from "elysia";
 import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, basename, extname } from "path";
-import { homedir } from "os";
 import { randomUUID } from "crypto";
+import { mawDataPath } from "../core/xdg";
 
-const INBOX_DIR = join(homedir(), ".maw", "inbox");
+const INBOX_DIR = mawDataPath("inbox");
 const WEB_DIR = process.env.MAW_UPLOAD_WEB_DIR || "/var/www/maw-uploads";
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME = new Set([

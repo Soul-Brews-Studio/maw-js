@@ -5,6 +5,7 @@ import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../con
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
+import { canonicalSessionName } from "../../core/fleet/session-name";
 import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
@@ -13,6 +14,7 @@ import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
 import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
+import { UserError } from "../../core/util/user-error";
 import {
   type RehydrateWorktreePlan,
   type SnapshotRestorePlan,
@@ -97,6 +99,130 @@ export function promptAmbiguousWorktreePick<T extends { name: string; path: stri
   process.stdout.write(`  Select [1-${candidates.length}]: `);
   const raw = _wtPicker.readChoice();
   if (!raw) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const choice = Number(raw);
+  if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
+  return candidates[choice - 1]!;
+}
+
+
+type BringWindowCandidate = {
+  name: string;
+  target: string;
+  detail: string;
+};
+
+type LiveWindowMatch = {
+  session: string;
+  window: string;
+  target: string;
+};
+
+type BringWindowLookupCandidate = BringWindowCandidate & {
+  aliases: string[];
+};
+
+function stripOracleRepoSuffix(name: string): string | null {
+  return name.toLowerCase().endsWith("-oracle") ? name.slice(0, -"-oracle".length) : null;
+}
+
+function bringCwdMetadata(cwd: string | undefined): { oracle?: string; worktree?: string } {
+  for (const part of (cwd ? resolve(cwd).split(/[\\/]+/).reverse() : [])) {
+    const worktreeMarker = part.indexOf(".wt-");
+    if (worktreeMarker > 0) {
+      const oracle = stripOracleRepoSuffix(part.slice(0, worktreeMarker)) ?? undefined;
+      return { oracle, worktree: part.slice(worktreeMarker + ".wt-".length) || undefined };
+    }
+    const oracle = stripOracleRepoSuffix(part);
+    if (oracle) return { oracle };
+  }
+  return {};
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map(v => v.trim()).filter(Boolean))];
+}
+
+async function buildBringWindowCandidates(
+  session: string,
+  windows: { name: string; cwd?: string }[],
+): Promise<BringWindowLookupCandidate[]> {
+  const targets = windows.map(w => `${session}:${w.name}`);
+  const infos = await getPaneInfos(targets);
+  return windows.map((w) => {
+    const target = `${session}:${w.name}`;
+    const metadata = bringCwdMetadata(w.cwd ?? infos[target]?.cwd);
+    const aliases = [w.name];
+    const detail = [`tmux window in ${session}`];
+    if (metadata.oracle) {
+      aliases.push(metadata.oracle, `${metadata.oracle}-oracle`);
+      detail.push(`oracle ${metadata.oracle}`);
+    }
+    if (metadata.worktree) {
+      aliases.push(metadata.worktree);
+      detail.push(`worktree ${metadata.worktree}`);
+    }
+    return {
+      name: w.name,
+      target,
+      detail: detail.join(" · "),
+      aliases: uniqueNonEmpty(aliases),
+    };
+  });
+}
+
+function resolveBringWindowCandidates(
+  targetName: string,
+  candidates: BringWindowLookupCandidate[],
+): BringWindowCandidate[] {
+  const lc = targetName.trim().toLowerCase();
+  const levels = [
+    (name: string) => name === lc,
+    (name: string) => name.endsWith(`-${lc}`),
+    (name: string) => name.startsWith(`${lc}-`) || name.includes(`-${lc}-`),
+  ];
+  for (const match of levels) {
+    const matches = candidates.filter(candidate =>
+      candidate.aliases.some(alias => match(alias.toLowerCase())),
+    );
+    if (matches.length > 0) {
+      const seen = new Set<string>();
+      return matches.filter((candidate) => {
+        if (seen.has(candidate.target)) return false;
+        seen.add(candidate.target);
+        return true;
+      });
+    }
+  }
+  return [];
+}
+
+/**
+ * Show a numbered picker for `maw bring <target> --pick` when the target
+ * fuzzily matches live tmux windows, oracle names, or worktree names in the
+ * destination session (#1816).
+ * Reuses the wake picker TTY hooks so headless/scripted callers fail loudly
+ * instead of silently choosing the legacy fuzzy oracle fallback.
+ *
+ * @internal — exported for tests.
+ */
+export function promptAmbiguousBringPick(
+  targetName: string,
+  candidates: BringWindowCandidate[],
+): BringWindowCandidate | null {
+  if (!_wtPicker.isStdoutTTY()) return null;
+  if (candidates.length === 0) return null;
+  console.log("");
+  console.log(`  '${targetName}' is ambiguous — bring which?`);
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]!;
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidate.name}  \x1b[90m${candidate.detail}\x1b[0m`);
+  }
+  console.log("  \x1b[90mq) quit\x1b[0m");
+  console.log("");
+  process.stdout.write(`  Select [1-${candidates.length}]: `);
+  const raw = _wtPicker.readChoice()?.trim().toLowerCase();
+  if (!raw || raw === "q" || raw === "quit") return null;
   if (!/^\d+$/.test(raw)) return null;
   const choice = Number(raw);
   if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
@@ -199,6 +325,12 @@ export interface WakeOptions {
   dryRun?: boolean;
   noRehydrate?: boolean;
   split?: boolean;
+  /** Hidden bring alias split anchor. Shape: "session:window" (#1816 Part 3). */
+  splitTarget?: string;
+  /** Hidden marker set by `maw bring` so wake can prefer live tmux windows (#1816 Part 4). */
+  bringAlias?: boolean;
+  /** Internal marker: `maw bring --to <window>` was resolved to session:window (#1824). */
+  resolvedBringDestinationWindow?: LiveWindowMatch;
   bring?: boolean;
   tab?: boolean;
   bud?: boolean;
@@ -243,8 +375,139 @@ function validateForeignSessionName(name: string): void {
   }
 }
 
+function sessionFromTmuxTarget(target: string | undefined): string | null {
+  if (!target) return null;
+  const session = target.split(":")[0]?.trim();
+  return session || null;
+}
+
+async function currentTmuxSessionFromPane(): Promise<string | null> {
+  const pane = process.env.TMUX_PANE;
+  if (!pane) return null;
+  try {
+    const safePane = pane.replace(/'/g, "'\\''");
+    const raw = await hostExec(`tmux display-message -p -t '${safePane}' '#{session_name}'`);
+    const out = String(raw).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+async function findLiveWindowsByName(windowName: string): Promise<LiveWindowMatch[]> {
+  const wanted = windowName.trim();
+  if (!wanted) return [];
+  const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+  const matches: LiveWindowMatch[] = [];
+  for (const session of sessions) {
+    const windows = await tmux.listWindows(session.name).catch(() => [] as { name: string }[]);
+    for (const window of windows) {
+      if (window.name !== wanted) continue;
+      matches.push({
+        session: session.name,
+        window: window.name,
+        target: `${session.name}:${window.name}`,
+      });
+    }
+  }
+  return matches;
+}
+
+function formatBringWindowTargets(matches: LiveWindowMatch[]): string {
+  return matches.map(match => `    ${match.target}`).join("\n");
+}
+
+function bringUserError(message: string): UserError {
+  console.error(`error: ${message}`);
+  return new UserError(message);
+}
+
+function buildAmbiguousBringDestinationError(
+  source: string,
+  destination: string,
+  matches: LiveWindowMatch[],
+): UserError {
+  return bringUserError(
+    [
+      `target session '${destination}' not found, but '${destination}' matches multiple live tmux windows.`,
+      "",
+      "  Use an explicit session:window destination:",
+      formatBringWindowTargets(matches),
+      "",
+      `  Example: maw bring ${source} --to ${matches[0]?.target ?? "<session>:<window>"}`,
+    ].join("\n"),
+  );
+}
+
+async function normalizeBringDestinationWindow(source: string, opts: WakeOptions): Promise<void> {
+  if (!opts.bringAlias) return;
+  if (!opts.session || opts.splitTarget) return;
+  const destination = opts.session.trim();
+  if (!destination || destination.includes(":")) return;
+  const sessionExists = await tmux.hasSession(destination).catch(() => false);
+  if (sessionExists) return;
+
+  const matches = await findLiveWindowsByName(destination);
+  if (matches.length === 0) return;
+  if (matches.length > 1) throw buildAmbiguousBringDestinationError(source, destination, matches);
+
+  const match = matches[0]!;
+  opts.session = match.session;
+  opts.splitTarget = match.target;
+  opts.resolvedBringDestinationWindow = match;
+}
+
+async function resolveExistingWindowBringTarget(
+  targetName: string,
+  opts: WakeOptions,
+  preResolvedSession: string | null,
+): Promise<string | null> {
+  if (!opts.bringAlias) return null;
+  if (opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) return null;
+
+  const session =
+    opts.session?.trim() ||
+    sessionFromTmuxTarget(opts.splitTarget) ||
+    preResolvedSession ||
+    await currentTmuxSessionFromPane();
+  if (!session) return null;
+
+  const windows = await tmux.listWindows(session).catch(() => [] as { name: string }[]);
+  const exact = windows.find(w => w.name === targetName);
+  if (exact) return `${session}:${exact.name}`;
+
+  const candidates = resolveBringWindowCandidates(
+    targetName,
+    await buildBringWindowCandidates(session, windows),
+  );
+  if (opts.resolvedBringDestinationWindow && !opts.pick && candidates.length > 0) {
+    const suggestion = candidates[0]!;
+    throw bringUserError(
+      [
+        `bring target '${targetName}' is not an exact live window in ${session}.`,
+        "",
+        `  Did you mean to target the window '${opts.resolvedBringDestinationWindow.window}' in an existing session?`,
+        `  Try: maw bring ${suggestion.name} --to ${opts.resolvedBringDestinationWindow.target}`,
+        "",
+        "  Or add --pick to choose from live window candidates.",
+      ].join("\n"),
+    );
+  }
+
+  if (opts.pick) {
+    if (candidates.length > 0) {
+      const picked = promptAmbiguousBringPick(targetName, candidates);
+      if (!picked) throw new Error(`--pick requires an interactive bring selection for '${targetName}'`);
+      return picked.target;
+    }
+  }
+
+  return null;
+}
+
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
-  const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || urlRepoName || oracle;
+  const mappedOrFleet = getSessionMap()[oracle] || resolveFleetSession(oracle);
+  const baseName = mappedOrFleet || canonicalSessionName(urlRepoName || oracle);
   if (/^\d+-/.test(baseName)) return baseName;
   // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
   // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
@@ -295,7 +558,24 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       oracle = numericFleetTarget[1]!;
     }
   }
+  await normalizeBringDestinationWindow(oracle, opts);
+  const requestedForeignSession = opts.session?.trim();
+  if (requestedForeignSession) validateForeignSessionName(requestedForeignSession);
+
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
+
+  const existingWindowBringTarget = await resolveExistingWindowBringTarget(oracle, opts, preResolvedSession);
+  if (existingWindowBringTarget) {
+    console.log(`\x1b[36m→\x1b[0m live tmux window: ${existingWindowBringTarget}`);
+    if (opts.dryRun) {
+      console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
+      return existingWindowBringTarget;
+    }
+    await maybeSplit(existingWindowBringTarget, opts);
+    await recordWakeSnapshot();
+    return existingWindowBringTarget;
+  }
+
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
   if (opts.repoPath) {
@@ -367,8 +647,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
-  const foreignSession = opts.session?.trim();
-  if (foreignSession) validateForeignSessionName(foreignSession);
+  const foreignSession = requestedForeignSession;
   let session = foreignSession || preResolvedSession || await detectSession(oracle, opts.urlRepoName);
   if (foreignSession) {
     const exists = opts.dryRun || await tmux.hasSession(foreignSession);

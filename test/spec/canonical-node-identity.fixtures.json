@@ -1,0 +1,27 @@
+[
+  {
+    "name": "single host without user stays unchanged",
+    "input": { "host": "white" },
+    "expected": "white"
+  },
+  {
+    "name": "same user and host stays unchanged",
+    "input": { "host": "white", "user": "white" },
+    "expected": "white"
+  },
+  {
+    "name": "multi-user host prefixes service user",
+    "input": { "host": "white", "user": "alpha" },
+    "expected": "alpha@white"
+  },
+  {
+    "name": "already canonical identity is preserved",
+    "input": { "host": "alpha@white", "user": "alpha" },
+    "expected": "alpha@white"
+  },
+  {
+    "name": "blank host falls back to local",
+    "input": { "host": "   ", "user": "" },
+    "expected": "local"
+  }
+]

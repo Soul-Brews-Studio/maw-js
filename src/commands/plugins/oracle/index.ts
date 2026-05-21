@@ -51,6 +51,7 @@ const LS_FLAGS = {
   "--stale": Boolean,
   "--org": String,
   "--path": Boolean,
+  "--sort-by": String,
   "-p": "--path",
 } as const;
 
@@ -82,6 +83,7 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
           scan: flags["--scan"],
           stale: flags["--stale"],
           path: flags["--path"],
+          sortBy: flags["--sort-by"],
         });
       } else if (subcmd === "scan") {
         const flags = parseFlags(args, {
@@ -125,6 +127,7 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
           scan: flags["--scan"],
           stale: flags["--stale"],
           path: flags["--path"],
+          sortBy: flags["--sort-by"],
         });
       } else if (subcmd === "prune") {
         const flags = parseFlags(args, {
@@ -176,6 +179,7 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,
           path: query.path as boolean | undefined,
+          sortBy: query.sortBy as string | undefined,
         });
       } else if (sub === "scan") {
         if (query.stale) {
@@ -204,6 +208,7 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,
           path: query.path as boolean | undefined,
+          sortBy: query.sortBy as string | undefined,
         });
       } else if (sub === "prune") {
         await commands.cmdOraclePrune({

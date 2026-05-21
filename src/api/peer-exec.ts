@@ -17,6 +17,11 @@
 import { Elysia, t } from "elysia";
 import { loadConfig } from "../config";
 import { signHeaders } from "../lib/federation-auth";
+import { pushFeedEvent } from "./feed";
+import {
+  buildWormholeLifecycleFeedEvent,
+  type WormholeLifecycleInput,
+} from "../lib/wormhole-events";
 import {
   setSessionCookie,
   hasValidSessionCookie,
@@ -27,6 +32,20 @@ import {
 } from "./peer-exec-auth";
 
 export { parseSignature, isReadOnlyCmd, isShellPeerAllowed, resolvePeerUrl } from "./peer-exec-auth";
+
+// Lifecycle emit — mirrors sessions.ts:emitMessageLifecycle. Server-side path:
+// builds a FeedEvent and pushes through the in-process feedListeners ring so
+// installed plugins see WormholeRequest / WormholeFail events alongside the
+// existing MessageSend / MessageDeliver / MessageFail family.
+export function emitWormholeLifecycle(input: WormholeLifecycleInput, deps: PeerExecApiDeps = {}) {
+  try {
+    const build = deps.buildWormholeLifecycleFeedEvent ?? buildWormholeLifecycleFeedEvent;
+    const push = deps.pushFeedEvent ?? pushFeedEvent;
+    push(build(input));
+  } catch {
+    // Hook errors must never change /api/peer/exec response semantics.
+  }
+}
 
 // --- Relay ---------------------------------------------------------------
 
@@ -89,6 +108,9 @@ export interface PeerExecApiDeps {
   isShellPeerAllowed?: typeof isShellPeerAllowed;
   resolvePeerUrl?: typeof resolvePeerUrl;
   relayToPeer?: typeof relayToPeer;
+  pushFeedEvent?: typeof pushFeedEvent;
+  buildWormholeLifecycleFeedEvent?: typeof buildWormholeLifecycleFeedEvent;
+  emitWormholeLifecycle?: (input: WormholeLifecycleInput) => void;
 }
 
 export function createPeerExecApi(deps: PeerExecApiDeps = {}) {
@@ -99,6 +121,7 @@ export function createPeerExecApi(deps: PeerExecApiDeps = {}) {
   const shellAllowed = deps.isShellPeerAllowed ?? isShellPeerAllowed;
   const resolvePeer = deps.resolvePeerUrl ?? resolvePeerUrl;
   const relay = deps.relayToPeer ?? relayToPeer;
+  const emitLifecycle = deps.emitWormholeLifecycle ?? ((input: WormholeLifecycleInput) => emitWormholeLifecycle(input, deps));
 
   const peerExecApi = new Elysia();
 
@@ -120,10 +143,17 @@ export function createPeerExecApi(deps: PeerExecApiDeps = {}) {
       set.status = 400; return { error: "bad_signature", expected: "[host:agent]" };
     }
 
+    const origin = `[${parsed.originHost}:${parsed.originAgent}]`;
+
     // 2. Session cookie check
     // Bypass ONLY when explicitly in dev mode. Default (unset NODE_ENV) = secure.
     const devBypass = process.env.NODE_ENV === "development";
     if (!devBypass && !hasValidCookie(headers)) {
+      emitLifecycle({
+        direction: "relayed", state: "failed",
+        cmd, args, origin, peer, trustTier: "denied",
+        status: 401, error: "no_session",
+      });
       set.status = 401; return { error: "no_session", hint: "GET /api/peer/session first" };
     }
 
@@ -132,6 +162,11 @@ export function createPeerExecApi(deps: PeerExecApiDeps = {}) {
     if (!readonly) {
       const allowed = shellAllowed(parsed.originHost);
       if (!allowed) {
+        emitLifecycle({
+          direction: "relayed", state: "failed",
+          cmd, args, origin, peer, trustTier: "denied",
+          status: 403, error: "shell_peer_denied",
+        });
         set.status = 403; return {
           error: "shell_peer_denied",
           origin: parsed.originHost,
@@ -142,24 +177,46 @@ export function createPeerExecApi(deps: PeerExecApiDeps = {}) {
       }
     }
 
+    const trustTier = readonly ? "readonly" : "shell_allowlisted";
+
     // 5. Resolve peer
     const peerUrl = resolvePeer(peer);
     if (!peerUrl) {
+      emitLifecycle({
+        direction: "relayed", state: "failed",
+        cmd, args, origin, peer, trustTier,
+        status: 404, error: "unknown_peer",
+      });
       set.status = 404; return { error: "unknown_peer", peer };
     }
 
     // 6 + 7. Relay and return
     try {
       const result = await relay(peerUrl, { cmd, args, signature });
+      const peerFailed = result.status >= 400;
+      emitLifecycle({
+        direction: "relayed", state: peerFailed ? "failed" : "delivered",
+        cmd, args, origin, peer, peerUrl, trustTier,
+        elapsedMs: result.elapsedMs,
+        status: result.status,
+        outputBytes: new TextEncoder().encode(result.output).byteLength,
+        ...(peerFailed ? { error: `peer_status_${result.status}` } : {}),
+      });
       return {
         output: result.output,
         from: result.from,
         elapsed_ms: result.elapsedMs,
         status: result.status,
-        trust_tier: readonly ? "readonly" : "shell_allowlisted",
+        trust_tier: trustTier,
       };
     } catch (err: any) {
-      set.status = 502; return { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) };
+      const reason = err?.message ?? String(err);
+      emitLifecycle({
+        direction: "relayed", state: "failed",
+        cmd, args, origin, peer, peerUrl, trustTier,
+        status: 502, error: reason,
+      });
+      set.status = 502; return { error: "relay_failed", peer: peerUrl, reason };
     }
   }, {
     body: t.Object({

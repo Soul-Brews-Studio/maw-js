@@ -46,6 +46,7 @@ describe("@maw-js/sdk workspace package", () => {
     // Must declare the top-level exports plugins rely on.
     expect(indexDts).toMatch(/export declare const maw/);
     expect(indexDts).toMatch(/export interface Identity/);
+    expect(indexDts).toMatch(/export declare function importPluginSymbol/);
     expect(pluginDts).toMatch(/export interface InvokeContext/);
     expect(pluginDts).toMatch(/export interface InvokeResult/);
   });
@@ -76,10 +77,10 @@ describe("@maw-js/sdk workspace package", () => {
         // Runtime import exposes the maw object
         writeFileSync(
           join(dir, "probe.ts"),
-          `import { maw } from "@maw-js/sdk";
+          `import { maw, importPluginSymbol } from "@maw-js/sdk";
 import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 const h: (ctx: InvokeContext) => Promise<InvokeResult> = async () => ({ ok: true });
-console.log(typeof maw.identity, typeof maw.federation, typeof maw.baseUrl, typeof h);
+console.log(typeof maw.identity, typeof maw.federation, typeof maw.baseUrl, typeof importPluginSymbol, typeof h);
 `,
         );
         const run = runBunChild({
@@ -87,7 +88,7 @@ console.log(typeof maw.identity, typeof maw.federation, typeof maw.baseUrl, type
           script: `await import(${JSON.stringify(pathToFileURL(join(dir, "probe.ts")).href)});`,
         });
         expect(run.code).toBe(0);
-        expect(run.stdout.trim()).toBe("function function function function");
+        expect(run.stdout.trim()).toBe("function function function function function");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

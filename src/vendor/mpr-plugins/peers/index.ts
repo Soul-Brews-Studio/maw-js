@@ -52,7 +52,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     "  remove    <alias>                         — remove (idempotent)",
     "  forget    <alias>                         — clear cached pubkey so next contact re-TOFUs (#804 Step 2)",
     "",
-    "storage: ~/.maw/peers.json (v1)",
+    "storage: maw state peers.json (v1; reads legacy ~/.maw/peers.json during migration)",
   ].join("\n");
 
   try {

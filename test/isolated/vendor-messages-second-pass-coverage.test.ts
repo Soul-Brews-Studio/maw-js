@@ -343,6 +343,6 @@ describe("vendor messages second pass coverage", () => {
 
     expect(result.ok).toBe(true);
     expect(result.output).toContain("no messages recorded");
-    expect(result.output).toContain(join(tmpHome, "config", "message-ledger.sqlite"));
+    expect(result.output).toContain(join(tmpHome, "message-ledger.sqlite"));
   });
 });

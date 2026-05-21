@@ -41,7 +41,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     "  remove   <sender> <target> [--yes]",
     "                                  — remove a pair (confirms unless --yes; symmetric match)",
     "",
-    "storage: <CONFIG_DIR>/trust.json (flat array of {sender, target, addedAt})",
+    "storage: <STATE_DIR>/trust.json (legacy <CONFIG_DIR>/trust.json is read if state is absent)",
     "",
     "note: Sub-B of #842 — primitive only. Caller integration (cross-scope",
     "      message routing in comm-send) lands in Sub-C.",

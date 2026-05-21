@@ -7,7 +7,7 @@
  *
  * Storage layout — one JSON file per pending message:
  *
- *   <CONFIG_DIR>/pending/<timestamp>-<random>.json
+ *   <STATE_DIR>/pending/<timestamp>-<random>.json
  *
  * Each file holds a {@link PendingMessage} record. The file-per-message
  * shape mirrors the scope plugin (#829) — disjoint files mean concurrent
@@ -22,7 +22,7 @@
  *
  * Atomic writes: tmp + rename(2), same trick as scope/peers/trust stores.
  *
- * Pure-ish: depends only on `fs` + `os`. No business logic — that lives
+ * Pure-ish: depends only on `fs` + XDG path helpers. No business logic — that lives
  * in `inbox/impl.ts` which composes this store with the comm-send hot
  * path. Sub-A/Sub-B kept their primitives equally surgical.
  */
@@ -36,8 +36,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
+import { mawConfigPath, mawStatePath } from "../../core/xdg";
 
 /**
  * On-disk pending message. Status starts at "pending" — `cmdApprove` /
@@ -61,19 +61,28 @@ export interface PendingMessage {
 export const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Resolve the active config dir at call time so tests can point the
- * directory at a temp path per-test by setting `MAW_CONFIG_DIR` /
- * `MAW_HOME` in beforeEach. Mirrors `scope/impl.ts::activeConfigDir`
- * and `trust/store.ts::activeConfigDir`.
+ * Resolve the active state dir at call time so tests can point the
+ * directory at a temp path per-test by setting `MAW_STATE_DIR` /
+ * `MAW_HOME` in beforeEach. Pending approvals are runtime state, not
+ * declarative config, so new writes live under the state resolver.
  */
-function activeConfigDir(): string {
-  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
-  if (process.env.MAW_CONFIG_DIR) return process.env.MAW_CONFIG_DIR;
-  return join(homedir(), ".config", "maw");
+export function pendingDir(): string {
+  return mawStatePath("pending");
 }
 
-export function pendingDir(): string {
-  return join(activeConfigDir(), "pending");
+function legacyPendingDir(): string {
+  return mawConfigPath("pending");
+}
+
+function candidatePendingDirs(): string[] {
+  const dirs = [pendingDir()];
+  const legacy = legacyPendingDir();
+  if (legacy !== dirs[0]) dirs.push(legacy);
+  return dirs;
+}
+
+function candidatePendingPaths(id: string): string[] {
+  return candidatePendingDirs().map((dir) => join(dir, `${id}.json`));
 }
 
 export function pendingPath(id: string): string {
@@ -127,14 +136,34 @@ export function savePending(input: {
   return record;
 }
 
+
+function readPendingFile(path: string): PendingMessage | null {
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as PendingMessage;
+    if (!parsed || typeof parsed.id !== "string") return null;
+    return parsed;
+  } catch {
+    // Skip corrupt files — operator may hand-edit, don't sink the whole list.
+    return null;
+  }
+}
+
+function existingPendingPath(id: string): string | null {
+  for (const path of candidatePendingPaths(id)) {
+    if (existsSync(path)) return path;
+  }
+  return null;
+}
+
 /**
  * Update an existing pending record in place — used by approve/reject
  * to flip `status`. Atomic write. Returns the updated record. Throws
  * if the id doesn't exist on disk.
  */
 export function updatePending(id: string, patch: Partial<PendingMessage>): PendingMessage {
-  const path = pendingPath(id);
-  if (!existsSync(path)) {
+  const path = existingPendingPath(id);
+  if (!path) {
     throw new Error(`pending message not found: ${id}`);
   }
   const current = JSON.parse(readFileSync(path, "utf-8")) as PendingMessage;
@@ -152,26 +181,16 @@ export function updatePending(id: string, patch: Partial<PendingMessage>): Pendi
  * deleted as a side effect — lazy GC.
  */
 export function loadPendingById(id: string): PendingMessage | null {
-  const path = pendingPath(id);
-  if (!existsSync(path)) return null;
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf-8");
-  } catch {
-    return null;
+  for (const path of candidatePendingPaths(id)) {
+    const parsed = readPendingFile(path);
+    if (!parsed) continue;
+    if (isExpired(parsed)) {
+      try { unlinkSync(path); } catch { /* ignore */ }
+      return null;
+    }
+    return parsed;
   }
-  let parsed: PendingMessage;
-  try {
-    parsed = JSON.parse(raw) as PendingMessage;
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed.id !== "string") return null;
-  if (isExpired(parsed)) {
-    try { unlinkSync(path); } catch { /* ignore */ }
-    return null;
-  }
-  return parsed;
+  return null;
 }
 
 /**
@@ -181,27 +200,26 @@ export function loadPendingById(id: string): PendingMessage | null {
  * the trust + scope loaders.
  */
 export function loadPending(): PendingMessage[] {
-  const dir = pendingDir();
-  if (!existsSync(dir)) return [];
-  let files: string[];
-  try {
-    files = readdirSync(dir).filter(f => f.endsWith(".json"));
-  } catch {
-    return [];
-  }
+  const seen = new Set<string>();
   const out: PendingMessage[] = [];
-  for (const f of files) {
-    const path = join(dir, f);
+  for (const dir of candidatePendingDirs()) {
+    if (!existsSync(dir)) continue;
+    let files: string[];
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf-8")) as PendingMessage;
-      if (!parsed || typeof parsed.id !== "string") continue;
+      files = readdirSync(dir).filter(f => f.endsWith(".json"));
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      const path = join(dir, f);
+      const parsed = readPendingFile(path);
+      if (!parsed || seen.has(parsed.id)) continue;
       if (isExpired(parsed)) {
         try { unlinkSync(path); } catch { /* ignore */ }
         continue;
       }
+      seen.add(parsed.id);
       out.push(parsed);
-    } catch {
-      // Skip corrupt files — operator may hand-edit, don't sink the whole list.
     }
   }
   // Oldest first — sort by sentAt, fall back to id (lexicographic).
@@ -215,14 +233,17 @@ export function loadPending(): PendingMessage[] {
 
 /** Delete a pending message file. Returns `true` if the file existed. */
 export function deletePending(id: string): boolean {
-  const path = pendingPath(id);
-  if (!existsSync(path)) return false;
-  try {
-    unlinkSync(path);
-    return true;
-  } catch {
-    return false;
+  let deleted = false;
+  for (const path of candidatePendingPaths(id)) {
+    if (!existsSync(path)) continue;
+    try {
+      unlinkSync(path);
+      deleted = true;
+    } catch {
+      // Keep trying any alternate legacy/state copy.
+    }
   }
+  return deleted;
 }
 
 /** True if the message's `sentAt` is older than {@link TTL_MS} ago. */

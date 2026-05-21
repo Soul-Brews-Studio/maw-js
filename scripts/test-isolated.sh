@@ -161,7 +161,10 @@ VERBOSE="${MAW_TEST_ISOLATED_VERBOSE:-0}"
 
 run_index=0
 for f in "${FILES[@]}"; do
-  log_file="$(mktemp "${TMPDIR:-/tmp}/maw-isolated-test.XXXXXX.log")"
+  # BSD/macOS mktemp only treats a trailing XXXXXX run as the template.
+  # Keep the Xs at the end so repeated isolated coverage runs cannot collide
+  # on a literal maw-isolated-test.XXXXXX.log path.
+  log_file="$(mktemp "${TMPDIR:-/tmp}/maw-isolated-test-log.XXXXXX")"
   if [[ -n "$COVERAGE_DIR" ]]; then
     run_index=$((run_index + 1))
     run_dir="$COVERAGE_DIR/run-$run_index"

@@ -6,6 +6,7 @@ import type { Snapshot, SnapshotSession, SnapshotWindow } from "../src/core/flee
 
 // Use temp dir for tests
 const TEST_DIR = join(tmpdir(), `maw-snapshot-test-${Date.now()}`);
+process.env.MAW_STATE_DIR = TEST_DIR;
 
 interface MockWindow { name: string; index: number; }
 interface MockSession { name: string; windows: MockWindow[]; }

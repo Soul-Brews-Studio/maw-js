@@ -6,11 +6,11 @@
 import type { LoadedPlugin } from "../../plugin/types";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { archiveToTmp } from "./plugins-ui";
+import { mawDataPath } from "../../core/xdg";
 
 function getPluginHome(): string {
-  return process.env.MAW_PLUGIN_HOME ?? join(homedir(), ".maw", "plugins");
+  return process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins");
 }
 
 export function doProfile(profile: "core" | "standard" | "full", discover: () => LoadedPlugin[]): void {

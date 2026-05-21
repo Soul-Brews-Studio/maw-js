@@ -11,14 +11,10 @@
 import { openSync, readSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
-import { homedir } from "os";
-
-function resolveHome(): string {
-  return process.env.MAW_HOME || join(homedir(), ".maw");
-}
+import { mawRuntimeHomeDir } from "../core/xdg";
 
 export function pidFile(): string {
-  return join(resolveHome(), "maw.pid");
+  return join(mawRuntimeHomeDir(), "maw.pid");
 }
 
 /** Check if a process with `pid` is alive. Uses signal 0 (no-op probe). */
@@ -158,7 +154,7 @@ export function acquirePidLock(
   instanceName: string | null,
   opts: { forceTakeover?: boolean } = {},
 ): void {
-  const home = resolveHome();
+  const home = mawRuntimeHomeDir();
   mkdirSync(home, { recursive: true });
   const file = pidFile();
 

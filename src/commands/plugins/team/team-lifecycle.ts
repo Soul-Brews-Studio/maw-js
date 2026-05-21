@@ -1,10 +1,37 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import { createHash } from "crypto";
 import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+function asciiLaunchPromptFileName(role: string): string {
+  const slug = role
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "agent";
+  const hash = createHash("sha256").update(role).digest("hex").slice(0, 8);
+  return `${slug}-${hash}-spawn-prompt.md`;
+}
+
+function writeLaunchPromptFile(teamName: string, role: string, prompt: string): string | null {
+  try {
+    const launchPromptDir = join(TEAMS_DIR, teamName);
+    mkdirSync(launchPromptDir, { recursive: true });
+    const launchPromptPath = join(launchPromptDir, asciiLaunchPromptFileName(role));
+    writeFileSync(launchPromptPath, prompt);
+    return launchPromptPath;
+  } catch {
+    // Best-effort mirror only: the durable vault prompt below is the source of
+    // truth, and non-exec spawns must not fail just because the tool store is
+    // temporarily read-only or partially migrated.
+    return null;
+  }
+}
 
 /**
  * Copy per-member inbox + findings to the vault mailbox, then archive the
@@ -226,6 +253,8 @@ export async function cmdTeamSpawn(
   // Write prompt file for the user to use
   const promptPath = join(teamDir, `${role}-spawn-prompt.md`);
   writeFileSync(promptPath, spawnPrompt);
+  const launchPromptPath = writeLaunchPromptFile(teamName, role, spawnPrompt) ?? promptPath;
+  const claudeCmd = `${cwdPrefix}claude --model ${model} --system-prompt-file ${shellQuote(launchPromptPath)}`;
 
   // Update manifest with new member
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
@@ -262,12 +291,11 @@ export async function cmdTeamSpawn(
     if (!process.env.TMUX) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
       return;
     }
     try {
       const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
-      const claudeCmd = `${cwdPrefix}claude --model ${model} --system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
       const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
       const agentId = `${role}@${teamName}`;
 
@@ -297,11 +325,11 @@ export async function cmdTeamSpawn(
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
     }
     return;
   }
 
   console.log();
-  console.log(`  \x1b[36mRun:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
+  console.log(`  \x1b[36mRun:\x1b[0m ${claudeCmd}`);
 }

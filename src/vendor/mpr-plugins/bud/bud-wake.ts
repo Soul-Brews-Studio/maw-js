@@ -117,7 +117,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // failed inside tmux (nested attach-session refused to nest, pane died immediately).
   if (opts.split && process.env.TMUX) {
     try {
-      const { cmdSplit } = await import("./internal/split-impl");
+      const { cmdSplit } = await import("../split/impl");
       await cmdSplit(name);
     } catch (e: any) {
       console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);

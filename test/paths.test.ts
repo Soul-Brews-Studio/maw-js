@@ -6,6 +6,7 @@ import * as realOs from "os";
 
 const originalMawHome = process.env.MAW_HOME;
 const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 let homeDir = mkdtempSync(join(tmpdir(), "maw-paths-home-"));
 
 mock.module("os", () => ({
@@ -22,6 +23,7 @@ beforeEach(() => {
   homeDir = mkdtempSync(join(tmpdir(), "maw-paths-home-"));
   delete process.env.MAW_HOME;
   delete process.env.MAW_CONFIG_DIR;
+  process.env.XDG_CONFIG_HOME = join(homeDir, ".config");
 });
 
 afterAll(() => {
@@ -29,6 +31,8 @@ afterAll(() => {
   else process.env.MAW_HOME = originalMawHome;
   if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
   rmSync(homeDir, { recursive: true, force: true });
 });
 

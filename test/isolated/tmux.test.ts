@@ -92,6 +92,23 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat");
     });
 
+    test("with a startup command", async () => {
+      await t.newSession("s1", { window: "main", cwd: "/home/nat", command: "bun dev; exec zsh" });
+      expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat 'bun dev; exec zsh'");
+    });
+
+    test("prints a requested format", async () => {
+      sshResult = "%99\n";
+      await expect(t.newSession("s1", { printFormat: "#{pane_id}" })).resolves.toBe("%99\n");
+      expect(commands[0]).toBe("tmux new-session -d -P -F '#{pane_id}' -s s1");
+    });
+
+    test("looks up the first pane id for an existing target", async () => {
+      sshResult = "%42\n%43\n";
+      await expect(t.firstPaneId("s1:lead")).resolves.toBe("%42");
+      expect(commands[0]).toBe("tmux list-panes -t s1:lead -F '#{pane_id}'");
+    });
+
     test("non-detached", async () => {
       await t.newSession("s1", { detached: false });
       expect(commands[0]).toBe("tmux new-session -s s1");
@@ -219,6 +236,16 @@ describe("Tmux", () => {
     test("generates split-window command", async () => {
       await t.splitWindow("oracles:page-1");
       expect(commands[0]).toBe("tmux split-window -t oracles:page-1");
+    });
+
+    test("can print the new pane id while starting in a cwd with a command", async () => {
+      sshResult = "%77\n";
+      await expect(t.splitWindow(undefined, {
+        cwd: "/tmp/work",
+        command: "bun dev; exec zsh",
+        printFormat: "#{pane_id}",
+      })).resolves.toBe("%77\n");
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -c /tmp/work 'bun dev; exec zsh'");
     });
   });
 

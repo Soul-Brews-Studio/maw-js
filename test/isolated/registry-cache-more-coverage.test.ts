@@ -10,9 +10,11 @@ import { join } from "path";
 
 const root = mkdtempSync(join(tmpdir(), "maw-registry-cache-"));
 const cacheFile = join(root, "oracles.json");
+const legacyCacheFile = join(root, "legacy-oracles.json");
 
 mock.module(import.meta.resolve("../../src/core/fleet/registry-oracle-types.ts"), () => ({
   CACHE_FILE: cacheFile,
+  LEGACY_CACHE_FILE: legacyCacheFile,
   STALE_HOURS: 24,
 }));
 
@@ -32,11 +34,13 @@ function cache(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   rmSync(cacheFile, { force: true });
+  rmSync(legacyCacheFile, { force: true });
   mkdirSync(root, { recursive: true });
 });
 
 afterEach(() => {
   rmSync(cacheFile, { force: true });
+  rmSync(legacyCacheFile, { force: true });
 });
 
 describe("registry-oracle-cache", () => {
@@ -76,5 +80,22 @@ describe("registry-oracle-cache", () => {
 
     expect(existsSync(target)).toBe(true);
     expect(JSON.parse(readFileSync(target, "utf8"))).toMatchObject({ ghq_root: "/fresh" });
+  });
+
+  test("default cache reads legacy config cache and writes forward to cache path", () => {
+    writeFileSync(legacyCacheFile, JSON.stringify(cache({
+      legacyKey: "preserved",
+      oracles: [{ name: "legacy", repo: "legacy-oracle" }],
+    })));
+
+    expect(readCache()?.oracles).toEqual([{ name: "legacy", repo: "legacy-oracle" }]);
+
+    writeCache(cache({ oracles: [{ name: "new", repo: "new-oracle" }] }));
+
+    expect(existsSync(cacheFile)).toBe(true);
+    expect(JSON.parse(readFileSync(cacheFile, "utf8"))).toMatchObject({
+      legacyKey: "preserved",
+      oracles: [{ name: "new", repo: "new-oracle" }],
+    });
   });
 });

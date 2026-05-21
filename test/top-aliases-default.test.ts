@@ -12,6 +12,7 @@ import { UserError } from "../src/core/util/user-error";
 function makeDeps() {
   const calls = {
     tmuxLs: [] as unknown[],
+    layout: [] as unknown[][],
     wake: [] as unknown[][],
     new: [] as unknown[][],
     preflight: [] as unknown[],
@@ -21,6 +22,7 @@ function makeDeps() {
   };
   const deps: TopAliasHandlerDeps = {
     cmdTmuxLs: async (opts) => { calls.tmuxLs.push(opts); },
+    cmdTmuxLayout: async (...args) => { calls.layout.push(args); },
     cmdWake: async (...args) => { calls.wake.push(args); },
     cmdNew: async (...args) => { calls.new.push(args); },
     cmdPreflight: async (opts) => { calls.preflight.push(opts); },
@@ -43,13 +45,12 @@ describe("top alias resolution table", () => {
 
   test("argv rewrite aliases preserve remaining argv", () => {
     const cases: Array<[string[], string[]]> = [
-      [["A", "neo"], ["tmux", "attach", "neo"]],
+      [["A", "neo"], ["attach", "neo"]],
       [["kill", "pane"], ["tmux", "kill", "pane"]],
       [["split", "target"], ["split", "target"]],
       [["open", "target"], ["tmux", "open", "target"]],
       [["close", "target"], ["tmux", "close", "target"]],
       [["t", "send"], ["team", "send"]],
-      [["layout", "tiled"], ["team", "layout", "tiled"]],
       [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
       [["cleanup"], ["team", "cleanup", "--zombie-agents"]],
@@ -62,11 +63,13 @@ describe("top alias resolution table", () => {
       expect(resolveTopAlias(input)).toEqual({ kind: "argv", argv: expected });
     }
     expect(ALIAS_DESCRIPTIONS.cleanup).toContain("zombie");
+    expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
     expect(ALIAS_DESCRIPTIONS.bring).toContain("Bring");
   });
 
   test("direct aliases return handler specs and trimmed argv", () => {
     expect(resolveTopAlias(["ls", "-v"])).toEqual({ kind: "direct", handler: "cmdLs", argv: ["-v"] });
+    expect(resolveTopAlias(["layout", "tiled"])).toEqual({ kind: "direct", handler: "cmdLayout", argv: ["tiled"] });
     expect(resolveTopAlias(["bring", "neo"])).toEqual({
       kind: "direct",
       handler: "../commands/shared/wake-cmd:cmdBring",
@@ -108,6 +111,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
     });
     expect(parseLsAliasOpts(["--json", "--all", "--recent", "12", "--compact", "--verbose"])).toEqual({
       all: true,
@@ -125,6 +129,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       recent: true,
     });
     expect(parseLsAliasOpts(["--active", "1h"])).toEqual({
@@ -133,6 +138,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       active: true,
       activeThresholdSec: 3600,
     });
@@ -145,12 +151,21 @@ describe("top alias option parsers", () => {
     });
   });
 
-  test("bring opts default to split and reject missing oracle", () => {
+  test("bring opts default to split, parse #1816 flags, and reject missing oracle", () => {
     expect(parseBringArgs(["neo", "--tab", "--split", "-e", "codex"])).toEqual({
       oracle: "neo",
       opts: { split: true, engine: "codex" },
     });
     expect(parseBringArgs(["neo"])).toEqual({ oracle: "neo", opts: { split: true } });
+    expect(parseBringArgs(["neo", "--pick", "--to", "50-mawjs:maw-js-1816"])).toEqual({
+      oracle: "neo",
+      opts: {
+        split: true,
+        pick: true,
+        session: "50-mawjs",
+        splitTarget: "50-mawjs:maw-js-1816",
+      },
+    });
 
     const errors: string[] = [];
     expect(() => parseBringArgs(["--tab"], (line) => errors.push(line))).toThrow(UserError);
@@ -175,6 +190,21 @@ describe("direct handler invocation", () => {
       active: true,
       activeThresholdSec: 3600,
     }]);
+  });
+
+  test("layout help owns the top-level verb and applies presets to the current window", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("cmdLayout", ["--help"], deps);
+    expect(calls.logs.join("\n")).toContain("usage: maw layout <preset>");
+    expect(calls.logs.join("\n")).toContain("maw tmux layout <target> <preset>");
+    expect(calls.layout).toEqual([]);
+
+    await invokeDirectHandler("cmdLayout", ["tiled"], deps);
+    expect(calls.layout).toEqual([[".", "tiled"]]);
+
+    await expect(invokeDirectHandler("cmdLayout", [], deps)).rejects.toThrow("layout: missing preset");
+    expect(calls.errors.join("\n")).toContain("usage: maw layout <preset>");
   });
 
   test("wake help prints usage without invoking wake", async () => {
@@ -262,10 +292,20 @@ describe("direct handler invocation", () => {
 
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["--help"], deps);
     expect(calls.logs.join("\n")).toContain("usage: maw bring");
+    expect(calls.logs.join("\n")).toContain("--pick prompts");
 
     calls.logs = [];
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--dry-run", "--main", "--task", "fix", "-e", "codex"], deps);
-    expect(calls.wake).toEqual([["neo", { task: "fix", dryRun: true, noRehydrate: true, split: true, engine: "codex" }]]);
+    expect(calls.wake).toEqual([["neo", { task: "fix", dryRun: true, noRehydrate: true, split: true, bringAlias: true, engine: "codex" }]]);
+
+    calls.wake = [];
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--to", "50-mawjs:maw-js-1816"], deps);
+    expect(calls.wake).toEqual([["neo", {
+      session: "50-mawjs",
+      splitTarget: "50-mawjs:maw-js-1816",
+      split: true,
+      bringAlias: true,
+    }]]);
   });
 
   test("new and preflight handlers dispatch to their static imports", async () => {

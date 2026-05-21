@@ -1,4 +1,5 @@
 import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
+import { resolveFleetWindowSessionTarget } from "../../../core/matcher/resolve-target";
 
 /**
  * Resolve a `maw attach <target>` invocation into a tiered match.
@@ -46,6 +47,29 @@ export type ResolveResult =
 
 const stripDash = (s: string) => s.replace(/-+$/, "");
 
+function normalizeAttachQuery(target: string): string {
+  const trimmed = target.trim();
+  const colon = trimmed.indexOf(":");
+  if (colon < 0) return trimmed;
+  const left = trimmed.slice(0, colon);
+  const right = trimmed.slice(colon + 1);
+  // Node-qualified targets such as `m5:mawjs` should resolve the oracle part
+  // locally. Numeric window/pane suffixes (`neo:0`, `neo:1.2`) are tmux
+  // syntax and must remain attached to the session target.
+  if (left && right && !/^\d+(?:\.\d+)?$/.test(right)) return right;
+  return trimmed;
+}
+
+function stripFleetAndOracle(name: string): string {
+  return name.toLowerCase().replace(/^\d+-/, "").replace(/-oracle$/i, "");
+}
+
+function legacyDashlessMatch(name: string, target: string): boolean {
+  const t = target.toLowerCase();
+  if (!t.includes("-")) return false;
+  return stripFleetAndOracle(name).replace(/-/g, "") === stripFleetAndOracle(t).replace(/-/g, "");
+}
+
 /**
  * Try every reasonable name comparison: exact, slot-suffix
  * (`-${target}`), and dash-trimmed stem. Matches the conventions
@@ -65,7 +89,7 @@ const stripDash = (s: string) => s.replace(/-+$/, "");
 function nameMatches(name: string, target: string, fuzzy: boolean = false): boolean {
   const n = name.toLowerCase();
   const t = target.toLowerCase();
-  if (n === t || n.endsWith(`-${t}`) || n === `${t}-oracle` || n.endsWith(`-${t}-oracle`) || stripDash(n) === stripDash(t)) return true;
+  if (n === t || n.endsWith(`-${t}`) || n === `${t}-oracle` || n.endsWith(`-${t}-oracle`) || stripDash(n) === stripDash(t) || legacyDashlessMatch(n, t)) return true;
   if (fuzzy && t.length > 0 && n.includes(t)) return true;
   return false;
 }
@@ -85,6 +109,7 @@ export async function resolveAttachTarget(
   deps: ResolveDeps,
   opts: { fuzzy?: boolean } = {},
 ): Promise<ResolveResult> {
+  target = normalizeAttachQuery(target);
   const fuzzy = Boolean(opts.fuzzy);
   const sessions = (await deps.listSessions())
     .filter(s => !isInfrastructureChannelSessionName(s.name, target));
@@ -99,6 +124,23 @@ export async function resolveAttachTarget(
       tier: 1,
       sessionName: runningMatches[0].name,
       ambiguousCandidates: runningMatches.map(s => s.name),
+    };
+  }
+
+  // Tier 1b — fleet window/repo aliases can still resolve custom sessions
+  // when the visible tmux window name is generic but metadata carries the
+  // oracle repo (#1807/#1812). Keep this after normal matching so a canonical
+  // session plus an alias session is surfaced as ambiguity, not silently
+  // narrowed to the alias.
+  const windowAlias = resolveFleetWindowSessionTarget(target, sessions);
+  if (windowAlias.kind === "fuzzy" || windowAlias.kind === "exact") {
+    return { tier: 1, sessionName: windowAlias.match.name };
+  }
+  if (windowAlias.kind === "ambiguous") {
+    return {
+      tier: 1,
+      sessionName: windowAlias.candidates[0].name,
+      ambiguousCandidates: windowAlias.candidates.map(s => s.name),
     };
   }
 

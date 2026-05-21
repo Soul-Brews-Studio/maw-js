@@ -208,7 +208,7 @@ export async function cmdView(
       await t.set(sessionName, "status", "off");
     }
     if (splitAnchor !== undefined) {
-      const { cmdSplit } = await import("./internal/split-impl");
+      const { cmdSplit } = await import("../split/impl");
       const anchorPane = typeof splitAnchor === "string"
         ? await resolveAnchorPane(splitAnchor)
         : undefined;
@@ -275,7 +275,7 @@ export async function cmdView(
   // detaching+attaching the whole client. Explicit anchor breaks the
   // active-pane-drift that caused the fractal-split cascade (#545/#546).
   if (splitAnchor !== undefined) {
-    const { cmdSplit } = await import("./internal/split-impl");
+    const { cmdSplit } = await import("../split/impl");
     const anchorPane = typeof splitAnchor === "string"
       ? await resolveAnchorPane(splitAnchor)
       : undefined;

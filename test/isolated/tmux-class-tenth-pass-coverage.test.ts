@@ -99,7 +99,7 @@ describe("tmux-class tenth-pass isolated coverage", () => {
       .queue("new-session", "")
       .queue("set-option", new Error("renumber option unavailable"));
 
-    await expect(t.newSession("alpha")).resolves.toBeUndefined();
+    await expect(t.newSession("alpha")).resolves.toBe("");
 
     expect(t.calls).toEqual([
       { subcommand: "new-session", args: ["-d", "-s", "alpha"] },

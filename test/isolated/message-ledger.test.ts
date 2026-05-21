@@ -9,18 +9,26 @@ import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
 
 let tmp: string;
+let configDir: string;
+let dataDir: string;
 const prevConfig = process.env.MAW_CONFIG_DIR;
+const prevData = process.env.MAW_DATA_DIR;
 const prevHome = process.env.MAW_HOME;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "maw-message-ledger-"));
+  configDir = join(tmp, "config");
+  dataDir = join(tmp, "data");
   delete process.env.MAW_HOME;
-  process.env.MAW_CONFIG_DIR = tmp;
+  process.env.MAW_CONFIG_DIR = configDir;
+  process.env.MAW_DATA_DIR = dataDir;
 });
 
 afterEach(() => {
   if (prevConfig === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = prevConfig;
+  if (prevData === undefined) delete process.env.MAW_DATA_DIR;
+  else process.env.MAW_DATA_DIR = prevData;
   if (prevHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = prevHome;
   rmSync(tmp, { recursive: true, force: true });
@@ -78,7 +86,7 @@ describe("messages plugin ledger", () => {
       signed: true,
     });
 
-    expect(messageLedgerDbPath()).toBe(join(tmp, "message-ledger.sqlite"));
+    expect(messageLedgerDbPath()).toBe(join(dataDir, "message-ledger.sqlite"));
     expect(listMessageLedgerEvents({ limit: 10 })).toHaveLength(2);
     expect(listMessageLedgerEvents({ state: "failed" })).toMatchObject([{ id: "m2", error: "pane not idle" }]);
     expect(listMessageLedgerEvents({ q: "sqlite" })).toMatchObject([{ id: "m1" }]);

@@ -19,8 +19,9 @@
  *  4. Legacy manifests (no artifact field) still load — warn once, allow.
  */
 
-import { existsSync, readFileSync, readdirSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
+import { join, resolve, sep } from "path";
+import { pathToFileURL } from "url";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
 import { verbose, info } from "../cli/verbosity";
@@ -60,13 +61,72 @@ export { invokePlugin } from "./registry-invoke";
  * bun invocation is a new process, cache starts empty).
  */
 let _discoverCache: LoadedPlugin[] | null = null;
+const _moduleSymbolCache = new Map<string, unknown>();
 
 /** Clear the discovery cache. For install-flow + tests. Also flushes the
  *  profile-resolver cache so a re-scan picks up new plugins under the
  *  active profile filter (#890). */
 export function resetDiscoverCache(): void {
   _discoverCache = null;
+  _moduleSymbolCache.clear();
   resetProfileFilterCache();
+}
+
+export interface ImportPluginSymbolDeps {
+  discoverPackages?: () => LoadedPlugin[];
+}
+
+function resolvePluginModulePath(plugin: LoadedPlugin): string {
+  const modulePath = plugin.manifest.module?.path;
+  if (!modulePath) throw new Error(`plugin '${plugin.manifest.name}' does not declare module.path`);
+  const resolved = resolve(plugin.dir, modulePath);
+  const pluginRoot = realpathSync(plugin.dir);
+  const realPath = realpathSync(resolved);
+  if (realPath !== pluginRoot && !realPath.startsWith(pluginRoot + sep)) {
+    throw new Error(`plugin '${plugin.manifest.name}' module.path escapes plugin dir: ${modulePath}`);
+  }
+  return realPath;
+}
+
+/**
+ * Import a whitelisted named symbol from another plugin's module surface.
+ *
+ * Plugins opt in via plugin.json:
+ *   { "module": { "path": "./lib.ts", "exports": ["helper"] } }
+ *
+ * This keeps cross-plugin reuse out of the core SDK while preserving an
+ * explicit manifest allowlist. Disabled plugins are not importable, so the
+ * module surface cannot bypass operator policy.
+ */
+export async function importPluginSymbol<T = unknown>(
+  pluginName: string,
+  symbolName: string,
+  deps: ImportPluginSymbolDeps = {},
+): Promise<T> {
+  if (!pluginName) throw new Error("importPluginSymbol: pluginName is required");
+  if (!symbolName) throw new Error("importPluginSymbol: symbolName is required");
+
+  const plugins = (deps.discoverPackages ?? discoverPackages)();
+  const plugin = plugins.find(p => p.manifest.name === pluginName);
+  if (!plugin) throw new Error(`plugin '${pluginName}' not found`);
+  if (plugin.disabled) throw new Error(`plugin '${pluginName}' is disabled`);
+  const moduleSurface = plugin.manifest.module;
+  if (!moduleSurface) throw new Error(`plugin '${pluginName}' does not declare a module surface`);
+  if (!moduleSurface.exports.includes(symbolName)) {
+    throw new Error(`plugin '${pluginName}' does not export '${symbolName}'`);
+  }
+
+  const cacheKey = `${plugin.dir}\0${plugin.manifest.name}\0${symbolName}`;
+  if (_moduleSymbolCache.has(cacheKey)) return _moduleSymbolCache.get(cacheKey) as T;
+
+  const modulePath = resolvePluginModulePath(plugin);
+  const mod = await import(pathToFileURL(modulePath).href);
+  if (!(symbolName in mod)) {
+    throw new Error(`plugin '${pluginName}' module did not provide export '${symbolName}'`);
+  }
+  const value = mod[symbolName] as T;
+  _moduleSymbolCache.set(cacheKey, value);
+  return value;
 }
 
 /**

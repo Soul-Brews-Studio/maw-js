@@ -12,6 +12,7 @@ import { tmpdir } from "os";
 
 let rootDir: string;
 let originalConfigDir: string | undefined;
+let originalStateDir: string | undefined;
 
 const commSendCalls: Array<{ query: string; message: string }> = [];
 let psiPath: string | undefined = "";
@@ -50,7 +51,9 @@ const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relative
 beforeEach(() => {
   rootDir = mkdtempSync(join(tmpdir(), "maw-inbox-coverage-"));
   originalConfigDir = process.env.MAW_CONFIG_DIR;
+  originalStateDir = process.env.MAW_STATE_DIR;
   process.env.MAW_CONFIG_DIR = rootDir;
+  process.env.MAW_STATE_DIR = join(rootDir, "state");
   psiPath = rootDir;
   commSendCalls.length = 0;
 });
@@ -290,6 +293,11 @@ afterEach(() => {
     delete process.env.MAW_CONFIG_DIR;
   } else {
     process.env.MAW_CONFIG_DIR = originalConfigDir;
+  }
+  if (originalStateDir === undefined) {
+    delete process.env.MAW_STATE_DIR;
+  } else {
+    process.env.MAW_STATE_DIR = originalStateDir;
   }
   delete process.env.MAW_TEST_MODE;
   try {

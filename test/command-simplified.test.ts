@@ -1,4 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 // Drives the pure command builder with a per-test mutable fixture so we can
 // exercise the post-#541 branches without being affected by Bun's process-global
@@ -170,5 +173,38 @@ describe("buildCommand — post-#541 contract", () => {
         expect(inDir.startsWith("cd ")).toBe(false);
       }
     }
+  });
+});
+
+
+describe("buildCommand — Discord channel auto-detect", () => {
+  test("buildCommandInDir adds Discord channels for .discord Claude repos and fallback", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-discord-"));
+    mkdirSync(join(tmp, ".discord"));
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions --continue" };
+
+    const out = buildCommandInDir("xiaoer-oracle", tmp);
+    const [primary, fallback] = out.split(" || ");
+
+    expect(primary).toContain("--channels plugin:discord@claude-plugins-official");
+    expect(fallback).toContain("--channels plugin:discord@claude-plugins-official");
+  });
+
+  test("buildCommandInDir leaves non-Discord repos and non-Claude engines unchanged", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-normal-"));
+    fakeConfig.commands = { default: "claude --continue", codex: "codex --search" };
+
+    expect(buildCommandInDir("plain-oracle", tmp)).not.toContain("--channels");
+
+    mkdirSync(join(tmp, ".discord"));
+    expect(buildCommandInDir("plain-oracle", tmp, "codex")).toBe("codex --search");
+  });
+
+  test("buildCommandInDir does not duplicate existing channels", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-channel-"));
+    mkdirSync(join(tmp, ".discord"));
+    fakeConfig.commands = { default: "claude --channels plugin:custom" };
+
+    expect(buildCommandInDir("bot-oracle", tmp)).toBe("claude --channels plugin:custom");
   });
 });

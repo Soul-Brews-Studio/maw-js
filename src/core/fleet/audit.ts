@@ -1,9 +1,9 @@
-import { join } from "path";
-import { appendFileSync, readFileSync, existsSync } from "fs";
+import { dirname } from "path";
+import { appendFileSync, readFileSync, existsSync, mkdirSync } from "fs";
 import os from "os";
-import { CONFIG_DIR } from "../paths";
+import { mawStatePath } from "../xdg";
 
-const AUDIT_FILE = join(CONFIG_DIR, "audit.jsonl");
+const AUDIT_FILE = mawStatePath("audit.jsonl");
 
 export interface AuditEntry {
   ts: string;
@@ -14,7 +14,7 @@ export interface AuditEntry {
   result?: string;
 }
 
-/** Append a structured audit log entry to ~/.config/maw/audit.jsonl */
+/** Append a structured audit log entry to maw's runtime state audit log. */
 export function logAudit(cmd: string, args: string[], result?: string): void {
   const entry: AuditEntry = {
     ts: new Date().toISOString(),
@@ -25,6 +25,7 @@ export function logAudit(cmd: string, args: string[], result?: string): void {
   };
   if (result !== undefined) (entry as any).result = result;
   try {
+    mkdirSync(dirname(AUDIT_FILE), { recursive: true });
     appendFileSync(AUDIT_FILE, JSON.stringify(entry) + "\n", "utf-8");
   } catch {
     // Silent fail — audit should never break the CLI
@@ -44,7 +45,7 @@ export interface AnomalyEntry {
 }
 
 /**
- * Append a structured anomaly entry to ~/.config/maw/audit.jsonl.
+ * Append a structured anomaly entry to maw's runtime state audit log.
  * Optional `filePath` overrides the default path (for test isolation).
  */
 export function logAnomaly(
@@ -53,6 +54,7 @@ export function logAnomaly(
   filePath = AUDIT_FILE,
 ): void {
   try {
+    if (filePath === AUDIT_FILE) mkdirSync(dirname(filePath), { recursive: true });
     const entry: AnomalyEntry = {
       ts: new Date().toISOString(),
       kind: "anomaly",

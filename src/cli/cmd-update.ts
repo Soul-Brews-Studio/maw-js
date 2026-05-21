@@ -9,6 +9,7 @@ import { homedir } from "os";
 import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
 import { withUpdateLock } from "./update-lock";
+import { mawDataPath } from "../core/xdg";
 
 /** @internal exported for default-run coverage tests. */
 export function clearBunGlobalResolverState(home = homedir()): () => void {
@@ -476,7 +477,7 @@ export async function runUpdate(args: string[]): Promise<void> {
 
     // Refresh bundled plugin symlinks (point to new install)
     try {
-      const pluginDir = join(homedir(), ".maw", "plugins");
+      const pluginDir = mawDataPath("plugins");
       mkdirSync(pluginDir, { recursive: true });
       const mawBin = execSync("which maw", { encoding: "utf-8" }).trim();
       const mawSrc = dirname(realpathSync(mawBin));

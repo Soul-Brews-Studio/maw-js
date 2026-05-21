@@ -198,6 +198,7 @@ describe("cmdTmuxLs — mocked pane listing", () => {
       { id: "%3", target: "odin-discord:0.0", command: "claude", title: "channel", lastActivity: now, source: "m5" },
       { id: "%4", target: "alpha-worker:0.0", command: "node", title: "worker", lastActivity: now, source: "alpha" },
       { id: "%5", target: "homekeeper:0.0", command: "node", title: "mentions alpha but is not alpha", lastActivity: now, source: "m5" },
+      { id: "%6", target: "50-discord:0.0", command: "claude", title: "numbered channel", lastActivity: now, source: "m5" },
     ];
 
     let out = await captureLogs(() => cmdTmuxLs({ all: true, json: true }));
@@ -214,9 +215,34 @@ describe("cmdTmuxLs — mocked pane listing", () => {
       "odin-discord",
       "alpha-worker",
       "homekeeper",
+      "50-discord",
     ]);
 
     out = await captureLogs(() => cmdTmuxLs({ all: true, json: true, filter: "alpha" }));
     expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual(["alpha-worker"]);
   });
+
+  test("compact oracle ls hides non-fleet junk sessions by default and --all roster shows them", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fleetFiles = ["50-mawjs.json"];
+    panes = [
+      { id: "%1", target: "50-mawjs:0.0", command: "claude", title: "fleet", lastActivity: now },
+      { id: "%2", target: "--help:0.0", command: "zsh", title: "junk", lastActivity: now - 999 },
+      { id: "%3", target: "foo:0.0", command: "zsh", title: "test", lastActivity: now - 999 },
+      { id: "%4", target: "52---help:0.0", command: "zsh", title: "option artifact", lastActivity: now - 999 },
+    ];
+
+    let out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, oracleOnly: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).not.toContain("--help");
+    expect(out.logs).not.toContain("foo");
+    expect(out.logs).not.toContain("52---help");
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, roster: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).toContain("--help");
+    expect(out.logs).toContain("foo");
+    expect(out.logs).toContain("52---help");
+  });
+
 });

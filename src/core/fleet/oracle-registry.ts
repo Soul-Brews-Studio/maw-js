@@ -3,7 +3,7 @@
  *
  * Scans ghq root for repos with ψ/ directories (the authoritative signal
  * for "this is an oracle"), merges with fleet config lineage data, and
- * caches to ~/.config/maw/oracles.json.
+ * caches to mawCachePath("oracles.json").
  *
  * See: Soul-Brews-Studio/maw-js#208
  *

@@ -2,7 +2,7 @@
  * Read-only peer alias resolution for `maw ls <peer>` and `maw ls --all`.
  *
  * Mirrors plugins/wake/internal/peer-resolve.ts in shape — reads the same
- * `~/.maw/peers.json` store managed by `maw peers add/list/rm`. Adds
+ * maw state `peers.json` store managed by `maw peers add/list/rm`. Adds
  * `resolveAllPeers()` for the `--all` aggregation path. Path resolution
  * is a function (not a const) so tests can override via `PEERS_FILE`.
  *
@@ -13,6 +13,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { mawStatePath } from "../../../../core/xdg";
 
 export interface ResolvedPeer {
   alias: string;
@@ -21,11 +22,24 @@ export interface ResolvedPeer {
 }
 
 function peersPath(): string {
-  return process.env.PEERS_FILE || join(homedir(), ".maw", "peers.json");
+  return process.env.PEERS_FILE || mawStatePath("peers.json");
+}
+
+function legacyPeersPath(): string | null {
+  if (process.env.PEERS_FILE || process.env.MAW_HOME) return null;
+  const legacy = join(process.env.HOME || homedir(), ".maw", "peers.json");
+  return legacy === peersPath() ? null : legacy;
+}
+
+function readablePeersPath(): string {
+  const primary = peersPath();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyPeersPath();
+  return legacy && existsSync(legacy) ? legacy : primary;
 }
 
 function readPeers(): Record<string, { url?: string; node?: string }> | null {
-  const path = peersPath();
+  const path = readablePeersPath();
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8"));

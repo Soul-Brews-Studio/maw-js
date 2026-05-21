@@ -26,11 +26,13 @@ export {
   checkOrphanRoutes,
   checkDuplicatePeers,
   checkSelfPeer,
+  checkPeerVersionSkew,
 } from "./fleet-doctor-checks";
 export type { FleetEntryLike } from "./fleet-doctor-checks-repo";
 export { checkMissingRepos } from "./fleet-doctor-checks-repo";
 export { checkStalePeers } from "./fleet-doctor-stale-peers";
 export { autoFix } from "./fleet-doctor-fixer";
+export { checkRebootReadiness } from "./fleet-doctor-reboot";
 
 import { join } from "path";
 import { loadConfig } from "../../config";
@@ -43,18 +45,57 @@ import {
   checkDuplicatePeers,
   checkSelfPeer,
   checkMissingAgents,
+  checkPeerVersionSkew,
 } from "./fleet-doctor-checks";
 import { checkMissingRepos } from "./fleet-doctor-checks-repo";
 import { checkStalePeers } from "./fleet-doctor-stale-peers";
 import { autoFix, C, colorFor, iconFor } from "./fleet-doctor-fixer";
 import type { DoctorFinding, Level } from "./fleet-doctor-checks";
+import { checkRebootReadiness } from "./fleet-doctor-reboot";
 
 interface DoctorOptions {
   fix?: boolean;
   json?: boolean;
+  reboot?: boolean;
+}
+
+function localMawVersion(): string | undefined {
+  try {
+    const pkg = require("../../../package.json") as { version?: unknown };
+    return typeof pkg.version === "string" && pkg.version.length > 0 ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
+  if (opts.reboot) {
+    const checks = checkRebootReadiness();
+    if (opts.json) {
+      console.log(JSON.stringify({ reboot: checks }, null, 2));
+      const hasFail = checks.some((check) => check.level === "fail");
+      const hasWarn = checks.some((check) => check.level === "warn");
+      process.exit(hasFail ? 2 : hasWarn ? 1 : 0);
+    }
+
+    console.log();
+    console.log(`  ${C.blue}${C.bold}🩺 Fleet Reboot Doctor${C.reset}`);
+    console.log();
+    for (const check of checks) {
+      const color = check.level === "pass" ? C.green : check.level === "fail" ? C.red : C.yellow;
+      const icon = check.level === "pass" ? "✓" : check.level === "fail" ? "✗" : "!";
+      console.log(`  ${color}${icon}${C.reset} ${C.bold}${check.name}${C.reset}  ${check.message}`);
+      if (check.fix) console.log(`     ${C.gray}fix: ${check.fix}${C.reset}`);
+    }
+    console.log();
+
+    const failures = checks.filter((check) => check.level === "fail").length;
+    const warnings = checks.filter((check) => check.level === "warn").length;
+    console.log(`  ${C.gray}${failures} fail${failures === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}${C.reset}`);
+    console.log();
+    process.exit(failures > 0 ? 2 : warnings > 0 ? 1 : 0);
+  }
+
   const config = loadConfig();
   const localNode = config.node || "local";
   const peers = config.namedPeers || [];
@@ -82,6 +123,7 @@ export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
 
   const { findings: staleFindings, identities } = await checkStalePeers(peers);
   findings.push(...staleFindings);
+  findings.push(...checkPeerVersionSkew(localMawVersion(), identities));
 
   const peerAgents: Record<string, string[]> = {};
   for (const id of Object.values(identities)) {

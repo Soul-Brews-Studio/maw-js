@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 const originalPeersFile = process.env.PEERS_FILE;
+const originalHome = process.env.HOME;
+const originalMawHome = process.env.MAW_HOME;
+const originalMawStateDir = process.env.MAW_STATE_DIR;
 let root = "";
 let peersFile = "";
 
@@ -12,6 +15,9 @@ const killPeerResolve = await import(
 );
 const wakePeerResolve = await import(
   "../../src/vendor/mpr-plugins/wake/internal/peer-resolve.ts?vendor-peer-resolve-coverage-wake"
+);
+const lsPeerResolve = await import(
+  "../../src/vendor/mpr-plugins/ls/internal/peer-resolve.ts?vendor-peer-resolve-coverage-ls"
 );
 
 beforeEach(() => {
@@ -23,6 +29,12 @@ beforeEach(() => {
 afterEach(() => {
   if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
   else process.env.PEERS_FILE = originalPeersFile;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalMawHome === undefined) delete process.env.MAW_HOME;
+  else process.env.MAW_HOME = originalMawHome;
+  if (originalMawStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalMawStateDir;
   if (root && existsSync(root)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -74,5 +86,39 @@ describe("vendor kill/wake peer alias resolvers", () => {
       url: "https://mba.local",
       node: null,
     });
+  });
+
+  test("state store wins, with legacy home peers as a read fallback", () => {
+    delete process.env.PEERS_FILE;
+    delete process.env.MAW_HOME;
+    process.env.HOME = join(root, "home");
+    process.env.MAW_STATE_DIR = join(root, "state");
+
+    const legacyDir = join(process.env.HOME, ".maw");
+    const legacyFile = join(legacyDir, "peers.json");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyFile, JSON.stringify({
+      version: 1,
+      peers: {
+        white: { url: "http://legacy-white:3456", node: "legacy-node" },
+      },
+    }), "utf-8");
+
+    expect(killPeerResolve.resolvePeer("white")).toEqual({ url: "http://legacy-white:3456", node: "legacy-node" });
+    expect(wakePeerResolve.resolvePeer("white")).toEqual({ url: "http://legacy-white:3456", node: "legacy-node" });
+    expect(lsPeerResolve.resolvePeer("white")).toEqual({ alias: "white", url: "http://legacy-white:3456", node: "legacy-node" });
+    expect(lsPeerResolve.resolveAllPeers()).toEqual([{ alias: "white", url: "http://legacy-white:3456", node: "legacy-node" }]);
+
+    mkdirSync(process.env.MAW_STATE_DIR, { recursive: true });
+    writeFileSync(join(process.env.MAW_STATE_DIR, "peers.json"), JSON.stringify({
+      version: 1,
+      peers: {
+        white: { url: "http://state-white:3456", node: "state-node" },
+      },
+    }), "utf-8");
+
+    expect(killPeerResolve.resolvePeer("white")).toEqual({ url: "http://state-white:3456", node: "state-node" });
+    expect(wakePeerResolve.resolvePeer("white")).toEqual({ url: "http://state-white:3456", node: "state-node" });
+    expect(lsPeerResolve.resolvePeer("white")).toEqual({ alias: "white", url: "http://state-white:3456", node: "state-node" });
   });
 });

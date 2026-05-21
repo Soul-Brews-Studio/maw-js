@@ -181,6 +181,10 @@ export interface TmuxLsOpts {
   filter?: string;
   /** Include infrastructure channel sessions such as *-discord. */
   channels?: boolean;
+  /** Hide non-oracle junk sessions in top-level maw ls compact views. */
+  oracleOnly?: boolean;
+  /** Include expensive verification/noise such as worktree-bind rows. */
+  verify?: boolean;
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
@@ -273,6 +277,15 @@ function sessionNameFromPaneTarget(target: string): string {
   return target.split(":")[0] || target;
 }
 
+function isDefaultOracleListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  // Top-level `maw ls` is an oracle roster, not a raw tmux dump. Hide junk
+  // sessions like `--help`, `foo`, and stale app names by default (#1796).
+  // `--all`/`--roster` and `maw tmux ls` remain available for raw inventory.
+  const numericFleet = sessionName.match(/^\d+-(.+)$/);
+  if (numericFleet) return !numericFleet[1].startsWith("-");
+  return fleetSessions.has(sessionName);
+}
+
 async function sessionCreatedTimes(): Promise<Map<string, number>> {
   const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
   return parseSessionCreatedList(raw);
@@ -357,6 +370,10 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       .some(value => String(value ?? "").toLowerCase().includes(filter)));
   }
 
+  if (opts.oracleOnly && opts.compact && !opts.roster && !opts.channels) {
+    scope = scope.filter(p => isDefaultOracleListSession(p.session, fleetSessions));
+  }
+
   const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;
   if (opts.active) {
     scope = scope.filter(p => {
@@ -431,7 +448,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       return "unknown";
     };
     let worktrees: Awaited<ReturnType<typeof scanWorktrees>> = [];
-    try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    if (opts.verify) {
+      try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    }
     const wtBySession = new Map<string, typeof worktrees>();
     for (const wt of worktrees) {
       const mainName = wt.mainRepo.split("/").pop() || "";

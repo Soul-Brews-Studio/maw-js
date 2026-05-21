@@ -100,7 +100,7 @@ export type { ArtifactMeta, ArtifactSummary } from "../lib/artifacts";
 
 // ─── Plugin System ───────────────────────────────────────────────────────────
 
-export { discoverPackages, invokePlugin } from "../plugin/registry";
+export { discoverPackages, importPluginSymbol, invokePlugin } from "../plugin/registry";
 export { parseManifest, loadManifestFromDir } from "../plugin/manifest";
 export { registerCommand, matchCommand, listCommands } from "../cli/command-registry";
 

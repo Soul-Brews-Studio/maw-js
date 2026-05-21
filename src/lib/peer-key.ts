@@ -2,7 +2,7 @@
  * peer-key.ts — Per-peer cryptographic identity (#804 Step 1).
  *
  * Each maw node holds a long-lived 32-byte secret stored at
- * `<CONFIG_DIR>/peer-key` (mode 0600), generated on first read. The hex
+ * the state-path `peer-key` (mode 0600), generated on first read. The hex
  * encoding of this secret is published via `/api/identity` as `pubkey` so
  * peers can pin it under TOFU (see ADR docs/federation/0001-peer-identity.md).
  *
@@ -16,13 +16,14 @@
  */
 
 import { randomBytes } from "crypto";
-import { readFileSync, writeFileSync, chmodSync } from "fs";
-import { join } from "path";
-import { CONFIG_DIR } from "../core/paths";
+import { readFileSync, writeFileSync, chmodSync, mkdirSync } from "fs";
+import { dirname } from "path";
+import { mawConfigPath, mawStatePath } from "../core/xdg";
 import { info } from "../cli/verbosity";
 
 /** Path to the persisted peer key (mode 0600). */
-export const PEER_KEY_FILE = join(CONFIG_DIR, "peer-key");
+export const PEER_KEY_FILE = mawStatePath("peer-key");
+const LEGACY_PEER_KEY_FILE = mawConfigPath("peer-key");
 
 let cachedKey: string | null = null;
 
@@ -31,8 +32,9 @@ let cachedKey: string | null = null;
  *
  * Precedence:
  *   1. MAW_PEER_KEY env var (operator override) — file is not read.
- *   2. <CONFIG_DIR>/peer-key if it exists.
- *   3. Generate a fresh 32-byte (64-char hex) key, persist with mode 0600,
+ *   2. State-path `peer-key` if it exists.
+ *   3. Legacy config-path `peer-key`, copied forward to state on first read.
+ *   4. Generate a fresh 32-byte (64-char hex) key, persist with mode 0600,
  *      and log a one-time creation notice.
  */
 export function getPeerKey(): string {
@@ -42,9 +44,25 @@ export function getPeerKey(): string {
     cachedKey = readFileSync(PEER_KEY_FILE, "utf-8").trim();
     if (cachedKey) return cachedKey;
   } catch {
-    // file missing or unreadable — fall through to generate
+    // file missing or unreadable — try legacy config path before generating
+  }
+  if (LEGACY_PEER_KEY_FILE !== PEER_KEY_FILE) {
+    try {
+      const legacyKey = readFileSync(LEGACY_PEER_KEY_FILE, "utf-8").trim();
+      if (legacyKey) {
+        mkdirSync(dirname(PEER_KEY_FILE), { recursive: true });
+        writeFileSync(PEER_KEY_FILE, legacyKey, { mode: 0o600, flag: "w" });
+        try { chmodSync(PEER_KEY_FILE, 0o600); } catch { /* best-effort */ }
+        cachedKey = legacyKey;
+        info(`[peer-key] migrated peer key → ${PEER_KEY_FILE} (mode 0600)`);
+        return legacyKey;
+      }
+    } catch {
+      // no legacy key — fall through to generate
+    }
   }
   const fresh = randomBytes(32).toString("hex");
+  mkdirSync(dirname(PEER_KEY_FILE), { recursive: true });
   writeFileSync(PEER_KEY_FILE, fresh, { mode: 0o600, flag: "w" });
   // chmod is a belt-and-suspenders for filesystems where the open-time mode
   // isn't honored (umask-stripped, NFS, etc).

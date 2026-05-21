@@ -14,9 +14,10 @@ const HELP = [
   "  maw ls --all            aggregate sessions from all known peers",
   "  maw ls --json           emit JSON (combine with <peer> or --all)",
   "  maw ls --active [30m]   local sessions touched within a recent threshold",
+  "  maw ls --verify         include worktree-bind diagnostics",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
-  "Peer aliases are resolved from ~/.maw/peers.json (see: maw peers list).",
+  "Peer aliases are resolved from the maw state peers store (see: maw peers list).",
   "For registered fleet config, use maw fleet ls.",
 ].join("\n");
 
@@ -51,6 +52,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--all": Boolean,
       "--json": Boolean,
       "--active": Boolean,
+      "--verify": Boolean,
       "--fix": Boolean,
       "--help": Boolean,
       "-h": "--help",
@@ -73,13 +75,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         json,
         active: true,
         activeThresholdSec: parseActiveDurationSeconds(activeArg),
+        oracleOnly: true,
       };
       if (localFilter) lsOpts.filter = localFilter;
       await cmdTmuxLs(lsOpts);
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
-    // Cross-node: explicit peer alias. Resolves via ~/.maw/peers.json — if
+    // Cross-node: explicit peer alias. Resolves via the maw state peers store — if
     // the positional doesn't match a known peer, surface a clear "unknown
     // peer alias" error rather than silently falling through to local ls
     // (which would be confusing — "I asked for oracle-world, why am I
@@ -89,14 +92,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return await lsPeer(positional, { json });
     }
 
-    // Cross-node: aggregate every alias in ~/.maw/peers.json.
+    // Cross-node: aggregate every alias in the maw state peers store.
     if (flags["--all"]) {
       const { lsAllPeers } = await import("./internal/peer-call");
       return await lsAllPeers({ json });
     }
 
     // Default: local sessions (existing behavior, including --fix).
-    await cmdList({ fix: Boolean(flags["--fix"]) });
+    await cmdList({ fix: Boolean(flags["--fix"]), verify: Boolean(flags["--verify"]) });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

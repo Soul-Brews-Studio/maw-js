@@ -63,9 +63,9 @@ describe("tmux-class twelfth-pass isolated coverage", () => {
       .queue("paste-buffer", "")
       .queue("set-environment", "");
 
-    await expect(t.newSession("alpha", { detached: false, window: "main", cwd: "/repo" })).resolves.toBeUndefined();
+    await expect(t.newSession("alpha", { detached: false, window: "main", cwd: "/repo" })).resolves.toBe("");
     await expect(t.newWindow("alpha", "logs", { cwd: "/tmp" })).resolves.toBeUndefined();
-    await expect(t.splitWindow("alpha:main.0")).resolves.toBeUndefined();
+    await expect(t.splitWindow("alpha:main.0")).resolves.toBe("");
     await expect(t.selectPane("alpha:main.0")).resolves.toBeUndefined();
     await expect(t.selectPane("alpha:main.0", { title: "worker" })).resolves.toBeUndefined();
     await expect(t.selectLayout("alpha:main", "tiled")).resolves.toBeUndefined();

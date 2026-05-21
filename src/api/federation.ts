@@ -8,6 +8,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../core/paths";
 import { getPeerKey } from "../lib/peer-key";
+import { resolveNodeIdentity } from "../core/fleet/node-identity";
 
 /**
  * Endpoints advertised by /api/identity (#804 Step 1).
@@ -109,11 +110,22 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
    */
   federationApi.get("/identity", async () => {
     const config = load();
-    const node = config.node ?? "local";
+    const identity = resolveNodeIdentity(config, {
+      fallbackHost: "local",
+      user: process.env.USER || process.env.LOGNAME,
+    });
+    const node = identity.node;
+    const host = identity.host;
     const oracle = config.oracle ?? "mawjs";
-    const agents = agentsForHost(config.agents || {}, node);
+    const agents = [...new Set([
+      ...agentsForHost(config.agents || {}, node),
+      ...(host !== node ? agentsForHost(config.agents || {}, host) : []),
+    ])];
     return {
       node,
+      host,
+      ...(identity.user ? { user: identity.user } : {}),
+      ...(identity.port !== undefined ? { port: identity.port } : {}),
       oracle,
       version,
       agents,

@@ -143,6 +143,22 @@ function validateExtFields(
     }
   }
 
+  // nodeUser/serviceUser: optional service user for multi-user host identity (#1814)
+  if ("nodeUser" in raw) {
+    if (typeof raw.nodeUser === "string" && raw.nodeUser.trim().length > 0) {
+      result.nodeUser = raw.nodeUser.trim();
+    } else {
+      warn("nodeUser", "must be a non-empty string");
+    }
+  }
+  if ("serviceUser" in raw) {
+    if (typeof raw.serviceUser === "string" && raw.serviceUser.trim().length > 0) {
+      result.serviceUser = raw.serviceUser.trim();
+    } else {
+      warn("serviceUser", "must be a non-empty string");
+    }
+  }
+
   // oracle: string if present (#804 Step 4 SIGN — v3 from-address prefix)
   if ("oracle" in raw) {
     if (typeof raw.oracle === "string" && raw.oracle.trim().length > 0) {

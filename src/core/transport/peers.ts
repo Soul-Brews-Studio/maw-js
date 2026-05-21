@@ -26,6 +26,7 @@ const CACHE_TTL = 30_000;
 
 export interface PeerStatus {
   url: string;
+  peerName?: string;
   reachable: boolean;
   latency?: number;
   node?: string;
@@ -36,6 +37,16 @@ export interface PeerStatus {
 
 /** Clock drift warning threshold — 3 minutes (early warning before 5-min HMAC cutoff) (#268) */
 const CLOCK_WARN_MS = 3 * 60 * 1000;
+
+export interface FederationPeerInput {
+  url: string;
+  name?: string;
+}
+
+export interface FederationStatusOptions {
+  peers?: FederationPeerInput[];
+  config?: ReturnType<typeof loadConfig>;
+}
 
 /**
  * Check if a peer is reachable by making a GET /api/sessions request.
@@ -178,8 +189,10 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
 /**
  * Get federation status — list peers and check connectivity + clock health (#268)
  */
-export async function getFederationStatus(): Promise<{
+export async function getFederationStatus(options: FederationStatusOptions = {}): Promise<{
   localUrl: string;
+  localReachable: boolean;
+  localLatency?: number;
   peers: PeerStatus[];
   totalPeers: number;
   reachablePeers: number;
@@ -189,20 +202,28 @@ export async function getFederationStatus(): Promise<{
     uptimeSeconds: number;
   };
 }> {
-  const config = loadConfig();
-  const peers = getPeers();
-  const port = loadConfig().port;
+  const config = options.config ?? loadConfig();
+  const peerInputs = options.peers ?? getPeers().map((url) => ({ url }));
+  const peers = peerInputs.map((peer) => peer.url);
+  const peerNameByUrl = new Map((config.namedPeers ?? []).map(p => [p.url, p.name]));
+  for (const peer of peerInputs) {
+    if (peer.name && !peerNameByUrl.has(peer.url)) peerNameByUrl.set(peer.url, peer.name);
+  }
+  const port = config.port ?? 3456;
   const localUrl = `http://localhost:${port}`;
 
-  const rawStatuses = await Promise.all(peers.map(async (url) => {
-    const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
-    return { url, reachable, latency, node, agents, clockDeltaMs };
-  }));
+  const [localProbe, rawStatuses] = await Promise.all([
+    checkPeerReachable(localUrl),
+    Promise.all(peers.map(async (url) => {
+      const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
+      return { url, peerName: peerNameByUrl.get(url), reachable, latency, node, agents, clockDeltaMs };
+    })),
+  ]);
 
   // Dedup by node identity (#190) — keep fastest URL per node
   const byNode = new Map<string, PeerStatus>();
   for (const s of rawStatuses) {
-    const key = s.node || s.url; // fall back to URL if no identity
+    const key = s.peerName ? `peer:${s.peerName}` : s.node ? `node:${s.node}` : `url:${s.url}`;
     const existing = byNode.get(key);
     if (!existing || (s.reachable && (!existing.reachable || (s.latency ?? Infinity) < (existing.latency ?? Infinity)))) {
       const clockWarning = s.clockDeltaMs != null ? Math.abs(s.clockDeltaMs) > CLOCK_WARN_MS : undefined;
@@ -214,6 +235,8 @@ export async function getFederationStatus(): Promise<{
 
   return {
     localUrl,
+    localReachable: localProbe.reachable,
+    localLatency: localProbe.latency,
     peers: statuses,
     totalPeers: peers.length,
     reachablePeers,
@@ -368,7 +391,29 @@ export async function findPeerForTarget(target: string, localSessions: Session[]
  * status/body (401 HMAC, timeout, etc.). Now we surface a structured warn
  * before returning false so federation diagnostics can find it (#385 site 2).
  */
-export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
+export interface PeerSendResult {
+  ok: boolean;
+  state: "delivered" | "queued" | "failed";
+  target?: string;
+  lastLine?: string;
+  error?: string;
+  status?: number;
+}
+
+function peerSendBodySnippet(data: unknown): string {
+  return data != null
+    ? (typeof data === "string" ? data : JSON.stringify(data)).slice(0, 200)
+    : "";
+}
+
+/**
+ * Send keys to a target on a peer and preserve receiver proof state (#1813).
+ *
+ * `ok:true,state:queued` means the peer accepted the message into a durable
+ * inbox after tmux delivery could not be proven. Callers that display user
+ * state must not collapse this into "delivered".
+ */
+export async function sendKeysToPeerDetailed(peerUrl: string, target: string, text: string): Promise<PeerSendResult> {
   try {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
@@ -376,18 +421,33 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
       timeout: cfgTimeout("http"),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send via TransportManager
     });
-    if (!res.ok) {
-      const bodySnippet = res.data != null
-        ? (typeof res.data === "string" ? res.data : JSON.stringify(res.data)).slice(0, 200)
-        : "";
-      console.warn(
-        `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
-      );
+    if (res.ok && res.data?.ok) {
+      return {
+        ok: true,
+        state: res.data.state === "delivered" ? "delivered" : "queued",
+        target: typeof res.data.target === "string" ? res.data.target : target,
+        lastLine: typeof res.data.lastLine === "string" ? res.data.lastLine : "",
+      };
     }
-    return res.ok;
+
+    const bodySnippet = peerSendBodySnippet(res.data);
+    console.warn(
+      `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
+    );
+    return {
+      ok: false,
+      state: "failed",
+      target,
+      status: res.status,
+      error: res.data?.error || (res.status ? `HTTP ${res.status}` : "send failed"),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[peers] sendKeysToPeer ${peerUrl} → ${target}: ${msg}`);
-    return false;
+    return { ok: false, state: "failed", target, error: msg };
   }
+}
+
+export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
+  return (await sendKeysToPeerDetailed(peerUrl, target, text)).ok;
 }

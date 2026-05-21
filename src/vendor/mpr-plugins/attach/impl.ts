@@ -11,6 +11,9 @@
  */
 import { listSessions } from "maw-js/sdk";
 import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { getGhqRoot } from "maw-js/config/ghq-root";
+import { isClaudeLikePane } from "../../../commands/plugins/tmux/safety";
+import { join } from "path";
 import {
   resolveAttachTarget,
   type ResolveResult,
@@ -21,7 +24,16 @@ export interface AttachOpts {
   yes?: boolean;
   /** Show what the cascade picked + planned action, no side effects. */
   dryRun?: boolean;
+  /** Open a shell at the oracle repo instead of attaching to the agent pane. */
+  shell?: boolean;
+  /** For shell mode: split a pane by default; false opens a new window. */
+  split?: boolean;
 }
+
+type FleetSessionLike = {
+  name: string;
+  windows: Array<{ name: string; repo?: string }>;
+};
 
 /**
  * Read a single y/n from /dev/tty (not stdin) so a piped upstream tool can't
@@ -46,7 +58,7 @@ function askYesNo(question: string): boolean {
 
 export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<void> {
   if (!name) {
-    console.error("usage: maw attach <name> [--dry-run] [-y|--yes]");
+    console.error("usage: maw attach <name> [--shell [--split|--no-split]] [--dry-run] [-y|--yes]");
     throw new Error("name required");
   }
 
@@ -60,7 +72,8 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
     // After wake, re-resolve — should now be Tier 1 → attach.
     // See ψ/memory/traces/2026-05-13/1203_attach-find-or-scan-flow.md
     if (opts.dryRun) {
-      console.log(`  \x1b[36m·\x1b[0m [dry-run] '${name}' not local — would: maw wake ${name} → re-resolve → attach`);
+      const action = opts.shell ? "open shell" : "attach";
+      console.log(`  \x1b[36m·\x1b[0m [dry-run] '${name}' not local — would: maw wake ${name} → re-resolve → ${action}`);
       return;
     }
     console.log(`  \x1b[36m·\x1b[0m '${name}' not local — delegating to wake`);
@@ -77,6 +90,10 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
     // after wake` error fires as before.
     const retried = await resolveAttachTarget(name, deps, { fuzzy: true });
     if (retried && retried.tier === 1) {
+      if (opts.shell) {
+        await openShellForSession(name, retried.sessionName, opts, deps.loadFleet());
+        return;
+      }
       console.log(`  \x1b[32m→\x1b[0m attaching to ${retried.sessionName}`);
       await spawnMaw(["tmux", "attach", retried.sessionName]);
       return;
@@ -94,6 +111,10 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
   }
 
   if (result.tier === 1) {
+    if (opts.shell) {
+      await openShellForSession(name, result.sessionName, opts, deps.loadFleet());
+      return;
+    }
     if (opts.dryRun) {
       console.log(`  \x1b[36m·\x1b[0m [dry-run] Tier 1 (live) — would attach to ${result.sessionName}`);
       return;
@@ -105,7 +126,8 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
 
   if (result.tier === 2) {
     if (opts.dryRun) {
-      console.log(`  \x1b[36m·\x1b[0m [dry-run] Tier 2 (sleeping) — would wake ${result.fleetName}, then attach`);
+      const action = opts.shell ? "open shell" : "attach";
+      console.log(`  \x1b[36m·\x1b[0m [dry-run] Tier 2 (sleeping) — would wake ${result.fleetName}, then ${action}`);
       return;
     }
 
@@ -118,9 +140,90 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
 
     console.log(`  \x1b[36m⚡\x1b[0m waking ${result.fleetName}...`);
     await spawnMaw(["wake", result.fleetName]);
+    if (opts.shell) {
+      await openShellForSession(name, result.fleetName, opts, deps.loadFleet());
+      return;
+    }
     console.log(`  \x1b[32m→\x1b[0m attaching to ${result.fleetName}`);
     await spawnMaw(["tmux", "attach", result.fleetName]);
     return;
+  }
+}
+
+export interface AttachShellPlan {
+  sessionName: string;
+  targetWindow: string;
+  windowName: string;
+  cwd: string;
+  command: string;
+}
+
+export function buildAttachShellPlan(
+  requestedName: string,
+  sessionName: string,
+  fleet: FleetSessionLike[],
+): AttachShellPlan {
+  const session = fleet.find(f => f.name === sessionName) ??
+    fleet.find(f => sessionName.endsWith(`-${f.name}`));
+  const window = session?.windows?.[0];
+  if (!window?.repo) {
+    throw new Error(`cannot resolve repo path for '${requestedName}' in session '${sessionName}'`);
+  }
+  const cwd = join(getGhqRoot(), window.repo);
+  const targetWindow = `${sessionName}:${window.name}`;
+  const windowName = `${sanitizeTmuxName(window.name || requestedName)}-shell`.slice(0, 80);
+  const command = `cd ${shellArg(cwd)} && exec ${process.env.SHELL || "zsh"}`;
+  return { sessionName, targetWindow, windowName, cwd, command };
+}
+
+async function openShellForSession(
+  requestedName: string,
+  sessionName: string,
+  opts: AttachOpts,
+  fleet: FleetSessionLike[],
+): Promise<void> {
+  const plan = buildAttachShellPlan(requestedName, sessionName, fleet);
+  const split = opts.split !== false;
+  const claudeLikeCaller = split ? await isClaudeLikeCaller() : false;
+  const useSplit = split && !claudeLikeCaller;
+
+  if (opts.dryRun) {
+    const mode = useSplit ? "split shell pane" : "new shell window";
+    console.log(`  \x1b[36m·\x1b[0m [dry-run] shell — would open ${mode} in ${plan.sessionName} at ${plan.cwd}`);
+    return;
+  }
+
+  const action = useSplit ? await splitShell(plan) : await newShellWindow(plan);
+  if (claudeLikeCaller) {
+    console.log(`  \x1b[36m→\x1b[0m Claude-like caller detected — opened shell as background window to avoid smear (#1838).`);
+  }
+  console.log(`  \x1b[32m✓\x1b[0m ${action} — ${plan.sessionName}:${plan.windowName} (${plan.cwd})`);
+}
+
+async function splitShell(plan: AttachShellPlan): Promise<"split shell pane"> {
+  await spawnProc(["tmux", "split-window", "-t", plan.targetWindow, "-h", "-l", "50%", plan.command]);
+  return "split shell pane";
+}
+
+async function newShellWindow(plan: AttachShellPlan): Promise<"opened shell window"> {
+  await spawnProc(["tmux", "new-window", "-t", `${plan.sessionName}:`, "-n", plan.windowName, plan.command]);
+  return "opened shell window";
+}
+
+async function isClaudeLikeCaller(): Promise<boolean> {
+  const pane = process.env.TMUX_PANE;
+  if (!pane || process.env.MAW_ALLOW_CLAUDE_SPLIT === "1") return false;
+  try {
+    const proc = Bun.spawn(["tmux", "display-message", "-p", "-t", pane, "#{pane_current_command}"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const out = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) return false;
+    return isClaudeLikePane(out.trim());
+  } catch {
+    return false;
   }
 }
 
@@ -130,13 +233,25 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
  * stdio is required for that handoff to work.
  */
 async function spawnMaw(args: string[]): Promise<void> {
-  const proc = Bun.spawn(["maw", ...args], {
+  await spawnProc(["maw", ...args]);
+}
+
+async function spawnProc(cmd: string[]): Promise<void> {
+  const proc = Bun.spawn(cmd, {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
-    throw new Error(`maw ${args.join(" ")} exited ${exitCode}`);
+    throw new Error(`${cmd.join(" ")} exited ${exitCode}`);
   }
+}
+
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function sanitizeTmuxName(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "oracle";
 }

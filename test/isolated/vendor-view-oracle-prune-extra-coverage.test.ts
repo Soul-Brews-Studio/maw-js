@@ -6,7 +6,7 @@ import type { OracleEntry } from "../../src/sdk";
 type Session = { name: string; windows: Array<{ index: number; name: string }> };
 
 const sdkPath = import.meta.resolve("../../src/sdk");
-const splitImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/view/internal/split-impl");
+const splitImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/split/impl");
 const staleImplPath = import.meta.resolve("../../src/commands/plugins/oracle/impl-stale");
 
 let sessions: Session[] = [];

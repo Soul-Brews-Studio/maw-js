@@ -122,8 +122,8 @@ describe("talk-to impl isolated coverage", () => {
     delete process.env.ORACLE_URL;
   });
 
-  test("success path posts to an existing thread, notifies the pane, runs hooks, and logs", async () => {
-    const message = "x".repeat(90);
+  test("success path posts to an existing thread, notifies the pane with the full long body, runs hooks, and logs", async () => {
+    const message = ["line 1", "x".repeat(1000), "line 3"].join("\n");
 
     for (const cmdTalkTo of talkToCommands) {
       fetchQueue = [
@@ -150,7 +150,8 @@ describe("talk-to impl isolated coverage", () => {
       expect(sendKeysCalls[0]?.target).toBe("alpha:oracle.0");
       expect(sendKeysCalls[0]?.message).toContain("💬 channel:alpha (#7) — 1 msgs");
       expect(sendKeysCalls[0]?.message).toContain("From: mawjs-codex");
-      expect(sendKeysCalls[0]?.message).toContain(`Preview: "${"x".repeat(77)}..."`);
+      expect(sendKeysCalls[0]?.message).toContain(`Message:\n${message}\n→ Full copy saved in thread #7`);
+      expect(sendKeysCalls[0]?.message).not.toContain("Preview:");
       expect(runHookCalls).toEqual([
         { name: "after_send", payload: { to: "alpha", message: sendKeysCalls[0]?.message } },
       ]);
@@ -203,7 +204,7 @@ describe("talk-to impl isolated coverage", () => {
       expect(sendKeysCalls).toEqual([
         {
           target: "alpha:oracle.0",
-          message: '💬 from mawjs-codex\n"hello from fallback"',
+          message: "💬 from mawjs-codex\nMessage:\nhello from fallback",
         },
       ]);
       expect(console.error).toHaveBeenCalledWith("\x1b[33mwarn\x1b[0m: thread post failed — falling back to maw hey only");
@@ -261,7 +262,7 @@ describe("talk-to impl isolated coverage", () => {
 
       await cmdTalkTo("alpha", "post fallback", true);
 
-      expect(sendKeysCalls).toEqual([{ target: "alpha:oracle.0", message: '💬 from mawjs-codex\n"post fallback"' }]);
+      expect(sendKeysCalls).toEqual([{ target: "alpha:oracle.0", message: "💬 from mawjs-codex\nMessage:\npost fallback" }]);
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Oracle unreachable"));
     }
   });

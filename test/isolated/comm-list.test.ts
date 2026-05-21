@@ -520,7 +520,7 @@ describe("cmdList — session rendering", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("cmdList — orphan detection", () => {
-  test("stale + orphan worktrees → warnings + fix hint printed", async () => {
+  test("--verify stale + orphan worktrees → warnings + fix hint printed", async () => {
     listSessionsReturn = [
       { name: "08-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] },
     ];
@@ -531,7 +531,7 @@ describe("cmdList — orphan detection", () => {
       { path: "/ghq/org/repo",                status: "active", name: "main" }, // filtered out
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     const joined = outs.join("\n");
     expect(joined).toContain("⚠ orphaned:");
@@ -550,7 +550,7 @@ describe("cmdList — orphan detection", () => {
       { path: "noslash", status: "stale", name: "fallback-name" },
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     // pop() on "noslash".split("/") returns "noslash" → truthy, uses that.
     // To actually exercise the `|| wt.name` branch we need an empty string
@@ -564,7 +564,7 @@ describe("cmdList — orphan detection", () => {
       { path: "", status: "stale", name: "fallback-name" },
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     // split("/").pop() on "" returns "" (falsy) → falls through to wt.name.
     expect(outs.join("\n")).toContain("fallback-name");
@@ -653,7 +653,7 @@ describe("cmdList — --fix prune (FIX-A)", () => {
     expect(outs.join("\n")).toContain("nothing to prune");
   });
 
-  test("opts.fix=false (default) preserves read-only behavior — no prune, hint shown", async () => {
+  test("opts.fix=false (default) preserves read-only behavior and suppresses orphan noise", async () => {
     listSessionsReturn = [];
     scanWorktreesReturn = [
       { path: "/ghq/org/repo.wt-1-stale", status: "stale", name: "1-stale" },
@@ -663,8 +663,8 @@ describe("cmdList — --fix prune (FIX-A)", () => {
 
     expect(cleanupWorktreeCalls).toHaveLength(0);
     const joined = outs.join("\n");
-    expect(joined).toContain("⚠ orphaned:");
-    expect(joined).toContain("→ maw ls --fix");
+    expect(joined).not.toContain("⚠ orphaned:");
+    expect(joined).not.toContain("→ maw ls --fix");
   });
 
   test("opts.fix=true: cleanupWorktree throws on one orphan → keeps going + reports failure", async () => {
@@ -698,7 +698,7 @@ describe("cmdList — empty state", () => {
     expect(joined).toContain("maw wake <name>");
   });
 
-  test("no sessions but orphans present → NO 'No active sessions' hint", async () => {
+  test("no sessions but orphans present by default → still emits onboarding hints", async () => {
     listSessionsReturn = [];
     scanWorktreesReturn = [
       { path: "/wt1", status: "stale", name: "wt1" },
@@ -706,8 +706,8 @@ describe("cmdList — empty state", () => {
 
     await run(() => cmdList());
 
-    expect(outs.some((o) => o.includes("No active sessions."))).toBe(false);
-    expect(outs.some((o) => o.includes("⚠ orphaned:"))).toBe(true);
+    expect(outs.some((o) => o.includes("No active sessions."))).toBe(true);
+    expect(outs.some((o) => o.includes("⚠ orphaned:"))).toBe(false);
   });
 
   test("no sessions + scanWorktrees throws → still emits onboarding hints", async () => {
@@ -876,7 +876,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
@@ -971,7 +971,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example\/api\/send/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it", state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -1030,7 +1030,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example/,
-      response: { ok: true, status: 200, data: { ok: true } },
+      response: { ok: true, status: 200, data: { ok: true, state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -1047,7 +1047,7 @@ describe("cmdSend — async peer discovery fallback", () => {
     findPeerForTargetReturn = "https://discovered.example";
     curlFetchResponses = [{
       match: /discovered\.example/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo", state: "delivered" } },
     }];
 
     await run(() => cmdSend("white:mawjs", "ping"));
@@ -1086,7 +1086,7 @@ describe("cmdSend — error paths (no match)", () => {
       hint: "maw wake mawjs",
     };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1098,7 +1098,7 @@ describe("cmdSend — error paths (no match)", () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "x", detail: "just a detail" };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("just a detail");
@@ -1109,7 +1109,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1124,7 +1124,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("window not found: white:ghost");

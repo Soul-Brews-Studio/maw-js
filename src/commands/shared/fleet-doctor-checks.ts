@@ -19,6 +19,11 @@ export interface DoctorFinding {
   detail?: Record<string, unknown>;
 }
 
+interface PeerVersionIdentity {
+  node: string;
+  version?: string;
+}
+
 /**
  * Check 1 — Substring collisions between namedPeer names and local session names.
  *
@@ -176,6 +181,39 @@ export function checkSelfPeer(
         detail: { peer: p, reason: loopByName ? "name" : "url" },
       });
     }
+  }
+  return findings;
+}
+
+/**
+ * Check 8 — Peer maw version skew.
+ *
+ * #1815 showed the failure mode: local alpha already had repo-local Discord
+ * `--channels` auto-detect, but a remote anchor still running an older maw
+ * silently launched Discord bots without that feature. `/api/identity` already
+ * advertises each peer's maw package version; surface mismatches as warn-level
+ * operator drift instead of letting feature skew stay invisible.
+ */
+export function checkPeerVersionSkew(
+  localVersion: string | undefined,
+  identities: Record<string, PeerVersionIdentity>,
+): DoctorFinding[] {
+  if (!localVersion) return [];
+  const findings: DoctorFinding[] = [];
+  for (const [peer, identity] of Object.entries(identities)) {
+    if (!identity.version || identity.version === localVersion) continue;
+    findings.push({
+      level: "warn",
+      check: "version-skew",
+      fixable: false,
+      message: `peer '${peer}' (${identity.node}) runs maw ${identity.version}, local is ${localVersion} — version skew can silently drop fleet features such as wake Discord --channels auto-detect`,
+      detail: {
+        peer,
+        node: identity.node,
+        peerVersion: identity.version,
+        localVersion,
+      },
+    });
   }
   return findings;
 }

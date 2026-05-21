@@ -7,12 +7,13 @@ import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
+import { mawDataPath } from "../../core/xdg";
 
 /** Allowlist: only http/https URLs permitted as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
 function getPluginHome(): string {
-  return process.env.MAW_PLUGIN_HOME ?? join(require("os").homedir(), ".maw", "plugins");
+  return process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins");
 }
 
 export async function doInstall(srcPath: string, force: boolean): Promise<void> {

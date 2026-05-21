@@ -27,12 +27,17 @@ mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return await hostExecImpl(cmd); },
   tmuxCmd: () => "tmux",
+  tmux: "tmux",
+  FLEET_DIR: "/tmp/fleet",
+  CONFIG_DIR: "/tmp/config",
+  MAW_ROOT: "/tmp/maw",
   resolveTarget: () => resolveTargetResult,
   curlFetch: async () => ({ ok: true, data: { ok: true, target: "remote:1" } }),
   Tmux: class { async sendKeysLiteral(target: string, text: string) { sendKeysLiteralCalls.push([target, text]); } },
 }));
 mock.module("maw-js/config", () => ({ loadConfig: () => ({ host: "local", disabledPlugins: [] }) }));
 mock.module("maw-js/commands/shared/comm-send", () => ({ resolveOraclePane: async (target: string) => `pane:${target}` }));
+mock.module("maw-js/commands/shared/fleet-load", () => ({ loadFleet: () => [] }));
 mock.module("maw-js/core/transport/tmux", () => ({
   Tmux: class { async run(...args: string[]) { return await tmuxRunImpl(...args); } },
 }));

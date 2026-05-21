@@ -178,7 +178,7 @@ describe("fleet plugin index", () => {
     expect(initCalls).toEqual([{}]);
     expect(initAgentsCalls).toEqual([{ dryRun: true }]);
     expect(healthCalls).toBe(1);
-    expect(doctorCalls).toEqual([{ fix: true, json: true }]);
+    expect(doctorCalls).toEqual([{ fix: true, json: true, reboot: false }]);
     expect(consolidateCalls).toEqual([{ dryRun: true, remove: true }]);
     expect(syncConfigsCalls).toBe(1);
     expect(syncWindowsCalls).toBe(1);
@@ -239,6 +239,17 @@ describe("fleet plugin index", () => {
     let result = await handler({ source: "cli", args: ["restore"] } as any);
     expect(result).toEqual({ ok: false, error: "no snapshot found" });
 
+    latestSnapshotReturn = makeSnapshot();
+    result = await handler({ source: "cli", args: ["restore", "--all"] } as any);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("05-alpha");
+    expect(wakeCalls).toEqual([
+      { oracle: "alpha", opts: { attach: false } },
+      { oracle: "beta", opts: { attach: false } },
+    ]);
+
+    wakeCalls = [];
+    latestSnapshotReturn = null;
     loadSnapshotReturn = makeSnapshot();
     wakeFailures.set("beta", "beta failed");
     result = await handler({ source: "cli", args: ["restore", "snap-a", "--all"] } as any);

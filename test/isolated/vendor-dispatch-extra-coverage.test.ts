@@ -269,12 +269,12 @@ describe("tag and split plugin dispatchers", () => {
     expect(await splitHandler(ctx("cli", ["-x"]))).toEqual({ ok: false, error: '"-x" looks like a flag, not a target.\n  usage: maw split <target>' });
     expect(await splitHandler(ctx("api", {}))).toEqual({ ok: false, error: "target is required" });
 
-    const res = await splitHandler(ctx("cli", ["mawjs", "--pct", "44", "--vertical", "--no-attach"]));
+    const res = await splitHandler(ctx("cli", ["mawjs", "--pct", "44", "--vertical", "--no-attach", "--claude-pane-policy", "background-tab"]));
     expect(res.ok).toBe(true);
-    expect(splitCalls).toEqual([{ target: "mawjs", opts: { pct: 44, vertical: true, noAttach: true } }]);
+    expect(splitCalls).toEqual([{ target: "mawjs", opts: { pct: 44, vertical: true, noAttach: true, claudePanePolicy: "background-tab" } }]);
 
-    await splitHandler(ctx("api", { target: "api-split", pct: 60, vertical: false, noAttach: true }));
-    expect(splitCalls.at(-1)).toEqual({ target: "api-split", opts: { pct: 60, vertical: false, noAttach: true } });
+    await splitHandler(ctx("api", { target: "api-split", pct: 60, vertical: false, noAttach: true, claudePanePolicy: "refuse" }));
+    expect(splitCalls.at(-1)).toEqual({ target: "api-split", opts: { pct: 60, vertical: false, noAttach: true, claudePanePolicy: "refuse" } });
   });
 
   test("split catch branch prefers captured logs over thrown message", async () => {

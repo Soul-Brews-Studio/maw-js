@@ -7,7 +7,12 @@ import type { OracleEntry } from "../../src/sdk";
 
 const TEST_FLEET_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-defaults-fleet-"));
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-defaults-"));
-const REGISTRY_FILE = join(TEST_CONFIG_DIR, "oracles.json");
+const TEST_CACHE_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-defaults-cache-"));
+const REGISTRY_FILE = join(TEST_CACHE_DIR, "oracles.json");
+const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const originalCacheDir = process.env.MAW_CACHE_DIR;
+process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_CACHE_DIR = TEST_CACHE_DIR;
 
 type Session = { name: string; windows: Array<{ index?: number; name: string }> };
 
@@ -48,7 +53,9 @@ function entry(patch: Partial<OracleEntry> = {}): OracleEntry {
 
 beforeEach(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
   mkdirSync(TEST_CONFIG_DIR, { recursive: true });
+  mkdirSync(TEST_CACHE_DIR, { recursive: true });
   sessions = [];
   logs = [];
   console.log = (...args: unknown[]) => {
@@ -59,7 +66,12 @@ beforeEach(() => {
 afterAll(() => {
   console.log = originalLog;
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
   rmSync(TEST_FLEET_DIR, { recursive: true, force: true });
+  if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
+  else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalCacheDir === undefined) delete process.env.MAW_CACHE_DIR;
+  else process.env.MAW_CACHE_DIR = originalCacheDir;
 });
 
 describe("oracle impl-prune default dependency coverage", () => {

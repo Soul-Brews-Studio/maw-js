@@ -19,12 +19,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-// ─── Pin CONFIG_DIR + FLEET_DIR to a sandboxed tmp dir BEFORE imports ───────
+// ─── Pin CONFIG_DIR + cache/FLEET dirs to sandboxed tmp dirs BEFORE imports ─
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-ls-841-"));
+const TEST_CACHE_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-ls-cache-"));
 const TEST_FLEET_DIR = join(TEST_CONFIG_DIR, "fleet");
 mkdirSync(TEST_FLEET_DIR, { recursive: true });
+mkdirSync(TEST_CACHE_DIR, { recursive: true });
 
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_CACHE_DIR = TEST_CACHE_DIR;
 delete process.env.MAW_HOME;
 process.env.MAW_TEST_MODE = "1";
 
@@ -60,14 +63,17 @@ const config = await import("../../src/config");
 const manifest = await import("../../src/lib/oracle-manifest");
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
-const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
+const ORACLES_JSON = join(TEST_CACHE_DIR, "oracles.json");
+const ORACLE_BIRTHS_JSON = join(TEST_CACHE_DIR, "oracle-births.json");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {
-  for (const f of [CONFIG_FILE, ORACLES_JSON]) {
+  mkdirSync(TEST_CACHE_DIR, { recursive: true });
+  for (const f of [CONFIG_FILE, ORACLES_JSON, ORACLE_BIRTHS_JSON]) {
     try { rmSync(f, { force: true }); } catch { /* ok */ }
   }
   try {
@@ -108,6 +114,14 @@ function writeOraclesJson(oracles: any[]) {
       null,
       2,
     ) + "\n",
+    "utf-8",
+  );
+}
+
+function writeOracleBirths(entries: Record<string, { iso: string; source: string; cached_at: string }>) {
+  writeFileSync(
+    ORACLE_BIRTHS_JSON,
+    JSON.stringify({ version: 1, entries }, null, 2) + "\n",
     "utf-8",
   );
 }
@@ -257,5 +271,113 @@ describe("cmdOracleList — manifest-backed cross-source visibility (#841)", () 
     expect(result.total).toBe(3);
     const names = result.oracles.map((o: any) => o.name).sort();
     expect(names).toEqual(["alpha", "bravo", "charlie"]);
+  });
+
+  test("--sort-by born orders newest known births first and exposes birth metadata", async () => {
+    writeOraclesJson([
+      {
+        org: "Soul-Brews-Studio",
+        repo: "older-oracle",
+        name: "older",
+        local_path: "/tmp/older",
+        has_psi: true,
+        has_fleet_config: false,
+        budded_from: null,
+        budded_at: null,
+        federation_node: null,
+        detected_at: new Date().toISOString(),
+      },
+      {
+        org: "Soul-Brews-Studio",
+        repo: "newer-oracle",
+        name: "newer",
+        local_path: "/tmp/newer",
+        has_psi: true,
+        has_fleet_config: false,
+        budded_from: null,
+        budded_at: null,
+        federation_node: null,
+        detected_at: new Date().toISOString(),
+      },
+      {
+        org: "Soul-Brews-Studio",
+        repo: "unknown-oracle",
+        name: "unknown",
+        local_path: "/tmp/unknown",
+        has_psi: true,
+        has_fleet_config: false,
+        budded_from: null,
+        budded_at: null,
+        federation_node: null,
+        detected_at: new Date().toISOString(),
+      },
+    ]);
+    writeOracleBirths({
+      older: {
+        iso: "2026-04-17T16:45:01+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.873Z",
+      },
+      newer: {
+        iso: "2026-05-09T10:17:24+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+
+    const result = await runLsJson({ sortBy: "born" });
+
+    expect(result.oracles.map((o: any) => o.name)).toEqual(["newer", "older", "unknown"]);
+    expect(result.oracles[0].born).toEqual({
+      iso: "2026-05-09T10:17:24+07:00",
+      source: "git-claudemd",
+      cached_at: "2026-05-12T21:56:03.246Z",
+    });
+    expect(result.oracles[2].born).toBeNull();
+  });
+
+  test("--sort-by born breaks same-birthday ties by oracle name", async () => {
+    writeOraclesJson([
+      {
+        org: "Soul-Brews-Studio",
+        repo: "zeta-oracle",
+        name: "zeta",
+        local_path: "/tmp/zeta",
+        has_psi: true,
+        has_fleet_config: false,
+        budded_from: null,
+        budded_at: null,
+        federation_node: null,
+        detected_at: new Date().toISOString(),
+      },
+      {
+        org: "Soul-Brews-Studio",
+        repo: "alpha-oracle",
+        name: "alpha",
+        local_path: "/tmp/alpha",
+        has_psi: true,
+        has_fleet_config: false,
+        budded_from: null,
+        budded_at: null,
+        federation_node: null,
+        detected_at: new Date().toISOString(),
+      },
+    ]);
+    writeOracleBirths({
+      zeta: {
+        iso: "2026-05-09T10:17:24+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+      alpha: {
+        iso: "2026-05-09T10:17:24+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+
+    const result = await runLsJson({ sortBy: "born" });
+
+    expect(result.oracles.map((o: any) => o.name)).toEqual(["alpha", "zeta"]);
   });
 });

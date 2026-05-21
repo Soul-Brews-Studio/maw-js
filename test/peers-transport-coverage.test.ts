@@ -45,6 +45,7 @@ const {
   getFederationStatusSymmetric,
   getPeers,
   sendKeysToPeer,
+  sendKeysToPeerDetailed,
 } = await import("../src/core/transport/peers.ts?peers-transport-coverage");
 
 beforeEach(() => {
@@ -155,6 +156,8 @@ describe("federation status", () => {
       peers: ["http://slow:3456", "http://fast:3456", "http://other:3456", "http://down:3456"],
     };
     responses = [
+      { match: "localhost:4567/api/sessions", advanceMs: 3, res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
       { match: "slow:3456/api/sessions", advanceMs: 40, res: { ok: true, status: 200, data: [] } },
       { match: "slow:3456/api/identity", res: { ok: true, status: 200, data: { node: "same", agents: ["slow"], clockUtc: new Date(now + 4 * 60_000).toISOString() } } },
       { match: "fast:3456/api/sessions", advanceMs: 5, res: { ok: true, status: 200, data: [] } },
@@ -167,6 +170,7 @@ describe("federation status", () => {
     const status = await getFederationStatus();
 
     expect(status.localUrl).toBe("http://localhost:4567");
+    expect(status.localReachable).toBe(true);
     expect(status.totalPeers).toBe(4);
     expect(status.reachablePeers).toBe(2); // fast same-node + other; down is unreachable and slow was deduped out
     expect(status.peers.map((p) => p.url).sort()).toEqual([
@@ -178,9 +182,73 @@ describe("federation status", () => {
     expect(status.clockHealth).toMatchObject({ timezone: expect.any(String), uptimeSeconds: expect.any(Number) });
   });
 
+  test("getFederationStatus keeps named peers separate when services share a host node (#1814)", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      namedPeers: [
+        { name: "white", url: "http://white:3456" },
+        { name: "alpha", url: "http://white:3461" },
+      ],
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "white:3456/api/sessions", advanceMs: 10, res: { ok: true, status: 200, data: [] } },
+      { match: "white:3456/api/identity", res: { ok: true, status: 200, data: { node: "white", agents: ["nat"] } } },
+      { match: "white:3461/api/sessions", advanceMs: 20, res: { ok: true, status: 200, data: [] } },
+      { match: "white:3461/api/identity", res: { ok: true, status: 200, data: { node: "white", agents: ["alpha"] } } },
+    ];
+
+    const status = await getFederationStatus();
+
+    expect(status.totalPeers).toBe(2);
+    expect(status.reachablePeers).toBe(2);
+    expect(status.peers.map((p) => [p.peerName, p.url, p.node, p.agents])).toEqual([
+      ["white", "http://white:3456", "white", ["nat"]],
+      ["alpha", "http://white:3461", "white", ["alpha"]],
+    ]);
+  });
+
+  test("getFederationStatus accepts ephemeral peer inputs without mutating config", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      peers: [],
+      namedPeers: [],
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "scout:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "scout:3456/api/identity", res: { ok: true, status: 200, data: { node: "scout", agents: ["pulse"] } } },
+    ];
+
+    const status = await getFederationStatus({
+      config,
+      peers: [{ name: "scout-node", url: "http://scout:3456" }],
+    });
+
+    expect(config.namedPeers).toEqual([]);
+    expect(status.totalPeers).toBe(1);
+    expect(status.peers).toEqual([
+      {
+        url: "http://scout:3456",
+        peerName: "scout-node",
+        reachable: true,
+        latency: 0,
+        node: "scout",
+        agents: ["pulse"],
+        clockDeltaMs: undefined,
+        clockWarning: undefined,
+      },
+    ]);
+  });
+
   test("getFederationStatus warns only when sessions succeed but identity fails", async () => {
     config.peers = ["http://identity-404:3456", "http://identity-throw:3456", "http://fully-down:3456"];
     responses = [
+      { match: "localhost:3456/api/sessions", res: { ok: false, status: 0, data: null } },
       { match: "identity-404:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
       { match: "identity-404:3456/api/identity", res: { ok: false, status: 404, data: null } },
       { match: "identity-throw:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
@@ -191,6 +259,7 @@ describe("federation status", () => {
 
     const status = await getFederationStatus();
 
+    expect(status.localReachable).toBe(false);
     expect(status.peers).toHaveLength(3);
     expect(warns.join("\n")).toContain("identity-404:3456/api/identity: status=404");
     expect(warns.join("\n")).toContain("identity-throw:3456/api/identity: bad identity");
@@ -218,13 +287,26 @@ describe("peer target lookup and send", () => {
   });
 
   test("sendKeysToPeer signs send requests, reports body snippets, and catches thrown errors", async () => {
-    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true } } }];
-    await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(true);
+    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true, state: "queued", target: "remote:agent", lastLine: "stored" } } }];
+    await expect(sendKeysToPeerDetailed("http://peer:3456", "remote:agent", "hello")).resolves.toEqual({
+      ok: true,
+      state: "queued",
+      target: "remote:agent",
+      lastLine: "stored",
+    });
     expect(curlCalls[0]).toMatchObject({
       url: "http://peer:3456/api/send",
       opts: { method: "POST", timeout: 1234, from: "auto" },
     });
     expect(JSON.parse(curlCalls[0].opts.body)).toEqual({ target: "remote:agent", text: "hello" });
+
+    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true } } }];
+    await expect(sendKeysToPeerDetailed("http://peer:3456", "remote:agent", "hello")).resolves.toMatchObject({
+      ok: true,
+      state: "queued",
+      target: "remote:agent",
+    });
+    await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(true);
 
     responses = [{ match: "/api/send", res: { ok: false, status: 401, data: { error: "invalid hmac", detail: "x".repeat(260) } } }];
     await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(false);

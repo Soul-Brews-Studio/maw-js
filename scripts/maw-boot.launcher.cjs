@@ -1,4 +1,4 @@
-// Node.js launcher shim for maw-boot (src/cli.ts wake all --resume).
+// Node.js launcher shim for maw-boot (src/cli.ts fleet restore --all).
 //
 // Why this exists: PM2 wraps spawned processes with `require-in-the-middle`,
 // which synchronously require()s the entry file. src/cli.ts is an ESM async

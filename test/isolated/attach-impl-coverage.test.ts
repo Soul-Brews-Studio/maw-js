@@ -23,11 +23,12 @@ type ResolveCall = {
 };
 
 let sessions: Array<{ name: string; windows: Array<{ name: string }> }> = [];
-let fleet: Array<{ name: string; windows: Array<{ name: string }> }> = [];
+let fleet: Array<{ name: string; windows: Array<{ name: string; repo?: string }> }> = [];
 let resolveQueue: ResolveResult[] = [];
 let resolveCalls: ResolveCall[] = [];
 let spawnCalls: string[][] = [];
 let spawnExitCode = 0;
+let spawnStdout = "";
 let logs: string[] = [];
 let errors: string[] = [];
 
@@ -74,6 +75,7 @@ beforeEach(() => {
   resolveCalls = [];
   spawnCalls = [];
   spawnExitCode = 0;
+  spawnStdout = "";
   logs = [];
   errors = [];
 
@@ -85,10 +87,17 @@ beforeEach(() => {
   };
   Bun.spawn = ((cmd: string[], opts?: { stdin?: string; stdout?: string; stderr?: string }) => {
     spawnCalls.push([...cmd]);
+    if (opts?.stdout === "pipe") {
+      return {
+        stdout: new Response(spawnStdout).body,
+        exited: Promise.resolve(spawnExitCode),
+      } as ReturnType<typeof Bun.spawn>;
+    }
     expect(opts).toMatchObject({ stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return { exited: Promise.resolve(spawnExitCode) } as ReturnType<typeof Bun.spawn>;
   }) as typeof Bun.spawn;
   Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: false });
+  delete process.env.TMUX_PANE;
 });
 
 afterEach(() => {
@@ -180,6 +189,67 @@ describe("attach impl command routing", () => {
     resolveQueue = [{ tier: 1, sessionName: "01-broken" }];
     await expect(cmdAttach("broken")).rejects.toThrow("maw tmux attach 01-broken exited 7");
     expect(spawnCalls).toEqual([["maw", "tmux", "attach", "01-broken"]]);
+  });
+
+  test("opens a shell split at the live oracle repo without attaching to claude", async () => {
+    fleet = [{ name: "50-mawjs", windows: [{ name: "mawjs-oracle", repo: "Soul-Brews-Studio/mawjs-oracle" }] }];
+    resolveQueue = [{ tier: 1, sessionName: "50-mawjs" }];
+
+    await cmdAttach("mawjs-oracle", { shell: true });
+
+    expect(spawnCalls).toEqual([[
+      "tmux",
+      "split-window",
+      "-t",
+      "50-mawjs:mawjs-oracle",
+      "-h",
+      "-l",
+      "50%",
+      expect.stringContaining("Soul-Brews-Studio/mawjs-oracle"),
+    ]]);
+    expect(spawnCalls[0][7]).toContain("cd '");
+    expect(spawnCalls[0][7]).toContain("exec ");
+    expect(logs.join("\n")).toContain("split shell pane");
+    expect(logs.join("\n")).toContain("50-mawjs:mawjs-oracle-shell");
+  });
+
+  test("--shell --no-split opens a named shell window in the target session", async () => {
+    fleet = [{ name: "50-mawjs", windows: [{ name: "mawjs-oracle", repo: "Soul-Brews-Studio/mawjs-oracle" }] }];
+    resolveQueue = [{ tier: 1, sessionName: "50-mawjs" }];
+
+    await cmdAttach("mawjs-oracle", { shell: true, split: false });
+
+    expect(spawnCalls).toEqual([[
+      "tmux",
+      "new-window",
+      "-t",
+      "50-mawjs:",
+      "-n",
+      "mawjs-oracle-shell",
+      expect.stringContaining("Soul-Brews-Studio/mawjs-oracle"),
+    ]]);
+    expect(logs.join("\n")).toContain("opened shell window");
+  });
+
+  test("Claude-like callers use a background shell window instead of a split", async () => {
+    process.env.TMUX_PANE = "%42";
+    spawnStdout = "claude";
+    fleet = [{ name: "50-mawjs", windows: [{ name: "mawjs-oracle", repo: "Soul-Brews-Studio/mawjs-oracle" }] }];
+    resolveQueue = [{ tier: 1, sessionName: "50-mawjs" }];
+
+    await cmdAttach("mawjs-oracle", { shell: true });
+
+    expect(spawnCalls[0]).toEqual(["tmux", "display-message", "-p", "-t", "%42", "#{pane_current_command}"]);
+    expect(spawnCalls[1]).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "50-mawjs:",
+      "-n",
+      "mawjs-oracle-shell",
+      expect.stringContaining("Soul-Brews-Studio/mawjs-oracle"),
+    ]);
+    expect(logs.join("\n")).toContain("Claude-like caller detected");
   });
 
   test("handles Tier 2 dry-run and non-interactive yes wake plus attach", async () => {

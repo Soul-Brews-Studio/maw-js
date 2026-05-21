@@ -29,9 +29,8 @@ export function preflightDeps(overrides: Partial<PreflightDeps> = {}): Preflight
     now: () => Date.now(),
     packageVersion: () => require("../../../package.json").version,
     pluginDir: () => {
-      const { join } = require("path") as typeof import("path");
-      const { homedir } = require("os") as typeof import("os");
-      return join(homedir(), ".maw", "plugins");
+      const { mawDataPath } = require("../../core/xdg") as typeof import("../../core/xdg");
+      return mawDataPath("plugins");
     },
     fs: async () => await import("fs"),
     join: (...parts: string[]) => {

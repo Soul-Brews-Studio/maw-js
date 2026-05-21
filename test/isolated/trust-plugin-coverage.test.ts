@@ -20,16 +20,20 @@ const api = (args: Record<string, unknown> = {}): InvokeContext => ({
 describe("vendor trust plugin index coverage", () => {
   const originalMawHome = process.env.MAW_HOME;
   const originalConfigDir = process.env.MAW_CONFIG_DIR;
+  const originalStateDir = process.env.MAW_STATE_DIR;
   let dir: string;
   let configDir: string;
+  let stateDir: string;
   let trustFile: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "maw-trust-plugin-"));
     configDir = join(dir, "config");
-    trustFile = join(configDir, "trust.json");
+    stateDir = join(dir, "state");
+    trustFile = join(stateDir, "trust.json");
     delete process.env.MAW_HOME;
     process.env.MAW_CONFIG_DIR = configDir;
+    process.env.MAW_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
@@ -38,6 +42,9 @@ describe("vendor trust plugin index coverage", () => {
 
     if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
     else process.env.MAW_CONFIG_DIR = originalConfigDir;
+
+    if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+    else process.env.MAW_STATE_DIR = originalStateDir;
 
     rmSync(dir, { recursive: true, force: true });
   });
@@ -52,7 +59,7 @@ describe("vendor trust plugin index coverage", () => {
 
     expect(result.ok).toBe(true);
     expect(result.output).toContain("usage: maw trust <list|add|remove> [...]");
-    expect(result.output).toContain("storage: <CONFIG_DIR>/trust.json");
+    expect(result.output).toContain("storage: <STATE_DIR>/trust.json");
     expect(existsSync(trustFile)).toBe(false);
   });
 

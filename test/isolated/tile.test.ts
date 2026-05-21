@@ -13,6 +13,7 @@ let commands: string[] = [];
 let nextPane = 1;
 let paneList = "";
 let worktreeList = "";
+let worktreeGlobList = "";
 
 function generatedPaneIds(): string[] {
   return Array.from({ length: nextPane - 1 }, (_, i) => `%p${i + 1}`);
@@ -49,6 +50,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
       return [...(ids.length ? ids : ["%lead"]), ...generatedPaneIds()].join("\n") + "\n";
     }
     if (cmd.includes("git rev-parse --show-toplevel")) return "/tmp/maw-js\n";
+    if (cmd.includes("ls -d") && cmd.includes(".wt-*")) return worktreeGlobList;
     if (cmd.includes("git -C '/tmp/maw-js' worktree list")) return worktreeList;
     if (cmd.includes("show-ref --verify")) throw new Error("missing branch");
 
@@ -63,8 +65,10 @@ beforeEach(() => {
   nextPane = 1;
   paneList = "";
   worktreeList = "";
+  worktreeGlobList = "";
   rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
   rmSync("/tmp/maw-js.wt-2-sess-tile-1", { recursive: true, force: true });
+  rmSync("/tmp/maw-js.wt-explore-1234", { recursive: true, force: true });
   process.env.TMUX_PANE = "%lead";
 });
 
@@ -144,6 +148,31 @@ describe("tile plugin spawn metadata", () => {
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_role 'sess-tile-1'");
   });
 
+
+
+  test("starts spawned shells in --path and runs --cmd before returning to zsh", async () => {
+    await cmdTile(2, { path: "/tmp", cmd: "bun test", shell: true });
+
+    const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommands).toHaveLength(2);
+    for (const splitCommand of splitCommands) {
+      expect(splitCommand).toContain("/tmp");
+      expect(splitCommand).toContain("|| exit $?; export");
+      expect(splitCommand).toContain("; bun test; exec zsh");
+      expect(splitCommand).toContain("MAW_TILE_PARENT='");
+    }
+  });
+
+
+
+  test("rejects invalid --path before spawning panes", async () => {
+    const missing = "/tmp/maw-js-missing-tile-path";
+    rmSync(missing, { recursive: true, force: true });
+
+    await expect(cmdTile(1, { path: missing })).rejects.toThrow("tile: path does not exist");
+    expect(commands).toEqual([]);
+  });
+
   test("uses scoped tile roles for worktree names and branches", async () => {
     await cmdTile(1, { wt: true });
 
@@ -151,6 +180,31 @@ describe("tile plugin spawn metadata", () => {
     const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
     expect(splitCommand).toContain("/tmp/maw-js.wt-1-sess-tile-1");
     expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
+  });
+
+  test("creates one named --wt worktree and opens all tile panes as blank shells inside it", async () => {
+    await cmdTile(3, { wt: "explore-1234" });
+
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js.wt-explore-1234' -b 'agents/explore-1234'");
+    const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommands).toHaveLength(3);
+    for (const splitCommand of splitCommands) {
+      expect(splitCommand).toContain("/tmp/maw-js.wt-explore-1234");
+      expect(splitCommand).toContain("exec zsh");
+      expect(splitCommand).not.toContain("claude");
+    }
+  });
+
+  test("reuses named --wt worktrees and resolves --path relative to that worktree", async () => {
+    mkdirSync("/tmp/maw-js.wt-explore-1234/src", { recursive: true });
+    worktreeGlobList = "/tmp/maw-js.wt-explore-1234\n";
+
+    await cmdTile(2, { wt: "explore-1234", path: "src" });
+
+    expect(commands.some(cmd => cmd.includes("worktree add '/tmp/maw-js.wt-explore-1234'"))).toBe(false);
+    const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommands).toHaveLength(2);
+    expect(splitCommands.every(cmd => cmd.includes("/tmp/maw-js.wt-explore-1234/src"))).toBe(true);
   });
 });
 

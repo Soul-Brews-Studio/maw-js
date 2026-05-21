@@ -322,6 +322,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
     });
     expect(parseLsAliasOpts(["-c"])).toEqual({
       all: true,
@@ -329,6 +330,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
     });
   });
 
@@ -356,6 +358,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
     });
   });
 
@@ -377,6 +380,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       recent: true,
     });
     expect(parseLsAliasOpts(["--recent", "5", "-v"])).toEqual({
@@ -394,6 +398,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       recent: true,
       recentLimit: 5,
       active: true,
@@ -401,11 +406,11 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     });
   });
 
-  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+  test("`a neo` → argv rewrite to ['attach', 'neo']", () => {
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["attach", "neo"]);
   });
 
   test("`peek` is not a tmux top-alias; top-level peek is handled by routeComm", () => {

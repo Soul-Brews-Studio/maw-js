@@ -80,7 +80,8 @@ export async function cmdOracleScan(opts: { force?: boolean; json?: boolean; loc
   const localCount = cache.oracles.filter(o => o.local_path).length;
   const remoteOnly = cache.oracles.filter(o => !o.local_path).length;
   console.log(`  \x1b[32m✓\x1b[0m ${cache.oracles.length} oracles (${localCount} local, ${remoteOnly} remote-only) (${elapsed}s)\n`);
-  console.log(`  Cache written to \x1b[90m~/.config/maw/oracles.json\x1b[0m\n`);
+  const { CACHE_FILE } = await import("../../../core/fleet/registry-oracle-types");
+  console.log(`  Cache written to \x1b[90m${CACHE_FILE}\x1b[0m\n`);
 }
 
 /**

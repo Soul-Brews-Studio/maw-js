@@ -36,6 +36,14 @@ describe("resolveTarget — session alias window guards (#1565/#1611)", () => {
     expect(resolveTarget("mawjs-codex", CONFIG, sessions)).toEqual({ type: "local", target: "48-mawjs-codex:7" });
   });
 
+  test("numeric session id targets prefer the matching oracle window when window is omitted (#1812)", () => {
+    const sessions: Session[] = [
+      { name: "01-hojo", windows: [win(1, "shell"), win(2, "hojo-oracle")] },
+    ];
+
+    expect(resolveTarget("01-hojo", CONFIG, sessions)).toEqual({ type: "local", target: "01-hojo:2" });
+  });
+
   test("ambiguous aliases fail loudly instead of guessing a window", () => {
     const sessions: Session[] = [
       { name: "54-mawjs", windows: [win(1, "mawjs-oracle")] },

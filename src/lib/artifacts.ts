@@ -16,9 +16,9 @@
 
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync, statSync } from "fs";
 import { join, basename } from "path";
-import { homedir } from "os";
+import { mawCachePath } from "../core/xdg";
 
-const ARTIFACTS_ROOT = join(homedir(), ".maw", "artifacts");
+const ARTIFACTS_ROOT = mawCachePath("artifacts");
 
 export interface ArtifactMeta {
   team: string;

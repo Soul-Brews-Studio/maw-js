@@ -1,7 +1,7 @@
 /**
  * maw trust — subcommand implementations (#842 Sub-B).
  *
- * Pure(-ish) functions that read and write `<CONFIG_DIR>/trust.json`
+ * Pure(-ish) functions that read and write `<STATE_DIR>/trust.json`
  * via {@link ./store}. Sub-B ships the data primitive + CLI verbs
  * (list / add / remove). Caller integration into `comm-send.ts` lives
  * in Sub-C — same staging discipline as Sub-A's scope-acl.

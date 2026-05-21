@@ -1,8 +1,8 @@
 import { openSync, closeSync, unlinkSync, existsSync, mkdirSync, writeSync, readSync, fstatSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { mawStateDir } from "../core/xdg";
 
-const LOCK_DIR = join(homedir(), ".maw");
+const LOCK_DIR = mawStateDir();
 const LOCK_PATH = join(LOCK_DIR, "update.lock");
 
 /**

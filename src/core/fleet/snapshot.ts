@@ -7,7 +7,8 @@
  *   maw done  → snapshot after done
  *
  * Stored as timestamped JSON files:
- *   ~/.config/maw/snapshots/2026-03-30T11-19.json
+ *   ~/.maw/snapshots/2026-03-30T11-19.json
+ *   or, with MAW_XDG=1, ~/.local/state/maw/snapshots/...
  *
  * CLI:
  *   maw fleet snapshots          — list all snapshots
@@ -19,11 +20,11 @@
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
-import { CONFIG_DIR } from "../paths";
+import { mawStatePath } from "../xdg";
 import { listSessions } from "../transport/ssh";
 import { loadConfig } from "../../config";
 
-export const SNAPSHOT_DIR = join(CONFIG_DIR, "snapshots");
+export const SNAPSHOT_DIR = mawStatePath("snapshots");
 mkdirSync(SNAPSHOT_DIR, { recursive: true });
 
 const MAX_SNAPSHOTS = 720; // ~1 month at 1 snapshot/hour

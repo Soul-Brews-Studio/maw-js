@@ -10,7 +10,6 @@ const originalLog = console.log;
 const originalError = console.error;
 const originalStdoutWrite = process.stdout.write;
 const originalExit = process.exit;
-const originalPath = process.env.PATH;
 
 let logs: string[] = [];
 let errors: string[] = [];
@@ -35,7 +34,6 @@ function resetOutput(): void {
 beforeEach(() => {
   _resetAllowedOrgsCache();
   resetOutput();
-  process.env.PATH = originalPath;
   process.exit = originalExit;
 });
 
@@ -44,7 +42,6 @@ afterEach(() => {
   console.log = originalLog;
   console.error = originalError;
   process.stdout.write = originalStdoutWrite;
-  process.env.PATH = originalPath;
   process.exit = originalExit;
 });
 
@@ -63,10 +60,11 @@ describe("readTtyAnswer final-empty branch", () => {
 });
 
 describe("scanSuggestOracle remaining prompt and failure branches", () => {
-  test("default exec path fails softly when gh is unavailable", async () => {
-    process.env.PATH = "";
-
+  test("fails softly when gh is unavailable", async () => {
     const result = await scanSuggestOracle("ghost", {
+      execFn: () => {
+        throw new Error("gh unavailable");
+      },
       configFn: () => ({}),
       hostExecFn: async () => {
         throw new Error("host exec should not run after gh failure");

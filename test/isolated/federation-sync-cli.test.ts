@@ -842,4 +842,40 @@ describe("cmdFederationSync — fetch wiring", () => {
 
     expect(outs.join("\n")).toContain("0 agents");
   });
+
+  test("--peers both can feed ephemeral scout peers and preserve scout warnings in JSON", async () => {
+    configStore = { node: "white", namedPeers: [], agents: {} };
+    fetchReturn = [peer("scout-node", "scout-node", [])];
+
+    await run(() => cmdFederationSync({ json: true, peers: "both" }, captureSave, {
+      resolvePeerSources: async () => ({
+        mode: "both",
+        warnings: ["scout unavailable (daemon_unreachable)"],
+        peers: [{ name: "scout-node", url: "https://scout.example", source: "scout" }],
+      }),
+    }));
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].peers).toEqual([{ name: "scout-node", url: "https://scout.example" }]);
+    const parsed = JSON.parse(outs[0]);
+    expect(parsed.peerWarnings).toEqual(["scout unavailable (daemon_unreachable)"]);
+  });
+
+  test("--peers both text mode warns and exits cleanly when no config or scout peers exist", async () => {
+    configStore = { node: "white", namedPeers: [], agents: {} };
+
+    await run(() => cmdFederationSync({ peers: "both" }, captureSave, {
+      resolvePeerSources: async () => ({
+        mode: "both",
+        warnings: ["scout unavailable (daemon_unreachable)"],
+        peers: [],
+      }),
+    }));
+
+    const joined = outs.join("\n");
+    expect(exitCode).toBe(0);
+    expect(joined).toContain("scout unavailable");
+    expect(joined).toContain("no peers configured or discovered — nothing to sync");
+    expect(fetchCalls).toEqual([]);
+  });
 });

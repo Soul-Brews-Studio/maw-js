@@ -1,7 +1,7 @@
 /**
  * maw peers — storage layer (#568, #572).
  *
- * Atomic read/write of `~/.maw/peers.json`. Writes go via a temp file
+ * Atomic read/write of the maw state `peers.json` store. Writes go via a temp file
  * and rename(2) so a crash mid-write leaves either the old file intact
  * or the new file fully in place — never a truncated file. A stale tmp
  * file from a crashed previous write is cleaned on load (the live file
@@ -17,7 +17,7 @@
  *   pair for duplicate-detection (doctor + boot-time warn).
  *
  * Path resolution is a function (not a const) so tests can override
- * `HOME` / the path via `PEERS_FILE` and get a fresh value each call.
+ * `HOME` / `MAW_STATE_DIR` / the path via `PEERS_FILE` and get a fresh value each call.
  *
  * Concurrency: savePeers takes a short-lived file lock around the
  * read-modify-write critical section so concurrent `maw peers add`
@@ -31,6 +31,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
+import { mawStatePath } from "../../../../core/xdg";
 import { withPeersLock } from "./lock";
 
 /**
@@ -92,7 +93,20 @@ export interface PeersFile {
 }
 
 export function peersPath(): string {
-  return process.env.PEERS_FILE || join(homedir(), ".maw", "peers.json");
+  return process.env.PEERS_FILE || mawStatePath("peers.json");
+}
+
+function legacyPeersPath(): string | null {
+  if (process.env.PEERS_FILE || process.env.MAW_HOME) return null;
+  const legacy = join(process.env.HOME || homedir(), ".maw", "peers.json");
+  return legacy === peersPath() ? null : legacy;
+}
+
+function readablePeersPath(): string {
+  const primary = peersPath();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyPeersPath();
+  return legacy && existsSync(legacy) ? legacy : primary;
 }
 
 export function emptyStore(): PeersFile {
@@ -101,7 +115,7 @@ export function emptyStore(): PeersFile {
 
 export function loadPeers(): PeersFile {
   clearStaleTmp();
-  const path = peersPath();
+  const path = readablePeersPath();
   if (!existsSync(path)) return emptyStore();
   let raw: string;
   try {
@@ -155,7 +169,8 @@ export function mutatePeers(mutate: (data: PeersFile) => void): PeersFile {
   const path = peersPath();
   mkdirSync(dirname(path), { recursive: true });
   return withPeersLock(path, () => {
-    const fresh = readUnlocked(path);
+    const readPath = existsSync(path) ? path : readablePeersPath();
+    const fresh = readUnlocked(readPath);
     mutate(fresh);
     writeAtomic(path, fresh);
     return fresh;
@@ -185,6 +200,9 @@ function writeAtomic(path: string, data: PeersFile): void {
 
 /** Best-effort cleanup of a stale tmp file (ignore errors). */
 export function clearStaleTmp(): void {
-  const tmp = `${peersPath()}.tmp`;
-  try { if (existsSync(tmp)) unlinkSync(tmp); } catch { /* ignore */ }
+  const paths = [peersPath(), legacyPeersPath()].filter((p): p is string => Boolean(p));
+  for (const path of paths) {
+    const tmp = `${path}.tmp`;
+    try { if (existsSync(tmp)) unlinkSync(tmp); } catch { /* ignore */ }
+  }
 }

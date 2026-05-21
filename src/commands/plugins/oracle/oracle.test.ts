@@ -4,10 +4,13 @@ import { createOracleHandler } from "./index";
 
 describe("oracle plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
+  let listOpts: any[] = [];
 
   beforeEach(() => {
+    listOpts = [];
     handler = createOracleHandler({
-      cmdOracleList: async () => {
+      cmdOracleList: async (opts: any) => {
+        listOpts.push(opts);
         console.log("Oracle Fleet  (1/2 awake)");
       },
       cmdOracleScan: async (_opts: any) => {
@@ -41,6 +44,12 @@ describe("oracle plugin", () => {
     const result = await handler({ source: "cli", args: ["ls"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Oracle Fleet");
+  });
+
+  it("cli: ls accepts --sort-by born", async () => {
+    const result = await handler({ source: "cli", args: ["ls", "--sort-by", "born"] });
+    expect(result.ok).toBe(true);
+    expect(listOpts[0].sortBy).toBe("born");
   });
 
   it("cli: scan runs oracle scan", async () => {

@@ -7,7 +7,7 @@ export const command = {
   description: "Smart attach — local live or sleeping-fleet wake (#25 Phase 1, local only).",
 };
 
-const USAGE = "usage: maw attach <name> [--dry-run] [-y|--yes]";
+const USAGE = "usage: maw attach <name> [--shell [--split|--no-split]] [--dry-run] [-y|--yes]";
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -31,6 +31,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           "--dry-run": Boolean,
           "--yes": Boolean,
           "-y": "--yes",
+          "--shell": Boolean,
+          "--split": Boolean,
+          "--no-split": Boolean,
         },
         0,
       );
@@ -44,6 +47,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       await cmdAttach(name, {
         dryRun: flags["--dry-run"],
         yes: flags["--yes"],
+        shell: flags["--shell"],
+        split: flags["--shell"] ? !flags["--no-split"] : flags["--split"],
       });
     } else if (ctx.source === "api") {
       const body = ctx.args as Record<string, unknown>;

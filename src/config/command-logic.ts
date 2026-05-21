@@ -1,4 +1,8 @@
+import { existsSync } from "fs";
+import { join } from "path";
 import type { MawConfig } from "./types";
+
+const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
 function matchGlob(pattern: string, name: string): boolean {
   if (pattern === name) return true;
@@ -7,10 +11,23 @@ function matchGlob(pattern: string, name: string): boolean {
   return false;
 }
 
+function shouldAutoDiscordChannels(cwd?: string): boolean {
+  if (!cwd) return false;
+  try { return existsSync(join(cwd, ".discord")); } catch { return false; }
+}
+
+function addDiscordChannelsForClaude(cmd: string, cwd?: string): string {
+  if (!shouldAutoDiscordChannels(cwd)) return cmd;
+  if (/\s--channels(?:\s|=|$)/.test(cmd)) return cmd;
+  if (!/(^|\s)(?:command\s+)?claude(?:\s|$)/.test(cmd)) return cmd;
+  return `${cmd} --channels ${DISCORD_CHANNEL_PLUGIN}`;
+}
+
 export function buildCommandFromConfig(
   config: Partial<MawConfig> & { sessionIds?: Record<string, string> },
   agentName: string,
   engine?: string,
+  context: { cwd?: string } = {},
 ): string {
   const commands = config.commands || { default: "claude" };
   let cmd: string;
@@ -29,6 +46,8 @@ export function buildCommandFromConfig(
   if (process.getuid?.() === 0) {
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/, "");
   }
+
+  cmd = addDiscordChannelsForClaude(cmd, context.cwd);
 
   // Inject --session-id if configured for this agent
   const sessionIds: Record<string, string> = config.sessionIds || {};
@@ -60,8 +79,8 @@ export function buildCommandFromConfig(
 export function buildCommandInDirFromConfig(
   config: Partial<MawConfig> & { sessionIds?: Record<string, string> },
   agentName: string,
-  _cwd: string,
+  cwd: string,
   engine?: string,
 ): string {
-  return buildCommandFromConfig(config, agentName, engine);
+  return buildCommandFromConfig(config, agentName, engine, { cwd });
 }

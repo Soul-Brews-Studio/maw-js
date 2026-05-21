@@ -41,9 +41,32 @@ describe("cmdFederationStatus", () => {
 
     const out = logs.text();
     expect(out).toContain("Federation Status  1 node (1 local + 0 peers)");
-    expect(out).toContain("local  online  0 agents");
+    expect(out).toContain("local  online  0ms · 0 agents");
     expect(out).toContain("No peers configured");
     expect(out).toContain("namedPeers");
+  });
+
+  test("renders local self-probe failures as offline", async () => {
+    const logs = captureLog();
+
+    await cmdFederationStatus({
+      getPeers: () => ["http://peer:3456"],
+      loadConfig: () => ({ node: "m5", namedPeers: [] }),
+      listSessions: async () => [session("local-a", 1)],
+      getFederationStatus: async () => ({
+        localUrl: "http://localhost:3456",
+        localReachable: false,
+        peers: [{ url: "http://peer:3456", reachable: false }],
+        totalPeers: 1,
+        reachablePeers: 0,
+        clockHealth: { clockUtc: "2026-05-17T00:00:00.000Z", timezone: "UTC", uptimeSeconds: 1 },
+      }),
+      log: logs.log,
+    });
+
+    const out = logs.text();
+    expect(out).toContain("m5 (local)  offline  no listener answered self-probe; try: maw federation start");
+    expect(out).toContain("0/2 reachable");
   });
 
   test("renders named, host, localhost, throwing, and unreachable peers", async () => {
@@ -94,7 +117,7 @@ describe("cmdFederationStatus", () => {
       "http://throw-host:3456/api/sessions",
     ]);
     expect(out).toContain("Federation Status  6 nodes (1 local + 5 peers)");
-    expect(out).toContain("m5 (local)  online  3 agents");
+    expect(out).toContain("m5 (local)  online  0ms · 3 agents");
     expect(out).toContain("named-peer  reachable  7ms · 3 agents");
     expect(out).toContain("localhost:4567  reachable  8ms · 1 agent");
     expect(out).toContain("other-host:3456  reachable  9ms · 0 agents");

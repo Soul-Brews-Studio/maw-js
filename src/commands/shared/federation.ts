@@ -1,7 +1,8 @@
-import { getFederationStatus, getPeers, curlFetch, listSessions } from "../../sdk";
+import { getFederationStatus, curlFetch, listSessions } from "../../sdk";
 import { loadConfig, type MawConfig } from "../../config";
 import { getFederationStatusSymmetric, type PeerStatus } from "../../core/transport/peers";
 import type { Session } from "../../core/runtime/find-window";
+import { resolvePeerSources, type PeerSourceMode, type PeerTarget } from "./peer-sources";
 
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void;
 type CurlFetch = typeof curlFetch;
@@ -16,9 +17,11 @@ type SymmetricStatus = {
 };
 
 export type FederationStatusDeps = {
+  peerSourceMode?: PeerSourceMode;
   getPeers?: () => string[];
   loadConfig?: () => MawConfig;
   getFederationStatus?: () => Promise<FederationStatus>;
+  resolvePeerSources?: typeof resolvePeerSources;
   listSessions?: () => Promise<Session[]>;
   curlFetch?: CurlFetch;
   log?: LogFn;
@@ -52,7 +55,9 @@ async function countLocalAgents(loadSessions: () => Promise<Session[]> = listSes
 }
 
 /** Build a human-readable label for a peer URL, preferring namedPeers.name. */
-function labelForPeer(url: string, named: { name: string; url: string }[]): string {
+function labelForPeer(url: string, named: { name: string; url: string }[], peers: PeerTarget[] = []): string {
+  const resolved = peers.find(p => p.url === url && p.name);
+  if (resolved?.name) return resolved.name;
   const match = named.find(p => p.url === url);
   if (match) return match.name;
   try {
@@ -64,8 +69,12 @@ function labelForPeer(url: string, named: { name: string; url: string }[]): stri
 
 /** maw federation status — show all nodes (local + peers) with connectivity + agent counts */
 export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
-  const peers = (deps.getPeers ?? getPeers)();
   const config = (deps.loadConfig ?? loadConfig)();
+  const resolved = deps.getPeers
+    ? { peers: deps.getPeers().map((url): PeerTarget => ({ url, source: "config" })), warnings: [] as string[] }
+    : await (deps.resolvePeerSources ?? resolvePeerSources)(config, deps.peerSourceMode ?? "both");
+  const peerTargets = resolved.peers;
+  const peers = peerTargets.map((peer) => peer.url);
   const named = config.namedPeers ?? [];
   const totalNodes = peers.length + 1; // +1 for local
   const localLabel = config.node ? `${config.node} (local)` : "local";
@@ -77,24 +86,31 @@ export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
     `\x1b[90m${totalNodes} node${totalNodes !== 1 ? "s" : ""} ` +
     `(1 local + ${peers.length} peer${peers.length !== 1 ? "s" : ""})\x1b[0m\n`
   );
+  for (const warning of resolved.warnings) {
+    log(`  \x1b[33m!\x1b[0m  \x1b[90m${warning}\x1b[0m`);
+  }
 
   // Fetch local + peer state in parallel
-  const [localCount, { peers: statuses, localUrl }] = await Promise.all([
+  const [localCount, { peers: statuses, localUrl, localReachable, localLatency }] = await Promise.all([
     countLocalAgents(deps.listSessions ?? listSessions),
-    (deps.getFederationStatus ?? getFederationStatus)(),
+    deps.getFederationStatus
+      ? deps.getFederationStatus()
+      : getFederationStatus({ peers: peerTargets, config }),
   ]);
 
+  const effectiveLocalReachable = localReachable ?? true;
+  const localDot = effectiveLocalReachable ? "\x1b[32m●\x1b[0m" : "\x1b[31m●\x1b[0m";
+  const localStatus = effectiveLocalReachable
+    ? `\x1b[32monline\x1b[0m  \x1b[90m${localLatency ?? 0}ms · ${localCount} agent${localCount !== 1 ? "s" : ""}\x1b[0m`
+    : "\x1b[31moffline\x1b[0m  \x1b[90mno listener answered self-probe; try: maw federation start\x1b[0m";
+
   // Render local row FIRST — the triangle is only visible if local is in the table
-  log(
-    `  \x1b[32m●\x1b[0m  \x1b[37m${localLabel}\x1b[0m  ` +
-    `\x1b[32monline\x1b[0m  ` +
-    `\x1b[90m${localCount} agent${localCount !== 1 ? "s" : ""}\x1b[0m`
-  );
+  log(`  ${localDot}  \x1b[37m${localLabel}\x1b[0m  ${localStatus}`);
   log(`     \x1b[90m${localUrl}\x1b[0m`);
 
   // No peers? Still show helpful hint.
   if (peers.length === 0) {
-    log("\n\x1b[90mNo peers configured. Add namedPeers[] to maw.config.json.\x1b[0m");
+    log("\n\x1b[90mNo peers configured or discovered. Add namedPeers[] to maw.config.json or run maw serve with discovery enabled.\x1b[0m");
     log('\x1b[90mExample: { "namedPeers": [{ "name": "other", "url": "http://other-host:3456" }] }\x1b[0m\n');
     return;
   }
@@ -104,7 +120,7 @@ export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
     statuses.map(p => p.reachable ? fetchPeerAgentCount(p.url, deps.curlFetch ?? curlFetch) : Promise.resolve(0))
   );
 
-  let reachableCount = 1; // local is always reachable (we're executing in it)
+  let reachableCount = effectiveLocalReachable ? 1 : 0;
   for (let i = 0; i < statuses.length; i++) {
     const { url, reachable, latency } = statuses[i] as PeerStatus;
     const agentCount = counts[i];
@@ -118,7 +134,7 @@ export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
       ? `\x1b[32mreachable\x1b[0m  \x1b[90m${latency}ms · ${agentCount} agent${agentCount !== 1 ? "s" : ""}\x1b[0m`
       : "\x1b[31munreachable\x1b[0m";
 
-    const label = labelForPeer(url, named);
+    const label = labelForPeer(url, named, peerTargets);
     log(`  ${dot}  \x1b[37m${label}\x1b[0m  ${status}`);
     log(`     \x1b[90m${url}\x1b[0m`);
   }

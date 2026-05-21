@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -249,7 +249,21 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(readJson(manifestPath).members).toEqual(["scout"]);
     expect(readFileSync(join(root, "ψ/memory/mailbox/teams/qa-team/scout-spawn-prompt.md"), "utf-8")).toBe("You are 'scout' on team 'qa-team'.");
     expect(logs.join("\n")).toContain("past life: no");
-    expect(logs.join("\n")).toContain("cd '/tmp/path with '\\''quote' && claude --model sonnet --prompt-file");
+    expect(logs.join("\n")).toContain("cd '/tmp/path with '\\''quote' && claude --model sonnet --system-prompt-file");
+  });
+
+  test("spawn falls back to the vault prompt when tool-store launch prompt mirroring fails", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    rmSync(join(teamsDir, "qa-team"), { recursive: true, force: true });
+    writeFileSync(join(teamsDir, "qa-team"), "not a directory");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "scout", { model: "sonnet" });
+
+    const vaultPromptPath = join(root, "ψ/memory/mailbox/teams/qa-team/scout-spawn-prompt.md");
+    expect(readFileSync(vaultPromptPath, "utf-8")).toBe("You are 'scout' on team 'qa-team'.");
+    expect(readJson(join(root, "ψ/memory/mailbox/teams/qa-team/manifest.json")).members).toEqual(["scout"]);
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).toContain("ψ/memory/mailbox/teams/qa-team/scout-spawn-prompt.md");
   });
 
   test("spawn includes past-life standing orders and only the latest findings tail", async () => {
@@ -274,11 +288,21 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     lifecycle.cmdTeamCreate("qa-team");
     process.env.TMUX = "/tmp/tmux,1,0";
 
-    await lifecycle.cmdTeamSpawn("qa-team", "builder", { exec: true, model: "opus" });
+    await lifecycle.cmdTeamSpawn("qa-team", "builder-λ", { exec: true, model: "opus" });
 
     expect(hostExecCalls).toHaveLength(1);
     expect(hostExecCalls[0]).toContain("tmux split-window -h -l 50%");
-    expect(hostExecCalls[0]).toContain("claude --model opus --prompt-file");
+    expect(hostExecCalls[0]).toContain("claude --model opus --system-prompt-file");
+    expect(hostExecCalls[0]).not.toContain("--prompt-file");
+    expect(hostExecCalls[0]).not.toContain("/ψ/");
+    expect(hostExecCalls[0]).not.toContain("λ");
+    const launchFiles = readdirSync(join(teamsDir, "qa-team")).filter((name) => name.endsWith("-spawn-prompt.md"));
+    expect(launchFiles).toHaveLength(1);
+    expect(launchFiles[0]).not.toContain("λ");
+    const launchPrompt = join(teamsDir, "qa-team", launchFiles[0]);
+    expect(hostExecCalls[0]).toContain(launchPrompt);
+    expect(readFileSync(launchPrompt, "utf-8")).toContain("You are 'builder-λ' on team 'qa-team'.");
+    expect(existsSync(join(root, "ψ/memory/mailbox/teams/qa-team/builder-λ-spawn-prompt.md"))).toBe(true);
     expect(logs.join("\n")).toContain("--exec");
 
     logs = [];
@@ -292,7 +316,7 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(hostExecCalls).toHaveLength(2);
     expect(logs.join("\n")).toContain("--exec split failed: tmux denied");
     expect(logs.join("\n")).toContain("Run manually:");
-    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model haiku --prompt-file");
+    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model haiku --system-prompt-file");
   });
 
   test("spawn --exec outside tmux prints a manual command instead of starting a pane", async () => {
@@ -303,6 +327,6 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(hostExecCalls).toEqual([]);
     expect(logs.join("\n")).toContain("--exec requires an active tmux session");
     expect(logs.join("\n")).toContain("Run manually:");
-    expect(logs.join("\n")).toContain("claude --model sonnet --prompt-file");
+    expect(logs.join("\n")).toContain("claude --model sonnet --system-prompt-file");
   });
 });

@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { cmdSplit } from "./impl";
+import { cmdSplit, type SplitOpts } from "./impl";
 import { parseFlags } from "maw-js/cli/parse-args";
 
 export const command = {
@@ -21,7 +21,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     let target: string;
-    let opts: { pct?: number; vertical?: boolean; noAttach?: boolean } = {};
+    let opts: SplitOpts = {};
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
@@ -29,6 +29,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--pct": Number,
         "--vertical": Boolean,
         "--no-attach": Boolean,
+        "--claude-pane-policy": String,
       }, 0);
 
       target = flags._[0];
@@ -44,6 +45,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         vertical: flags["--vertical"],
         noAttach: flags["--no-attach"],
       };
+      if (flags["--claude-pane-policy"] !== undefined) {
+        opts.claudePanePolicy = flags["--claude-pane-policy"];
+      }
     } else {
       const body = ctx.args as Record<string, unknown>;
       if (!body.target) {
@@ -55,6 +59,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         vertical: body.vertical as boolean | undefined,
         noAttach: body.noAttach as boolean | undefined,
       };
+      if (body.claudePanePolicy !== undefined) {
+        opts.claudePanePolicy = body.claudePanePolicy as SplitOpts["claudePanePolicy"];
+      }
     }
 
     await cmdSplit(target, opts);

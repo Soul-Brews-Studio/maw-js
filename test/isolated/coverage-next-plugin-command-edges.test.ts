@@ -122,6 +122,12 @@ describe("coverage-next plugin command edges", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("01-lyra");
 
+    result = await fleetHandler({ source: "cli", args: ["restore", "--all"] } as any);
+    expect(result.ok).toBe(true);
+    expect(wakeCalls).toEqual(["lyra"]);
+
+    wakeCalls = [];
+    latest = null;
     snapshotById["snap-a"] = {
       timestamp: "2026-05-18T01:02:03.000Z",
       trigger: "manual",

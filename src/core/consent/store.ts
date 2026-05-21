@@ -10,16 +10,16 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
-import { homedir } from "os";
+import { mawStatePath } from "../xdg";
 
 // --- Paths ---
 
 export function trustPath(): string {
-  return process.env.CONSENT_TRUST_FILE || join(homedir(), ".maw", "trust.json");
+  return process.env.CONSENT_TRUST_FILE || mawStatePath("trust.json");
 }
 
 export function pendingDir(): string {
-  return process.env.CONSENT_PENDING_DIR || join(homedir(), ".maw", "consent-pending");
+  return process.env.CONSENT_PENDING_DIR || mawStatePath("consent-pending");
 }
 
 // --- Types ---

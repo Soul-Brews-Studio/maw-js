@@ -3,15 +3,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const federationPath = import.meta.resolve("../../src/commands/shared/federation.ts");
 const federationSyncPath = import.meta.resolve("../../src/commands/shared/federation-sync.ts");
 
-let statusCalls = 0;
+let statusCalls: Array<Record<string, unknown> | undefined> = [];
 let verifyCalls = 0;
-let syncCalls: Array<Record<string, boolean>> = [];
+let syncCalls: Array<Record<string, unknown>> = [];
 let verifyResult = { ok: true };
 let statusThrows: Error | null = null;
 
 mock.module(federationPath, () => ({
-  cmdFederationStatus: async () => {
-    statusCalls += 1;
+  cmdFederationStatus: async (opts?: Record<string, unknown>) => {
+    statusCalls.push(opts);
     if (statusThrows) throw statusThrows;
     console.log("federation status ok");
     console.error("federation status stderr");
@@ -24,7 +24,7 @@ mock.module(federationPath, () => ({
 }));
 
 mock.module(federationSyncPath, () => ({
-  cmdFederationSync: async (opts: Record<string, boolean>) => {
+  cmdFederationSync: async (opts: Record<string, unknown>) => {
     syncCalls.push(opts);
     console.log("federation sync ok");
   },
@@ -36,7 +36,7 @@ const federationPlugin = await import(
 const handler = federationPlugin.default;
 
 beforeEach(() => {
-  statusCalls = 0;
+  statusCalls = [];
   verifyCalls = 0;
   syncCalls = [];
   verifyResult = { ok: true };
@@ -58,7 +58,7 @@ describe("federation plugin index dispatch", () => {
       description: "Multi-node federation status and sync.",
     });
     expect(result).toEqual({ ok: true, output: undefined });
-    expect(statusCalls).toBe(1);
+    expect(statusCalls).toEqual([{ peerSourceMode: "both" }]);
     expect(written).toEqual(["federation status ok", "federation status stderr"]);
   });
 
@@ -92,6 +92,7 @@ describe("federation plugin index dispatch", () => {
       prune: true,
       force: true,
       json: true,
+      peers: "config",
     }]);
   });
 
@@ -100,7 +101,7 @@ describe("federation plugin index dispatch", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "usage: maw federation <status|sync> [--verify|--dry-run|--check|--prune|--force|--json]",
+      error: "usage: maw federation <status|sync> [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
     });
 
     statusThrows = new Error("status exploded");
@@ -111,5 +112,21 @@ describe("federation plugin index dispatch", () => {
       error: "status exploded",
       output: undefined,
     });
+  });
+
+  test("accepts --peers for status/sync and rejects invalid peer source modes", async () => {
+    let result = await handler({ source: "cli", args: ["--peers=scout"] } as any);
+
+    expect(result).toEqual({ ok: true, output: "federation status ok\nfederation status stderr" });
+    expect(statusCalls.at(-1)).toEqual({ peerSourceMode: "scout" });
+
+    result = await handler({ source: "cli", args: ["sync", "--peers", "config"] } as any);
+
+    expect(result).toEqual({ ok: true, output: "federation sync ok" });
+    expect(syncCalls.at(-1)?.peers).toBe("config");
+
+    result = await handler({ source: "cli", args: ["status", "--peers", "bogus"] } as any);
+
+    expect(result).toEqual({ ok: false, error: "usage: --peers config|scout|both" });
   });
 });

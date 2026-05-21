@@ -431,9 +431,9 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logs.join("\n")).toContain("busy.md");
   });
 
-  test("peer delivery signs POST body, logs success, and emits peer lifecycle feed", async () => {
+  test("peer delivery marks accepted-only responses queued until delivery is proven", async () => {
     resolveTargetReturn = { type: "peer", target: "oracle", node: "remote", peerUrl: "http://remote:3456" };
-    curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "remote-session:oracle.0", lastLine: "remote ack", state: "queued" } });
+    curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "remote-session:oracle.0", lastLine: "remote ack" } });
 
     await runCmd(() => cmdSend("remote:session:oracle", "ping"));
 
@@ -444,6 +444,8 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("peer:remote");
     expect(emitFeedCalls[0].data.route).toBe("peer");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(logs.join("\n")).toContain("queued");
+    expect(logs.join("\n")).not.toContain("delivered");
     expect(runHookCalls[0].name).toBe("after_send");
   });
 
@@ -460,7 +462,7 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(errs.join("\n")).toContain("Remote fetch failed");
   });
 
-  test("discovery fallback delivers through discovered peer when normal resolution misses", async () => {
+  test("discovery fallback marks accepted-only peer responses queued until delivery is proven", async () => {
     resolveTargetReturn = null;
     findPeerUrl = "http://discovered:3456";
     curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "found:0", lastLine: "found ack" } });
@@ -471,6 +473,9 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(curlFetchCalls[0].url).toBe("http://discovered:3456/api/send");
     expect(logMessageCalls[0].route).toBe("discovery");
     expect(emitFeedCalls[0].data.route).toBe("discovery");
+    expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(logs.join("\n")).toContain("queued");
+    expect(logs.join("\n")).not.toContain("delivered");
   });
 
   test("discovery fallback failures surface network error instead of local miss", async () => {

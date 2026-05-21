@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { UserError } from "../core/util/user-error";
+import { mawDataPath } from "../core/xdg";
 
 // #388.1 — core-route usage strings for --help intercept. These routes don't
 // pass through invokePlugin, so they need their own --help guard to prevent
@@ -192,7 +193,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
       // runBootstrap on every CLI start).
       const candidates = [
         resolve(sourceDir, "..", "commands", "plugins", "plugin"),
-        join(homedir(), ".maw", "plugins", "plugin"),
+        mawDataPath("plugins", "plugin"),
       ];
       const pluginDir = candidates.find(p => existsSync(join(p, "plugin.json")));
       if (pluginDir) {

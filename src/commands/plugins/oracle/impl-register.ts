@@ -8,13 +8,13 @@
  *   - Missing: not found in any source → "oracle not found"
  */
 
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
-import { CONFIG_DIR, FLEET_DIR, listSessions } from "../../../sdk";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { FLEET_DIR, listSessions } from "../../../sdk";
 import { getGhqRoot } from "../../../config/ghq-root";
 import type { OracleEntry } from "../../../sdk";
+import { CACHE_FILE, LEGACY_CACHE_FILE } from "../../../core/fleet/registry-oracle-types";
 
-const CACHE_FILE = join(CONFIG_DIR, "oracles.json");
 
 export interface RegisterOpts {
   json?: boolean;
@@ -157,11 +157,15 @@ export function findInFilesystem(
 export function readRawRegistry(file: string): Record<string, unknown> {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));
+    if (file === CACHE_FILE && existsSync(LEGACY_CACHE_FILE)) {
+      return JSON.parse(readFileSync(LEGACY_CACHE_FILE, "utf-8"));
+    }
   } catch { /* fall through */ }
   return {};
 }
 
 export function writeRawRegistry(file: string, data: Record<string, unknown>): void {
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 

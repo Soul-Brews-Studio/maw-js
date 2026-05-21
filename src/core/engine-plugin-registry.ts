@@ -1,7 +1,8 @@
 import { NAME_RE } from "../plugin/manifest-constants";
 import type { FeedEvent } from "../lib/feed";
-import { homedir, tmpdir } from "os";
+import { tmpdir } from "os";
 import { resolve, sep } from "path";
+import { mawRuntimeHomeDir } from "./xdg";
 
 export interface EnginePluginRegistrationInput {
   plugin: string;
@@ -75,7 +76,7 @@ function normalizeUnixUpstream(url: URL): string {
 }
 
 function activeMawHome(): string {
-  return process.env.MAW_HOME || `${homedir()}/.maw`;
+  return mawRuntimeHomeDir();
 }
 
 function isInside(path: string, root: string): boolean {

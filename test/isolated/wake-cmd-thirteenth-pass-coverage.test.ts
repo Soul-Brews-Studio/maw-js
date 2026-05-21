@@ -437,7 +437,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
 
     expect(result).toBe("neo:dry-run");
     expect(detectSessionCalls).toEqual([{ oracle: "neo", urlRepoName: "neo-oracle" }]);
-    expect(plain()).toContain("would create session '10-neo-oracle' (main: neo-oracle)");
+    expect(plain()).toContain("would create session '10-neo' (main: neo-oracle)");
   });
 
   test("incubate dry-run prefixes short slugs and defaults the worktree slug", async () => {

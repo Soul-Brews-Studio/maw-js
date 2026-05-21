@@ -68,6 +68,7 @@ mock.module(verbosityPath, () => ({
 
 mock.module(registryTypesPath, () => ({
   CACHE_FILE: "/tmp/maw-test-oracles.json",
+  LEGACY_CACHE_FILE: "/tmp/legacy-maw-test-oracles.json",
 }));
 
 mock.module("maw-js/cli/parse-args", () => ({
@@ -226,7 +227,7 @@ describe("oracle impl-scan isolated coverage", () => {
     expect(scanFullCalls).toEqual([{ scope: undefined, loud: false }]);
     expect(fullPlain).toContain("Full scan: local + GitHub remote");
     expect(fullPlain).toContain("2 oracles (1 local, 1 remote-only)");
-    expect(fullPlain).toContain("Cache written to ~/.config/maw/oracles.json");
+    expect(fullPlain).toContain("Cache written to /tmp/maw-test-oracles.json");
 
     const json = await capture(() => cmdOracleScan({ all: true, json: true, verbose: true }));
 

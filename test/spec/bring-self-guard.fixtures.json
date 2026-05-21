@@ -1,0 +1,80 @@
+[
+  {
+    "name": "exact session:window match → self-bring",
+    "target": "50-mawjs:mawjs-oracle",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": true
+  },
+  {
+    "name": "target with pane suffix matches caller window → self-bring",
+    "target": "50-mawjs:mawjs-oracle.0",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": true
+  },
+  {
+    "name": "target window differs → safe",
+    "target": "50-mawjs:mawjs-features",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": false
+  },
+  {
+    "name": "target session differs → safe",
+    "target": "50-mawjscodex:mawjs-codex-oracle",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": false
+  },
+  {
+    "name": "session-only target matches caller's session → self-bring",
+    "target": "50-mawjs",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": true
+  },
+  {
+    "name": "session-only target on different session → safe",
+    "target": "50-mawjscodex",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": false
+  },
+  {
+    "name": "headless caller (null) → never self-bring",
+    "target": "50-mawjs:mawjs-oracle",
+    "callerSessionWindow": null,
+    "expected": false
+  },
+  {
+    "name": "empty target → safe (downstream will surface its own error)",
+    "target": "",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": false
+  },
+  {
+    "name": "window name with dashes is preserved in comparison",
+    "target": "50-mawjs:maw-plugin-registry-buddy-ship",
+    "callerSessionWindow": "50-mawjs:maw-plugin-registry-buddy-ship",
+    "expected": true
+  },
+  {
+    "name": "pane index colon variant stripped correctly",
+    "target": "50-mawjs:mawjs-oracle.1",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle",
+    "expected": true
+  },
+  {
+    "name": "dotted window name is not stripped as a pane suffix",
+    "target": "50-mawjs:mawjs-oracle.v2",
+    "callerSessionWindow": "50-mawjs:mawjs-oracle.v2",
+    "expected": true
+  },
+  {
+    "name": "session-only equals caller session (no pane suffix shenanigans)",
+    "target": "50-mawjs",
+    "callerSessionWindow": "50-mawjs:mawjs-features",
+    "expected": true
+  },
+  {
+    "name": "caller in features pane, target is oracle window in same session → safe",
+    "target": "50-mawjs:mawjs-oracle",
+    "callerSessionWindow": "50-mawjs:mawjs-features",
+    "expected": false
+  }
+]

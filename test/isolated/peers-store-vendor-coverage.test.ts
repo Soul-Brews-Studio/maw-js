@@ -18,6 +18,9 @@ import {
 
 describe("vendor peers store coverage", () => {
   const originalPeersFile = process.env.PEERS_FILE;
+  const originalHome = process.env.HOME;
+  const originalMawHome = process.env.MAW_HOME;
+  const originalMawStateDir = process.env.MAW_STATE_DIR;
   const originalTtl = process.env.MAW_PEER_STALE_TTL_MS;
   let dir: string;
   let file: string;
@@ -32,6 +35,15 @@ describe("vendor peers store coverage", () => {
   afterEach(() => {
     if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
     else process.env.PEERS_FILE = originalPeersFile;
+
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+
+    if (originalMawHome === undefined) delete process.env.MAW_HOME;
+    else process.env.MAW_HOME = originalMawHome;
+
+    if (originalMawStateDir === undefined) delete process.env.MAW_STATE_DIR;
+    else process.env.MAW_STATE_DIR = originalMawStateDir;
 
     if (originalTtl === undefined) delete process.env.MAW_PEER_STALE_TTL_MS;
     else process.env.MAW_PEER_STALE_TTL_MS = originalTtl;
@@ -63,6 +75,44 @@ describe("vendor peers store coverage", () => {
     expect(loadPeers().peers.alpha).toMatchObject({ node: "alpha-node", nickname: "Alpha" });
     expect(existsSync(`${file}.tmp`)).toBe(false);
     expect(readFileSync(file, "utf-8")).toContain("alpha-node");
+  });
+
+  test("state path is primary while legacy home peers are migrated on mutation", () => {
+    delete process.env.PEERS_FILE;
+    delete process.env.MAW_HOME;
+    process.env.HOME = join(dir, "home");
+    process.env.MAW_STATE_DIR = join(dir, "state");
+
+    const legacyDir = join(process.env.HOME, ".maw");
+    const legacyFile = join(legacyDir, "peers.json");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyFile, JSON.stringify({
+      version: 1,
+      peers: {
+        legacy: {
+          url: "http://legacy.local:3456",
+          node: "legacy-node",
+          addedAt: "2026-05-20T00:00:00.000Z",
+          lastSeen: null,
+        },
+      },
+    }));
+
+    expect(peersPath()).toBe(join(process.env.MAW_STATE_DIR, "peers.json"));
+    expect(loadPeers().peers.legacy.node).toBe("legacy-node");
+
+    const migrated = mutatePeers((data) => {
+      data.peers.state = {
+        url: "http://state.local:3456",
+        node: "state-node",
+        addedAt: "2026-05-20T01:00:00.000Z",
+        lastSeen: null,
+      };
+    });
+
+    expect(Object.keys(migrated.peers).sort()).toEqual(["legacy", "state"]);
+    expect(JSON.parse(readFileSync(peersPath(), "utf-8")).peers.legacy.node).toBe("legacy-node");
+    expect(JSON.parse(readFileSync(legacyFile, "utf-8")).peers.state).toBeUndefined();
   });
 
   test("invalid JSON and invalid shapes are moved aside while callers get an empty store", () => {

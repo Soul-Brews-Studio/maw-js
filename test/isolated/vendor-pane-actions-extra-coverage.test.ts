@@ -533,17 +533,25 @@ describe("entrypoint handlers for capture/attach/panes/view", () => {
   });
 
   test("attach handler validates CLI/API input, forces API yes, and reports thrown errors", async () => {
-    expect(await attachHandler(ctx("cli", []))).toEqual({ ok: false, error: "usage: maw attach <name> [--dry-run] [-y|--yes]" });
-    expect(await attachHandler(ctx("cli", ["--dry-run"]))).toEqual({ ok: false, error: "usage: maw attach <name> [--dry-run] [-y|--yes]" });
+    const usage = "usage: maw attach <name> [--shell [--split|--no-split]] [--dry-run] [-y|--yes]";
+    expect(await attachHandler(ctx("cli", []))).toEqual({ ok: false, error: usage });
+    expect(await attachHandler(ctx("cli", ["--dry-run"]))).toEqual({ ok: false, error: usage });
     expect(await attachHandler(ctx("cli", ["--wat"]))).toEqual({
       ok: false,
-      error: "\"--wat\" looks like a flag, not an oracle name.\n  usage: maw attach <name> [--dry-run] [-y|--yes]",
+      error: `"--wat" looks like a flag, not an oracle name.\n  ${usage}`,
     });
     expect(await attachHandler(ctx("api", {}))).toEqual({ ok: false, error: "name required" });
 
     let result = await attachHandler(ctx("api", { name: "neo", dryRun: true }));
     expect(result.ok).toBe(true);
     expect(attachCalls.at(-1)).toEqual({ name: "neo", opts: { dryRun: true, yes: true } });
+
+    result = await attachHandler(ctx("cli", ["neo", "--shell", "--no-split"]));
+    expect(result.ok).toBe(true);
+    expect(attachCalls.at(-1)).toEqual({
+      name: "neo",
+      opts: { dryRun: undefined, yes: undefined, shell: true, split: false },
+    });
 
     attachError = new Error("attach impl exploded");
     result = await attachHandler(ctx("cli", ["neo", "--yes"]));

@@ -75,7 +75,7 @@ mock.module(join(root, "src/vendor/mpr-plugins/bud/internal/soul-sync-impl"), ()
   },
 }));
 
-mock.module(join(root, "src/vendor/mpr-plugins/bud/internal/split-impl"), () => ({
+mock.module(join(root, "src/vendor/mpr-plugins/split/impl"), () => ({
   cmdSplit: async (name: string) => {
     splitCalls.push(name);
   },

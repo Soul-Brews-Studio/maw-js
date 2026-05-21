@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -13,6 +13,9 @@ const stores = [
 
 describe.each(stores)("%s duplicate vendor store coverage", (_label, store) => {
   const originalPeersFile = process.env.PEERS_FILE;
+  const originalHome = process.env.HOME;
+  const originalMawHome = process.env.MAW_HOME;
+  const originalMawStateDir = process.env.MAW_STATE_DIR;
   let dir: string;
   let file: string;
 
@@ -25,6 +28,12 @@ describe.each(stores)("%s duplicate vendor store coverage", (_label, store) => {
   afterEach(() => {
     if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
     else process.env.PEERS_FILE = originalPeersFile;
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalMawHome === undefined) delete process.env.MAW_HOME;
+    else process.env.MAW_HOME = originalMawHome;
+    if (originalMawStateDir === undefined) delete process.env.MAW_STATE_DIR;
+    else process.env.MAW_STATE_DIR = originalMawStateDir;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -48,6 +57,33 @@ describe.each(stores)("%s duplicate vendor store coverage", (_label, store) => {
     });
     expect(Object.keys(mutated.peers).sort()).toEqual(["alpha", "beta"]);
     expect(readFileSync(file, "utf-8")).toContain("http://beta");
+  });
+
+  test("state path can read and migrate legacy home peers", () => {
+    delete process.env.PEERS_FILE;
+    delete process.env.MAW_HOME;
+    process.env.HOME = join(dir, "home");
+    process.env.MAW_STATE_DIR = join(dir, "state");
+
+    const legacyDir = join(process.env.HOME, ".maw");
+    const legacyFile = join(legacyDir, "peers.json");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyFile, JSON.stringify({
+      version: 1,
+      peers: {
+        legacy: { url: "http://legacy", node: "legacy-node", addedAt: "2026-05-20T00:00:00.000Z", lastSeen: null },
+      },
+    }));
+
+    expect(store.peersPath()).toBe(join(process.env.MAW_STATE_DIR, "peers.json"));
+    expect(store.loadPeers().peers.legacy.url).toBe("http://legacy");
+
+    const migrated = store.mutatePeers((data) => {
+      data.peers.state = { url: "http://state", node: null, addedAt: "2026-05-20T01:00:00.000Z", lastSeen: null };
+    });
+    expect(Object.keys(migrated.peers).sort()).toEqual(["legacy", "state"]);
+    expect(JSON.parse(readFileSync(store.peersPath(), "utf-8")).peers.legacy.node).toBe("legacy-node");
+    expect(JSON.parse(readFileSync(legacyFile, "utf-8")).peers.state).toBeUndefined();
   });
 
   test("corrupt files and invalid shapes are moved aside or recovered from inside mutate", () => {

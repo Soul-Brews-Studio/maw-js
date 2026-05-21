@@ -5,8 +5,7 @@
  * federation peer-identity ADR (docs/federation/0001-peer-identity.md) lays
  * down: node, version, agents, clockUtc, uptime, endpoints, pubkey.
  *
- * Isolated because the handler's `pubkey` reads from <CONFIG_DIR>/peer-key,
- * and CONFIG_DIR is captured at paths.ts import time. We pin MAW_HOME to a
+ * Isolated because the handler's `pubkey` reads from the state-path peer-key. We pin MAW_HOME to a
  * tmp dir before importing federation.ts so the test can't touch the
  * operator's real key.
  */

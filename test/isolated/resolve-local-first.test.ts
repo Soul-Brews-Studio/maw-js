@@ -180,7 +180,7 @@ describe("local-first routing (#411)", () => {
     fakeCurlResponse = {
       ok: true,
       status: 200,
-      data: { ok: true, target: "homekeeper", lastLine: "" },
+      data: { ok: true, target: "homekeeper", lastLine: "", state: "delivered" },
     };
 
     await cmdSend("mba:homekeeper", "hello remote");

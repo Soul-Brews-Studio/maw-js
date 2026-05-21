@@ -193,6 +193,10 @@ function isBareLocalHeyTarget(query: string): boolean {
   return query.length > 0 && !query.includes(":") && !query.includes("/");
 }
 
+function isTmuxSessionIdTarget(target: string): boolean {
+  return /^\d+-[A-Za-z0-9_.-]+$/.test(target.trim());
+}
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -390,7 +394,7 @@ export async function cmdSend(
     const parts = query.split(":");
     const targetNode = parts.length >= 2 ? parts[0] : null;
     const bareAgent = parts.length >= 2 ? parts[1] : query;
-    const isCanonical = parts.length >= 3;
+    const isCanonical = parts.length >= 3 || (parts.length === 2 && isTmuxSessionIdTarget(bareAgent));
     const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
     if (isLocalScope && bareAgent && !isCanonical) {
       const hasLocalSession = sessions.some(s =>
@@ -668,10 +672,11 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
       logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
       emitMessageFeed({
         direction: "outbound",
-        state: res.data.state === "queued" ? "queued" : "delivered",
+        state,
         channel: "hey",
         route: "peer",
         from: `${config.node!}:${senderName}`,
@@ -682,7 +687,8 @@ export async function cmdSend(
         lastLine: res.data.lastLine || "",
         signed: true,
       }, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
@@ -717,10 +723,11 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
       logMessage(senderName, query, outboundMessage, "discovery");
       emitMessageFeed({
         direction: "outbound",
-        state: res.data.state === "queued" ? "queued" : "delivered",
+        state,
         channel: "hey",
         route: "discovery",
         from: `${config.node ?? "local"}:${senderName}`,
@@ -731,7 +738,8 @@ export async function cmdSend(
         lastLine: res.data.lastLine || "",
         signed: true,
       }, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;

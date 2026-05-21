@@ -47,6 +47,10 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
     ])] as any,
     findPeerForTarget: async () => null,
     sendKeysToPeer: async (peer: string, target: string, message: string) => { calls.push(["sendKeysToPeer", peer, target, message]); return true; },
+    sendKeysToPeerDetailed: async (peer: string, target: string, message: string) => {
+      calls.push(["sendKeysToPeerDetailed", peer, target, message]);
+      return { ok: true, state: "delivered", target, lastLine: "" } as any;
+    },
     loadConfig: (() => config) as any,
     curlFetch: async (url: string, opts: any) => { calls.push(["curlFetch", url, opts]); return { ok: true, status: 200, data: { ok: true } } as any; },
     resolveTarget: (() => ({ type: "error", reason: "missing", detail: "not found", hint: "try wake" })) as any,
@@ -136,6 +140,20 @@ describe("sessions, capture, and mirror routes", () => {
     expect(aggregated.map((s: any) => [s.name, s.windows.length])).toEqual([["local", 1], ["remote", 1]]);
   });
 
+  test("GET /sessions surfaces tmux availability errors instead of silently returning []", async () => {
+    const h = makeHarness({
+      listSessions: async () => { throw new Error("[local:local] bash: tmux: command not found"); },
+    });
+
+    const res = await h.app.handle(new Request("http://local/sessions?local=true"));
+    expect(res.status).toBe(503);
+    const body = await readJson(res);
+    expect(body.error).toContain("tmux unavailable");
+    expect(body.error).toContain("tmux: command not found");
+    expect(body.hint).toContain("/opt/homebrew/bin");
+    expect(body.hint).toContain("pm2 restart maw --update-env");
+  });
+
   test("GET /capture validates target, resolves aliases, and reports capture errors", async () => {
     const h = makeHarness();
     h.config.sessions.neo = "local";
@@ -184,6 +202,7 @@ describe("POST /send", () => {
         if (first) { first = false; return { type: "error", reason: "miss" }; }
         return { type: "self-node", target: `${target}:main` };
       }) as any,
+      listSessions: async () => [session("neo", [{ index: 0, name: "main", active: true }])] as any,
       capture: async () => "body\nPress up to edit queued messages\nqueued line",
     });
 
@@ -198,6 +217,7 @@ describe("POST /send", () => {
     const inboxCalls: any[] = [];
     const h = makeHarness({
       resolveTarget: (() => ({ type: "local", target: "54-digger:digger-oracle.0" })) as any,
+      listSessions: async () => [session("54-digger", [{ index: 0, name: "digger-oracle", active: true }])] as any,
       writeReceiverInbox: (input) => {
         inboxCalls.push(input);
         return {
@@ -255,6 +275,13 @@ describe("POST /send", () => {
     expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://peer", target: "actual", state: "queued" });
     expect(success.lifecycle[0]).toMatchObject({ route: "peer", state: "queued", to: "white:remote:main" });
 
+    const acceptedOnly = makeHarness({
+      resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
+      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual" } }) as any,
+    });
+    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ state: "queued" });
+    expect(acceptedOnly.lifecycle[0]).toMatchObject({ route: "peer", state: "queued" });
+
     const failure = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
       curlFetch: async () => ({ ok: false, status: 500, data: { ok: false } }) as any,
@@ -265,21 +292,38 @@ describe("POST /send", () => {
     expect(failure.lifecycle[0]).toMatchObject({ route: "peer", state: "failed" });
   });
 
-  test("falls back to peer discovery and reports discovered send failures", async () => {
+  test("falls back to peer discovery and preserves receiver delivery state", async () => {
     const ok = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeer: async () => true,
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed" }) as any,
     });
-    expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://found", state: "delivered" });
+    expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://found",
+      target: "remote:main",
+      state: "delivered",
+      lastLine: "landed",
+    });
+
+    const queued = makeHarness({
+      findPeerForTarget: async () => "http://found",
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "queued", target: "remote", lastLine: "" }) as any,
+    });
+    expect(await readJson(await queued.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://found",
+      state: "queued",
+    });
+    expect(queued.lifecycle[0]).toMatchObject({ route: "discovery", state: "queued" });
 
     const fail = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeer: async () => false,
+      sendKeysToPeerDetailed: async () => ({ ok: false, state: "failed", target: "remote", error: "receiver rejected delivery" }) as any,
     });
     const res = await fail.app.handle(jsonRequest("/send", { target: "remote", text: "hi" }));
     expect(res.status).toBe(502);
-    expect(await readJson(res)).toEqual({ error: "Failed to send to peer", target: "remote", source: "http://found" });
-    expect(fail.lifecycle[0]).toMatchObject({ route: "discovery", state: "failed" });
+    expect(await readJson(res)).toEqual({ error: "receiver rejected delivery", target: "remote", source: "http://found" });
+    expect(fail.lifecycle[0]).toMatchObject({ route: "discovery", state: "failed", error: "receiver rejected delivery" });
   });
 
   test("auto-wakes fleet-known targets, retries local resolution, and handles retry busy failure", async () => {
@@ -288,6 +332,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++resolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       capture: async () => "after wake\nready",
     });
     expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" })))).toMatchObject({ ok: true, target: "54-neo:main", wokeFor: "neo" });
@@ -298,6 +343,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++busyResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       checkPaneIdle: async () => ({ idle: false, lastInput: "busy" }) as any,
     });
     const res = await busy.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
@@ -310,6 +356,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++transientResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       checkPaneIdle: async (target: string) => { transient.calls.push(["idle", target]); return transientIdle.shift() as any; },
       capture: async () => "after wake\nready",
     });
@@ -317,7 +364,7 @@ describe("POST /send", () => {
     expect(transient.calls).toContainEqual(["sleep", 500]);
   });
 
-  test("falls through after wake errors and returns detailed 404s or outer 500s", async () => {
+  test("falls through after wake errors and returns detailed 404s", async () => {
     const wakeBoom = makeHarness({
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
@@ -331,8 +378,112 @@ describe("POST /send", () => {
 
     const outer = makeHarness({ listSessions: async () => { throw new Error("list boom"); } });
     const res = await outer.app.handle(jsonRequest("/send", { target: "neo", text: "hi" }));
+    expect(res.status).toBe(404);
+    expect(await readJson(res)).toMatchObject({ error: "target not found: neo" });
+  });
+
+  test("fails local sends when tmux proof fails and no receiver inbox is available", async () => {
+    const missingTarget = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+    });
+    const missingRes = await missingTarget.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(missingRes.status).toBe(502);
+    expect(await readJson(missingRes)).toEqual({ ok: false, error: "target not live in tmux: 54-ghost:ghost-oracle", target: "54-ghost:ghost-oracle" });
+    expect(missingTarget.lifecycle[0]).toMatchObject({ state: "failed", error: "target not live in tmux: 54-ghost:ghost-oracle" });
+
+    const initialListFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => { throw new Error("tmux offline"); },
+    });
+    const offlineRes = await initialListFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(offlineRes.status).toBe(502);
+    expect(await readJson(offlineRes)).toMatchObject({ ok: false, error: "tmux unavailable: tmux offline" });
+
+    let calls = 0;
+    const freshListFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => {
+        calls += 1;
+        if (calls === 1) return [session("54-ghost", [{ index: 0, name: "ghost-oracle", active: true }])] as any;
+        throw new Error("fresh tmux offline");
+      },
+    });
+    const freshRes = await freshListFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(freshRes.status).toBe(502);
+    expect(await readJson(freshRes)).toMatchObject({ ok: false, error: "tmux unavailable: fresh tmux offline" });
+  });
+
+  test("auto-wake retry failures do not claim delivery without inbox fallback", async () => {
+    let missingResolveCalls = 0;
+    const missingAfterWake = makeHarness({
+      resolveFleetSession: () => "54-neo",
+      shouldAutoWake: () => ({ wake: true }),
+      resolveTarget: (() => (++missingResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+    });
+    const missingRes = await missingAfterWake.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
+    expect(missingRes.status).toBe(502);
+    expect(await readJson(missingRes)).toMatchObject({ ok: false, error: "target not live in tmux after wake: 54-neo:main" });
+
+    let failResolveCalls = 0;
+    const sendFailsAfterWake = makeHarness({
+      resolveFleetSession: () => "54-neo",
+      shouldAutoWake: () => ({ wake: true }),
+      resolveTarget: (() => (++failResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
+      sendKeys: async () => { throw new Error("pane vanished"); },
+    });
+    const sendFailRes = await sendFailsAfterWake.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
+    expect(sendFailRes.status).toBe(502);
+    expect(await readJson(sendFailRes)).toMatchObject({ ok: false, error: "tmux delivery failed after wake: pane vanished" });
+  });
+
+  test("unexpected send errors return a 500 instead of leaking exceptions", async () => {
+    const h = makeHarness({ resolveTarget: (() => { throw new Error("resolver exploded"); }) as any });
+    const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hi" }));
     expect(res.status).toBe(500);
-    expect((await readJson(res)).error).toContain("list boom");
+    expect((await readJson(res)).error).toContain("resolver exploded");
+  });
+
+  test("queues instead of claiming delivered when tmux delivery cannot be proven", async () => {
+    const missingTarget = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+      writeReceiverInbox: () => ({
+        ok: true,
+        oracle: "ghost",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/ghost.md",
+        filename: "ghost.md",
+      }),
+    });
+    expect(await readJson(await missingTarget.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "inbox",
+      state: "queued",
+      reason: "target not live in tmux: 54-ghost:ghost-oracle",
+    });
+    expect(missingTarget.calls.some(c => c[0] === "sendKeys")).toBe(false);
+
+    const sendFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("54-ghost", [{ index: 0, name: "ghost-oracle", active: true }])] as any,
+      sendKeys: async () => { throw new Error("can't find pane"); },
+      writeReceiverInbox: () => ({
+        ok: true,
+        oracle: "ghost",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/send-fail.md",
+        filename: "send-fail.md",
+      }),
+    });
+    expect(await readJson(await sendFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "inbox",
+      state: "queued",
+      reason: "tmux delivery failed: can't find pane",
+    });
   });
 
   test("queues inbound /send to receiver inbox when target is offline", async () => {

@@ -15,6 +15,8 @@ import {
 let configDir = "";
 let logs: string[] = [];
 const originalLog = console.log;
+const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const originalStateDir = process.env.MAW_STATE_DIR;
 
 function tasksDir(team: string) {
   return join(configDir, "teams", team, "tasks");
@@ -31,6 +33,7 @@ function taskPath(team: string, id: number) {
 beforeEach(() => {
   configDir = mkdtempSync(join(tmpdir(), "maw-team-task-ops-"));
   process.env.MAW_CONFIG_DIR = configDir;
+  process.env.MAW_STATE_DIR = configDir;
   logs = [];
   console.log = (...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
@@ -38,7 +41,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.MAW_CONFIG_DIR;
+  if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
+  else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalStateDir;
   rmSync(configDir, { recursive: true, force: true });
   console.log = originalLog;
 });

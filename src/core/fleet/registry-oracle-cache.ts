@@ -5,14 +5,22 @@
  * No network or filesystem scanning — only the oracles.json cache file.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import type { RegistryCache } from "./registry-oracle-types";
-import { CACHE_FILE, STALE_HOURS } from "./registry-oracle-types";
+import { CACHE_FILE, LEGACY_CACHE_FILE, STALE_HOURS } from "./registry-oracle-types";
+
+function cacheReadPath(targetFile: string = CACHE_FILE): string | null {
+  if (existsSync(targetFile)) return targetFile;
+  if (targetFile === CACHE_FILE && existsSync(LEGACY_CACHE_FILE)) return LEGACY_CACHE_FILE;
+  return null;
+}
 
 export function readCache(): RegistryCache | null {
   try {
-    if (!existsSync(CACHE_FILE)) return null;
-    const raw = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
+    const file = cacheReadPath();
+    if (!file) return null;
+    const raw = JSON.parse(readFileSync(file, "utf-8"));
     if (raw.schema !== 1) return null;
     return raw as RegistryCache;
   } catch {
@@ -46,12 +54,14 @@ export function mergeRegistry(
 export function writeCache(cache: RegistryCache, targetFile: string = CACHE_FILE): void {
   let existing: unknown = null;
   try {
-    if (existsSync(targetFile)) {
-      existing = JSON.parse(readFileSync(targetFile, "utf-8"));
+    const existingFile = cacheReadPath(targetFile);
+    if (existingFile) {
+      existing = JSON.parse(readFileSync(existingFile, "utf-8"));
     }
   } catch { /* malformed existing file — fall back to writing fresh */ }
 
   const merged = mergeRegistry(existing, cache);
+  mkdirSync(dirname(targetFile), { recursive: true });
   // lgtm[js/file-system-race] — PRIVATE-PATH: fleet registry cache under ~/.maw/, see docs/security/file-system-race-stance.md
   writeFileSync(targetFile, JSON.stringify(merged, null, 2) + "\n", "utf-8");
 }

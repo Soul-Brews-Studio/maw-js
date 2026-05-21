@@ -22,6 +22,9 @@ export type FeedEventType =
   | "MessageSend"
   | "MessageDeliver"
   | "MessageFail"
+  // Wormhole lifecycle (peer-exec)
+  | "WormholeRequest"
+  | "WormholeFail"
   // Plugin lifecycle
   | "PluginHook"
   | "PluginFilter"

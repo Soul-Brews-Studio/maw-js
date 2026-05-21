@@ -9,15 +9,19 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 const mawConfigDir = mkdtempSync(join(tmpdir(), "maw-audit-config-"));
+const mawStateDir = mkdtempSync(join(tmpdir(), "maw-audit-state-"));
 process.env.MAW_CONFIG_DIR = mawConfigDir;
+process.env.MAW_STATE_DIR = mawStateDir;
 process.env.USER = "coverage-user";
 
 const { logAudit, logAnomaly, readAudit } = await import("../../src/core/fleet/audit.ts?coverage");
-const auditFile = join(mawConfigDir, "audit.jsonl");
+const auditFile = join(mawStateDir, "audit.jsonl");
 
 afterAll(() => {
   delete process.env.MAW_CONFIG_DIR;
+  delete process.env.MAW_STATE_DIR;
   rmSync(mawConfigDir, { recursive: true, force: true });
+  rmSync(mawStateDir, { recursive: true, force: true });
 });
 
 describe("fleet audit helpers", () => {

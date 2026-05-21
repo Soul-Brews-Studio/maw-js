@@ -79,6 +79,10 @@ describe("Tmux command wrapper coverage", () => {
 
     const missing = new FakeTmux(() => { throw new Error("no server"); });
     expect(await missing.listSessions()).toEqual([]);
+
+    const missingBinary = Object.assign(new Error("bash: tmux: command not found"), { exitCode: 127 });
+    const pm2PathFailure = new FakeTmux(() => { throw missingBinary; });
+    await expect(pm2PathFailure.listSessions()).rejects.toThrow("tmux: command not found");
   });
 
   test("listAll groups windows and returns empty on tmux failure", async () => {

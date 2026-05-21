@@ -163,7 +163,7 @@ beforeEach(() => {
   captureResponses = [];
   sendKeysCalls = [];
   curlFetchCalls = [];
-  curlFetchReturn = { ok: true, status: 200, data: { ok: true, target: "receiver", lastLine: "ok" } };
+  curlFetchReturn = { ok: true, status: 200, data: { ok: true, target: "receiver", lastLine: "ok", state: "delivered" } };
   runHookCalls = [];
   logMessageCalls = [];
   emitFeedCalls = [];
@@ -261,7 +261,7 @@ describe("cmdSend fallback/runtime branches", () => {
   test("discovery fallback delivers successfully and runs after_send", async () => {
     resolveTargetReturn = null;
     findPeerUrl = "http://discovered:3456";
-    curlFetchReturn = { ok: true, status: 200, data: { ok: true, target: "ghost.0", lastLine: "caught up" } };
+    curlFetchReturn = { ok: true, status: 200, data: { ok: true, target: "ghost.0", lastLine: "caught up", state: "delivered" } };
 
     await runCmd(() => cmdSend("local:ghost", "discover me", false, { receiverInbox: false }));
 

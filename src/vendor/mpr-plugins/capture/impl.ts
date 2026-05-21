@@ -1,5 +1,6 @@
-import { listSessions, hostExec, tmuxCmd } from "maw-js/sdk";
-import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
+import { hostExec, listSessions, tmuxCmd } from "maw-js/sdk";
+import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { resolveAttachTarget } from "../attach/resolve-attach-target";
 
 export interface CaptureOpts {
   /** Pane index within the resolved window. Default: current/first. */
@@ -25,43 +26,28 @@ export async function cmdCapture(target: string, opts: CaptureOpts = {}) {
     throw new Error("usage: maw capture <target> [--pane N] [--lines N] [--full]\n  e.g. maw capture mawjs\n       maw capture neo:0 --pane 1 --lines 100\n       maw capture mawjs --full");
   }
 
-  let resolved: string;
-  if (target.includes(":")) {
-    const [rawSession, rest] = target.split(":", 2);
-    const sessions = await listSessions();
-    const r = resolveSessionTarget(rawSession, sessions);
-    if (r.kind === "ambiguous") {
-      console.error(`  \x1b[31m✗\x1b[0m '${rawSession}' is ambiguous — matches ${r.candidates.length} sessions:`);
-      for (const s of r.candidates) console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
-      throw new Error(`'${rawSession}' is ambiguous — matches ${r.candidates.length} sessions`);
-    }
-    if (r.kind === "none") {
-      if (r.hints && r.hints.length > 0) {
-        console.error(`  \x1b[90m  did you mean:\x1b[0m`);
-        for (const s of r.hints) console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
-      }
-      throw new Error(`session '${rawSession}' not found`);
-    }
-    resolved = `${r.match.name}:${rest}`;
-  } else {
-    const sessions = await listSessions();
-    const r = resolveSessionTarget(target, sessions);
-    if (r.kind === "ambiguous") {
-      console.error(`  \x1b[31m✗\x1b[0m '${target}' is ambiguous — matches ${r.candidates.length} sessions:`);
-      for (const s of r.candidates) console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
-      throw new Error(`'${target}' is ambiguous — matches ${r.candidates.length} sessions`);
-    }
-    if (r.kind === "none") {
-      if (r.hints && r.hints.length > 0) {
-        console.error(`  \x1b[90m  did you mean:\x1b[0m`);
-        for (const s of r.hints) console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
-      } else {
-        console.error(`  \x1b[90m  try: maw ls\x1b[0m`);
-      }
-      throw new Error(`session '${target}' not found`);
-    }
-    resolved = `${r.match.name}:${r.match.windows[0]?.index ?? 0}`;
+  const [left, right] = target.includes(":")
+    ? target.split(":", 2)
+    : [target, undefined];
+  const isTmuxWindowSuffix = right !== undefined && /^\d+(?:\.\d+)?$/.test(right);
+  const rawSession = right !== undefined && !isTmuxWindowSuffix ? right : left;
+  const explicitWindow = isTmuxWindowSuffix ? right : undefined;
+  const sessions = await listSessions();
+  const result = await resolveAttachTarget(rawSession, { listSessions: async () => sessions as any, loadFleet });
+
+  if (!result || result.tier !== 1) {
+    console.error(`  \x1b[90m  try: maw ls\x1b[0m`);
+    throw new Error(`session '${rawSession}' not found`);
   }
+  if (result.ambiguousCandidates && result.ambiguousCandidates.length > 1) {
+    console.error(`  \x1b[31m✗\x1b[0m '${rawSession}' is ambiguous — matches ${result.ambiguousCandidates.length} sessions:`);
+    for (const s of result.ambiguousCandidates) console.error(`  \x1b[90m    • ${s}\x1b[0m`);
+    throw new Error(`'${rawSession}' is ambiguous — matches ${result.ambiguousCandidates.length} sessions`);
+  }
+
+  const matched = sessions.find(s => s.name === result.sessionName);
+  const windowIndex = explicitWindow ?? matched?.windows?.[0]?.index ?? 0;
+  const resolved = `${result.sessionName}:${windowIndex}`;
 
   const paneSuffix = opts.pane !== undefined ? `.${opts.pane}` : "";
   const full = resolved + paneSuffix;

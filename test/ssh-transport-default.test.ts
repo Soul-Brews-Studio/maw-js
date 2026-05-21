@@ -139,6 +139,27 @@ describe("createSshTransport", () => {
     await expect(h.transport.hostExec("nope", "local")).rejects.toThrow("[local:local] exit 42");
   });
 
+  test("local hostExec augments PATH for pm2-launched Apple Silicon Homebrew tmux", async () => {
+    const h = makeHarness({
+      env: { PATH: "/custom/bin" } as NodeJS.ProcessEnv,
+      spawnResults: [{ stdout: "ok\n", code: 0 }],
+    });
+
+    await expect(h.transport.hostExec("tmux list-sessions")).resolves.toBe("ok");
+
+    const env = (h.spawnCalls[0].opts as { env?: NodeJS.ProcessEnv }).env!;
+    expect(env.PATH?.split(":").slice(0, 7)).toEqual([
+      "/opt/homebrew/bin",
+      "/opt/homebrew/sbin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ]);
+    expect(env.PATH?.split(":")).toContain("/custom/bin");
+  });
+
   test("config local host keeps explicit remote-looking host on the local transport", async () => {
     const h = makeHarness({ host: "localhost", spawnResults: [{ stdout: "local\n", code: 0 }] });
 

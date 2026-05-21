@@ -171,8 +171,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
  * endpoint instead of spawning a local tmux session. Enables cross-node
  * agent dispatch (e.g. brain → headless GPU node) without bespoke wrappers.
  *
- * Alias lookup goes through `~/.maw/peers.json` (the same store managed by
- * `maw peers`). Unknown alias surfaces as an `ok: false` plugin error
+ * Alias lookup goes through the maw state peers store (the same store
+ * managed by `maw peers`). Unknown alias surfaces as an `ok: false` plugin error
  * rather than throwing, so the CLI layer prints a clean message. Network
  * + non-2xx responses are mapped the same way.
  *

@@ -48,6 +48,7 @@ mock.module(import.meta.resolve("../../src/plugin/registry"), () => ({
   discoverPackages: () => discovered,
   resetDiscoverCache: () => {},
   invokePlugin: async () => ({ ok: true, output: "" }),
+  importPluginSymbol: async () => undefined,
   satisfies: () => true,
   formatSdkMismatchError: () => "",
   runtimeSdkVersion: () => "0.0.0",

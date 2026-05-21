@@ -13,6 +13,7 @@ const originalTestMode = process.env.MAW_TEST_MODE;
 const originalLog = console.log;
 const originalStdoutWrite = process.stdout.write;
 const originalBunSleep = Bun.sleep;
+const originalDateNow = Date.now;
 
 let tempDir = "";
 let logs: string[] = [];
@@ -39,6 +40,7 @@ beforeEach(() => {
   delete process.env.MAW_PEER_STALE_TTL_MS;
   delete process.env.MAW_TEST_MODE;
   logs = [];
+  Date.now = () => NOW;
   console.log = (line?: unknown) => {
     logs.push(String(line ?? ""));
   };
@@ -48,6 +50,7 @@ afterEach(() => {
   console.log = originalLog;
   process.stdout.write = originalStdoutWrite;
   Bun.sleep = originalBunSleep;
+  Date.now = originalDateNow;
   if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
   else process.env.PEERS_FILE = originalPeersFile;
   if (originalTtl === undefined) delete process.env.MAW_PEER_STALE_TTL_MS;

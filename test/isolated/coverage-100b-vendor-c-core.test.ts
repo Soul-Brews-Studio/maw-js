@@ -174,6 +174,7 @@ describe("coverage-100b vendor/core direct gaps", () => {
   test("trust store treats unreadable and malformed trust files as empty", () => {
     const dir = tmp("maw-trust-store-gaps-");
     process.env.MAW_CONFIG_DIR = join(dir, "config");
+    process.env.MAW_STATE_DIR = join(dir, "state");
     mkdirSync(trustStore.trustPath(), { recursive: true });
     expect(trustStore.loadTrust()).toEqual([]);
     rmSync(trustStore.trustPath(), { recursive: true, force: true });

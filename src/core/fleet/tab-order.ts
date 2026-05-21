@@ -1,9 +1,9 @@
 import { join } from "path";
-import { CONFIG_DIR } from "../paths";
+import { mawStatePath } from "../xdg";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { tmux } from "../transport/tmux";
 
-const TAB_ORDER_DIR = join(CONFIG_DIR, "tab-order");
+const TAB_ORDER_DIR = mawStatePath("tab-order");
 
 // Ensure dir exists
 mkdirSync(TAB_ORDER_DIR, { recursive: true });

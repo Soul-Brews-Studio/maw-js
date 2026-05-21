@@ -9,23 +9,24 @@
  * Security:
  *   - Signature comparison is constant-time via crypto.timingSafeEqual (#800)
  *   - Secret resolution: when MAW_JWT_SECRET is unset, generate a 32-byte
- *     random secret on first run + persist to <CONFIG_DIR>/auth-secret
+ *     random secret on first run + persist to the state-path auth-secret
  *     (mode 0600), like SSH host keys. (#801)
  *
  * Cousin module src/lib/federation-auth.ts uses the same patterns.
  */
 
 import { timingSafeEqual, randomBytes } from "crypto";
-import { readFileSync, writeFileSync, chmodSync } from "fs";
-import { join } from "path";
-import { CONFIG_DIR } from "../core/paths";
+import { readFileSync, writeFileSync, chmodSync, mkdirSync } from "fs";
+import { dirname } from "path";
+import { mawConfigPath, mawStatePath } from "../core/xdg";
 import { info } from "../cli/verbosity";
 import { loadConfig } from "../config";
 
 const TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Path to the persisted random secret (mode 0600). */
-export const AUTH_SECRET_FILE = join(CONFIG_DIR, "auth-secret");
+export const AUTH_SECRET_FILE = mawStatePath("auth-secret");
+const LEGACY_AUTH_SECRET_FILE = mawConfigPath("auth-secret");
 
 let cachedSecret: string | null = null;
 
@@ -34,8 +35,9 @@ let cachedSecret: string | null = null;
  *
  * Precedence:
  *   1. MAW_JWT_SECRET env var (operator override) — file is not read.
- *   2. <CONFIG_DIR>/auth-secret if it exists.
- *   3. Generate a fresh 32-byte (64-char hex) secret, persist with mode 0600,
+ *   2. State-path `auth-secret` if it exists.
+ *   3. Legacy config-path `auth-secret`, copied forward to state on first read.
+ *   4. Generate a fresh 32-byte (64-char hex) secret, persist with mode 0600,
  *      and log a one-time creation notice.
  */
 export function getJwtSecret(): string {
@@ -45,9 +47,25 @@ export function getJwtSecret(): string {
     cachedSecret = readFileSync(AUTH_SECRET_FILE, "utf-8").trim();
     if (cachedSecret) return cachedSecret;
   } catch {
-    // file missing or unreadable — fall through to generate
+    // file missing or unreadable — try legacy config path before generating
+  }
+  if (LEGACY_AUTH_SECRET_FILE !== AUTH_SECRET_FILE) {
+    try {
+      const legacySecret = readFileSync(LEGACY_AUTH_SECRET_FILE, "utf-8").trim();
+      if (legacySecret) {
+        mkdirSync(dirname(AUTH_SECRET_FILE), { recursive: true });
+        writeFileSync(AUTH_SECRET_FILE, legacySecret, { mode: 0o600, flag: "w" });
+        try { chmodSync(AUTH_SECRET_FILE, 0o600); } catch { /* best-effort */ }
+        cachedSecret = legacySecret;
+        info(`[auth] migrated JWT secret → ${AUTH_SECRET_FILE} (mode 0600)`);
+        return legacySecret;
+      }
+    } catch {
+      // no legacy secret — fall through to generate
+    }
   }
   const fresh = randomBytes(32).toString("hex");
+  mkdirSync(dirname(AUTH_SECRET_FILE), { recursive: true });
   writeFileSync(AUTH_SECRET_FILE, fresh, { mode: 0o600, flag: "w" });
   // chmod is a belt-and-suspenders for filesystems where the open-time mode
   // isn't honored (umask-stripped, NFS, etc).

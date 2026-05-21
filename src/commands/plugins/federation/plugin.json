@@ -10,14 +10,15 @@
     "aliases": [
       "fed"
     ],
-    "help": "maw federation <status|sync> [--dry-run|--check|--prune|--force|--json]",
+    "help": "maw federation <status|sync> [--dry-run|--check|--prune|--force|--json] [--peers config|scout|both]",
     "flags": {
       "--dry-run": "boolean",
       "--check": "boolean",
       "--prune": "boolean",
       "--force": "boolean",
       "--verify": "boolean",
-      "--json": "boolean"
+      "--json": "boolean",
+      "--peers": "string"
     }
   },
   "weight": 10

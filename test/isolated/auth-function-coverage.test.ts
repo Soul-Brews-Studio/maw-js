@@ -4,9 +4,13 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 const TEST_CONFIG_DIR = join(tmpdir(), `maw-auth-function-${process.pid}`);
+const TEST_STATE_DIR = join(tmpdir(), `maw-auth-function-state-${process.pid}`);
 rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+rmSync(TEST_STATE_DIR, { recursive: true, force: true });
 mkdirSync(TEST_CONFIG_DIR, { recursive: true });
+mkdirSync(TEST_STATE_DIR, { recursive: true });
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_STATE_DIR = TEST_STATE_DIR;
 process.env.MAW_TEST_MODE = "1";
 delete process.env.MAW_HOME;
 
@@ -14,6 +18,7 @@ const auth = await import("../../src/lib/auth.ts?function-coverage");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_STATE_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {

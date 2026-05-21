@@ -2,8 +2,7 @@
  * registry-oracle-types — OracleEntry, RegistryCache types and shared constants.
  */
 
-import { join } from "path";
-import { CONFIG_DIR } from "../paths";
+import { mawCachePath, mawConfigPath } from "../xdg";
 
 export interface OracleEntry {
   org: string;
@@ -28,5 +27,6 @@ export interface RegistryCache {
   oracles: OracleEntry[];
 }
 
-export const CACHE_FILE = join(CONFIG_DIR, "oracles.json");
+export const CACHE_FILE = mawCachePath("oracles.json");
+export const LEGACY_CACHE_FILE = mawConfigPath("oracles.json");
 export const STALE_HOURS = 1;

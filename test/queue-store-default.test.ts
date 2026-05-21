@@ -22,16 +22,19 @@ import {
 
 let testDir: string;
 let originalConfigDir: string | undefined;
+let originalStateDir: string | undefined;
 let originalHome: string | undefined;
 
 function resetEnv(dir: string = testDir) {
-  process.env.MAW_CONFIG_DIR = dir;
+  process.env.MAW_STATE_DIR = dir;
+  delete process.env.MAW_CONFIG_DIR;
   delete process.env.MAW_HOME;
 }
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), "maw-queue-store-default-"));
   originalConfigDir = process.env.MAW_CONFIG_DIR;
+  originalStateDir = process.env.MAW_STATE_DIR;
   originalHome = process.env.MAW_HOME;
   resetEnv();
 });
@@ -39,20 +42,44 @@ beforeEach(() => {
 afterEach(() => {
   if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalStateDir;
   if (originalHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = originalHome;
   rmSync(testDir, { recursive: true, force: true });
 });
 
 describe("queue-store default coverage", () => {
-  test("resolves pending paths from MAW_CONFIG_DIR and MAW_HOME precedence", () => {
+  test("resolves pending paths from MAW_STATE_DIR and MAW_HOME precedence", () => {
     expect(pendingDir()).toBe(join(testDir, "pending"));
     expect(pendingPath("abc")).toBe(join(testDir, "pending", "abc.json"));
 
     const home = join(testDir, "home");
     process.env.MAW_HOME = home;
-    process.env.MAW_CONFIG_DIR = join(testDir, "ignored-config");
-    expect(pendingDir()).toBe(join(home, "config", "pending"));
+    process.env.MAW_STATE_DIR = join(testDir, "ignored-state");
+    process.env.MAW_CONFIG_DIR = join(testDir, "legacy-config");
+    expect(pendingDir()).toBe(join(home, "pending"));
+  });
+
+  test("loads legacy config pending files while new writes use state", () => {
+    const legacyConfig = join(testDir, "legacy-config");
+    process.env.MAW_CONFIG_DIR = legacyConfig;
+    const legacyDir = join(legacyConfig, "pending");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "legacy.json"), JSON.stringify({
+      id: "legacy",
+      sender: "old",
+      target: "new",
+      message: "still pending",
+      sentAt: "2026-05-20T00:00:00.000Z",
+      status: "pending",
+    }));
+
+    const fresh = savePending({ sender: "state", target: "queue", message: "new pending" });
+
+    expect(pendingPath(fresh.id)).toBe(join(testDir, "pending", `${fresh.id}.json`));
+    expect(loadPendingById("legacy")?.message).toBe("still pending");
+    expect(loadPending().map((record) => record.id)).toEqual(["legacy", fresh.id]);
   });
 
   test("newPendingId is filesystem-safe and chronological", () => {

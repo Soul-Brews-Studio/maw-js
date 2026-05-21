@@ -390,6 +390,27 @@ describe("done worktree cleanup helpers", () => {
     expect(h.logs.join("\n")).not.toContain("deleted branch feature/scan");
   });
 
+
+  test("removeWorktreeByGhqScan refuses ambiguous cross-repo suffix matches", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.startsWith("find ")) {
+          return [
+            "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1",
+            "/repos/github.com/Other/repo.wt-tile-1",
+          ].join("\n");
+        }
+        throw new Error(`unexpected mutating command: ${command}`);
+      },
+    });
+
+    await expect(removeWorktreeByGhqScan("x-tile-1", "/repos/github.com", h.deps)).resolves.toBe(false);
+
+    expect(h.commands).toEqual(["find '/repos/github.com' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null"]);
+    expect(h.errors.join("\n")).toContain("refusing to remove worktree 'tile-1' — matches 2 repos");
+    expect(h.errors.join("\n")).toContain("/repos/github.com/Other/repo.wt-tile-1");
+  });
+
   test("removeWorktreeByGhqScan reports find and per-worktree failures", async () => {
     const findFail = createHarness({
       hostExec: () => {

@@ -157,6 +157,23 @@ describe("cmdSend — cross-node auto-wake (#791)", () => {
     expect(sendCalls.length).toBe(1);
   });
 
+  test("documented two-part cross-node session target skips /api/wake (#1812)", async () => {
+    mockNamedPeers = [{ name: "phaith", url: "http://phaith:3456" }];
+    resolveTargetReturn = { type: "peer", target: "01-hojo", node: "phaith", peerUrl: "http://phaith:3456" };
+    curlFetchHandler = (url: string) => {
+      if (url.includes("/api/send")) return { ok: true, status: 200, data: { ok: true, target: "01-hojo:2" } };
+      return { ok: false, status: 500, data: {} };
+    };
+
+    await run(() => cmdSend("phaith:01-hojo", "ping"));
+
+    const wakeCalls = curlFetchCalls.filter(c => c.url.includes("/api/wake"));
+    const sendCalls = curlFetchCalls.filter(c => c.url.includes("/api/send"));
+    expect(wakeCalls.length).toBe(0);
+    expect(sendCalls.length).toBe(1);
+    expect(exitCode).toBeUndefined();
+  });
+
   test("peer not in namedPeers → no wake call, fall through to resolveTarget error path", async () => {
     mockNamedPeers = []; // no peers configured
     resolveTargetReturn = { type: "error", target: "phaith:hojo", detail: "no peer URL", hint: "" };

@@ -82,12 +82,14 @@ function isViewDiag(name: string): boolean {
 /**
  * `maw ls` — list active oracle sessions and orphaned worktrees.
  *
- * @param opts.fix  When true, after listing, prune any orphaned/stale
- *                  worktrees via cleanupWorktree() and print a summary.
- *                  Threaded from the alias-dispatch path
- *                  (src/cli/top-aliases.ts → invokeDirectHandler).
+ * @param opts.verify  When true, include worktree-bind diagnostics in the
+ *                     listing. Default `maw ls` stays table-only.
+ * @param opts.fix     When true, after listing, scan and prune any
+ *                     orphaned/stale worktrees via cleanupWorktree() and
+ *                     print a summary. Threaded from the alias-dispatch path
+ *                     (src/cli/top-aliases.ts → invokeDirectHandler).
  */
-export async function cmdList(opts: { fix?: boolean } = {}, deps: CommListDeps = {}) {
+export async function cmdList(opts: { fix?: boolean; verify?: boolean } = {}, deps: CommListDeps = {}) {
   const d = commListDeps(deps);
   const rawSessions = await d.listSessions();
   const sessions = rawSessions.filter(s => !isViewDiag(s.name));
@@ -124,28 +126,32 @@ export async function cmdList(opts: { fix?: boolean } = {}, deps: CommListDeps =
     }
   }
 
-  // Detect orphaned worktree directories (on disk but no tmux window)
+  // Detect orphaned worktree directories (on disk but no tmux window).
+  // #1812: keep noisy worktree-bind diagnostics out of default `maw ls`;
+  // operators opt in with `--verify`, or use `--fix` when they intend cleanup.
   let orphans: Awaited<ReturnType<typeof defaultScanWorktrees>> = [];
-  try {
-    const worktrees = await d.scanWorktrees();
-    orphans = worktrees.filter(wt => wt.status === "stale" || wt.status === "orphan");
-    if (orphans.length > 0) {
-      d.log.log("");
-      for (const wt of orphans) {
-        const dirName = wt.path.split("/").pop() || wt.name;
-        const label = wt.status === "orphan" ? "orphaned (prunable)" : "no tmux window";
-        d.log.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
+  if (opts.verify || opts.fix || d.env.MAW_DEBUG) {
+    try {
+      const worktrees = await d.scanWorktrees();
+      orphans = worktrees.filter(wt => wt.status === "stale" || wt.status === "orphan");
+      if (opts.verify && orphans.length > 0) {
+        d.log.log("");
+        for (const wt of orphans) {
+          const dirName = wt.path.split("/").pop() || wt.name;
+          const label = wt.status === "orphan" ? "orphaned (prunable)" : "no tmux window";
+          d.log.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
+        }
+        d.log.log("");
+        if (!opts.fix) {
+          d.log.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
+        }
       }
-      d.log.log("");
-      if (!opts.fix) {
-        d.log.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
+    } catch (e: any) {
+      // Don't crash maw ls on scan failure (non-critical) — but surface the error in debug mode
+      // so silent failures have a diagnosable cause.
+      if (d.env.MAW_DEBUG) {
+        d.log.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${e?.message || e}\x1b[0m`);
       }
-    }
-  } catch (e: any) {
-    // Don't crash maw ls on scan failure (non-critical) — but surface the error in debug mode
-    // so silent failures have a diagnosable cause.
-    if (d.env.MAW_DEBUG) {
-      d.log.error(`\x1b[33m⚠ maw ls: scanWorktrees failed (non-fatal): ${e?.message || e}\x1b[0m`);
     }
   }
 

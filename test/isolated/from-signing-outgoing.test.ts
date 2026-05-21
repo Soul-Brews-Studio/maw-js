@@ -13,7 +13,7 @@
  *
  * Isolated because:
  *   - `loadConfig` is mock.module-stubbed (a process-global mutation).
- *   - getPeerKey() reads <CONFIG_DIR>/peer-key on first call; we pin
+ *   - getPeerKey() reads the state-path peer-key on first call; we pin
  *     MAW_PEER_KEY before any import to avoid filesystem dependencies.
  *
  * Crypto (createHmac) is NEVER mocked — sign here, recompute the expected

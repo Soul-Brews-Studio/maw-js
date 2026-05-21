@@ -3,8 +3,8 @@
 import { createHash } from "crypto";
 import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { warn } from "../cli/verbosity";
+import { mawDataPath, mawStatePath } from "../core/xdg";
 
 // JSON import inlined at build time — survives bundling (dist/maw).
 // Source mode: resolved on load. Bundled mode: Bun embeds the JSON.
@@ -16,7 +16,7 @@ import sdkPkg from "../../packages/sdk/package.json" with { type: "json" };
 // Single scan dir — everything lives in ~/.maw/plugins/ (or MAW_PLUGINS_DIR
 // if set). Resolved at call time so tests can override the root.
 export function scanDirs(): string[] {
-  return [process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins")];
+  return [process.env.MAW_PLUGINS_DIR || mawDataPath("plugins")];
 }
 
 /** Runtime SDK version — sourced from @maw-js/sdk package.json (build-inlined). */
@@ -57,7 +57,7 @@ const WARN_THROTTLE_MS = 3_600_000; // 1 hour
 // Resolved lazily so MAW_WARN_STATE_FILE env var can redirect the path (e.g. in tests).
 function warnStatePath(): string {
   return process.env.MAW_WARN_STATE_FILE
-    || join(homedir(), ".config", "maw", "session-warnings.state");
+    || mawStatePath("session-warnings.state");
 }
 
 // Test-only bypass: set by __resetDiscoverStateForTests to skip the hourly

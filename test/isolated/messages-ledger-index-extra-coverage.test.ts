@@ -7,6 +7,7 @@ import type { InvokeResult } from "../../src/plugin/types";
 const saved = {
   home: process.env.MAW_HOME,
   config: process.env.MAW_CONFIG_DIR,
+  data: process.env.MAW_DATA_DIR,
   engineUrl: process.env.MAW_ENGINE_URL,
   mawPort: process.env.MAW_PORT,
   messagesPort: process.env.MAW_MESSAGES_PORT,
@@ -19,6 +20,7 @@ const saved = {
 let tmpRoot = "";
 let tmpHome = "";
 let tmpConfig = "";
+let tmpData = "";
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
@@ -87,8 +89,10 @@ beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "maw-messages-ledger-index-extra-"));
   tmpHome = join(tmpRoot, "home");
   tmpConfig = join(tmpRoot, "config");
+  tmpData = join(tmpRoot, "data");
   process.env.MAW_HOME = tmpHome;
   delete process.env.MAW_CONFIG_DIR;
+  delete process.env.MAW_DATA_DIR;
   delete process.env.MAW_ENGINE_URL;
   delete process.env.MAW_PORT;
   delete process.env.MAW_MESSAGES_PORT;
@@ -101,6 +105,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv("MAW_HOME", saved.home);
   restoreEnv("MAW_CONFIG_DIR", saved.config);
+  restoreEnv("MAW_DATA_DIR", saved.data);
   restoreEnv("MAW_ENGINE_URL", saved.engineUrl);
   restoreEnv("MAW_PORT", saved.mawPort);
   restoreEnv("MAW_MESSAGES_PORT", saved.messagesPort);
@@ -112,12 +117,13 @@ afterEach(() => {
 });
 
 describe("messages ledger and index extra coverage", () => {
-  test("ledger honors MAW_CONFIG_DIR and maps optional row fields only when present", async () => {
+  test("ledger honors MAW_DATA_DIR and maps optional row fields only when present", async () => {
     delete process.env.MAW_HOME;
     process.env.MAW_CONFIG_DIR = tmpConfig;
+    process.env.MAW_DATA_DIR = tmpData;
     const ledger = await importLedger("config-dir");
 
-    expect(ledger.messageLedgerDbPath()).toBe(join(tmpConfig, "message-ledger.sqlite"));
+    expect(ledger.messageLedgerDbPath()).toBe(join(tmpData, "message-ledger.sqlite"));
 
     ledger.recordMessageLedgerEvent({
       id: "full-row",

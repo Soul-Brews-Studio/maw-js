@@ -82,13 +82,34 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
   // #713: with bind/host split, config.host is never a bind address (0.0.0.0 etc.)
   const isLocal = defaultHost === "local" || defaultHost === "localhost";
 
+  function pathWithCommonLocalBins(env: NodeJS.ProcessEnv): string {
+    const current = env.PATH ?? process.env.PATH ?? "";
+    const parts = current.split(":").filter(Boolean);
+    return [
+      "/opt/homebrew/bin",
+      "/opt/homebrew/sbin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+      ...parts,
+    ].filter((dir, index, all) => all.indexOf(dir) === index).join(":");
+  }
+
   /** Transport — run on oracle host. local → bash -c | remote → ssh */
   async function hostExec(cmd: string, host = defaultHost): Promise<string> {
     // #713: with bind/host split, host is never a bind address (0.0.0.0 etc.)
     const local = host === "local" || host === "localhost" || isLocal;
     const transport: HostExecTransport = local ? "local" : "ssh";
     const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
-    const proc = io.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
+    const env = io.env();
+    const proc = io.spawn(args, {
+      stdout: "pipe",
+      stderr: "pipe",
+      windowsHide: true,
+      env: local ? { ...process.env, ...env, PATH: pathWithCommonLocalBins(env) } : undefined,
+    });
     const [text, err, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

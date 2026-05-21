@@ -270,7 +270,7 @@ describe("tmux impl seventh-pass targeted coverage", () => {
     worktrees = [{ mainRepo: "/opt/Code/github.com/Soul-Brews-Studio/active", name: "active.wt-1-review", status: "orphan" }];
     tmuxCaptureOutput = "Context limit reached. Run /compact or /clear to continue";
 
-    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, roster: true }));
+    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, roster: true, verify: true }));
     expect(compact.logs).toContain("active");
     expect(compact.logs).toContain("context-limit");
     expect(compact.logs).toContain("active.wt-1-review");

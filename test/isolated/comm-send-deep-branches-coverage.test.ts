@@ -211,7 +211,7 @@ beforeEach(() => {
   captureResponses = ["❯ ", "accepted after send"];
   sendKeysCalls = [];
   curlFetchCalls = [];
-  curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "receiver.0", lastLine: "ack" } });
+  curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "receiver.0", lastLine: "ack", state: "delivered" } });
   runHookCalls = [];
   logMessageCalls = [];
   emitFeedCalls = [];
@@ -432,7 +432,7 @@ describe("comm-send deep isolated branches", () => {
   test("discovery fallback success emits delivery and runs after_send", async () => {
     resolveTargetReturn = null;
     findPeerUrl = "http://discovered:3456";
-    curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "ghost.0", lastLine: "received" } });
+    curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "ghost.0", lastLine: "received", state: "delivered" } });
 
     await runCmd(() => cmdSend("local:ghost", "hello", false, { receiverInbox: false }));
 

@@ -48,6 +48,14 @@ describe("ecosystem.config.cjs — drift guard", () => {
     }
   });
 
+
+  test("maw-boot restores every snapshot oracle, not just prints the snapshot (#1811)", () => {
+    const config = require(ECOSYSTEM) as { apps: Array<{ name: string; args?: string[] }> };
+    const boot = config.apps.find((app) => app.name === "maw-boot");
+
+    expect(boot?.args).toEqual(["fleet", "restore", "--all"]);
+  });
+
   test(".cjs launcher shims resolve their target entry", () => {
     // Launcher shims (e.g. scripts/maw-boot.launcher.cjs) hard-code the
     // real entry file they spawn. Static-parse their `path.join(..., "src", "cli.ts")`
