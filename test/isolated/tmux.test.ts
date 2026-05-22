@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { Tmux } from "../../src/core/transport/tmux";
 
 // Capture all commands sent to ssh()
@@ -30,6 +30,7 @@ installDefaultSshMock();
 
 // Ensure no socket env var leaks into tests
 delete process.env.MAW_TMUX_SOCKET;
+const originalTerm = process.env.TERM;
 
 describe("Tmux", () => {
   let t: Tmux;
@@ -37,8 +38,14 @@ describe("Tmux", () => {
   beforeEach(() => {
     commands = [];
     sshResult = "";
+    process.env.TERM = "xterm";
     installDefaultSshMock();
     t = new Tmux();
+  });
+
+  afterEach(() => {
+    if (originalTerm === undefined) delete process.env.TERM;
+    else process.env.TERM = originalTerm;
   });
 
   // --- q() quoting (tested indirectly through commands) ---
@@ -62,6 +69,12 @@ describe("Tmux", () => {
     test("numbers are converted to strings", async () => {
       await t.tryRun("resize-pane", "-t", "s:0", "-x", 80, "-y", 24);
       expect(commands[0]).toBe("tmux resize-pane -t s:0 -x 80 -y 24");
+    });
+
+    test("injects TERM for tmux when running from non-tty automation", async () => {
+      delete process.env.TERM;
+      await t.tryRun("has-session", "-t", "oracles");
+      expect(commands[0]).toBe("TERM=xterm tmux has-session -t oracles");
     });
   });
 

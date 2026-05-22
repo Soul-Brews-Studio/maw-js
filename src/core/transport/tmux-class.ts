@@ -50,7 +50,8 @@ export class Tmux {
   /** Base runner — executes `tmux [-S socket] <subcommand> [args...]` via hostExec. */
   async run(subcommand: string, ...args: (string | number)[]): Promise<string> {
     const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
-    const cmd = `tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")}`;
+    const termPrefix = process.env.TERM ? "" : "TERM=xterm ";
+    const cmd = `${termPrefix}tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")}`;
     return hostExec(cmd, this.host);
   }
 
