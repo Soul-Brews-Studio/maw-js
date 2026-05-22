@@ -96,7 +96,11 @@ async function gatherInfo(oracle: string): Promise<LocateResult> {
   const config = loadConfig();
   const agents = config.agents ?? {};
   const inAgentsConfig = oracle in agents;
-  const federationNode = inAgentsConfig ? agents[oracle]! : (manifestEntry?.node ?? config.node ?? null);
+  const federationNode = inAgentsConfig
+    ? agents[oracle]!
+    : sessionName
+      ? (config.node ?? "local")
+      : (manifestEntry?.node ?? config.node ?? null);
 
   return {
     name: oracle,
@@ -179,7 +183,9 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
   if (info.federationNode) {
     const suffix = info.inAgentsConfig
       ? " (from config.agents)"
-      : info.manifestEntry?.node
+      : info.sessionName
+        ? " (this node)"
+        : info.manifestEntry?.node
         ? " (from manifest)"
         : " (this node)";
     console.log(`   node:     ${info.federationNode}${suffix}`);
