@@ -45,7 +45,18 @@ export function isSilent(): boolean {
  * side-effects in load.ts / registry.ts, well before cli.ts can call
  * setVerbosityFlags(). Mirroring the help/version guard's structure.
  */
-const QUIET_TOP_ALIASES = new Set(["ls", "a", "attach", "wake", "activity"]);
+const QUIET_TOP_ALIASES = new Set([
+  "a",
+  "activity",
+  "attach",
+  "capture",
+  "locate",
+  "ls",
+  "messages",
+  "oracle",
+  "peek",
+  "wake",
+]);
 
 export function isQuiet(): boolean {
   // --silent implies --quiet
@@ -59,7 +70,7 @@ export function isQuiet(): boolean {
   // forms too — `maw oracle scan --help` etc.
   if (
     process.argv.some(
-      a => a === "--help" || a === "-h" || a === "--version" || a === "-v",
+      a => a === "--help" || a === "-h" || a === "--version" || a === "-v" || a === "--json",
     )
   ) return true;
   // FIX-A — selected verbs (ls, a, attach, wake, activity) don't need

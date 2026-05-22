@@ -102,6 +102,19 @@ describe("verbosity", () => {
       expect(isQuiet()).toBe(true);
     });
 
+    test.each(["capture", "locate", "messages", "oracle", "peek"])(
+      "`maw %s` diagnostic command -> quiet",
+      (verb) => {
+        process.argv = ["bun", "/path/to/cli.ts", verb];
+        expect(isQuiet()).toBe(true);
+      },
+    );
+
+    test("`maw locate mira --json` -> quiet for parseable JSON output", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "locate", "mira", "--json"];
+      expect(isQuiet()).toBe(true);
+    });
+
     test("`maw bud --as ls` → NOT quiet (positional check at argv[2], not .some)", () => {
       // Regression guard: an `--as ls` value buried later in argv must not
       // false-positive into the suppression path.
