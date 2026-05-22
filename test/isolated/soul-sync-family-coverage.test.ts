@@ -244,7 +244,7 @@ describe("soul-sync family isolated coverage", () => {
       currentPanePath = "__throw__";
       const soulSyncFallbackCwd = await mod.cmdSoulSync();
       expect(soulSyncFallbackCwd).toEqual([]);
-      expect(logs.join("\n")).toContain("no sync_peers configured for 'maw-js'");
+      expect(logs.join("\n")).toContain(`no sync_peers configured for '${process.cwd().split("/").pop()}'`);
 
       const absorbed = await mod.cmdSoulSyncProject({ cwd: fx.alphaPath });
       expect(absorbed).toEqual([

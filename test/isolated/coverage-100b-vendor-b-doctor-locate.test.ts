@@ -41,6 +41,10 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleetEntries: () => fleetEntries,
 }));
 mock.module("maw-js/config", () => ({ loadConfig: () => config }));
+mock.module("maw-js/lib/oracle-manifest", () => ({
+  invalidateManifest: () => undefined,
+  loadManifestCached: () => [],
+}));
 mock.module("maw-js/core/matcher/resolve-target", () => ({
   resolveSessionTarget: (_oracle: string, list: any[]) => list.length ? { kind: "fuzzy", match: list[0] } : { kind: "none" },
 }));
