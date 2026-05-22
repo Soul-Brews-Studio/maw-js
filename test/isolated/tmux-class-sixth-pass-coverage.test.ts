@@ -127,7 +127,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       {
-        cmd: "tmux -S '/tmp/explicit socket.sock' display-message ",
+        cmd: "TERM=xterm tmux -S '/tmp/explicit socket.sock' display-message ",
         host: "remote-box",
       },
       {

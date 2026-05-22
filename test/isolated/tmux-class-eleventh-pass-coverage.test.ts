@@ -71,7 +71,7 @@ describe("tmux-class eleventh-pass isolated coverage", () => {
     await t.loadBuffer("don't quote twice");
 
     expect(hostExecCalls).toEqual([
-      { cmd: "tmux display-message 'hello world'", host: "remote-box" },
+      { cmd: "TERM=xterm tmux display-message 'hello world'", host: "remote-box" },
       { cmd: "tmux capture-pane -t session:win.0 -e -p 2>/dev/null | tail -7", host: "remote-box" },
       { cmd: "printf '%s' 'don'\\''t quote twice' | tmux load-buffer -", host: "remote-box" },
     ]);
@@ -85,7 +85,7 @@ describe("tmux-class eleventh-pass isolated coverage", () => {
     await t.run("display-message", "#{session_name}");
 
     expect(hostExecCalls).toEqual([
-      { cmd: "tmux -S '/tmp/env socket.sock' display-message '#{session_name}'", host: "remote-box" },
+      { cmd: "TERM=xterm tmux -S '/tmp/env socket.sock' display-message '#{session_name}'", host: "remote-box" },
     ]);
   });
 

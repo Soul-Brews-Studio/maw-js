@@ -126,7 +126,7 @@ describe("tmux-class isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       {
-        cmd: "tmux -S '/tmp/maw socket.sock' list-panes -t sess:oracle.0 -F '#{pane_id}'",
+        cmd: "TERM=xterm tmux -S '/tmp/maw socket.sock' list-panes -t sess:oracle.0 -F '#{pane_id}'",
         host: "remote-box",
       },
       {

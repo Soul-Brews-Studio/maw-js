@@ -121,7 +121,7 @@ describe("tmux-class fourteenth-pass isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       {
-        cmd: "tmux -S '/tmp/fourteenth pass.sock' resize-pane -t 'alpha pane' -x 80 -y 24",
+        cmd: "TERM=xterm tmux -S '/tmp/fourteenth pass.sock' resize-pane -t 'alpha pane' -x 80 -y 24",
         host: "remote-box",
       },
       {
@@ -129,7 +129,7 @@ describe("tmux-class fourteenth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/fourteenth pass.sock' display-message -p ignored",
+        cmd: "TERM=xterm tmux -S '/tmp/fourteenth pass.sock' display-message -p ignored",
         host: "remote-box",
       },
       {

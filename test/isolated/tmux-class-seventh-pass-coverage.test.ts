@@ -117,7 +117,7 @@ describe("tmux-class seventh-pass isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       {
-        cmd: "tmux display-message -p '#{session_name}'",
+        cmd: "TERM=xterm tmux display-message -p '#{session_name}'",
         host: "remote-box",
       },
       {

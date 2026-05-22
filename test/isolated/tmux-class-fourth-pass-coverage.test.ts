@@ -139,11 +139,11 @@ describe("tmux-class fourth-pass isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       {
-        cmd: "tmux -S '/tmp/fourth pass.sock' display-message -p 'ready now'",
+        cmd: "TERM=xterm tmux -S '/tmp/fourth pass.sock' display-message -p 'ready now'",
         host: undefined,
       },
       {
-        cmd: "tmux display-message ",
+        cmd: "TERM=xterm tmux display-message ",
         host: "remote-box",
       },
       {
@@ -155,11 +155,11 @@ describe("tmux-class fourth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux display-message -p 'safe arg'",
+        cmd: "TERM=xterm tmux display-message -p 'safe arg'",
         host: "remote-box",
       },
       {
-        cmd: "tmux display-message -p ignored",
+        cmd: "TERM=xterm tmux display-message -p ignored",
         host: "remote-box",
       },
     ]);

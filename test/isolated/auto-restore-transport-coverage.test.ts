@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 const snapshotPath = import.meta.resolve("../../src/core/fleet/snapshot.ts");
@@ -60,8 +60,16 @@ const { cmdTransportStatus } = await import("../../src/commands/shared/transport
 
 const originalLog = console.log;
 const originalWrite = process.stdout.write;
+const originalCi = process.env.CI;
+const originalNoPrompt = process.env.MAW_NO_PROMPT;
+const originalStdinIsTTY = process.stdin.isTTY;
+const originalStdoutIsTTY = process.stdout.isTTY;
 
 beforeEach(() => {
+  delete process.env.CI;
+  delete process.env.MAW_NO_PROMPT;
+  Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
   sessions = [];
   listSessionsError = null;
   snapshot = null;
@@ -77,6 +85,17 @@ beforeEach(() => {
     writes.push(String(chunk));
     return true;
   }) as typeof process.stdout.write;
+});
+
+afterEach(() => {
+  console.log = originalLog;
+  process.stdout.write = originalWrite;
+  if (originalCi === undefined) delete process.env.CI;
+  else process.env.CI = originalCi;
+  if (originalNoPrompt === undefined) delete process.env.MAW_NO_PROMPT;
+  else process.env.MAW_NO_PROMPT = originalNoPrompt;
+  Object.defineProperty(process.stdin, "isTTY", { value: originalStdinIsTTY, configurable: true });
+  Object.defineProperty(process.stdout, "isTTY", { value: originalStdoutIsTTY, configurable: true });
 });
 
 describe("auto restore startup helper", () => {
