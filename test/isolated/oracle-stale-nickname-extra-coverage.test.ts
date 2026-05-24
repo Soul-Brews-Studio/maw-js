@@ -231,7 +231,7 @@ describe("oracle stale extra coverage", () => {
     currentCache = cache([entry({ name: "dead", local_path: "/repos/dead", has_psi: false })]);
     execResponses.set("/repos/dead", iso(120));
 
-    const jsonOut = await captureLog(() => stale.cmdOracleScanStale({ json: true }));
+    const jsonOut = await captureLog(() => stale.cmdOracleScanStale({ json: true }, { now: () => NOW }));
     const parsed = JSON.parse(jsonOut);
     expect(parsed).toMatchObject({ schema: 1, count: 1 });
     expect(parsed.oracles[0]).toMatchObject({
@@ -243,7 +243,7 @@ describe("oracle stale extra coverage", () => {
     currentCache = cache([entry({ name: "fresh", local_path: "/repos/fresh" })]);
     execResponses.set("/repos/fresh", iso(1));
 
-    const clearOut = stripAnsi(await captureLog(() => stale.cmdOracleScanStale()));
+    const clearOut = stripAnsi(await captureLog(() => stale.cmdOracleScanStale({}, { now: () => NOW })));
     expect(clearOut).toContain("No stale oracles — all clear.");
 
     currentCache = cache([
@@ -259,7 +259,7 @@ describe("oracle stale extra coverage", () => {
     execResponses.set("/repos/fresh", iso(1));
     execResponses.set("/repos/awake", iso(200));
 
-    const formatted = stripAnsi(await captureLog(() => stale.cmdOracleScanStale({ all: true })));
+    const formatted = stripAnsi(await captureLog(() => stale.cmdOracleScanStale({ all: true }, { now: () => NOW })));
 
     expect(formatted).toContain("Stale oracle scan  (DEAD 1  STALE 1  SLOW 1  ACTIVE 2)");
     expect(formatted).toContain("DEAD");
