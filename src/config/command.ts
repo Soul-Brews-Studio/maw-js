@@ -42,13 +42,12 @@ export interface BuildCommandOpts {
    */
   permissionMode?: "skip" | "relay";
   /**
-   * Resume a specific Claude session by id (UUID matching the JSONL filename
-   * under `~/.claude/projects/<encoded-cwd>/<id>.jsonl`). Wins over the
-   * implicit `--continue` injection below; emits `claude … --resume "<id>"`.
-   * Used by the directed-inbox watcher (Phase 2a) to pin a follow-up wake on
-   * thread N to the same session that handled the prior wake on thread N —
-   * keeps worktree count proportional to (oracle × thread) pairs instead of
-   * ballooning per wake.
+   * Resume a specific engine session by id.
+   * - claude: emits `claude … --resume "<id>"` (UUID from ~/.claude/projects)
+   * - codex:  emits `codex resume "<id>" …`     (id from session_meta payload)
+   *
+   * Used by directed-inbox routing to pin follow-up wakes for one campaign to
+   * the same conversation instead of spawning fresh sessions every time.
    */
   resume?: string;
   /**
@@ -62,7 +61,10 @@ export interface BuildCommandOpts {
   fresh?: boolean;
   /**
    * First-message prompt for the agent. Baked into the command as
-   * `-p '<escaped>'` — INSIDE the `{ … }` brace group and BEFORE the
+   * - claude: `-p '<escaped>'`
+   * - codex:  positional `'<escaped>'`
+   *
+   * The prompt is baked INSIDE the `{ … }` brace group and BEFORE the
    * `; <reset>` suffix. Appending `-p` to buildCommand()'s *return value*
    * (the pre-#541 pattern, reintroduced by the LOC-round-4 refactor) puts
    * the flag on the trailing `clear`, not on `claude`, so the prompt is
@@ -82,6 +84,10 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
 
   if (opts.engine && config.commands[opts.engine]) {
     cmd = config.commands[opts.engine];
+  } else if (opts.engine === "codex") {
+    // Fleet may pin engine=codex before local config defines commands.codex.
+    // Keep a safe built-in fallback so wake still launches the requested engine.
+    cmd = "codex";
   } else {
     cmd = config.commands.default || "claude";
     for (const [pattern, command] of Object.entries(config.commands)) {
@@ -122,13 +128,34 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
     cmd += " --dangerously-load-development-channels";
   }
 
-  // Caller-provided --resume <sid> wins over the implicit --continue below.
-  // Strip any pre-existing --continue / --resume in the configured cmd, then
-  // append the explicit session id. The standard fallback block below
-  // covers --resume too.
+  const stripEnvPrefix = (value: string): string =>
+    value.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)+/, "");
+
+  // Engine kind after optional env-prefix injection from channelEnv.
+  let cmdPart = stripEnvPrefix(cmd);
+  let isClaudeEngine = cmdPart.startsWith("claude");
+  let isCodexEngine = cmdPart.startsWith("codex");
+
+  // Caller-provided resume id wins over implicit continuation behavior.
+  // Engine-specific resume wiring:
+  // - claude: keep legacy `--resume "<sid>"` flag
+  // - codex:  use the dedicated subcommand `codex resume "<sid>"`
   if (opts.resume) {
     cmd = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
-    cmd += ` --resume "${opts.resume}"`;
+    if (isCodexEngine) {
+      cmd = cmd
+        // normalize accidental pre-baked `codex resume ...` templates
+        .replace(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\s+resume(?:\s+"[^"]*"|\s+\S+)?\b/, "$1codex")
+        // inject explicit session id for codex resume
+        .replace(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\b/, `$1codex resume "${opts.resume}"`);
+      // defensive fallback for unusual non-codex templates while engine=codex.
+      if (!stripEnvPrefix(cmd).startsWith("codex resume")) cmd += ` --resume "${opts.resume}"`;
+    } else {
+      cmd += ` --resume "${opts.resume}"`;
+    }
+    cmdPart = stripEnvPrefix(cmd);
+    isClaudeEngine = cmdPart.startsWith("claude");
+    isCodexEngine = cmdPart.startsWith("codex");
   }
 
   // Caller-asserted (or auto-probed) fresh cwd: strip any pre-existing
@@ -148,8 +175,9 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // codex may silently ignore unknown flags, never tripping the fallback.
   // The simplest safe rule: cmd must start with `claude` (after optional env-
   // var prefix from `channelEnv`).
-  const cmdPart = cmd.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)+/, "");
-  const isClaudeEngine = cmdPart.startsWith("claude");
+  cmdPart = stripEnvPrefix(cmd);
+  isClaudeEngine = cmdPart.startsWith("claude");
+  isCodexEngine = cmdPart.startsWith("codex");
   if (
     isClaudeEngine &&
     !opts.fresh &&
@@ -189,6 +217,8 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   const withPrompt = (c: string): string => {
     if (!opts.prompt) return c;
     const escaped = opts.prompt.replace(/'/g, "'\\''");
+    const cPart = stripEnvPrefix(c);
+    if (cPart.startsWith("codex")) return `${c} '${escaped}'`;
     return `${c} -p '${escaped}'`;
   };
 
@@ -220,7 +250,9 @@ export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?:
     ? { engine: optsOrEngine }
     : (optsOrEngine || {});
   if (opts.fresh === undefined && opts.resume === undefined && cwd) {
-    if (!hasContinuableSession(cwd)) {
+    // Claudе-only probe: codex uses `codex resume` (not `--continue`) so the
+    // ~/.claude/projects check would force pointless fresh-mode behavior.
+    if (opts.engine !== "codex" && !hasContinuableSession(cwd)) {
       opts.fresh = true;
     }
   }
