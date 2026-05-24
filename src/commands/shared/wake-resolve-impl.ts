@@ -242,6 +242,17 @@ export async function findWorktrees(parentDir: string, repoName: string): Promis
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
 
+function findFleetWindow(oracle: string): FleetWindow | null {
+  try {
+    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
+      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
+      if (win) return win;
+    }
+  } catch { /* fleet dir may not exist */ }
+  return null;
+}
+
 export function resolveFleetSession(oracle: string): string | null {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
@@ -250,6 +261,17 @@ export function resolveFleetSession(oracle: string): string | null {
     }
   } catch { /* fleet dir may not exist */ }
   return null;
+}
+
+/**
+ * Resolve the default engine for an oracle from fleet config.
+ * Returns undefined when the oracle has no explicit engine pin.
+ */
+export function resolveFleetEngine(oracle: string): string | undefined {
+  const win = findFleetWindow(oracle);
+  if (!win || typeof win.engine !== "string") return undefined;
+  const engine = win.engine.trim();
+  return engine.length > 0 ? engine : undefined;
 }
 
 export async function detectSession(oracle: string, urlRepoName?: string): Promise<string | null> {

@@ -5,6 +5,8 @@ import { tmux, FLEET_DIR } from "../../sdk";
 export interface FleetWindow {
   name: string;
   repo: string;
+  /** Optional engine key from config.commands (e.g. "claude", "codex"). */
+  engine?: string;
 }
 
 export interface FleetSession {

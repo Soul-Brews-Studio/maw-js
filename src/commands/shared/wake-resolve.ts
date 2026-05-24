@@ -4,6 +4,7 @@ export {
   findWorktrees,
   getSessionMap,
   resolveFleetSession,
+  resolveFleetEngine,
   detectSession,
   setSessionEnv,
   sanitizeBranchName,
