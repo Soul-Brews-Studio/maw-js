@@ -5,7 +5,7 @@ import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { UserError } from "../../core/util/user-error";
-import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
+import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, resolveFleetEngine, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree, injectWorktreeSymlinks } from "./wake-session";
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
@@ -73,6 +73,13 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   const resolvedOracle = repoName.replace(/-oracle$/, "");
   if (resolvedOracle !== oracle && repoName.endsWith("-oracle")) {
     oracle = resolvedOracle;
+  }
+
+  // Fleet-level engine pin: when caller does not pass --engine, use the
+  // oracle's configured fleet window engine (e.g. claude|codex).
+  if (!opts.engine) {
+    const fleetEngine = resolveFleetEngine(oracle);
+    if (fleetEngine) opts.engine = fleetEngine;
   }
 
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
@@ -323,4 +330,3 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   takeSnapshot("wake").catch(() => {});
   return `${session}:${windowName}`;
 }
-
