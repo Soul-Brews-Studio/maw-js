@@ -356,6 +356,30 @@ export interface WakeOptions {
   layout?: WorktreeLayout;
 }
 
+function isAttachOnlyWake(opts: WakeOptions): boolean {
+  return Boolean(opts.attach)
+    && !opts.task
+    && !opts.wt
+    && !opts.prompt
+    && !opts.session
+    && !opts.incubate
+    && !opts.fresh
+    && !opts.pick
+    && !opts.name
+    && !opts.listWt
+    && !opts.dryRun
+    && !opts.split
+    && !opts.splitTarget
+    && !opts.bringAlias
+    && !opts.bring
+    && !opts.tab
+    && !opts.bud
+    && !opts.signalOnBirth
+    && !opts.engine
+    && !opts.fromSnapshot
+    && !opts.snapshotId;
+}
+
 function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
   return snapshotId ? loadSnapshot(snapshotId) : latestSnapshot();
 }
@@ -704,6 +728,21 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   if (requestedForeignSession) validateForeignSessionName(requestedForeignSession);
 
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
+
+  // #1897 — explicit attach is a tmux client handoff, not bring delivery.
+  // When the target is already live, avoid the bring/split/open-window pipeline
+  // and skip wake maintenance work that can mutate tmux windows before the
+  // attach. Missing sessions still fall through to normal wake/create behavior.
+  if (isAttachOnlyWake(opts)) {
+    const liveAttachSession = preResolvedSession || await detectSession(oracle, opts.urlRepoName);
+    if (liveAttachSession) {
+      console.log(`\x1b[36m→\x1b[0m live tmux session: ${liveAttachSession}`);
+      await attachToSession(liveAttachSession);
+      await recordWakeSnapshot();
+      const attachWindow = preResolvedFleetSession?.windowName || `${oracle}-oracle`;
+      return `${liveAttachSession}:${attachWindow}`;
+    }
+  }
 
   const existingSessionBringTarget = await resolveExistingSessionBringTarget(oracle, opts, preResolvedSession);
   if (existingSessionBringTarget) {

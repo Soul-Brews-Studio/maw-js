@@ -869,7 +869,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
 
   test("dead existing windows relaunch, and unreliable window listings refuse duplicate creation", async () => {
     paneCommand = "zsh";
-    let result = await captureLogs(() => cmdWake("neo", { repoPath, noRehydrate: true, attach: true }));
+    let result = await captureLogs(() => cmdWake("neo", { repoPath, noRehydrate: true, attach: true, engine: "codex" }));
 
     expect(result).toBe("54-neo:neo-oracle");
     expect(sentText).toContainEqual({
@@ -885,7 +885,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       .rejects.toThrow("could not list windows for session '54-neo'");
   });
 
-  test("plain live existing windows attach without relaunching", async () => {
+  test("plain live existing windows attach without relaunching or bring delivery", async () => {
     paneCommand = "codex";
     listWindowsReturn = [{ name: "neo-oracle" }];
 
@@ -894,9 +894,9 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(result).toBe("54-neo:neo-oracle");
     expect(sentText).toEqual([]);
     expect(respawnCalls).toEqual([]);
-    expect(selectedWindows).toEqual(["54-neo:neo-oracle"]);
+    expect(selectedWindows).toEqual([]);
     expect(attachCalls).toEqual(["54-neo"]);
-    expect(splitCalls).toEqual(["54-neo:neo-oracle"]);
-    expect(openCalls).toEqual(["54-neo:neo-oracle"]);
+    expect(splitCalls).toEqual([]);
+    expect(openCalls).toEqual([]);
   });
 });

@@ -722,6 +722,37 @@ describe("cmdWake main-suite coverage", () => {
     expect(sendTextCalls).toHaveLength(0);
   });
 
+  test("#1897 wake -a attaches to live targets without bring/split/window mutation", async () => {
+    worktrees = [
+      { name: "1-alpha", path: join(parentDir, `${repoName}.wt-1-alpha`) },
+    ];
+
+    let result = await captureLogs(() => cmdWake("mawjs", { attach: true }));
+
+    expect(result.result).toBe("54-mawjs:mawjs-oracle");
+    expect(result.logs.join("\n")).toContain("live tmux session: 54-mawjs");
+    expect(attachCalls).toEqual(["54-mawjs"]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(maybeOpenWindowCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(setSessionEnvCalls).toEqual([]);
+    expect(ensureSessionRunningCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+
+    attachCalls = [];
+    takeSnapshotCalls = [];
+    result = await captureLogs(() => cmdWake("54-mawjs", { attach: true }));
+
+    expect(result.result).toBe("54-mawjs:mawjs-oracle");
+    expect(attachCalls).toEqual(["54-mawjs"]);
+    expect(detectSessionCalls).toEqual([{ oracle: "mawjs", urlRepoName: undefined }]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(maybeOpenWindowCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
   test("#1816 bring resolves an exact live tmux window before fuzzy oracle lookup", async () => {
     addWindow("54-mawjs", "mawjs-features");
 

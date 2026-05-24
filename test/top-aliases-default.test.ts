@@ -293,6 +293,14 @@ describe("direct handler invocation", () => {
     }]]);
   });
 
+  test("#1897 wake -a is attach-only and does not set bring/split flags", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", ["neo", "-a"], deps);
+
+    expect(calls.wake).toEqual([["neo", { attach: true }]]);
+  });
+
   test("awake supports help and explicit engine without loading config", async () => {
     const { calls, deps } = makeDeps();
 
