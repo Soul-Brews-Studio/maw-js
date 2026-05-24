@@ -131,10 +131,30 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   const stripEnvPrefix = (value: string): string =>
     value.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)+/, "");
 
+  const rewriteCodexResumeCommand = (value: string, resumeId: string): string => {
+    const match = value.match(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\b(.*)$/);
+    if (!match) return `${value} --resume "${resumeId}"`;
+
+    const envPrefix = match[1] || "";
+    let tail = (match[2] || "").trim();
+
+    // Normalize accidental pre-baked `codex resume ...` templates so explicit
+    // caller-provided resume IDs always win.
+    if (tail.startsWith("resume")) {
+      tail = tail.replace(/^resume(?:\s+"[^"]*"|\s+\S+)?\s*/, "");
+    }
+
+    // Explicit resume id and --last conflict semantically; drop --last when a
+    // concrete resume target is supplied by the caller.
+    tail = tail.replace(/\s*--last\b/g, "").trim();
+
+    // codex resume [OPTIONS] [SESSION_ID] [PROMPT]
+    return `${envPrefix}codex resume${tail ? ` ${tail}` : ""} "${resumeId}"`;
+  };
+
   // Engine kind after optional env-prefix injection from channelEnv.
   let cmdPart = stripEnvPrefix(cmd);
   let isClaudeEngine = cmdPart.startsWith("claude");
-  let isCodexEngine = cmdPart.startsWith("codex");
 
   // Caller-provided resume id wins over implicit continuation behavior.
   // Engine-specific resume wiring:
@@ -142,20 +162,13 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // - codex:  use the dedicated subcommand `codex resume "<sid>"`
   if (opts.resume) {
     cmd = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
-    if (isCodexEngine) {
-      cmd = cmd
-        // normalize accidental pre-baked `codex resume ...` templates
-        .replace(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\s+resume(?:\s+"[^"]*"|\s+\S+)?\b/, "$1codex")
-        // inject explicit session id for codex resume
-        .replace(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\b/, `$1codex resume "${opts.resume}"`);
-      // defensive fallback for unusual non-codex templates while engine=codex.
-      if (!stripEnvPrefix(cmd).startsWith("codex resume")) cmd += ` --resume "${opts.resume}"`;
+    if (cmdPart.startsWith("codex")) {
+      cmd = rewriteCodexResumeCommand(cmd, opts.resume);
     } else {
       cmd += ` --resume "${opts.resume}"`;
     }
     cmdPart = stripEnvPrefix(cmd);
     isClaudeEngine = cmdPart.startsWith("claude");
-    isCodexEngine = cmdPart.startsWith("codex");
   }
 
   // Caller-asserted (or auto-probed) fresh cwd: strip any pre-existing
@@ -177,7 +190,6 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // var prefix from `channelEnv`).
   cmdPart = stripEnvPrefix(cmd);
   isClaudeEngine = cmdPart.startsWith("claude");
-  isCodexEngine = cmdPart.startsWith("codex");
   if (
     isClaudeEngine &&
     !opts.fresh &&

@@ -182,7 +182,7 @@ describe("buildCommand — post-#541 contract", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --dangerously-bypass-approvals-and-sandbox" };
     const out = buildCommand("any-agent", { engine: "codex", resume: "019a47f7-1a4e-7b50-93a4-c6d8a73645e5" });
     expect(out).toBe(
-      wrap('codex resume "019a47f7-1a4e-7b50-93a4-c6d8a73645e5" --dangerously-bypass-approvals-and-sandbox'),
+      wrap('codex resume --dangerously-bypass-approvals-and-sandbox "019a47f7-1a4e-7b50-93a4-c6d8a73645e5"'),
     );
     expect(out).not.toContain("--resume");
   });
@@ -276,5 +276,20 @@ describe("buildCommand — prompt baking (#wake-no-prompt regression)", () => {
     const out = buildCommand("any-agent", { engine: "codex", prompt: "อ่าน handoff ใหม่" });
     expect(out).toBe(wrap("codex --dangerously-bypass-approvals-and-sandbox 'อ่าน handoff ใหม่'"));
     expect(out).not.toContain(" -p '");
+  });
+
+  test("codex resume + prompt keeps both session continuity and follow-up task", () => {
+    fakeConfig.commands = { default: "claude", codex: "codex --dangerously-bypass-approvals-and-sandbox --search" };
+    const out = buildCommand("any-agent", {
+      engine: "codex",
+      resume: "019a47f7-1a4e-7b50-93a4-c6d8a73645e5",
+      prompt: "continue this campaign",
+    });
+    expect(out).toBe(
+      wrap(
+        'codex resume --dangerously-bypass-approvals-and-sandbox --search "019a47f7-1a4e-7b50-93a4-c6d8a73645e5" \'continue this campaign\'',
+      ),
+    );
+    expect(out).not.toContain("--resume");
   });
 });
