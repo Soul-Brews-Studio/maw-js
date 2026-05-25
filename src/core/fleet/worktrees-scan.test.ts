@@ -41,13 +41,10 @@ mock.module(join(root, "config/ghq-root"), () => ({
   getGhqRoot: () => "/ghq",
 }));
 
-// Avoid touching real fleet dir
-mock.module(join(root, "core/paths"), () => ({
-  FLEET_DIR: "/tmp/maw-test-nonexistent-fleet-823",
-}));
-
-mock.module(join(root, "core/xdg"), () => ({
-  mawStatePath: () => "/tmp/maw-test-nonexistent-state-fleet-823",
+mock.module(join(root, "core/fleet/paths"), () => ({
+  fleetDirForWrite: () => "/tmp/maw-test-nonexistent-state-fleet-823",
+  fleetDirsForRead: () => ["/tmp/maw-test-nonexistent-state-fleet-823"],
+  uniqueDirs: (dirs: string[]) => [...new Set(dirs.filter(Boolean))],
 }));
 
 const { scanWorktrees } = await import("./worktrees-scan");
@@ -75,5 +72,44 @@ describe("scanWorktrees (#823 Bug C) — dedupe windows across sessions", () => 
     } finally {
       console.error = origErr;
     }
+  });
+
+  it("live pane cwd marks worktree active even when window names are ambiguous", async () => {
+    const wtPath = "/ghq/github.com/kxlahsimx09/mb-next-payment-gateway.wt-1-codex";
+    const errLogs: string[] = [];
+    const results = await scanWorktrees({
+      hostExec: async (cmd: string) => {
+        if (cmd.includes("find ")) return wtPath;
+        if (cmd.includes("rev-parse --abbrev-ref")) return "agents/1-codex";
+        return "";
+      },
+      listSessions: async () => [
+        { name: "fleet", windows: [
+          { name: "next-writer-codex", index: 1, active: true },
+          { name: "other-codex", index: 2, active: false },
+        ] },
+      ] as any,
+      getGhqRoot: () => "/ghq",
+      readdirSync: () => [],
+      readFileSync: () => "",
+      fleetDir: "/tmp/maw-test-nonexistent-fleet-cwd",
+      fleetDirs: ["/tmp/maw-test-nonexistent-fleet-cwd"],
+      listTmuxPanes: async () => [{
+        session: "fleet",
+        windowIndex: "1",
+        windowName: "next-writer-codex",
+        paneIndex: "0",
+        target: "fleet:1.0",
+        command: "codex",
+        cwd: `${wtPath}/src`,
+      }],
+      error: (...args: unknown[]) => { errLogs.push(args.map(String).join(" ")); },
+    });
+
+    const wt = results.find(r => r.path === wtPath);
+    expect(wt).toBeDefined();
+    expect(wt!.status).toBe("active");
+    expect(wt!.tmuxWindow).toBe("next-writer-codex");
+    expect(errLogs.join("\n")).not.toContain("ambiguous");
   });
 });

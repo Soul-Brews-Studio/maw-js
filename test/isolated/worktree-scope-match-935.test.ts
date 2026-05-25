@@ -54,12 +54,10 @@ mock.module(join(root, "config/ghq-root"), () => ({
   getGhqRoot: () => "/ghq",
 }));
 
-mock.module(join(root, "core/paths"), () => ({
-  FLEET_DIR: "/tmp/maw-test-nonexistent-fleet-935",
-}));
-
-mock.module(join(root, "core/xdg"), () => ({
-  mawStatePath: () => "/tmp/maw-test-nonexistent-state-fleet-935",
+mock.module(join(root, "core/fleet/paths"), () => ({
+  fleetDirForWrite: () => "/tmp/maw-test-nonexistent-state-fleet-935",
+  fleetDirsForRead: () => ["/tmp/maw-test-nonexistent-state-fleet-935"],
+  uniqueDirs: (dirs: string[]) => [...new Set(dirs.filter(Boolean))],
 }));
 
 const { scanWorktrees } = await import(join(root, "core/fleet/worktrees-scan"));

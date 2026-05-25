@@ -5,6 +5,11 @@ import { join } from "path";
 import { parseWorktreePath } from "./worktree-layout";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "./paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";
+import {
+  findPanesInWorktree,
+  listTmuxPanes,
+  type LiveWorktreePane,
+} from "./worktree-live-panes";
 import type { Session } from "../runtime/find-window";
 
 export interface WorktreeInfo {
@@ -28,6 +33,7 @@ export interface ScanWorktreesDeps {
   fleetDir: string;
   /** State-first fleet dirs; when omitted, XDG state falls back to legacy config. */
   fleetDirs?: string[];
+  listTmuxPanes: () => Promise<LiveWorktreePane[]>;
   error: (...args: unknown[]) => void;
 }
 
@@ -40,6 +46,7 @@ function scanDeps(overrides: Partial<ScanWorktreesDeps>): ScanWorktreesDeps {
     readFileSync: overrides.readFileSync ?? (readFileSync as unknown as ScanWorktreesDeps["readFileSync"]),
     fleetDir: overrides.fleetDir ?? fleetDirForWrite(),
     fleetDirs: overrides.fleetDirs ?? (overrides.fleetDir ? [overrides.fleetDir] : fleetDirsForRead()),
+    listTmuxPanes: overrides.listTmuxPanes ?? listTmuxPanes,
     error: overrides.error ?? console.error,
   };
 }
@@ -80,6 +87,11 @@ export async function scanWorktrees(deps: Partial<ScanWorktreesDeps> = {}): Prom
     }
   }
 
+  let livePanes: LiveWorktreePane[] = [];
+  try {
+    livePanes = await d.listTmuxPanes();
+  } catch { /* pane cwd detection is best-effort */ }
+
   // 3. Load fleet configs for matching
   const fleetWindows = new Map<string, string>(); // repo -> fleet file
   const seenFleetFiles = new Set<string>();
@@ -115,27 +127,30 @@ export async function scanWorktrees(deps: Partial<ScanWorktreesDeps> = {}): Prom
       branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD 2>/dev/null`)).trim();
     } catch { branch = "unknown"; }
 
-    // Match to tmux window — check fleet config or name pattern.
-    // The matching policy is pure and fixture-backed in worktree-window-match
-    // (#823/#935/#1553/#1612); scanWorktrees owns only IO and rendering.
+    // Match to tmux window. First bind by live pane cwd, which is
+    // authoritative even when generic task names (e.g. "codex") make
+    // window-name matching ambiguous. Fall back to the pure name policy.
     let tmuxWindow: string | undefined;
     const fleetFile = fleetWindows.get(repo);
-    const windowMatch = resolveWorktreeWindow(mainRepoName, wtName, sessions);
-    switch (windowMatch.kind) {
-      case "bound":
-        tmuxWindow = windowMatch.window;
-        break;
-      case "ambiguous":
-        d.error(`  \x1b[31m✗\x1b[0m '${windowMatch.query}' is ambiguous — matches ${windowMatch.candidates.length} windows:`);
-        for (const c of windowMatch.candidates) {
-          d.error(`  \x1b[90m    • ${c}\x1b[0m`);
-        }
-        d.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
-        // tmuxWindow stays undefined → status = stale
-        break;
-      case "none":
-        // no running window → status = stale
-        break;
+    const livePane = findPanesInWorktree(livePanes, wtPath)[0];
+    if (livePane) {
+      tmuxWindow = livePane.windowName || livePane.target;
+    } else {
+      const windowMatch = resolveWorktreeWindow(mainRepoName, wtName, sessions);
+      switch (windowMatch.kind) {
+        case "bound":
+          tmuxWindow = windowMatch.window;
+          break;
+        case "ambiguous":
+          d.error(`  \x1b[31m✗\x1b[0m '${windowMatch.query}' is ambiguous — matches ${windowMatch.candidates.length} windows:`);
+          for (const c of windowMatch.candidates) {
+            d.error(`  \x1b[90m    • ${c}\x1b[0m`);
+          }
+          d.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
+          break;
+        case "none":
+          break;
+      }
     }
 
     const status: WorktreeInfo["status"] = tmuxWindow ? "active" : "stale";
