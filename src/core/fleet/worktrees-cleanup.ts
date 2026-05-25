@@ -5,6 +5,7 @@ import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
 import { resolveWorktreeTarget } from "../matcher/resolve-target";
+import { listLiveWorktreePanes } from "./worktree-live-panes";
 
 /**
  * Clean up a single worktree by path.
@@ -29,6 +30,15 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   const org = parentParts.join("/");
   const mainPath = join(reposRoot, org, mainRepoName);
   const repo = `${org}/${dirName}`;
+
+  const livePanes = await listLiveWorktreePanes(wtPath);
+  if (livePanes.length > 0) {
+    log.push(`refusing to remove active worktree ${dirName}`);
+    for (const pane of livePanes) {
+      log.push(`    live pane: ${pane.target} ${pane.command || "?"} (${pane.cwd})`);
+    }
+    return log;
+  }
 
   // 1. Find and kill tmux window
   const sessions = await listSessions();
@@ -67,7 +77,7 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
 
   try {
-    await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
+    await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}'`);
     await hostExec(`git -C '${mainPath}' worktree prune`);
     log.push(`removed worktree ${dirName}`);
   } catch (e: any) {
