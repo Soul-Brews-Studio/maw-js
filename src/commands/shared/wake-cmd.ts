@@ -10,7 +10,26 @@ import { attachToSession, ensureSessionRunning, createWorktree, injectWorktreeSy
 import { maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 
-export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; resume?: string; attach?: boolean; noAttach?: boolean; listWt?: boolean; split?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
+type CmdWakeOpts = {
+  task?: string;
+  wt?: string;
+  prompt?: string;
+  incubate?: string;
+  fresh?: boolean;
+  resume?: string;
+  attach?: boolean;
+  noAttach?: boolean;
+  listWt?: boolean;
+  split?: boolean;
+  repoPath?: string;
+  urlRepoName?: string;
+  allLocal?: boolean;
+  engine?: string;
+  model?: string;
+  reasoningEffort?: string;
+};
+
+export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string> {
   // #1151 — reject flag-shaped names. parseFlags lands unrecognized flags
   // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
   // and (without this guard) get sanitized into session names like `26---help`.
@@ -81,6 +100,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     const fleetEngine = resolveFleetEngine(oracle);
     if (fleetEngine) opts.engine = fleetEngine;
   }
+  const runtimeOpts = (extra: Partial<CmdWakeOpts> = {}) => ({
+    engine: opts.engine,
+    model: opts.model,
+    reasoningEffort: opts.reasoningEffort,
+    ...extra,
+  });
 
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
   const ghSlug = repoPath.includes("github.com/")
@@ -145,8 +170,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     // sets fresh=true itself when neither fresh nor resume was supplied —
     // see config/command.ts buildCommandInDir.
     const wakeOpts = channelIds.length
-      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode, resume: opts.resume, fresh: opts.fresh }
-      : (opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine);
+      ? { ...runtimeOpts({ resume: opts.resume, fresh: opts.fresh }), channels: channelIds, channelEnv, permissionMode }
+      : (opts.resume || opts.fresh || opts.model || opts.reasoningEffort
+        ? runtimeOpts({ resume: opts.resume, fresh: opts.fresh })
+        : opts.engine);
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
@@ -202,7 +229,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, runtimeOpts({ resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt })));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
@@ -279,7 +306,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         // Prompt is baked into the command by buildCommand (inside the brace
         // group, before the reset suffix). Do NOT append ` -p '…'` here — it
         // would land on the trailing `clear` and the prompt would be lost.
-        await tmux.sendText(`${session}:${existingWindow}`, buildCommandInDir(existingWindow, targetPath, { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }));
+        await tmux.sendText(`${session}:${existingWindow}`, buildCommandInDir(existingWindow, targetPath, runtimeOpts({ resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt })));
         if (opts.attach) await attachToSession(session);
         await maybeSplit(`${session}:${existingWindow}`, opts);
         return `${session}:${existingWindow}`;
@@ -292,7 +319,9 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
 
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.resume || opts.fresh ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh } : opts.engine));
+        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.resume || opts.fresh || opts.model || opts.reasoningEffort
+          ? runtimeOpts({ resume: opts.resume, fresh: opts.fresh })
+          : opts.engine));
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
@@ -317,8 +346,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   // brace group, before the reset suffix. Appending ` -p '…'` to the returned
   // string puts the flag on the trailing `clear`, not `claude`, so the prompt
   // never reaches the agent (the directed-inbox `failed_no_prompt` regression).
-  const cmd = buildCommandInDir(windowName, targetPath, opts.resume || opts.fresh || opts.prompt
-    ? { engine: opts.engine, resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt }
+  const cmd = buildCommandInDir(windowName, targetPath, opts.resume || opts.fresh || opts.prompt || opts.model || opts.reasoningEffort
+    ? runtimeOpts({ resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt })
     : opts.engine);
   await tmux.sendText(`${session}:${windowName}`, cmd);
 

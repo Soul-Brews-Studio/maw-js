@@ -27,8 +27,23 @@ function matchGlob(pattern: string, name: string): boolean {
   return false;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 export interface BuildCommandOpts {
   engine?: string;
+  /**
+   * Per-wake model override. Appended late so an explicit dispatch envelope
+   * can override a model baked into commands.<engine>.
+   */
+  model?: string;
+  /**
+   * Per-wake reasoning/effort override.
+   * - claude: `--effort <level>`
+   * - codex:  `-c model_reasoning_effort="<level>"`
+   */
+  reasoningEffort?: string;
   channels?: string[];
   channelEnv?: Record<string, string>;
   devChannels?: boolean;
@@ -131,6 +146,22 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   const stripEnvPrefix = (value: string): string =>
     value.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)+/, "");
 
+  const appendRuntimeOptions = (value: string): string => {
+    const cPart = stripEnvPrefix(value);
+    let next = value;
+    if (opts.model) next += ` --model ${shellQuote(opts.model)}`;
+    if (opts.reasoningEffort) {
+      if (cPart.startsWith("codex")) {
+        next += ` -c ${shellQuote(`model_reasoning_effort="${opts.reasoningEffort}"`)}`;
+      } else if (cPart.startsWith("claude")) {
+        next += ` --effort ${shellQuote(opts.reasoningEffort)}`;
+      }
+    }
+    return next;
+  };
+
+  cmd = appendRuntimeOptions(cmd);
+
   const rewriteCodexResumeCommand = (value: string, resumeId: string): string => {
     const match = value.match(/^((?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)*)codex\b(.*)$/);
     if (!match) return `${value} --resume "${resumeId}"`;
@@ -228,10 +259,9 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   // regression: watcher wakes landed idle at an empty input box).
   const withPrompt = (c: string): string => {
     if (!opts.prompt) return c;
-    const escaped = opts.prompt.replace(/'/g, "'\\''");
     const cPart = stripEnvPrefix(c);
-    if (cPart.startsWith("codex")) return `${c} '${escaped}'`;
-    return `${c} -p '${escaped}'`;
+    if (cPart.startsWith("codex")) return `${c} ${shellQuote(opts.prompt)}`;
+    return `${c} -p ${shellQuote(opts.prompt)}`;
   };
 
   // Skip the || fallback for fresh runs — the cmd has no --continue/--resume

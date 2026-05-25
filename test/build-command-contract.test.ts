@@ -187,6 +187,49 @@ describe("buildCommand — post-#541 contract", () => {
     expect(out).not.toContain("--resume");
   });
 
+  test("claude model + reasoning effort overrides are appended before prompt/fallback", () => {
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("any-agent", {
+      model: "opus",
+      reasoningEffort: "xhigh",
+      prompt: "do work",
+    });
+    expect(out).toBe(
+      wrapFallback(
+        "claude --model 'opus' --effort 'xhigh' --continue -p 'do work'",
+        "claude --model 'opus' --effort 'xhigh' -p 'do work'",
+      ),
+    );
+  });
+
+  test("codex model + reasoning effort uses Codex CLI config override", () => {
+    fakeConfig.commands = { default: "claude", codex: "codex --search" };
+    const out = buildCommand("any-agent", {
+      engine: "codex",
+      model: "gpt-5.5",
+      reasoningEffort: "xhigh",
+    });
+    expect(out).toBe(
+      wrap(`codex --search --model 'gpt-5.5' -c 'model_reasoning_effort="xhigh"'`),
+    );
+  });
+
+  test("codex resume keeps runtime options before session id", () => {
+    fakeConfig.commands = { default: "claude", codex: "codex --dangerously-bypass-approvals-and-sandbox --search" };
+    const out = buildCommand("any-agent", {
+      engine: "codex",
+      model: "gpt-5.5",
+      reasoningEffort: "xhigh",
+      resume: "019a47f7-1a4e-7b50-93a4-c6d8a73645e5",
+      prompt: "continue",
+    });
+    expect(out).toBe(
+      wrap(
+        `codex resume --dangerously-bypass-approvals-and-sandbox --search --model 'gpt-5.5' -c 'model_reasoning_effort="xhigh"' "019a47f7-1a4e-7b50-93a4-c6d8a73645e5" 'continue'`,
+      ),
+    );
+  });
+
   test("#1174: pattern-matched non-claude command does NOT get --continue", () => {
     // Pattern `foo-*` resolves to `echo hi` — not claude, no --continue.
     fakeConfig.commands = { default: "claude", "foo-*": "echo hi" };
