@@ -4,6 +4,11 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
 import { resolveWorktreeTarget } from "../matcher/resolve-target";
+import {
+  findPanesInWorktree,
+  listTmuxPanes,
+  type LiveWorktreePane,
+} from "./worktree-live-panes";
 
 export interface WorktreeInfo {
   path: string;
@@ -48,6 +53,11 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     }
   }
 
+  let livePanes: LiveWorktreePane[] = [];
+  try {
+    livePanes = await listTmuxPanes();
+  } catch { /* pane cwd detection is best-effort */ }
+
   // 3. Load fleet configs for matching
   const fleetWindows = new Map<string, string>(); // repo -> fleet file
   try {
@@ -84,65 +94,70 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
       branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD 2>/dev/null`)).trim();
     } catch { branch = "unknown"; }
 
-    // Match to tmux window — check fleet config or name pattern
+    // Match to tmux window. First bind by live pane cwd, which is
+    // authoritative even when generic task names (e.g. "codex") make
+    // window-name matching ambiguous. Fall back to window-name matching.
     let tmuxWindow: string | undefined;
     const fleetFile = fleetWindows.get(repo);
+    const livePane = findPanesInWorktree(livePanes, wtPath)[0];
+    if (livePane) {
+      tmuxWindow = livePane.windowName || livePane.target;
+    } else {
 
-    // Try to find matching window by name pattern
-    // Window names like "neo-freelance" match wt name "1-freelance"
-    const taskPart = wtName.replace(/^\d+-/, "");
-    // #823 Bug C — dedupe windows by name across sessions. Without this, a
-    // window named X that exists in 2 sessions surfaces as 2 candidates in
-    // the ambiguous-match list, manufacturing phantom duplicates.
-    const allWindows = [
-      ...new Map(sessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
-    ];
-
-    // #935 — scope window search to PARENT oracle's session first.
-    // Pre-fix: a global search across all sessions ambiguously matched
-    // generic worktree names (e.g. `1--no-attach`) when 4 oracles each had
-    // a `--no-attach` window. Post-fix: try the parent oracle's session
-    // first; only fall back to global if the scoped search finds nothing.
-    //
-    // Parent oracle name is derived by stripping the trailing `-oracle`
-    // suffix from the main repo (e.g. `pulse-oracle` → `pulse`). Sessions
-    // can be named bare (`pulse`) or with a fleet-numeric prefix
-    // (`NN-pulse`), so we accept either shape.
-    const parentOracleName = mainRepoName.replace(/-oracle$/, "");
-    const parentSessions = sessions.filter(s =>
-      s.name === parentOracleName || s.name.endsWith(`-${parentOracleName}`)
-    );
-    let resolved: ReturnType<typeof resolveWorktreeTarget> | undefined;
-    if (parentSessions.length > 0) {
-      const scopedWindows = [
-        ...new Map(parentSessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
+      // Try to find matching window by name pattern
+      // Window names like "neo-freelance" match wt name "1-freelance"
+      const taskPart = wtName.replace(/^\d+-/, "");
+      // #823 Bug C — dedupe windows by name across sessions. Without this, a
+      // window named X that exists in 2 sessions surfaces as 2 candidates in
+      // the ambiguous-match list, manufacturing phantom duplicates.
+      const allWindows = [
+        ...new Map(sessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
       ];
-      const localResolved = resolveWorktreeTarget(taskPart, scopedWindows);
-      if (localResolved.kind === "exact" || localResolved.kind === "fuzzy") {
-        resolved = localResolved;
-      }
-    }
-    // Fall back to global search (existing behavior) when no parent session
-    // exists or when the scoped search did not produce a clean bind.
-    if (!resolved) {
-      resolved = resolveWorktreeTarget(taskPart, allWindows);
-    }
-    switch (resolved.kind) {
-      case "exact":
-      case "fuzzy":
-        tmuxWindow = resolved.match.name;
-        break;
-      case "ambiguous":
-        console.error(`  \x1b[31m✗\x1b[0m '${taskPart}' is ambiguous — matches ${resolved.candidates.length} windows:`);
-        for (const c of resolved.candidates) {
-          console.error(`  \x1b[90m    • ${c.name}\x1b[0m`);
+
+      // #935 — scope window search to PARENT oracle's session first.
+      // Pre-fix: a global search across all sessions ambiguously matched
+      // generic worktree names (e.g. `1--no-attach`) when 4 oracles each had
+      // a `--no-attach` window. Post-fix: try the parent oracle's session
+      // first; only fall back to global if the scoped search finds nothing.
+      //
+      // Parent oracle name is derived by stripping the trailing `-oracle`
+      // suffix from the main repo (e.g. `pulse-oracle` → `pulse`). Sessions
+      // can be named bare (`pulse`) or with a fleet-numeric prefix
+      // (`NN-pulse`), so we accept either shape.
+      const parentOracleName = mainRepoName.replace(/-oracle$/, "");
+      const parentSessions = sessions.filter(s =>
+        s.name === parentOracleName || s.name.endsWith(`-${parentOracleName}`)
+      );
+      let resolved: ReturnType<typeof resolveWorktreeTarget> | undefined;
+      if (parentSessions.length > 0) {
+        const scopedWindows = [
+          ...new Map(parentSessions.flatMap(s => s.windows).map(w => [w.name, w])).values()
+        ];
+        const localResolved = resolveWorktreeTarget(taskPart, scopedWindows);
+        if (localResolved.kind === "exact" || localResolved.kind === "fuzzy") {
+          resolved = localResolved;
         }
-        console.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
-        // tmuxWindow stays undefined → status = stale
-        break;
-      case "none":
-        // no running window → status = stale
-        break;
+      }
+      // Fall back to global search (existing behavior) when no parent session
+      // exists or when the scoped search did not produce a clean bind.
+      if (!resolved) {
+        resolved = resolveWorktreeTarget(taskPart, allWindows);
+      }
+      switch (resolved.kind) {
+        case "exact":
+        case "fuzzy":
+          tmuxWindow = resolved.match.name;
+          break;
+        case "ambiguous":
+          console.error(`  \x1b[31m✗\x1b[0m '${taskPart}' is ambiguous — matches ${resolved.candidates.length} windows:`);
+          for (const c of resolved.candidates) {
+            console.error(`  \x1b[90m    • ${c.name}\x1b[0m`);
+          }
+          console.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
+          break;
+        case "none":
+          break;
+      }
     }
 
     const status: WorktreeInfo["status"] = tmuxWindow ? "active" : "stale";

@@ -53,7 +53,11 @@ mock.module(join(root, "config/ghq-root"), () => ({
 }));
 
 mock.module(join(root, "core/paths"), () => ({
+  MAW_ROOT: "/tmp/maw-test-root",
+  CONFIG_DIR: "/tmp/maw-test-nonexistent-config-935",
   FLEET_DIR: "/tmp/maw-test-nonexistent-fleet-935",
+  CONFIG_FILE: "/tmp/maw-test-nonexistent-config-935/maw.config.json",
+  resolveHome: () => "/tmp/maw-test-home",
 }));
 
 const { scanWorktrees } = await import(join(root, "core/fleet/worktrees-scan"));
