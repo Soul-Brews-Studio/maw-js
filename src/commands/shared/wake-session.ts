@@ -30,6 +30,39 @@ export async function isPaneIdle(paneTarget: string): Promise<boolean> {
   }
 }
 
+/**
+ * Poll until the pane's command is recognised as an agent binary, or timeout.
+ *
+ * Fixes the new-session race (#1906): after sendText() launches a non-claude
+ * engine (e.g. thclaws --cli), the tmux pane command may still report 'zsh'
+ * for several hundred ms before the shell execs the engine. Without this wait,
+ * the liveness check that follows immediately can see 'zsh', decide the agent
+ * is dead, and issue a second sendText() — which lands in the already-running
+ * engine's chat instead of the shell.
+ *
+ * @returns true when the engine is confirmed, false on timeout (5 s default).
+ */
+export async function waitForEngine(
+  paneTarget: string,
+  getPaneInfos: (targets: string[]) => Promise<Record<string, { command: string }>>,
+  isAgentCommand: (cmd: string | null | undefined) => boolean,
+  timeoutMs = 5000,
+  pollIntervalMs = 250,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const infos = await getPaneInfos([paneTarget]);
+      const info = infos[paneTarget];
+      if (info && isAgentCommand(info.command)) return true;
+    } catch { /* tolerate transient tmux errors during engine startup */ }
+    if (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, pollIntervalMs));
+    }
+  }
+  return false;
+}
+
 export async function ensureSessionRunning(session: string, excludeNames?: Set<string>, cwdMap?: Record<string, string>): Promise<number> {
   let retried = 0;
   let windows: { index: number; name: string; active: boolean }[];
