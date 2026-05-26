@@ -110,7 +110,7 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
  * dispatch is by `exportName` against a static handler map.
  *
  * For `ls`, `-a` = roster (sleeping oracles), `-v` = full detail.
- * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
+ * For `wake`, parses the known flags and calls cmdWake(oracle, opts).
  */
 export async function invokeDirectHandler(
   handler: string,
@@ -152,13 +152,15 @@ export async function invokeDirectHandler(
       "--split": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
+      "--model": String, "-m": "--model",
+      "--reasoning-effort": String,
       "--dry-run": Boolean,
     }, 0);
 
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [--resume <session-id>] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [--dry-run]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [--resume <session-id>] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [-m|--model <name>] [--reasoning-effort <level>] [--dry-run]");
       throw new UserError("wake: missing oracle name");
     }
 
@@ -193,6 +195,8 @@ export async function invokeDirectHandler(
       split?: boolean;
       allLocal?: boolean;
       engine?: string;
+      model?: string;
+      reasoningEffort?: string;
     } = {};
     if (flags["--wt"]) opts.wt = flags["--wt"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
@@ -216,6 +220,8 @@ export async function invokeDirectHandler(
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
+    if (flags["--model"]) opts.model = flags["--model"];
+    if (flags["--reasoning-effort"]) opts.reasoningEffort = flags["--reasoning-effort"];
 
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
