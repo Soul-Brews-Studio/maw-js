@@ -248,6 +248,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
         await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        await waitForEngine(target, getPaneInfos, isAgentCommand);
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
