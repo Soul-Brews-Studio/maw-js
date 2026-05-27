@@ -25,6 +25,7 @@ export async function cmdWorkon(repo: string, task?: string, opts: { layout?: Wo
   let windowName = repoName;
 
   if (task) {
+    task = task.replace(/\//g, "-");
     const worktrees = await findWorktrees(parentDir, repoName);
     const resolved = resolveWorktreeTarget(task, worktrees);
     let match: { path: string; name: string } | null = null;
