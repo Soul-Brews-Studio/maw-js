@@ -6,6 +6,10 @@ import { findWorktrees } from "maw-js/commands/shared/wake";
 import { resolveWorktreeTarget } from "maw-js/core/matcher/resolve-target";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "maw-js/core/fleet/worktree-layout";
 
+export function sanitizeWorkonTaskSlug(task: string): string {
+  return task.replace(/\//g, "-");
+}
+
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
   const searchTerm = repo.includes("/") ? repo.split("/").pop()! : repo;
@@ -25,6 +29,7 @@ export async function cmdWorkon(repo: string, task?: string, opts: { layout?: Wo
   let windowName = repoName;
 
   if (task) {
+    task = sanitizeWorkonTaskSlug(task);
     const worktrees = await findWorktrees(parentDir, repoName);
     const resolved = resolveWorktreeTarget(task, worktrees);
     let match: { path: string; name: string } | null = null;
