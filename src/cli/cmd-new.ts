@@ -19,6 +19,7 @@ import { UserError } from "../core/util/user-error";
 import { tmux } from "../sdk";
 import { attachToSession } from "../commands/shared/wake-session";
 import { ensureFleetSessionEntry } from "../commands/shared/fleet-ensure";
+import { prefixCommandWithSpawnSessionEnv } from "../core/fleet/parent-session";
 
 /** Truthy env values: "1", "true", "yes", "on" (case-insensitive). */
 export function isTruthyEnv(v: string | undefined): boolean {
@@ -88,6 +89,8 @@ function printUsage(write: (line: string) => void = console.log): void {
   write("  --json       Alias for --print.");
   write("  --dry-run    Show what WOULD happen without creating any tmux state. (#1913)");
   write("  --no-fleet   Do not auto-register the created session in the fleet registry.");
+  write("  --parent-session-id <id>  Set MAW_PARENT_SESSION_ID for spawned Claude commands (#1925).");
+  write("  --session-id <id>         Set deterministic MAW_SESSION_ID for spawned Claude commands (#1925).");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
   write("  Oracle creation remains: maw awaken <name> (or maw bud <name>).");
 }
@@ -237,6 +240,9 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--json": Boolean,
     "--dry-run": Boolean,
     "--no-fleet": Boolean,
+    "--parent": String,
+    "--parent-session-id": String,
+    "--session-id": String,
   }, 0);
 
   const explicitName = (flags._ as string[])[0];
@@ -255,7 +261,11 @@ export async function cmdNew(argv: string[]): Promise<void> {
   }
   const commandNameHint = explicitName ?? (slugSegment(basename(cwd)) || "workspace");
   const startupCommand = flags["--claude"]
-    ? buildClaudeStartupCommand(commandNameHint, cwd)
+    ? prefixCommandWithSpawnSessionEnv(buildClaudeStartupCommand(commandNameHint, cwd), {
+        explicit: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
+        sessionId: flags["--session-id"] as string | undefined,
+        cwd,
+      })
     : normalizeStartupCommand(flags["--cmd"]);
   const autoNameCommand = flags["--claude"] ? "claude" : startupCommand;
   let name = explicitName ?? autoWorkspaceSessionName(cwd, autoNameCommand, flags["--path"] !== undefined);

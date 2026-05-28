@@ -33,10 +33,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--tiled": Boolean,
       "--count": Number,
       "--help": Boolean, "-h": "--help",
+      "--parent": String,
+      "--parent-session-id": String,
+      "--session-id": String,
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw swarm [agents...] [--tiled] [--count N]");
+      console.log("usage: maw swarm [agents...] [--tiled] [--count N] [--parent-session-id <id>] [--session-id <id>]");
       console.log("");
       console.log("  maw swarm                         3 claude agents (default)");
       console.log("  maw swarm claude codex opencode    one of each");
@@ -72,6 +75,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("fs");
     const { join } = await import("path");
     const { homedir } = await import("os");
+    const { prefixCommandWithSpawnSessionEnv } = await import("../../../core/fleet/parent-session");
 
     const anchor = process.env.TMUX_PANE ?? "";
     const teamName = "swarm";
@@ -132,7 +136,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     for (const agent of spawned) {
       await stylePaneBorder(agent.paneId, `${agent.name} (${agent.label})`, agent.color);
 
-      const escaped = agent.agentCmd.replace(/'/g, "'\\''");
+      const commandWithEnv = prefixCommandWithSpawnSessionEnv(agent.agentCmd, {
+        explicit: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
+        sessionId: agentList.length === 1 ? flags["--session-id"] as string | undefined : undefined,
+      });
+      const escaped = commandWithEnv.replace(/'/g, "'\\''");
       await hostExec(
         `tmux send-keys -t '${agent.paneId}' '${escaped}; printf "\\e[?1049l"; clear; exec zsh -li' Enter`,
       );

@@ -23,6 +23,8 @@ export interface BudFinalizeCtx {
     repo?: string;
     split?: boolean;
     fast?: boolean;
+    parentSessionId?: string;
+    sessionId?: string;
   };
 }
 
@@ -143,6 +145,8 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // #421 — pass the exact cloned path so wake doesn't re-resolve via ghqFind,
   // which would match any same-named repo in any org (stale-clone bug).
   const wakeOpts: any = { noAttach: true, repoPath: budRepoPath };
+  if (opts.parentSessionId) wakeOpts.parentSessionId = opts.parentSessionId;
+  if (opts.sessionId) wakeOpts.sessionId = opts.sessionId;
   if (opts.issue) {
     const { fetchIssuePrompt } = await import("maw-js/commands/shared/wake");
     const issueRepo = await resolveIssueRepoForBud(ctx);

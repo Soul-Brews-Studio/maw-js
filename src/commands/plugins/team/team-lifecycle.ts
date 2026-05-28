@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
+import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -203,7 +204,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean; cwd?: string } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; cwd?: string; parentSessionId?: string; sessionId?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -254,7 +255,11 @@ export async function cmdTeamSpawn(
   const promptPath = join(teamDir, `${role}-spawn-prompt.md`);
   writeFileSync(promptPath, spawnPrompt);
   const launchPromptPath = writeLaunchPromptFile(teamName, role, spawnPrompt) ?? promptPath;
-  const claudeCmd = `${cwdPrefix}claude --model ${model} --system-prompt-file ${shellQuote(launchPromptPath)}`;
+  const claudeCmd = `${cwdPrefix}${prefixCommandWithSpawnSessionEnv(`claude --model ${model} --system-prompt-file ${shellQuote(launchPromptPath)}`, {
+    explicit: opts.parentSessionId,
+    sessionId: opts.sessionId,
+    cwd: opts.cwd,
+  })}`;
 
   // Update manifest with new member
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));

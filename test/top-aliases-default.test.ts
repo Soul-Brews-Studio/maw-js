@@ -277,6 +277,8 @@ describe("direct handler invocation", () => {
       "--snapshot", "snap-1",
       "--solo",
       "--split",
+      "--parent-session-id", "parent-1",
+      "--session-id", "child-1",
       "--all-local",
       "--codex",
     ], deps);
@@ -302,6 +304,8 @@ describe("direct handler invocation", () => {
       snapshotId: "snap-1",
       noRehydrate: true,
       split: true,
+      parentSessionId: "parent-1",
+      sessionId: "child-1",
       allLocal: true,
       engine: "codex",
     }]]);

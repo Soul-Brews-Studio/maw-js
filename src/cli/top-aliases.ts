@@ -166,7 +166,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -181,6 +181,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
   write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
   write("  --signal-on-birth with --bud also drops a parent ψ/memory/signals birth signal.");
+  write("  --parent-session-id/--parent sets MAW_PARENT_SESSION_ID for spawned agents; --session-id sets MAW_SESSION_ID (#1925).");
 }
 
 /**
@@ -432,6 +433,9 @@ export async function invokeDirectHandler(
       "--bring-alias": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
+      "--parent": String,
+      "--parent-session-id": String,
+      "--session-id": String,
     }, 0);
 
     const positional = flags._;
@@ -462,6 +466,8 @@ export async function invokeDirectHandler(
       signalOnBirth?: boolean;
       allLocal?: boolean;
       engine?: string;
+      parentSessionId?: string;
+      sessionId?: string;
       fromSnapshot?: boolean;
       snapshotId?: string;
       layout?: "nested" | "legacy";
@@ -496,6 +502,10 @@ export async function invokeDirectHandler(
     if (flags["--bring-alias"]) opts.bringAlias = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
+    if (flags["--parent-session-id"] || flags["--parent"]) {
+      opts.parentSessionId = (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined);
+    }
+    if (flags["--session-id"]) opts.sessionId = flags["--session-id"] as string;
 
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>

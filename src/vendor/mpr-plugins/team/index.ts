@@ -120,7 +120,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       logs.push(formatTeamCharterSpawn(result));
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
+        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--parent-session-id <id>] [--session-id <id>] [--exec]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
       const modelIdx = args.indexOf("--model");
@@ -128,6 +128,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const cwdIdx = args.indexOf("--cwd");
       const worktreeIdx = args.indexOf("--worktree");
       const cwd = cwdIdx !== -1 ? args[cwdIdx + 1] : (worktreeIdx !== -1 ? args[worktreeIdx + 1] : undefined);
+      const parentIdx = args.indexOf("--parent-session-id") !== -1 ? args.indexOf("--parent-session-id") : args.indexOf("--parent");
+      const parentSessionId = parentIdx !== -1 ? args[parentIdx + 1] : undefined;
+      const sessionIdx = args.indexOf("--session-id");
+      const sessionId = sessionIdx !== -1 ? args[sessionIdx + 1] : undefined;
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
       // --prompt is greedy to end-of-argv; strip known flags if they appear in the tail.
@@ -138,7 +142,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         for (let i = 0; i < rawTail.length; i++) {
           const a = rawTail[i];
           if (a === "--exec") continue;
-          if (a === "--model" || a === "--cwd" || a === "--worktree") {
+          if (a === "--model" || a === "--cwd" || a === "--worktree" || a === "--parent" || a === "--parent-session-id" || a === "--session-id") {
             i++;
             continue;
           }
@@ -146,7 +150,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         }
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd });
+      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd, parentSessionId, sessionId });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2]) {
         logs.push("usage: maw team send <team> <message>");
