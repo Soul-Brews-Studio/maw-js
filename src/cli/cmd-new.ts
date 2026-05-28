@@ -77,7 +77,7 @@ export function validateWorkspaceWindowName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new [session-name] [--path|-p <dir>] [--window <name>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach] [--dry-run]");
+  write("usage: maw new [session-name] [--path|-p <dir>] [--window <name>] [--cmd|-c <cmd>|--claude] [--shell] [--split [--right|--horizontal|--bottom|--vertical]] [--print|--json] [--attach|-a] [--no-attach] [--dry-run]");
   write("  Create a plain tmux workspace session with a shell window.");
   write("  --path, -p   Start the workspace shell in <dir> (absolute, relative, or ~/...)");
   write("  --window     Name the first tmux window (default: lead).");
@@ -85,6 +85,8 @@ function printUsage(write: (line: string) => void = console.log): void {
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
   write("  --claude     Shortcut for Claude Code with maw team env enabled.");
   write("  --split      Open as a split in the current tmux window instead of a new session.");
+  write("  --right, --horizontal  With --split, create the pane to the right (tmux -h).");
+  write("  --bottom, --vertical   With --split, create the pane below (tmux -v; default).");
   write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
   write("  --json       Alias for --print.");
   write("  --dry-run    Show what WOULD happen without creating any tmux state. (#1913)");
@@ -176,6 +178,19 @@ type NewWorkspacePrintPayload = {
   dry_run?: boolean;
 };
 
+type SplitDirection = "horizontal" | "vertical";
+
+function splitDirectionFromFlags(flags: Record<string, unknown>): SplitDirection | undefined {
+  const wantsHorizontal = !!(flags["--right"] || flags["--horizontal"]);
+  const wantsVertical = !!(flags["--bottom"] || flags["--vertical"]);
+  if (wantsHorizontal && wantsVertical) {
+    throw new UserError("new: choose only one split direction (--right/--horizontal or --bottom/--vertical)");
+  }
+  if (wantsHorizontal) return "horizontal";
+  if (wantsVertical) return "vertical";
+  return undefined;
+}
+
 async function workspacePaneId(session: string, windowName: string): Promise<string | undefined> {
   return tmux.firstPaneId?.(`${session}:${windowName}`) ?? undefined;
 }
@@ -236,6 +251,10 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--shell": Boolean,
     "--claude": Boolean,
     "--split": Boolean,
+    "--right": Boolean,
+    "--horizontal": Boolean,
+    "--bottom": Boolean,
+    "--vertical": Boolean,
     "--print": Boolean,
     "--json": Boolean,
     "--dry-run": Boolean,
@@ -311,6 +330,10 @@ export async function cmdNew(argv: string[]): Promise<void> {
   const machineReadable = !!(flags["--print"] || flags["--json"]);
   const dryRun = !!flags["--dry-run"];
   const split = !!flags["--split"];
+  const splitDirection = splitDirectionFromFlags(flags as Record<string, unknown>);
+  if (!split && splitDirection !== undefined) {
+    throw new UserError("new: split direction flags require --split");
+  }
   if (split && rawWindowName !== undefined) {
     throw new UserError("new: --window only applies when creating or reusing a workspace session, not --split");
   }
@@ -321,6 +344,7 @@ export async function cmdNew(argv: string[]): Promise<void> {
     if (!dryRun) {
       const rawPaneId = await tmux.splitWindow(undefined, {
         cwd,
+        ...(splitDirection ? { direction: splitDirection } : {}),
         ...(tmuxCommand ? { command: tmuxCommand } : {}),
         printFormat: "#{pane_id}",
       });

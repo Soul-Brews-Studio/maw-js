@@ -307,9 +307,12 @@ export class Tmux {
     cwd?: string;
     command?: string;
     printFormat?: string;
+    direction?: "horizontal" | "vertical";
   } = {}): Promise<string> {
     const args: (string | number)[] = [];
     if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
+    if (opts.direction === "horizontal") args.push("-h");
+    if (opts.direction === "vertical") args.push("-v");
     if (target) args.push("-t", target);
     if (opts.cwd) args.push("-c", opts.cwd);
     if (opts.command) args.push(opts.command);

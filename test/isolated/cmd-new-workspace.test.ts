@@ -477,6 +477,22 @@ describe("cmdNew workspace session factory", () => {
     }
   });
 
+  test("--split accepts explicit right/horizontal and bottom/vertical direction flags", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
+    try {
+      await cmdNew(["righty", "-p", dir, "--split", "--right", "--no-attach"]);
+      await cmdNew(["bottomy", "-p", dir, "--split", "--bottom", "--no-attach"]);
+
+      expect(splitWindowCalls.map(call => call.opts.direction)).toEqual(["horizontal", "vertical"]);
+      await expect(cmdNew(["conflict", "-p", dir, "--split", "--right", "--vertical", "--no-attach"]))
+        .rejects.toThrow("choose only one split direction");
+      await expect(cmdNew(["no-split", "-p", dir, "--right", "--no-attach"]))
+        .rejects.toThrow("split direction flags require --split");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("prints machine-readable payloads for new and existing lead panes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
     const lines: string[] = [];

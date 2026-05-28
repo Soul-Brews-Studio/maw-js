@@ -56,6 +56,8 @@ export interface SplitOpts {
   pct?: number;
   /** Split vertical (top/bottom) instead of horizontal (side-by-side). */
   vertical?: boolean;
+  /** Explicit horizontal/right split alias. Default when vertical is false. */
+  horizontal?: boolean;
   /** Split without attaching — leaves a plain shell in the new pane. */
   noAttach?: boolean;
   /** Serialize via the pane-creation lock + settle. Opt-in — only matters
@@ -72,7 +74,7 @@ export interface SplitOpts {
 }
 
 /**
- * maw split <target> [--pct N] [--vertical] [--no-attach]
+ * maw split <target> [--pct N] [--horizontal|--right|--vertical|--bottom] [--no-attach]
  *
  * Split the current tmux pane and attach to a target session in the new pane.
  *
@@ -96,16 +98,19 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
   }
 
   if (!target) {
-    console.error("usage: maw split <target> [--pct N] [--vertical] [--no-attach]");
+    console.error("usage: maw split <target> [--pct N] [--horizontal|--right|--vertical|--bottom] [--no-attach]");
     console.error("  e.g. maw split yeast");
     console.error("       maw split mawjs-view --pct 30 --vertical");
-    throw new Error("usage: maw split <target> [--pct N] [--vertical] [--no-attach]");
+    throw new Error("usage: maw split <target> [--pct N] [--horizontal|--right|--vertical|--bottom] [--no-attach]");
   }
 
   // Validate pct early so bad input never reaches tmux
   const pct = opts.pct ?? 50;
   if (!Number.isFinite(pct) || pct < 1 || pct > 99) {
     throw new Error(`--pct must be 1-99 (got ${pct})`);
+  }
+  if (opts.vertical && opts.horizontal) {
+    throw new Error("choose only one split direction (--horizontal/--right or --vertical/--bottom)");
   }
 
   // Resolve target to session:window if bare name given. Resolution rules
