@@ -52,7 +52,7 @@ export function createLogsApi(deps: LogsApiDeps = {
     const results: any[] = [];
     let dirs: string[];
     try {
-      dirs = deps.readdirSync(deps.projectsDir);
+      dirs = deps.readdirSync(deps.projectsDir).sort();
     } catch {
       return { entries: [], total: 0 };
     }
