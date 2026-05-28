@@ -18,6 +18,7 @@ import { buildCommandInDir } from "../config";
 import { UserError } from "../core/util/user-error";
 import { tmux } from "../sdk";
 import { attachToSession } from "../commands/shared/wake-session";
+import { ensureFleetSessionEntry } from "../commands/shared/fleet-ensure";
 
 /** Truthy env values: "1", "true", "yes", "on" (case-insensitive). */
 export function isTruthyEnv(v: string | undefined): boolean {
@@ -86,6 +87,7 @@ function printUsage(write: (line: string) => void = console.log): void {
   write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
   write("  --json       Alias for --print.");
   write("  --dry-run    Show what WOULD happen without creating any tmux state. (#1913)");
+  write("  --no-fleet   Do not auto-register the created session in the fleet registry.");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
   write("  Oracle creation remains: maw awaken <name> (or maw bud <name>).");
 }
@@ -234,6 +236,7 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--print": Boolean,
     "--json": Boolean,
     "--dry-run": Boolean,
+    "--no-fleet": Boolean,
   }, 0);
 
   const explicitName = (flags._ as string[])[0];
@@ -349,6 +352,12 @@ export async function cmdNew(argv: string[]): Promise<void> {
       });
       paneId = rawPaneId?.trim() || undefined;
       await rememberWorkspaceLaunch(name, cwd, startupCommand, windowName);
+      if (!flags["--no-fleet"]) {
+        const fleet = ensureFleetSessionEntry({ session: name, window: windowName, cwd, createdBy: "maw new" });
+        if (fleet.status === "created" && !machineReadable) {
+          console.log(`\x1b[32m+\x1b[0m fleet auto-registered ${name}`);
+        }
+      }
     }
     if (!machineReadable) {
       const mode = startupCommand ? `${windowName} shell + command` : `${windowName} shell`;

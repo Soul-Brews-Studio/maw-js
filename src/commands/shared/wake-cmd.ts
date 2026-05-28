@@ -8,9 +8,10 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
 import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
-import { attachToSession, ensureSessionRunning, createWorktree, reconcileParentClaudeDir, waitForEngine } from "./wake-session";
+import * as wakeSession from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
+import { ensureFleetSessionEntry } from "./fleet-ensure";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
@@ -335,6 +336,7 @@ export interface WakeOptions {
   listWt?: boolean;
   dryRun?: boolean;
   noRehydrate?: boolean;
+  noFleet?: boolean;
   split?: boolean;
   /** Hidden bring alias split anchor. Shape: "session:window" (#1816 Part 3). */
   splitTarget?: string;
@@ -737,7 +739,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const liveAttachSession = preResolvedSession || await detectSession(oracle, opts.urlRepoName);
     if (liveAttachSession) {
       console.log(`\x1b[36m→\x1b[0m live tmux session: ${liveAttachSession}`);
-      await attachToSession(liveAttachSession);
+      await wakeSession.attachToSession(liveAttachSession);
       await recordWakeSnapshot();
       const attachWindow = preResolvedFleetSession?.windowName || `${oracle}-oracle`;
       return `${liveAttachSession}:${attachWindow}`;
@@ -944,8 +946,15 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     , {
       hasSession: tmux.hasSession,
     });
-    await waitForEngine(`${session}:${mainWindowName}`, getPaneInfos, isAgentCommand);
+    await wakeSession.waitForEngine(`${session}:${mainWindowName}`, getPaneInfos, isAgentCommand);
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
+
+    if (!opts.noFleet) {
+      const fleet = ensureFleetSessionEntry({ session, window: mainWindowName, cwd: repoPath, createdBy: "maw wake" });
+      if (fleet.status === "created") {
+        console.log(`\x1b[32m+\x1b[0m fleet auto-registered ${session}`);
+      }
+    }
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)
     const config = loadConfig();
@@ -979,7 +988,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
         await tmux.sendText(`${session}:${wt.windowName}`, buildCommandInDir(wt.windowName, wt.path, opts.engine));
-        await waitForEngine(`${session}:${wt.windowName}`, getPaneInfos, isAgentCommand);
+        await wakeSession.waitForEngine(`${session}:${wt.windowName}`, getPaneInfos, isAgentCommand);
         existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}`);
       }
@@ -1017,7 +1026,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
 
     await new Promise(r => setTimeout(r, cfgTimeout("wakeVerify")));
-    const retried = await ensureSessionRunning(session, preExistingWindows);
+    const retried = await wakeSession.ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
     knownWindows = preExistingWindows;
   }
@@ -1090,11 +1099,11 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
     if (match) {
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);
-      await reconcileParentClaudeDir(repoPath, match.path, console.log.bind(console));
+      await wakeSession.reconcileParentClaudeDir(repoPath, match.path, console.log.bind(console));
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {
-      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
+      const result = await wakeSession.createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
         fresh: !!opts.fresh,
         named: Boolean(stableName && !opts.fresh),
         layout: worktreeLayout,
@@ -1137,7 +1146,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         } else {
           await tmux.sendText(target, promptCommand);
         }
-        if (opts.attach) await attachToSession(session);
+        if (opts.attach) await wakeSession.attachToSession(session);
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
         await recordWakeSnapshot();
@@ -1151,10 +1160,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
         await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
-        await waitForEngine(target, getPaneInfos, isAgentCommand);
+        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         if (opts.attach) {
           await tmux.selectWindow(target);
-          await attachToSession(session);
+          await wakeSession.attachToSession(session);
         }
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
@@ -1170,7 +1179,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         }
         if (opts.attach) {
           await tmux.selectWindow(target);
-          await attachToSession(session);
+          await wakeSession.attachToSession(session);
         }
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
@@ -1193,7 +1202,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
       if (opts.attach) {
         await tmux.selectWindow(target);
-        await attachToSession(session);
+        await wakeSession.attachToSession(session);
       }
       await maybeSplit(target, opts);
       await maybeOpenWindow(target, opts);
@@ -1220,7 +1229,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
-  if (opts.attach) await attachToSession(session);
+  if (opts.attach) await wakeSession.attachToSession(session);
 
   await maybeSplit(`${session}:${windowName}`, opts);
   await maybeOpenWindow(`${session}:${windowName}`, opts);

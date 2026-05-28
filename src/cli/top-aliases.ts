@@ -166,7 +166,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -419,6 +419,7 @@ export async function invokeDirectHandler(
       "--attach": Boolean, "-a": "--attach",
       "--list": Boolean,
       "--dry-run": Boolean,
+      "--no-fleet": Boolean,
       "--from-snapshot": Boolean,
       "--snapshot": String,
       "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
@@ -449,6 +450,7 @@ export async function invokeDirectHandler(
       listWt?: boolean;
       dryRun?: boolean;
       noRehydrate?: boolean;
+      noFleet?: boolean;
       split?: boolean;
       splitTarget?: string;
       bringAlias?: boolean;
@@ -478,6 +480,7 @@ export async function invokeDirectHandler(
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
     if (flags["--dry-run"]) opts.dryRun = true;
+    if (flags["--no-fleet"]) opts.noFleet = true;
     if (flags["--from-snapshot"]) opts.fromSnapshot = true;
     if (flags["--snapshot"]) {
       opts.snapshotId = flags["--snapshot"];

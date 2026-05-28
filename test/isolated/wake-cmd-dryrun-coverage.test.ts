@@ -131,6 +131,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   ...realWakeSession,
   attachToSession: async () => {},
+  waitForEngine: async () => {},
   ensureSessionRunning: async () => 0,
   createWorktree: async () => ({ wtPath: "/tmp/worktree", windowName: "neo-task" }),
 }));

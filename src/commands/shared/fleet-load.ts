@@ -1,6 +1,6 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { FLEET_DIR, tmux } from "../../sdk";
+import * as sdk from "../../sdk";
 import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 
 export interface FleetWindow {
@@ -38,7 +38,8 @@ export interface DisabledFleetEntry {
 }
 
 export function fleetDirsForRead(): string[] {
-  return coreFleetDirsForRead({ legacyFleetDir: FLEET_DIR });
+  const legacyFleetDir = (sdk as any).FLEET_DIR as string | undefined;
+  return legacyFleetDir ? coreFleetDirsForRead({ legacyFleetDir }) : uniqueDirs([coreFleetDirForWrite()]);
 }
 
 export function fleetDirForWrite(): string {
@@ -134,7 +135,7 @@ export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntr
 
 export async function getSessionNames(): Promise<string[]> {
   try {
-    const out = await tmux.run("list-sessions", "-F", "#{session_name}");
+    const out = await sdk.tmux.run("list-sessions", "-F", "#{session_name}");
     return out.trim().split("\n").filter(Boolean);
   } catch { return []; }
 }

@@ -1,0 +1,131 @@
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { join, relative, resolve, sep } from "path";
+import { getGhqRoot } from "../../config/ghq-root";
+import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
+import { loadFleetEntries, type FleetEntry, type FleetWindow } from "./fleet-load";
+
+export type FleetSessionCreatedBy = "maw wake" | "maw new" | string;
+
+export interface EnsureFleetSessionEntryInput {
+  session: string;
+  window: string;
+  cwd?: string;
+  createdBy: FleetSessionCreatedBy;
+}
+
+export type EnsureFleetSessionEntryResult =
+  | { status: "created"; file: string; entry: FleetEntry }
+  | { status: "updated"; file: string; entry: FleetEntry }
+  | { status: "exists"; file: string; entry: FleetEntry }
+  | { status: "skipped"; reason: string };
+
+interface EnsureFleetSessionEntryDeps {
+  fleetDirForWrite?: () => string;
+  fleetDirsForRead?: () => string[];
+  loadFleetEntries?: (dirs?: string[]) => FleetEntry[];
+  getGhqRoot?: () => string;
+  existsSync?: typeof existsSync;
+  mkdirSync?: typeof mkdirSync;
+  writeFileSync?: typeof writeFileSync;
+  now?: () => Date;
+}
+
+function isSafeFleetSessionName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes("..") && !name.includes("/") && !name.includes("\\");
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === "" || (!!rel && !rel.startsWith("..") && !rel.includes(`..${sep}`));
+}
+
+function repoFromCwd(cwd: string | undefined, ghqRoot: string): string | null {
+  if (!cwd) return null;
+  const resolvedCwd = resolve(cwd);
+  const candidates = [resolve(ghqRoot), resolve(ghqRoot, "github.com")];
+  for (const root of candidates) {
+    if (!isInside(root, resolvedCwd)) continue;
+    const rel = relative(root, resolvedCwd).split(sep).join("/");
+    if (!rel || rel.startsWith("..") || rel.split("/").length < 2) continue;
+    return rel;
+  }
+  return null;
+}
+
+function fleetFileNameForSession(session: string): string {
+  return `${session}.json`;
+}
+
+function buildEntry(file: string, path: string, session: any): FleetEntry {
+  const match = file.match(/^(\d+)-(.+)\.json$/);
+  return {
+    file,
+    path,
+    num: match ? parseInt(match[1]!, 10) : 0,
+    groupName: match ? match[2]! : file.replace(/\.json$/i, ""),
+    session,
+  };
+}
+
+function windowExists(windows: FleetWindow[] | undefined, name: string): boolean {
+  return (windows || []).some(w => w.name.toLowerCase() === name.toLowerCase());
+}
+
+/**
+ * Ensure a newly-created top-level tmux session has a minimal fleet registry
+ * file. This is intentionally creation-path only; callers must not use it as a
+ * silent migration for already-live sessions discovered after the fact.
+ */
+export function ensureFleetSessionEntry(
+  input: EnsureFleetSessionEntryInput,
+  deps: EnsureFleetSessionEntryDeps = {},
+): EnsureFleetSessionEntryResult {
+  const session = input.session.trim();
+  const window = input.window.trim();
+  if (!isSafeFleetSessionName(session)) return { status: "skipped", reason: `unsafe session name: ${input.session}` };
+  if (!window) return { status: "skipped", reason: "missing initial window" };
+
+  const readDirs = uniqueDirs((deps.fleetDirsForRead ?? fleetDirsForRead)());
+  const entries = (deps.loadFleetEntries ?? loadFleetEntries)(readDirs);
+  const existing = entries.find(e => e.session?.name === session || e.file === fleetFileNameForSession(session));
+  const ghqRoot = (deps.getGhqRoot ?? getGhqRoot)();
+  const repo = repoFromCwd(input.cwd, ghqRoot);
+  if (!repo) {
+    return { status: "skipped", reason: input.cwd ? `cwd is outside ghq root: ${input.cwd}` : "missing cwd" };
+  }
+
+  if (existing?.path) {
+    const windows = existing.session.windows || [];
+    if (windowExists(windows, window)) return { status: "exists", file: existing.path, entry: existing };
+    const nextSession = {
+      ...existing.session,
+      windows: [...windows, { name: window, repo }],
+    };
+    const nextEntry = { ...existing, session: nextSession };
+    (deps.writeFileSync ?? writeFileSync)(existing.path, JSON.stringify(nextSession, null, 2) + "\n", "utf-8");
+    return { status: "updated", file: existing.path, entry: nextEntry };
+  }
+
+  const writeDir = (deps.fleetDirForWrite ?? fleetDirForWrite)();
+  (deps.mkdirSync ?? mkdirSync)(writeDir, { recursive: true });
+  const file = fleetFileNameForSession(session);
+  const path = join(writeDir, file);
+  if ((deps.existsSync ?? existsSync)(path)) {
+    // Race/duplicate guard: do not overwrite an unknown file. Let the next
+    // explicit drift doctor reconcile it if content is malformed.
+    return { status: "skipped", reason: `fleet file already exists: ${path}` };
+  }
+
+  const createdAt = (deps.now ?? (() => new Date()))().toISOString();
+  const fleetSession = {
+    name: session,
+    created_at: createdAt,
+    created_by: input.createdBy,
+    auto_registered: true,
+    windows: [{ name: window, repo }],
+  };
+  (deps.writeFileSync ?? writeFileSync)(path, JSON.stringify(fleetSession, null, 2) + "\n", "utf-8");
+  return { status: "created", file: path, entry: buildEntry(file, path, fleetSession) };
+}
+
+export const _test = { repoFromCwd, isSafeFleetSessionName };
