@@ -23,6 +23,30 @@ import {
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
+export interface ClaudeTeamSummary {
+  name: string;
+  memberCount: number;
+  configPath: string;
+}
+
+export function loadClaudeTeams(teamsDir = TEAMS_DIR): ClaudeTeamSummary[] {
+  if (!existsSync(teamsDir)) return [];
+  const teams: ClaudeTeamSummary[] = [];
+  for (const dir of readdirSync(teamsDir).sort()) {
+    const cfg = join(teamsDir, dir, "config.json");
+    if (!existsSync(cfg)) continue;
+    try {
+      const team = JSON.parse(readFileSync(cfg, "utf-8"));
+      teams.push({
+        name: dir,
+        memberCount: Array.isArray(team.members) ? team.members.length : 0,
+        configPath: cfg,
+      });
+    } catch { /* skip bad config */ }
+  }
+  return teams;
+}
+
 async function resolvePaneTargetForKill(target: string): Promise<PaneTargetResolution> {
   const raw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
   if (!raw.trim()) return { kind: "none" };
@@ -187,6 +211,8 @@ export interface TmuxLsOpts {
   fleetOnly?: boolean;
   /** Include expensive verification/noise such as worktree-bind rows. */
   verify?: boolean;
+  /** Include L2 Claude Code teams from ~/.claude/teams in maw ls output. */
+  teams?: boolean;
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
@@ -324,8 +350,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
   // Team members for annotation: pane_id → "agent @ team-name"
   const teamByPane = new Map<string, string>();
+  const l2Teams = opts.teams ? loadClaudeTeams() : [];
   if (existsSync(TEAMS_DIR)) {
-    for (const dir of readdirSync(TEAMS_DIR)) {
+    for (const dir of readdirSync(TEAMS_DIR).sort()) {
       const cfg = join(TEAMS_DIR, dir, "config.json");
       if (!existsSync(cfg)) continue;
       try {
@@ -379,6 +406,14 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       .some(value => String(value ?? "").toLowerCase().includes(filter)));
   }
 
+  let visibleTeams = opts.teams && opts.all && !opts.fleetOnly && !opts.active
+    ? l2Teams
+    : [];
+  if (filter) {
+    visibleTeams = visibleTeams.filter(team => [team.name, team.configPath, `${team.memberCount} members`]
+      .some(value => value.toLowerCase().includes(filter)));
+  }
+
   if (opts.fleetOnly && !opts.roster && !opts.channels) {
     scope = scope.filter(p => isFleetListSession(p.session, fleetSessions));
   }
@@ -414,11 +449,25 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   await markContextLimitedPanes(scope);
 
   if (opts.json) {
-    console.log(JSON.stringify(scope, null, 2));
+    const teamRows = visibleTeams.map(team => ({
+      kind: "team",
+      id: `team:${team.name}`,
+      target: `team:${team.name}`,
+      session: team.name,
+      command: "team",
+      title: `L2 team (${team.memberCount} member${team.memberCount === 1 ? "" : "s"})`,
+      annotation: `team: ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`,
+      status: "unknown",
+      lastActivitySec: 0,
+      source: "l2-team",
+      members: team.memberCount,
+      configPath: team.configPath,
+    }));
+    console.log(JSON.stringify([...scope, ...teamRows], null, 2));
     return;
   }
 
-  if (!scope.length && !(opts.compact && opts.roster)) {
+  if (!scope.length && visibleTeams.length === 0 && !(opts.compact && opts.roster)) {
     console.log(opts.active
       ? `\x1b[90mNo sessions active in the last ${formatDuration(activeThresholdSec)}.\x1b[0m`
       : opts.all
@@ -505,6 +554,11 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
         const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
         console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
       }
+    }
+
+    for (const team of visibleTeams) {
+      const memberLabel = `${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`;
+      console.log(`  \x1b[90m·\x1b[0m \x1b[36m${team.name}\x1b[0m  \x1b[90m[team] L2 team (${memberLabel} in ~/.claude/teams/${team.name})\x1b[0m`);
     }
 
     if (opts.roster) {

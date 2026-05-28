@@ -217,6 +217,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--node": String,
     "--channels": Boolean,
     "--fleet-only": Boolean,
+    "--no-teams": Boolean,
     "--verify": Boolean,
   }, 0);
 
@@ -240,6 +241,7 @@ export function parseLsAliasOpts(argv: string[]) {
     channels?: boolean;
     fleetOnly?: boolean;
     verify?: boolean;
+    teams?: boolean;
     federation?: boolean;
   } = {
     all: true,
@@ -251,6 +253,7 @@ export function parseLsAliasOpts(argv: string[]) {
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
   if (flags["--fleet-only"]) opts.fleetOnly = true;
   if (flags["--verify"]) opts.verify = true;
+  if (flags["--no-teams"]) opts.teams = false;
   if (flags["--federation"]) opts.federation = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
@@ -279,7 +282,7 @@ export function parseLsAliasOpts(argv: string[]) {
 function printLsAliasUsage(write: (line: string) => void): void {
   write("usage: maw ls [filter] [--all|-a] [--verbose|-v] [--compact|-c] [--json] [--recent|-r [N]] [--active [30m|1h]]");
   write("       maw ls --federation [--node <node>] [--json]");
-  write("       maw ls --channels | --fleet-only | --verify | --fix");
+  write("       maw ls --channels | --fleet-only | --no-teams | --verify | --fix");
   write("");
   write("List live local sessions by default. Use --federation for local + peer inventory.");
   write("");
@@ -289,6 +292,7 @@ function printLsAliasUsage(write: (line: string) => void): void {
   write("  -a, --all          include sleeping roster and channel sessions");
   write("  --channels         include channel/infrastructure sessions");
   write("  --fleet-only       hide orphan/ad hoc tmux sessions (legacy compact filter)");
+  write("  --no-teams         hide L2 Claude Code teams from ~/.claude/teams");
   write("  -r, --recent [N]   sort newest-first, optionally limiting to N sessions");
   write("  --active [DUR]     show sessions touched within a duration (default from tmux helper)");
   write("  --node <node>      filter sessions by node/name");
@@ -339,7 +343,7 @@ export async function invokeDirectHandler(
     try {
       const opts = parseLsAliasOpts(argv);
       if (!opts.federation) {
-        await directCmdTmuxLs(opts);
+        await directCmdTmuxLs({ ...opts, teams: opts.teams !== false });
         return;
       }
       const result = await directLsFederated({

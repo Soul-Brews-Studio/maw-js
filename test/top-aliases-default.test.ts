@@ -156,6 +156,14 @@ describe("top alias option parsers", () => {
       json: false,
       fleetOnly: true,
     });
+    expect(parseLsAliasOpts(["--no-teams"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      teams: false,
+    });
   });
 
   test("bring opts default to split, parse #1816 flags, and reject missing oracle", () => {
@@ -196,6 +204,7 @@ describe("direct handler invocation", () => {
       recentLimit: 5,
       active: true,
       activeThresholdSec: 3600,
+      teams: true,
     }]);
   });
 
@@ -208,6 +217,7 @@ describe("direct handler invocation", () => {
     expect(calls.logs.join("\n")).toContain("usage: maw ls");
     expect(calls.logs.join("\n")).toContain("--active");
     expect(calls.logs.join("\n")).toContain("--fleet-only");
+    expect(calls.logs.join("\n")).toContain("--no-teams");
   });
 
   test("cmdLs missing --node value prints friendly usage instead of ArgError", async () => {

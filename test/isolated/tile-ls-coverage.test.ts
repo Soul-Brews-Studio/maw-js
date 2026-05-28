@@ -283,6 +283,7 @@ describe("ls plugin index coverage", () => {
       activeThresholdSec: 3600,
       filter: "mawjs",
       fleetOnly: false,
+      teams: true,
     }]);
     expect(lsPeerCalls).toEqual([]);
     expect(cmdListCalls).toEqual([]);

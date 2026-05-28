@@ -211,6 +211,7 @@ describe("direct handler invocation", () => {
       verbose: false,
       roster: false,
       json: false,
+      teams: true,
     }]);
     expect(lsFederatedCalls).toEqual([]);
   });
@@ -227,6 +228,7 @@ describe("direct handler invocation", () => {
       recentLimit: 5,
       active: true,
       activeThresholdSec: 2700,
+      teams: true,
     }]);
     expect(lsFederatedCalls).toEqual([]);
   });
