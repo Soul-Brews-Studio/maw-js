@@ -32,6 +32,7 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 }));
 
 const {
+  cleanupDoneBranch,
   removeFromFleetConfig,
   removeWorktreeByGhqScan,
   removeWorktreeViaConfig,
@@ -78,6 +79,86 @@ afterAll(() => {
   rmSync(SANDBOX, { recursive: true, force: true });
 });
 
+describe("cleanupDoneBranch", () => {
+  test("deletes ancestor branches against the maw-js alpha base", async () => {
+    const mainPath = join(REPOS_ROOT, "Soul-Brews-Studio", "maw-js");
+
+    const output = await captureConsole(async () => {
+      await cleanupDoneBranch(mainPath, "feature/merged");
+    });
+
+    expect(hostExecCalls).toEqual([
+      `git -C '${mainPath}' merge-base --is-ancestor 'feature/merged' 'alpha'`,
+      `git -C '${mainPath}' branch -d 'feature/merged'`,
+    ]);
+    expect(output).toContain("deleted branch feature/merged (merged into alpha)");
+  });
+
+  test("uses merged PR proof for squash-merged branches", async () => {
+    const mainPath = join(REPOS_ROOT, "Soul-Brews-Studio", "maw-js");
+    hostExecHandler = (command) => {
+      if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+      if (command.startsWith("gh pr list")) return "[{\"number\":1922}]";
+      return "";
+    };
+
+    const output = await captureConsole(async () => {
+      await cleanupDoneBranch(mainPath, "agents/1922-clean-branch");
+    });
+
+    expect(hostExecCalls).toEqual([
+      `git -C '${mainPath}' merge-base --is-ancestor 'agents/1922-clean-branch' 'alpha'`,
+      "gh pr list --head 'agents/1922-clean-branch' --state merged --json number --limit 1",
+      `git -C '${mainPath}' branch -D 'agents/1922-clean-branch'`,
+    ]);
+    expect(output).toContain("deleted branch agents/1922-clean-branch (merged PR)");
+  });
+
+  test("keeps branches when gh proof is unavailable or no merged PR exists", async () => {
+    const mainPath = join(REPOS_ROOT, "Soul-Brews-Studio", "maw-js");
+    hostExecHandler = (command) => {
+      if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+      if (command.startsWith("gh pr list")) throw new Error("gh missing");
+      return "";
+    };
+
+    let output = await captureConsole(async () => {
+      await cleanupDoneBranch(mainPath, "feature/unverified");
+    });
+    expect(output).toContain("branch retained (feature/unverified): gh unavailable and not merged into alpha");
+    expect(hostExecCalls).not.toContain(`git -C '${mainPath}' branch -D 'feature/unverified'`);
+
+    hostExecCalls = [];
+    hostExecHandler = (command) => {
+      if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+      if (command.startsWith("gh pr list")) return "[]";
+      return "";
+    };
+    output = await captureConsole(async () => {
+      await cleanupDoneBranch(mainPath, "feature/open");
+    });
+    expect(output).toContain("branch retained (feature/open): not merged into alpha and no merged PR found");
+    expect(hostExecCalls).not.toContain(`git -C '${mainPath}' branch -D 'feature/open'`);
+  });
+
+  test("--clean-branch force-deletes without proof and generic repos use main", async () => {
+    const genericPath = join(REPOS_ROOT, "acme", "tool");
+
+    const output = await captureConsole(async () => {
+      await cleanupDoneBranch(genericPath, "feature/force", { cleanBranch: true });
+    });
+
+    expect(hostExecCalls).toEqual([`git -C '${genericPath}' branch -D 'feature/force'`]);
+    expect(output).toContain("force-deleted branch feature/force");
+
+    hostExecCalls = [];
+    await captureConsole(async () => {
+      await cleanupDoneBranch(genericPath, "feature/default");
+    });
+    expect(hostExecCalls[0]).toBe(`git -C '${genericPath}' merge-base --is-ancestor 'feature/default' 'main'`);
+  });
+});
+
 describe("removeWorktreeViaConfig", () => {
   test("removes a configured worktree and deletes its non-main branch", async () => {
     writeFleetConfig("oracle.json", {
@@ -99,10 +180,11 @@ describe("removeWorktreeViaConfig", () => {
       `git -C '${fullPath}' rev-parse --abbrev-ref HEAD`,
       `git -C '${mainPath}' worktree remove '${fullPath}' --force`,
       `git -C '${mainPath}' worktree prune`,
+      `git -C '${mainPath}' merge-base --is-ancestor 'feature/done-cleanup' 'alpha'`,
       `git -C '${mainPath}' branch -d 'feature/done-cleanup'`,
     ]);
     expect(output).toContain("removed worktree Soul-Brews-Studio/maw-js.wt-123-feature");
-    expect(output).toContain("deleted branch feature/done-cleanup");
+    expect(output).toContain("deleted branch feature/done-cleanup (merged into alpha)");
   });
 
   test("uses state fleet configs before duplicate legacy configs", async () => {
@@ -169,7 +251,8 @@ describe("removeWorktreeByGhqScan", () => {
         return [exact, substringOnly, other].join("\n");
       }
       if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/done\n";
-      if (command.includes("branch -d")) throw new Error("branch still merged elsewhere");
+      if (command.includes("merge-base --is-ancestor")) throw new Error("not merged");
+      if (command.startsWith("gh pr list")) return "[]";
       return "";
     };
 
@@ -183,9 +266,11 @@ describe("removeWorktreeByGhqScan", () => {
       `git -C '${exact}' rev-parse --abbrev-ref HEAD`,
       `git -C '${mainPath}' worktree remove '${exact}' --force`,
       `git -C '${mainPath}' worktree prune`,
-      `git -C '${mainPath}' branch -d 'feature/done'`,
+      `git -C '${mainPath}' merge-base --is-ancestor 'feature/done' 'main'`,
+      "gh pr list --head 'feature/done' --state merged --json number --limit 1",
     ]);
     expect(output).toContain("removed worktree repo.wt-123-feature");
+    expect(output).toContain("branch retained (feature/done): not merged into main and no merged PR found");
     expect(output).not.toContain("repo.wt-feature-extra");
   });
 

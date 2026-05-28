@@ -3,6 +3,7 @@ import { basename, dirname, join } from "path";
 import {
   autoSave,
   cmdDone,
+  cleanupDoneBranch,
   removeFromFleetConfig,
   removeWorktreeByGhqScan,
   removeWorktreeViaConfig,
@@ -183,6 +184,7 @@ describe("cmdDone", () => {
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' rev-parse --abbrev-ref HEAD",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' --force",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree prune",
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/done' 'alpha'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' branch -d 'feature/done'",
     ]);
     expect(JSON.parse(h.files.get(fleetFile)!)).toEqual({
@@ -349,6 +351,100 @@ describe("done inbox and autosave helpers", () => {
   });
 });
 
+describe("cleanupDoneBranch", () => {
+  test("deletes branches that are ancestors of the configured base", async () => {
+    const h = createHarness();
+
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "feature/merged", {}, h.deps);
+
+    expect(h.commands).toEqual([
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/merged' 'alpha'",
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' branch -d 'feature/merged'",
+    ]);
+    expect(h.logs.join("\n")).toContain("deleted branch feature/merged (merged into alpha)");
+  });
+
+  test("deletes squash-merged branches only after merged PR proof", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+        if (command.startsWith("gh pr list")) return JSON.stringify([{ number: 1922 }]);
+        return "";
+      },
+    });
+
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "agents/1922-clean-branch", {}, h.deps);
+
+    expect(h.commands).toEqual([
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'agents/1922-clean-branch' 'alpha'",
+      "gh pr list --head 'agents/1922-clean-branch' --state merged --json number --limit 1",
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' branch -D 'agents/1922-clean-branch'",
+    ]);
+    expect(h.logs.join("\n")).toContain("deleted branch agents/1922-clean-branch (merged PR)");
+  });
+
+  test("keeps branches when local proof fails and gh is unavailable", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+        if (command.startsWith("gh pr list")) throw new Error("gh unavailable");
+        return "";
+      },
+    });
+
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "feature/unverified", {}, h.deps);
+
+    expect(h.commands).toEqual([
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/unverified' 'alpha'",
+      "gh pr list --head 'feature/unverified' --state merged --json number --limit 1",
+    ]);
+    expect(h.logs.join("\n")).toContain("branch retained (feature/unverified): gh unavailable and not merged into alpha");
+  });
+
+  test("keeps unmerged branches when gh finds no merged PR", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.includes("merge-base --is-ancestor")) throw new Error("not ancestor");
+        if (command.startsWith("gh pr list")) return "[]";
+        return "";
+      },
+    });
+
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "feature/open", {}, h.deps);
+
+    expect(h.commands).toEqual([
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/open' 'alpha'",
+      "gh pr list --head 'feature/open' --state merged --json number --limit 1",
+    ]);
+    expect(h.logs.join("\n")).toContain("branch retained (feature/open): not merged into alpha and no merged PR found");
+  });
+
+  test("--clean-branch force-deletes without merge or PR proof", async () => {
+    const h = createHarness();
+
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "feature/force", { cleanBranch: true }, h.deps);
+
+    expect(h.commands).toEqual([
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' branch -D 'feature/force'",
+    ]);
+    expect(h.logs.join("\n")).toContain("force-deleted branch feature/force");
+  });
+
+  test("uses alpha for maw-js and main for generic repositories", async () => {
+    const maw = createHarness();
+    await cleanupDoneBranch("/repos/github.com/Soul-Brews-Studio/maw-js", "feature/alpha", {}, maw.deps);
+    expect(maw.commands[0]).toBe(
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/alpha' 'alpha'",
+    );
+
+    const generic = createHarness();
+    await cleanupDoneBranch("/repos/github.com/acme/tool", "feature/main", {}, generic.deps);
+    expect(generic.commands[0]).toBe(
+      "git -C '/repos/github.com/acme/tool' merge-base --is-ancestor 'feature/main' 'main'",
+    );
+  });
+});
+
 describe("done worktree cleanup helpers", () => {
   test("removeWorktreeViaConfig removes configured worktrees and skips main/HEAD branch deletion", async () => {
     const h = createHarness({
@@ -426,7 +522,7 @@ describe("done worktree cleanup helpers", () => {
     expect(scanFail.errors.join("\n")).toContain("fleet scan failed");
   });
 
-  test("removeWorktreeByGhqScan removes matching suffix worktrees and ignores branch-delete failures", async () => {
+  test("removeWorktreeByGhqScan removes matching suffix worktrees and reports retained unmerged branches", async () => {
     const h = createHarness({
       hostExec: (command) => {
         if (command.startsWith("find ")) {
@@ -436,7 +532,8 @@ describe("done worktree cleanup helpers", () => {
           ].join("\n");
         }
         if (command.includes("rev-parse")) return "feature/scan\n";
-        if (command.includes("branch -d")) throw new Error("not merged");
+        if (command.includes("merge-base --is-ancestor")) throw new Error("not merged");
+        if (command.startsWith("gh pr list")) return "[]";
         return "";
       },
     });
@@ -445,8 +542,10 @@ describe("done worktree cleanup helpers", () => {
 
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' rev-parse --abbrev-ref HEAD");
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' --force");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/scan' 'alpha'");
+    expect(h.commands).toContain("gh pr list --head 'feature/scan' --state merged --json number --limit 1");
     expect(h.logs.join("\n")).toContain("removed worktree maw-js.wt-6-tile-1");
-    expect(h.logs.join("\n")).not.toContain("deleted branch feature/scan");
+    expect(h.logs.join("\n")).toContain("branch retained (feature/scan): not merged into alpha and no merged PR found");
   });
 
 

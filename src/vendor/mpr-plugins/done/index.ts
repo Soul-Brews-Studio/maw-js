@@ -23,6 +23,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     let force: boolean | undefined;
     let dryRun: boolean | undefined;
     let all: boolean | undefined;
+    let cleanBranch: boolean | undefined;
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
@@ -31,6 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       force = args.includes("--force");
       dryRun = args.includes("--dry-run");
       all = args.includes("--all");
+      cleanBranch = args.includes("--clean-branch");
       name = positional[0];
     } else {
       const args = ctx.args as Record<string, unknown>;
@@ -38,18 +40,19 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       force = args.force as boolean | undefined;
       dryRun = args.dryRun as boolean | undefined;
       all = args.all as boolean | undefined;
+      cleanBranch = (args.cleanBranch ?? args.clean_branch) as boolean | undefined;
     }
 
     if (all) {
-      await cmdDoneAll({ force, dryRun });
+      await cmdDoneAll({ force, dryRun, cleanBranch });
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
     if (!name) {
-      return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] or maw done --all [--force] [--dry-run]  (see: maw sleep/kill for non-worktree shutdown)" };
+      return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] [--clean-branch] or maw done --all [--force] [--dry-run] [--clean-branch]  (see: maw sleep/kill for non-worktree shutdown)" };
     }
 
-    await cmdDone(name, { force, dryRun });
+    await cmdDone(name, { force, dryRun, cleanBranch });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

@@ -10,6 +10,7 @@ import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  cleanBranch?: boolean;
   /** Restrict window-name lookup to a specific tmux session. Used by done --all. */
   sessionName?: string;
 }
@@ -45,7 +46,7 @@ function nonLeadWindows(session: DoneSession): DoneWindow[] {
 }
 
 /**
- * maw done <window-name> [--force] [--dry-run]
+ * maw done <window-name> [--force] [--dry-run] [--clean-branch]
  *
  * Clean up a finished worktree window:
  * 0. Send /rrr to agent + git auto-save (unless --force)
@@ -96,9 +97,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   // 2. Remove git worktree
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, opts);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, opts);
   }
   if (!removedWorktree) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);

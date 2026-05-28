@@ -11,6 +11,7 @@ import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  cleanBranch?: boolean;
 }
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
@@ -38,6 +39,7 @@ export interface DoneDeps {
   homeDir?: string;
   inboxDir?: string;
   takeSnapshot?: (trigger: string) => Promise<unknown>;
+  branchBase?: string;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   fs?: Partial<DoneFs>;
@@ -59,6 +61,7 @@ function doneDeps(deps: DoneDeps = {}) {
     homeDir,
     inboxDir: deps.inboxDir ?? mawDataPath("inbox"),
     takeSnapshot: deps.takeSnapshot ?? takeSnapshot,
+    branchBase: deps.branchBase,
     now: deps.now ?? (() => new Date()),
     sleep: deps.sleep ?? Bun.sleep,
     fs: {
@@ -73,6 +76,83 @@ function doneDeps(deps: DoneDeps = {}) {
 }
 
 type ResolvedDoneDeps = ReturnType<typeof doneDeps>;
+
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function branchBaseFor(mainPath: string, d: ResolvedDoneDeps): string {
+  if (d.branchBase) return d.branchBase;
+  const normalized = mainPath.split("\\").join("/");
+  if (normalized.endsWith("/Soul-Brews-Studio/maw-js") || normalized.includes("/github.com/Soul-Brews-Studio/maw-js")) {
+    return "alpha";
+  }
+  return "main";
+}
+
+function isProtectedBranch(branch: string, baseBranch: string): boolean {
+  return branch === "HEAD" || branch === "main" || branch === "master" || branch === "alpha" || branch === baseBranch;
+}
+
+async function ghMergedPrExists(branch: string, d: ResolvedDoneDeps): Promise<"yes" | "no" | "unavailable"> {
+  try {
+    const out = await d.hostExec(`gh pr list --head ${shellArg(branch)} --state merged --json number --limit 1`);
+    const parsed = JSON.parse(out || "[]");
+    return Array.isArray(parsed) && parsed.length > 0 ? "yes" : "no";
+  } catch {
+    return "unavailable";
+  }
+}
+
+export async function cleanupDoneBranch(
+  mainPath: string,
+  branch: string,
+  opts: DoneOpts = {},
+  deps: DoneDeps = {},
+): Promise<void> {
+  const d = doneDeps(deps);
+  const cleanBranch = Boolean(opts.cleanBranch);
+  const baseBranch = branchBaseFor(mainPath, d);
+  if (!branch || isProtectedBranch(branch, baseBranch)) return;
+
+  const quotedMain = shellArg(mainPath);
+  const quotedBranch = shellArg(branch);
+  if (cleanBranch) {
+    try {
+      await d.hostExec(`git -C ${quotedMain} branch -D ${quotedBranch}`);
+      d.logger.log(`  \x1b[32m✓\x1b[0m force-deleted branch ${branch}`);
+    } catch (e: any) {
+      d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): force delete failed: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  try {
+    await d.hostExec(`git -C ${quotedMain} merge-base --is-ancestor ${quotedBranch} ${shellArg(baseBranch)}`);
+    await d.hostExec(`git -C ${quotedMain} branch -d ${quotedBranch}`);
+    d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch} (merged into ${baseBranch})`);
+    return;
+  } catch {
+    // Not an ancestor of the configured base, or local refs are unavailable.
+  }
+
+  const prState = await ghMergedPrExists(branch, d);
+  if (prState === "yes") {
+    try {
+      await d.hostExec(`git -C ${quotedMain} branch -D ${quotedBranch}`);
+      d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch} (merged PR)`);
+    } catch (e: any) {
+      d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): delete failed after merged PR proof: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  if (prState === "unavailable") {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): gh unavailable and not merged into ${baseBranch}`);
+  } else {
+    d.logger.log(`  \x1b[90m○\x1b[0m branch retained (${branch}): not merged into ${baseBranch} and no merged PR found`);
+  }
+}
 
 function activeFleetConfigFiles(d: ResolvedDoneDeps): Array<{ file: string; path: string }> {
   const filesByName = new Map<string, { file: string; path: string }>();
@@ -135,9 +215,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
     d.logger.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
   }
 
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps, opts);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps, opts);
   }
   if (!removedWorktree) {
     d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
@@ -234,6 +314,7 @@ export async function removeWorktreeViaConfig(
   windowNameLower: string,
   reposRoot: string,
   deps: DoneDeps = {},
+  opts: DoneOpts = {},
 ): Promise<boolean> {
   const d = doneDeps(deps);
   try {
@@ -258,7 +339,7 @@ export async function removeWorktreeViaConfig(
         await d.hostExec(`git -C '${mainPath}' worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
         return true;
       } catch (e: any) {
@@ -274,6 +355,7 @@ export async function removeWorktreeByGhqScan(
   windowName: string,
   reposRoot: string,
   deps: DoneDeps = {},
+  opts: DoneOpts = {},
 ): Promise<boolean> {
   const d = doneDeps(deps);
   let removed = false;
@@ -307,7 +389,7 @@ export async function removeWorktreeByGhqScan(
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
       } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
     }
