@@ -338,7 +338,8 @@ test("#913 — load.ts contains a writeFileSync inside the host=node migration b
   // The fix must call writeFileSync after setting cached.host = "local"
   // in the host=node branch. We check the structural pattern rather
   // than exact whitespace so a future refactor can rearrange comments.
-  expect(src).toMatch(/cached\.host = "local";[\s\S]*writeFileSync\(CONFIG_FILE/);
+  expect(src).toMatch(/cached\.host = "local";[\s\S]*persistLoadedConfig\("config\.host migration"\)/);
+  expect(src).toMatch(/function persistLoadedConfig[\s\S]*writeFileSync\(CONFIG_FILE/);
   // The #820-style guard must wrap the persist.
   expect(src).toMatch(/MAW_TEST_MODE.*REAL_HOME_CONFIG/);
 });

@@ -42,6 +42,16 @@ await mock.module("fs", () => ({
 await mock.module(import.meta.resolve("../../src/core/paths"), () => ({
   ...realPaths,
   CONFIG_FILE: MOCK_CONFIG_FILE,
+  CONFIG_WEIGHTED_FILE: MOCK_CONFIG_FILE.replace(/\.json$/, ".50.json"),
+  discoverConfigs: () => [{
+    path: MOCK_CONFIG_FILE,
+    weight: 50,
+    isLocal: false,
+    scope: "legacy",
+    scopeRank: 20,
+    depth: 0,
+    mtimeMs: 0,
+  }],
 }));
 
 await mock.module(import.meta.resolve("../../src/lib/context"), () => ({

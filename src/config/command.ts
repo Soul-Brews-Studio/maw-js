@@ -15,7 +15,7 @@ export function buildCommand(agentName: string, optsOrEngine?: BuildCommandInput
  * detection such as Discord bot `--channels` injection.
  */
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: BuildCommandInput): string {
-  return buildCommandInDirFromConfig(loadConfig(), agentName, cwd, optsOrEngine);
+  return buildCommandInDirFromConfig(loadConfig({ cwd }), agentName, cwd, optsOrEngine);
 }
 
 export function getEnvVars(): Record<string, string> {

@@ -1,13 +1,14 @@
-import { readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { CONFIG_FILE } from "../core/paths";
+import { CONFIG_FILE, CONFIG_WEIGHTED_FILE, discoverConfigs, type DiscoveredConfig } from "../core/paths";
 import { refreshContext } from "../lib/context";
 import { verbose, info } from "../cli/verbosity";
 import type { MawConfig } from "./types";
 import { D } from "./types";
 import { validateConfig } from "./validate-ext";
 import { loadFleetAgents } from "./fleet-merge";
+import { deepMerge, recordProvenance, type ProvenanceMap } from "./deep-merge";
 import {
   DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
@@ -41,6 +42,32 @@ let warnedHostMigrated = false;
 let warnedHostNodeConflated = false;
 
 let cached: MawConfig | null = null;
+let cachedKey = "";
+let cachedSources: DiscoveredConfig[] = [];
+let cachedProvenance: ProvenanceMap = {};
+let cachedWarnings: string[] = [];
+
+export interface LoadConfigOptions {
+  cwd?: string;
+}
+
+export interface LoadedConfigWithProvenance {
+  config: MawConfig;
+  sources: DiscoveredConfig[];
+  provenance: ProvenanceMap;
+  warnings: string[];
+}
+
+const RESTRICTED_PROJECT_KEYS = new Set([
+  "node",
+  "port",
+  "bind",
+  "federationToken",
+  "agents",
+  "namedPeers",
+  "peers",
+  "sessions",
+]);
 
 /** Bind-address values that should never appear as an outbound target (#713). */
 const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
@@ -56,17 +83,125 @@ function canPersistConfigMigration(): boolean {
   return !(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG);
 }
 
+function maybeMigrateLegacyConfigFile(): void {
+  if (process.env.MAW_TEST_MODE === "1") return;
+  if (!canPersistConfigMigration()) return;
+  if (!existsSync(CONFIG_FILE) || existsSync(CONFIG_WEIGHTED_FILE)) return;
+  try {
+    const body = readFileSync(CONFIG_FILE, "utf-8");
+    writeFileSync(CONFIG_WEIGHTED_FILE, body.endsWith("\n") ? body : `${body}\n`, "utf-8");
+    process.stderr.write(
+      `[maw] migrating ${CONFIG_FILE} → ${CONFIG_WEIGHTED_FILE} ` +
+      `(legacy file kept for compatibility)\n`,
+    );
+  } catch (e) {
+    process.stderr.write(
+      `[maw] config migration skipped: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+}
+
 function persistLoadedConfig(label: string): void {
   if (!cached) return;
   if (!canPersistConfigMigration()) return;
   try {
-    writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
+    const body = JSON.stringify(cached, null, 2) + "\n";
+    writeFileSync(CONFIG_FILE, body, "utf-8");
+    if (existsSync(CONFIG_WEIGHTED_FILE)) writeFileSync(CONFIG_WEIGHTED_FILE, body, "utf-8");
   } catch (e) {
     process.stderr.write(
       `[maw] ${label}: in-memory heal applied but disk persist failed: ` +
       `${e instanceof Error ? e.message : String(e)}\n`,
     );
   }
+}
+
+function configCacheKey(sources: DiscoveredConfig[], cwd: string): string {
+  return JSON.stringify({
+    cwd,
+    configFile: CONFIG_FILE,
+    sources: sources.map((source) => [source.path, source.weight, source.scopeRank, source.isLocal, source.mtimeMs]),
+  });
+}
+
+function readConfigLayer(source: DiscoveredConfig): Partial<MawConfig> | null {
+  try {
+    const raw = JSON.parse(readFileSync(source.path, "utf-8"));
+    return validateConfig(raw);
+  } catch {
+    return null;
+  }
+}
+
+function restrictedProjectWarnings(source: DiscoveredConfig, layer: Partial<MawConfig>): string[] {
+  if (source.scope !== "project") return [];
+  return Object.keys(layer)
+    .filter((key) => RESTRICTED_PROJECT_KEYS.has(key))
+    .map((key) =>
+      `[maw] project config ${source.path} overrides restricted key "${key}". ` +
+      `Move identity/routing keys to user-global config unless this cwd-specific split is intentional.`,
+    );
+}
+
+function buildLoadedConfig(opts: LoadConfigOptions = {}): LoadedConfigWithProvenance {
+  const cwd = opts.cwd ?? process.cwd();
+  if (cached && !opts.cwd) {
+    return { config: cached, sources: cachedSources, provenance: cachedProvenance, warnings: cachedWarnings };
+  }
+  maybeMigrateLegacyConfigFile();
+  let sources = discoverConfigs(cwd);
+  if (sources.length === 0) {
+    sources = [{
+      path: CONFIG_FILE,
+      weight: 50,
+      isLocal: false,
+      scope: "legacy",
+      scopeRank: 20,
+      depth: 0,
+      mtimeMs: 0,
+    }];
+  }
+  const key = configCacheKey(sources, cwd);
+  if (cached && cachedKey === key) {
+    return { config: cached, sources: cachedSources, provenance: cachedProvenance, warnings: cachedWarnings };
+  }
+
+  let merged: Record<string, unknown> = {};
+  const provenance: ProvenanceMap = {};
+  const warnings: string[] = [];
+  let loadedAny = false;
+  for (const source of sources) {
+    const layer = readConfigLayer(source);
+    if (!layer) continue;
+    loadedAny = true;
+    warnings.push(...restrictedProjectWarnings(source, layer));
+    recordProvenance(provenance, source, layer as Record<string, unknown>);
+    merged = deepMerge(merged, layer as Record<string, unknown>);
+  }
+  if (!loadedAny && !sources.some((source) => source.path === CONFIG_FILE)) {
+    const legacySource: DiscoveredConfig = {
+      path: CONFIG_FILE,
+      weight: 50,
+      isLocal: false,
+      scope: "legacy",
+      scopeRank: 20,
+      depth: 0,
+      mtimeMs: 0,
+    };
+    const layer = readConfigLayer(legacySource);
+    if (layer) {
+      sources = [legacySource];
+      recordProvenance(provenance, legacySource, layer as Record<string, unknown>);
+      merged = deepMerge(merged, layer as Record<string, unknown>);
+    }
+  }
+
+  cached = { ...DEFAULTS, ...(merged as Partial<MawConfig>) };
+  cachedKey = key;
+  cachedSources = sources;
+  cachedProvenance = provenance;
+  cachedWarnings = warnings;
+  return { config: cached, sources, provenance, warnings };
 }
 
 function maybeMigrateDefaultActivePlugins(config: MawConfig): void {
@@ -210,15 +345,12 @@ function maybeMigrateViewStandardPlugin(config: MawConfig): void {
   persistLoadedConfig("config.disabledPlugins migration (#1854)");
 }
 
-export function loadConfig(): MawConfig {
-  if (cached) return cached;
-  try {
-    const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    const validated = validateConfig(raw);
-    cached = { ...DEFAULTS, ...validated };
-  } catch {
-    cached = { ...DEFAULTS };
-  }
+export function loadConfig(opts: LoadConfigOptions = {}): MawConfig {
+  const hadDefaultCache = cached !== null && !opts.cwd;
+  buildLoadedConfig(opts);
+  if (!cached) cached = { ...DEFAULTS };
+  for (const warning of cachedWarnings) process.stderr.write(`${warning}\n`);
+  if (hadDefaultCache) return cached;
   // #713 — migrate bind-address values out of `host` into `bind`.
   // If `host` is a bind address (0.0.0.0, ::, 127.0.0.1, localhost, ""),
   // move it to `bind` (if not already set) and reset `host` to "local".
@@ -317,9 +449,23 @@ export function loadConfig(): MawConfig {
   return cached;
 }
 
+export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): LoadedConfigWithProvenance {
+  loadConfig(opts);
+  return {
+    config: cached ?? { ...DEFAULTS },
+    sources: cachedSources,
+    provenance: cachedProvenance,
+    warnings: cachedWarnings,
+  };
+}
+
 /** Reset cached config (for hot-reload or testing) */
 export function resetConfig() {
   cached = null;
+  cachedKey = "";
+  cachedSources = [];
+  cachedProvenance = {};
+  cachedWarnings = [];
   warnedGhqRoot = false;
   warnedHostMigrated = false;
   warnedHostNodeConflated = false;
@@ -350,9 +496,15 @@ export function saveConfig(update: Partial<MawConfig>) {
       `import is resolved (see src/core/paths.ts). (#820)`,
     );
   }
-  const current = loadConfig();
+  const target = existsSync(CONFIG_WEIGHTED_FILE) ? CONFIG_WEIGHTED_FILE : CONFIG_FILE;
+  let current: Partial<MawConfig> = {};
+  try {
+    current = validateConfig(JSON.parse(readFileSync(target, "utf-8")));
+  } catch {
+    current = {};
+  }
   const merged = { ...current, ...update };
-  writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   resetConfig(); // clear cache so next loadConfig() reads fresh
   refreshContext(); // clear DI cache so middleware picks up new config
   return loadConfig();

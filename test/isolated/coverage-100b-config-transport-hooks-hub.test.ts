@@ -49,6 +49,8 @@ let configState: Record<string, any> = { node: "local", federationToken: "test-f
 mock.module(join(root, "src/core/paths"), () => ({
   CONFIG_DIR: mockConfigDir,
   CONFIG_FILE: mockConfigFile,
+  CONFIG_WEIGHTED_FILE: mockConfigFile.replace(/\.json$/, ".50.json"),
+  discoverConfigs: () => [{ path: mockConfigFile, weight: 50, isLocal: false, scope: "legacy", scopeRank: 20, depth: 0, mtimeMs: 0 }],
   BASE_DIR: mockConfigDir,
   FLEET_DIR: join(mockConfigDir, "fleet"),
   MAW_ROOT: root,
