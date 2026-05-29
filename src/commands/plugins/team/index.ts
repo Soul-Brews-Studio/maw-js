@@ -208,6 +208,20 @@ general flags: --description <text>, --members <list>`,
       if (!args[1]) { return { ok: false, error: "usage: maw team delete <team-name>" }; }
       await cmdTeamDelete(args[1]);
 
+    } else if (sub === "cleanup") {
+      // maw team cleanup --zombie-agents [--yes]
+      // Aliased via top-aliases.ts L65 (`cleanup → team cleanup --zombie-agents`).
+      // The handler lives in `team-cleanup-zombies.ts` and was exported via impl.ts
+      // L12 but never routed here — calling `maw cleanup` / `maw team cleanup`
+      // returned "unknown subcommand: cleanup". Fixes that wiring gap so the
+      // existing scripts/team-dispatch-finish.sh zombie-sweep step actually runs.
+      const { cmdCleanupZombies } = await import("./team-cleanup-zombies");
+      const flags = parseFlags(args, {
+        "--zombie-agents": Boolean,
+        "--yes": Boolean,
+      }, 1);
+      await cmdCleanupZombies({ yes: flags["--yes"] as boolean | undefined });
+
     } else if (sub === "invite") {
       // maw team invite <team> <peer> [--scope <scope>] [--lead <lead>]
       const { cmdTeamInvite } = await import("./team-invite");
