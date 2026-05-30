@@ -333,11 +333,16 @@ export async function lsFederated(opts: LsFederatedOpts = {}): Promise<InvokeRes
     };
   }
 
+  const groups = groupNodesByBackend(nodes);
+  const reachableGroups = groups.filter((g) => !g.representative.error).length;
+  const dedupedSessions = groups.reduce((n, g) => n + (g.representative.error ? 0 : g.representative.sessions.length), 0);
+
   const lines: string[] = [
-    `\x1b[36m📡 fleet view · ${reachableNodes}/${nodes.length} node${nodes.length === 1 ? "" : "s"} reachable · ${totalSessions} session${totalSessions === 1 ? "" : "s"} total\x1b[0m`,
+    `\x1b[36m📡 fleet view · ${reachableGroups}/${groups.length} node${groups.length === 1 ? "" : "s"} reachable · ${dedupedSessions} session${dedupedSessions === 1 ? "" : "s"} total\x1b[0m`,
     "",
   ];
-  for (const node of nodes) {
+  for (const group of groups) {
+    const node = group.representative;
     const label = node.alias ?? node.node ?? node.url ?? "unknown";
     const location = node.local ? "local" : node.url ?? "peer";
     if (node.error) {
@@ -345,6 +350,12 @@ export async function lsFederated(opts: LsFederatedOpts = {}): Promise<InvokeRes
       continue;
     }
     lines.push(`  \x1b[34m●\x1b[0m \x1b[36m${label}\x1b[0m \x1b[90m(${location}) · ${node.sessions.length} session${node.sessions.length === 1 ? "" : "s"}\x1b[0m`);
+    if (group.members.length > 1) {
+      const aliases = group.members.map((m) => m.alias).filter((a): a is string => Boolean(a));
+      const urls = group.members.map((m) => m.url).filter((u): u is string => Boolean(u));
+      if (aliases.length > 1) lines.push(`     \x1b[90maliases: ${aliases.join(", ")}\x1b[0m`);
+      if (urls.length > 1) lines.push(`     \x1b[90murls:    ${urls.join(", ")}\x1b[0m`);
+    }
     for (const session of node.sessions) {
       const source = session.source && session.source !== "local" ? ` \x1b[90mvia ${session.source}\x1b[0m` : "";
       lines.push(`     \x1b[90m●\x1b[0m ${session.name}${source}`);
@@ -352,6 +363,46 @@ export async function lsFederated(opts: LsFederatedOpts = {}): Promise<InvokeRes
   }
   lines.push("", "\x1b[90m  → maw ls   list only local sessions (fast default)\x1b[0m");
   return { ok: true, output: lines.join("\n") };
+}
+
+interface NodeGroup {
+  representative: LsNodePayload;
+  members: LsNodePayload[];
+  key: string | null;
+}
+
+function extractBackendKey(node: LsNodePayload): string | null {
+  if (node.local) return null;
+  if (node.error) return null;
+  if (!node.node || !node.url) return null;
+  try {
+    const u = new URL(node.url);
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return `${node.node}:${port}`;
+  } catch {
+    return null;
+  }
+}
+
+function groupNodesByBackend(nodes: LsNodePayload[]): NodeGroup[] {
+  const groups: NodeGroup[] = [];
+  const byKey = new Map<string, NodeGroup>();
+  for (const node of nodes) {
+    const key = extractBackendKey(node);
+    if (key === null) {
+      groups.push({ representative: node, members: [node], key: null });
+      continue;
+    }
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.members.push(node);
+    } else {
+      const group: NodeGroup = { representative: node, members: [node], key };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+  }
+  return groups;
 }
 
 export const __private = { payloadFromData, sessionsFromPayload, responseError, sessionsFromFormattedOutput };
