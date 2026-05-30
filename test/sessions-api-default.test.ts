@@ -191,7 +191,13 @@ describe("POST /send", () => {
     const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hello", attachments: ["a", "b"] }, { "x-maw-from": "sender:white" }));
 
     expect(res.status).toBe(200);
-    expect(await readJson(res)).toMatchObject({ ok: true, target: "local:main", source: "local", state: "delivered" });
+    expect(await readJson(res)).toMatchObject({
+      ok: true,
+      target: "local:main",
+      source: "local",
+      state: "delivered",
+      receipt: ["target_pane_resolved", "send_keys_injected", "live_pane_consumed"],
+    });
     expect(h.calls.some((c) => c[0] === "idle")).toBe(false);
     expect(h.calls).toContainEqual(["sendKeys", "local:main", "a\nb\nhello"]);
     expect(h.lifecycle[0]).toMatchObject({ state: "delivered", from: "white:sender", signed: true, text: "a\nb\nhello" });
@@ -210,7 +216,14 @@ describe("POST /send", () => {
 
     const res = await h.app.handle(jsonRequest("/send", { target: "neo-oracle", text: "hello" }));
 
-    expect(await readJson(res)).toMatchObject({ ok: true, target: "neo:main", source: "local", state: "queued", lastLine: "queued line" });
+    expect(await readJson(res)).toMatchObject({
+      ok: true,
+      target: "neo:main",
+      source: "local",
+      state: "queued",
+      lastLine: "queued line",
+      receipt: ["target_pane_resolved", "send_keys_injected", "fallback_queued"],
+    });
     expect(h.calls).toContainEqual(["sendKeys", "neo:main", "hello"]);
     expect(h.lifecycle[0]).toMatchObject({ state: "queued", signed: false });
   });
@@ -282,6 +295,7 @@ describe("POST /send", () => {
       state: "queued",
       inbox: "/repo/ψ/inbox/inbox-only.md",
       reason: "--inbox requested; pane injection skipped",
+      receipt: ["fallback_queued"],
     });
     expect(h.calls.some((c) => c[0] === "sendKeys")).toBe(false);
     expect(inboxCalls).toHaveLength(1);
@@ -305,16 +319,25 @@ describe("POST /send", () => {
   test("forwards peer sends and reports peer failures", async () => {
     const success = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
-      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual", state: "queued", lastLine: "queued" } }) as any,
+      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual", state: "queued", lastLine: "queued", receipt: ["target_pane_resolved", "send_keys_injected", "fallback_queued"] } }) as any,
     });
-    expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://peer", target: "actual", state: "queued" });
+    expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://peer",
+      target: "actual",
+      state: "queued",
+      receipt: ["remote_node_accepted", "target_pane_resolved", "send_keys_injected", "fallback_queued"],
+    });
     expect(success.lifecycle[0]).toMatchObject({ route: "peer", state: "queued", to: "white:remote:main" });
 
     const acceptedOnly = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
       curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual" } }) as any,
     });
-    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ state: "queued" });
+    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      state: "queued",
+      receipt: ["remote_node_accepted", "fallback_queued"],
+    });
     expect(acceptedOnly.lifecycle[0]).toMatchObject({ route: "peer", state: "queued" });
 
     const failure = makeHarness({
@@ -330,7 +353,7 @@ describe("POST /send", () => {
   test("falls back to peer discovery and preserves receiver delivery state", async () => {
     const ok = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed" }) as any,
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed", receipt: ["target_pane_resolved", "send_keys_injected", "live_pane_consumed"] }) as any,
     });
     expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
       ok: true,
@@ -338,6 +361,7 @@ describe("POST /send", () => {
       target: "remote:main",
       state: "delivered",
       lastLine: "landed",
+      receipt: ["remote_node_accepted", "target_pane_resolved", "send_keys_injected", "live_pane_consumed"],
     });
 
     const queued = makeHarness({
@@ -544,6 +568,7 @@ describe("POST /send", () => {
       state: "queued",
       inbox: "/repo/ψ/inbox/offline.md",
       reason: "not live",
+      receipt: ["stale_target", "fallback_queued"],
     });
     expect(h.lifecycle[0]).toMatchObject({
       route: "inbox",

@@ -396,6 +396,7 @@ export interface PeerSendResult {
   state: "delivered" | "queued" | "failed";
   target?: string;
   lastLine?: string;
+  receipt?: string[];
   error?: string;
   status?: number;
 }
@@ -432,6 +433,7 @@ export async function sendKeysToPeerDetailed(
         state: res.data.state === "delivered" ? "delivered" : "queued",
         target: typeof res.data.target === "string" ? res.data.target : target,
         lastLine: typeof res.data.lastLine === "string" ? res.data.lastLine : "",
+        receipt: Array.isArray(res.data.receipt) ? res.data.receipt : undefined,
       };
     }
 

@@ -97,6 +97,32 @@ export function messageSignedRequest(request: Request): boolean {
   return Boolean(request.headers.get("x-maw-from"));
 }
 
+export type DeliveryReceiptState =
+  | "remote_node_accepted"
+  | "target_pane_resolved"
+  | "send_keys_injected"
+  | "live_pane_consumed"
+  | "fallback_queued"
+  | "busy_rejected"
+  | "stale_target"
+  | "node_unreachable";
+
+function deliveryReceipt(...states: Array<DeliveryReceiptState | undefined | null | false>): DeliveryReceiptState[] {
+  return [...new Set(states.filter(Boolean) as DeliveryReceiptState[])];
+}
+
+function queuedReceipt(reason: string): DeliveryReceiptState[] {
+  if (/busy/i.test(reason)) return deliveryReceipt("busy_rejected", "fallback_queued");
+  if (/unreachable|unavailable|connection|timeout/i.test(reason)) return deliveryReceipt("node_unreachable", "fallback_queued");
+  if (/not live|not found|stale/i.test(reason)) return deliveryReceipt("stale_target", "fallback_queued");
+  return deliveryReceipt("fallback_queued");
+}
+
+function peerReceipt(data: any, state: "delivered" | "queued"): DeliveryReceiptState[] {
+  const remote = Array.isArray(data?.receipt) ? data.receipt : [];
+  return deliveryReceipt("remote_node_accepted", ...remote, state === "queued" ? "fallback_queued" : undefined);
+}
+
 function stripPaneIndex(target: string): string {
   return target.replace(/\.[0-9]+$/, "");
 }
@@ -323,6 +349,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           state: "queued" as const,
           inbox: inbox.path,
           reason,
+          receipt: queuedReceipt(reason),
         };
       };
       const queueOrFail = async (tmuxTarget: string, reason: string, status = 502) => {
@@ -406,7 +433,16 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           lastLine,
           signed: messageSigned,
         });
-        return { ok: true, target: resolved.target, text, source: "local", lastLine, state, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
+        return {
+          ok: true,
+          target: resolved.target,
+          text,
+          source: "local",
+          lastLine,
+          state,
+          receipt: deliveryReceipt("target_pane_resolved", "send_keys_injected", state === "delivered" ? "live_pane_consumed" : "fallback_queued"),
+          ...(inbox?.ok ? { inbox: inbox.path } : {}),
+        };
       }
 
       // Remote peer → federation HTTP
@@ -432,7 +468,15 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
             lastLine: res.data.lastLine || "",
             signed: messageSigned,
           });
-          return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state };
+          return {
+            ok: true,
+            target: res.data.target || target,
+            text,
+            source: resolved.peerUrl,
+            lastLine: res.data.lastLine || "",
+            state,
+            receipt: peerReceipt(res.data, state),
+          };
         }
         emitLifecycle({
           direction: "forwarded",
@@ -469,7 +513,15 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           signed: messageSigned,
         });
         if (send.ok) {
-          return { ok: true, target: send.target || target, text, source: peerUrl, state: send.state, lastLine: send.lastLine || "" };
+          return {
+            ok: true,
+            target: send.target || target,
+            text,
+            source: peerUrl,
+            state: send.state,
+            lastLine: send.lastLine || "",
+            receipt: deliveryReceipt("remote_node_accepted", ...(send.receipt ?? []), send.state === "queued" ? "fallback_queued" : undefined),
+          };
         }
         set.status = 502; return { error: send.error || "Failed to send to peer", target, source: peerUrl };
       }
@@ -519,7 +571,17 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                 lastLine,
                 signed: messageSigned,
               });
-              return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
+              return {
+                ok: true,
+                target: retry.target,
+                text,
+                source: "local",
+                lastLine,
+                state: "delivered" as const,
+                receipt: deliveryReceipt("target_pane_resolved", "send_keys_injected", "live_pane_consumed"),
+                wokeFor: target,
+                ...(inbox?.ok ? { inbox: inbox.path } : {}),
+              };
             }
           } catch { /* wake best-effort — fall through to 404 */ }
         }
