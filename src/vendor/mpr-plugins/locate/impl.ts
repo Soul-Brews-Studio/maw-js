@@ -19,6 +19,7 @@ import { loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-
 import { loadConfig } from "maw-js/config";
 import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
 import { UserError } from "maw-js/core/util/user-error";
+import { loadManifestCached, type OracleManifestEntry } from "maw-js/lib/oracle-manifest";
 import { fetchPeerPayload, type PeerSession } from "../ls/internal/peer-call";
 import { resolveAllPeers } from "../ls/internal/peer-resolve";
 
@@ -37,6 +38,7 @@ interface LocateResult {
   federationNode: string | null;
   inAgentsConfig: boolean;
   federation: LocateFederationHit[];
+  manifestEntry: OracleManifestEntry | null;
 }
 
 interface LocateFederationHit {
@@ -109,6 +111,19 @@ function findFleetConfigPath(oracle: string, sessionName: string | null): string
   return null;
 }
 
+function lookupManifestEntry(oracle: string): OracleManifestEntry | undefined {
+  try {
+    const manifest = loadManifestCached();
+    const stripped = oracle.replace(/-oracle$/, "");
+    return (
+      manifest.find((entry) => entry.name === oracle) ||
+      (stripped !== oracle ? manifest.find((entry) => entry.name === stripped) : undefined)
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {}): Promise<LocateResult> {
   // ghq repo path — try `<name>-oracle` suffix first (canonical), then bare name
   const repoPath =
@@ -136,24 +151,34 @@ async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {
   // shadow legacy entries and report the exact source path.
   const fleetConfigPath = findFleetConfigPath(oracle, sessionName);
 
+  // Manifest fallback — includes oracles.json entries that do not have a
+  // local repo, tmux session, or fleet config yet. This keeps `maw locate`
+  // aligned with `maw oracle list` for registry-only oracles.
+  const manifestEntry = lookupManifestEntry(oracle);
+
   // Federation — config.agents map + node
   const config = loadConfig();
   const agents = config.agents ?? {};
   const inAgentsConfig = oracle in agents;
-  const federationNode = inAgentsConfig ? agents[oracle]! : (config.node ?? null);
+  const federationNode = inAgentsConfig
+    ? agents[oracle]!
+    : sessionName
+      ? (config.node ?? "local")
+      : (manifestEntry?.node ?? config.node ?? null);
 
   const federation = opts.scanFederation === false ? [] : await findFederationHits(oracle);
 
   return {
     name: oracle,
-    repoPath,
-    hasPsi,
+    repoPath: repoPath ?? manifestEntry?.localPath ?? null,
+    hasPsi: repoPath ? hasPsi : (manifestEntry?.hasPsi ?? false),
     sessionName,
     windowCount,
     fleetConfigPath,
     federationNode,
     inAgentsConfig,
     federation,
+    manifestEntry: manifestEntry ?? null,
   };
 }
 
@@ -167,7 +192,7 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
   const info = await gatherInfo(oracle, { scanFederation: !opts.path });
 
   // Nothing found at all → not-found error (mirrors alpha.75 oracle-about fix)
-  if (!info.repoPath && !info.sessionName && !info.fleetConfigPath && info.federation.length === 0) {
+  if (!info.repoPath && !info.sessionName && !info.fleetConfigPath && info.federation.length === 0 && !info.manifestEntry) {
     throw new UserError(`no oracle named '${oracle}' — try: maw oracle ls`);
   }
 
@@ -200,8 +225,23 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
   if (info.fleetConfigPath) {
     console.log(`   fleet:    ${info.fleetConfigPath}`);
   }
+  if (info.manifestEntry) {
+    console.log(`   source:   ${info.manifestEntry.sources.join(", ")}`);
+    if (info.manifestEntry.repo && !info.repoPath) {
+      console.log(`   repo:     ${info.manifestEntry.repo}`);
+    }
+    if (info.manifestEntry.hasFleetConfig && !info.fleetConfigPath) {
+      console.log("   fleet:    known (manifest)");
+    }
+  }
   if (info.federationNode) {
-    const suffix = info.inAgentsConfig ? " (from config.agents)" : " (this node)";
+    const suffix = info.inAgentsConfig
+      ? " (from config.agents)"
+      : info.sessionName
+        ? " (this node)"
+        : info.manifestEntry?.node
+          ? " (from manifest)"
+          : " (this node)";
     console.log(`   node:     ${info.federationNode}${suffix}`);
   }
   for (const hit of info.federation) {

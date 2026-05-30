@@ -82,7 +82,10 @@ export function getGhqRoot(): string {
 
   // (3) shell out to ghq
   try {
-    const out = execSync("ghq root", { encoding: "utf-8" }).trim();
+    const out = execSync("ghq root", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     if (out.length > 0) {
       _cached = normalizeBare(out);
       return _cached;

@@ -2,14 +2,15 @@
  * Auto-restore: if no live tmux sessions exist and a recent (<24h) snapshot
  * is on disk, prompt the user to revive every session in the snapshot.
  *
- * Skipped for help-style invocations (--help / -h) so `maw --help` never
- * stalls waiting for tty input.
+ * Skipped for help-style invocations (--help / -h), non-interactive shells,
+ * and diagnostic commands so automation output stays machine-readable.
  *
  * Exceptions are intentionally swallowed — auto-restore is best-effort
  * UX sugar, never load-bearing for the actual command the user typed.
  */
 export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
   if (!cmd || cmd === "--help" || cmd === "-h") return;
+  if (shouldSkipAutoRestore(cmd)) return;
   try {
     const { listSessions } = await import("../sdk");
     const live = await listSessions().catch(() => [] as any[]);
@@ -47,4 +48,16 @@ export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
     }
     console.log("");
   } catch {}
+}
+
+function shouldSkipAutoRestore(cmd: string): boolean {
+  if (isTruthyEnv(process.env.MAW_NO_PROMPT) || isTruthyEnv(process.env.CI)) return true;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return true;
+  return new Set(["capture", "locate", "messages", "oracle", "peek"]).has(cmd);
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }

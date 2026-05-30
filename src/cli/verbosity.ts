@@ -71,7 +71,7 @@ export function isQuiet(): boolean {
   // forms too — `maw oracle scan --help` etc.
   if (
     process.argv.some(
-      a => a === "--help" || a === "-h" || a === "--version" || a === "-v",
+      a => a === "--help" || a === "-h" || a === "--version" || a === "-v" || a === "--json",
     )
   ) return true;
   // FIX-A — selected verbs (ls, a, attach, wake, activity) don't need

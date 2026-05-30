@@ -102,6 +102,11 @@ describe("verbosity", () => {
       expect(isQuiet()).toBe(true);
     });
 
+    test("any --json invocation suppresses bootstrap chatter", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "fleet", "status", "--json"];
+      expect(isQuiet()).toBe(true);
+    });
+
     test("`maw bud --as ls` → NOT quiet (positional check at argv[2], not .some)", () => {
       // Regression guard: an `--as ls` value buried later in argv must not
       // false-positive into the suppression path.

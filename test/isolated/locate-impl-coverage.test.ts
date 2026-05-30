@@ -10,6 +10,7 @@ let config: { agents?: Record<string, string>; node?: string } = { node: "local-
 let listSessionsThrows = false;
 let curlFetchCalls: Array<{ url: string; options: any }> = [];
 let curlFetchQueue: any[] = [];
+let manifestEntries: any[] = [];
 let originalPeersFile: string | undefined;
 
 const fleetDir = join(tmpdir(), `maw-locate-fleet-${process.pid}`);
@@ -50,6 +51,9 @@ mock.module("maw-js/config", () => ({
 mock.module("maw-js/core/matcher/resolve-target", () => ({
   resolveSessionTarget: () => resolved,
 }));
+mock.module("maw-js/lib/oracle-manifest", () => ({
+  loadManifestCached: () => manifestEntries,
+}));
 
 const { cmdLocate } = await import("../../src/vendor/mpr-plugins/locate/impl.ts?locate-impl-coverage");
 
@@ -86,6 +90,7 @@ describe("locate command implementation coverage", () => {
     listSessionsThrows = false;
     curlFetchCalls = [];
     curlFetchQueue = [];
+    manifestEntries = [];
   });
 
   afterEach(() => {
@@ -218,5 +223,59 @@ describe("locate command implementation coverage", () => {
     expect(text).toContain(`fleet:    ${join(fleetDir, "nodeonly-oracle.json")}`);
     expect(text).toContain("node:     white (this node)");
     expect(text).not.toContain("repo:");
+  });
+
+  test("falls back to manifest-only oracle records and labels manifest node", async () => {
+    ghqResults = [null, null];
+    manifestEntries = [{
+      name: "mira",
+      sources: ["oracles-json"],
+      node: "sgp1",
+      repo: "Soul-Brews-Studio/mira-oracle",
+      localPath: "/opt/Code/github.com/Soul-Brews-Studio/mira-oracle",
+      hasPsi: true,
+      hasFleetConfig: true,
+      isLive: false,
+    }];
+
+    const output = await capture(() => cmdLocate("mira", { json: true }));
+    const parsed = JSON.parse(output.logs.join("\n"));
+
+    expect(parsed).toMatchObject({
+      name: "mira",
+      repoPath: "/opt/Code/github.com/Soul-Brews-Studio/mira-oracle",
+      hasPsi: true,
+      federationNode: "sgp1",
+      manifestEntry: {
+        name: "mira",
+        node: "sgp1",
+      },
+    });
+
+    const human = await capture(() => cmdLocate("mira", {}));
+    const text = human.logs.join("\n");
+    expect(text).toContain("source:   oracles-json");
+    expect(text).toContain("node:     sgp1 (from manifest)");
+    expect(text).toContain("fleet:    known (manifest)");
+  });
+
+  test("prefers a live local session node over stale manifest node metadata", async () => {
+    ghqResults = [null, null];
+    sessions = [{ name: "77-mawjs", windows: [{ name: "main" }] }];
+    resolved = { kind: "exact", match: sessions[0] };
+    config = { node: "m5" };
+    manifestEntries = [{
+      name: "mawjs",
+      sources: ["oracles-json"],
+      node: "stale-remote",
+      isLive: false,
+    }];
+
+    const output = await capture(() => cmdLocate("mawjs", {}));
+    const text = output.logs.join("\n");
+
+    expect(text).toContain("session:  77-mawjs (1 window)");
+    expect(text).toContain("node:     m5 (this node)");
+    expect(text).not.toContain("stale-remote");
   });
 });
