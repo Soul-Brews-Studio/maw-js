@@ -50,8 +50,18 @@ describe("resolvePromoteTarget (#1910)", () => {
     expect(r).toEqual({ session: "77-mawjs", window: "test-cli" });
   });
 
+  test("qualified session:window with tmux trailing-dash display suffix resolves to canonical window", async () => {
+    const r = await resolvePromoteTarget("77-mawjs:test-cli-", listAll);
+    expect(r).toEqual({ session: "77-mawjs", window: "test-cli" });
+  });
+
   test("bare name with single match resolves cleanly", async () => {
     const r = await resolvePromoteTarget("test-cli", listAll);
+    expect(r).toEqual({ session: "77-mawjs", window: "test-cli" });
+  });
+
+  test("bare name with tmux trailing-dash display suffix resolves to canonical window", async () => {
+    const r = await resolvePromoteTarget("test-cli-", listAll);
     expect(r).toEqual({ session: "77-mawjs", window: "test-cli" });
   });
 

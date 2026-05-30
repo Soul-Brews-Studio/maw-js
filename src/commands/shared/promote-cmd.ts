@@ -32,6 +32,11 @@ function targetWindow(target: string): string | null {
   return win.length > 0 ? win : null;
 }
 
+function stripTmuxDisplaySuffix(window: string): string | null {
+  if (!window.endsWith("-") || window.length <= 1) return null;
+  return window.slice(0, -1);
+}
+
 const PROMOTE_PLACEHOLDER = "__promote_placeholder__";
 
 /**
@@ -50,7 +55,15 @@ export async function resolvePromoteTarget(
   const explicitWindow = targetWindow(target);
 
   if (explicitWindow) {
-    return { session: explicitSession, window: explicitWindow };
+    const sessions = await listAllFn();
+    const srcSession = sessions.find(s => s.name.toLowerCase() === explicitSession.toLowerCase());
+    if (!srcSession) return { session: explicitSession, window: explicitWindow };
+    const exact = srcSession.windows.find(w => w.name.toLowerCase() === explicitWindow.toLowerCase());
+    if (exact) return { session: srcSession.name, window: exact.name };
+    const canonical = stripTmuxDisplaySuffix(explicitWindow);
+    if (!canonical) return { session: srcSession.name, window: explicitWindow };
+    const canonicalMatch = srcSession.windows.find(w => w.name.toLowerCase() === canonical.toLowerCase());
+    return { session: srcSession.name, window: canonicalMatch?.name ?? explicitWindow };
   }
 
   const sessions = await listAllFn();
@@ -58,6 +71,16 @@ export async function resolvePromoteTarget(
   for (const s of sessions) {
     for (const w of s.windows) {
       if (w.name === target) matches.push({ session: s.name, window: w.name });
+    }
+  }
+  if (matches.length === 0) {
+    const canonical = stripTmuxDisplaySuffix(target);
+    if (canonical) {
+      for (const s of sessions) {
+        for (const w of s.windows) {
+          if (w.name === canonical) matches.push({ session: s.name, window: w.name });
+        }
+      }
     }
   }
 
