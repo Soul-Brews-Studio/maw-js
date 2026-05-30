@@ -9,6 +9,7 @@
  *  - prefix match with word boundary (e.g. `restart` != `rest`)
  */
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import { resolvePluginMatch, validatePluginCliFlags } from "../../src/cli/dispatch-match";
 import { ALIAS_DESCRIPTIONS, parseBringArgs, parseLsAliasOpts, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
@@ -281,6 +282,20 @@ describe("validatePluginCliFlags — manifest-declared flags", () => {
     const p = plugin("hello", "hello", [], { "--name": "string" });
 
     expect(validatePluginCliFlags(p, ["--name", "world", "--", "--not-a-flag"])).toEqual({ ok: true });
+  });
+
+  test("tmux manifest allows kill alias subcommand flags (#1954)", () => {
+    const manifest = JSON.parse(readFileSync("src/commands/plugins/tmux/plugin.json", "utf8"));
+    const tmux: LoadedPlugin = {
+      manifest,
+      dir: "src/commands/plugins/tmux",
+      wasmPath: "",
+      kind: "ts",
+    };
+
+    expect(validatePluginCliFlags(tmux, ["kill", "77-mawjs:mawjs-oracle.1", "--force"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(tmux, ["kill", "77-mawjs", "--session"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(tmux, ["kill", "77-mawjs", "-s"])).toEqual({ ok: true });
   });
 });
 

@@ -23,7 +23,10 @@
       "--output": "boolean",
       "--no-output": "boolean",
       "--only-if-closed": "boolean",
-      "-o": "boolean"
+      "-o": "boolean",
+      "--force": "boolean",
+      "--session": "boolean",
+      "-s": "boolean"
     }
   },
   "weight": 10,
