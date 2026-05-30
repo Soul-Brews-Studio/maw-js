@@ -86,3 +86,72 @@ describe("computeExpandPlan", () => {
     expect(plan.blockingIssues.join("\n")).toContain("unsupported");
   });
 });
+
+describe("computeExpandPlan probe enrichment", () => {
+  test("keeps the default plan pure when --probe data is absent", () => {
+    const plan = computeExpandPlan("oracle-world.wg", 3462, "m5", peers);
+
+    expect(plan.probePlan).toBeUndefined();
+    expect(JSON.stringify(plan)).not.toContain("/api/identity");
+  });
+
+  test("accepts matching /api/identity data as a read-only noop probe delta", () => {
+    const plan = computeExpandPlan("oracle-world.wg", 3462, "m5", peers, {
+      probeIdentity: {
+        url: "http://oracle-world.wg:3462/api/identity",
+        reachable: true,
+        advertisedNode: "oracle-world",
+        agents: ["mawjs", "sila"],
+      },
+    });
+
+    expect(plan.probePlan).toMatchObject({
+      kind: "noop",
+      reachable: true,
+      expectedNode: "oracle-world",
+      advertisedNode: "oracle-world",
+      agents: ["mawjs", "sila"],
+    });
+    expect(plan.blockingIssues).toEqual([]);
+  });
+
+  test("flags node derivation mismatches from /api/identity as conflicts", () => {
+    const plan = computeExpandPlan("oracle-world.wg", 3462, "m5", peers, {
+      probeIdentity: {
+        url: "http://oracle-world.wg:3462/api/identity",
+        reachable: true,
+        advertisedNode: "white",
+        agents: ["mawjs"],
+      },
+    });
+
+    expect(plan.probePlan).toMatchObject({
+      kind: "conflict",
+      reachable: true,
+      expectedNode: "oracle-world",
+      advertisedNode: "white",
+    });
+    expect(plan.blockingIssues.join("\n")).toContain("expected node oracle-world");
+  });
+
+  test("records unreachable probes without turning the default planner into a mutator", () => {
+    const plan = computeExpandPlan("newbox.wg", 3456, "m5", peers, {
+      probeIdentity: {
+        url: "http://newbox.wg:3456/api/identity",
+        reachable: false,
+        agents: [],
+        status: 0,
+        error: "timeout",
+      },
+    });
+
+    expect(plan.probePlan).toMatchObject({
+      kind: "unsafe",
+      reachable: false,
+      expectedNode: "newbox",
+      error: "timeout",
+    });
+    expect(plan.probePlan?.warnings.join("\n")).toContain("timeout");
+    expect(plan.blockingIssues).toEqual([]);
+  });
+});

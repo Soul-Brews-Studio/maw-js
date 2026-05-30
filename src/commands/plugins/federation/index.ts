@@ -40,7 +40,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (sub === "--help" || sub === "-h" || sub === "help") {
       return {
         ok: false,
-        error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
+        error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--probe|--peers config|scout|both]",
       };
     }
 
@@ -71,7 +71,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const host = args[1];
       if (!host || host.startsWith("--")) {
-        return { ok: false, error: "usage: maw federation expand <new-node-host> [--port <port>] [--user <user>] [--oracle <name>] [--json]" };
+        return { ok: false, error: "usage: maw federation expand <new-node-host> [--port <port>] [--user <user>] [--oracle <name>] [--probe] [--json]" };
       }
       const portRaw = readOption(args, "--port");
       const port = portRaw ? Number(portRaw) : 3456;
@@ -91,11 +91,20 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         seen.add(key);
         return true;
       });
-      const plan = computeExpandPlan(host, port, config.node || "local", knownPeers, {
+      const baseOpts = {
         user: readOption(args, "--user"),
         oracle: readOption(args, "--oracle") || config.oracle,
-        targetPlatform: "linux",
-      });
+        targetPlatform: "linux" as const,
+      };
+      const initialPlan = computeExpandPlan(host, port, config.node || "local", knownPeers, baseOpts);
+      let probeIdentity;
+      if (args.includes("--probe")) {
+        const { fetchExpandProbeIdentity } = await import("../../shared/expand-probe");
+        probeIdentity = await fetchExpandProbeIdentity(initialPlan.target.url);
+      }
+      const plan = probeIdentity
+        ? computeExpandPlan(host, port, config.node || "local", knownPeers, { ...baseOpts, probeIdentity })
+        : initialPlan;
       if (args.includes("--json")) {
         console.log(JSON.stringify(plan, null, 2));
       } else {
@@ -109,6 +118,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`  service plan: ${plan.servicePlan.kind} (${plan.servicePlan.manager})`);
         for (const cmd of plan.servicePlan.commands) console.log(`    ${cmd}`);
         console.log(`  firewall: ${plan.firewallPlan.command}`);
+        if (plan.probePlan) {
+          const advertised = plan.probePlan.advertisedNode ? ` node=${plan.probePlan.advertisedNode}` : "";
+          const agentCount = plan.probePlan.agents.length;
+          console.log(`  probe: ${plan.probePlan.kind} reachable=${plan.probePlan.reachable}${advertised} agents=${agentCount}`);
+          for (const warning of plan.probePlan.warnings) console.log(`  ! ${warning}`);
+        }
         for (const warning of [...plan.warnings, ...plan.servicePlan.warnings, ...plan.firewallPlan.warnings]) {
           console.log(`  ! ${warning}`);
         }
@@ -121,7 +136,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
+        error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--probe|--peers config|scout|both]",
       };
     }
 

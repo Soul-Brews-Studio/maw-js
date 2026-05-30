@@ -101,7 +101,7 @@ describe("federation plugin index dispatch", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
+      error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--probe|--peers config|scout|both]",
     });
 
     statusThrows = new Error("status exploded");

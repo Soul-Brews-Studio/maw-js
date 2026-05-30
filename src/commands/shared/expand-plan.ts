@@ -7,11 +7,33 @@ import type { PeerConfig } from "../../config";
 
 export type ExpandDeltaKind = "noop" | "add" | "update" | "conflict" | "unsafe";
 
+export interface ExpandProbeIdentity {
+  url: string;
+  reachable: boolean;
+  advertisedNode?: string;
+  agents: string[];
+  status?: number;
+  error?: string;
+}
+
+export interface ExpandProbePlan {
+  kind: ExpandDeltaKind;
+  url: string;
+  reachable: boolean;
+  expectedNode: string;
+  advertisedNode?: string;
+  agents: string[];
+  warnings: string[];
+  blockingIssues: string[];
+  error?: string;
+}
+
 export interface ExpandPlanOptions {
   user?: string;
   oracle?: string;
   targetPlatform?: NodeJS.Platform | "unknown";
   subnet?: string;
+  probeIdentity?: ExpandProbeIdentity;
 }
 
 export interface ExpandTarget {
@@ -69,6 +91,7 @@ export interface ExpandPlan {
   peerStoreUpdates: ExpandPeerStoreDelta[];
   servicePlan: ExpandServicePlan;
   firewallPlan: ExpandFirewallPlan;
+  probePlan?: ExpandProbePlan;
   warnings: string[];
   blockingIssues: string[];
 }
@@ -108,6 +131,65 @@ function aliasesFor(node: string, oracle: string): string[] {
   const aliases = [node, `${node}-${oracle}`];
   if (node.startsWith("oracle-")) aliases.push(`${node.slice("oracle-".length)}-${oracle}`);
   return uniq(aliases.filter(Boolean));
+}
+
+
+function computeProbePlan(expectedNode: string, probe: ExpandProbeIdentity): ExpandProbePlan {
+  const warnings: string[] = [];
+  const blockingIssues: string[] = [];
+  if (!probe.reachable) {
+    warnings.push(`probe could not reach ${probe.url}: ${probe.error || `http ${probe.status ?? "?"}`}`);
+    return {
+      kind: "unsafe",
+      url: probe.url,
+      reachable: false,
+      expectedNode,
+      advertisedNode: probe.advertisedNode,
+      agents: probe.agents,
+      warnings,
+      blockingIssues,
+      ...(probe.error ? { error: probe.error } : {}),
+    };
+  }
+
+  if (!probe.advertisedNode) {
+    blockingIssues.push(`probe reached ${probe.url} but /api/identity did not advertise a node`);
+    return {
+      kind: "unsafe",
+      url: probe.url,
+      reachable: true,
+      expectedNode,
+      agents: probe.agents,
+      warnings,
+      blockingIssues,
+      ...(probe.error ? { error: probe.error } : {}),
+    };
+  }
+
+  if (probe.advertisedNode !== expectedNode) {
+    blockingIssues.push(`probe expected node ${expectedNode} but ${probe.url} advertised ${probe.advertisedNode}`);
+    return {
+      kind: "conflict",
+      url: probe.url,
+      reachable: true,
+      expectedNode,
+      advertisedNode: probe.advertisedNode,
+      agents: probe.agents,
+      warnings,
+      blockingIssues,
+    };
+  }
+
+  return {
+    kind: "noop",
+    url: probe.url,
+    reachable: true,
+    expectedNode,
+    advertisedNode: probe.advertisedNode,
+    agents: probe.agents,
+    warnings,
+    blockingIssues,
+  };
 }
 
 function routeKind(alias: string, url: string, knownPeers: PeerConfig[]): Pick<ExpandRouteDelta, "kind" | "reason" | "existingUrl"> {
@@ -202,6 +284,9 @@ export function computeExpandPlan(
       };
   if (servicePlan.kind === "unsafe") blockingIssues.push(servicePlan.warnings[0]);
 
+  const probePlan = opts.probeIdentity ? computeProbePlan(node, opts.probeIdentity) : undefined;
+  if (probePlan) blockingIssues.push(...probePlan.blockingIssues);
+
   const firewallPlan: ExpandFirewallPlan = {
     kind: "add",
     subnet,
@@ -229,6 +314,7 @@ export function computeExpandPlan(
     peerStoreUpdates,
     servicePlan,
     firewallPlan,
+    ...(probePlan ? { probePlan } : {}),
     warnings,
     blockingIssues: uniq(blockingIssues),
   };
