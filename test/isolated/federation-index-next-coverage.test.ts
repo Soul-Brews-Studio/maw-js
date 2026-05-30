@@ -55,7 +55,7 @@ describe("federation plugin index dispatch", () => {
 
     expect(federationPlugin.command).toEqual({
       name: "federation",
-      description: "Multi-node federation status and sync.",
+      description: "Multi-node federation status, sync, and expansion planning.",
     });
     expect(result).toEqual({ ok: true, output: undefined });
     expect(statusCalls).toEqual([{ peerSourceMode: "both" }]);
@@ -101,7 +101,7 @@ describe("federation plugin index dispatch", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "usage: maw federation <status|sync> [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
+      error: "usage: maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--verify|--dry-run|--check|--prune|--force|--json|--peers config|scout|both]",
     });
 
     statusThrows = new Error("status exploded");
