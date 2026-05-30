@@ -344,13 +344,30 @@ function rejectBareAmbiguous(query: string, candidates: string[]): never {
 function normalizeBareLocalResult(
   query: string,
   result: ReturnType<typeof resolveTarget>,
+  config: ReturnType<typeof loadConfig>,
 ): ReturnType<typeof resolveTarget> | null {
   if (!result) return null;
   if (result.type === "local" || result.type === "self-node") return result;
   // A bare query may discover a remote peer via config.agents/manifest. Do not
   // use that implicit remote route: #1572 makes bare names local-only so
-  // operators must spell cross-node delivery with `<node>:`.
+  // operators must spell cross-node delivery with `<node>:`. Peer aliases are
+  // the narrow exception: `maw peers add world-mawjs ...` should make
+  // `maw hey world-mawjs ...` usable (#1940).
+  if (result.type === "peer" && isConfiguredPeerAlias(query, config)) return result;
   return null;
+}
+
+function isConfiguredPeerAlias(query: string, config: ReturnType<typeof loadConfig>): boolean {
+  if (!isBareLocalHeyTarget(query)) return false;
+  const peer = (config.namedPeers ?? []).find((p: any) => p?.name === query);
+  if (peer && (typeof (peer as any).node === "string" || typeof (peer as any).identity?.node === "string")) return true;
+  try {
+    const { loadPeers } = require("../../lib/peers/store");
+    const stored = loadPeers().peers?.[query];
+    return Boolean(stored && (typeof stored.node === "string" || typeof stored.identity?.node === "string"));
+  } catch {
+    return false;
+  }
 }
 
 function assertBareLocalTarget(
@@ -361,7 +378,7 @@ function assertBareLocalTarget(
   if (!isBareLocalHeyTarget(query)) return null;
 
   try {
-    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions));
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions), config);
     if (localResult) return localResult;
   } catch (e) {
     if (e instanceof AmbiguousMatchError) {

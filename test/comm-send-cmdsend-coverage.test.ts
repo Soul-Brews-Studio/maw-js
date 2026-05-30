@@ -699,6 +699,23 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(errs.join("\n")).toContain("not found locally");
   });
 
+  test("bare peer aliases are allowed as explicit federation targets (#1940)", async () => {
+    config.namedPeers = [{
+      name: "world-mawjs",
+      url: "http://oracle-world.wg:3462",
+      node: "oracle-world",
+      identity: { oracle: "mawjs", node: "oracle-world" },
+    }];
+    resolveTargetReturn = { type: "peer", target: "mawjs", node: "oracle-world", peerUrl: "http://oracle-world.wg:3462" };
+    curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, delivered: true, target: "mawjs" } });
+
+    await runCmd(() => cmdSend("world-mawjs", "hello"));
+
+    expect(exitCode).toBeUndefined();
+    expect(curlFetchCalls.map((c) => c.url)).toEqual(["http://oracle-world.wg:3462/api/send"]);
+    expect(JSON.parse(curlFetchCalls[0].options.body)).toMatchObject({ target: "mawjs" });
+  });
+
   test("bare target rejects ambiguous local candidates with candidate list", async () => {
     resolveTargetError = new _rFindWindow.AmbiguousMatchError("oracle", ["47-mawjs:oracle", "54-mawjs:oracle"]);
 

@@ -98,7 +98,7 @@
       "name": "query with slash is not node routing",
       "query": "01-local/worktree",
       "sessions": [],
-      "expected": { "type": "error", "reason": "not_found", "detail": "'01-local/worktree' not in local sessions or agents map", "hint": "check: maw ls" }
+      "expected": { "type": "error", "reason": "not_found", "detail": "'01-local/worktree' not in local sessions, agents map, or peer aliases", "hint": "check: maw ls" }
     },
     {
       "name": "legacy peers array can provide node url",

@@ -5,7 +5,8 @@
  *   1. Local findWindow → { type: 'local' }
  *   2. Node:prefix → namedPeers → { type: 'peer' } or { type: 'self-node' }
  *   3. Agents map → peer URL → { type: 'peer' } (skip if self-node)
- *   4. null (caller handles peer discovery fallback separately — it's async/network)
+ *   4. Peer alias → peers.json node/identity → { type: 'peer' }
+ *   5. null (caller handles peer discovery fallback separately — it's async/network)
  *
  * Sub-PR 3 of #841 — manifest as primary lookup
  * ─────────────────────────────────────────────
@@ -38,6 +39,7 @@ import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
 import { resolveFleetSession } from "../commands/shared/wake";
 import { loadManifestCached, type OracleManifestEntry } from "../lib/oracle-manifest";
+import { loadPeers, type Peer } from "../lib/peers/store";
 
 export type { Session };
 
@@ -50,7 +52,7 @@ export type ResolveResult =
 
 /**
  * Resolve a query to a local target, remote peer, or null.
- * Pure + sync — no network calls, no side effects. Testable without mocks.
+ * Sync and read-only — no network calls. Testable without mocks.
  */
 export function resolveTarget(
   query: string,
@@ -172,8 +174,70 @@ export function resolveTarget(
     return { type: "error", reason: "no_peer_url", detail: `'${query}' mapped to node '${agentNode}' but no URL found`, hint: `add ${agentNode} to maw.config.json namedPeers` };
   }
 
+  // --- Step 3c: peer alias (e.g. `maw hey world-mawjs`) ---
+  // Peers added through `maw peers add <alias> <url> --node <node>` live in
+  // peers.json, not necessarily in config.namedPeers. A bare alias should be
+  // a usable federation target: resolve the backend node + default oracle and
+  // route as if the user typed `<node>:<oracle>` (#1940).
+  const peerAlias = findPeerAliasRoute(query, config);
+  if (peerAlias) return peerAlias;
+
   // --- Step 4: Not resolved (caller handles peer discovery fallback) ---
-  return { type: "error", reason: "not_found", detail: `'${query}' not in local sessions or agents map`, hint: "check: maw ls" };
+  return { type: "error", reason: "not_found", detail: `'${query}' not in local sessions, agents map, or peer aliases`, hint: "check: maw ls" };
+}
+
+
+function findPeerAliasRoute(query: string, config: MawConfig): ResolveResult {
+  if (!query || query.includes(":") || query.includes("/")) return null;
+
+  const configured = config.namedPeers?.find((p) => p.name === query) as (PeerConfigLike | undefined);
+  if (configured?.url) {
+    const node = configured.node || configured.identity?.node;
+    const target = defaultPeerOracle(query, node, configured.identity?.oracle, config);
+    if (node && target) return { type: "peer", peerUrl: configured.url, target, node };
+  }
+
+  const stored = readStoredPeer(query);
+  if (!stored?.url) return null;
+  const node = stored.node || stored.identity?.node;
+  const target = defaultPeerOracle(query, node, stored.identity?.oracle, config);
+  if (!node || !target) return null;
+  return { type: "peer", peerUrl: stored.url, target, node };
+}
+
+type PeerConfigLike = {
+  name: string;
+  url: string;
+  node?: string | null;
+  identity?: { oracle?: string; node?: string };
+};
+
+function readStoredPeer(alias: string): Peer | null {
+  try {
+    return loadPeers().peers[alias] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultPeerOracle(alias: string, node: string | null | undefined, identityOracle: string | undefined, config: MawConfig): string | null {
+  if (identityOracle?.trim()) return identityOracle.trim();
+
+  const agentsForNode = Object.entries(config.agents ?? {})
+    .filter(([, agentNode]) => node && agentNode === node)
+    .map(([agent]) => agent);
+  if (agentsForNode.length === 1) return agentsForNode[0];
+
+  const aliasLower = alias.toLowerCase();
+  const aliasMatched = agentsForNode.find((agent) => {
+    const a = agent.toLowerCase();
+    return aliasLower === a || aliasLower.endsWith(`-${a}`) || aliasLower.includes(a);
+  });
+  if (aliasMatched) return aliasMatched;
+
+  // maw-js federation listeners default to the mawjs oracle when older peers
+  // have node but not /api/identity yet. This matches ADR family-default use.
+  return "mawjs";
 }
 
 /** Find a peer URL by node name from namedPeers or legacy peers[] */
