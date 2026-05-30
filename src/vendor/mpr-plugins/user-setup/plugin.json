@@ -1,0 +1,17 @@
+{
+  "name": "user-setup",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Audit Claude project-log directories before any user-setup organize or prune flow. Read-only.",
+  "cli": {
+    "command": "user-setup",
+    "help": "maw user-setup projects audit --json",
+    "flags": {
+      "--json": "boolean"
+    }
+  },
+  "tier": "extra",
+  "license": "MIT",
+  "schemaVersion": 1
+}

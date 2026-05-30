@@ -1,0 +1,128 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import { auditClaudeProjects, inferPathFromEncoded } from "../../src/vendor/mpr-plugins/user-setup/impl";
+
+const roots: string[] = [];
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function tempRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "maw-user-setup-audit-"));
+  roots.push(root);
+  return root;
+}
+
+function encodeClaudeProjectPath(path: string): string {
+  return resolve(path).replace(/^\//, "-").replace(/\//g, "-");
+}
+
+function writeJsonl(path: string, lines = 1): void {
+  const body = Array.from({ length: lines }, (_, i) => JSON.stringify({ type: "user", message: { content: `m${i}` } })).join("\n") + "\n";
+  writeFileSync(path, body);
+}
+
+describe("user-setup projects audit", () => {
+  test("returns a stable empty result when Claude projects root is missing", async () => {
+    const root = join(tempRoot(), "missing", "projects");
+    const result = await auditClaudeProjects({ projectsRoot: root, now: () => new Date("2026-05-30T00:00:00Z") });
+
+    expect(result).toEqual({
+      root,
+      generatedAt: "2026-05-30T00:00:00.000Z",
+      projectCount: 0,
+      totalSizeBytes: 0,
+      entries: [],
+      warnings: [expect.stringContaining("cannot read Claude projects dir")],
+    });
+  });
+
+  test("audits probable existing paths with sessions, nested subagents, largest files, and git remote evidence", async () => {
+    const root = tempRoot();
+    const sourceRoot = join(tmpdir(), `mawusersetupprobable${process.pid}`);
+    roots.push(sourceRoot);
+    const source = join(sourceRoot, "src", "plainrepo");
+    mkdirSync(source, { recursive: true });
+    const encoded = encodeClaudeProjectPath(source);
+    const projectDir = join(root, "claude", encoded);
+    mkdirSync(join(projectDir, "subagents"), { recursive: true });
+    writeJsonl(join(projectDir, "a-session.jsonl"), 2);
+    writeJsonl(join(projectDir, "subagents", "nested-session.jsonl"), 1);
+    writeFileSync(join(projectDir, "large.txt"), "x".repeat(128));
+
+    const result = await auditClaudeProjects({
+      projectsRoot: join(root, "claude"),
+      now: () => new Date("2026-05-30T01:02:03Z"),
+      cwd: () => "/not/the/source",
+      execSync: (cmd) => {
+        if (cmd.includes("remote get-url origin")) return "git@github.com:Soul-Brews-Studio/plainrepo.git\n";
+        if (cmd.includes("worktree list")) return "";
+        return "";
+      },
+    });
+
+    expect(result.projectCount).toBe(1);
+    const entry = result.entries[0];
+    expect(entry.encoded).toBe(encoded);
+    expect(entry.path).toMatchObject({ inferred: source, confidence: "probable" });
+    expect(entry.path.evidence).toContain("dash-decoded-from-claude-project-dir");
+    expect(entry.path.evidence).toContain("inferred-path-exists");
+    expect(entry.sourceExists).toBe(true);
+    expect(entry.sessionCount).toBe(2);
+    expect(entry.sizeBytes).toBeGreaterThan(128);
+    expect(entry.repo).toEqual({ remote: "github.com/Soul-Brews-Studio/plainrepo", owner: "Soul-Brews-Studio", name: "plainrepo" });
+    expect(entry.largestFiles[0]).toMatchObject({ name: "large.txt", sizeBytes: 128 });
+    expect(entry.warnings).not.toContain("path confidence is ambiguous");
+  });
+
+  test("does not overclaim exactness for lossy hyphenated project names", async () => {
+    const encoded = "-opt-Code-github.com-Soul-Brews-Studio-maw-js";
+    const finding = inferPathFromEncoded(encoded, { existsSync: () => false, cwd: () => "/elsewhere" });
+
+    expect(finding.inferred).toBe("/opt/Code/github.com/Soul/Brews/Studio/maw/js");
+    expect(finding.confidence).toBe("ambiguous");
+    expect(finding.evidence).toContain("dash-decoded-from-claude-project-dir");
+  });
+
+  test("marks non-absolute encoded directories as unknown and flags empty project dirs", async () => {
+    const root = tempRoot();
+    const projectDir = join(root, "relative-name");
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = await auditClaudeProjects({ projectsRoot: root, now: () => new Date("2026-05-30T00:00:00Z") });
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].path).toEqual({
+      encoded: "relative-name",
+      confidence: "unknown",
+      evidence: ["encoded-name-does-not-look-like-absolute-claude-project-dir"],
+    });
+    expect(result.entries[0].warnings).toContain("path confidence is unknown");
+    expect(result.entries[0].warnings).toContain("no JSONL sessions found");
+  });
+
+  test("surfaces worktree-shaped directories and stat failures without throwing", async () => {
+    const root = tempRoot();
+    const source = join(root, "agents", "1", "mawjs");
+    const encoded = encodeClaudeProjectPath(source);
+    const projectDir = join(root, "claude", encoded);
+    mkdirSync(projectDir, { recursive: true });
+    writeJsonl(join(projectDir, "session.jsonl"));
+
+    const result = await auditClaudeProjects({
+      projectsRoot: join(root, "claude"),
+      cwd: () => "/elsewhere",
+      statSync: (path) => {
+        if (String(path).endsWith("session.jsonl")) throw new Error("boom");
+        return statSync(path);
+      },
+    });
+
+    const entry = result.entries[0];
+    expect(entry.worktree.detected).toBe(true);
+    expect(entry.worktree.evidence).toContain("path-shape-suggests-worktree");
+    expect(entry.warnings.some(w => w.includes("stat failed") && w.includes("boom"))).toBe(true);
+  });
+});
