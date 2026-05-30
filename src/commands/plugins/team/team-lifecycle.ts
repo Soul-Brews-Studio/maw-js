@@ -216,7 +216,7 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const model = opts.model || "sonnet";
+  const model = opts.model || "opus";
   const parts: string[] = [];
   parts.push(`You are '${role}' on team '${teamName}'.`);
   if (opts.prompt) parts.push(opts.prompt);
