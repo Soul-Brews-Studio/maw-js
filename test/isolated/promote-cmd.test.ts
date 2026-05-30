@@ -25,9 +25,11 @@ function makeDeps(overrides: Partial<CmdPromoteDeps> = {}): CmdPromoteDeps & { l
       calls.push(["listWindows", s]);
       if (s === "77-mawjs") return [{ name: "mawjs-oracle" }, { name: "test-cli" }];
       if (s === "scratch") return [{ name: "scratch" }];
+      if (s === "isolated") return [{ name: "test-cli" }, { name: "__promote_placeholder__" }];
       return [];
     },
     newSession: async (n: string, opts) => { calls.push(["newSession", n, opts]); return undefined; },
+    killSession: async (n: string) => { calls.push(["killSession", n]); },
     killWindow: async (t: string) => { calls.push(["killWindow", t]); },
     run: async (sub: string, ...args: string[]) => { calls.push(["run", sub, ...args]); return ""; },
     switchClient: async (s: string) => { calls.push(["switchClient", s]); },
@@ -199,6 +201,41 @@ describe("cmdPromote (#1910)", () => {
     });
     await expect(cmdPromote(["77-mawjs:test-cli", "--as", "isolated"], deps))
       .rejects.toThrow(/tmux move failed — permission denied/);
+    expect(deps.calls).toContainEqual(["killSession", "isolated"]);
+  });
+
+  test("move-window failure rollback falls back to killing placeholder window", async () => {
+    const deps = makeDeps({
+      hasSession: async () => false,
+      killSession: async (n) => {
+        deps.calls.push(["killSession", n]);
+        throw new Error("session busy");
+      },
+      run: async (sub) => {
+        if (sub === "move-window") throw new Error("permission denied");
+        return "";
+      },
+    });
+    await expect(cmdPromote(["77-mawjs:test-cli", "--as", "isolated"], deps))
+      .rejects.toThrow(/tmux move failed — permission denied/);
+    expect(deps.calls).toContainEqual(["killSession", "isolated"]);
+    expect(deps.calls).toContainEqual(["killWindow", "isolated:__promote_placeholder__"]);
+  });
+
+  test("move-window silent no-op → verifies destination and rolls back placeholder session", async () => {
+    const deps = makeDeps({
+      hasSession: async () => false,
+      listWindows: async (s: string) => {
+        deps.calls.push(["listWindows", s]);
+        if (s === "77-mawjs") return [{ name: "mawjs-oracle" }, { name: "test-cli" }];
+        if (s === "isolated") return [{ name: "__promote_placeholder__" }];
+        return [];
+      },
+    });
+    await expect(cmdPromote(["77-mawjs:test-cli", "--as", "isolated"], deps))
+      .rejects.toThrow(/did not appear in 'isolated'.*rolled back placeholder session/);
+    expect(deps.calls).toContainEqual(["run", "move-window", "-s", "77-mawjs:test-cli", "-t", "isolated:"]);
+    expect(deps.calls).toContainEqual(["killSession", "isolated"]);
   });
 
   test("listWindows failure → throws UserError with source-list reason", async () => {

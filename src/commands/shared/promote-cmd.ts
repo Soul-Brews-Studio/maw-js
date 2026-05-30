@@ -72,6 +72,7 @@ export interface CmdPromoteDeps {
   hasSession?: (name: string) => Promise<boolean>;
   listWindows?: (session: string) => Promise<{ name: string }[]>;
   newSession?: (name: string, opts: { window?: string }) => Promise<string | undefined>;
+  killSession?: (name: string) => Promise<void>;
   killWindow?: (target: string) => Promise<void>;
   run?: (subcommand: string, ...args: string[]) => Promise<string>;
   switchClient?: (session: string, opts?: { readonly?: boolean }) => Promise<void>;
@@ -114,6 +115,7 @@ export async function cmdPromote(argv: string[], deps: CmdPromoteDeps = {}): Pro
   const hasSessionFn = deps.hasSession ?? ((name) => tmux.hasSession(name));
   const listWindowsFn = deps.listWindows ?? ((session) => tmux.listWindows(session));
   const newSessionFn = deps.newSession ?? ((name, opts) => tmux.newSession(name, opts));
+  const killSessionFn = deps.killSession ?? ((name) => tmux.killSession(name));
   const killWindowFn = deps.killWindow ?? ((t) => tmux.killWindow(t));
   const runFn = deps.run ?? ((sub, ...args) => tmux.run(sub, ...args));
   const switchClientFn = deps.switchClient ?? ((s, opts) => tmux.switchClient(s, opts));
@@ -174,21 +176,60 @@ export async function cmdPromote(argv: string[], deps: CmdPromoteDeps = {}): Pro
     throw new UserError(`promote: destination '${dstSession}' already exists`);
   }
 
-  // 5. Execute eject.
-  try {
-    if (!dstExists) {
-      await newSessionFn(dstSession, { window: PROMOTE_PLACEHOLDER });
-    }
-    await runFn("move-window", "-s", srcTarget, "-t", `${dstSession}:`);
-    if (!dstExists) {
+  async function rollbackCreatedDestination(reason: string): Promise<void> {
+    try {
+      await killSessionFn(dstSession);
+    } catch {
       try {
         await killWindowFn(`${dstSession}:${PROMOTE_PLACEHOLDER}`);
       } catch {
-        // Placeholder may already be auto-cleaned by tmux; safe to ignore.
+        // Best-effort rollback only; preserve the primary move failure.
       }
     }
+    error(`      \x1b[90mrollback: removed placeholder session '${dstSession}' after ${reason}\x1b[0m`);
+  }
+
+  // 5. Execute eject.
+  let createdDestination = false;
+  try {
+    if (!dstExists) {
+      await newSessionFn(dstSession, { window: PROMOTE_PLACEHOLDER });
+      createdDestination = true;
+    }
+    await runFn("move-window", "-s", srcTarget, "-t", `${dstSession}:`);
   } catch (e: unknown) {
+    if (createdDestination) await rollbackCreatedDestination("move-window failure");
     throw new UserError(`promote: tmux move failed — ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  let dstWindows: { name: string }[];
+  try {
+    dstWindows = await listWindowsFn(dstSession);
+  } catch (e: unknown) {
+    throw new UserError(
+      `promote: tmux move verification failed — cannot list destination session '${dstSession}': ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  if (!dstWindows.some(w => w.name === srcWindow)) {
+    const onlyPlaceholder = dstWindows.length === 0 || dstWindows.every(w => w.name === PROMOTE_PLACEHOLDER);
+    if (createdDestination && onlyPlaceholder) {
+      await rollbackCreatedDestination("move verification failure");
+      throw new UserError(
+        `promote: tmux move failed — '${srcTarget}' did not appear in '${dstSession}' after move-window; rolled back placeholder session`,
+      );
+    }
+    throw new UserError(
+      `promote: tmux move verification failed — '${srcTarget}' did not appear in '${dstSession}' after move-window`,
+    );
+  }
+
+  if (createdDestination) {
+    try {
+      await killWindowFn(`${dstSession}:${PROMOTE_PLACEHOLDER}`);
+    } catch {
+      // Placeholder may already be auto-cleaned by tmux; safe to ignore.
+    }
   }
 
   // 6. Report (Q5 β+γ — raw tmux undo since `maw take` doesn't exist yet).
