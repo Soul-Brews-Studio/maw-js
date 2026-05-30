@@ -73,14 +73,44 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         ok: true,
         output: `usage: maw team <subcommand> [args]
 
-subcommands:
-  create <name>            create a new team (alias: new)
-  spawn <team> <role>      spawn agent into team
-  delete <name>            delete a team
-  status                   show team status
-  invite <oracle>          invite oracle to team
-  members <name>           list team members
-  send <name> <message>    send message to team
+lifecycle:
+  create <name>              create a new team (alias: new)
+  spawn <team> <role>        spawn agent into team
+  resume <name>              resume a team from past life
+  shutdown <name>            shut down team (aliases: down) [--force] [--merge]
+  delete <name>              delete a team (alias: rm)
+  cleanup                    sweep zombie agent panes [--zombie-agents] [--yes]
+
+info:
+  list                       list all teams (alias: ls; also the no-arg default)
+  status [name]              show team status
+  members [name]             list team members
+  lives <agent>              show an agent's past lives (alias: history)
+
+tasks:
+  add <subject>              add a task (alias: task) [--team <n>] [--assign <a>]
+  tasks [name]               list tasks
+  done <id>                  mark a task done [--team <n>]
+  assign <id> <agent>        assign a task [--team <n>]
+
+comms:
+  send <name> <agent> <msg>  send a structured message (alias: msg)
+  hey <agent> <msg>          send keystrokes to an agent's pane
+  broadcast <msg>            send keystrokes to all agent panes (alias: shout)
+  inbox [agent]              show inbox messages [--mark-read]
+
+membership:
+  invite <team> <peer>       invite a peer team [--scope <s>] [--lead <l>]
+  oracle-invite <oracle>     invite an oracle [--team <t>] [--role <r>]
+  oracle-remove <oracle>     remove an oracle [--team <t>]
+
+tmux layout:
+  split <target>             open a pane (alias: open) [--pct N] [--vertical]
+  close                      close all split panes except this one
+  peek <target>              peek at a session/agent pane
+  prep <1-10>                pre-create N panes [--tiled]
+  layout [main-vertical|tiled]  apply a layout preset [--pct N]
+  recover [name]             restore layout from snapshot
 
 spawn flags:
   --model <model>          model to use (e.g. opus, sonnet)
