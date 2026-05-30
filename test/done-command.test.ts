@@ -221,17 +221,27 @@ describe("cmdDone", () => {
     expect(h.logs.join("\n")).toContain("killed window work:tile-1");
   });
 
-  test("dry-run for a missing window reports that no autosave target is running", async () => {
+  test("dry-run for a missing window reports lookup paths without mutating cleanup state", async () => {
+    const fleetFile = "/fleet/team.json";
     const h = createHarness({
       sessions: [{ name: "work", windows: [{ index: 0, name: "lead", active: true }] }],
+      files: {
+        [fleetFile]: JSON.stringify({ windows: [{ name: "missing", repo: "org/repo.wt-missing" }] }),
+      },
+      hostExec: (command) => {
+        if (command.startsWith("find ")) return "";
+        throw new Error(`dry-run should not mutate: ${command}`);
+      },
     });
 
     await cmdDone("missing", { dryRun: true }, h.deps);
 
     expect(h.logs.join("\n")).toContain("window 'missing' not running — nothing to auto-save");
-    expect(h.logs.join("\n")).toContain("window 'missing' not running");
+    expect(h.logs.join("\n")).toContain("[dry-run] would remove worktree org/repo.wt-missing");
+    expect(h.logs.join("\n")).toContain("[dry-run] would remove 'missing' from fleet config if present");
     expect(h.killed).toEqual([]);
-    expect(h.snapshots).toEqual(["done"]);
+    expect(h.snapshots).toEqual([]);
+    expect(JSON.parse(h.files.get(fleetFile)!)).toEqual({ windows: [{ name: "missing", repo: "org/repo.wt-missing" }] });
   });
 });
 
@@ -567,6 +577,44 @@ describe("done worktree cleanup helpers", () => {
     expect(h.commands).toEqual(["find '/repos/github.com' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null"]);
     expect(h.errors.join("\n")).toContain("refusing to remove worktree 'tile-1' — matches 2 repos");
     expect(h.errors.join("\n")).toContain("/repos/github.com/Other/repo.wt-tile-1");
+  });
+
+
+  test("removeWorktreeByGhqScan uses caller cwd to disambiguate same-suffix worktrees", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.startsWith("find ")) {
+          return [
+            "/repos/github.com/laris-co/ccc-oracle.wt-trio-coder",
+            "/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder",
+          ].join("\n");
+        }
+        if (command.includes("rev-parse --show-toplevel")) return "/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder\n";
+        if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/trio\n";
+        if (command.includes("merge-base --is-ancestor")) return "";
+        return "";
+      },
+    });
+
+    await expect(removeWorktreeByGhqScan("mawjs-trio-coder", "/repos/github.com", h.deps, { cwd: "/repos/github.com/Soul-Brews-Studio/mawjs-oracle" })).resolves.toBe(true);
+
+    expect(h.logs.join("\n")).toContain("scoped ambiguous worktree 'trio-coder' to cwd repo /repos/github.com/Soul-Brews-Studio/mawjs-oracle");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/mawjs-oracle' worktree remove '/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder' --force");
+    expect(h.commands.join("\n")).not.toContain("ccc-oracle.wt-trio-coder' --force");
+  });
+
+  test("removeWorktreeByGhqScan dry-run reports resolved worktrees without removing them", async () => {
+    const h = createHarness({
+      hostExec: (command) => {
+        if (command.startsWith("find ")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
+        throw new Error(`dry-run should not run git mutation: ${command}`);
+      },
+    });
+
+    await expect(removeWorktreeByGhqScan("x-tile-1", "/repos/github.com", h.deps, { dryRun: true })).resolves.toBe(true);
+
+    expect(h.commands).toEqual(["find '/repos/github.com' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null"]);
+    expect(h.logs.join("\n")).toContain("[dry-run] would remove worktree maw-js.wt-tile-1");
   });
 
   test("removeWorktreeByGhqScan reports find and per-worktree failures", async () => {

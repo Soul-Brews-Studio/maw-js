@@ -46,7 +46,7 @@ describe("done plugin index wrapper", () => {
     } as InvokeCtx);
 
     expect(result).toEqual({ ok: true, output: "done:tile-1:true:true" });
-    expect(doneCalls).toEqual([{ name: "tile-1", opts: { force: true, dryRun: true, cleanBranch: true } }]);
+    expect(doneCalls).toEqual([{ name: "tile-1", opts: { force: true, dryRun: true, cleanBranch: true, cwd: process.cwd() } }]);
     expect(doneAllCalls).toEqual([]);
   });
 
@@ -60,7 +60,7 @@ describe("done plugin index wrapper", () => {
     } as InvokeCtx);
 
     expect(result).toEqual({ ok: true, output: undefined });
-    expect(doneAllCalls).toEqual([{ force: true, dryRun: false, cleanBranch: true }]);
+    expect(doneAllCalls).toEqual([{ force: true, dryRun: false, cleanBranch: true, cwd: process.cwd() }]);
     expect(lines).toEqual(["all:true:false"]);
   });
 
@@ -71,7 +71,7 @@ describe("done plugin index wrapper", () => {
     } as InvokeCtx);
 
     expect(result.ok).toBe(true);
-    expect(doneCalls).toEqual([{ name: "tile-2", opts: { force: true, dryRun: false, cleanBranch: true } }]);
+    expect(doneCalls).toEqual([{ name: "tile-2", opts: { force: true, dryRun: false, cleanBranch: true, cwd: process.cwd() } }]);
   });
 
   test("returns usage for missing API name without calling implementation", async () => {

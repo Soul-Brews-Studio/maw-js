@@ -7,6 +7,8 @@ import { parseWorktreePath } from "maw-js/core/fleet/worktree-layout";
 export interface DoneBranchCleanupOpts {
   cleanBranch?: boolean;
   branchBase?: string;
+  dryRun?: boolean;
+  cwd?: string;
 }
 
 function activeFleetConfigFiles(): Array<{ file: string; path: string }> {
@@ -27,6 +29,18 @@ function activeFleetConfigFiles(): Array<{ file: string; path: string }> {
 
 function shellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+async function cwdMainPath(cwd: string | undefined, reposRoot: string): Promise<string | null> {
+  if (!cwd) return null;
+  try {
+    const top = (await hostExec(`git -C ${shellArg(cwd)} rev-parse --show-toplevel`)).trim();
+    if (!top) return null;
+    const parsed = parseWorktreePath(top, reposRoot);
+    return parsed?.mainPath ?? top;
+  } catch {
+    return null;
+  }
 }
 
 function branchBaseFor(mainPath: string, opts: DoneBranchCleanupOpts = {}): string {
@@ -123,6 +137,10 @@ export async function removeWorktreeViaConfig(
       const mainPath = parsed.mainPath;
 
       try {
+        if (opts.dryRun) {
+          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${win.repo}`);
+          return true;
+        }
         let branch = "";
         try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
         await hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
@@ -161,18 +179,34 @@ export async function removeWorktreeByGhqScan(
       const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
       return wtSuffix.toLowerCase() === suffix.toLowerCase();
     });
-    if (exactMatch.length > 1) {
-      console.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${exactMatch.length} repos:`);
-      for (const wtPath of exactMatch) console.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
+    let matches = exactMatch;
+    if (matches.length > 1) {
+      const mainPath = await cwdMainPath(opts.cwd, reposRoot);
+      if (mainPath) {
+        const scoped = matches.filter((p) => parseWorktreePath(p, reposRoot)?.mainPath === mainPath);
+        if (scoped.length === 1) {
+          matches = scoped;
+          console.log(`  \x1b[36m⬡\x1b[0m scoped ambiguous worktree '${suffix}' to cwd repo ${mainPath}`);
+        }
+      }
+    }
+    if (matches.length > 1) {
+      console.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${matches.length} repos:`);
+      for (const wtPath of matches) console.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
       console.error(`  \x1b[90m  use fleet config or remove the exact worktree manually\x1b[0m`);
       return false;
     }
-    for (const wtPath of exactMatch) {
+    for (const wtPath of matches) {
       const parsed = parseWorktreePath(wtPath, reposRoot);
       if (!parsed) continue;
       const base = parsed.dirName;
       const mainPath = parsed.mainPath;
       try {
+        if (opts.dryRun) {
+          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${base}`);
+          removed = true;
+          continue;
+        }
         let branch = "";
         try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
         await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);

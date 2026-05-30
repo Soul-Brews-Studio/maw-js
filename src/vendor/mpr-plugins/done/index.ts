@@ -44,7 +44,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     if (all) {
-      await cmdDoneAll({ force, dryRun, cleanBranch });
+      await cmdDoneAll({ force, dryRun, cleanBranch, cwd: process.cwd() });
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
@@ -52,7 +52,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] [--clean-branch] or maw done --all [--force] [--dry-run] [--clean-branch]  (see: maw sleep/kill for non-worktree shutdown)" };
     }
 
-    await cmdDone(name, { force, dryRun, cleanBranch });
+    await cmdDone(name, { force, dryRun, cleanBranch, cwd: process.cwd() });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

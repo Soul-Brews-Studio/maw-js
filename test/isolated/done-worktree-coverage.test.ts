@@ -295,6 +295,37 @@ describe("removeWorktreeByGhqScan", () => {
     expect(output).toContain("use fleet config or remove the exact worktree manually");
   });
 
+
+  test("uses caller cwd to disambiguate exact suffix matches and dry-run avoids worktree removal", async () => {
+    const one = join(REPOS_ROOT, "github.com", "laris-co", "ccc-oracle.wt-trio-coder");
+    const two = join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle", "agents", "1-trio-coder");
+    hostExecHandler = (command) => {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) return [one, two].join("\n");
+      if (command.includes("rev-parse --show-toplevel")) return `${join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle", "agents", "1-trio-coder")}\n`;
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/trio\n";
+      return "";
+    };
+
+    const output = await captureConsole(async () => {
+      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, { cwd: join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle") })).toBe(true);
+    });
+
+    expect(output).toContain("scoped ambiguous worktree 'trio-coder'");
+    expect(hostExecCalls).toContain(`git -C '${join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle")}' worktree remove '${two}' --force`);
+    expect(hostExecCalls.join("\n")).not.toContain("ccc-oracle.wt-trio-coder' --force");
+
+    hostExecCalls = [];
+    hostExecHandler = (command) => {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) return two;
+      throw new Error(`dry-run should not mutate: ${command}`);
+    };
+    const dryRunOutput = await captureConsole(async () => {
+      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, { dryRun: true })).toBe(true);
+    });
+    expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`]);
+    expect(dryRunOutput).toContain("[dry-run] would remove worktree agents/1-trio-coder");
+  });
+
   test("reports scan failures and returns false", async () => {
     hostExecHandler = () => {
       throw new Error("find denied");

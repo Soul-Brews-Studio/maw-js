@@ -11,6 +11,7 @@ export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
   cleanBranch?: boolean;
+  cwd?: string;
   /** Restrict window-name lookup to a specific tmux session. Used by done --all. */
   sessionName?: string;
 }
@@ -103,6 +104,12 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
   if (!removedWorktree) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+  }
+
+  if (opts.dryRun) {
+    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
+    console.log();
+    return;
   }
 
   // 3. Remove from fleet config
