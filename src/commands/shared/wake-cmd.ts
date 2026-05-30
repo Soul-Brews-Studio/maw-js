@@ -1144,9 +1144,18 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
   }
 
+  const registerWorktreeWindow = (fleetWindowName = windowName) => {
+    if (opts.noFleet || !(opts.task || opts.wt)) return;
+    const fleet = ensureFleetSessionEntry({ session, window: fleetWindowName, cwd: targetPath, createdBy: "maw wake" });
+    if (fleet.status === "created" || fleet.status === "updated") {
+      console.log(`\x1b[32m+\x1b[0m fleet registered window ${session}:${fleetWindowName}`);
+    }
+  };
+
   const existingWindow = findExistingWakeWindow(knownWindows, oracle, windowName);
   if (existingWindow) {
       const target = `${session}:${existingWindow}`;
+      registerWorktreeWindow(existingWindow);
       if (opts.prompt) {
         await tmux.selectWindow(target);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
@@ -1231,6 +1240,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   await assertAgentCapacity(oracle);
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
+  registerWorktreeWindow();
   await new Promise(r => setTimeout(r, 300));
   const cmd = buildWakeCommand(windowName, targetPath, opts);
   if (opts.prompt) {

@@ -28,6 +28,7 @@ const _rClaudeSessions = await import("../src/core/fleet/claude-sessions");
 const _rShouldAutoWake =
   await import("../src/commands/shared/should-auto-wake");
 const _rTeamEnsure = await import("../src/commands/plugins/team/ensure-config");
+const _rFleetEnsure = await import("../src/commands/shared/fleet-ensure");
 
 const realSdk = {
   hostExec: _rSdk.hostExec,
@@ -93,6 +94,7 @@ const realClaudeSessions = {
 };
 const realShouldAutoWake = { shouldAutoWake: _rShouldAutoWake.shouldAutoWake };
 const realTeamEnsure = { ensureTeamConfig: _rTeamEnsure.ensureTeamConfig };
+const realFleetEnsure = { ensureFleetSessionEntry: _rFleetEnsure.ensureFleetSessionEntry };
 
 type TmuxWindow = {
   index: number;
@@ -170,6 +172,7 @@ let maybeSplitCalls: Array<{ target: string; opts: any }>;
 let maybeOpenWindowCalls: Array<{ target: string; opts: any }>;
 let writeSignalCalls: Array<{ root: string; child: string; signal: any }>;
 let ensureClonedCalls: string[];
+let ensureFleetSessionEntryCalls: Array<Parameters<typeof _rFleetEnsure.ensureFleetSessionEntry>[0]>;
 let createdWorktrees: Array<{
   repoPath: string;
   parentDir: string;
@@ -539,6 +542,25 @@ mock.module(
   }),
 );
 
+mock.module(join(import.meta.dir, "../src/commands/shared/fleet-ensure"), () => ({
+  ..._rFleetEnsure,
+  ensureFleetSessionEntry: (input: Parameters<typeof _rFleetEnsure.ensureFleetSessionEntry>[0]) => {
+    if (!mockActive) return realFleetEnsure.ensureFleetSessionEntry(input);
+    ensureFleetSessionEntryCalls.push(input);
+    return {
+      status: "updated",
+      file: "/fleet/session.json",
+      entry: {
+        file: "session.json",
+        path: "/fleet/session.json",
+        num: 0,
+        groupName: "session",
+        session: { name: input.session, windows: [{ name: input.window, repo: input.cwd }] },
+      },
+    } as ReturnType<typeof _rFleetEnsure.ensureFleetSessionEntry>;
+  },
+}));
+
 const { cmdWake, _wtPicker, promptAmbiguousBringPick } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
@@ -606,6 +628,7 @@ beforeEach(() => {
   maybeOpenWindowCalls = [];
   writeSignalCalls = [];
   ensureClonedCalls = [];
+  ensureFleetSessionEntryCalls = [];
   createdWorktrees = [];
 });
 
@@ -1468,6 +1491,42 @@ describe("cmdWake main-suite coverage", () => {
       opts: { cwd: join(parentDir, "homekeeper-oracle.wt-2-white") },
     });
     expect(logs.join("\n")).toContain("reusing worktree");
+  });
+
+  test("registers split worktree windows before they can be joined away (#1956)", async () => {
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "04-homekeeper" }];
+    hasSessions = new Set(["04-homekeeper"]);
+    detectSessionReturn = "04-homekeeper";
+    windowsBySession = {
+      "04-homekeeper": [{ index: 0, name: "homekeeper-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("homekeeper", { wt: "white", name: "osmosis", split: true }),
+    );
+
+    const wtPath = join(repoPath, "agents", "osmosis-white");
+    expect(result).toBe("04-homekeeper:homekeeper-osmosis-white");
+    expect(newWindowCalls).toContainEqual({
+      session: "04-homekeeper",
+      name: "homekeeper-osmosis-white",
+      opts: { cwd: wtPath },
+    });
+    expect(ensureFleetSessionEntryCalls).toContainEqual({
+      session: "04-homekeeper",
+      window: "homekeeper-osmosis-white",
+      cwd: wtPath,
+      createdBy: "maw wake",
+    });
+    expect(maybeSplitCalls).toContainEqual({
+      target: "04-homekeeper:homekeeper-osmosis-white",
+      opts: expect.objectContaining({ split: true }),
+    });
+    expect(logs.join("\n")).toContain("fleet registered window 04-homekeeper:homekeeper-osmosis-white");
   });
 
   test("creates a stable named worktree for --wt plus --name (#1768)", async () => {
