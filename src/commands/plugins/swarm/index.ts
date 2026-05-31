@@ -7,6 +7,19 @@ export const command = {
   description: "Spawn multi-AI agent panes — claude, codex, opencode side by side.",
 };
 
+const SUPPORTED_FLAGS = ["--tiled", "--count", "--help", "-h", "--parent", "--parent-session-id", "--session-id"];
+
+function unknownSwarmFlag(positionals: string[]): string | undefined {
+  return positionals.find((arg) => arg.startsWith("-"));
+}
+
+function unknownFlagMessage(flag: string): string {
+  if (flag === "--wt" || flag === "--worktree") {
+    return "unknown flag for swarm: --wt. maw swarm is shared-cwd only; for an isolated worktree-per-member use: maw wake <oracle> --wt <slot> --split -e <engine>";
+  }
+  return `unknown flag for swarm: ${flag} (supported: ${SUPPORTED_FLAGS.join(", ")})`;
+}
+
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
@@ -46,6 +59,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const tiled = !!flags["--tiled"];
     const positional = flags._ as string[];
+    const unknownFlag = unknownSwarmFlag(positional);
+    if (unknownFlag) {
+      const message = unknownFlagMessage(unknownFlag);
+      console.log(`[31m✗[0m ${message}`);
+      return { ok: false, error: message, output: logs.join("\n") || undefined };
+    }
 
     let agentList: string[];
     if (positional.length > 0) {
