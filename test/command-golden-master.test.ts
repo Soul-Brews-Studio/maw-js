@@ -22,6 +22,7 @@ const baseConfig = {
 };
 
 const origGetuid = process.getuid;
+const origGenericEngines = process.env.MAW_GENERIC_ENGINES;
 
 beforeEach(() => {
   (process as any).getuid = () => 1000;
@@ -29,6 +30,8 @@ beforeEach(() => {
 
 afterEach(() => {
   (process as any).getuid = origGetuid;
+  if (origGenericEngines === undefined) delete process.env.MAW_GENERIC_ENGINES;
+  else process.env.MAW_GENERIC_ENGINES = origGenericEngines;
 });
 
 function build(engine: string, extra: Record<string, unknown> = {}, opts?: any): string {
@@ -78,5 +81,25 @@ describe("buildCommandFromConfig golden master (#1960 P0)", () => {
       "claude --channels plugin:discord@claude-plugins-official",
     );
     expect(buildCommandInDirFromConfig(baseConfig as any, "codex-agent", tmp, "codex")).toBe("codex");
+  });
+
+  test("MAW_GENERIC_ENGINES=0 preserves the legacy renderer rollback path", () => {
+    process.env.MAW_GENERIC_ENGINES = "0";
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      commands: { default: "claude", codex: "codex --legacy" },
+      engines: { codex: { name: "codex", cmd: "codex --typed" } },
+    } as any, "codex-agent", "codex")).toBe("codex --legacy");
+  });
+
+  test("typed engines can override legacy commands when the generic renderer is enabled", () => {
+    delete process.env.MAW_GENERIC_ENGINES;
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      commands: { default: "claude", codex: "codex --legacy" },
+      engines: { codex: { name: "codex", cmd: "codex --typed" } },
+    } as any, "codex-agent", "codex")).toBe("codex --typed");
   });
 });

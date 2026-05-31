@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import type { MawConfig } from "./types";
 import { getChannelEnv, getChannelPermissionMode, getChannelPluginIds } from "../commands/shared/channel-loader";
+import { resolveEngine } from "./engine-registry";
 
 const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
@@ -97,6 +98,52 @@ function shouldAutoDiscordChannels(cwd?: string): boolean {
   try { return existsSync(join(cwd, ".discord")); } catch { return false; }
 }
 
+function legacyCommandForAgent(
+  config: Partial<MawConfig>,
+  agentName: string,
+  opts: BuildCommandOpts,
+): string {
+  const commands = config.commands || { default: "claude" };
+  let cmd: string;
+
+  if (opts.engine && commands[opts.engine]) {
+    cmd = commands[opts.engine];
+  } else {
+    cmd = commands.default || "claude";
+    for (const [pattern, command] of Object.entries(commands)) {
+      if (pattern === "default") continue;
+      if (matchGlob(pattern, agentName)) { cmd = command; break; }
+    }
+  }
+
+  return cmd;
+}
+
+function renderCommandFromEngine(
+  config: Partial<MawConfig>,
+  agentName: string,
+  opts: BuildCommandOpts,
+): string {
+  const commands = config.commands || { default: "claude" };
+
+  // Preserve the legacy "unknown explicit engine falls back to default/pattern"
+  // behavior unless the new typed engine registry has an explicit entry.
+  if (opts.engine && config.engines?.[opts.engine]) {
+    return resolveEngine(opts.engine, config).cmd;
+  }
+  if (opts.engine && commands[opts.engine]) {
+    return resolveEngine(opts.engine, config).cmd;
+  }
+
+  let engineName = "default";
+  for (const pattern of Object.keys(commands)) {
+    if (pattern === "default") continue;
+    if (matchGlob(pattern, agentName)) { engineName = pattern; break; }
+  }
+
+  return resolveEngine(engineName, config).cmd;
+}
+
 function addDiscordChannelsForClaude(cmd: string, cwd?: string): string {
   if (!shouldAutoDiscordChannels(cwd)) return cmd;
   if (hasChannelsFlag(cmd)) return cmd;
@@ -111,18 +158,9 @@ export function buildCommandFromConfig(
   context: { cwd?: string } = {},
 ): string {
   const opts = enrichOptionsFromChannelConfig(agentName, normalizeBuildCommandOpts(optsOrEngine), context.cwd);
-  const commands = config.commands || { default: "claude" };
-  let cmd: string;
-
-  if (opts.engine && commands[opts.engine]) {
-    cmd = commands[opts.engine];
-  } else {
-    cmd = commands.default || "claude";
-    for (const [pattern, command] of Object.entries(commands)) {
-      if (pattern === "default") continue;
-      if (matchGlob(pattern, agentName)) { cmd = command; break; }
-    }
-  }
+  let cmd = process.env.MAW_GENERIC_ENGINES === "0"
+    ? legacyCommandForAgent(config, agentName, opts)
+    : renderCommandFromEngine(config, agentName, opts);
 
   const commandOpts = opts.channelConfigLoaded && !isClaudeLikeCommand(cmd)
     ? { ...opts, channels: [], channelEnv: undefined }
