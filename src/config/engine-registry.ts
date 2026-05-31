@@ -22,7 +22,8 @@ function isClaudeLikeCommand(cmd: string): boolean {
 }
 
 function fromLegacyCommand(name: string, cmd: string): EngineDef {
-  const def: EngineDef = { name, cmd };
+  const builtIn = DEFAULT_ENGINES[name];
+  const def: EngineDef = { name, cmd, ...(builtIn?.label ? { label: builtIn.label } : {}) };
   if (isClaudeLikeCommand(cmd)) {
     def.resume = { flag: "--resume", replaces: "--continue", quoteValue: true };
     def.model = { flag: "--model", default: "sonnet" };

@@ -81,9 +81,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       cmdTeamCreate(args[1], { description });
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--parent-session-id <id>] [--session-id <id>] [--exec]");
+        logs.push("usage: maw team spawn <team> <role> [--engine <engine>] [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--parent-session-id <id>] [--session-id <id>] [--exec]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
+      const engineIdx = args.indexOf("--engine") !== -1 ? args.indexOf("--engine") : args.indexOf("-e");
+      const engine = engineIdx !== -1 ? args[engineIdx + 1] : undefined;
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
       const cwdIdx = args.indexOf("--cwd");
@@ -103,7 +105,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         for (let i = 0; i < rawTail.length; i++) {
           const a = rawTail[i];
           if (a === "--exec") continue;
-          if (a === "--model" || a === "--cwd" || a === "--worktree" || a === "--parent" || a === "--parent-session-id" || a === "--session-id") {
+          if (a === "--engine" || a === "-e" || a === "--model" || a === "--cwd" || a === "--worktree" || a === "--parent" || a === "--parent-session-id" || a === "--session-id") {
             i++;
             continue;
           }
@@ -111,7 +113,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         }
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd, parentSessionId, sessionId });
+      await cmdTeamSpawn(args[1], args[2], { engine, model, prompt, exec, cwd, parentSessionId, sessionId });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");

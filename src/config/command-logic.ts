@@ -2,8 +2,9 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { MawConfig } from "./types";
+import type { EngineDef } from "./engine-def";
 import { getChannelEnv, getChannelPermissionMode, getChannelPluginIds } from "../commands/shared/channel-loader";
-import { resolveEngine } from "./engine-registry";
+import { DEFAULT_ENGINES, resolveEngine } from "./engine-registry";
 
 const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
@@ -13,6 +14,12 @@ export interface BuildCommandOpts {
   channelEnv?: Record<string, string>;
   devChannels?: boolean;
   permissionMode?: "skip" | "relay";
+  /** Force a fresh launch form by removing engine resume/continue placeholders when possible. */
+  fresh?: boolean;
+  /** Optional model value for engines that declare a model flag. */
+  model?: string;
+  /** Optional system prompt file path for engines that support that launch form. */
+  systemPromptFile?: string;
   /** @internal: set when channels came from repo/global channel config rather than explicit opts. */
   channelConfigLoaded?: boolean;
 }
@@ -29,6 +36,11 @@ function isClaudeLikeCommand(cmd: string): boolean {
 
 function hasChannelsFlag(cmd: string): boolean {
   return /\s--channels(?:\s|=|$)/.test(cmd);
+}
+
+function hasLongFlag(cmd: string, flag: string): boolean {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\s${escaped}(?:\\s|=|$)`).test(cmd);
 }
 
 function expandLeadingTilde(value: string): string {
@@ -119,20 +131,21 @@ function legacyCommandForAgent(
   return cmd;
 }
 
-function renderCommandFromEngine(
+function selectEngineForAgent(
   config: Partial<MawConfig>,
   agentName: string,
   opts: BuildCommandOpts,
-): string {
+): EngineDef {
   const commands = config.commands || { default: "claude" };
 
   // Preserve the legacy "unknown explicit engine falls back to default/pattern"
   // behavior unless the new typed engine registry has an explicit entry.
-  if (opts.engine && config.engines?.[opts.engine]) {
-    return resolveEngine(opts.engine, config).cmd;
-  }
-  if (opts.engine && commands[opts.engine]) {
-    return resolveEngine(opts.engine, config).cmd;
+  if (opts.engine && (
+    config.engines?.[opts.engine]
+    || commands[opts.engine]
+    || DEFAULT_ENGINES[opts.engine as keyof typeof DEFAULT_ENGINES]
+  )) {
+    return resolveEngine(opts.engine, config);
   }
 
   let engineName = "default";
@@ -141,7 +154,43 @@ function renderCommandFromEngine(
     if (matchGlob(pattern, agentName)) { engineName = pattern; break; }
   }
 
-  return resolveEngine(engineName, config).cmd;
+  return resolveEngine(engineName, config);
+}
+
+function engineHas(engine: EngineDef | null, capability: string): boolean {
+  return Boolean(engine?.capabilities?.includes(capability));
+}
+
+function applyFreshLaunch(cmd: string, engine: EngineDef | null, opts: BuildCommandOpts): string {
+  if (!opts.fresh || !engine?.resume?.replaces || !engineHas(engine, "resume")) return cmd;
+  const escaped = engine.resume.replaces.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return cmd.replace(new RegExp(`\\s*${escaped}\\b`), "");
+}
+
+function applyModelFlag(cmd: string, engine: EngineDef | null, opts: BuildCommandOpts): string {
+  const flag = engine?.model?.flag;
+  if (!opts.model || !flag || !engineHas(engine, "model") || hasLongFlag(cmd, flag)) return cmd;
+  return `${cmd} ${flag} ${opts.model}`;
+}
+
+function applySystemPromptFile(cmd: string, engine: EngineDef | null, opts: BuildCommandOpts): string {
+  if (!opts.systemPromptFile || !engineHas(engine, "system-prompt-file") || hasLongFlag(cmd, "--system-prompt-file")) return cmd;
+  return `${cmd} --system-prompt-file ${shellQuote(opts.systemPromptFile)}`;
+}
+
+function applyResumeFlag(cmd: string, engine: EngineDef | null, sessionId: string, genericRenderer: boolean): string {
+  if (!genericRenderer) {
+    if (cmd.includes("--continue")) return cmd.replace(/\s*--continue\b/, ` --resume "${sessionId}"`);
+    return `${cmd} --resume "${sessionId}"`;
+  }
+
+  if (!engineHas(engine, "resume") || !engine?.resume?.flag) return cmd;
+  const value = engine.resume.quoteValue === false ? sessionId : `"${sessionId}"`;
+  if (engine.resume.replaces && cmd.includes(engine.resume.replaces)) {
+    const escaped = engine.resume.replaces.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return cmd.replace(new RegExp(`\\s*${escaped}\\b`), ` ${engine.resume.flag} ${value}`);
+  }
+  return `${cmd} ${engine.resume.flag} ${value}`;
 }
 
 function addDiscordChannelsForClaude(cmd: string, cwd?: string): string {
@@ -158,9 +207,15 @@ export function buildCommandFromConfig(
   context: { cwd?: string } = {},
 ): string {
   const opts = enrichOptionsFromChannelConfig(agentName, normalizeBuildCommandOpts(optsOrEngine), context.cwd);
-  let cmd = process.env.MAW_GENERIC_ENGINES === "0"
-    ? legacyCommandForAgent(config, agentName, opts)
-    : renderCommandFromEngine(config, agentName, opts);
+  const genericRenderer = process.env.MAW_GENERIC_ENGINES !== "0";
+  const engine = genericRenderer ? selectEngineForAgent(config, agentName, opts) : null;
+  let cmd = genericRenderer
+    ? engine!.cmd
+    : legacyCommandForAgent(config, agentName, opts);
+
+  cmd = applyFreshLaunch(cmd, engine, opts);
+  cmd = applyModelFlag(cmd, engine, opts);
+  cmd = applySystemPromptFile(cmd, engine, opts);
 
   const commandOpts = opts.channelConfigLoaded && !isClaudeLikeCommand(cmd)
     ? { ...opts, channels: [], channelEnv: undefined }
@@ -177,11 +232,7 @@ export function buildCommandFromConfig(
   const sessionId = sessionIds[agentName]
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
   if (sessionId) {
-    if (cmd.includes("--continue")) {
-      cmd = cmd.replace(/\s*--continue\b/, ` --resume "${sessionId}"`);
-    } else {
-      cmd += ` --resume "${sessionId}"`;
-    }
+    cmd = applyResumeFlag(cmd, engine, sessionId, genericRenderer);
   }
 
   cmd = applyChannelEnv(cmd, commandOpts.channelEnv);

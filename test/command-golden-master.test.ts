@@ -47,17 +47,17 @@ describe("buildCommandFromConfig golden master (#1960 P0)", () => {
       ["claude model", buildCommandFromConfig({ ...baseConfig, commands: { ...baseConfig.commands, claude: "claude --model opus" } } as any, "claude-agent", "claude"), "claude --model opus"],
 
       ["codex fresh", build("codex"), "codex"],
-      ["codex resume legacy-bug", build("codex", { sessionIds: { "codex-agent": "uuid-codex" } }), 'codex --resume "uuid-codex"'],
+      ["codex resume capability-gated", build("codex", { sessionIds: { "codex-agent": "uuid-codex" } }), "codex"],
       ["codex channels ignored", build("codex", {}, { engine: "codex", channels: ["plugin:discord@claude-plugins-official"] }), "codex"],
       ["codex model literal", buildCommandFromConfig({ ...baseConfig, commands: { ...baseConfig.commands, codex: "codex --model gpt-5.5" } } as any, "codex-agent", "codex"), "codex --model gpt-5.5"],
 
       ["opencode fresh", build("opencode"), "opencode"],
-      ["opencode resume legacy-bug", build("opencode", { sessionIds: { "opencode-agent": "uuid-open" } }), 'opencode --resume "uuid-open"'],
+      ["opencode resume capability-gated", build("opencode", { sessionIds: { "opencode-agent": "uuid-open" } }), "opencode"],
       ["opencode channels ignored", build("opencode", {}, { engine: "opencode", channels: ["plugin:discord@claude-plugins-official"] }), "opencode"],
       ["opencode model literal", buildCommandFromConfig({ ...baseConfig, commands: { ...baseConfig.commands, opencode: "opencode --model qwen" } } as any, "opencode-agent", "opencode"), "opencode --model qwen"],
 
       ["aider fresh", build("aider"), "aider"],
-      ["aider resume legacy-bug", build("aider", { sessionIds: { "aider-agent": "uuid-aider" } }), 'aider --resume "uuid-aider"'],
+      ["aider resume capability-gated", build("aider", { sessionIds: { "aider-agent": "uuid-aider" } }), "aider"],
       ["aider channels ignored", build("aider", {}, { engine: "aider", channels: ["plugin:discord@claude-plugins-official"] }), "aider"],
       ["aider model literal", buildCommandFromConfig({ ...baseConfig, commands: { ...baseConfig.commands, aider: "aider --model sonnet" } } as any, "aider-agent", "aider"), "aider --model sonnet"],
     ];
@@ -91,6 +91,15 @@ describe("buildCommandFromConfig golden master (#1960 P0)", () => {
       commands: { default: "claude", codex: "codex --legacy" },
       engines: { codex: { name: "codex", cmd: "codex --typed" } },
     } as any, "codex-agent", "codex")).toBe("codex --legacy");
+  });
+
+  test("MAW_GENERIC_ENGINES=0 preserves legacy non-Claude resume behavior", () => {
+    process.env.MAW_GENERIC_ENGINES = "0";
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      sessionIds: { "codex-agent": "uuid-codex" },
+    } as any, "codex-agent", "codex")).toBe('codex --resume "uuid-codex"');
   });
 
   test("typed engines can override legacy commands when the generic renderer is enabled", () => {

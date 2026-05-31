@@ -19,6 +19,7 @@ export interface TeamMember {
   agentType?: string;
   tmuxPaneId?: string;
   color?: string;
+  engine?: string;
   model?: string;
   backendType?: string;
 }

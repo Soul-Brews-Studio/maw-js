@@ -249,7 +249,10 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(readJson(manifestPath).members).toEqual(["scout"]);
     expect(readFileSync(join(root, "ψ/memory/mailbox/teams/qa-team/scout-spawn-prompt.md"), "utf-8")).toBe("You are 'scout' on team 'qa-team'.");
     expect(logs.join("\n")).toContain("past life: no");
-    expect(logs.join("\n")).toContain("cd '/tmp/path with '\\''quote' && claude --model sonnet --system-prompt-file");
+    expect(logs.join("\n")).toContain("cd '/tmp/path with '\\''quote' && ");
+    expect(logs.join("\n")).toContain("--model sonnet");
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).not.toContain("--continue");
   });
 
   test("spawn falls back to the vault prompt when tool-store launch prompt mirroring fails", async () => {
@@ -292,7 +295,9 @@ describe("vendor team-lifecycle second-pass coverage", () => {
 
     expect(hostExecCalls).toHaveLength(1);
     expect(hostExecCalls[0]).toContain("tmux split-window -h -l 50%");
-    expect(hostExecCalls[0]).toContain("claude --model opus --system-prompt-file");
+    expect(hostExecCalls[0]).toContain("--model opus");
+    expect(hostExecCalls[0]).toContain("--system-prompt-file");
+    expect(hostExecCalls[0]).not.toContain("--continue");
     expect(hostExecCalls[0]).not.toContain("--prompt-file");
     expect(hostExecCalls[0]).not.toContain("/ψ/");
     expect(hostExecCalls[0]).not.toContain("λ");
@@ -316,7 +321,25 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(hostExecCalls).toHaveLength(2);
     expect(logs.join("\n")).toContain("--exec split failed: tmux denied");
     expect(logs.join("\n")).toContain("Run manually:");
-    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model haiku --system-prompt-file");
+    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && ");
+    expect(logs.join("\n")).toContain("--model haiku");
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).not.toContain("--continue");
+  });
+
+
+  test("spawn supports non-Claude engines without Claude-only launch flags", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" });
+
+    const output = logs.join("\n");
+    expect(output).toContain("engine: codex");
+    expect(output).toContain("codex");
+    expect(output).not.toContain("--model sonnet");
+    expect(output).not.toContain("--system-prompt-file");
+    expect(output).not.toContain("--resume");
+    expect(readJson(join(teamsDir, "qa-team/config.json")).members).toEqual([{ name: "codexer", engine: "codex" }]);
   });
 
   test("spawn --exec outside tmux prints a manual command instead of starting a pane", async () => {
@@ -327,6 +350,8 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(hostExecCalls).toEqual([]);
     expect(logs.join("\n")).toContain("--exec requires an active tmux session");
     expect(logs.join("\n")).toContain("Run manually:");
-    expect(logs.join("\n")).toContain("claude --model sonnet --system-prompt-file");
+    expect(logs.join("\n")).toContain("--model sonnet");
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).not.toContain("--continue");
   });
 });

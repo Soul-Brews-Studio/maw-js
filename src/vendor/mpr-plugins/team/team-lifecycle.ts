@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmux } from "maw-js/sdk";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
+import { buildCommand, buildCommandInDir } from "../../../config/command";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -195,7 +196,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean; cwd?: string; parentSessionId?: string; sessionId?: string } = {},
+  opts: { engine?: string; model?: string; prompt?: string; exec?: boolean; cwd?: string; parentSessionId?: string; sessionId?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -231,7 +232,8 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const model = opts.model || "sonnet";
+  const engine = opts.engine || "claude";
+  const model = opts.model || (engine === "claude" ? "sonnet" : undefined);
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];
@@ -246,7 +248,10 @@ export async function cmdTeamSpawn(
   const promptPath = join(teamDir, `${role}-spawn-prompt.md`);
   writeFileSync(promptPath, spawnPrompt);
   const launchPromptPath = writeLaunchPromptFile(teamName, role, spawnPrompt) ?? promptPath;
-  const claudeCmd = `${cwdPrefix}${prefixCommandWithSpawnSessionEnv(`claude --model ${model} --system-prompt-file ${shellQuote(launchPromptPath)}`, {
+  const baseCommand = opts.cwd
+    ? buildCommandInDir(role, opts.cwd, { engine, fresh: true, model, systemPromptFile: launchPromptPath })
+    : buildCommand(role, { engine, fresh: true, model, systemPromptFile: launchPromptPath });
+  const claudeCmd = `${cwdPrefix}${prefixCommandWithSpawnSessionEnv(baseCommand, {
     explicit: opts.parentSessionId,
     sessionId: opts.sessionId,
     cwd: opts.cwd,
@@ -265,7 +270,7 @@ export async function cmdTeamSpawn(
   if (existsSync(toolConfigPath)) {
     try {
       const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-      const member: TeamMember = { name: role, model };
+      const member: TeamMember = { name: role, ...(engine !== "claude" || opts.engine ? { engine } : {}), ...(model ? { model } : {}) };
       if (!toolConfig.members.some((m: any) => m.name === role)) {
         toolConfig.members.push(member);
         // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
@@ -276,7 +281,8 @@ export async function cmdTeamSpawn(
 
   console.log(`\x1b[32m✓\x1b[0m spawn prompt written for '${role}'`);
   console.log(`  \x1b[90mpast life: ${pastLife ? "yes" : "no"}\x1b[0m`);
-  console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
+  console.log(`  \x1b[90mengine: ${engine}\x1b[0m`);
+  if (model) console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
   console.log(`  \x1b[90mprompt: ${promptPath}\x1b[0m`);
 
   // #393 Bug C — opt-in auto-spawn via splitWindowLocked. Default behavior

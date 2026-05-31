@@ -142,6 +142,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe("codex --search");
   });
 
+  test("engine param selects built-in engines even when config omits them", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommand("any-agent", "codex")).toBe("codex");
+  });
+
   test("engine param falls back to default when engine not in config", () => {
     fakeConfig.commands = { default: "claude" };
     expect(buildCommand("any-agent", "gemini")).toBe("claude");

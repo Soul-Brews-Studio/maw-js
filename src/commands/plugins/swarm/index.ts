@@ -7,13 +7,6 @@ export const command = {
   description: "Spawn multi-AI agent panes — claude, codex, opencode side by side.",
 };
 
-const KNOWN_AGENTS: Record<string, { cmd: string; label: string }> = {
-  claude:   { cmd: "claude",   label: "Claude Code" },
-  codex:    { cmd: "codex",    label: "Codex CLI" },
-  opencode: { cmd: "opencode", label: "OpenCode" },
-  aider:    { cmd: "aider",    label: "Aider" },
-};
-
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
@@ -92,15 +85,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     const { loadConfig } = await import("../../../config");
-    const configCommands = loadConfig().commands || {};
+    const { resolveEngine } = await import("../../../config/engine-registry");
+    const mawConfig = loadConfig();
 
     const paneIds: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor }[] = [];
     for (let i = 0; i < agentList.length; i++) {
       const agentType = agentList[i];
-      const known = KNOWN_AGENTS[agentType];
-      const fromConfig = configCommands[agentType];
-      const agentCmd = fromConfig || (known ? known.cmd : agentType);
-      const label = known ? known.label : agentType;
+      const engine = resolveEngine(agentType, mawConfig);
+      const agentCmd = engine.cmd;
+      const label = engine.label || agentType;
       const name = `${agentType}-${i + 1}`;
       const color = nextAgentColor(i);
       const agentId = `${name}@${teamName}`;
