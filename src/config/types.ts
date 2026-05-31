@@ -78,6 +78,13 @@ export interface MawConfig {
   oracleUrl: string;
   env: Record<string, string>;
   commands: Record<string, string>;
+  /**
+   * Generic engine definitions (#1960 P1).
+   *
+   * Additive/dormant until later phases route command rendering through the
+   * engine registry. Legacy `commands` remains the active launch surface today.
+   */
+  engines?: Record<string, import("./engine-def").EngineDef>;
   sessions: Record<string, string>;
   tmuxSocket?: string;
   peers?: string[];
