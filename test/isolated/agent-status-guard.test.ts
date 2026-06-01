@@ -33,36 +33,36 @@ describe("checkBusyGuard", () => {
     for (const e of agentStatusStore.getAll()) agentStatusStore.remove(e.oracle);
   });
 
-  test("unknown agent → not busy", () => {
-    const result = checkBusyGuard("neo");
+  test("unknown agent → not busy", async () => {
+    const result = await checkBusyGuard("neo");
     expect(result.busy).toBe(false);
     expect(result.status).toBe("unknown");
   });
 
-  test("busy agent → busy=true", () => {
+  test("busy agent → busy=true", async () => {
     agentStatusStore.report("neo", "busy");
-    const result = checkBusyGuard("neo");
+    const result = await checkBusyGuard("neo");
     expect(result.busy).toBe(true);
     expect(result.status).toBe("busy");
   });
 
-  test("ready agent → not busy", () => {
+  test("ready agent → not busy", async () => {
     agentStatusStore.report("neo", "ready");
-    const result = checkBusyGuard("neo");
+    const result = await checkBusyGuard("neo");
     expect(result.busy).toBe(false);
     expect(result.status).toBe("ready");
   });
 
-  test("idle agent → not busy", () => {
+  test("idle agent → not busy", async () => {
     agentStatusStore.report("neo", "idle");
-    const result = checkBusyGuard("neo");
+    const result = await checkBusyGuard("neo");
     expect(result.busy).toBe(false);
     expect(result.status).toBe("idle");
   });
 
-  test("resolves oracle name from session:window-oracle format", () => {
+  test("resolves oracle name from session:window-oracle format", async () => {
     agentStatusStore.report("neo", "busy");
-    const result = checkBusyGuard("08-mawjs:neo-oracle");
+    const result = await checkBusyGuard("08-mawjs:neo-oracle");
     expect(result.busy).toBe(true);
     expect(result.oracle).toBe("neo");
   });

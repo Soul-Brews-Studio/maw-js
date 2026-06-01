@@ -629,7 +629,7 @@ export async function cmdSend(
       process.exit(1);
     }
     // Phase 2 busy guard — queue to inbox + dispatch queue if target is actively working
-    const guard = checkBusyGuard(query);
+    const guard = await checkBusyGuard(query);
     if (guard.busy) {
       queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
       const inbox = await writeReceiverInbox(target);
