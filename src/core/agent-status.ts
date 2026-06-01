@@ -20,30 +20,51 @@ const IDLE_TTL = 120_000; // 120s — no activity → idle
  * Fallback: StatusDetector (tmux screen-hash polling).
  * TTL: agents with no activity for 120s are marked idle.
  */
+export type StatusChangeListener = (oracle: string, from: AgentStatus | null, to: AgentStatus) => void;
+
 export class AgentStatusStore {
   private store = new Map<string, AgentStatusEntry>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private listeners = new Set<StatusChangeListener>();
+
+  /** Register a callback fired on every status transition. */
+  onChange(listener: StatusChangeListener) {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private emit(oracle: string, from: AgentStatus | null, to: AgentStatus) {
+    for (const fn of this.listeners) {
+      try { fn(oracle, from, to); } catch {}
+    }
+  }
 
   /** Update status from a hook event (POST /api/status or feed listener). */
   report(oracle: string, status: AgentStatus, meta?: { sessionId?: string; project?: string; event?: string }) {
     this.clearTimer(oracle);
+    const prev = this.store.get(oracle);
+    const prevStatus = prev?.status ?? null;
     const entry: AgentStatusEntry = {
       oracle,
       status,
       updatedAt: Date.now(),
-      sessionId: meta?.sessionId ?? this.store.get(oracle)?.sessionId ?? "",
-      project: meta?.project ?? this.store.get(oracle)?.project ?? "",
+      sessionId: meta?.sessionId ?? prev?.sessionId ?? "",
+      project: meta?.project ?? prev?.project ?? "",
       lastEvent: meta?.event ?? status,
     };
     this.store.set(oracle, entry);
+
+    if (prevStatus !== status) this.emit(oracle, prevStatus, status);
 
     if (status === "busy" || status === "ready") {
       this.timers.set(oracle, setTimeout(() => {
         const current = this.store.get(oracle);
         if (current && (current.status === "busy" || current.status === "ready")) {
+          const was = current.status;
           current.status = "idle";
           current.updatedAt = Date.now();
           current.lastEvent = "ttl-timeout";
+          this.emit(oracle, was, "idle");
         }
       }, IDLE_TTL));
     }

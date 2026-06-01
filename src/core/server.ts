@@ -25,6 +25,8 @@ import {
 } from "./engine-plugin-registry";
 import { mawDataPath } from "./xdg";
 import { UserError } from "./util/user-error";
+import { startDispatchEngine } from "./dispatch-engine";
+import { sendKeys } from "./transport/ssh";
 
 // --- Version info (computed once at startup) ---
 
@@ -147,6 +149,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   } catch (err) {
     console.error("[transport] router init failed:", err);
   }
+
+  // Start dispatch engine — auto-delivers queued messages when agents become idle
+  startDispatchEngine(sendKeys);
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
