@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { agentStatusStore, type AgentStatus } from "../core/agent-status";
+import { messageQueue } from "../core/message-queue";
 
 const VALID_STATUSES = new Set<AgentStatus>(["busy", "ready", "idle", "crashed", "offline"]);
 
@@ -14,7 +15,8 @@ export const statusApi = new Elysia()
   .get("/status/:oracle", ({ params }) => {
     const entry = agentStatusStore.get(params.oracle);
     if (!entry) return { error: "not found", oracle: params.oracle };
-    return entry;
+    const pending = messageQueue.pending(params.oracle);
+    return { ...entry, pendingMessages: pending.length };
   })
 
   .post("/status", ({ body }) => {
@@ -39,4 +41,18 @@ export const statusApi = new Elysia()
       project: t.Optional(t.String()),
       event: t.Optional(t.String()),
     }),
+  })
+
+  .get("/queue", () => {
+    const all = messageQueue.getAll();
+    return {
+      messages: all,
+      pending: messageQueue.pendingCount,
+      total: messageQueue.size,
+    };
+  })
+
+  .get("/queue/:oracle", ({ params }) => {
+    const pending = messageQueue.pending(params.oracle);
+    return { oracle: params.oracle, pending, count: pending.length };
   });

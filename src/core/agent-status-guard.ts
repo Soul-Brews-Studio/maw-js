@@ -1,4 +1,5 @@
 import { agentStatusStore, type AgentStatus } from "./agent-status";
+import { messageQueue } from "./message-queue";
 
 /**
  * Extract bare oracle name from a query/target string.
@@ -26,4 +27,23 @@ export function checkBusyGuard(target: string): BusyGuardResult {
   const entry = agentStatusStore.get(oracle);
   if (!entry) return { busy: false, status: "unknown", oracle };
   return { busy: entry.status === "busy", status: entry.status, oracle };
+}
+
+/**
+ * Queue a message for auto-delivery when the target becomes idle/ready.
+ * Called by the busy guard when it blocks a message from being injected.
+ */
+export function queueForDispatch(opts: {
+  from: string;
+  to: string;
+  target: string;
+  message: string;
+}) {
+  const oracle = extractOracleName(opts.to);
+  return messageQueue.enqueue({
+    from: opts.from,
+    to: oracle,
+    target: opts.target,
+    message: opts.message,
+  });
 }

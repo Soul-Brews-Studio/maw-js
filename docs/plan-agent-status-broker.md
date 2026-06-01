@@ -44,11 +44,14 @@ GET /api/status/:oracle ◀─────────────────�
 - `talk-to` — skips pane injection, saves to thread only when busy
 - Unknown agents (no status data) are allowed through
 
-### Phase 3: Message Queue + Dispatch Engine
-- Persistent message queue (file-backed)
-- Auto-deliver queued messages when agent becomes idle
-- Handoff watcher — retry stalled handoffs
-- Delivery receipts via feed events
+### Phase 3: Message Queue + Dispatch Engine ✅
+- `MessageQueue` in-memory queue with status tracking (pending/delivering/delivered/failed)
+- `DispatchEngine` listens to status transitions (busy→ready/idle) and auto-delivers
+- `AgentStatusStore.onChange()` callback for status transition events
+- Busy guard now enqueues for auto-delivery (not just inbox write)
+- Queue API: `GET /api/queue`, `GET /api/queue/:oracle`
+- Engine started at server boot in `server.ts`
+- Delivery receipts via feed events (MessageSend lifecycle)
 
 ### Phase 4: Communication Convention
 - Document channel usage standards
