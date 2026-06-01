@@ -16,6 +16,7 @@ import {
   type ReceiverInboxResult,
   type ReceiverInboxWriter,
 } from "./receiver-inbox";
+import { checkBusyGuard } from "../../core/agent-status-guard";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -626,6 +627,14 @@ export async function cmdSend(
       const reason = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
+    }
+    // Phase 2 busy guard — queue to inbox if target is actively working
+    const guard = checkBusyGuard(query);
+    if (guard.busy) {
+      const inbox = await writeReceiverInbox(target);
+      if (logQueuedInbox(inbox, target, `target '${guard.oracle}' is busy; queued to inbox`)) return;
+      console.log(`\x1b[33mqueued\x1b[0m target '${guard.oracle}' is busy — message will be delivered when idle`);
+      return;
     }
     await sendKeys(target, outboundMessage);
     await writeReceiverInbox(target);

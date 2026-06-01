@@ -37,10 +37,12 @@ GET /api/status/:oracle ◀─────────────────�
 - `GET /api/status/:oracle` — single agent status
 - Feed listener auto-derives status from existing hook events
 
-### Phase 2: hey/talk-to guard
-- Check status before `maw hey` / `maw talk-to`
-- busy → queue message instead of inject
-- Warn user if target is busy
+### Phase 2: hey/talk-to guard ✅
+- `checkBusyGuard()` helper extracts oracle name from target strings
+- `cmdSend()` — queues to inbox when target is busy
+- `/api/send` — queues via `queueOrFail()` when target is busy
+- `talk-to` — skips pane injection, saves to thread only when busy
+- Unknown agents (no status data) are allowed through
 
 ### Phase 3: Message Queue + Dispatch Engine
 - Persistent message queue (file-backed)
