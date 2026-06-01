@@ -53,10 +53,10 @@ GET /api/status/:oracle ◀─────────────────�
 - Engine started at server boot in `server.ts`
 - Delivery receipts via feed events (MessageSend lifecycle)
 
-### Phase 4: Communication Convention
-- Document channel usage standards
-- SessionStart injection of communication rules
-- Oracle-to-oracle protocol spec
+### Phase 4: Communication Convention ✅
+- `docs/communication-convention.md` — protocol spec (channels, status-aware delivery, message format)
+- SessionStart feed event now explicitly marks agent as busy in AgentStatusStore
+- Trigger listener integration ensures status store is synchronized with session lifecycle
 
 ### Phase 5: Request-Reply + External Client Integration
 - MCP server: `maw_request` / `maw_reply` / `maw_status`

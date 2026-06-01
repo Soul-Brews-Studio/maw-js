@@ -7,6 +7,7 @@
 
 import type { FeedEvent } from "../../lib/feed";
 import { fire, markAgentActive, checkIdleTriggers, getTriggers } from "./triggers";
+import { agentStatusStore } from "../agent-status";
 
 /**
  * Register a feed listener that maps feed events → trigger events.
@@ -23,6 +24,12 @@ export function setupTriggerListener(feedListeners: Set<(event: FeedEvent) => vo
     switch (event.event) {
       case "SessionStart":
         fire("agent-wake", { agent: event.oracle });
+        // Mark agent as ready on session start — enables pending message dispatch
+        agentStatusStore.report(event.oracle, "busy", {
+          sessionId: event.sessionId,
+          project: event.project,
+          event: "SessionStart",
+        });
         break;
 
       // Agent crash detection (message contains "crashed" or similar)
