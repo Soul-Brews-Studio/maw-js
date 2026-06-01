@@ -1,0 +1,147 @@
+import { Elysia, t } from "elysia";
+import { requestReplyStore } from "../core/request-reply";
+import { agentStatusStore } from "../core/agent-status";
+import { messageQueue } from "../core/message-queue";
+import { extractOracleName } from "../core/agent-status-guard";
+import { pushFeedEvent } from "./feed";
+import { buildMessageLifecycleFeedEvent } from "../lib/message-events";
+
+export const requestReplyApi = new Elysia()
+  /**
+   * POST /api/request — submit a request to an oracle.
+   * Returns a correlationId for polling the reply.
+   */
+  .post("/request", async ({ body, set }) => {
+    const { to, message, callbackUrl } = body;
+    const from = body.from || "external";
+    const oracle = extractOracleName(to);
+
+    const entry = requestReplyStore.create({
+      from,
+      to: oracle,
+      target: to,
+      message,
+      callbackUrl,
+    });
+
+    // Check if target is busy → queue for later delivery
+    const status = agentStatusStore.get(oracle);
+    if (status?.status === "busy") {
+      messageQueue.enqueue({
+        from,
+        to: oracle,
+        target: to,
+        message: `[request:${entry.correlationId}] ${message}`,
+      });
+      return {
+        correlationId: entry.correlationId,
+        status: "queued",
+        message: `target '${oracle}' is busy; request queued for delivery`,
+      };
+    }
+
+    // Deliver immediately via feed event (the actual sendKeys is done by the caller or dispatch engine)
+    requestReplyStore.markDelivered(entry.correlationId);
+
+    try {
+      pushFeedEvent(buildMessageLifecycleFeedEvent({
+        direction: "inbound",
+        state: "delivered",
+        channel: "request",
+        route: "local",
+        from,
+        to: oracle,
+        target: to,
+        text: message,
+        lastLine: `correlationId=${entry.correlationId}`,
+        signed: false,
+      }));
+    } catch {}
+
+    return {
+      correlationId: entry.correlationId,
+      status: "delivered",
+      oracle,
+    };
+  }, {
+    body: t.Object({
+      to: t.String(),
+      message: t.String(),
+      from: t.Optional(t.String()),
+      callbackUrl: t.Optional(t.String()),
+    }),
+  })
+
+  /**
+   * GET /api/request/:correlationId — poll for reply.
+   */
+  .get("/request/:correlationId", ({ params, set }) => {
+    const entry = requestReplyStore.get(params.correlationId);
+    if (!entry) { set.status = 404; return { error: "request not found" }; }
+    return entry;
+  })
+
+  /**
+   * POST /api/reply/:correlationId — oracle submits a reply.
+   */
+  .post("/reply/:correlationId", async ({ params, body, set }) => {
+    const entry = requestReplyStore.get(params.correlationId);
+    if (!entry) { set.status = 404; return { error: "request not found" }; }
+    if (entry.status === "replied") { return { error: "already replied", correlationId: params.correlationId }; }
+
+    requestReplyStore.markReplied(params.correlationId, body.reply, body.data);
+
+    // Push-based callback if configured
+    if (entry.callbackUrl) {
+      try {
+        await fetch(entry.callbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            correlationId: params.correlationId,
+            reply: body.reply,
+            data: body.data,
+            from: entry.to,
+            to: entry.from,
+          }),
+        });
+      } catch {}
+    }
+
+    try {
+      pushFeedEvent(buildMessageLifecycleFeedEvent({
+        direction: "outbound",
+        state: "delivered",
+        channel: "reply",
+        route: "local",
+        from: entry.to,
+        to: entry.from,
+        target: entry.target,
+        text: body.reply,
+        lastLine: `correlationId=${params.correlationId}`,
+        signed: false,
+      }));
+    } catch {}
+
+    return { ok: true, correlationId: params.correlationId };
+  }, {
+    body: t.Object({
+      reply: t.String(),
+      data: t.Optional(t.Unknown()),
+    }),
+  })
+
+  /**
+   * GET /api/requests — list all requests (optionally filtered by oracle).
+   */
+  .get("/requests", ({ query }) => {
+    let all = requestReplyStore.getAll();
+    if (query.oracle) all = all.filter(e => e.to === query.oracle);
+    if (query.status) all = all.filter(e => e.status === query.status);
+    return { requests: all, total: all.length };
+  }, {
+    query: t.Object({
+      oracle: t.Optional(t.String()),
+      status: t.Optional(t.String()),
+    }),
+  });

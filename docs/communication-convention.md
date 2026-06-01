@@ -44,6 +44,8 @@ When a busy agent transitions to ready/idle:
 
 ## API Endpoints
 
+### Status & Queue
+
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/status` | GET | All agent statuses + summary |
@@ -51,6 +53,37 @@ When a busy agent transitions to ready/idle:
 | `/api/status` | POST | Report status change (from hooks) |
 | `/api/queue` | GET | All queued messages |
 | `/api/queue/:oracle` | GET | Pending messages for oracle |
+
+### Request-Reply (External Clients)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/request` | POST | Submit request → get correlationId |
+| `/api/request/:correlationId` | GET | Poll for reply |
+| `/api/reply/:correlationId` | POST | Oracle submits reply |
+| `/api/requests` | GET | List all requests (?oracle=&status=) |
+
+### Request-Reply Flow
+
+```
+External Client                    maw server                    Oracle Agent
+      │                                │                              │
+      ├── POST /api/request ──────────▶│                              │
+      │   { to: "neo", message: "?" }  │                              │
+      │◀── { correlationId: "req-1" }──┤                              │
+      │                                ├── sendKeys(target, msg) ────▶│
+      │                                │                              │
+      │   (poll)                       │                              │
+      ├── GET /api/request/req-1 ─────▶│                              │
+      │◀── { status: "delivered" } ────┤                              │
+      │                                │                              │
+      │                                │◀── POST /api/reply/req-1 ───┤
+      │                                │    { reply: "answer" }       │
+      │   (poll)                       │                              │
+      ├── GET /api/request/req-1 ─────▶│                              │
+      │◀── { status: "replied",  ──────┤                              │
+      │     reply: "answer" }          │                              │
+```
 
 ## For New Oracles
 
