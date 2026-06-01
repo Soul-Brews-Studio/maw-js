@@ -58,10 +58,15 @@ GET /api/status/:oracle ◀─────────────────�
 - SessionStart feed event now explicitly marks agent as busy in AgentStatusStore
 - Trigger listener integration ensures status store is synchronized with session lifecycle
 
-### Phase 5: Request-Reply + External Client Integration
-- MCP server: `maw_request` / `maw_reply` / `maw_status`
-- correlationId-based reply routing
-- OpenCode integration via `POST /session/:id/prompt_async`
+### Phase 5: Request-Reply + External Client Integration ✅
+- `RequestReplyStore` with correlationId-based tracking
+- `POST /api/request` — submit request, get correlationId
+- `GET /api/request/:correlationId` — poll for reply
+- `POST /api/reply/:correlationId` — oracle submits reply
+- `GET /api/requests` — list all requests (filterable by oracle/status)
+- Push-based callback via `callbackUrl` option
+- Auto-queues to MessageQueue when target is busy
+- Feed events for request/reply lifecycle
 
 ## Status State Machine
 

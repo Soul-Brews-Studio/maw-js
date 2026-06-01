@@ -30,6 +30,7 @@ import { claudeFleetApi } from "./claude-fleet";
 import { peerDiscoveriesApi } from "./peers-discoveries";
 import { engineApi } from "./engine";
 import { statusApi } from "./status";
+import { requestReplyApi } from "./request-reply";
 import { discoverPackages, invokePlugin } from "../plugin/registry";
 import { federationAuth, fromSigningAuth } from "../lib/elysia-auth";
 
@@ -77,7 +78,8 @@ export const api = new Elysia({ prefix: "/api" })
   .use(claudeFleetApi)
   .use(peerDiscoveriesApi)
   .use(engineApi)
-  .use(statusApi);
+  .use(statusApi)
+  .use(requestReplyApi);
 
 // Snapshot direct-handler routes before plugin auto-mount (#705)
 const directRoutes = new Set(
