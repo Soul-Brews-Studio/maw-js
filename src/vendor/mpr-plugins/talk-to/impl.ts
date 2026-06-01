@@ -203,7 +203,7 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
   }
 
   // Phase 2 busy guard — skip pane injection if target is busy
-  const guard = checkBusyGuard(target);
+  const guard = await checkBusyGuard(target);
   if (guard.busy) {
     if (threadResult) {
       console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);

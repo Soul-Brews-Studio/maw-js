@@ -24,8 +24,7 @@ export function setupTriggerListener(feedListeners: Set<(event: FeedEvent) => vo
     switch (event.event) {
       case "SessionStart":
         fire("agent-wake", { agent: event.oracle });
-        // Mark agent as ready on session start — enables pending message dispatch
-        agentStatusStore.report(event.oracle, "busy", {
+        agentStatusStore.report(event.oracle, "ready", {
           sessionId: event.sessionId,
           project: event.project,
           event: "SessionStart",

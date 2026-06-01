@@ -472,7 +472,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);
         // Phase 2 busy guard — queue for auto-delivery if target is actively working
-        const guard = checkBusyGuard(target);
+        const guard = await checkBusyGuard(target);
         if (guard.busy && !inboxOnly) {
           queueForDispatch({ from: messageFrom, to: target, target: resolved.target, message });
           return queueOrFail(resolved.target, `target '${guard.oracle}' is busy; queued for auto-delivery`);

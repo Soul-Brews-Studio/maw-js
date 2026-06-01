@@ -17,33 +17,73 @@ export interface BusyGuardResult {
   oracle: string;
 }
 
+const MAW_PORT = process.env.MAW_PORT || "3456";
+
+async function fetchRemoteStatus(oracle: string): Promise<{ status: AgentStatus } | null> {
+  try {
+    const res = await fetch(`http://localhost:${MAW_PORT}/api/status/${oracle}`);
+    if (!res.ok) return null;
+    const data = await res.json() as { status?: AgentStatus };
+    return data?.status ? { status: data.status } : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Check if a target oracle is busy. Returns busy=true only when we have
- * positive evidence (feed-event-derived status) that the agent is actively
- * working. Unknown agents (no status data) are allowed through.
+ * Check if a target oracle is busy.
+ * In server context: reads local in-memory store.
+ * In CLI context: queries the server API for live status.
  */
-export function checkBusyGuard(target: string): BusyGuardResult {
+export async function checkBusyGuard(target: string): Promise<BusyGuardResult> {
   const oracle = extractOracleName(target);
+
   const entry = agentStatusStore.get(oracle);
-  if (!entry) return { busy: false, status: "unknown", oracle };
-  return { busy: entry.status === "busy", status: entry.status, oracle };
+  if (entry) {
+    return { busy: entry.status === "busy", status: entry.status, oracle };
+  }
+
+  const remote = await fetchRemoteStatus(oracle);
+  if (remote) {
+    return { busy: remote.status === "busy", status: remote.status, oracle };
+  }
+
+  return { busy: false, status: "unknown", oracle };
 }
 
 /**
  * Queue a message for auto-delivery when the target becomes idle/ready.
- * Called by the busy guard when it blocks a message from being injected.
+ * In server context: enqueues locally. In CLI context: also POST to server
+ * so DispatchEngine can auto-deliver.
  */
-export function queueForDispatch(opts: {
+export async function queueForDispatch(opts: {
   from: string;
   to: string;
   target: string;
   message: string;
 }) {
   const oracle = extractOracleName(opts.to);
-  return messageQueue.enqueue({
+  const msg = messageQueue.enqueue({
     from: opts.from,
     to: oracle,
     target: opts.target,
     message: opts.message,
   });
+
+  if (!agentStatusStore.get(oracle)) {
+    try {
+      await fetch(`http://localhost:${MAW_PORT}/api/queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: opts.from,
+          to: opts.to,
+          target: opts.target,
+          message: opts.message,
+        }),
+      });
+    } catch {}
+  }
+
+  return msg;
 }

@@ -849,8 +849,8 @@ export async function cmdSend(
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
     }
-    // Phase 2 busy guard — queue to inbox + dispatch queue if target is actively working.
-    const guard = checkBusyGuard(query);
+    // Phase 2 busy guard — queue to inbox + dispatch queue if target is actively working
+    const guard = await checkBusyGuard(query);
     if (guard.busy) {
       queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
       const inbox = await writeReceiverInbox(target);
