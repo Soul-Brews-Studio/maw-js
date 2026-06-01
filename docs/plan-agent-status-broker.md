@@ -1,0 +1,94 @@
+# Agent Status & Message Broker — Design Doc
+
+## Problem
+
+1. **No status awareness** — agents inject prompts into busy oracles, corrupting context
+2. **No communication standard** — ad-hoc `maw hey` with no delivery guarantees
+3. **Handoffs stall** — messages sit in inbox with no dispatch
+4. **Token waste** — polling inbox burns tokens; need push-based delivery
+5. **No request-reply** — external clients (OpenCode) can't get results back
+
+## Architecture
+
+```
+Claude Code hooks ──POST──▶ /api/status ──▶ AgentStatusStore (in-memory)
+                                                   │
+Feed events ───listener───────────────────────────▶│
+                                                   │
+StatusDetector (tmux polling) ──fallback──────────▶│
+                                                   │
+GET /api/status ◀──────────────────────────────────┘
+GET /api/status/:oracle ◀──────────────────────────┘
+```
+
+## Key Design Decisions
+
+- **In-memory store** — server restart = reset = safe (no stale state)
+- **TTL timeout 120s** — no "response complete" hook in Claude Code, so busy→idle via TTL
+- **Feed-derived status** — existing hooks (SessionStart/UserPromptSubmit/Stop) auto-update store
+- **Built into maw server** — no external broker (RabbitMQ etc.) — scale is 8-10 agents on 1 machine
+
+## Phases
+
+### Phase 1: Status API + Claude Code hooks ✅
+- `AgentStatusStore` in-memory store with TTL-based idle detection
+- `POST /api/status` — direct status report from hooks
+- `GET /api/status` — all agents with summary counts
+- `GET /api/status/:oracle` — single agent status
+- Feed listener auto-derives status from existing hook events
+
+### Phase 2: hey/talk-to guard
+- Check status before `maw hey` / `maw talk-to`
+- busy → queue message instead of inject
+- Warn user if target is busy
+
+### Phase 3: Message Queue + Dispatch Engine
+- Persistent message queue (file-backed)
+- Auto-deliver queued messages when agent becomes idle
+- Handoff watcher — retry stalled handoffs
+- Delivery receipts via feed events
+
+### Phase 4: Communication Convention
+- Document channel usage standards
+- SessionStart injection of communication rules
+- Oracle-to-oracle protocol spec
+
+### Phase 5: Request-Reply + External Client Integration
+- MCP server: `maw_request` / `maw_reply` / `maw_status`
+- correlationId-based reply routing
+- OpenCode integration via `POST /session/:id/prompt_async`
+
+## Status State Machine
+
+```
+SessionStart ──▶ busy
+UserPromptSubmit ──▶ busy
+PreToolUse ──▶ busy
+Stop ──▶ ready
+SessionEnd ──▶ idle
+120s no activity ──▶ idle (TTL)
+shell + was running ──▶ crashed (StatusDetector)
+```
+
+## API Reference
+
+### POST /api/status
+```json
+{ "oracle": "neo", "status": "busy", "sessionId": "...", "project": "...", "event": "SessionStart" }
+```
+
+### GET /api/status
+```json
+{
+  "agents": [
+    { "oracle": "neo", "status": "busy", "updatedAt": 1717200000000, "sessionId": "...", "project": "...", "lastEvent": "PreToolUse" }
+  ],
+  "summary": { "busy": 3, "ready": 2, "idle": 1 },
+  "total": 6
+}
+```
+
+### GET /api/status/:oracle
+```json
+{ "oracle": "neo", "status": "busy", "updatedAt": 1717200000000, "sessionId": "...", "project": "...", "lastEvent": "PreToolUse" }
+```

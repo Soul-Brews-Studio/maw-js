@@ -10,6 +10,7 @@ import type { Session } from "../core/transport/ssh";
 import type { TransportRouter } from "../core/transport/transport";
 import { startIntervals, stopIntervals, sendInitialSessions, type EngineIntervalState } from "./engine-intervals";
 import { handleCrashedAgents } from "./engine-crash";
+import { agentStatusStore } from "../core/agent-status";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
@@ -41,6 +42,7 @@ export class MawEngine {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
     registerBuiltinHandlers(this);
+    this.feedListeners.add((event) => agentStatusStore.handleFeedEvent(event));
     this.initSessionCache();
   }
 
