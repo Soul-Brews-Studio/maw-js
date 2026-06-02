@@ -96,6 +96,27 @@ export class Tmux {
     }
   }
 
+  /**
+   * List every session with its group name in a single tmux call.
+   * `#{session_group}` is empty for ungrouped sessions and equals the parent
+   * session name for grouped ones (verified on live tmux: a maw-pty-* grouped
+   * to `01-labubu` reports group `01-labubu`). Used by the orphan-PTY reaper
+   * (#P2 sweep) and attach-time grouped-orphan kill (#P3).
+   */
+  async listSessionGroups(): Promise<Array<{ name: string; group: string }>> {
+    try {
+      const raw = await this.run("list-sessions", "-F", "#{session_name}|||#{session_group}");
+      return raw.split("\n").filter(Boolean).map(line => {
+        const [name, group = ""] = line.split("|||");
+        return { name, group };
+      });
+    } catch (error) {
+      if (isTmuxBinaryMissingError(error)) throw error;
+      if (isTmuxNoServerError(error)) return [];
+      return [];
+    }
+  }
+
   async hasSession(name: string): Promise<boolean> {
     try {
       await this.run("has-session", "-t", name);
