@@ -49,6 +49,7 @@ mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
   handlePtyMessage: (...args: unknown[]) => { ptyMessages.push(args); },
   handlePtyClose: (...args: unknown[]) => { ptyCloses.push(args); },
+  sweepOrphanPtySessions: async () => ({ killed: [], checked: 0 }),
 }));
 mock.module(import.meta.resolve("../../src/api/tmux-stream"), () => ({
   handleTmuxStreamOpen: () => { tmuxStreamEvents.push("open"); },

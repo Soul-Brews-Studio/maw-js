@@ -50,7 +50,7 @@ mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
     async run() { return ""; }
   },
 }));
-mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({ handlePtyMessage: () => {}, handlePtyClose: () => {} }));
+mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({ handlePtyMessage: () => {}, handlePtyClose: () => {}, sweepOrphanPtySessions: async () => ({ killed: [], checked: 0 }) }));
 mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: () => {} }));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
   runServeLifecycleHooks: async () => {},

@@ -55,6 +55,7 @@ function makeHarness(options: {
   spawnSync?: (args: string[]) => { stdout?: Uint8Array };
   groupedImpl?: (sessionName: string, ptySessionName: string, opts: unknown) => Promise<void>;
   setOptionImpl?: (session: string, option: string, value: string) => Promise<void>;
+  listSessionGroupsImpl?: () => Promise<Array<{ name: string; group: string }>>;
 } = {}) {
   const spawnPlans = [...(options.spawnPlans ?? [])];
   const readers: ControlledReader[] = [];
@@ -107,6 +108,9 @@ function makeHarness(options: {
         await options.setOptionImpl?.(session, option, value);
       },
       killSession: async (session: string) => { killSessionCalls.push(session); },
+      // Only present when the test opts in — mirrors production where the real
+      // tmux always has it but injected mocks may omit it (sweep/#P3 no-op).
+      ...(options.listSessionGroupsImpl ? { listSessionGroups: options.listSessionGroupsImpl } : {}),
     },
     setTimeout: ((fn: () => void, _ms?: number) => {
       const timer = { active: true, fn };
@@ -370,5 +374,53 @@ describe("createPtyHandlers", () => {
     await eventually(() => bounded.spawnCalls.length === 1, "bounded replay spawn");
 
     expect(bounded.spawnSyncCalls[0]).toEqual(["tmux", "capture-pane", "-t", "follow:1", "-p", "-e", "-J", "-S", "-12"]);
+  });
+
+  test("#P2 sweep kills untracked maw-pty-* sessions, sparing tracked and non-maw sessions", async () => {
+    const groups = [
+      { name: "01-labubu", group: "01-labubu" },        // parent — not maw-pty
+      { name: "maw-pty-orphan-1", group: "01-labubu" },  // orphan
+      { name: "maw-pty-orphan-2", group: "" },           // ungrouped orphan
+      { name: "some-view", group: "" },                  // not maw-pty
+    ];
+    const h = makeHarness({ listSessionGroupsImpl: async () => groups, spawnPlans: [{ chunks: ["x"], autoEnd: false }] });
+
+    // Attach so one maw-pty session becomes tracked in-memory.
+    const ws = makeWs();
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "tracked:0" }));
+    await eventually(() => h.groupedCalls.length === 1, "tracked attach");
+    const trackedName = h.groupedCalls[0].ptySessionName;
+    groups.push({ name: trackedName, group: "tracked" });
+
+    const result = await h.sweepOrphanPtySessions();
+    expect(result.killed.sort()).toEqual(["maw-pty-orphan-1", "maw-pty-orphan-2"]);
+    expect(result.checked).toBe(5);
+    expect(result.killed).not.toContain(trackedName);
+    expect(h.killSessionCalls).toContain("maw-pty-orphan-1");
+    expect(h.killSessionCalls).not.toContain(trackedName);
+    await h.finishReaders();
+  });
+
+  test("#P2 sweep no-ops when tmux lacks listSessionGroups (injected mock)", async () => {
+    const h = makeHarness(); // no listSessionGroupsImpl → method absent
+    const result = await h.sweepOrphanPtySessions();
+    expect(result).toEqual({ killed: [], checked: 0 });
+    expect(h.killSessionCalls).toEqual([]);
+  });
+
+  test("#P3 attach kills a pre-existing untracked grouped orphan on the same parent only", async () => {
+    const groups = [
+      { name: "01-labubu", group: "01-labubu" },
+      { name: "maw-pty-stale", group: "01-labubu" },  // same parent, untracked → kill
+      { name: "maw-pty-other", group: "02-neo" },      // different parent → spare
+    ];
+    const h = makeHarness({ listSessionGroupsImpl: async () => groups, spawnPlans: [{ autoEnd: true }] });
+    const ws = makeWs();
+
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "01-labubu:0" }));
+    // P3 is fire-and-forget alongside session creation — poll for the kill.
+    await eventually(() => h.killSessionCalls.includes("maw-pty-stale"), "P3 stale-orphan kill");
+    expect(h.killSessionCalls).not.toContain("maw-pty-other");
+    await h.finishReaders();
   });
 });

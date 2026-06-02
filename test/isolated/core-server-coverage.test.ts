@@ -100,6 +100,7 @@ mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
   handlePtyMessage: (...args: unknown[]) => { ptyMessages.push(args); },
   handlePtyClose: (ws: unknown) => { ptyCloses.push(ws); },
+  sweepOrphanPtySessions: async () => ({ killed: [], checked: 0 }),
 }));
 mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: (server: unknown) => setServerCalls.push(server) }));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
