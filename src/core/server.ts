@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MawEngine } from "../engine";
 import type { WSData } from "./types";
-import { loadConfig } from "../config";
+import { loadConfig, cfgInterval } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serveStatic } from "hono/bun";
@@ -12,7 +12,7 @@ import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createTransportRouter } from "../transports";
 import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
-import { handlePtyMessage, handlePtyClose } from "./transport/pty";
+import { handlePtyMessage, handlePtyClose, sweepOrphanPtySessions } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import {
@@ -303,6 +303,21 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   }
   setBunServer(server);
   startEnginePluginHealthPolling();
+
+  // #P2 — periodic orphan-PTY sweep. The boot reaper above (#300) clears the
+  // server-restart class once at startup; this catches in-memory/tmux drift on
+  // a long-lived process. unref() so it never holds the event loop open.
+  const ptySweepTimer = setInterval(() => {
+    sweepOrphanPtySessions()
+      .then(({ killed, checked }) => {
+        if (killed.length > 0) {
+          console.log(`[pty-sweep] killed ${killed.length} orphan(s): ${killed.join(", ")} (checked ${checked})`);
+        }
+      })
+      .catch((err) => console.error("[pty-sweep] failed:", err));
+  }, cfgInterval("ptySweep"));
+  (ptySweepTimer as { unref?: () => void }).unref?.();
+
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
 

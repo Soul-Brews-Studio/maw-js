@@ -5,7 +5,12 @@ import type { MawWS } from "../types";
 type PtyProc = ReturnType<typeof Bun.spawn>;
 type PtySpawn = typeof Bun.spawn;
 type PtySpawnSync = typeof Bun.spawnSync;
-type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">;
+// listSessionGroups is optional: production always has it (real `tmux` is
+// spread into ptyDeps), but injected test mocks may omit it — in which case
+// the orphan sweep (#P2) and attach-time grouped-orphan kill (#P3) no-op
+// rather than throw.
+type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">
+  & Partial<Pick<typeof tmux, "listSessionGroups">>;
 
 export interface PtyDeps {
   tmux: PtyTmux;
@@ -51,6 +56,8 @@ interface PtySession {
 interface PtyHandlers {
   handlePtyMessage: (ws: MawWS, msg: string | Buffer) => void;
   handlePtyClose: (ws: MawWS) => void;
+  /** #P2 — kill maw-pty-* tmux sessions no longer tracked in-memory. */
+  sweepOrphanPtySessions: () => Promise<{ killed: string[]; checked: number }>;
 }
 
 function replayLinesFromControl(value: unknown): number {
@@ -76,6 +83,11 @@ export function createPtyHandlers(overrides: Partial<PtyDeps> = {}): PtyHandlers
   let nextPtyId = 0;
   const sessions = new Map<string, PtySession>();
   const attaching = new Set<string>();
+  // PTY session names generated but not yet committed to `sessions` (the
+  // newGroupedSession→setOption→spawn window). The sweep/attach-kill must treat
+  // these as live so a sweep landing mid-create can't reap a session we're
+  // about to track and disconnect the Oracle that just attached.
+  const creatingPtyNames = new Set<string>();
 
 function isLocalHost(): boolean {
   // #713: with bind/host split, config.host is never a bind address (0.0.0.0 etc.)
@@ -86,6 +98,53 @@ function isLocalHost(): boolean {
 function findSession(ws: MawWS): PtySession | undefined {
   for (const s of sessions.values()) {
     if (s.viewers.has(ws)) return s;
+  }
+}
+
+// True when a maw-pty-* tmux session is one we own — either committed to
+// `sessions` or mid-create. Neither must ever be reaped.
+function isTrackedPtyName(ptyName: string): boolean {
+  if (creatingPtyNames.has(ptyName)) return true;
+  for (const s of sessions.values()) {
+    if (s.ptySessionName === ptyName) return true;
+  }
+  return false;
+}
+
+// #P2 — periodic orphan sweep. Kills maw-pty-* tmux sessions that exist
+// server-side but are no longer tracked in-memory (in-memory/tmux drift WITHIN
+// a single server lifecycle — e.g. a kill that raced cleanup, or a future
+// dead-client miss). The boot-time reaper (server.ts #300) already clears the
+// server-RESTART class on startup; this handles runtime drift on a long-lived
+// process. Tracked/attached sessions are always skipped, so a live Oracle
+// terminal is never touched.
+async function sweepOrphanPtySessions(): Promise<{ killed: string[]; checked: number }> {
+  if (!io.tmux.listSessionGroups) return { killed: [], checked: 0 };
+  const all = await io.tmux.listSessionGroups();
+  const killed: string[] = [];
+  for (const { name } of all) {
+    if (!name.startsWith("maw-pty-")) continue;
+    if (isTrackedPtyName(name)) continue;
+    await io.tmux.killSession(name); // best-effort; killSession swallows errors
+    killed.push(name);
+  }
+  return { killed, checked: all.length };
+}
+
+// #P3 — at attach time, remove any pre-existing maw-pty-* sessions grouped to
+// the SAME parent that we don't track. Grouped sessions share the parent's
+// window size, so a stale grouped client (e.g. a frozen 45x30 tab) shrinks the
+// real window — the "size-hijack" vector. Group name == parent session name
+// (verified on live tmux). Untracked-only + group-scoped → never kills a live
+// terminal on this or any other Oracle.
+async function killStaleGroupedSessions(parent: string): Promise<void> {
+  if (!io.tmux.listSessionGroups) return;
+  const all = await io.tmux.listSessionGroups();
+  for (const { name, group } of all) {
+    if (!name.startsWith("maw-pty-")) continue;
+    if (group !== parent) continue;
+    if (isTrackedPtyName(name)) continue;
+    await io.tmux.killSession(name);
   }
 }
 
@@ -149,6 +208,16 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
   // Create a grouped session — shares windows but has independent client sizing.
   // This prevents the web terminal from shrinking the real terminal.
   const ptySessionName = `maw-pty-${io.now()}-${++nextPtyId}`;
+  creatingPtyNames.add(ptySessionName);
+
+  // #P3 — clear any stale grouped orphan on this parent so a leftover frozen
+  // client can't shrink the shared window. Fire-and-forget: it runs alongside
+  // session creation (killSession is idempotent and tmux resizes the window
+  // after a client leaves regardless of order), and the new ptySessionName is
+  // already in creatingPtyNames so the kill can never reap the session we are
+  // about to track. Keeps attach latency off the tmux-list round-trip.
+  void killStaleGroupedSessions(sessionName).catch(() => { /* expected: tmux listing may transiently fail */ });
+
   try {
     await io.tmux.newGroupedSession(sessionName, ptySessionName, {
       cols: c, rows: r, window: windowPart || undefined,
@@ -156,6 +225,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     // Hide status bar in PTY sessions so it doesn't appear in terminal output
     await io.tmux.setOption(ptySessionName, "status", "off").catch(() => { /* expected: option may not apply */ });
   } catch {
+    creatingPtyNames.delete(ptySessionName);
     attaching.delete(safe);
     ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
     return;
@@ -209,6 +279,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
 
   session = { proc, target: safe, ptySessionName, viewers: new Set([ws]), cleanupTimer: null };
   sessions.set(safe, session);
+  creatingPtyNames.delete(ptySessionName); // now tracked via `sessions`
   attaching.delete(safe);
 
   // Stream PTY stdout → all viewers as binary frames
@@ -262,10 +333,11 @@ function detach(ws: MawWS) {
   }
 }
 
-  return { handlePtyMessage, handlePtyClose };
+  return { handlePtyMessage, handlePtyClose, sweepOrphanPtySessions };
 }
 
 const defaultPtyHandlers = createPtyHandlers();
 
 export const handlePtyMessage = defaultPtyHandlers.handlePtyMessage;
 export const handlePtyClose = defaultPtyHandlers.handlePtyClose;
+export const sweepOrphanPtySessions = defaultPtyHandlers.sweepOrphanPtySessions;
