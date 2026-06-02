@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MawEngine } from "../engine";
 import type { WSData } from "./types";
-import { loadConfig } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serveStatic } from "hono/bun";
@@ -291,9 +291,16 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
   }
 
+  // P1 heartbeat-reaper: Bun-managed ws ping/pong + idle close. Dead clients
+  // (ungraceful disconnect, no TCP FIN) close after wsIdleSec → close handler
+  // fires → handlePtyClose → detach → grace-timer reaps the maw-pty- tmux session.
+  // sendPings: true is Bun's default but pinned for explicitness. Shared across
+  // the HTTP + TLS Bun.serve calls below so both ws surfaces get the heartbeat.
+  const wsConfig = { ...wsHandler, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
+
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsConfig });
   } catch (err) {
     if (isAddressInUseError(err)) {
       for (const line of servePortInUseInstructions(port, hostname)) console.error(line);
@@ -323,7 +330,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
-    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
+    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsConfig });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 
