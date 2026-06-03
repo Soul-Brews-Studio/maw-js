@@ -80,6 +80,15 @@ Form: \`Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\`
 - After acting on a \`ψ/inbox\` message, run \`maw inbox read <id>\` so consumed work stops counting as unread.
 - Leave messages unread only while they still need attention from this oracle.
 
+## Request-Reply Protocol
+
+When you receive a message starting with \`[request:<correlationId>]\`:
+1. Extract the correlationId (e.g. \`req-1-abc123-xyz\`)
+2. Do the requested work
+3. When done, reply with: \`maw reply <correlationId> "<your answer>"\`
+
+To see pending requests awaiting your reply: \`maw reply --list\`
+
 Run \`/awaken\` for the full identity setup ceremony.
 `);
   console.log(`  \x1b[32m✓\x1b[0m CLAUDE.md generated`);
