@@ -6,22 +6,24 @@
  * Usage: bun scripts/deploy-reply-protocol.ts [--dry-run]
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
 const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com/meganechan");
+const FLEET_DIR = join(process.env.HOME!, ".maw/fleet");
 
-const ORACLES = [
-  "somsri-oracle",
-  "sorachai-oracle",
-  "pr-agent-oracle",
-  "repo-architect-oracle",
-  "repo-clean-oracle",
-  "logger-spy-oracle",
-  "planka-oracle",
-  "thawanban-oracle",
-  "lazy-oracle",
-];
+// Auto-discover oracles from fleet
+const ORACLES: string[] = [];
+if (existsSync(FLEET_DIR)) {
+  for (const f of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+    try {
+      const cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
+      for (const w of cfg.windows ?? []) {
+        if (w.name?.endsWith("-oracle")) ORACLES.push(w.name);
+      }
+    } catch {}
+  }
+}
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
