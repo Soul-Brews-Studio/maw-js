@@ -39,6 +39,15 @@ const { buildCommand, buildCommandInDir } = await import("../src/config/command"
 const { saveRepoChannels } = await import("../src/commands/shared/channel-loader");
 
 const origGetuid = process.getuid;
+// These tests assert that channelEnv values are PREPENDED to the command.
+// applyChannelEnv() defers to the shell when a key is already exported
+// (#1148 shell-vs-config precedence), so any ambient `DISCORD_STATE_DIR` —
+// e.g. the manual `.envrc` workaround discord-oracle uses on oss — would
+// suppress the prepend and make these assertions env-dependent (m5 passes,
+// oss fails 3). Isolate the real keys these tests use so they're deterministic
+// regardless of the runner's environment.
+const ISOLATED_ENV_KEYS = ["DISCORD_STATE_DIR", "WEIRD", "TRICKY", "JUST_TILDE"];
+let savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
   fakeConfig = {
     host: "local",
@@ -53,9 +62,18 @@ beforeEach(() => {
   };
   fakeSessionIds = {};
   (process as any).getuid = () => 1000;
+  savedEnv = {};
+  for (const key of ISOLATED_ENV_KEYS) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
 });
 afterEach(() => {
   (process as any).getuid = origGetuid;
+  for (const key of ISOLATED_ENV_KEYS) {
+    if (savedEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedEnv[key];
+  }
 });
 
 describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
