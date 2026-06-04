@@ -202,6 +202,10 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   const fleetFile = configureFleet(name, org, budRepoName, parentName);
   if (opts.note) writeBirthNote(psiDir, name, parentName, opts.note);
 
+  // Notify running maw server to reload config so new oracle appears in /api/config
+  const mawPort = process.env.MAW_PORT || "3456";
+  try { await fetch(`http://localhost:${mawPort}/api/config/reload`, { method: "POST" }); } catch {}
+
   // #1551 — structure-only oracle creation. This intentionally stops after
   // the repo/skeleton/fleet scaffolding is present but before any lifecycle
   // side effects that make the oracle "alive": no initial commit/push, no
