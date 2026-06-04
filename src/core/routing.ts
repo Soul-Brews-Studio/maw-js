@@ -434,6 +434,56 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 /**
+ * #1980: Detect silent misdelivery — flag when a specific `<oracle>-oracle`
+ * window was requested but resolution landed on a window that is NOT that
+ * oracle window.
+ *
+ * The reported failure: `maw hey oracle-world-oracle:mawjs-oracle` forwarded
+ * `mawjs-oracle` to the peer, where fleet/alias resolution picked a bare
+ * `mawjs` shell pane (`mawjs:0`) over the real `mawjs-oracle` window
+ * (`01-mawjs:1`) — because `fleetWindowCandidateNames` matches the
+ * `-oracle`-stripped form `mawjs` against a window literally named `mawjs`.
+ * Injection succeeded on the wrong pane, so `hey` reported `delivered`.
+ *
+ * This runs AFTER resolution, independent of which path resolved the target,
+ * and returns a warning string when the intent was more specific than the
+ * window it reached. Intentionally narrow to avoid false positives:
+ *   - Only fires for `-oracle`-suffixed intents (operator named a specific
+ *     oracle window). Bare session aliases (`mawjs` → `mawjs-oracle`) and
+ *     explicit `session:index` / pane forms are exempt — the latter satisfies
+ *     the "full-form bypass" escape hatch.
+ *   - No warning when the resolved window's name matches the intent
+ *     (modulo a leading `NN-` and case).
+ */
+export function detectWindowMismatch(
+  query: string,
+  resolvedTarget: string,
+  sessions: Session[],
+): string | null {
+  // Explicit tmux address forms are operator-chosen — never second-guess them.
+  if (!query || query.includes(":")) return null;
+
+  const qNorm = query.trim().toLowerCase().replace(/^\d+-/, "");
+  if (!qNorm.endsWith("-oracle")) return null;
+
+  const addr = resolvedTarget.match(/^(.+):(\d+)(?:\.\d+)?$/);
+  if (!addr) return null;
+  const [, sessName, idxStr] = addr;
+  const sess = sessions.find((s) => s.name === sessName);
+  const win = sess?.windows.find((w) => w.index === Number(idxStr));
+  if (!win) return null;
+
+  const wNorm = win.name.trim().toLowerCase().replace(/^\d+-/, "");
+  if (wNorm === qNorm) return null; // exact oracle-window hit — unambiguous
+
+  return (
+    `delivered to ${resolvedTarget} (window '${win.name}'), but target was '${query}' — ` +
+    `resolved window is not named '${query.trim()}'; the message may have landed on the ` +
+    `wrong pane. Use the full 'peer:session:window' form to disambiguate.`
+  );
+}
+
+/**
  * Look up an oracle short-name in the cached `OracleManifest` (Sub-PR 3 of #841).
  *
  * Tries the raw query first, then the `-oracle`-stripped variant — mirrors the

@@ -5,7 +5,7 @@ import { findWindow } from "../core/runtime/find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer, sendKeysToPeerDetailed } from "../core/transport/peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../core/transport/curl-fetch";
-import { resolveTarget } from "../core/routing";
+import { resolveTarget, detectWindowMismatch } from "../core/routing";
 import { processMirror } from "../lib/process-mirror";
 import { cmdWake as defaultCmdWake, resolveFleetSession } from "../commands/shared/wake";
 import { shouldAutoWake as defaultShouldAutoWake } from "../commands/shared/should-auto-wake";
@@ -433,6 +433,11 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           lastLine,
           signed: messageSigned,
         });
+        // #1980: flag silent misdelivery — a forwarded `<oracle>-oracle`
+        // target that resolved to a window NOT named like that oracle (e.g.
+        // `mawjs-oracle` landing on a bare `mawjs` shell pane). The sender
+        // surfaces this warning alongside its `delivered` line.
+        const mismatch = detectWindowMismatch(target, resolved.target, local);
         return {
           ok: true,
           target: resolved.target,
@@ -442,6 +447,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           state,
           receipt: deliveryReceipt("target_pane_resolved", "send_keys_injected", state === "delivered" ? "live_pane_consumed" : "fallback_queued"),
           ...(inbox?.ok ? { inbox: inbox.path } : {}),
+          ...(mismatch ? { warning: mismatch } : {}),
         };
       }
 

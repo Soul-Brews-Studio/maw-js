@@ -8,6 +8,7 @@ import {
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
+import { detectWindowMismatch } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
@@ -860,6 +861,9 @@ export async function cmdSend(
     }, config.port || 3456);
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+    // #1980: warn on silent misdelivery to a window that isn't the named oracle.
+    const mismatch = detectWindowMismatch(query, result.target, sessions);
+    if (mismatch) console.log(`  \x1b[33m⚠\x1b[0m ${mismatch}`);
     return;
   }
 
@@ -889,6 +893,8 @@ export async function cmdSend(
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
       console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      // #1980: surface the receiving node's misdelivery warning, if any.
+      if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
