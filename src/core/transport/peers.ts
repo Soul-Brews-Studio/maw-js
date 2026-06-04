@@ -1,4 +1,4 @@
-import { loadConfig, cfgTimeout } from "../../config";
+import { loadConfig, cfgTimeout, cfgLimit, cfgInterval } from "../../config";
 import type { Session } from "./ssh";
 import { curlFetch } from "./curl-fetch";
 
@@ -59,12 +59,46 @@ export interface FederationStatusOptions {
  * For symmetric pair verification, see `getFederationStatusSymmetric()`
  * (PR #398) and the `maw federation --verify` CLI flag.
  */
+/**
+ * #1975: Probe `GET /api/sessions` with retries to absorb transient WG jitter.
+ *
+ * Attempts up to `1 + limits.peerProbeRetries` times, sleeping
+ * `intervals.peerRetryBackoff` ms between tries. Returns the first `ok`
+ * response; otherwise returns the LAST response/throw so the caller's
+ * existing `res.ok` / catch handling is unchanged. A thrown final attempt
+ * propagates (caught upstream → `reachable: false`), matching prior behavior
+ * when every attempt fails.
+ */
+async function probeSessionsWithRetry(url: string) {
+  const retries = Math.max(0, cfgLimit("peerProbeRetries"));
+  const backoff = Math.max(0, cfgInterval("peerRetryBackoff"));
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0 && backoff > 0) await Bun.sleep(backoff);
+    try {
+      const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
+      if (res.ok || attempt === retries) return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === retries) throw err;
+    }
+  }
+  // Unreachable in practice — the loop always returns or throws on the final
+  // attempt — but satisfies the type checker.
+  throw lastErr ?? new Error(`peer probe failed: ${url}`);
+}
+
 async function checkPeerReachable(url: string): Promise<{
   reachable: boolean; latency: number; node?: string; agents?: string[]; clockDeltaMs?: number;
 }> {
   const start = Date.now();
   try {
-    const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
+    // #1975: WireGuard links jitter — a single timed-out probe used to mark a
+    // healthy peer `unreachable` for the whole run. Retry the reachability
+    // probe (GET /api/sessions is read-only, safe to repeat) with a short
+    // backoff before giving up. Identity fetch below stays single-shot — it's
+    // already best-effort and never gates `reachable`.
+    const res = await probeSessionsWithRetry(url);
     const latency = Date.now() - start;
     // Fetch identity for node dedup (#192) + clock delta (#268)
     let node: string | undefined;

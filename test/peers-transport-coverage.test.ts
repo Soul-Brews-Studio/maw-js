@@ -11,7 +11,10 @@ const realCurl = await import("../src/core/transport/curl-fetch");
 
 let mockActive = false;
 let config: any;
-let responses: Array<{ match: string; res?: any; error?: Error; advanceMs?: number }> = [];
+// `seq` lets a matched URL return a different result per call (shifted in
+// order) — used to model #1975 transient-then-recovered probes. When `seq`
+// is exhausted (or absent), the entry falls back to its `res`/`error`.
+let responses: Array<{ match: string; res?: any; error?: Error; advanceMs?: number; seq?: Array<{ res?: any; error?: Error }> }> = [];
 let curlCalls: Array<{ url: string; opts: any }> = [];
 let warns: string[] = [];
 let now = 1_700_000_000_000;
@@ -24,6 +27,19 @@ mock.module(import.meta.resolve("../src/config"), () => ({
   cfgTimeout: (kind: Parameters<typeof realConfig.cfgTimeout>[0]) => (
     mockActive ? 1234 : realConfig.cfgTimeout(kind)
   ),
+  // #1975: default the peer-probe retry knobs OFF (retries 0, backoff 0) so the
+  // shared suite stays single-shot + no real sleeps. The dedicated retry tests
+  // opt in via config.limits / config.intervals.
+  cfgLimit: (key: Parameters<typeof realConfig.cfgLimit>[0]) => {
+    if (!mockActive) return realConfig.cfgLimit(key);
+    if (config?.limits && key in config.limits) return config.limits[key];
+    return key === "peerProbeRetries" ? 0 : realConfig.cfgLimit(key);
+  },
+  cfgInterval: (key: Parameters<typeof realConfig.cfgInterval>[0]) => {
+    if (!mockActive) return realConfig.cfgInterval(key);
+    if (config?.intervals && key in config.intervals) return config.intervals[key];
+    return key === "peerRetryBackoff" ? 0 : realConfig.cfgInterval(key);
+  },
 }));
 
 mock.module(import.meta.resolve("../src/core/transport/curl-fetch"), () => ({
@@ -33,6 +49,11 @@ mock.module(import.meta.resolve("../src/core/transport/curl-fetch"), () => ({
     curlCalls.push({ url, opts });
     const hit = responses.find((entry) => url.includes(entry.match));
     if (hit?.advanceMs) now += hit.advanceMs;
+    if (hit?.seq && hit.seq.length > 0) {
+      const step = hit.seq.shift()!;
+      if (step.error) throw step.error;
+      return step.res ?? { ok: false, status: 404, data: null };
+    }
     if (hit?.error) throw hit.error;
     return hit?.res ?? { ok: false, status: 404, data: null };
   },
@@ -373,5 +394,77 @@ describe("symmetric status dependency seam", () => {
       ["http://url-match:3456", "healthy", true, undefined],
       ["http://throws:3456", "unknown", null, "peer status fetch failed: peer boom"],
     ]);
+  });
+});
+
+describe("#1975 peer probe retry on transient jitter", () => {
+  test("a peer that throws once then answers 200 is reported reachable", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      peers: ["http://jitter:3456"],
+      limits: { peerProbeRetries: 2 },
+      intervals: { peerRetryBackoff: 0 },
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      {
+        match: "jitter:3456/api/sessions",
+        // first attempt times out (WG jitter), second recovers
+        seq: [{ error: new Error("ETIMEDOUT") }, { res: { ok: true, status: 200, data: [] } }],
+      },
+      { match: "jitter:3456/api/identity", res: { ok: true, status: 200, data: { node: "jitter", agents: ["peer"] } } },
+    ];
+
+    const status = await getFederationStatus();
+
+    expect(status.reachablePeers).toBe(1);
+    const jitter = status.peers.find((p) => p.url === "http://jitter:3456");
+    expect(jitter?.reachable).toBe(true);
+    // first throw + recovery = exactly 2 /api/sessions probes to the peer
+    expect(curlCalls.filter((c) => c.url.includes("jitter:3456/api/sessions"))).toHaveLength(2);
+  });
+
+  test("a peer down for every attempt stays unreachable after exhausting retries", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      peers: ["http://dead:3456"],
+      limits: { peerProbeRetries: 2 },
+      intervals: { peerRetryBackoff: 0 },
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "dead:3456/api/sessions", error: new Error("ECONNREFUSED") },
+    ];
+
+    const status = await getFederationStatus();
+
+    expect(status.reachablePeers).toBe(0);
+    const dead = status.peers.find((p) => p.url === "http://dead:3456");
+    expect(dead?.reachable).toBe(false);
+    // 1 initial attempt + 2 retries = 3 probes before giving up
+    expect(curlCalls.filter((c) => c.url.includes("dead:3456/api/sessions"))).toHaveLength(3);
+  });
+
+  test("retries=0 preserves the legacy single-shot probe", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      peers: ["http://once:3456"],
+      limits: { peerProbeRetries: 0 },
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "once:3456/api/sessions", error: new Error("ETIMEDOUT") },
+    ];
+
+    const status = await getFederationStatus();
+
+    expect(status.reachablePeers).toBe(0);
+    expect(curlCalls.filter((c) => c.url.includes("once:3456/api/sessions"))).toHaveLength(1);
   });
 });
