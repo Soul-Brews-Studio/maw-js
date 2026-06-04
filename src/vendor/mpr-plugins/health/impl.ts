@@ -97,8 +97,20 @@ export async function cmdHealth() {
   } else {
     for (const peer of allPeers) {
       try {
-        const r = await curlFetch(`${peer.url}/api/federation/status`, { timeout: cfgTimeout("health") });
-        checks.push({ name: `peer ${peer.label}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online" : `HTTP ${r.status}` });
+        // #1979: probe the delivery write-path (POST /api/probe), NOT
+        // GET /api/federation/status. Health must reflect what `maw hey`
+        // can actually do — the status endpoint can drift from real delivery
+        // capability in either direction (reported broken while /api/send
+        // delivers fine here; reported online while broken in #1810).
+        // /api/probe walks the same resolveTarget path as /api/send, so this
+        // mirrors the local "maw server" check above (#804 Step 5 rationale).
+        const r = await curlFetch(`${peer.url}/api/probe`, {
+          method: "POST",
+          body: "{}",
+          from: "auto", // sign like /api/send so the probe is delivery-faithful
+          timeout: cfgTimeout("health"),
+        });
+        checks.push({ name: `peer ${peer.label}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online (delivery ok)" : `HTTP ${r.status} (probe)` });
       } catch {
         checks.push({ name: `peer ${peer.label}`, status: "fail", detail: "unreachable" });
       }

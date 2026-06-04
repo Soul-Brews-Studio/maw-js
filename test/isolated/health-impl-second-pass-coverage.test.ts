@@ -100,8 +100,10 @@ describe("health impl second-pass coverage", () => {
       peers: ["http://peer-a"],
       namedPeers: [{ name: "beta", url: "http://peer-b" }],
     };
-    curlResults.set("http://peer-a/api/federation/status", { ok: true, status: 200 });
-    curlResults.set("http://peer-b/api/federation/status", { ok: false, status: 503 });
+    // #1979: peer health now probes the delivery write-path (POST /api/probe),
+    // not GET /api/federation/status.
+    curlResults.set("http://peer-a/api/probe", { ok: true, status: 200 });
+    curlResults.set("http://peer-b/api/probe", { ok: false, status: 503 });
 
     await cmdHealth();
 
@@ -113,8 +115,8 @@ describe("health impl second-pass coverage", () => {
     });
     expect(execCalls).toEqual(["df -h /tmp | tail -1", "free -m | grep Mem", "pm2 jlist 2>/dev/null"]);
     expect(curlCalls).toEqual([
-      { url: "http://peer-a/api/federation/status", timeout: 1234 },
-      { url: "http://peer-b/api/federation/status", timeout: 1234 },
+      { url: "http://peer-a/api/probe", timeout: 1234 },
+      { url: "http://peer-b/api/probe", timeout: 1234 },
     ]);
 
     const out = output();
@@ -123,15 +125,15 @@ describe("health impl second-pass coverage", () => {
     expect(out).toContain("disk /tmp          80G free");
     expect(out).toContain("memory             12000MB available");
     expect(out).toContain("pm2 maw            online (pid 4242)");
-    expect(out).toContain("peer http://peer-a online");
-    expect(out).toContain("peer beta (http://peer-b) HTTP 503");
+    expect(out).toContain("peer http://peer-a online (delivery ok)");
+    expect(out).toContain("peer beta (http://peer-b) HTTP 503 (probe)");
   });
 
   test("covers failure and warning fallbacks for tmux, server, disk, memory, pm2, and peers", async () => {
     tmuxShouldThrow = true;
     fetchResult = { ok: false, status: 418, json: async () => ({}) };
     config = { port: 1111, peers: ["http://offline"] };
-    curlResults.set("http://offline/api/federation/status", new Error("offline"));
+    curlResults.set("http://offline/api/probe", new Error("offline"));
     execHandler = (cmd: string) => {
       if (cmd === "df -h /tmp | tail -1") return "/dev/disk 100G 95G 4G 97% /tmp";
       if (cmd === "free -m | grep Mem") throw new Error("free missing");
