@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { agentStatusStore, type AgentStatus } from "../core/agent-status";
 import { messageQueue } from "../core/message-queue";
+import { resetConfig } from "../config/load";
 
 const VALID_STATUSES = new Set<AgentStatus>(["busy", "ready", "idle", "crashed", "offline"]);
 
@@ -55,6 +56,11 @@ export const statusApi = new Elysia()
   .get("/queue/:oracle", ({ params }) => {
     const pending = messageQueue.pending(params.oracle);
     return { oracle: params.oracle, pending, count: pending.length };
+  })
+
+  .post("/config/reload", () => {
+    resetConfig();
+    return { ok: true };
   })
 
   .post("/queue", ({ body }) => {
