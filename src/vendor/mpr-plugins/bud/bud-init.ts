@@ -94,6 +94,33 @@ Run \`/awaken\` for the full identity setup ceremony.
   console.log(`  \x1b[32m✓\x1b[0m CLAUDE.md generated`);
 }
 
+/** Step 3.5: Create .claude/settings.json with status-reporter hooks. */
+export function generateClaudeSettings(budRepoPath: string): void {
+  const settingsDir = join(budRepoPath, ".claude");
+  const settingsPath = join(settingsDir, "settings.json");
+  if (existsSync(settingsPath)) {
+    console.log(`  \x1b[90m○\x1b[0m .claude/settings.json exists`);
+    return;
+  }
+
+  const hookScript = join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh");
+  const makeHook = (event: string) => ({
+    matcher: "",
+    hooks: [{ type: "command", command: `CLAUDE_HOOK_EVENT=${event} ${hookScript}` }],
+  });
+
+  const settings = {
+    hooks: {
+      SessionStart: [makeHook("SessionStart")],
+      Stop: [makeHook("Stop")],
+    },
+  };
+
+  mkdirSync(settingsDir, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  console.log(`  \x1b[32m✓\x1b[0m .claude/settings.json + status hooks`);
+}
+
 /** Step 4: Create or update fleet config. Returns the fleet file path. */
 export function configureFleet(name: string, org: string, budRepoName: string, parentName: string | null): string {
   // #202 — idempotent, always writes lineage

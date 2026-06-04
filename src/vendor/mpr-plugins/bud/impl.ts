@@ -5,7 +5,7 @@ import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { hostExec } from "maw-js/sdk";
 import { ensureBudRepo } from "./bud-repo";
-import { initVault, generateClaudeMd, configureFleet, writeBirthNote } from "./bud-init";
+import { initVault, generateClaudeMd, generateClaudeSettings, configureFleet, writeBirthNote } from "./bud-init";
 import { finalizeBud } from "./bud-wake";
 import { writeSignal } from "maw-js/core/fleet/leaf";
 import { validateNickname, writeNickname, setCachedNickname } from "maw-js/core/fleet/nicknames";
@@ -192,6 +192,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   // 2-4.5. Initialize vault, CLAUDE.md, nickname, fleet config, birth note
   const psiDir = initVault(budRepoPath);
   generateClaudeMd(budRepoPath, name, parentName);
+  generateClaudeSettings(budRepoPath);
   if (nicknameValue) {
     // Authoritative on-disk write (staged by finalizeBud's `git add -A`),
     // then refresh the read-through cache so /info + peers pick it up immediately.
