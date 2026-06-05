@@ -102,12 +102,11 @@ export class AgentStatusStore {
 
 function feedEventToStatus(event: string): AgentStatus | null {
   switch (event) {
+    case "SessionStart":
     case "UserPromptSubmit":
     case "PreToolUse":
     case "SubagentStart":
       return "busy";
-    case "SessionStart":
-      return "ready";
     case "Stop":
     case "PostToolUse":
     case "SubagentStop":

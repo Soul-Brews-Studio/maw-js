@@ -142,7 +142,9 @@ describe("talk-to impl isolated coverage", () => {
           thread: { id: 7, title: "channel:alpha", status: "open", created_at: "2026-05-18T00:00:00Z" },
           messages: [{ id: 1, role: "user", content: "hi", created_at: "2026-05-18T00:00:00Z" }],
         }),
+        jsonResponse({ status: "ready" }),
       ];
+      fetchCalls = [];
       sendKeysCalls = [];
       runHookCalls = [];
       mkdirCalls = [];
@@ -150,7 +152,10 @@ describe("talk-to impl isolated coverage", () => {
 
       await cmdTalkTo("alpha", message);
 
-      expect(fetchCalls.slice(-3).map(call => call.url)).toEqual([
+      const threadCalls = fetchCalls
+        .filter(c => c.url.startsWith("https://oracle.test/"))
+        .map(c => c.url);
+      expect(threadCalls).toEqual([
         "https://oracle.test/api/threads?limit=50",
         "https://oracle.test/api/thread",
         "https://oracle.test/api/thread/7",
