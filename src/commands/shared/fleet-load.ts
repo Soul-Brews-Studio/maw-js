@@ -2,6 +2,7 @@ import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import * as sdk from "../../sdk";
 import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
+import { resolveFleetWindowSessionTarget } from "../../core/matcher/resolve-target";
 
 export interface FleetWindow {
   name: string;
@@ -138,4 +139,22 @@ export async function getSessionNames(): Promise<string[]> {
     const out = await sdk.tmux.run("list-sessions", "-F", "#{session_name}");
     return out.trim().split("\n").filter(Boolean);
   } catch { return []; }
+}
+
+/**
+ * Oracle name → fleet session name via the fleet config (#281).
+ *
+ * Lives here (not in wake-resolve-impl) so the hot, sync `resolveTarget`
+ * path can pull it WITHOUT dragging the whole wake subsystem — wake-resolve-impl
+ * statically `import { hostExec, tmux } from "../../sdk"`, which made any test
+ * partial-mocking the sdk barrel fail to link (the release blocker on
+ * v26.6.5-alpha.1323). This module only uses `import * as sdk` (namespace —
+ * link-safe), and resolveFleetSession itself touches neither hostExec nor tmux.
+ */
+export function resolveFleetSession(oracle: string): string | null {
+  try {
+    const resolved = resolveFleetWindowSessionTarget(oracle, loadFleet());
+    if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
+  } catch { /* fleet dir may not exist */ }
+  return null;
 }

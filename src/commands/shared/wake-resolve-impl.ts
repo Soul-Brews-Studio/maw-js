@@ -2,14 +2,14 @@ import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind, ghqList } from "../../core/ghq";
 import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
-import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
+import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { worktreeNameFromPath } from "../../core/fleet/worktree-layout";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
-import { loadFleet, type FleetWindow } from "./fleet-load";
+import { loadFleet, resolveFleetSession, type FleetWindow } from "./fleet-load";
 import type { Session } from "../../core/runtime/find-window";
 
 /**
@@ -424,13 +424,10 @@ export function findReusableWorktreeBySlug(
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
 
-export function resolveFleetSession(oracle: string): string | null {
-  try {
-    const resolved = resolveFleetWindowSessionTarget(oracle, loadFleet());
-    if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
-  } catch { /* fleet dir may not exist */ }
-  return null;
-}
+// #1976-release: resolveFleetSession moved to ./fleet-load so the sync
+// resolveTarget path can import it without pulling this sdk-coupled module.
+// Re-exported here to keep existing importers (wake barrel, etc.) working.
+export { resolveFleetSession };
 
 function knownFleetSessionStems(): string[] {
   try {

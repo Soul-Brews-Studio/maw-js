@@ -96,6 +96,10 @@ mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
 
 mock.module(join(srcRoot, "src/lib/oracle-manifest"), () => ({
   findOracle: () => findOracleResult,
+  // routing.ts imports loadManifestCached for its Step-3a manifest lookup;
+  // the mock must provide it or Bun fails to link. Empty list = manifest miss,
+  // which falls through to the legacy agents-map step (correct for these tests).
+  loadManifestCached: () => [],
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/should-auto-wake"), () => ({

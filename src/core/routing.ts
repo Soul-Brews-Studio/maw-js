@@ -37,7 +37,12 @@
 
 import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
-import { resolveFleetSession } from "../commands/shared/wake";
+// #1976-release: import from the light fleet-load module, NOT the wake barrel.
+// The wake barrel statically pulls wake-session/wake-resolve-impl, which
+// `import { hostExec, tmux } from "../../sdk"` — dragging the sdk barrel into
+// every routing/comm-send consumer's graph and breaking tests that partially
+// mock it ("Export named 'hostExec' not found", the v26.6.5-alpha.1323 CI block).
+import { resolveFleetSession } from "../commands/shared/fleet-load";
 import { loadManifestCached, type OracleManifestEntry } from "../lib/oracle-manifest";
 import { loadPeers, type Peer } from "../lib/peers/store";
 
