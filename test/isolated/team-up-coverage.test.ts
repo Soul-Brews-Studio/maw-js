@@ -3,9 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
+// Test the VENDORED copy — that is what the runtime loads (~/.maw/plugins/team →
+// src/vendor/mpr-plugins/team). #1976 originally landed in src/commands/plugins/team
+// (core), which is tested but NOT dispatched, so `maw team up` was unreachable
+// despite green tests. Guard the copy that actually ships.
 import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-charter";
-import { classifyMember, engineCommand } from "../../src/commands/plugins/team/team-liveness";
-import { cmdTeamUp } from "../../src/commands/plugins/team/team-up";
+import { classifyMember, engineCommand } from "../../src/vendor/mpr-plugins/team/team-liveness";
+import { cmdTeamUp } from "../../src/vendor/mpr-plugins/team/team-up";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -154,5 +158,25 @@ members:
   test("engine command resolves resume key only when requested", () => {
     expect(engineCommand("omx", {}, config)).toBe("maw run omx");
     expect(engineCommand("omx", { resume: true }, config)).toBe("maw run omx-resume");
+  });
+});
+
+// Regression guard for the integration miss: #1976 landed in core but the
+// runtime dispatches the VENDORED plugin index, where `up` was an unknown
+// subcommand. Assert the vendored handler routes `up` (usage path), NOT the
+// "unknown subcommand" fallthrough. If this fails, the verb is unreachable
+// from the installed binary even when cmdTeamUp itself is green.
+describe("vendored team plugin routes `up` (#1976 integration)", () => {
+  async function dispatch(args: string[]) {
+    const handler = (await import("../../src/vendor/mpr-plugins/team/index.ts")).default;
+    const out: string[] = [];
+    const res = await handler({ source: "cli", args, writer: (...a: any[]) => out.push(a.map(String).join(" ")) } as any);
+    return { res, out: out.join("\n") };
+  }
+
+  test("`team up` is a known subcommand", async () => {
+    const { res } = await dispatch(["up"]);
+    expect(res.error).not.toContain("unknown subcommand");
+    expect(res.error).toBe("team required");
   });
 });

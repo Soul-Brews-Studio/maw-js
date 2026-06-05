@@ -347,9 +347,33 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`\x1b[36m↵\x1b[0m enter sent to ${m.agentId || m.name}`);
       }
 
+    } else if (sub === "up") {
+      // #1976 — charter-driven team wake: reconcile the charter against live
+      // panes (skip live, resume dead in place, fresh-wake missing).
+      if (!args[1]) {
+        logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      const { cmdTeamUp } = await import("./team-up");
+      const flags = parseFlags(args, {
+        "--dry-run": Boolean,
+        "--status": Boolean,
+        "--force": Boolean,
+        "--gather": Boolean,
+        "--engine": String,
+        "-e": "--engine",
+      }, 2);
+      await cmdTeamUp(args[1], {
+        dryRun: Boolean(flags["--dry-run"]),
+        status: Boolean(flags["--status"]),
+        force: Boolean(flags["--force"]),
+        gather: Boolean(flags["--gather"]),
+        engine: flags["--engine"] as string | undefined,
+      });
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

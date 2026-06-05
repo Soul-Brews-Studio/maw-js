@@ -1,16 +1,16 @@
 {
   "name": "team",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Agent reincarnation engine — create, bring, send, shutdown, resume, lives.",
+  "description": "Agent reincarnation engine — create, up, bring, send, shutdown, resume, lives.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "team",
     "aliases": [
       "t"
     ],
-    "help": "maw team <create|plan|preflight|load|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
+    "help": "maw team <create|plan|preflight|load|up|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
   },
   "weight": 30,
   "tier": "standard",
