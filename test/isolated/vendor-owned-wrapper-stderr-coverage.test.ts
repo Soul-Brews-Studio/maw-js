@@ -14,7 +14,10 @@ function mockBoth(spec: string, factory: () => Record<string, unknown>) {
   mock.module(import.meta.resolve(`${spec}.ts`), factory);
 }
 
-mockBoth("../../src/vendor/mpr-plugins/broadcast/impl", () => ({ cmdBroadcast: async (m: string) => emit("broadcast", m) }));
+mockBoth("../../src/vendor/mpr-plugins/broadcast/impl", () => ({
+  parseBroadcastArgs: (args: string[]) => ({ message: args.join(" "), scope: {} }),
+  cmdBroadcast: async (m: string) => emit("broadcast", m),
+}));
 mockBoth("../../src/vendor/mpr-plugins/completions/impl", () => ({ cmdCompletions: async (s?: string) => emit("completions", s ?? "") }));
 mockBoth("../../src/vendor/mpr-plugins/find/impl", () => ({ cmdFind: async (q: string, o: unknown) => emit("find", q, JSON.stringify(o)) }));
 mockBoth("../../src/vendor/mpr-plugins/locate/impl", () => ({ cmdLocate: async (o: string, opts: unknown) => emit("locate", o, JSON.stringify(opts)) }));

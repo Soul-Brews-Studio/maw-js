@@ -104,6 +104,7 @@ mock.module(doneWorktreePath, () => ({
   removeWorktreeViaConfig: async () => false,
   removeWorktreeByGhqScan: async () => false,
   removeFromFleetConfig: () => false,
+  warnRemainingWorktrees: async () => [],
 }));
 
 const { postHandshake } = await import("../../src/vendor/mpr-plugins/pair/handshake.ts?coverage-next-vendor-b-core");

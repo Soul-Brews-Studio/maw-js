@@ -172,6 +172,7 @@ describe("vendor team handler coverage slice", () => {
       engine: "codex",
       dryRun: true,
       split: true,
+      gather: false,
     }]]);
   });
 

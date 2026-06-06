@@ -50,7 +50,12 @@ mock.module(import.meta.resolve("../../src/config"), () => mockConfigModule(() =
 mock.module(import.meta.resolve("../../src/api"), () => ({
   api: { handle: () => new Response("api") },
 }));
-mock.module(import.meta.resolve("../../src/api/feed"), () => ({ feedBuffer, feedListeners }));
+mock.module(import.meta.resolve("../../src/api/feed"), () => ({
+  feedBuffer,
+  feedListeners,
+  pushFeedEvent: (event: unknown) => { feedBuffer.push(event); for (const listener of feedListeners) listener(event); },
+  pushFeedEventWithDeps: (event: unknown) => { feedBuffer.push(event); for (const listener of feedListeners) listener(event); },
+}));
 mock.module(import.meta.resolve("../../src/views/index"), () => ({
   mountViews: (views: Hono) => { views.get("/boom", () => { throw new Error("view exploded"); }); },
 }));
@@ -61,14 +66,31 @@ mock.module(import.meta.resolve("../../src/transports"), () => ({
   createTransportRouter: () => ({
     connectAll: () => connectShouldReject ? Promise.reject(new Error("connect rejected")) : Promise.resolve(),
   }),
+  getTransportRouter: () => null,
+  resetTransportRouter: () => {},
 }));
 mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({
+  hostExec: async () => "",
+  HostExecError: class HostExecError extends Error {},
+  capture: async () => "",
+  sendKeys: async () => {},
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  getPaneCommand: async () => "",
+  isAgentCommand: () => false,
   listSessions: async () => {
     if (sessionsShouldThrow) throw new Error("tmux unavailable");
     return [];
   },
 }));
 mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
+  tmuxCmd: () => "tmux-test",
+  resolveSocket: () => [],
+  tmux: { run: async () => "", listSessions: async () => [] },
+  withPaneLock: async (fn: () => unknown) => await fn(),
+  splitWindowLocked: async () => undefined,
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
   Tmux: class { async killSession(_name: string) {} },
 }));
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
@@ -81,6 +103,7 @@ mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
   runServeLifecycleHooks: async () => {
     if (lifecycleShouldThrow) throw new Error("lifecycle failed");
   },
+  runWakeLifecycleHooks: async () => {},
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
   dispatchEnginePluginEvent: async () => { throw new Error("dispatch rejected"); },

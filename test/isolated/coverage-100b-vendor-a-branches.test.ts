@@ -130,6 +130,7 @@ mock.module(join(budRoot, "smart-default-org"), () => ({
 mock.module(join(budRoot, "bud-repo"), () => ({ ensureBudRepo: async (_slug: string, predicted: string) => predicted }));
 mock.module(join(budRoot, "bud-init"), () => ({
   initVault: (repoPath: string) => { const psi = join(repoPath, "ψ"); mkdirSync(psi, { recursive: true }); return psi; },
+  generateClaudeSettings: (...args: unknown[]) => { hostExecCalls?.push?.(`generateClaudeSettings:${JSON.stringify(args)}`); },
   generateClaudeMd: (...args: unknown[]) => { hostExecCalls.push(`generateClaudeMd:${JSON.stringify(args)}`); },
   configureFleet: (name: string) => join(tmpRoot, `${name}.json`),
   writeBirthNote: (...args: unknown[]) => { hostExecCalls.push(`writeBirthNote:${JSON.stringify(args)}`); },

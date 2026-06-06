@@ -68,6 +68,9 @@ mock.module(join(root, "vendor/mpr-plugins/bud/bud-init"), () => ({
     calls.push("initVault");
     return "/tmp/testscaffold-oracle/ψ";
   },
+  generateClaudeSettings: () => {
+    calls.push("generateClaudeSettings");
+  },
   generateClaudeMd: () => {
     calls.push("generateClaudeMd");
   },

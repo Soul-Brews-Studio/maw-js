@@ -68,6 +68,11 @@ mock.module(checkImplPath, () => ({
 }));
 
 mock.module(broadcastImplPath, () => ({
+  parseBroadcastArgs: (args: string[]) => {
+    const message = args.join(" ").trim();
+    if (!message) throw new Error("usage: maw broadcast <message> [--session <name>] [--team <name>] [--fleet <name>]");
+    return { message, scope: {} };
+  },
   cmdBroadcast: async (message: string) => {
     calls.broadcast.push(message);
     console.log(`broadcast:${message || "<empty>"}`);
@@ -162,7 +167,11 @@ describe("extra isolated coverage for small vendor command indexes", () => {
       output: undefined,
     });
     await expect(checkPlugin.default(ctx("api", { sub: "ignored" }))).resolves.toMatchObject({ ok: true });
-    await expect(broadcastPlugin.default(ctx("api", { message: "ignored" }))).resolves.toMatchObject({ ok: true });
+    await expect(broadcastPlugin.default(ctx("api", { message: "ignored" }))).resolves.toEqual({
+      ok: false,
+      error: "usage: maw broadcast <message> [--session <name>] [--team <name>] [--fleet <name>]",
+      output: undefined,
+    });
     await expect(completionsPlugin.default(ctx("api", { shell: "fish" }))).resolves.toMatchObject({ ok: true });
     await expect(overviewPlugin.default(ctx("api", { args: ["ignored"] }))).resolves.toMatchObject({ ok: true });
 
@@ -170,7 +179,7 @@ describe("extra isolated coverage for small vendor command indexes", () => {
       talkTo: [],
       find: [],
       check: [{ sub: "tools", args: [] }],
-      broadcast: [""],
+      broadcast: [],
       completions: [undefined],
       overview: [[]],
     });

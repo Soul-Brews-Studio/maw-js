@@ -21,15 +21,26 @@ mock.module(import.meta.resolve("../../src/engine"), () => ({
   },
 }));
 mock.module(import.meta.resolve("../../src/api"), () => ({ api: { handle: () => new Response("api") } }));
-mock.module(import.meta.resolve("../../src/api/feed"), () => ({ feedBuffer: [], feedListeners }));
+mock.module(import.meta.resolve("../../src/api/feed"), () => ({
+  feedBuffer: [],
+  feedListeners,
+  pushFeedEvent: (event: unknown) => { feedListeners.forEach(listener => listener(event)); },
+  pushFeedEventWithDeps: (event: unknown) => { feedListeners.forEach(listener => listener(event)); },
+}));
 mock.module(import.meta.resolve("../../src/views/index"), () => ({
   mountViews: (views: any) => { views.get("/mounted-next", (c: any) => c.text("mounted-next")); },
 }));
 mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () => ({ setupTriggerListener: () => {} }));
-mock.module(import.meta.resolve("../../src/transports"), () => ({ createTransportRouter: () => ({ connectAll: () => Promise.resolve() }) }));
+mock.module(import.meta.resolve("../../src/transports"), () => ({
+  createTransportRouter: () => ({ connectAll: () => Promise.resolve() }),
+  getTransportRouter: () => null,
+  resetTransportRouter: () => {},
+}));
 mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({
   HostExecError: class HostExecError extends Error {},
   capture: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
   getPaneCommand: async () => "claude",
   hostExec: async () => "",
   isAgentCommand: (cmd: string) => ["claude", "codex", "node"].includes(cmd),
@@ -39,12 +50,17 @@ mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({
 }));
 mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
   tmuxCmd: (...args: Array<string | number>) => `tmux ${args.join(" ")}`,
+  resolveSocket: () => [],
+  splitWindowLocked: async () => undefined,
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
   tmux: {
     listSessions: async () => [],
     setEnvironment: async () => {},
     hasSession: async () => true,
     run: async () => "",
   },
+  withPaneLock: async (fn: () => unknown) => await fn(),
   Tmux: class {
     async killSession() {}
     async run() { return ""; }

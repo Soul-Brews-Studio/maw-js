@@ -63,7 +63,7 @@ describe("ensureFleetSessionEntry", () => {
     expect(h.writes.map(([path]) => path)).toEqual(["/legacy/fleet/77-mawjs.json"]);
     expect(JSON.parse(h.files.get("/legacy/fleet/77-mawjs.json")!).windows).toEqual([
       { name: "lead", repo: "github.com/Soul-Brews-Studio/maw-js" },
-      { name: "worker", repo: "github.com/Soul-Brews-Studio/maw-js/agents/1-worker" },
+      { name: "worker", repo: "github.com/Soul-Brews-Studio/maw-js" },
     ]);
   });
 
@@ -74,8 +74,8 @@ describe("ensureFleetSessionEntry", () => {
     expect(h.writes).toEqual([]);
   });
 
-  test("repo derivation works whether ghq root includes github.com or not", () => {
+  test("repo derivation uses the configured ghq root and rejects too-shallow alternate roots", () => {
     expect(_test.repoFromCwd("/ghq/github.com/Soul-Brews-Studio/maw-js", "/ghq")).toBe("github.com/Soul-Brews-Studio/maw-js");
-    expect(_test.repoFromCwd("/ghq/github.com/Soul-Brews-Studio/maw-js", "/ghq/github.com")).toBe("Soul-Brews-Studio/maw-js");
+    expect(_test.repoFromCwd("/ghq/github.com/Soul-Brews-Studio/maw-js", "/ghq/github.com")).toBeNull();
   });
 });

@@ -117,6 +117,7 @@ mock.module(join(srcRoot, "vendor/mpr-plugins/bud/bud-init"), () => ({
     initVaultCalls.push(repoPath);
     return initVaultResult;
   },
+  generateClaudeSettings: (...args: unknown[]) => { hostExecCalls?.push?.(`generateClaudeSettings:${JSON.stringify(args)}`); },
   generateClaudeMd: (...args: any[]) => {
     generateClaudeMdCalls.push(args);
   },

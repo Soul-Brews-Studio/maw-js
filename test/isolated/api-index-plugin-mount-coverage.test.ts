@@ -82,6 +82,8 @@ const moduleExports: Record<string, unknown> = {
   claudeFleetApi: inertPlugin,
   peerDiscoveriesApi: inertPlugin,
   engineApi: inertPlugin,
+  statusApi: inertPlugin,
+  requestReplyApi: inertPlugin,
 };
 
 const apiModules: Array<[string, string]> = [
@@ -113,6 +115,8 @@ const apiModules: Array<[string, string]> = [
   ["claude-fleet", "claudeFleetApi"],
   ["peers-discoveries", "peerDiscoveriesApi"],
   ["engine", "engineApi"],
+  ["status", "statusApi"],
+  ["request-reply", "requestReplyApi"],
 ];
 
 for (const [moduleName, exportName] of apiModules) {

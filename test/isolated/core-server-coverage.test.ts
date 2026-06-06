@@ -73,7 +73,12 @@ mock.module(import.meta.resolve("../../src/config"), () => mockConfigModule(() =
 mock.module(import.meta.resolve("../../src/api"), () => ({
   api: { handle: (req: Request) => { apiCalls.push(new URL(req.url).pathname); return new Response("api"); } },
 }));
-mock.module(import.meta.resolve("../../src/api/feed"), () => ({ feedBuffer, feedListeners }));
+mock.module(import.meta.resolve("../../src/api/feed"), () => ({
+  feedBuffer,
+  feedListeners,
+  pushFeedEvent: (event: unknown) => { feedBuffer.push(event); for (const listener of feedListeners) listener(event); },
+  pushFeedEventWithDeps: (event: unknown) => { feedBuffer.push(event); for (const listener of feedListeners) listener(event); },
+}));
 mock.module(import.meta.resolve("../../src/views/index"), () => ({
   mountViews: (views: Hono) => { views.get("/mounted", c => c.text("mounted view")); },
 }));
@@ -90,11 +95,28 @@ mock.module(import.meta.resolve("../../src/transports"), () => ({
       },
     };
   },
+  getTransportRouter: () => null,
+  resetTransportRouter: () => {},
 }));
-mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => mockSshModule({
-  listSessions: async () => sessions,
+mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({
+  ...mockSshModule({ listSessions: async () => sessions }),
+  hostExec: async () => "",
+  HostExecError: class HostExecError extends Error {},
+  capture: async () => "",
+  sendKeys: async () => {},
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
 }));
 mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
+  tmuxCmd: () => "tmux-test",
+  resolveSocket: () => [],
+  tmux: { run: async () => "", listSessions: async () => [] },
+  withPaneLock: async (fn: () => unknown) => await fn(),
+  splitWindowLocked: async () => undefined,
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
   Tmux: class { async killSession(name: string) { killed.push(name); } },
 }));
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
@@ -108,6 +130,7 @@ mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
     lifecycleCalls.push(payload);
     if (lifecycleShouldThrow) throw new Error("lifecycle boom");
   },
+  runWakeLifecycleHooks: async () => {},
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
   dispatchEnginePluginEvent: async (event: unknown) => {

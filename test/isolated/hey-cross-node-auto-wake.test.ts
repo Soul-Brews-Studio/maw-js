@@ -184,21 +184,19 @@ describe("cmdSend — cross-node auto-wake (#791)", () => {
     expect(wakeCalls.length).toBe(0);
   });
 
-  test("wake error surfaces and exits — does NOT proceed to /api/send", async () => {
+  test("wake error warns and falls back to direct /api/send", async () => {
     mockNamedPeers = [{ name: "phaith", url: "http://phaith:3456" }];
     curlFetchHandler = (url: string) => {
       if (url.includes("/api/wake")) return { ok: false, status: 503, data: { error: "peer unreachable" } };
-      // /api/send mock would succeed, but should not be reached
       if (url.includes("/api/send")) return { ok: true, status: 200, data: { ok: true } };
       return { ok: false, status: 500, data: {} };
     };
 
     await run(() => cmdSend("phaith:hojo", "ping"));
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBeUndefined();
     const sendCalls = curlFetchCalls.filter(c => c.url.includes("/api/send"));
-    expect(sendCalls.length).toBe(0);
-    const allErr = errs.join("\n");
-    expect(allErr).toMatch(/cross-node wake failed/);
+    expect(sendCalls.length).toBe(1);
+    expect(curlFetchCalls.map(c => c.url).join("\n")).toContain("/api/wake");
   });
 });

@@ -359,10 +359,11 @@ describe("wake-cmd isolated executable branch coverage", () => {
 
     expect(result).toBe("54-mawjs:mawjs-oracle");
     expect(selectWindowCalls).toEqual(["54-mawjs:mawjs-oracle"]);
-    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls).toHaveLength(2);
     expect(sendTextCalls[0]!.target).toBe("54-mawjs:mawjs-oracle");
-    expect(sendTextCalls[0]!.text).toContain(`cd ${repoPath} && codex --agent mawjs-oracle -p `);
-    expect(sendTextCalls[0]!.text).toMatch(/say .*hi/);
+    expect(sendTextCalls[0]!.text).toContain(`cd ${repoPath}`);
+    expect(sendTextCalls[1]!.target).toBe("54-mawjs:mawjs-oracle");
+    expect(sendTextCalls[1]!.text).toMatch(/say .*hi/);
     expect(attachCalls).toEqual(["54-mawjs"]);
     expect(splitCalls).toEqual(["54-mawjs:mawjs-oracle"]);
     expect(openWindowCalls).toEqual(["54-mawjs:mawjs-oracle"]);

@@ -34,16 +34,40 @@ mock.module(import.meta.resolve("../../src/config"), () => mockConfigModule(() =
 mock.module(import.meta.resolve("../../src/api"), () => ({
   api: { handle: (req: Request) => { apiPaths.push(new URL(req.url).pathname); return new Response("api"); } },
 }));
-mock.module(import.meta.resolve("../../src/api/feed"), () => ({ feedBuffer: [], feedListeners: new Set() }));
+mock.module(import.meta.resolve("../../src/api/feed"), () => ({
+  feedBuffer: [],
+  feedListeners: new Set(),
+  pushFeedEvent: () => {},
+  pushFeedEventWithDeps: () => {},
+}));
 mock.module(import.meta.resolve("../../src/views/index"), () => ({
   mountViews: (views: Hono) => { views.get("/throws", () => { throw new Error("view failed"); }); },
 }));
 mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () => ({ setupTriggerListener: () => {} }));
 mock.module(import.meta.resolve("../../src/transports"), () => ({
   createTransportRouter: () => ({ connectAll: () => Promise.resolve() }),
+  getTransportRouter: () => null,
+  resetTransportRouter: () => {},
 }));
-mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({ listSessions: async () => sessions }));
+mock.module(import.meta.resolve("../../src/core/transport/ssh"), () => ({
+  hostExec: async () => "",
+  capture: async () => "",
+  sendKeys: async () => {},
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  HostExecError: class HostExecError extends Error {},
+  listSessions: async () => sessions,
+}));
 mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
+  tmuxCmd: () => "tmux-test",
+  resolveSocket: () => [],
+  tmux: { run: async () => "", listSessions: async () => [] },
+  withPaneLock: async (fn: () => unknown) => await fn(),
+  splitWindowLocked: async () => undefined,
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
   Tmux: class { async killSession(name: string) { killed.push(name); } },
 }));
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
