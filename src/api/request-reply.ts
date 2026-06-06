@@ -6,6 +6,18 @@ import { extractOracleName } from "../core/agent-status-guard";
 import { pushFeedEvent } from "./feed";
 import { buildMessageLifecycleFeedEvent } from "../lib/message-events";
 
+const ALLOWED_CALLBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isAllowedCallbackUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return ALLOWED_CALLBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export const requestReplyApi = new Elysia()
   /**
    * POST /api/request — submit a request to an oracle.
@@ -91,8 +103,8 @@ export const requestReplyApi = new Elysia()
 
     requestReplyStore.markReplied(params.correlationId, body.reply, body.data);
 
-    // Push-based callback if configured
-    if (entry.callbackUrl) {
+    // Push-based callback if configured (SSRF guard: localhost only)
+    if (entry.callbackUrl && isAllowedCallbackUrl(entry.callbackUrl)) {
       try {
         await fetch(entry.callbackUrl, {
           method: "POST",
