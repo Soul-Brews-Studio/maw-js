@@ -13,6 +13,8 @@ export interface WakeInboxDrainResult {
   count: number;
   prompt: string;
   messages: WakeInboxMessage[];
+  omittedCount: number;
+  byteBudget: number;
 }
 
 export interface WakeInboxDrainDeps {
@@ -21,6 +23,13 @@ export interface WakeInboxDrainDeps {
   readFileSync?: typeof readFileSync;
   writeFileSync?: typeof writeFileSync;
   markRead?: boolean;
+  byteBudget?: number;
+}
+
+export const DEFAULT_WAKE_INBOX_BYTE_BUDGET = 64 * 1024;
+
+function utf8Bytes(value: string): number {
+  return Buffer.byteLength(value, "utf-8");
 }
 
 function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string; frontmatter: string | null } {
@@ -53,8 +62,17 @@ function markFrontmatterRead(raw: string, timestamp: string): string {
   return fm + raw.slice(end + "\n---".length);
 }
 
-export function formatWakeInboxPrompt(messages: WakeInboxMessage[]): string {
-  if (!messages.length) return "";
+function formatWakeInboxOmittedNotice(omittedCount: number): string {
+  if (omittedCount <= 0) return "";
+  return [
+    "## Unread ψ/inbox messages omitted",
+    `${omittedCount} unread ψ/inbox message${omittedCount === 1 ? "" : "s"} exceeded the wake prompt byte budget and remain unread.`,
+    "Run `maw inbox --unread` after wake to review the remaining messages.",
+  ].join("\n");
+}
+
+export function formatWakeInboxPrompt(messages: WakeInboxMessage[], omittedCount = 0): string {
+  if (!messages.length) return formatWakeInboxOmittedNotice(omittedCount);
   const sections = messages.map((msg, index) => [
     `### ${index + 1}. ${msg.filename}`,
     `from: ${msg.from || "unknown"}`,
@@ -67,7 +85,8 @@ export function formatWakeInboxPrompt(messages: WakeInboxMessage[]): string {
     "These messages were mechanically drained by `maw wake`; acknowledge or act on them before continuing.",
     "",
     ...sections,
-  ].join("\n\n");
+    formatWakeInboxOmittedNotice(omittedCount),
+  ].filter(Boolean).join("\n\n");
 }
 
 export function mergeWakeInboxPrompt(existingPrompt: string | undefined, inboxPrompt: string): string | undefined {
@@ -82,10 +101,12 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
   const fsReadFile = deps.readFileSync ?? readFileSync;
   const fsWriteFile = deps.writeFileSync ?? writeFileSync;
   const markRead = deps.markRead ?? true;
+  const byteBudget = Math.max(0, Math.floor(deps.byteBudget ?? DEFAULT_WAKE_INBOX_BYTE_BUDGET));
   const inboxDir = join(repoPath, "ψ", "inbox");
-  if (!fsExists(inboxDir)) return { count: 0, prompt: "", messages: [] };
+  if (!fsExists(inboxDir)) return { count: 0, prompt: "", messages: [], omittedCount: 0, byteBudget };
 
   const messages: WakeInboxMessage[] = [];
+  let omittedCount = 0;
   for (const filename of fsReadDir(inboxDir).filter((name) => name.endsWith(".md")).sort()) {
     const path = join(inboxDir, filename);
     let raw: string;
@@ -96,13 +117,19 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
     }
     const parsed = parseFrontmatter(raw);
     if (!isUnread(parsed.meta)) continue;
-    messages.push({
+    const message = {
       path,
       filename,
       from: parsed.meta.from ?? "",
       timestamp: parsed.meta.timestamp ?? "",
       body: parsed.body,
-    });
+    };
+    const nextPrompt = formatWakeInboxPrompt([...messages, message], omittedCount);
+    if (utf8Bytes(nextPrompt) > byteBudget) {
+      omittedCount++;
+      continue;
+    }
+    messages.push(message);
     if (markRead) {
       try {
         fsWriteFile(path, markFrontmatterRead(raw, new Date().toISOString()));
@@ -112,5 +139,8 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
     }
   }
 
-  return { count: messages.length, messages, prompt: formatWakeInboxPrompt(messages) };
+  let prompt = formatWakeInboxPrompt(messages, omittedCount);
+  if (utf8Bytes(prompt) > byteBudget) prompt = formatWakeInboxPrompt(messages, 0);
+  if (utf8Bytes(prompt) > byteBudget) prompt = "";
+  return { count: messages.length, messages, omittedCount, byteBudget, prompt };
 }
