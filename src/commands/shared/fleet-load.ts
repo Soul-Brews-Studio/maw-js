@@ -15,6 +15,8 @@ export interface FleetSession {
   skip_command?: boolean;
   /** Peer oracle names for soul-sync (flat, no hierarchy). */
   sync_peers?: string[];
+  /** Optional parent oracle/fleet name for bud lineage. */
+  budded_from?: string;
   /** Project repos (org/repo) this oracle absorbs ψ/ from via `maw soul-sync --project`. */
   project_repos?: string[];
 }

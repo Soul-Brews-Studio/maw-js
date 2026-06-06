@@ -45,6 +45,26 @@ function peerAliases(name: string): Set<string> {
   return new Set([clean, stem]);
 }
 
+function migrateFleetRefs<T extends { sync_peers?: string[]; budded_from?: string }>(
+  session: T,
+  aliases: Set<string>,
+  newName: string,
+): { session: T; changed: boolean } {
+  let changed = false;
+  const next: T = { ...session };
+  if (Array.isArray(session.sync_peers)) {
+    const originalPeers = session.sync_peers;
+    const syncPeers = originalPeers.map(peer => aliases.has(peer) ? newName : peer);
+    changed = changed || syncPeers.some((peer, index) => peer !== originalPeers[index]);
+    next.sync_peers = syncPeers;
+  }
+  if (typeof session.budded_from === "string" && aliases.has(session.budded_from)) {
+    next.budded_from = newName;
+    changed = true;
+  }
+  return { session: next, changed };
+}
+
 function entryPath(io: FleetManageDeps, entry: FleetEntry): string {
   return entry.path ?? io.join(io.fleetDir, entry.file);
 }
@@ -169,14 +189,9 @@ export async function cmdFleetRename(
   const aliases = peerAliases(oldName);
   aliases.add(displaySessionName(target));
   aliases.add(target.groupName);
-  const peerRefs = entries
-    .filter(e => e !== target)
-    .filter(e => (e.session.sync_peers || []).some(peer => aliases.has(peer)));
-  if (peerRefs.length > 0 && !options.force) {
-    throw new Error(
-      `refusing to rename ${oldName}; referenced by sync_peers in ${peerRefs.map(e => e.file).join(", ")} (use --force to break)`,
-    );
-  }
+  const refUpdates = entries
+    .map(entry => ({ entry, ...migrateFleetRefs(entry.session, aliases, newName) }))
+    .filter(update => update.entry !== target && update.changed);
 
   const oldSessionName = displaySessionName(target);
   const newSession = { ...target.session, name: newName };
@@ -185,22 +200,33 @@ export async function cmdFleetRename(
     || runningSessions.find(s => stripNumberPrefix(s) === stripNumberPrefix(oldSessionName));
 
   io.log(`\n  \x1b[36mRenaming fleet...\x1b[0m ${oldSessionName} → ${newName}\n`);
-  if (peerRefs.length > 0 && options.force) {
-    io.log(`  \x1b[33m⚠\x1b[0m leaving sync_peers references in ${peerRefs.map(e => e.file).join(", ")}`);
+  if (refUpdates.length > 0) {
+    io.log(`  updating fleet references in ${refUpdates.map(({ entry }) => entry.file).join(", ")}`);
   }
 
   if (options.dryRun) {
     io.log(`  dry-run: would write ${newFile}`);
+    for (const { entry } of refUpdates) io.log(`  dry-run: would update refs in ${entry.file}`);
     if (target.file !== newFile) io.log(`  dry-run: would delete ${target.file}`);
     if (runningMatch && runningMatch !== newName) io.log(`  dry-run: would tmux rename ${runningMatch} → ${newName}`);
     io.log("\n  \x1b[32mDry run complete.\x1b[0m No files changed.\n");
     return;
   }
 
+  const migratedTarget = migrateFleetRefs(newSession, aliases, newName).session;
   const tmpPath = io.join(targetDir, `.tmp-${newFile}`);
-  await io.writeFile(tmpPath, JSON.stringify(newSession, null, 2) + "\n");
+  await io.writeFile(tmpPath, JSON.stringify(migratedTarget, null, 2) + "\n");
   io.renameSync(tmpPath, newPath);
   if (target.file !== newFile && io.existsSync(oldPath)) io.unlinkSync(oldPath);
+
+  for (const { entry, session } of refUpdates) {
+    const dir = entryDir(io, entry);
+    const tmpRefPath = io.join(dir, `.tmp-${entry.file}`);
+    const refPath = entryPath(io, entry);
+    await io.writeFile(tmpRefPath, JSON.stringify(session, null, 2) + "\n");
+    io.renameSync(tmpRefPath, refPath);
+    io.log(`  ${entry.file.padEnd(28)} refs updated`);
+  }
 
   if (runningMatch && runningMatch !== newName) {
     try {

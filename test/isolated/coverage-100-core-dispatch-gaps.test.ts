@@ -365,14 +365,14 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
     expect(rendered.join("\n")).toContain("CONFLICT");
     expect(rendered.join("\n")).toContain("INVALID");
 
+    const peerEntry = fleetEntry("02-peer.json", 2, "peer", "02-peer", ["neo", "01-neo"]);
     const entries = [
       fleetEntry("01-neo.json", 1, "neo", "01-neo"),
-      fleetEntry("02-peer.json", 2, "peer", "02-peer", ["neo", "01-neo"]),
+      { ...peerEntry, session: { ...peerEntry.session, budded_from: "neo" } },
     ];
     const dry = fleetDeps(entries, { running: ["01-neo"], exists: (path) => path.endsWith("01-neo.json") });
-    await expect(fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true }, dry.deps)).rejects.toThrow("referenced by sync_peers");
-    await fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true, force: true }, dry.deps);
-    expect(dry.localLogs.join("\n")).toContain("leaving sync_peers");
+    await fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true }, dry.deps);
+    expect(dry.localLogs.join("\n")).toContain("would update refs");
     expect(dry.localLogs.join("\n")).toContain("would tmux rename");
     expect(dry.writes).toHaveLength(0);
 

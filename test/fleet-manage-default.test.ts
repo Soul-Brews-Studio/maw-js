@@ -187,18 +187,25 @@ describe("cmdFleetRename", () => {
     expect(text(h.logs)).toContain("tmux: 23-discord-admin → 23-discord");
   });
 
-  test("refuses to rename when another fleet sync_peers references the old name unless forced", async () => {
+  test("migrates sync_peers and budded_from references in other fleet configs", async () => {
     const target = entry("23-discord-admin.json", 23, "discord-admin", session("23-discord-admin"));
-    const peer = entry("24-helper.json", 24, "helper", { ...session("24-helper"), sync_peers: ["23-discord-admin"] });
+    const peer = entry("24-helper.json", 24, "helper", {
+      ...session("24-helper"),
+      sync_peers: ["23-discord-admin", "discord-admin", "kept"],
+      budded_from: "discord-admin",
+    });
     const h = makeDeps([target, peer], { exists: path => !path.endsWith("23-discord.json") });
 
-    await expect(cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps))
-      .rejects.toThrow(/sync_peers/);
-    expect(h.writes).toEqual([]);
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps);
 
-    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord", force: true }, h.deps);
-    expect(h.writes).toHaveLength(1);
-    expect(text(h.logs)).toContain("leaving sync_peers references");
+    expect(h.writes).toHaveLength(2);
+    expect(JSON.parse(h.writes[1].contents)).toMatchObject({
+      name: "24-helper",
+      sync_peers: ["23-discord", "23-discord", "kept"],
+      budded_from: "23-discord",
+    });
+    expect(h.renames).toContainEqual({ from: "/fleet/.tmp-24-helper.json", to: "/fleet/24-helper.json" });
+    expect(text(h.logs)).toContain("updating fleet references in 24-helper.json");
   });
 
   test("refuses to rename to an existing fleet and supports dry-run with no side effects", async () => {
