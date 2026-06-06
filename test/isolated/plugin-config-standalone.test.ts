@@ -10,6 +10,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { beforeEach } from "bun:test";
 import type { InvokeContext, InvokeResult } from "../../src/plugin/types";
+import { mockConfigModule } from "../helpers/mock-config";
 
 const loadedConfig = {
   config: {
@@ -66,6 +67,7 @@ let loadCallCount = 0;
 let lastLoadOptions: unknown;
 
 mock.module(import.meta.resolve("../../src/config.ts"), () => ({
+  ...mockConfigModule(() => loadedConfig.config as any),
   loadConfigWithProvenance: (opts?: unknown) => {
     loadCallCount += 1;
     lastLoadOptions = opts;

@@ -322,6 +322,11 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     }];
     fleetSessionReturn = "199-zzcodex";
     ghqFindReturn = "/tmp/ghq/github.com/Soul-Brews-Studio/mawjs-codex-oracle";
+    resolveOracleReturn = {
+      repoPath: "/tmp/ghq/github.com/Soul-Brews-Studio/mawjs-codex-oracle",
+      repoName: "mawjs-codex-oracle",
+      parentDir: "/tmp/ghq/github.com/Soul-Brews-Studio",
+    };
     shouldAutoWakeReturn = { wake: true, reason: "missing" };
 
     const { logs } = await captureLogs(() =>
@@ -360,6 +365,7 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     );
 
     latestSnapshotReturn = { timestamp: "2026-05-18T00:00:00.000Z", sessions: [] };
+    loadSnapshotReturn = latestSnapshotReturn;
     await expect(cmdWake("neo", { fromSnapshot: true, dryRun: true })).rejects.toThrow(
       "has no session for neo",
     );

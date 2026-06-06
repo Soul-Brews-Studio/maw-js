@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,9 +12,9 @@ const ROOT = new URL("../..", import.meta.url).pathname;
 
 function walkSources(dir: string): string[] {
   const out: string[] = [];
-  const root = Bun.file(join(dir, "index.ts")).existsSync() ? join(dir, "index.ts") : null;
+  const root = existsSync(join(dir, "index.ts")) ? join(dir, "index.ts") : null;
   if (root) out.push(root);
-  const impl = Bun.file(join(dir, "impl.ts")).existsSync() ? join(dir, "impl.ts") : null;
+  const impl = existsSync(join(dir, "impl.ts")) ? join(dir, "impl.ts") : null;
   if (impl) out.push(impl);
   return out;
 }
