@@ -693,10 +693,16 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     );
 
     expect(result).toBe("54-neo:neo-oracle");
-    expect(sentText).toEqual([{
-      target: "54-neo:neo-oracle",
-      text: `cd ${repoPath} && claude --agent neo-oracle -p 'quote '\\''this'\\'''`,
-    }]);
+    expect(sentText).toEqual([
+      {
+        target: "54-neo:neo-oracle",
+        text: `cd ${repoPath} && claude --agent neo-oracle`,
+      },
+      {
+        target: "54-neo:neo-oracle",
+        text: "quote 'this'",
+      },
+    ]);
     expect(selectedWindows).toEqual(["54-neo:neo-oracle"]);
     expect(attachCalls).toEqual(["54-neo"]);
 
