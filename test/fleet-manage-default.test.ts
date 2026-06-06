@@ -90,13 +90,14 @@ describe("renderFleetLs", () => {
     const lines = renderFleetLs([
       entry("01-alpha.json", 1, "alpha", session("01-alpha", [{ name: "alpha-oracle" }])),
       entry("01-beta.json", 1, "beta", session("01-beta", [])),
+      entry("02-beta.json", 2, "beta", session("02-beta", [])),
       entry("bad.json", 3, "fallback", { windows: "bad" } as unknown as FleetSession),
       entry(".json", 4, "", {} as unknown as FleetSession),
     ], 2, ["01-alpha"]);
 
     const out = text(lines);
     expect(out).toContain("Fleet Configs");
-    expect(out).toContain("4 active, 2 disabled");
+    expect(out).toContain("5 active, 2 disabled");
     expect(out).toContain("01-alpha");
     expect(out).toContain("running");
     expect(out).toContain("01-beta");
@@ -255,8 +256,8 @@ describe("cmdFleetRenumber", () => {
       entry("02-alpha.json", 2, "alpha", session("02-alpha")),
       entry("02-charlie.json", 2, "charlie", session("02-charlie")),
     ], {
-      running: ["02-alpha", "99-charlie"],
-      tmuxThrowsFor: new Set(["99-charlie"]),
+      running: ["02-alpha", "02-charlie"],
+      tmuxThrowsFor: new Set(["02-charlie"]),
     });
 
     await cmdFleetRenumber(h.deps);
@@ -279,7 +280,7 @@ describe("cmdFleetRenumber", () => {
     ]);
     expect(h.tmuxRuns).toEqual([
       ["rename-session", "-t", "02-alpha", "01-alpha"],
-      ["rename-session", "-t", "99-charlie", "03-charlie"],
+      ["rename-session", "-t", "02-charlie", "03-charlie"],
     ]);
 
     const out = text(h.logs);
@@ -288,11 +289,45 @@ describe("cmdFleetRenumber", () => {
     expect(out).toContain("tmux: 02-alpha → 01-alpha");
     expect(out).toContain("02-bravo.json");
     expect(out).toContain("(unchanged)");
-    expect(out).toContain("tmux rename failed: 99-charlie");
+    expect(out).toContain("tmux rename failed: 02-charlie");
     expect(out).toContain("02-delta.json");
     expect(out).toContain("Done.");
     expect(out).toContain("4 configs renumbered");
     expect(out).not.toContain("99-overview.json");
+  });
+
+  test("refuses to renumber when the same fleet name is already running under another number", async () => {
+    const h = makeDeps([
+      entry("02-mawjs.json", 2, "mawjs", session("02-mawjs")),
+      entry("02-other.json", 2, "other", session("02-other")),
+    ], {
+      running: ["89-mawjs"],
+    });
+
+    await expect(cmdFleetRenumber(h.deps))
+      .rejects.toThrow("fleet 'mawjs' already running as 89-mawjs");
+
+    expect(h.writes).toEqual([]);
+    expect(h.renames).toEqual([]);
+    expect(h.unlinks).toEqual([]);
+    expect(h.tmuxRuns).toEqual([]);
+  });
+
+  test("refuses duplicate fleet-name configs because renumber cannot merge them safely", async () => {
+    const h = makeDeps([
+      entry("89-mawjs.json", 89, "mawjs", session("89-mawjs")),
+      entry("150-mawjs.json", 150, "mawjs", session("150-mawjs")),
+    ], {
+      running: ["89-mawjs"],
+    });
+
+    await expect(cmdFleetRenumber(h.deps))
+      .rejects.toThrow("duplicate fleet name(s): mawjs (89-mawjs.json, 150-mawjs.json)");
+
+    expect(h.writes).toEqual([]);
+    expect(h.renames).toEqual([]);
+    expect(h.unlinks).toEqual([]);
+    expect(h.tmuxRuns).toEqual([]);
   });
 
   test("does not unlink a missing old config while still writing the replacement", async () => {
