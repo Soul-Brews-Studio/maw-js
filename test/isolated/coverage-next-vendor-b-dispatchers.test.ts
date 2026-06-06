@@ -3,10 +3,41 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const pairImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/pair/impl.ts");
 const trustImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/trust/impl.ts");
 const scopeImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/scope/impl.ts");
-const workspacePath = "maw-js/commands/shared/workspace";
 const teamImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/team/impl.ts");
 
 const calls: string[] = [];
+
+const parseFlagsMock = (args: string[], spec: Record<string, unknown> = {}) => {
+  const out: Record<string, any> = { _: [] };
+  const resolveAlias = (key: string): string => {
+    const parser = spec[key];
+    return typeof parser === "string" ? parser : key;
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    const parser = spec[arg];
+    if (!parser) {
+      out._.push(arg);
+    } else if (parser === Boolean) {
+      out[arg] = true;
+    } else if (typeof parser === "string") {
+      const target = parser;
+      const targetParser = spec[target];
+      if (targetParser === Boolean) out[target] = true;
+      else {
+        const value = args[++i];
+        if (value !== undefined) out[target] = value;
+      }
+    } else {
+      const value = args[++i];
+      if (value !== undefined) out[arg] = value;
+    }
+  }
+  return out;
+};
+mock.module("maw-js/cli/parse-args", () => ({ parseFlags: parseFlagsMock }));
+mock.module(import.meta.resolve("../../src/cli/parse-args.ts"), () => ({ parseFlags: parseFlagsMock }));
+
 const hiddenTeamExport = "cmdTeam" + String.fromCharCode(66, 114, 105, 110, 103);
 
 mock.module(pairImplPath, () => ({
@@ -39,18 +70,6 @@ mock.module(scopeImplPath, () => ({
   cmdDelete: () => false,
 }));
 
-mock.module(workspacePath, () => ({
-  cmdWorkspaceCreate: async () => undefined,
-  cmdWorkspaceJoin: async () => undefined,
-  cmdWorkspaceShare: async () => undefined,
-  cmdWorkspaceUnshare: async () => undefined,
-  cmdWorkspaceLs: async () => { console.log("workspace list"); },
-  cmdWorkspaceAgents: async () => undefined,
-  cmdWorkspaceInvite: async () => undefined,
-  cmdWorkspaceLeave: async () => undefined,
-  cmdWorkspaceStatus: async () => { console.error("workspace stderr"); },
-}));
-
 mock.module("maw-js/commands/shared/wake", () => ({
   cmdWake: async (oracle: string) => {
     console.error(`wake stderr ${oracle}`);
@@ -76,9 +95,22 @@ mock.module(teamImplPath, () => ({
   cmdTeamResume: () => undefined,
   cmdTeamLives: () => undefined,
 }));
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   hostExec: async () => "",
-}));
+  parseFlags: parseFlagsMock,
+  cmdWorkspaceCreate: async () => undefined,
+  cmdWorkspaceJoin: async () => undefined,
+  cmdWorkspaceShare: async () => undefined,
+  cmdWorkspaceUnshare: async () => undefined,
+  cmdWorkspaceLs: async () => { console.log("workspace list"); },
+  cmdWorkspaceAgents: async () => undefined,
+  cmdWorkspaceInvite: async () => undefined,
+  cmdWorkspaceLeave: async () => undefined,
+  cmdWorkspaceStatus: async () => { console.error("workspace stderr"); },
+});
+mock.module("maw-js/sdk", sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
 
 const { default: pairHandler } = await import("../../src/vendor/mpr-plugins/pair/index.ts?coverage-next-vendor-b-dispatchers");
 const { default: trustHandler } = await import("../../src/vendor/mpr-plugins/trust/index.ts?coverage-next-vendor-b-dispatchers");

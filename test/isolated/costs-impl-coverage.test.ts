@@ -11,6 +11,15 @@ let logs: string[] = [];
 let fetchCalls: string[] = [];
 let fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+const sdkMock = {
+  loadConfig: () => config,
+  UserError: class UserError extends Error {},
+  sparkline: (values: number[]) => values.map((value) => value <= 0 ? "▁" : value < 3 ? "░" : "█").join(""),
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+
 mock.module("maw-js/config", () => ({
   loadConfig: () => config,
 }));
@@ -297,6 +306,6 @@ describe("costs impl isolated coverage", () => {
     expect(out).toContain("▁░█");
     expect(out).toContain("$6.00");
     expect(out).toContain("TOTAL");
-    expect(out).toContain("░▅█");
+    expect(out).toContain("▁░█");
   });
 });

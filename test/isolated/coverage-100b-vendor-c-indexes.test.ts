@@ -17,6 +17,38 @@ let messageEvents: unknown[] = [];
 let registry: any = { updated: "now", plugins: {}, packages: {} };
 let searchResult: any = { queried: 0, responded: 0, elapsedMs: 0, hits: [], errors: [] };
 
+
+const parseFlagsMock = (args: string[], spec: Record<string, unknown> = {}) => {
+  const out: Record<string, any> = { _: [] };
+  const resolveAlias = (key: string): string => {
+    const parser = spec[key];
+    return typeof parser === "string" ? parser : key;
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    const parser = spec[arg];
+    if (!parser) {
+      out._.push(arg);
+    } else if (parser === Boolean) {
+      out[arg] = true;
+    } else if (typeof parser === "string") {
+      const target = parser;
+      const targetParser = spec[target];
+      if (targetParser === Boolean) out[target] = true;
+      else {
+        const value = args[++i];
+        if (value !== undefined) out[target] = value;
+      }
+    } else {
+      const value = args[++i];
+      if (value !== undefined) out[arg] = value;
+    }
+  }
+  return out;
+};
+mock.module("maw-js/cli/parse-args", () => ({ parseFlags: parseFlagsMock }));
+mock.module(import.meta.resolve("../../src/cli/parse-args.ts"), () => ({ parseFlags: parseFlagsMock }));
+
 function record(name: string, ...args: unknown[]) {
   calls.push([name, ...args]);
   console.log(`${name}:ok`);
@@ -54,7 +86,16 @@ const sdkMock = {
   loadFleetEntries: () => [],
   countDisabledFleetFilesCore: () => 0,
   loadDisabledFleetEntriesCore: () => [],
-  parseFlags: (args: string[]) => ({ _: args.filter((a) => !String(a).startsWith("--")) }),
+  parseFlags: parseFlagsMock,
+  cmdWorkspaceCreate: async (name: string, hub?: string) => record("ws-create", name, hub),
+  cmdWorkspaceJoin: async (code: string, hub?: string) => record("ws-join", code, hub),
+  cmdWorkspaceShare: async (agents: string[], ws?: string) => record("ws-share", agents, ws),
+  cmdWorkspaceUnshare: async (agents: string[], ws?: string) => record("ws-unshare", agents, ws),
+  cmdWorkspaceLs: async () => record("ws-ls"),
+  cmdWorkspaceAgents: async (id?: string) => record("ws-agents", id),
+  cmdWorkspaceInvite: async (id?: string) => record("ws-invite", id),
+  cmdWorkspaceLeave: async (id?: string) => record("ws-leave", id),
+  cmdWorkspaceStatus: async () => record("ws-status"),
 };
 mock.module("maw-js/sdk", () => sdkMock);
 mock.module("@maw-js/sdk", () => sdkMock);
