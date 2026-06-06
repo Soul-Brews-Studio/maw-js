@@ -12,6 +12,8 @@ export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
   cleanBranch?: boolean;
+  /** Skip all branch cleanup — keep the branch even when merged (#2073 --keep-branch). */
+  keepBranch?: boolean;
   cwd?: string;
 }
 
@@ -177,6 +179,10 @@ export async function cleanupDoneBranch(
   deps: DoneDeps = {},
 ): Promise<void> {
   const d = doneDeps(deps);
+  if (opts.keepBranch) {
+    if (branch) d.logger.log(`  \x1b[36m⬡\x1b[0m kept branch ${branch} (--keep-branch)`);
+    return;
+  }
   const cleanBranch = Boolean(opts.cleanBranch);
   const baseBranch = branchBaseFor(mainPath, d);
   if (!branch || isProtectedBranch(branch, baseBranch)) return;

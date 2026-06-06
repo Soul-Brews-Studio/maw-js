@@ -370,6 +370,23 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         status: Boolean(flags["--status"]),
       });
 
+    } else if (sub === "remove") {
+      // #2073 — single-verb member removal: teardown pane/worktree + drop from charter.
+      if (!args[1]) {
+        logs.push("usage: maw team remove <member> [--keep-branch] [--dry-run]");
+        return { ok: false, error: "member required", output: logs.join("\n") };
+      }
+      const { cmdTeamRemove } = await import("./team-remove");
+      const flags = parseFlags(args, {
+        "--keep-branch": Boolean,
+        "--dry-run": Boolean,
+      }, 2);
+      const team = resolveTeamFromContext();
+      await cmdTeamRemove(team, args[1], {
+        keepBranch: Boolean(flags["--keep-branch"]),
+        dryRun: Boolean(flags["--dry-run"]),
+      });
+
     } else if (sub === "reassign") {
       // maw team reassign <member> <new-issue> — done + fresh wake + prime
       if (!args[1] || !args[2]) {
@@ -416,7 +433,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|remove|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
