@@ -1,8 +1,13 @@
-import { listSessions, capture } from "maw-js/sdk";
-import { loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
-import { findWorktrees, detectSession } from "maw-js/commands/shared/wake";
+import {
+  capture,
+  detectSession,
+  findWorktrees,
+  listSessions,
+  loadFleetEntries,
+  UserError,
+  type FleetEntry,
+} from "maw-js/sdk";
 import { resolveOracleSafe } from "./impl-helpers";
-import { UserError } from "maw-js/core/util/user-error";
 
 export async function cmdOracleAbout(oracle: string) {
   const name = oracle.toLowerCase();

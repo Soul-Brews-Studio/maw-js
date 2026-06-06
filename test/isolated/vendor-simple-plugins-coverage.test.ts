@@ -88,6 +88,16 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR: fleetDir,
+  loadFleetEntries: loadTestFleetEntries,
+  detectSession: async (name: string) => {
+    detectCalls.push(name);
+    return detectedSession;
+  },
+  findWorktrees: async (parentDir: string, repoName: string) => {
+    findWorktreeCalls.push({ parentDir, repoName });
+    return worktrees;
+  },
+  UserError: class UserError extends Error {},
   listSessions: async () => sessions,
   capture: async (target: string, lines: number) => {
     captureCalls.push({ target, lines });
