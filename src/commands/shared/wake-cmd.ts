@@ -469,20 +469,11 @@ async function sendPromptViaTmux(target: string, prompt: string): Promise<void> 
   await tmux.sendText(target, prompt);
 }
 
-async function sendWakeCommandAndPrompt(target: string, prompt: string | undefined, command: string, engine?: string): Promise<void> {
-  if (!prompt) {
-    await tmux.sendText(target, command);
-    return;
-  }
-
-  if (isClaudeEngine(engine)) {
-    const escaped = prompt.replace(/'/g, "'\\''");
-    await tmux.sendText(target, `${command} -p '${escaped}'`);
-    return;
-  }
-
+async function sendWakeCommandAndPrompt(target: string, prompt: string | undefined, command: string, _engine?: string): Promise<void> {
   await tmux.sendText(target, command);
-  await sendPromptViaTmux(target, prompt);
+  if (prompt) {
+    await sendPromptViaTmux(target, prompt);
+  }
 }
 
 async function findLiveWindowsByName(windowName: string): Promise<LiveWindowMatch[]> {
