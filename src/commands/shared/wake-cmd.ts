@@ -303,9 +303,9 @@ function formatWorktreeSessionSummary(summary: WorktreeSessionSummary | undefine
   return `  \x1b[90m${summary.status} · ${messages} · last ${relativeAge(summary.lastActivityAt)}\x1b[0m`;
 }
 
-async function recordWakeSnapshot(): Promise<void> {
+async function recordWakeSnapshot(opts: Pick<WakeOptions, "snapshotRetention"> = {}): Promise<void> {
   try {
-    await takeSnapshot("wake");
+    await takeSnapshot("wake", opts.snapshotRetention);
   } catch {
     // Snapshotting is recovery metadata. A transient tmux/config read failure
     // must not turn an otherwise-successful wake into a failed wake.
@@ -363,6 +363,8 @@ export interface WakeOptions {
   engine?: string;
   /** Parent session to expose to newly spawned agents (#1925). */
   parentSessionId?: string;
+  /** Fleet snapshot retention override for this wake invocation (#2146). */
+  snapshotRetention?: { keepLast?: number; maxAgeDays?: number };
   /** Deterministic child session id to expose to newly spawned agents (#1925). */
   sessionId?: string;
   fromSnapshot?: boolean;
@@ -820,7 +822,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     if (liveAttachSession) {
       console.log(`\x1b[36m→\x1b[0m live tmux session: ${liveAttachSession}`);
       await wakeSession.attachToSession(liveAttachSession);
-      await recordWakeSnapshot();
+      await recordWakeSnapshot(opts);
       const attachWindow = preResolvedFleetSession?.windowName || `${oracle}-oracle`;
       return `${liveAttachSession}:${attachWindow}`;
     }
@@ -835,7 +837,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
     await maybeSplit(existingSessionBringTarget, opts);
     await maybeOpenWindow(existingSessionBringTarget, opts);
-    await recordWakeSnapshot();
+    await recordWakeSnapshot(opts);
     return existingSessionBringTarget;
   }
 
@@ -847,7 +849,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       return existingWindowBringTarget;
     }
     await maybeSplit(existingWindowBringTarget, opts);
-    await recordWakeSnapshot();
+    await recordWakeSnapshot(opts);
     return existingWindowBringTarget;
   }
 
@@ -1290,7 +1292,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         if (opts.attach) await wakeSession.attachToSession(session);
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
-        await recordWakeSnapshot();
+        await recordWakeSnapshot(opts);
         return target;
       }
       // Check if agent is actually alive in the pane
@@ -1308,7 +1310,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         }
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
-        await recordWakeSnapshot();
+        await recordWakeSnapshot(opts);
         return target;
       }
 
@@ -1324,7 +1326,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         }
         await maybeSplit(target, opts);
         await maybeOpenWindow(target, opts);
-        await recordWakeSnapshot();
+        await recordWakeSnapshot(opts);
         return target;
       }
 
@@ -1347,7 +1349,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
       await maybeSplit(target, opts);
       await maybeOpenWindow(target, opts);
-      await recordWakeSnapshot();
+      await recordWakeSnapshot(opts);
       return target;
     }
 
@@ -1375,6 +1377,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   await maybeSplit(`${session}:${windowName}`, opts);
   await maybeOpenWindow(`${session}:${windowName}`, opts);
 
-  await recordWakeSnapshot();
+  await recordWakeSnapshot(opts);
   return `${session}:${windowName}`;
 }

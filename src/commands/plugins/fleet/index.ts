@@ -155,10 +155,23 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         }
       }
     } else if (sub === "snapshot") {
-      const { takeSnapshot } = await import("../../../core/fleet/snapshot");
-      const trigger = args[1] || "manual";
-      const path = await takeSnapshot(trigger);
-      console.log(`\x1b[32m📸\x1b[0m snapshot saved: ${path} (trigger: ${trigger})`);
+      const { takeSnapshot, pruneSnapshots } = await import("../../../core/fleet/snapshot");
+      const keepIdx = args.indexOf("--keep-last");
+      const ageIdx = args.indexOf("--max-age");
+      const dryRun = args.includes("--dry-run");
+      const retention = {
+        keepLast: keepIdx >= 0 ? Number(args[keepIdx + 1]) : undefined,
+        maxAgeDays: ageIdx >= 0 ? Number(args[ageIdx + 1]) : undefined,
+        dryRun,
+      };
+      const trigger = args.slice(1).find((arg, idx, arr) => !arg.startsWith("-") && arr[idx - 1] !== "--keep-last" && arr[idx - 1] !== "--max-age") || "manual";
+      if (dryRun) {
+        const summary = pruneSnapshots(retention);
+        console.log(`[36m📸[0m snapshot retention dry-run: would remove ${summary.wouldRemove}, retain ${summary.retained} (keep-last ${summary.policy.keepLast}, max-age ${summary.policy.maxAgeDays}d)`);
+      } else {
+        const path = await takeSnapshot(trigger, retention);
+        console.log(`[32m📸[0m snapshot saved: ${path} (trigger: ${trigger})`);
+      }
     } else if (!sub) {
       const { cmdFleetLs } = await import("../../shared/fleet");
       await cmdFleetLs();

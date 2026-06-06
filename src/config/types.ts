@@ -41,6 +41,14 @@ export interface MawTimeouts {
   wsIdleSec?: number;
 }
 
+
+export interface MawSnapshotRetention {
+  /** Keep at least the newest N snapshot files. */
+  keepLast?: number;
+  /** Remove snapshots older than D days. */
+  maxAgeDays?: number;
+}
+
 export interface MawLimits {
   feedMax?: number;
   feedDefault?: number;
@@ -199,6 +207,8 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** Fleet snapshot retention policy (#2146). */
+  snapshotRetention?: MawSnapshotRetention;
   /** One-shot config migrations already applied. */
   migrations?: Record<string, boolean>;
 }

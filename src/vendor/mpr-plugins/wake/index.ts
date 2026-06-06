@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --layout selects new worktree layout: nested (default repo/agents/N-X) or legacy (.wt-N-X)\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--keep-last N] [--max-age D] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --layout selects new worktree layout: nested (default repo/agents/N-X) or legacy (.wt-N-X)\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
         };
       }
 
@@ -53,6 +53,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--dry-run": Boolean,
         "--from-snapshot": Boolean,
         "--snapshot": String,
+        "--keep-last": Number,
+        "--max-age": Number,
         "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
         "--split": Boolean,
         "--all-local": Boolean,
@@ -72,6 +74,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
         fromSnapshot?: boolean; snapshotId?: string;
+      snapshotRetention?: { keepLast?: number; maxAgeDays?: number };
+        snapshotRetention?: { keepLast?: number; maxAgeDays?: number };
         layout?: "nested" | "legacy";
         parentSessionId?: string; sessionId?: string;
       } = {};
@@ -107,6 +111,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (flags["--snapshot"]) {
         wakeOpts.snapshotId = flags["--snapshot"];
         wakeOpts.fromSnapshot = true;
+      }
+      if (flags["--keep-last"] || flags["--max-age"]) {
+        wakeOpts.snapshotRetention = {};
+        if (flags["--keep-last"]) wakeOpts.snapshotRetention.keepLast = flags["--keep-last"];
+        if (flags["--max-age"]) wakeOpts.snapshotRetention.maxAgeDays = flags["--max-age"];
       }
       if (flags["--main"]) wakeOpts.noRehydrate = true;
       if (flags["--split"]) wakeOpts.split = true;
@@ -173,6 +182,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (typeof body.snapshot === "string") {
       wakeOpts.snapshotId = body.snapshot;
       wakeOpts.fromSnapshot = true;
+    }
+    if (typeof body.keepLast === "number" || typeof body.maxAge === "number" || typeof body.maxAgeDays === "number") {
+      wakeOpts.snapshotRetention = {};
+      if (typeof body.keepLast === "number") wakeOpts.snapshotRetention.keepLast = body.keepLast;
+      const maxAge = typeof body.maxAgeDays === "number" ? body.maxAgeDays : body.maxAge;
+      if (typeof maxAge === "number") wakeOpts.snapshotRetention.maxAgeDays = maxAge;
     }
     if (typeof body.parentSessionId === "string") wakeOpts.parentSessionId = body.parentSessionId;
     if (typeof body.parent === "string") wakeOpts.parentSessionId = body.parent;
