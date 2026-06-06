@@ -1,4 +1,4 @@
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
@@ -80,6 +80,57 @@ type ResolvedDoneDeps = ReturnType<typeof doneDeps>;
 
 function shellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function isNotWorkingTreeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not a working tree/i.test(message);
+}
+
+function archivePathFor(wtPath: string, d: ResolvedDoneDeps): string {
+  const stamp = d.now().toISOString().replace(/[^0-9A-Za-z_.-]/g, "-");
+  const safeBase = basename(wtPath).replace(/[^0-9A-Za-z_.-]/g, "-");
+  return `/tmp/maw-done-orphan-worktrees/${safeBase}-${stamp}`;
+}
+
+async function dirExists(path: string, d: ResolvedDoneDeps): Promise<boolean> {
+  try {
+    await d.hostExec(`test -d ${shellArg(path)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function movePrunedWorktreeDir(wtPath: string, mainPath: string, d: ResolvedDoneDeps): Promise<boolean> {
+  if (!(await dirExists(wtPath, d))) return false;
+  const archived = archivePathFor(wtPath, d);
+  try {
+    await d.hostExec(`mkdir -p ${shellArg(dirname(archived))}`);
+    await d.hostExec(`mv ${shellArg(wtPath)} ${shellArg(archived)}`);
+    await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
+    d.logger.log(`  \x1b[32m✓\x1b[0m moved orphan directory ${basename(wtPath)} to ${archived}`);
+    return true;
+  } catch (e: any) {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m orphan directory move failed: ${e?.message || e}`);
+    return false;
+  }
+}
+
+async function findMatchingWorktreePaths(
+  windowName: string,
+  reposRoot: string,
+  d: ResolvedDoneDeps,
+): Promise<string[]> {
+  const suffix = windowName.replace(/^[^-]+-/, "");
+  const ghqOut = await d.hostExec(`find ${shellArg(reposRoot)} -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
+  const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
+  return allWtPaths.filter(p => {
+    const parsed = parseWorktreePath(p, reposRoot);
+    if (!parsed) return false;
+    const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
+    return wtSuffix.toLowerCase() === suffix.toLowerCase();
+  });
 }
 
 async function cwdMainPath(cwd: string | undefined, reposRoot: string, d: ResolvedDoneDeps): Promise<string | null> {
@@ -245,6 +296,8 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
   }
   if (!removedWorktree) {
     d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+  } else if (!opts.dryRun && opts.cwd) {
+    await warnRemainingWorktrees(windowName, reposRoot, deps);
   }
 
   const matchedWindow = sessionName !== null && windowIndex !== null;
@@ -373,14 +426,17 @@ export async function removeWorktreeViaConfig(
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
         // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await d.hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
-        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         if (branch && branch !== "main" && branch !== "HEAD") {
           await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
         return true;
       } catch (e: any) {
+        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(fullPath, mainPath, d)) {
+          return true;
+        }
         d.logger.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
       }
       break;
@@ -399,15 +455,7 @@ export async function removeWorktreeByGhqScan(
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, "");
-    const safeRoot = reposRoot.replace(/'/g, "'\''");
-    const ghqOut = await d.hostExec(`find '${safeRoot}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
-    const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
-    const exactMatch = allWtPaths.filter(p => {
-      const parsed = parseWorktreePath(p, reposRoot);
-      if (!parsed) return false;
-      const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
-      return wtSuffix.toLowerCase() === suffix.toLowerCase();
-    });
+    const exactMatch = await findMatchingWorktreePaths(windowName, reposRoot, d);
     let matches = exactMatch;
     if (matches.length > 1) {
       const mainPath = await cwdMainPath(opts.cwd, reposRoot, d);
@@ -439,17 +487,44 @@ export async function removeWorktreeByGhqScan(
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
         // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await d.hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
-        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
         if (branch && branch !== "main" && branch !== "HEAD") {
           await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
-      } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
+      } catch (e) {
+        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(wtPath, mainPath, d)) {
+          removed = true;
+          continue;
+        }
+        d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`);
+      }
     }
   } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
   return removed;
+}
+
+export async function warnRemainingWorktrees(
+  windowName: string,
+  reposRoot: string,
+  deps: DoneDeps = {},
+): Promise<string[]> {
+  const d = doneDeps(deps);
+  let matches: string[] = [];
+  try {
+    matches = await findMatchingWorktreePaths(windowName, reposRoot, d);
+  } catch (e: any) {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m cross-repo worktree scan failed: ${e?.message || e}`);
+    return [];
+  }
+  if (matches.length === 0) return [];
+
+  d.logger.log(`  \x1b[33m⚠\x1b[0m ${matches.length} same-member worktree(s) still exist in other repo(s):`);
+  for (const match of matches) d.logger.log(`  \x1b[90m    • ${match}\x1b[0m`);
+  d.logger.log(`  \x1b[90m  inspect them or run maw cleanup --worktrees before respawning\x1b[0m`);
+  return matches;
 }
 
 export function removeFromFleetConfig(windowNameLower: string, deps: DoneDeps = {}): boolean {
