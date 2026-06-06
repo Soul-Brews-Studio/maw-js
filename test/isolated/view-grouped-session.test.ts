@@ -21,7 +21,7 @@
  * that guarded flow.
  */
 import { describe, test, expect } from "bun:test";
-import { Tmux } from "../src/core/transport/tmux-class";
+import { Tmux } from "../../src/core/transport/tmux-class";
 
 type Call = { subcommand: string; args: (string | number)[] };
 type OptCall = { target: string; option: string; value: string };
