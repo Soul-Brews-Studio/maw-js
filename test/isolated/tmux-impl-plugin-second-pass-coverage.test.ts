@@ -4,7 +4,23 @@ import { join } from "path";
 const srcRoot = join(import.meta.dir, "../..");
 const mockHome = "/mock-home-second-pass";
 
-type Pane = { id: string; target: string; command?: string; title?: string; lastActivity?: number };
+type Pane = {
+  id: string;
+  target: string;
+  command?: string;
+  title?: string;
+  lastActivity?: number;
+  top?: number;
+  left?: number;
+  w?: number;
+  h?: number;
+  paneIdx?: number;
+  winIdx?: number;
+  winName?: string;
+  active?: boolean;
+  window?: { w?: number; h?: number; active?: boolean };
+  attached?: boolean;
+};
 
 let hostCalls: string[] = [];
 let hostResponses = new Map<string, string>();
@@ -178,6 +194,44 @@ describe("tmux impl plugin second-pass isolated coverage", () => {
     expect(compact.logs).toContain("maw-view");
     expect(compact.logs).toContain("scratch");
     expect(compact.logs).toContain("maw ls -v");
+  });
+
+
+  test("ls json includes pane, window, and session spatial metadata", async () => {
+    panes = [
+      {
+        id: "%9",
+        target: "spatial:editor.2",
+        command: "claude",
+        title: "editor",
+        lastActivity: Math.floor(Date.now() / 1000),
+        top: 3,
+        left: 11,
+        w: 80,
+        h: 24,
+        paneIdx: 2,
+        winIdx: 7,
+        winName: "editor",
+        active: true,
+        window: { w: 161, h: 49, active: false },
+        attached: true,
+      },
+    ];
+
+    const json = await capture(() => cmdTmuxLs({ all: true, json: true }));
+    expect(JSON.parse(json.logs)[0]).toMatchObject({
+      id: "%9",
+      top: 3,
+      left: 11,
+      w: 80,
+      h: 24,
+      paneIdx: 2,
+      winIdx: 7,
+      winName: "editor",
+      active: true,
+      window: { w: 161, h: 49, active: false },
+      attached: true,
+    });
   });
 
   test("annotatePane precedence favors team over fleet, then view, then claude-like orphan panes", () => {

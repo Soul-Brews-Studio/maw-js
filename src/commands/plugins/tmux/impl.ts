@@ -254,6 +254,20 @@ interface AnnotatedPane {
   sessionActivity?: number;
   source?: string;
   cwd?: string;
+  top?: number;
+  left?: number;
+  w?: number;
+  h?: number;
+  paneIdx?: number;
+  winIdx?: number;
+  winName?: string;
+  active?: boolean;
+  window?: {
+    w?: number;
+    h?: number;
+    active?: boolean;
+  };
+  attached?: boolean;
 }
 
 export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
@@ -568,6 +582,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       sessionActivity: activityBySession.get(session),
       source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
       cwd: p.cwd,
+      top: p.top,
+      left: p.left,
+      w: p.w,
+      h: p.h,
+      paneIdx: p.paneIdx,
+      winIdx: p.winIdx,
+      winName: p.winName,
+      active: p.active,
+      window: p.window,
+      attached: p.attached,
     };
   });
 

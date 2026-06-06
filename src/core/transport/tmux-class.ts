@@ -233,10 +233,33 @@ export class Tmux {
   async listPanes(): Promise<TmuxPane[]> {
     try {
       const raw = await this.run("list-panes", "-a", "-F",
-        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}");
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}");
+      const num = (value: string | undefined) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const bool = (value: string | undefined) => value === "1" || value === "true";
       return raw.split("\n").filter(Boolean).map(line => {
-        const [id, command, target, title, pid, cwd, winAct] = line.split("|||");
-        return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined, lastActivity: winAct ? Number(winAct) : undefined };
+        const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached] = line.split("|||");
+        return {
+          id,
+          command,
+          target,
+          title,
+          pid: pid ? Number(pid) : undefined,
+          cwd: cwd || undefined,
+          lastActivity: winAct ? Number(winAct) : undefined,
+          top: num(top),
+          left: num(left),
+          w: num(paneW),
+          h: num(paneH),
+          paneIdx: num(paneIdx),
+          winIdx: num(winIdx),
+          winName: winName || undefined,
+          active: bool(paneActive),
+          window: { w: num(winW), h: num(winH), active: bool(winActive) },
+          attached: bool(attached),
+        };
       });
     } catch { return []; }
   }
