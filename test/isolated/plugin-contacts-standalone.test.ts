@@ -98,7 +98,7 @@ describe("contacts plugin standalone coverage", () => {
       const cli = await invokePlugin(plugin, {
         source: "cli",
         args: [],
-        writer: (...args: unknown[]) => cliOut.push(args.map(String).join(" ")),;
+        writer: (...args: unknown[]) => cliOut.push(args.map(String).join(" ")),
       });
       expect(cli.ok).toBe(true);
       expect(cliOut.join("\n")).toContain("no contacts");

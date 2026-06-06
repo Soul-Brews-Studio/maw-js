@@ -104,7 +104,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
 
 
 mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => ({
-  loadFleet: () => fleetLoadReturn,
+  loadFleet: () => fleet, loadFleetEntries: () => []LoadReturn,
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () => ({
@@ -163,6 +163,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   ...realSnapshot,
   latestSnapshot: () => latestSnapshotReturn,
+  listSnapshots: () => latestSnapshotReturn ? [{ file: "latest.json", timestamp: latestSnapshotReturn.timestamp ?? "latest" }] : [],
   loadSnapshot: () => loadSnapshotReturn,
 }));
 

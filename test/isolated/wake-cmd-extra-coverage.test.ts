@@ -154,6 +154,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   latestSnapshot: () => snapshotReturn,
+  listSnapshots: () => snapshotReturn ? [{ file: "latest.json", timestamp: snapshotReturn.timestamp ?? "latest" }] : [],
   loadSnapshot: () => snapshotReturn,
 }));
 

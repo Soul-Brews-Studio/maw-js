@@ -69,6 +69,17 @@ mock.module("maw-js/core/transport/tmux", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  parseFlags: (args: string[], spec: Record<string, unknown>, skip = 0) => {
+    const out: Record<string, any> = { _: [] };
+    const aliases: Record<string, string> = {};
+    for (const [key, value] of Object.entries(spec)) if (typeof value === "string") aliases[key] = value;
+    for (const tok of args.slice(skip)) {
+      const key = aliases[tok] ?? tok;
+      if (key.startsWith("-")) out[key] = true;
+      else out._.push(tok);
+    }
+    return out;
+  },
   listSessions: async () => sessions,
   resolveTarget: (query: string, config: Record<string, any>, listedSessions: any[]) => {
     resolveTargetCalls.push({ query, config, sessions: listedSessions });

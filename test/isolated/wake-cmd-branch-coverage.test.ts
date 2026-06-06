@@ -225,6 +225,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-concurrency"),
 mock.module(join(import.meta.dir, "../../src/core/fleet/snapshot"), () => ({
   ..._rSnapshot,
   latestSnapshot: () => mockActive ? snapshot : realSnapshot.latestSnapshot(),
+  listSnapshots: () => mockActive ? (snapshot ? [{ file: "latest.json", timestamp: snapshot.timestamp ?? "latest" }] : []) : realSnapshot.listSnapshots(),
   loadSnapshot: (id: string) => mockActive ? snapshot : realSnapshot.loadSnapshot(id),
 }));
 

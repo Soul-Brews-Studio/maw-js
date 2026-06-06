@@ -24,6 +24,10 @@ function record(name: string, ...args: unknown[]) {
 }
 
 mock.module("maw-js/sdk", () => ({
+  resolveSessionTarget: (target: string, rows: any[]) => {
+    const match = rows.find(row => row.name === target) ?? rows[0];
+    return match ? { kind: "exact", match } : { kind: "none", hints: [] };
+  },
   listSessions: async () => sessions,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return await hostExecImpl(cmd); },
   tmuxCmd: () => "tmux",

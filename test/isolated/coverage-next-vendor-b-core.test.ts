@@ -21,6 +21,14 @@ const realConsole = { log: console.log, error: console.error, warn: console.warn
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => ({ port: 4567, node: "local-node" }),
+  cfgTimeout: () => 1000,
+  cfgLimit: () => 1,
+  cfgInterval: () => 1000,
+  cfg: (_key: string, fallback: unknown) => fallback,
+  D: {},
+  buildCommand: () => "cmd",
+  buildCommandInDir: () => "cmd",
+  getEnvVars: () => ({}),
 }));
 
 mock.module(pairPeersImplPath, () => ({
