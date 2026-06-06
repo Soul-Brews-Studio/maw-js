@@ -218,6 +218,23 @@ export interface TmuxLsOpts {
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
 export type PaneActivity = "busy" | "idle" | "stuck" | "unknown";
 
+export interface PaneWorktreeJson {
+  path: string;
+  branch: string | null;
+  head: string | null;
+}
+
+export interface PaneProvenanceJson {
+  oracle: string | null;
+  machine: string | null;
+  session: string | null;
+  federation: string | null;
+  org: string | null;
+  repo: string | null;
+  commit: string | null;
+  engine: string | null;
+}
+
 export interface PaneActivityJson {
   activity: PaneActivity;
   activitySource: "context-limit" | "tmux-window-activity" | "unknown";
@@ -236,6 +253,7 @@ interface AnnotatedPane {
   sessionCreated?: number;
   sessionActivity?: number;
   source?: string;
+  cwd?: string;
 }
 
 export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
@@ -256,6 +274,139 @@ export function paneActivityJson(pane: Pick<AnnotatedPane, "status">): PaneActiv
       : "tmux-window-activity",
     activityWindow: "30s",
   };
+}
+
+function sh(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export interface PaneGitMetadata {
+  root: string;
+  branch: string | null;
+  head: string | null;
+  org: string | null;
+  repo: string | null;
+}
+
+function paneWindowName(target: string): string | null {
+  const afterColon = target.split(":").slice(1).join(":");
+  if (!afterColon) return null;
+  const match = /^(.*)\.\d+$/.exec(afterColon);
+  return (match?.[1] ?? afterColon).trim() || null;
+}
+
+function oracleNameForPane(session: string, target: string, configured?: string): string | null {
+  const window = paneWindowName(target);
+  if (window && !/^\d+$/.test(window)) return window;
+  const fallback = configured || session.replace(/^\d+-/, "");
+  if (!fallback) return null;
+  return fallback.endsWith("-oracle") ? fallback : `${fallback}-oracle`;
+}
+
+function repoPartsFromRemote(remote: string): { org: string | null; repo: string | null } {
+  const trimmed = remote.trim().replace(/\.git$/, "");
+  const match = /[:/]([^/:\s]+)\/([^/\s]+)$/.exec(trimmed);
+  return { org: match?.[1] ?? null, repo: match?.[2] ?? null };
+}
+
+function repoPartsFromPath(path: string): { org: string | null; repo: string | null } {
+  const parts = path.split("/").filter(Boolean);
+  const hostIndex = parts.lastIndexOf("github.com");
+  if (hostIndex >= 0 && parts[hostIndex + 1] && parts[hostIndex + 2]) {
+    return { org: parts[hostIndex + 1], repo: parts[hostIndex + 2] };
+  }
+  return { org: null, repo: parts.at(-1) ?? null };
+}
+
+export async function resolvePaneGitMetadata(cwd: string | undefined): Promise<PaneGitMetadata | null> {
+  const start = cwd?.trim();
+  if (!start) return null;
+  const root = (await hostExec(`git -C ${sh(start)} rev-parse --show-toplevel`).catch(() => "")).trim();
+  if (!root) return null;
+  const [branch, head, remote] = await Promise.all([
+    hostExec(`git -C ${sh(root)} branch --show-current`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} rev-parse --short=8 HEAD`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} config --get remote.origin.url`).catch(() => ""),
+  ]);
+  const parts = remote.trim() ? repoPartsFromRemote(remote) : repoPartsFromPath(root);
+  return {
+    root,
+    branch: branch.trim() || null,
+    head: head.trim() || null,
+    ...parts,
+  };
+}
+
+export async function describePaneWorktree(
+  cwd: string | undefined,
+  git?: PaneGitMetadata | null,
+): Promise<PaneWorktreeJson | null> {
+  const metadata = git === undefined ? await resolvePaneGitMetadata(cwd) : git;
+  if (!metadata) return null;
+  return {
+    path: metadata.root,
+    branch: metadata.branch,
+    head: metadata.head,
+  };
+}
+
+type ProvenanceConfig = { node?: string; oracle?: string; sessionIds?: Record<string, string> };
+
+async function loadProvenanceConfig(): Promise<ProvenanceConfig> {
+  try {
+    const mod = await import("../../../config");
+    return mod.loadConfig() as ProvenanceConfig;
+  } catch {
+    return {};
+  }
+}
+
+async function fallbackHostname(): Promise<string | null> {
+  try {
+    const os = await import("os");
+    return typeof os.hostname === "function" ? os.hostname() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function paneProvenance(
+  pane: Pick<AnnotatedPane, "target" | "session" | "command" | "cwd">,
+  config?: ProvenanceConfig,
+  git?: PaneGitMetadata | null,
+): Promise<PaneProvenanceJson> {
+  const resolvedConfig = config ?? await loadProvenanceConfig();
+  const metadata = git === undefined ? await resolvePaneGitMetadata(pane.cwd) : git;
+  const oracle = oracleNameForPane(pane.session, pane.target, resolvedConfig.oracle);
+  const machine = resolvedConfig.node || process.env.MAW_NODE || await fallbackHostname();
+  const logicalSession = (oracle && (resolvedConfig.sessionIds?.[oracle] || resolvedConfig.sessionIds?.[oracle.replace(/-oracle$/, "")]))
+    || process.env.MAW_SESSION_ID
+    || null;
+  return {
+    oracle,
+    machine,
+    session: logicalSession,
+    federation: oracle && machine ? `${machine}:${oracle}` : null,
+    org: metadata?.org ?? null,
+    repo: metadata?.repo ?? null,
+    commit: metadata?.head ?? null,
+    engine: pane.command?.trim() || null,
+  };
+}
+
+async function panesForJson(
+  panes: AnnotatedPane[],
+): Promise<Array<AnnotatedPane & PaneActivityJson & { worktree: PaneWorktreeJson | null; provenance: PaneProvenanceJson }>> {
+  const config = await loadProvenanceConfig();
+  return await Promise.all(panes.map(async (pane) => {
+    const git = await resolvePaneGitMetadata(pane.cwd);
+    return {
+      ...pane,
+      ...paneActivityJson(pane),
+      worktree: await describePaneWorktree(pane.cwd, git),
+      provenance: await paneProvenance(pane, config, git),
+    };
+  }));
 }
 
 async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
@@ -416,6 +567,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       sessionCreated: createdBySession.get(session),
       sessionActivity: activityBySession.get(session),
       source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
+      cwd: p.cwd,
     };
   });
 
@@ -476,7 +628,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   await markContextLimitedPanes(scope);
 
   if (opts.json) {
-    const paneRows = scope.map(pane => ({ ...pane, ...paneActivityJson(pane) }));
+    const paneRows = await panesForJson(scope);
     const teamRows = visibleTeams.map(team => ({
       kind: "team",
       id: `team:${team.name}`,
