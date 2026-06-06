@@ -24,8 +24,7 @@
  */
 import { cmdBud, type BudOpts } from "../bud/impl";
 import { cmdSendText } from "../send-text/impl";
-import { listSessions, resolveTarget } from "maw-js/sdk";
-import { loadConfig } from "maw-js/config";
+import { listSessions, loadConfig, resolveTarget } from "maw-js/sdk";
 
 export type IncubateMode = "default" | "flash" | "contribute";
 
