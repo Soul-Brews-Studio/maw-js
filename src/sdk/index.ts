@@ -25,6 +25,7 @@ export {
   resetConfig,
 } from "../config";
 export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
+export { getGhqRoot } from "../config/ghq-root";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
 export type { MawConfig } from "../config";

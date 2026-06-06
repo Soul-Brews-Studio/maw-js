@@ -270,6 +270,9 @@ export declare function buildCommand(agentName: string): string;
 /** Build the agent command line, anchored to a specific cwd. */
 export declare function buildCommandInDir(agentName: string, cwd: string): string;
 
+/** Resolve the bare ghq root without the github.com host suffix. */
+export declare function getGhqRoot(): string;
+
 // --- src/core/matcher/resolve-target ---
 
 /** Discriminated-union result of a bare-name resolution attempt. */

@@ -66,6 +66,7 @@ export {
   buildCommand,
   buildCommandInDir,
 } from "../../src/config";
+export { getGhqRoot } from "../../src/config/ghq-root";
 
 // ─── src/core/matcher/resolve-target ─────────────────────────────────────────
 // Bare-name → ResolveResult cascade (exact / suffix / prefix / hint).
