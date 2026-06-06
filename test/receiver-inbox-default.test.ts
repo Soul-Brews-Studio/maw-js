@@ -68,6 +68,30 @@ describe("receiver inbox auto-write helpers", () => {
     expect(readFileSync(result.path, "utf-8")).toContain("[m5:sender] ralph-dig: oracle-status-tray");
   });
 
+  test("accepts an absolute repo path target for locate-resolved no-live queues (#2056)", () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-absolute-"));
+    const repo = join(root, "renamed-oracle");
+    mkdirSync(repo, { recursive: true });
+
+    const result = persistReceiverInbox({
+      query: "renamed",
+      target: repo,
+      from: "m5:sender",
+      message: "queued via locate path",
+    }, {
+      resolveTargetCwd: () => null,
+      loadManifest: () => [],
+      getGhqRoot: () => root,
+      ghqFindSync: () => null,
+      now: () => new Date("2026-06-06T07:00:00.000Z"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.inboxDir).toBe(join(repo, "ψ", "inbox"));
+    expect(readFileSync(result.path, "utf-8")).toContain("queued via locate path");
+  });
+
   test("falls back to manifest repo path and reports misses without throwing", () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-manifest-"));
     const repo = join(root, "github.com", "Soul-Brews-Studio", "digger-oracle");

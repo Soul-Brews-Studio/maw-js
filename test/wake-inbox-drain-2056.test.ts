@@ -1,0 +1,42 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { drainWakeInbox, mergeWakeInboxPrompt } from "../src/commands/shared/wake-inbox-drain";
+
+describe("wake inbox drain (#2056)", () => {
+  test("drains unread ψ/inbox markdown into a priming prompt and marks read", () => {
+    const repo = mkdtempSync(join(tmpdir(), "maw-wake-drain-"));
+    const inbox = join(repo, "ψ", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const unread = join(inbox, "001.md");
+    const read = join(inbox, "002.md");
+    writeFileSync(unread, [
+      "---",
+      "from: alpha:sender",
+      "to: renamed",
+      "timestamp: 2026-06-06T00:00:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "please review #2056",
+      "",
+    ].join("\n"));
+    writeFileSync(read, ["---", "from: old", "read: true", "---", "", "old"].join("\n"));
+
+    const result = drainWakeInbox(repo);
+
+    expect(result.count).toBe(1);
+    expect(result.prompt).toContain("Unread ψ/inbox messages");
+    expect(result.prompt).toContain("please review #2056");
+    expect(result.prompt).not.toContain("old");
+    const updated = readFileSync(unread, "utf-8");
+    expect(updated).toContain("read: true");
+    expect(updated).toContain("readAt:");
+  });
+
+  test("merges drained inbox after an explicit wake prompt", () => {
+    expect(mergeWakeInboxPrompt("continue task", "## Unread ψ/inbox messages\nhello"))
+      .toBe("continue task\n\n## Unread ψ/inbox messages\nhello");
+  });
+});

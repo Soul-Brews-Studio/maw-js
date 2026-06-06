@@ -37,7 +37,7 @@ const realConfig = { loadConfig: _rConfig.loadConfig, cfgLimit: _rConfig.cfgLimi
 const realFeed = { logMessage: _rFeed.logMessage, emitFeed: _rFeed.emitFeed };
 const realRegistry = { discoverPackages: _rRegistry.discoverPackages, invokePlugin: _rRegistry.invokePlugin };
 const realOracleMembers = { getOracleMembers: _rOracleMembers.getOracleMembers, loadOracleRegistry: _rOracleMembers.loadOracleRegistry };
-const realOracleManifest = { findOracle: _rOracleManifest.findOracle };
+const realOracleManifest = { findOracle: _rOracleManifest.findOracle, loadManifestCached: _rOracleManifest.loadManifestCached };
 const realWakeCmd = { cmdWake: _rWakeCmd.cmdWake };
 const realScopeAcl = { loadAllScopes: _rScopeAcl.loadAllScopes, evaluateAclFromDisk: _rScopeAcl.evaluateAclFromDisk };
 const realQueueStore = { savePending: _rQueueStore.savePending };
@@ -77,6 +77,7 @@ let invokePluginResult: { ok: boolean; output?: string; error?: string };
 let oracleMembers: string[];
 let oracleRegistry: { members: string[] } | null;
 let findOracleResult: any;
+let manifestEntries: any[];
 let cmdWakeCalls: Array<{ oracle: string; opts: any }>;
 let scopes: any[];
 let aclError: Error | null;
@@ -155,6 +156,7 @@ mock.module(join(import.meta.dir, "../src/lib/oracle-members"), () => ({
 mock.module(join(import.meta.dir, "../src/lib/oracle-manifest"), () => ({
   ..._rOracleManifest,
   findOracle: (name: string) => mockActive ? findOracleResult : realOracleManifest.findOracle(name),
+  loadManifestCached: () => mockActive ? manifestEntries : realOracleManifest.loadManifestCached(),
 }));
 
 mock.module(join(import.meta.dir, "../src/commands/shared/wake-cmd"), () => ({
@@ -276,6 +278,7 @@ beforeEach(() => {
   oracleMembers = [];
   oracleRegistry = null;
   findOracleResult = undefined;
+  manifestEntries = [];
   cmdWakeCalls = [];
   scopes = [];
   aclError = null;
@@ -703,6 +706,54 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBe(1);
     expect(curlFetchCalls).toEqual([]);
     expect(errs.join("\n")).toContain("not found locally");
+  });
+
+
+
+  test("bare located repo with no live session queues inbox-only with clear warning (#2056)", async () => {
+    const receiverWrites: any[] = [];
+    listSessionsReturn = [];
+    resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
+    manifestEntries = [{ name: "renamed", localPath: "/tmp/renamed-oracle", node: "test-node", sources: ["oracles.json"] }];
+
+    await runCmd(() => cmdSend("renamed", "hello", false, {
+      receiverInbox: async (input: any) => {
+        receiverWrites.push(input);
+        return { ok: true, oracle: "renamed", inboxDir: "/tmp/renamed-oracle/ψ/inbox", path: "/tmp/renamed-oracle/ψ/inbox/msg.md", filename: "msg.md" };
+      },
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(curlFetchCalls).toEqual([]);
+    expect(receiverWrites).toHaveLength(1);
+    expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
+    expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
+  });
+
+  test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
+    listSessionsReturn = [{ name: "77-renamed", windows: [{ index: 0, name: "renamed-oracle", active: true, cwd: "/tmp/renamed-oracle" } as any] }];
+    resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
+    manifestEntries = [{ name: "renamed", localPath: "/tmp/renamed-oracle", node: "test-node", sources: ["oracles.json"] }];
+
+    await runCmd(() => cmdSend("renamed", "hello", false, { receiverInbox: false }));
+
+    expect(exitCode).toBeUndefined();
+    expect(curlFetchCalls).toEqual([]);
+    expect(sendKeysCalls).toEqual([{ target: "77-renamed:renamed-oracle", text: "[test-node:sender] hello" }]);
+  });
+
+  test("bare manifest cross-node hit does not silently route to peer (#2056)", async () => {
+    config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
+    listSessionsReturn = [];
+    resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
+    manifestEntries = [{ name: "renamed", localPath: "/tmp/renamed-oracle", node: "remote", sources: ["oracles.json"] }];
+
+    await runCmd(() => cmdSend("renamed", "hello", false, { receiverInbox: false }));
+
+    expect(exitCode).toBe(1);
+    expect(curlFetchCalls).toEqual([]);
+    expect(warns.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
+    expect(errs.join("\n")).toContain("found but no active session");
   });
 
   test("bare peer aliases are allowed as explicit federation targets (#1940)", async () => {

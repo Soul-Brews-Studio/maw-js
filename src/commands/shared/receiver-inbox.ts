@@ -1,5 +1,5 @@
 import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, writeFileSync as fsWriteFileSync } from "fs";
-import { basename, join } from "path";
+import { basename, isAbsolute, join } from "path";
 import { getGhqRoot as defaultGetGhqRoot } from "../../config/ghq-root";
 import { ghqFindSync as defaultGhqFindSync } from "../../core/ghq";
 import { loadManifestCached, type OracleManifestEntry } from "../../lib/oracle-manifest";
@@ -111,7 +111,9 @@ function repoPathCandidates(
 
   if (input.target) {
     try {
-      const cwd = deps.resolveTargetCwd(stripPaneSuffix(input.target));
+      const strippedTarget = stripPaneSuffix(input.target);
+      if (isAbsolute(strippedTarget)) candidates.push(strippedTarget);
+      const cwd = deps.resolveTargetCwd(strippedTarget);
       if (cwd) candidates.push(cwd);
     } catch {
       // Best effort: inbox persistence must never break message delivery.

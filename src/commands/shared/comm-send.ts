@@ -17,6 +17,10 @@ import {
   type ReceiverInboxResult,
   type ReceiverInboxWriter,
 } from "./receiver-inbox";
+import {
+  resolveBareHeyByLocatePath,
+  type HeyLocateResolution,
+} from "./hey-locate-resolution";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -371,22 +375,26 @@ function isConfiguredPeerAlias(query: string, config: ReturnType<typeof loadConf
   }
 }
 
-function assertBareLocalTarget(
+async function resolveBareLocalTarget(
   query: string,
   config: ReturnType<typeof loadConfig>,
   sessions: Awaited<ReturnType<typeof listSessions>>,
-): ReturnType<typeof resolveTarget> | null {
-  if (!isBareLocalHeyTarget(query)) return null;
+): Promise<{ result: ReturnType<typeof resolveTarget> | null; locate: HeyLocateResolution | null }> {
+  if (!isBareLocalHeyTarget(query)) return { result: null, locate: null };
 
   try {
     const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions), config);
-    if (localResult) return localResult;
+    if (localResult) return { result: localResult, locate: null };
   } catch (e) {
     if (e instanceof AmbiguousMatchError) {
       rejectBareAmbiguous(query, e.candidates);
     }
     throw e;
   }
+
+  const locate = await resolveBareHeyByLocatePath(query, config, sessions);
+  if (locate.result) return { result: locate.result, locate };
+  if (locate.repoPath) return { result: null, locate };
 
   rejectBareMiss(query);
 }
@@ -577,7 +585,7 @@ export async function cmdSend(
   }
 
   let sessions = await listSessions();
-  const bareLocalResult = assertBareLocalTarget(query, config, sessions);
+  let bareResolution = await resolveBareLocalTarget(query, config, sessions);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -629,6 +637,7 @@ export async function cmdSend(
           await cmdWake(bareAgent, {});
           // Refresh after wake — resolver needs the new tmux session visible.
           sessions = await listSessions();
+          bareResolution = await resolveBareLocalTarget(query, config, sessions);
         }
       } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
@@ -681,7 +690,11 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const result = bareLocalResult ?? resolveTarget(query, config, sessions);
+  const result = bareResolution.result ?? (
+    isBareLocalHeyTarget(query)
+      ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
+      : resolveTarget(query, config, sessions)
+  );
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //
@@ -938,7 +951,7 @@ export async function cmdSend(
   // Fallback: async peer discovery (network scan — slow path).
   // Only reached when resolveTarget found no local session AND no config-mapped peer.
   // Local sessions were already checked above — if we reach here, local genuinely missed.
-  const peerUrl = await findPeerForTarget(query, sessions);
+  const peerUrl = isBareLocalHeyTarget(query) ? null : await findPeerForTarget(query, sessions);
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
@@ -989,7 +1002,11 @@ export async function cmdSend(
   }
 
   // Try receiver inbox queue before surfacing a local-only resolver miss.
-  if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
+  if (bareResolution.locate?.repoPath) {
+    const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
+    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) return;
+    console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
+  } else if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {
