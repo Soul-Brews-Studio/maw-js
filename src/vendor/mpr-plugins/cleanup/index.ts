@@ -25,6 +25,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (has("--zombie-agents", "--zombies")) {
       await cmdCleanupZombies({ yes: has("--yes", "-y") });
+    } else if (has("--worktrees")) {
+      const { cmdCleanupWorktrees } = await import("./internal/worktrees");
+      const rows = await cmdCleanupWorktrees({
+        yes: has("--yes", "-y"),
+        json: has("--json"),
+      });
+      if (has("--json")) logs.push(JSON.stringify({ ok: true, worktrees: rows }, null, 2));
     } else if (has("--prune-stale")) {
       // Default is dry-run preview; --yes prunes SAFE; --ask walks ASK-FIRST.
       // --dry-run is an explicit alias for the default (helps shell history).
@@ -37,6 +44,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       logs.push("\x1b[36mmaw cleanup\x1b[0m \u2014 Cleanup utilities\n");
       logs.push("  maw cleanup --zombie-agents [--yes]              Find and kill orphan zombie panes");
       logs.push("  maw cleanup --zombies [--yes]                    Alias for --zombie-agents");
+      logs.push("  maw cleanup --worktrees [--yes] [--json]         Survey and safe-remove orphan agent worktrees");
       logs.push("  maw cleanup --prune-stale [--yes|--ask|--dry-run]  Prune dead oracles.json entries\n");
       logs.push("\x1b[90mWithout --yes, only lists candidates without modifying anything.\x1b[0m");
     }
