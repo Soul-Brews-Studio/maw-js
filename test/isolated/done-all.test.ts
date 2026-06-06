@@ -269,6 +269,40 @@ describe("cmdDoneAll", () => {
     expect(output.join("\n")).toContain("would process 2 non-lead window(s) in work");
   });
 
+
+  test("cmdDoneAll({ oracle }) accepts wake-style fuzzy resolver results for compact fleet sessions", async () => {
+    const workTree = mkdtempSync(join(tmpdir(), "maw-done-all-fuzzy-"));
+    sessions = [
+      {
+        name: "33-arraoraclev3",
+        windows: [
+          { index: 0, name: "lead", active: true },
+          { index: 2, name: "worker", active: false },
+        ],
+      },
+      {
+        name: "other",
+        windows: [
+          { index: 0, name: "lead", active: true },
+          { index: 1, name: "other-worker", active: false },
+        ],
+      },
+    ];
+    tmuxRunFails = true;
+    resolveOracleResult = {
+      repoPath: workTree,
+      repoName: "arra-oracle-v3-oracle",
+      parentDir: join(workTree, ".."),
+    };
+
+    const summary = await cmdDoneAll({ oracle: "v3", force: true });
+
+    expect(summary).toEqual({ sessionName: "33-arraoraclev3", processed: ["worker"], skipped: [] });
+    expect(resolveOracleCalls).toEqual(["v3"]);
+    expect(tmuxCommands).toContain("kill 33-arraoraclev3:worker");
+    expect(tmuxCommands).not.toContain("kill other:other-worker");
+    rmSync(workTree, { recursive: true, force: true });
+  });
   test("cmdDoneAll({ oracle }) resolves oracle, cds internally, and processes that oracle session", async () => {
     const workTree = mkdtempSync(join(tmpdir(), "maw-done-all-oracle-"));
     const previousCwd = process.cwd();

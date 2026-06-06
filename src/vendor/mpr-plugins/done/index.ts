@@ -33,8 +33,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       dryRun = args.includes("--dry-run");
       all = args.includes("--all");
       cleanBranch = args.includes("--clean-branch");
-      if (all && positional.length > 0) {
-        return { ok: false, error: `unexpected positional arg(s) with maw done --all: ${positional.join(" ")}\n  usage: maw done --all [<oracle>] [--force] [--dry-run] [--clean-branch]` };
+      if (all && positional.length > 1) {
+        const ignored = positional.slice(1).join(" ");
+        return { ok: false, error: `unexpected extra positional arg(s) for maw done --all: ${ignored}\n  usage: maw done --all [<oracle>] [--force] [--dry-run] [--clean-branch]` };
       }
       if (!all && positional.length > 1) {
         const ignored = positional.slice(1).join(" ");
@@ -55,7 +56,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     if (all) {
-      await cmdDoneAll({ force, dryRun, cleanBranch, oracle: name, cwd: process.cwd() });
+      await cmdDoneAll({ force: Boolean(force), dryRun: Boolean(dryRun), cleanBranch: Boolean(cleanBranch), oracle: name, cwd: process.cwd() });
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
@@ -63,7 +64,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: false, error: "usage: maw done <window-name> [--force] [--dry-run] [--clean-branch] or maw done --all [<oracle>] [--force] [--dry-run] [--clean-branch]  (see: maw sleep/kill for non-worktree shutdown)" };
     }
 
-    await cmdDone(name, { force, dryRun, cleanBranch, cwd: process.cwd() });
+    await cmdDone(name, { force: Boolean(force), dryRun: Boolean(dryRun), cleanBranch: Boolean(cleanBranch), cwd: process.cwd() });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

@@ -107,9 +107,10 @@ describe("done plugin index wrapper", () => {
     expect(typo.error).toContain("33-arraoraclev3");
     expect(typo.error).toContain("did you mean `maw done --all`");
 
-    const allWithTarget = await donePlugin.default({ source: "cli", args: ["--all", "33-arraoraclev3"] } as InvokeCtx);
-    expect(allWithTarget.ok).toBe(false);
-    expect(allWithTarget.error).toContain("unexpected positional arg(s) with maw done --all");
+    const allWithTooManyTargets = await donePlugin.default({ source: "cli", args: ["--all", "33-arraoraclev3", "extra"] } as InvokeCtx);
+    expect(allWithTooManyTargets.ok).toBe(false);
+    expect(allWithTooManyTargets.error).toContain("unexpected extra positional arg(s) for maw done --all");
+    expect(allWithTooManyTargets.error).toContain("extra");
     expect(doneCalls).toEqual([]);
     expect(doneAllCalls).toEqual([]);
   });

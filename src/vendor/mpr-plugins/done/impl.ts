@@ -28,14 +28,31 @@ export interface DoneAllSummary {
   skipped: string[];
 }
 
+function doneAllSessionStem(name: string): string {
+  return name.toLowerCase().replace(/^\d+-/, "").replace(/-oracle$/i, "");
+}
+
+function doneAllCompactStem(name: string): string {
+  return doneAllSessionStem(name).replace(/[^a-z0-9]/g, "");
+}
+
 async function currentSessionName(sessions: DoneSession[], oracle?: string): Promise<string | null> {
   if (oracle) {
     const candidate = oracle.replace(/-oracle$/i, "").trim();
     if (candidate) {
-      for (const session of sessions) {
-        const stem = session.name.toLowerCase().replace(/^\d+-/, "").replace(/-oracle$/i, "");
-        if (stem === candidate.toLowerCase()) return session.name;
-      }
+      const wanted = candidate.toLowerCase();
+      const exact = sessions.find(session => doneAllSessionStem(session.name) === wanted);
+      if (exact) return exact.name;
+
+      // `maw wake` accepts fuzzy oracle names via resolveOracle. Once that
+      // resolver has produced the canonical repo name, accept the same common
+      // fleet-session spelling variants here (e.g. v3 → arra-oracle-v3-oracle
+      // may have a live session named 33-arraoraclev3). Keep it unique because
+      // done --all is destructive.
+      const compactWanted = wanted.replace(/[^a-z0-9]/g, "");
+      const compactMatches = sessions.filter(session => doneAllCompactStem(session.name) === compactWanted);
+      if (compactMatches.length === 1) return compactMatches[0]!.name;
+      if (compactMatches.length > 1) return null;
     }
   }
 
