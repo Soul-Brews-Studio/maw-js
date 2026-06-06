@@ -267,6 +267,15 @@ describe("Tmux", () => {
       });
       expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -h -c /tmp/work zsh");
     });
+
+    test("can split the full window before applying direction", async () => {
+      await t.splitWindow(undefined, {
+        fullWindow: true,
+        direction: "horizontal",
+        printFormat: "#{pane_id}",
+      });
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -f -h");
+    });
   });
 
   describe("selectPane", () => {

@@ -84,9 +84,9 @@ function printUsage(write: (line: string) => void = console.log): void {
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
   write("  --claude     Shortcut for Claude Code with maw team env enabled.");
-  write("  --split      Open as a split in the current tmux window instead of a new session.");
-  write("  --right, --horizontal  With --split, create the pane to the right (tmux -h).");
-  write("  --bottom, --vertical   With --split, create the pane below (tmux -v; default).");
+  write("  --split      Open as a full-window split in the current tmux window instead of a new session.");
+  write("  --right, --horizontal  With --split, create a full-height pane at the right edge (tmux -f -h).");
+  write("  --bottom, --vertical   With --split, create a full-width pane at the bottom edge (tmux -f -v; default).");
   write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
   write("  --json       Alias for --print.");
   write("  --dry-run    Show what WOULD happen without creating any tmux state. (#1913)");
@@ -344,7 +344,8 @@ export async function cmdNew(argv: string[]): Promise<void> {
     if (!dryRun) {
       const rawPaneId = await tmux.splitWindow(undefined, {
         cwd,
-        ...(splitDirection ? { direction: splitDirection } : {}),
+        direction: splitDirection ?? "vertical",
+        fullWindow: true,
         ...(tmuxCommand ? { command: tmuxCommand } : {}),
         printFormat: "#{pane_id}",
       });
@@ -365,7 +366,8 @@ export async function cmdNew(argv: string[]): Promise<void> {
     } else {
       const mode = startupCommand ? "split shell + command" : "split shell";
       const verb = dryRun ? `\x1b[36m·\x1b[0m [dry-run] would create` : `\x1b[32m✓\x1b[0m created`;
-      console.log(`${verb} ${mode} '${name}' in ${session}:${window}`);
+      const edge = (splitDirection ?? "vertical") === "horizontal" ? "right edge" : "bottom edge";
+      console.log(`${verb} ${mode} '${name}' at ${edge} in ${session}:${window}`);
     }
     if (dryRun && !machineReadable) {
       console.log(`  \x1b[90mno tmux state changed (dry-run). Drop --dry-run to actually create.\x1b[0m`);
