@@ -1506,7 +1506,7 @@ describe("cmdWake main-suite coverage", () => {
     expect(sendTextCalls).toEqual([
       {
         target: "54-mawjs:mawjs-oracle",
-        text: `cd ${repoPath} && codex --agent mawjs-oracle -p 'quote safe'`,
+        text: `cd ${repoPath} && codex --agent mawjs-oracle`,
       },
     ]);
     expect(maybeSplitCalls).toEqual([
@@ -1683,7 +1683,7 @@ describe("cmdWake main-suite coverage", () => {
     });
     expect(sendTextCalls).toContainEqual({
       target: "54-mawjs:mawjs-fix-a",
-      text: `cd ${wtPath} && codex --agent mawjs-fix-a -p 'hello oracle'`,
+      text: `cd ${wtPath} && codex --agent mawjs-fix-a`,
     });
     expect(writeSignalCalls).toEqual([
       {
