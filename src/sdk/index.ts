@@ -19,8 +19,9 @@ export type {
 
 // ─── Identity & Config ───────────────────────────────────────────────────────
 
+export { loadConfig } from "../config/load";
 export {
-  loadConfig, saveConfig, buildCommand, buildCommandInDir,
+  saveConfig, buildCommand, buildCommandInDir,
   getEnvVars, cfgTimeout, cfgLimit, cfgInterval, cfg, D,
   resetConfig,
 } from "../config";

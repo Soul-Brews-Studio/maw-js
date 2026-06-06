@@ -104,6 +104,7 @@ mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
     if (lifecycleShouldThrow) throw new Error("lifecycle failed");
   },
   runWakeLifecycleHooks: async () => {},
+  runSleepLifecycleHooks: async () => {},
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
   dispatchEnginePluginEvent: async () => { throw new Error("dispatch rejected"); },

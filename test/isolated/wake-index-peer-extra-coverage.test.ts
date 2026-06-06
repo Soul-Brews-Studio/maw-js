@@ -17,6 +17,14 @@ mock.module("maw-js/commands/shared/wake", () => ({
     console.log(`wake ${oracle}`);
     if (wakeThrow) throw wakeThrow;
   },
+  fetchIssuePrompt: async (kind: string, num: number, repo?: string) => {
+    fetchPromptCalls.push({ kind, num, repo });
+    return `${kind}-${num}-prompt`;
+  },
+  findWorktrees: () => [],
+  detectSession: () => null,
+  ensureSessionRunning: async () => undefined,
+  resolveFleetSession: () => null,
 }));
 
 mock.module("maw-js/commands/shared/fleet", () => ({

@@ -30,6 +30,10 @@ const original = {
 
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => [],
+  loadFleetCore: () => [],
+  getGhqRoot: () => "/tmp/ghq",
+  hostExec: async () => "",
+  UserError: class UserError extends Error {},
 }));
 
 mock.module("maw-js/commands/shared/fleet-load", () => ({

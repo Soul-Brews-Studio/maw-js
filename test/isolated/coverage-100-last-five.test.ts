@@ -23,6 +23,7 @@ mock.module("os", () => ({
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 mock.module("maw-js/sdk", () => ({
@@ -44,6 +45,12 @@ mock.module("maw-js/sdk", () => ({
   readPaneTags: async () => ({}),
   Tmux: class { async killSession() {} },
   tmux: { listPaneIds: async () => new Set<string>() },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  mawDataPath: (...parts: string[]) => join(homeDir, ".maw", ...parts),
+  loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 mock.module("maw-js/commands/shared/comm-send", () => ({
@@ -73,6 +80,9 @@ mock.module("maw-js/core/ghq", () => ({
 mock.module("maw-js/commands/shared/fleet", () => ({
   cmdSleep: async () => undefined,
   cmdWakeAll: async () => undefined,
+  mawDataPath: (...parts: string[]) => join(homeDir, ".maw", ...parts),
+  loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 beforeEach(() => {

@@ -24,6 +24,10 @@ class MockTmux {
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => [],
   Tmux: MockTmux,
+  cmdSleep: async () => { sleepCalls += 1; },
+  cmdWakeAll: async () => { wakeCalls += 1; },
+  ghqFindSync: () => "/tmp/maw-js-checkout",
+  mawDataPath: (...parts: string[]) => join(homeDir, ".maw", ...parts),
 }));
 
 mock.module("maw-js/commands/shared/fleet", () => ({

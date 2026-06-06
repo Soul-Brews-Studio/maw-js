@@ -51,6 +51,17 @@ mock.module("maw-js/core/ghq", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => fleet,
+  ghqFind: async (query: string) => {
+    ghqFindCalls.push(query);
+    const match = query.match(/^\/(.+)-oracle\$$/);
+    if (!match) return "";
+    const stem = match[1]!;
+    if (ghqFindMisses.has(stem)) return "";
+    const candidate = join(reposRoot, "Org", `${stem}-oracle`);
+    return existsSync(candidate) ? candidate : "";
+  },
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (cmd.includes("tmux display-message")) {
@@ -244,7 +255,7 @@ describe("soul-sync family isolated coverage", () => {
       currentPanePath = "__throw__";
       const soulSyncFallbackCwd = await mod.cmdSoulSync();
       expect(soulSyncFallbackCwd).toEqual([]);
-      expect(logs.join("\n")).toContain("no sync_peers configured for 'maw-js'");
+      expect(logs.join("\n")).toContain("no sync_peers configured for 'maw-js-codex5-sdk-loadconfig'");
 
       const absorbed = await mod.cmdSoulSyncProject({ cwd: fx.alphaPath });
       expect(absorbed).toEqual([
