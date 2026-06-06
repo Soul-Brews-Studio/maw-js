@@ -62,6 +62,7 @@ export { parseFlags } from "../../src/cli/parse-args";
 //   buildCommandInDir   — take
 export {
   loadConfig,
+  loadConfigWithProvenance,
   cfgTimeout,
   buildCommand,
   buildCommandInDir,

@@ -202,6 +202,41 @@ export interface MawConfig {
 /** Read the merged operator config (file + env overrides). */
 export declare function loadConfig(): MawConfig;
 
+/** Source file discovered while building operator config. */
+export interface ConfigSource {
+  path: string;
+  weight: number;
+  isLocal: boolean;
+  scope: string;
+  scopeRank: number;
+  depth: number;
+  mtimeMs: number;
+}
+
+export interface ConfigProvenanceEntry {
+  path: string;
+  scope: string;
+  weight: number;
+  isLocal: boolean;
+  action: string;
+  value: unknown;
+}
+
+/** Config loaded with provenance details and warnings. */
+export interface LoadedConfigWithProvenance {
+  config: MawConfig;
+  sources: ConfigSource[];
+  provenance: Record<string, ConfigProvenanceEntry[]>;
+  warnings: string[];
+}
+
+export interface LoadConfigOptions {
+  cwd?: string;
+}
+
+/** Read merged config plus merge provenance and warnings. */
+export declare function loadConfigWithProvenance(opts?: LoadConfigOptions): LoadedConfigWithProvenance;
+
 /** Look up a named timeout (ms). Throws on unknown key. */
 export declare function cfgTimeout(key: string): number;
 
