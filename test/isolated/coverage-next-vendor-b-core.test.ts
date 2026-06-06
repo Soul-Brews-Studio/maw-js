@@ -42,6 +42,7 @@ const sdkMock = {
     return hostExecImpl(cmd);
   },
   tmuxCmd: () => "tmux-test",
+  curlFetch: async () => ({ ok: true, data: {} }),
   saveTabOrder: async (session: string) => {
     calls.push(`save:${session}`);
   },
@@ -73,17 +74,44 @@ const sdkMock = {
 };
 mock.module("maw-js/sdk", () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
-mock.module("maw-js/core/matcher/resolve-target", () => ({
+const sdkPath = new URL("../../src/sdk/index.ts", import.meta.url).pathname;
+const sdkDirPath = new URL("../../src/sdk", import.meta.url).pathname;
+mock.module(sdkDirPath, () => sdkMock);
+mock.module(sdkPath, () => sdkMock);
+
+const resolveTargetMock = {
   resolveSessionTarget: (target: string, inputSessions: typeof sessions) => {
     const match = inputSessions.find((session) => session.name === target) ?? inputSessions[0];
     return match ? { kind: "exact", match } : { kind: "none", hints: [] };
   },
-}));
+  resolveWorktreeTarget: () => ({ kind: "none", hints: [] }),
+  resolveNumericFleetStemPrefix: () => null,
+  resolveFleetWindowSessionTarget: () => ({ kind: "none", hints: [] }),
+};
+mock.module("maw-js/core/matcher/resolve-target", () => resolveTargetMock);
+mock.module(import.meta.resolve("../../src/core/matcher/resolve-target"), () => resolveTargetMock);
+mock.module(import.meta.resolve("../../src/core/matcher/resolve-target.ts"), () => resolveTargetMock);
+mock.module(new URL("../../src/core/matcher/resolve-target.ts", import.meta.url).pathname, () => resolveTargetMock);
 
 mock.module("maw-js/commands/shared/wake", () => ({ detectSession: async () => "alpha" }));
-mock.module("maw-js/commands/shared/fleet-load", () => ({ loadFleet: () => [] }));
+const fleetLoadMock = {
+  fleetDirsForRead: () => ["/tmp/maw-coverage-next-vendor-b-fleet"],
+  fleetDirForWrite: () => "/tmp/maw-coverage-next-vendor-b-fleet",
+  loadFleet: () => [],
+  loadFleetEntries: () => [],
+  countDisabledFleetFiles: () => 0,
+  loadDisabledFleetEntries: () => [],
+  getSessionNames: async () => [],
+  resolveFleetSession: () => null,
+};
+mock.module("maw-js/commands/shared/fleet-load", () => fleetLoadMock);
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => fleetLoadMock);
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load.ts"), () => fleetLoadMock);
+mock.module(new URL("../../src/commands/shared/fleet-load.ts", import.meta.url).pathname, () => fleetLoadMock);
 mock.module("maw-js/plugin/lifecycle", () => ({
   runSleepLifecycleHooks: async (ctx: { oracle: string; session: string; window: string }) => {
     calls.push(`hook:${ctx.oracle}:${ctx.session}:${ctx.window}`);
