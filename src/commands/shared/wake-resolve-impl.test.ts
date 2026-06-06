@@ -7,11 +7,43 @@
  * full repo name, the stripped form (exact), or a `NN-<full>` numbered
  * session — and return null otherwise so the caller can auto-create.
  */
-import { describe, it, expect, mock } from "bun:test";
+import { afterEach, beforeEach, describe, it, expect, mock } from "bun:test";
 import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
 const { mockConfigModule } = await import("../../../test/helpers/mock-config");
+
+
+const envKeys = [
+  "MAW_HOME",
+  "MAW_DATA_DIR",
+  "MAW_STATE_DIR",
+  "MAW_CACHE_DIR",
+  "MAW_CONFIG_DIR",
+  "MAW_XDG",
+  "MAW_HOST",
+  "MAW_PORT",
+  "MAW_QUIET",
+  "TMUX",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "NODE_ENV",
+] as const;
+const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+
+function resetResolverEnv(): void {
+  for (const key of envKeys) delete process.env[key];
+}
+
+function restoreResolverEnv(): void {
+  for (const key of envKeys) {
+    const value = originalEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 let tmuxSessions: Array<{ name: string }> = [];
 let hostExecOut = "";
@@ -41,6 +73,16 @@ const {
   setSessionEnv,
 } = await import("./wake-resolve-impl");
 
+
+beforeEach(() => {
+  resetResolverEnv();
+  tmuxSessions = [];
+  hostExecOut = "";
+});
+
+afterEach(() => {
+  restoreResolverEnv();
+});
 
 describe("resolveFromWorktrees — injected helper coverage", () => {
   it("resolves a main repo from a matching linked worktree", async () => {

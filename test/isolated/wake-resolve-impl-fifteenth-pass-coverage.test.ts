@@ -42,6 +42,37 @@ let spawnSpy: ReturnType<typeof spyOn> | null;
 const originalExit = process.exit;
 const originalLog = console.log;
 const originalError = console.error;
+const envKeys = [
+  "MAW_HOME",
+  "MAW_DATA_DIR",
+  "MAW_STATE_DIR",
+  "MAW_CACHE_DIR",
+  "MAW_CONFIG_DIR",
+  "MAW_XDG",
+  "MAW_HOST",
+  "MAW_PORT",
+  "MAW_QUIET",
+  "TMUX",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "NODE_ENV",
+] as const;
+const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+
+function resetResolverEnv(): void {
+  for (const key of envKeys) delete process.env[key];
+}
+
+function restoreResolverEnv(): void {
+  for (const key of envKeys) {
+    const value = originalEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
 
 function resetFleetDir(): void {
   rmSync(fleetRoot, { recursive: true, force: true });
@@ -110,6 +141,7 @@ const {
 } = await import("../../src/commands/shared/wake-resolve-impl");
 
 beforeEach(() => {
+  resetResolverEnv();
   resetFleetDir();
   config = { githubOrg: "FallbackOrg", githubOrgs: undefined, peers: [], sessions: {} };
   envVars = {};
@@ -141,6 +173,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreResolverEnv();
   spawnSpy?.mockRestore();
   process.exit = originalExit;
   console.log = originalLog;
