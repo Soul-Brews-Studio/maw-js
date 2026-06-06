@@ -521,12 +521,15 @@ async function sessionActivityTimes(): Promise<Map<string, number>> {
   return parseSessionActivityList(raw);
 }
 
-/**
- * List tmux panes with fleet + team annotations. Supersedes `maw panes`
- * with smarter labeling — if a pane is a fleet oracle or a team agent,
- * say so explicitly so operators don't need to cross-check configs.
- */
-export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
+interface TmuxLsState {
+  scope: AnnotatedPane[];
+  visibleTeams: ClaudeTeamSummary[];
+  currentSession: string;
+  activeThresholdSec: number;
+  nowEpoch: number;
+}
+
+async function collectTmuxLsState(opts: TmuxLsOpts = {}): Promise<TmuxLsState> {
   const allPanes = await tmux.listPanes();
   const currentSession = process.env.TMUX
     ? (await hostExec("tmux display-message -p '#{session_name}'").catch(() => "")).trim()
@@ -651,23 +654,42 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
   await markContextLimitedPanes(scope);
 
+  return { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch };
+}
+
+async function tmuxLsJsonRowsFromState({ scope, visibleTeams }: Pick<TmuxLsState, "scope" | "visibleTeams">): Promise<unknown[]> {
+  const paneRows = await panesForJson(scope);
+  const teamRows = visibleTeams.map(team => ({
+    kind: "team",
+    id: `team:${team.name}`,
+    target: `team:${team.name}`,
+    session: team.name,
+    command: "team",
+    title: `L2 team (${team.memberCount} member${team.memberCount === 1 ? "" : "s"})`,
+    annotation: `team: ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`,
+    status: "unknown",
+    lastActivitySec: 0,
+    source: "l2-team",
+    members: team.memberCount,
+    configPath: team.configPath,
+  }));
+  return [...paneRows, ...teamRows];
+}
+
+export async function tmuxLsJsonRows(opts: TmuxLsOpts = {}): Promise<unknown[]> {
+  return tmuxLsJsonRowsFromState(await collectTmuxLsState(opts));
+}
+
+/**
+ * List tmux panes with fleet + team annotations. Supersedes `maw panes`
+ * with smarter labeling — if a pane is a fleet oracle or a team agent,
+ * say so explicitly so operators don't need to cross-check configs.
+ */
+export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
+  const { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch } = await collectTmuxLsState(opts);
+
   if (opts.json) {
-    const paneRows = await panesForJson(scope);
-    const teamRows = visibleTeams.map(team => ({
-      kind: "team",
-      id: `team:${team.name}`,
-      target: `team:${team.name}`,
-      session: team.name,
-      command: "team",
-      title: `L2 team (${team.memberCount} member${team.memberCount === 1 ? "" : "s"})`,
-      annotation: `team: ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`,
-      status: "unknown",
-      lastActivitySec: 0,
-      source: "l2-team",
-      members: team.memberCount,
-      configPath: team.configPath,
-    }));
-    console.log(JSON.stringify([...paneRows, ...teamRows], null, 2));
+    console.log(JSON.stringify(await tmuxLsJsonRowsFromState({ scope, visibleTeams }), null, 2));
     return;
   }
 

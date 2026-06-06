@@ -13,6 +13,7 @@ import { createTransportRouter } from "../transports";
 import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
+import { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../api/tmux-stream";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import {
@@ -201,14 +202,17 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const wsHandler = {
     open: (ws: any) => {
       if (ws.data.mode === "pty") return;
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamOpen(ws); return; }
       engine.handleOpen(ws);
     },
     message: (ws: any, msg: any) => {
       if (ws.data.mode === "pty") { handlePtyMessage(ws, msg); return; }
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamMessage(ws, msg); return; }
       engine.handleMessage(ws, msg);
     },
     close: (ws: any) => {
       if (ws.data.mode === "pty") { handlePtyClose(ws); return; }
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamClose(ws); return; }
       engine.handleClose(ws);
     },
   };
@@ -233,6 +237,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
     if (url.pathname === "/ws/pty") {
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+    if (url.pathname === "/ws/tmux") {
+      if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "tmux-stream" } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
     if (url.pathname === "/ws") {
