@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildMessageLifecycleFeedEvent } from "../../src/lib/message-events";
-import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
+import { listMessageLedgerEvents, messageLedgerDbPath, pruneMessageLedger, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
 import messagesHandler, { messagesEngineFetch, onEvent } from "../../src/vendor/mpr-plugins/messages/index";
 import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
@@ -14,12 +14,14 @@ let dataDir: string;
 const prevConfig = process.env.MAW_CONFIG_DIR;
 const prevData = process.env.MAW_DATA_DIR;
 const prevHome = process.env.MAW_HOME;
+const prevMaxMessages = process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "maw-message-ledger-"));
   configDir = join(tmp, "config");
   dataDir = join(tmp, "data");
   delete process.env.MAW_HOME;
+  delete process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
   process.env.MAW_CONFIG_DIR = configDir;
   process.env.MAW_DATA_DIR = dataDir;
 });
@@ -31,6 +33,8 @@ afterEach(() => {
   else process.env.MAW_DATA_DIR = prevData;
   if (prevHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = prevHome;
+  if (prevMaxMessages === undefined) delete process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
+  else process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES = prevMaxMessages;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -112,6 +116,37 @@ describe("messages plugin ledger", () => {
 
     expect(listMessageLedgerEvents({ direction: "inbound" })).toMatchObject([
       { id: "m3", state: "delivered", lastLine: "received" },
+    ]);
+  });
+
+  test("prunes oldest rows when message retention is exceeded", () => {
+    process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES = "3";
+
+    for (let i = 1; i <= 5; i += 1) {
+      recordMessageLedgerEvent({
+        id: `retention-${i}`,
+        ts: `2026-05-16T01:0${i}:00.000Z`,
+        direction: "outbound",
+        state: "delivered",
+        channel: "hey",
+        route: "local",
+        from: "m5:mawjs-codex",
+        to: "m5:mawjs-oracle",
+        text: `retention ${i}`,
+      });
+    }
+
+    expect(listMessageLedgerEvents({ limit: 10 }).map(row => row.id)).toEqual([
+      "retention-5",
+      "retention-4",
+      "retention-3",
+    ]);
+
+    process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES = "2";
+    expect(pruneMessageLedger()).toBe(1);
+    expect(listMessageLedgerEvents({ limit: 10 }).map(row => row.id)).toEqual([
+      "retention-5",
+      "retention-4",
     ]);
   });
 });
