@@ -722,9 +722,9 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(result).toBe("54-neo:neo-oracle");
     expect(sentText).toEqual([{
       target: "54-neo:neo-oracle",
-      text: `cd ${repoPath} && codex --agent neo-oracle -p 'plain '\\''prompt'\\'''`,
+      text: `cd ${repoPath} && codex --agent neo-oracle`,
     }]);
-    expect(respawnCalls).toEqual([]);
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-oracle", "plain 'prompt'", "Enter"]);
   });
 
   test("existing live windows offer attach and continue when tty answer is unavailable", async () => {
@@ -769,10 +769,13 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       expect(newWindows).toEqual([
         { session: "54-neo", window: "neo-alpha", opts: { cwd: "/tmp/neo-oracle.wt-2-alpha" } },
       ]);
-      expect(sentText.at(-1)).toEqual({
-        target: "54-neo:neo-alpha",
-        text: "cd /tmp/neo-oracle.wt-2-alpha && codex --agent neo-alpha -p 'selected'",
-      });
+      expect(sentText).toEqual([
+        {
+          target: "54-neo:neo-alpha",
+          text: "cd /tmp/neo-oracle.wt-2-alpha && codex --agent neo-alpha",
+        },
+      ]);
+      expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "selected", "Enter"]);
     } finally {
       _wtPicker.isStdoutTTY = originalIsTTY;
       _wtPicker.readChoice = originalReadChoice;
@@ -860,10 +863,13 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(newWindows).toEqual([
       { session: "54-neo", window: "neo-alpha", opts: { cwd: "/tmp/neo-oracle.wt-1-alpha" } },
     ]);
-    expect(sentText.at(-1)).toEqual({
-      target: "54-neo:neo-alpha",
-      text: "cd /tmp/neo-oracle.wt-1-alpha && codex --agent neo-alpha -p 'ship now'",
-    });
+    expect(sentText).toEqual([
+      {
+        target: "54-neo:neo-alpha",
+        text: "cd /tmp/neo-oracle.wt-1-alpha && codex --agent neo-alpha",
+      },
+    ]);
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "ship now", "Enter"]);
     expect(attachCalls).toEqual(["54-neo"]);
     expect(splitCalls).toEqual(["54-neo:neo-alpha"]);
     expect(openCalls).toEqual(["54-neo:neo-alpha"]);

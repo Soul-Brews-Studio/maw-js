@@ -449,6 +449,35 @@ async function currentTmuxSessionFromPane(): Promise<string | null> {
   }
 }
 
+function isClaudeEngine(engine: string | undefined): boolean {
+  return engine?.trim().toLowerCase() === "claude";
+}
+
+async function sendPromptViaTmux(target: string, prompt: string): Promise<void> {
+  const runner = (tmux as unknown as { run?: (subcommand: string, ...args: Array<string | number>) => Promise<string> }).run;
+  if (typeof runner === "function") {
+    await runner.call(tmux, "send-keys", "-t", target, prompt, "Enter");
+    return;
+  }
+  await tmux.sendText(target, prompt);
+}
+
+async function sendWakeCommandAndPrompt(target: string, prompt: string | undefined, command: string, engine?: string): Promise<void> {
+  if (!prompt) {
+    await tmux.sendText(target, command);
+    return;
+  }
+
+  if (isClaudeEngine(engine)) {
+    const escaped = prompt.replace(/'/g, "'\\''");
+    await tmux.sendText(target, `${command} -p '${escaped}'`);
+    return;
+  }
+
+  await tmux.sendText(target, command);
+  await sendPromptViaTmux(target, prompt);
+}
+
 async function findLiveWindowsByName(windowName: string): Promise<LiveWindowMatch[]> {
   const wanted = windowName.trim();
   if (!wanted) return [];
@@ -969,9 +998,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     await new Promise(r => setTimeout(r, 300));
     await retryFreshSessionTmuxStep(session, "launch main window", () => {
       const command = buildWakeCommand(mainWindowName, repoPath, opts);
-      if (!opts.prompt) return tmux.sendText(`${session}:${mainWindowName}`, command);
-      const escaped = opts.prompt.replace(/'/g, "'\\''");
-      return tmux.sendText(`${session}:${mainWindowName}`, `${command} -p '${escaped}'`);
+      return sendWakeCommandAndPrompt(`${session}:${mainWindowName}`, opts.prompt, command, opts.engine);
     }, {
       hasSession: tmux.hasSession,
     });
@@ -1175,14 +1202,15 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       registerWorktreeWindow(existingWindow);
       if (opts.prompt) {
         await tmux.selectWindow(target);
-        const escaped = opts.prompt.replace(/'/g, "'\\''");
-        const promptCommand = `${buildWakeCommand(existingWindow, targetPath, opts)} -p '${escaped}'`;
+        const wakeCommand = buildWakeCommand(existingWindow, targetPath, opts);
         if (opts.engine) {
-          if (!(await respawnPaneWithCommand(target, promptCommand))) {
-            await tmux.sendText(target, promptCommand);
+          if (!(await respawnPaneWithCommand(target, wakeCommand))) {
+            await sendWakeCommandAndPrompt(target, opts.prompt, wakeCommand, opts.engine);
+          } else {
+            await sendPromptViaTmux(target, opts.prompt);
           }
         } else {
-          await tmux.sendText(target, promptCommand);
+          await sendWakeCommandAndPrompt(target, opts.prompt, wakeCommand, opts.engine);
         }
         if (opts.attach) await wakeSession.attachToSession(session);
         await maybeSplit(target, opts);
@@ -1261,8 +1289,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   await new Promise(r => setTimeout(r, 300));
   const cmd = buildWakeCommand(windowName, targetPath, opts);
   if (opts.prompt) {
-    const escaped = opts.prompt.replace(/'/g, "'\\''");
-    await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);
+    await sendWakeCommandAndPrompt(`${session}:${windowName}`, opts.prompt, cmd, opts.engine);
   } else {
     await tmux.sendText(`${session}:${windowName}`, cmd);
   }

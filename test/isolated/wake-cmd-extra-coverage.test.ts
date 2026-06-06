@@ -216,7 +216,11 @@ describe("wake-cmd extra isolated coverage", () => {
     expect(sentText).toEqual([
       {
         target: "54-neo:neo-oracle",
-        text: `cd ${repoPath} && codex --agent neo-oracle -p 'it'\\''s alive'`,
+        text: `cd ${repoPath} && codex --agent neo-oracle`,
+      },
+      {
+        target: "54-neo:neo-oracle",
+        text: "it's alive",
       },
     ]);
     expect(maybeSplitCalls).toEqual(["54-neo:neo-oracle"]);
