@@ -11,6 +11,7 @@ let logs: string[] = [];
 let fetchCalls: string[] = [];
 let fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+<<<<<<< Updated upstream
 const sdkMock = {
   loadConfig: () => config,
   UserError: class UserError extends Error {},
@@ -21,7 +22,14 @@ mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/config", () => ({
+=======
+mock.module("maw-js/sdk", () => ({
+>>>>>>> Stashed changes
   loadConfig: () => config,
+  UserError: class UserError extends Error {},
+  sparkline: (values: number[], hadActivity: boolean[] = []) => values
+    .map((value, index) => (hadActivity[index] || value > 0 ? "▇" : "·"))
+    .join(""),
 }));
 
 const {

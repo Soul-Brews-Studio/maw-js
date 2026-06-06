@@ -33,7 +33,13 @@ mock.module("fs", () => ({
 }));
 mock.module("maw-js/core/ghq", () => ({ ghqFind: async () => ghqPath }));
 mock.module("maw-js/sdk", () => ({
+  ghqFind: async () => ghqPath,
   listSessions: async () => sessions,
+  loadConfig: () => config,
+  loadFleetEntries: () => fleetEntries,
+  loadManifestCached: () => [],
+  resolveSessionTarget: (_oracle: string, list: any[]) => list.length ? { kind: "fuzzy", match: list[0] } : { kind: "none" },
+  UserError: class UserError extends Error {},
   FLEET_DIR: "/fleet",
   tmux: { listPaneIds: async () => new Set<string>(), killPane: async () => {} },
   hostExec: async () => "",
