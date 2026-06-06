@@ -41,7 +41,7 @@ beforeEach(() => {
   timeouts = [];
 });
 
-describe("ping plugin standalone boundary (#2113)", () => {
+describe("ping plugin standalone boundary (#2113/#2184)", () => {
   test("has no direct core/shared/lib/config imports", () => {
     const files = ["index.ts", "impl.ts"].map((file) =>
       readFileSync(join(root, "src/vendor/mpr-plugins/ping", file), "utf8"),
@@ -50,7 +50,11 @@ describe("ping plugin standalone boundary (#2113)", () => {
       expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|lib|config)(?:\/|\")/);
       expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+/);
     }
-    expect(files.join("\n")).toContain('from "maw-js/sdk"');
+    const combined = files.join("\n");
+    expect(combined).toContain('from "maw-js/sdk"');
+    expect(combined).toContain("loadConfig");
+    expect(combined).toContain("cfgTimeout");
+    expect(combined).toContain("curlFetch");
   });
 
   test("pings named and legacy peers through SDK helpers", async () => {
