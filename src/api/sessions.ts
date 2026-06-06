@@ -19,7 +19,7 @@ import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
 type IdleCheck = Awaited<ReturnType<typeof checkPaneIdle>>;
-type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys">;
+type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys" | "listPanes" | "capture">;
 
 type AutoWakeDecision = Awaited<ReturnType<typeof defaultShouldAutoWake>>;
 type AutoWakeOpts = Parameters<typeof defaultShouldAutoWake>[1];
@@ -234,6 +234,25 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
     query: t.Object({
       local: t.Optional(t.String()),
     }),
+  });
+
+  api.get("/captures", async ({ set }) => {
+    try {
+      const tmux = d.createTmux();
+      const panes = await tmux.listPanes();
+      const entries = await Promise.all(panes.map(async pane => {
+        try {
+          return [pane.id, await tmux.capture(pane.id, 200)] as const;
+        } catch {
+          // Pane may close between list-panes and capture-pane; keep response total.
+          return [pane.id, ""] as const;
+        }
+      }));
+      return { captures: Object.fromEntries(entries) };
+    } catch (error) {
+      set.status = 503;
+      return sessionsUnavailablePayload(error);
+    }
   });
 
   api.get("/capture", async ({ query, set }) => {

@@ -59,6 +59,8 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
     createTmux: () => ({
       sendKeysLiteral: async (target: string, text: string) => { calls.push(["literal", target, text]); },
       sendKeys: async (target: string, key: string) => { calls.push(["tmuxKeys", target, key]); },
+      listPanes: async () => [],
+      capture: async (target: string, lines?: number) => { calls.push(["tmuxCapture", target, lines]); return ""; },
     } as any),
     emitMessageLifecycle: (input) => { lifecycle.push(input); },
     writeReceiverInbox: null,
@@ -167,6 +169,57 @@ describe("sessions, capture, and mirror routes", () => {
 
     const err = makeHarness({ capture: async () => { throw new Error("capture boom"); } });
     expect(await readJson(await err.app.handle(new Request("http://local/capture?target=neo")))).toEqual({ content: "", error: "capture boom" });
+  });
+
+  test("GET /captures returns ANSI captures for every tmux pane using 200 lines", async () => {
+    const captureCalls: any[] = [];
+    const h = makeHarness({
+      createTmux: () => ({
+        sendKeysLiteral: async () => {},
+        sendKeys: async () => {},
+        listPanes: async () => [
+          { id: "%1", command: "zsh", target: "maw:main.0", title: "one", pid: 101, cwd: "/tmp" },
+          { id: "%2", command: "bun", target: "maw:api.0", title: "two", pid: 102, cwd: "/repo" },
+        ],
+        capture: async (target: string, lines?: number) => {
+          captureCalls.push([target, lines]);
+          return target === "%1" ? "\x1b[31mred\x1b[0m" : "second pane";
+        },
+      } as any),
+    });
+
+    const res = await h.app.handle(new Request("http://local/captures"));
+
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toEqual({
+      captures: {
+        "%1": "\x1b[31mred\x1b[0m",
+        "%2": "second pane",
+      },
+    });
+    expect(captureCalls).toEqual([["%1", 200], ["%2", 200]]);
+  });
+
+  test("GET /captures keeps pane keys when a pane closes during capture", async () => {
+    const h = makeHarness({
+      createTmux: () => ({
+        sendKeysLiteral: async () => {},
+        sendKeys: async () => {},
+        listPanes: async () => [
+          { id: "%1", command: "zsh", target: "maw:main.0", title: "one", pid: 101, cwd: "/tmp" },
+          { id: "%2", command: "bun", target: "maw:api.0", title: "two", pid: 102, cwd: "/repo" },
+        ],
+        capture: async (target: string) => {
+          if (target === "%2") throw new Error("pane gone");
+          return "still here";
+        },
+      } as any),
+    });
+
+    const res = await h.app.handle(new Request("http://local/captures"));
+
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toEqual({ captures: { "%1": "still here", "%2": "" } });
   });
 
   test("GET /mirror validates target and processes captured output", async () => {
