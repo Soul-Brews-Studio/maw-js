@@ -52,6 +52,9 @@ export type {
 // NOTE: also re-exported from "@maw-js/sdk/plugin" for ergonomics — both work.
 export { parseFlags } from "../../src/cli/parse-args";
 
+// Plugin extraction helpers for tab-like command surfaces.
+export { cmdPeek, cmdSend } from "../../src/commands/shared/comm";
+
 // ─── src/config ──────────────────────────────────────────────────────────────
 // Operator config loader + key-typed accessors. Used by:
 //   loadConfig    — consent, ping, health, send, run, send-enter, contacts,
