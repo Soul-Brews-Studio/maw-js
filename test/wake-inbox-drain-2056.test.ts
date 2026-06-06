@@ -39,6 +39,32 @@ describe("wake inbox drain (#2056)", () => {
     expect(mergeWakeInboxPrompt("continue task", "## Unread ψ/inbox messages\nhello"))
       .toBe("continue task\n\n## Unread ψ/inbox messages\nhello");
   });
+
+  test("skips draining inbox for non-Claude engines", () => {
+    const repo = mkdtempSync(join(tmpdir(), "maw-wake-drain-non-claude-"));
+    const inbox = join(repo, "ψ", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const unread = join(inbox, "001.md");
+    writeFileSync(unread, [
+      "---",
+      "from: alpha:sender",
+      "timestamp: 2026-06-06T00:00:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "please review #2090",
+      "",
+    ].join("\n"));
+
+    const result = drainWakeInbox(repo, { engine: "omx" });
+    const updated = readFileSync(unread, "utf-8");
+
+    expect(result.count).toBe(0);
+    expect(result.prompt).toBe("");
+    expect(result.messages).toEqual([]);
+    expect(updated).toContain("read: false");
+    expect(updated).toContain("please review #2090");
+  });
 });
 
 test("caps wake inbox prompt bytes and leaves omitted messages unread", () => {

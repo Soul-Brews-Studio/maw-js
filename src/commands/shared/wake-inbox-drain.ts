@@ -24,9 +24,14 @@ export interface WakeInboxDrainDeps {
   writeFileSync?: typeof writeFileSync;
   markRead?: boolean;
   byteBudget?: number;
+  engine?: string;
 }
 
 export const DEFAULT_WAKE_INBOX_BYTE_BUDGET = 64 * 1024;
+
+function isClaudeEngine(engine?: string): boolean {
+  return engine?.trim().toLowerCase() === "claude";
+}
 
 function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, "utf-8");
@@ -102,6 +107,11 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
   const fsWriteFile = deps.writeFileSync ?? writeFileSync;
   const markRead = deps.markRead ?? true;
   const byteBudget = Math.max(0, Math.floor(deps.byteBudget ?? DEFAULT_WAKE_INBOX_BYTE_BUDGET));
+  const engine = deps.engine;
+  if (engine !== undefined && !isClaudeEngine(engine)) {
+    return { count: 0, prompt: "", messages: [], omittedCount: 0, byteBudget };
+  }
+
   const inboxDir = join(repoPath, "ψ", "inbox");
   if (!fsExists(inboxDir)) return { count: 0, prompt: "", messages: [], omittedCount: 0, byteBudget };
 
