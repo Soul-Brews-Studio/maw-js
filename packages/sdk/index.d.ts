@@ -621,3 +621,21 @@ export declare function getChannelEnv(
   fleetEnvOverride?: Record<string, string>,
   repoPath?: string,
 ): Record<string, string>;
+
+// --- src/commands/shared/scan-signals ---
+
+export type SignalKind = "info" | "alert" | "pattern";
+
+export interface Signal {
+  timestamp: string;
+  bud: string;
+  kind: SignalKind;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+export interface ScannedSignal extends Signal {
+  file: string;
+}
+
+export declare function scanSignals(root: string, opts?: { days?: number }): ScannedSignal[];

@@ -74,6 +74,8 @@ export {
   getChannelEnv,
 } from "../commands/shared/channel-loader";
 export type { ChannelPlugin, OracleChannelConfig } from "../commands/shared/channel-loader";
+export { scanSignals } from "../commands/shared/scan-signals";
+export type { ScannedSignal } from "../commands/shared/scan-signals";
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 

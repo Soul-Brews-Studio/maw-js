@@ -217,3 +217,8 @@ export {
   getChannelEnv,
 } from "../../src/commands/shared/channel-loader";
 export type { ChannelPlugin, OracleChannelConfig } from "../../src/commands/shared/channel-loader";
+
+// ─── src/commands/shared/scan-signals ───────────────────────────────────────
+// Bud signal scanner used by the signals plugin.
+export { scanSignals } from "../../src/commands/shared/scan-signals";
+export type { ScannedSignal } from "../../src/commands/shared/scan-signals";
