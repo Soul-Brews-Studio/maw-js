@@ -368,6 +368,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         status: Boolean(flags["--status"]),
       });
 
+    } else if (sub === "reassign") {
+      // maw team reassign <member> <new-issue> — done + fresh wake + prime
+      if (!args[1] || !args[2]) {
+        logs.push("usage: maw team reassign <member> <new-issue>");
+        return { ok: false, error: "member and issue required", output: logs.join("\n") };
+      }
+      const issue = Number(args[2]);
+      if (!Number.isInteger(issue) || issue <= 0) {
+        logs.push("usage: maw team reassign <member> <new-issue>");
+        return { ok: false, error: "new-issue must be a positive integer", output: logs.join("\n") };
+      }
+      const { cmdTeamReassign } = await import("./team-reassign");
+      const team = resolveTeamFromContext();
+      const result = await cmdTeamReassign(team, args[1], issue);
+      logs.push(result.output);
+
     } else if (sub === "up") {
       // #1976 — charter-driven team wake: reconcile the charter against live
       // panes (skip live, resume dead in place, fresh-wake missing).
@@ -398,7 +414,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

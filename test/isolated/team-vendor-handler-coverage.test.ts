@@ -17,6 +17,7 @@ const calls: Record<string, unknown[]> = {
   cmdOracleMembers: [],
   cmdTeamStatus: [],
   cmdTeamDelete: [],
+  cmdTeamReassign: [],
 };
 
 let parseFlagsReturn: Record<string, unknown> = {};
@@ -69,6 +70,13 @@ mock.module("../../src/vendor/mpr-plugins/team/team-charter", () => ({
   formatTeamCharterLoad: () => "team loaded",
   spawnFromTeamCharter: async () => ({ ok: true }),
   formatTeamCharterSpawn: () => "team spawn started",
+}));
+
+mock.module("../../src/vendor/mpr-plugins/team/team-reassign", () => ({
+  cmdTeamReassign: async (...args: unknown[]) => {
+    calls.cmdTeamReassign.push(args);
+    return { team: "alpha", session: "lead", member: "worker", issue: 123, target: "worker", actions: [] as any, output: "team reassign: alpha" };
+  },
 }));
 
 mock.module("../../src/vendor/mpr-plugins/team/team-comms", () => ({
@@ -189,5 +197,14 @@ describe("vendor team handler coverage slice", () => {
     const result = await teamHandler({ source: "cli", args: ["enter", "agent-a"] });
     expect(result.ok).toBe(false);
     expect(result.error).toBe("team not found");
+  });
+
+  test("reassign delegates to cmdTeamReassign", async () => {
+    process.env.MAW_TEAM = "alpha";
+    const result = await teamHandler({ source: "cli", args: ["reassign", "worker", "123"] });
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe("team reassign: alpha");
+    expect(calls.cmdTeamReassign).toEqual([["alpha", "worker", 123]]);
+    delete process.env.MAW_TEAM;
   });
 });
