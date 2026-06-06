@@ -13,13 +13,17 @@
 
 import { existsSync } from "fs";
 import { join } from "path";
-import { ghqFind } from "maw-js/core/ghq";
-import { listSessions } from "maw-js/sdk";
-import { loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
-import { loadConfig } from "maw-js/config";
-import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
-import { UserError } from "maw-js/core/util/user-error";
-import { loadManifestCached, type OracleManifestEntry } from "maw-js/lib/oracle-manifest";
+import {
+  ghqFind,
+  listSessions,
+  loadConfig,
+  loadFleetEntries,
+  loadManifestCached,
+  resolveSessionTarget,
+  UserError,
+  type FleetEntry,
+  type OracleManifestEntry,
+} from "maw-js/sdk";
 import { fetchPeerPayload, type PeerSession } from "../ls/internal/peer-call";
 import { resolveAllPeers } from "../ls/internal/peer-resolve";
 

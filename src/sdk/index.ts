@@ -158,6 +158,7 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export { parseFlags } from "../cli/parse-args";
+export { ghqFind, ghqList, ghqFindSync, ghqListSync } from "../core/ghq";
 export { UserError, isUserError } from "../core/util/user-error";
 export { sparkline } from "../lib/sparkline";
 export { tlink } from "../core/util/terminal";
