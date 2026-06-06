@@ -52,11 +52,35 @@ export interface FeedEvent {
   timestamp: string;
   oracle: string;
   host: string;
-  event: string;
+  event: FeedEventType;
   project: string;
   sessionId: string;
   message: string;
+  ts: number;
+  data?: unknown;
 }
+
+export type FeedEventType =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "PostToolUseFailure"
+  | "UserPromptSubmit"
+  | "SubagentStart"
+  | "SubagentStop"
+  | "TaskCompleted"
+  | "SessionEnd"
+  | "SessionStart"
+  | "Stop"
+  | "Notification"
+  | "MessageSend"
+  | "MessageDeliver"
+  | "MessageFail"
+  | "WormholeRequest"
+  | "WormholeFail"
+  | "PluginHook"
+  | "PluginFilter"
+  | "PluginLoad"
+  | "PluginError";
 
 export interface PluginInfo {
   name: string;
@@ -441,3 +465,55 @@ export declare function getArtifact(
 
 /** Get the artifact directory path (for agents to write into). */
 export declare function artifactDir(team: string, taskId: string): string;
+
+// --- src/core/xdg ---
+
+export declare function legacyMawPath(...parts: string[]): string;
+export declare function isMawXdgEnabled(): boolean;
+export declare function mawConfigDir(): string;
+export declare function mawRuntimeHomeDir(): string;
+export declare function mawDataDir(): string;
+export declare function mawStateDir(): string;
+export declare function mawCacheDir(): string;
+export declare function mawConfigPath(...parts: string[]): string;
+export declare function mawDataPath(...parts: string[]): string;
+export declare function mawMessageLogPath(): string;
+export declare function legacyOracleMessageLogPath(): string;
+export declare function mawMessageLogCandidatePaths(): string[];
+export declare function legacyOracleHookConfigPath(): string;
+export declare function mawHookConfigCandidatePaths(): string[];
+export declare function mawStatePath(...parts: string[]): string;
+export declare function mawCachePath(...parts: string[]): string;
+
+// --- src/lib/message-events ---
+
+export type MessageDirection = "outbound" | "inbound" | "forwarded";
+export type MessageState = "queued" | "delivered" | "failed";
+export type MessageChannel = "hey" | "send" | "api-send" | "plugin";
+export type MessageRoute = "local" | "peer" | "discovery" | "self-node" | "team" | string;
+
+export interface MessageLifecycleData {
+  id: string;
+  ts: string;
+  direction: MessageDirection;
+  state: MessageState;
+  channel: MessageChannel;
+  route: MessageRoute;
+  from: string;
+  to: string;
+  target?: string;
+  peerUrl?: string;
+  text: string;
+  error?: string;
+  lastLine?: string;
+  signed?: boolean;
+}
+
+export type MessageLifecycleInput = Omit<MessageLifecycleData, "id" | "ts"> & {
+  id?: string;
+  ts?: string | number | Date;
+};
+
+export declare function buildMessageLifecycleData(input: MessageLifecycleInput): MessageLifecycleData;
+export declare function buildMessageLifecycleFeedEvent(input: MessageLifecycleInput): FeedEvent;
+export declare function isMessageLifecycleData(value: unknown): value is MessageLifecycleData;

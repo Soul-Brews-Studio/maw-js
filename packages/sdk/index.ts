@@ -27,7 +27,6 @@ export type {
   Peer,
   FederationStatus,
   Session,
-  FeedEvent,
   PluginInfo,
 } from "../../src/core/runtime/sdk";
 
@@ -106,6 +105,45 @@ export type { ConsentAction } from "../../src/core/consent";
 // Hyperlink helper for OSC-8-capable terminals.
 //   tlink — check
 export { tlink } from "../../src/core/util/terminal";
+
+// ─── src/core/xdg ───────────────────────────────────────────────────────────
+// XDG-aware maw path helpers. Used by messages extraction and other plugins
+// that need stable state/data/config/cache paths without reaching into core.
+export {
+  legacyMawPath,
+  isMawXdgEnabled,
+  mawConfigDir,
+  mawRuntimeHomeDir,
+  mawDataDir,
+  mawStateDir,
+  mawCacheDir,
+  mawConfigPath,
+  mawDataPath,
+  mawMessageLogPath,
+  legacyOracleMessageLogPath,
+  mawMessageLogCandidatePaths,
+  legacyOracleHookConfigPath,
+  mawHookConfigCandidatePaths,
+  mawStatePath,
+  mawCachePath,
+} from "../../src/core/xdg";
+
+// ─── src/lib/message-events ─────────────────────────────────────────────────
+// Message lifecycle helpers + types used by the messages plugin ledger.
+export type { FeedEvent, FeedEventType } from "../../src/lib/feed";
+export {
+  buildMessageLifecycleData,
+  buildMessageLifecycleFeedEvent,
+  isMessageLifecycleData,
+} from "../../src/lib/message-events";
+export type {
+  MessageChannel,
+  MessageDirection,
+  MessageLifecycleData,
+  MessageLifecycleInput,
+  MessageRoute,
+  MessageState,
+} from "../../src/lib/message-events";
 
 // ─── src/lib/profile-loader ──────────────────────────────────────────────────
 // Active-profile pointer + JSON profile read/write. Used by `profile` plugin.

@@ -1,8 +1,7 @@
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
-import type { MessageDirection, MessageLifecycleData, MessageState } from "maw-js/lib/message-events";
-import { mawConfigPath, mawDataPath } from "../../../core/xdg";
+import { mawConfigPath, mawDataPath, type MessageDirection, type MessageLifecycleData, type MessageState } from "@maw-js/sdk";
 
 export interface MessageLedgerQuery {
   limit?: number;
