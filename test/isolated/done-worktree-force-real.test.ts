@@ -1,18 +1,34 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
 import { tmpdir } from "os";
-import { removeWorktreeViaConfig } from "../../src/commands/shared/done";
+import { join } from "path";
 
 const roots: string[] = [];
+let fleetDirs: string[] = [];
+let hostExecCommands: string[] = [];
 
 function sh(command: string, cwd?: string): string {
   return execSync(command, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
+mock.module("maw-js/sdk", () => ({
+  hostExec: async (command: string) => {
+    hostExecCommands.push(command);
+    return sh(command);
+  },
+}));
+
+mock.module("maw-js/commands/shared/fleet-load", () => ({
+  fleetDirsForRead: () => fleetDirs,
+}));
+
+const { removeWorktreeViaConfig } = await import(
+  "../../src/vendor/mpr-plugins/done/done-worktree.ts?done-worktree-force-real"
+);
+
 function setupRepo() {
-  const root = mkdtempSync(join(tmpdir(), "maw-done-force-"));
+  const root = mkdtempSync(join(tmpdir(), "maw-done-vendor-force-"));
   roots.push(root);
 
   const reposRoot = join(root, "github.com");
@@ -36,34 +52,42 @@ function setupRepo() {
   return { root, reposRoot, mainPath, worktreePath };
 }
 
+async function silenceConsole(fn: () => Promise<unknown>) {
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
+
 afterEach(() => {
+  fleetDirs = [];
+  hostExecCommands = [];
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("done worktree forced removal", () => {
-  test("removes a worktree containing engine scratch and then deletes the merged branch", async () => {
+describe("vendor done worktree forced removal", () => {
+  test("removes a configured worktree containing engine scratch", async () => {
     const { root, reposRoot, mainPath, worktreePath } = setupRepo();
     const fleetDir = join(root, "fleet");
     mkdirSync(fleetDir, { recursive: true });
     writeFileSync(join(fleetDir, "test.json"), JSON.stringify({
       windows: [{ name: "Codex", repo: "Soul-Brews-Studio/maw-js/agents/1-codex" }],
     }));
+    fleetDirs = [fleetDir];
 
-    const commands: string[] = [];
-    const removed = await removeWorktreeViaConfig("codex", reposRoot, {
-      fleetDir,
-      fleetDirs: [fleetDir],
-      branchBase: "alpha",
-      hostExec: async (command) => {
-        commands.push(command);
-        return sh(command);
-      },
-      logger: { log: () => {}, error: () => {} },
-    });
+    const removed = await silenceConsole(() =>
+      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha" }),
+    );
 
     expect(removed).toBe(true);
     expect(existsSync(worktreePath)).toBe(false);
-    expect(commands.some(command => /worktree remove .* --force/.test(command))).toBe(true);
+    expect(hostExecCommands.some(command => /worktree remove .* --force/.test(command))).toBe(true);
     expect(sh("git branch --list feature/codex", mainPath).trim()).toBe("");
   });
 });
