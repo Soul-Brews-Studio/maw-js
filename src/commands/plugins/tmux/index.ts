@@ -23,6 +23,21 @@ interface TmuxHandlerDeps {
   cmdSplit: (target: string, opts: { lock?: boolean }) => Promise<void>;
 }
 
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function breakPaneDetached(hostExecFn: typeof hostExec, pane: string): Promise<void> {
+  let windowName = "";
+  try {
+    windowName = (await hostExecFn(`tmux display-message -p -t ${shellArg(pane)} '#{window_name}'`)).trim();
+  } catch {
+    // Let break-pane surface the actionable tmux error below.
+  }
+  const nameArg = windowName ? ` -n ${shellArg(windowName)}` : "";
+  await hostExecFn(`tmux break-pane -d -t ${shellArg(pane)}${nameArg}`);
+}
+
 const defaultDeps: TmuxHandlerDeps = {
   cmdTmuxPeek,
   cmdTmuxLs,
@@ -304,7 +319,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
           return { ok: false, error: "cannot close current pane" };
         }
         try {
-          await deps.hostExec(`tmux break-pane -d -t '${explicitTarget}'`);
+          await breakPaneDetached(deps.hostExec, explicitTarget);
           console.log(`\x1b[32m✓\x1b[0m closed ${explicitTarget} (hidden — still alive)`);
         } catch (e: any) {
           console.log(`\x1b[31m✗\x1b[0m close failed for '${explicitTarget}': ${e?.message ?? e}`);
@@ -320,7 +335,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         for (const pane of paneList) {
           if (pane === myPane) continue;
           try {
-            await deps.hostExec(`tmux break-pane -d -t '${pane}'`);
+            await breakPaneDetached(deps.hostExec, pane);
             hidden++;
           } catch { /* already gone */ }
         }
