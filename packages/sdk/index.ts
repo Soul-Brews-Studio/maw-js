@@ -59,6 +59,18 @@ export { sparkline } from "../../src/lib/sparkline";
 // Federation-aware communication helpers used by small command plugins.
 export { cmdPeek, cmdSend } from "../../src/commands/shared/comm";
 export { resolveOraclePane } from "../../src/commands/shared/comm-send";
+export {
+  deletePending,
+  isExpired,
+  loadPending,
+  loadPendingById,
+  pendingDir,
+  pendingPath,
+  savePending,
+  TTL_MS,
+  updatePending,
+} from "../../src/commands/shared/queue-store";
+export type { PendingMessage } from "../../src/commands/shared/queue-store";
 export { cmdSplit } from "../../src/commands/plugins/split/impl";
 
 // ─── src/config ──────────────────────────────────────────────────────────────

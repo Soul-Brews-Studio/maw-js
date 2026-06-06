@@ -87,6 +87,18 @@ export {
 export type { ChannelPlugin, OracleChannelConfig } from "../commands/shared/channel-loader";
 export { scanSignals } from "../commands/shared/scan-signals";
 export { resolveOraclePane } from "../commands/shared/comm-send";
+export {
+  deletePending,
+  isExpired,
+  loadPending,
+  loadPendingById,
+  pendingDir,
+  pendingPath,
+  savePending,
+  TTL_MS,
+  updatePending,
+} from "../commands/shared/queue-store";
+export type { PendingMessage } from "../commands/shared/queue-store";
 export type { ScannedSignal } from "../commands/shared/scan-signals";
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────

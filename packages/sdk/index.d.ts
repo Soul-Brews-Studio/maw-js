@@ -240,6 +240,25 @@ export declare function cmdPeek(query?: string): Promise<void>;
 /** Send a message to an oracle/window target. */
 export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;
 export declare function resolveOraclePane(target: string): Promise<string>;
+
+export interface PendingMessage {
+  id: string;
+  sender: string;
+  target: string;
+  message: string;
+  sentAt: string;
+  status: "pending" | "approved" | "rejected";
+  query?: string;
+}
+export declare const TTL_MS: number;
+export declare function pendingDir(): string;
+export declare function pendingPath(id: string): string;
+export declare function isExpired(msg: PendingMessage, now?: Date): boolean;
+export declare function savePending(input: { sender: string; target: string; message: string; query?: string }): PendingMessage;
+export declare function loadPending(): PendingMessage[];
+export declare function loadPendingById(id: string): PendingMessage | null;
+export declare function updatePending(id: string, patch: Partial<PendingMessage>): PendingMessage;
+export declare function deletePending(id: string): boolean;
 export declare function cmdSplit(target: string, opts?: Record<string, unknown>): Promise<void>;
 
 // --- src/config ---

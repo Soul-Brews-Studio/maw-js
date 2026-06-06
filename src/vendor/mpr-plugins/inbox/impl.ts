@@ -1,16 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, utimesSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
-import { loadConfig } from "maw-js/config";
-import { ghqFind } from "maw-js/core/ghq";
-import { loadFleetEntries } from "maw-js/commands/shared/fleet-load";
 import {
   deletePending,
+  ghqFind,
+  loadConfig,
+  loadFleetEntries,
   loadPending,
   loadPendingById,
   updatePending,
   type PendingMessage,
-} from "maw-js/commands/shared/queue-store";
+} from "maw-js/sdk";
 
 // Re-export queue-store helpers so callers can import from one place.
 export {
@@ -23,8 +23,8 @@ export {
   pendingPath,
   isExpired,
   TTL_MS,
-} from "maw-js/commands/shared/queue-store";
-export type { PendingMessage } from "maw-js/commands/shared/queue-store";
+} from "maw-js/sdk";
+export type { PendingMessage } from "maw-js/sdk";
 
 // File naming: YYYY-MM-DD_HH-MM_<from>_<slug>.md
 // Frontmatter: from / to / timestamp / read
@@ -780,7 +780,7 @@ export async function cmdApprove(idOrPrefix: string): Promise<PendingMessage> {
   // Re-issue the send. Use the original query string when present (preserves
   // node prefix routing); fall back to target name otherwise.
   const query = updated.query ?? updated.target;
-  const { cmdSend } = await import("maw-js/commands/shared/comm-send");
+  const { cmdSend } = await import("maw-js/sdk");
   // Pass `force=true` plus a sentinel to bypass ACL on the second pass:
   // the human approval IS the gate — re-checking here would loop forever.
   process.env.MAW_ACL_BYPASS = "1";
