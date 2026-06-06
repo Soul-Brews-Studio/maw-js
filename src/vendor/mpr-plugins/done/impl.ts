@@ -57,6 +57,41 @@ function failMissingDoneTarget(windowName: string): never {
   throw new Error(message);
 }
 
+function leadWindow(session: DoneSession): DoneWindow | null {
+  if (session.windows.length === 0) return null;
+  const leadIndex = Math.min(...session.windows.map(w => w.index));
+  return session.windows.find(w => w.index === leadIndex) ?? null;
+}
+
+async function currentTmuxIdentity(): Promise<{ sessionName: string; windowIndex: number } | null> {
+  try {
+    const raw = (await tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
+    const [sessionName, indexRaw] = raw.split("\t");
+    const windowIndex = Number(indexRaw);
+    if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
+  } catch {
+    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
+  }
+  return null;
+}
+
+async function assertDoneMayTargetWindow(
+  session: DoneSession,
+  windowIndex: number,
+  windowName: string,
+): Promise<void> {
+  const lead = leadWindow(session);
+  if (!lead || lead.index !== windowIndex) return;
+
+  const current = await currentTmuxIdentity();
+  if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
+
+  const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
+  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  console.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
+  throw new Error(message);
+}
+
 /**
  * maw done <window-name> [--force] [--dry-run] [--clean-branch]
  *
@@ -73,13 +108,18 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
+  let matchedSession: DoneSession | null = null;
   let windowIndex: number | null = null;
   const searchSessions = opts.sessionName
     ? sessions.filter(s => s.name === opts.sessionName)
     : sessions;
   for (const s of searchSessions) {
     const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
-    if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
+    if (w) { sessionName = s.name; matchedSession = s; windowIndex = w.index; windowName = w.name; break; }
+  }
+
+  if (matchedSession && windowIndex !== null) {
+    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName);
   }
 
   // 0. Signal parent inbox (#81) — write before kill so parent knows

@@ -31,6 +31,7 @@ export interface DoneDeps {
   listSessions?: () => Promise<SessionInfo[]>;
   hostExec?: (command: string) => Promise<string>;
   tmux?: {
+    run?: (subcommand: string, ...args: (string | number)[]) => Promise<string>;
     killWindow?: (target: string) => Promise<unknown>;
     sendText?: (target: string, text: string) => Promise<unknown>;
   };
@@ -53,6 +54,7 @@ function doneDeps(deps: DoneDeps = {}) {
     listSessions: deps.listSessions ?? (listSessions as () => Promise<SessionInfo[]>),
     hostExec: deps.hostExec ?? hostExec,
     tmux: {
+      run: deps.tmux?.run ?? tmux.run.bind(tmux),
       killWindow: deps.tmux?.killWindow ?? tmux.killWindow,
       sendText: deps.tmux?.sendText ?? tmux.sendText,
     },
@@ -229,6 +231,42 @@ function failMissingDoneTarget(windowName: string, d: ResolvedDoneDeps): never {
   throw new Error(message);
 }
 
+function leadWindow(session: SessionInfo): SessionInfo["windows"][number] | null {
+  if (session.windows.length === 0) return null;
+  const leadIndex = Math.min(...session.windows.map(w => w.index));
+  return session.windows.find(w => w.index === leadIndex) ?? null;
+}
+
+async function currentTmuxIdentity(d: ResolvedDoneDeps): Promise<{ sessionName: string; windowIndex: number } | null> {
+  try {
+    const raw = (await d.tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
+    const [sessionName, indexRaw] = raw.split("\t");
+    const windowIndex = Number(indexRaw);
+    if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
+  } catch {
+    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
+  }
+  return null;
+}
+
+async function assertDoneMayTargetWindow(
+  session: SessionInfo,
+  windowIndex: number,
+  windowName: string,
+  d: ResolvedDoneDeps,
+): Promise<void> {
+  const lead = leadWindow(session);
+  if (!lead || lead.index !== windowIndex) return;
+
+  const current = await currentTmuxIdentity(d);
+  if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
+
+  const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  d.logger.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
+  throw new Error(message);
+}
+
 function activeFleetConfigFiles(d: ResolvedDoneDeps): Array<{ file: string; path: string }> {
   const filesByName = new Map<string, { file: string; path: string }>();
   const dirs = uniqueDirs(d.fleetDirs?.length ? d.fleetDirs : [d.fleetDir]);
@@ -262,10 +300,15 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
+  let matchedSession: SessionInfo | null = null;
   let windowIndex: number | null = null;
   for (const s of sessions) {
     const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
-    if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
+    if (w) { sessionName = s.name; matchedSession = s; windowIndex = w.index; windowName = w.name; break; }
+  }
+
+  if (matchedSession && windowIndex !== null) {
+    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName, d);
   }
 
   if (sessionName) {
