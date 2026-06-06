@@ -30,6 +30,14 @@ export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
 export type { MawConfig } from "../config";
 
+// ─── Consent ────────────────────────────────────────────────────────────────
+
+export {
+  listPending, listTrust, recordTrust, removeTrust,
+  approveConsent, rejectConsent,
+} from "../core/consent";
+export type { ConsentAction } from "../core/consent";
+
 // ─── Transport ───────────────────────────────────────────────────────────────
 
 export {
