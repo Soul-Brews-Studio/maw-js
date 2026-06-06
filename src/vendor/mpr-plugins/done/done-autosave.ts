@@ -11,8 +11,10 @@ type SessionInfo = { name: string; windows: { index: number; name: string; activ
 
 type RetrospectiveCommand = "/rrr" | "$rrr";
 
+const NON_CLAUDE_ENGINES = /\b(omx|codex|aider|opencode|oh-my-codex)\b/i;
+
 function inferRetrospectiveCommand(paneCurrentCommand: string): RetrospectiveCommand {
-  return /\bomx\b/i.test(paneCurrentCommand || "") ? "$rrr" : "/rrr";
+  return NON_CLAUDE_ENGINES.test(paneCurrentCommand || "") ? "$rrr" : "/rrr";
 }
 
 /** Signal parent oracle inbox that a worktree window is done (#81). */
