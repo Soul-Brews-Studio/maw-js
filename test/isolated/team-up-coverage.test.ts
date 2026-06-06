@@ -314,7 +314,12 @@ members:
     ]);
     const wakes: any[] = [];
     await cmdTeamUp("alpha", {}, { cwd: root, tmux, loadConfigFn: () => config, repoSlug: "Soul-Brews-Studio/maw-js", cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; }, sleep: async () => {}, logger: () => {} });
+    expect(calls).toContainEqual(["send-keys", "-t", "%10", "C-u"]);
     expect(calls).toContainEqual(["send-keys", "-t", "%10", "maw run claude48-resume", "Enter"]);
+    expect(calls.findIndex((entry) => entry[0] === "send-keys" && entry[1] === "-t" && entry[2] === "%10" && entry[3] === "C-u"))
+      .toBeLessThan(
+        calls.findIndex((entry) => entry[0] === "send-keys" && entry[1] === "-t" && entry[2] === "%10" && entry[3] === "maw run claude48-resume"),
+      );
     expect(wakes).toEqual([["Soul-Brews-Studio/maw-js", { wt: "mawjs-oracle", engine: "codex", session: "charter-session", repoPath: root }]]);
   });
 

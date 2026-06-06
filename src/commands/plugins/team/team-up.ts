@@ -153,6 +153,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
       actions.push({ role: item.role, state: item.state, action: "skip live" });
     } else if (item.state === "dead") {
       const command = engineCommand(item.engine, { resume: true }, config);
+      await tmux.run("send-keys", "-t", item.pane!.paneId, "C-u");
       await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
       actions.push({ role: item.role, state: item.state, action: "resume in place", command });
       await waitForNonShell(item.role, session, tmux, sleep);
