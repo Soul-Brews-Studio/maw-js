@@ -23,6 +23,10 @@ const calls: Record<string, unknown[]> = {
 let parseFlagsReturn: Record<string, unknown> = {};
 
 mock.module("maw-js/sdk", () => ({
+  parseFlags: (_args: string[], _schema: Record<string, unknown>, _start = 0) => ({
+    _: [],
+    ...(parseFlagsReturn || {}),
+  }),
   hostExec: async () => "",
   tmux: {
     listPaneIds: async () => new Set<string>(),

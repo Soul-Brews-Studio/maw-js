@@ -70,6 +70,12 @@ mock.module("maw-js/sdk", () => ({
   },
   ghqList: async () => ghqListResult,
   loadFleetEntries: loadTestFleetEntries,
+  loadConfig: () => configState,
+  resolveOraclePane: async (target: string) => {
+    paneCalls.push(target);
+    if (paneError) throw paneError;
+    return paneResult;
+  },
   UserError: class UserError extends Error {},
   listSessions: async () => {
     if (listSessionsError) throw listSessionsError;

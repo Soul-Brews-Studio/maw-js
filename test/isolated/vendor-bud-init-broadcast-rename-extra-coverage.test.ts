@@ -87,6 +87,18 @@ mock.module("maw-js/sdk", () => ({
     if (hostExecError) throw hostExecError;
     return hostExecResult;
   },
+  getGhqRoot: () => ghqRoot,
+  loadConfig: () => config,
+  normalizeTarget: () => normalizedTarget,
+  assertValidOracleName: () => {
+    if (validateOracleError) throw validateOracleError;
+  },
+  parseWakeTarget: () => parseWakeTargetResult,
+  ensureCloned: async (slug: string) => { ensureClonedCalls.push(slug); },
+  validateNickname: (value: string) => { validateNicknameCalls.push(value); return validateNicknameResult; },
+  writeNickname: (...args: any[]) => { writeNicknameCalls.push(args); },
+  setCachedNickname: (...args: any[]) => { setCachedNicknameCalls.push(args); },
+  writeSignal: (...args: any[]) => { writeSignalCalls.push(args); },
   isAgentCommand: (cmd: string | null | undefined) => /claude|codex|thclaws|thclaude/i.test((cmd ?? "").trim()) || /^node$/i.test((cmd ?? "").trim()) || /^\d+\.\d+\.\d+$/.test((cmd ?? "").trim()),
   loadOracleRegistry: () => null,
   loadFleetEntries: () => [{ groupName: "neo", file: "01-neo.json", session: { name: "01-neo" } }],

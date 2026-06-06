@@ -13,6 +13,9 @@ mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
   saveTabOrder: async (session: string) => { calls.push(`save:${session}`); },
   takeSnapshot: async (trigger: string) => { calls.push(`snapshot:${trigger}`); },
+  runSleepLifecycleHooks: async (ctx: { oracle: string; session: string; window: string }) => {
+    calls.push(`hook:${ctx.oracle}:${ctx.session}:${ctx.window}`);
+  },
   tmux: {
     sendKeysLiteral: async (target: string, ch: string) => { calls.push(`literal:${target}:${ch}`); },
     sendKeys: async (target: string, key: string) => { calls.push(`key:${target}:${key}`); },

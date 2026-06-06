@@ -87,9 +87,19 @@ const sdkMock = {
   },
   loadConfig: () => configState,
   listSessions: async () => sessions,
+  Tmux: class {
+    async run(...args: string[]) {
+      tmuxRunCalls.push(args);
+      return tmuxResponses.shift() ?? "";
+    }
+  },
   resolveTarget: (query: string, config: Record<string, any>, listedSessions: any[]) => {
     resolveTargetCalls.push({ query, config, sessions: listedSessions });
     return resolvedTarget;
+  },
+  resolveOraclePane: async (target: string) => {
+    paneCalls.push(target);
+    return paneTarget;
   },
   tmux: {
     sendKeys: async (target: string, key: string) => {
