@@ -67,10 +67,15 @@ describe("/api/send queued inbox live notification (#2057)", () => {
     const sessions = [
       session("50-atlas", [{ index: 1, name: "atlas-oracle", active: true }]),
       session("77-mawjs", [{ index: 0, name: "mawjs", active: true }]),
+      session("05-volt", [
+        { index: 0, name: "volt-oracle", active: false },
+        { index: 1, name: "volt-coder-3", active: true },
+      ]),
     ];
 
     expect(resolveLiveInboxNotificationTarget("atlas", sessions)).toBe("50-atlas:atlas-oracle");
     expect(resolveLiveInboxNotificationTarget("mawjs-oracle", sessions)).toBe("77-mawjs:mawjs");
+    expect(resolveLiveInboxNotificationTarget("volt", sessions)).toBe("05-volt:volt-oracle");
     expect(resolveLiveInboxNotificationTarget("ghost", sessions)).toBeNull();
   });
 

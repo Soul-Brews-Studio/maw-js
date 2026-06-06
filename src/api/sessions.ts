@@ -151,18 +151,22 @@ function windowTarget(session: Session, window: Session["windows"][number] | und
   return `${session.name}:${window.name || window.index}`;
 }
 
+function receiverNamedWindow(session: Session, wanted: string): Session["windows"][number] | undefined {
+  return session.windows.find((window) => normalizeInboxTargetName(window.name) === wanted);
+}
+
 /** @internal exported for tests. Resolve an inbox oracle to a live tmux target. */
 export function resolveLiveInboxNotificationTarget(oracle: string, sessions: Session[]): string | null {
   const wanted = normalizeInboxTargetName(oracle);
   if (!wanted) return null;
 
   for (const session of sessions) {
+    const namedWindow = receiverNamedWindow(session, wanted);
+    if (namedWindow) return windowTarget(session, namedWindow);
+
     if (normalizeInboxTargetName(session.name) === wanted) {
       return windowTarget(session, session.windows.find(w => w.active) ?? session.windows[0]);
     }
-
-    const win = session.windows.find(w => normalizeInboxTargetName(w.name) === wanted);
-    if (win) return windowTarget(session, win);
   }
 
   return null;
