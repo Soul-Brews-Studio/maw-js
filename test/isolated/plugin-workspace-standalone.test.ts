@@ -20,8 +20,11 @@ mock.module("maw-js/sdk", () => ({
       const parser = spec[arg];
       if (!parser) out._.push(arg);
       else if (parser === Boolean) out[arg] = true;
-      else if (typeof parser === "string") out[parser] = true;
-      else out[arg] = args[++i];
+      else if (typeof parser === "string") {
+        const targetParser = spec[parser];
+        if (targetParser === Boolean) out[parser] = true;
+        else out[parser] = args[++i];
+      } else out[arg] = args[++i];
     }
     return out;
   },
