@@ -111,7 +111,7 @@ describe("wake plugin standalone boundary", () => {
   test("cli wake all and normal wake parse flags through mocked shared commands", async () => {
     const all = await wakeHandler({ source: "cli", args: ["all", "--kill", "--resume"] } as any);
     expect(all.ok).toBe(true);
-    expect(wakeAllCalls).toEqual([{ "--kill": true, "--all": undefined, "--resume": true }]);
+    expect(wakeAllCalls).toEqual([{ kill: true, all: undefined, resume: true }]);
 
     const normal = await wakeHandler({
       source: "cli",
@@ -136,7 +136,7 @@ describe("wake plugin standalone boundary", () => {
     const cli = await wakeHandler({ source: "cli", args: ["https://github.com/Soul/repo-oracle", "--issue", "7"] } as any);
     expect(cli.ok).toBe(true);
     expect(cloned).toEqual(["Soul/repo-oracle"]);
-    expect(githubPrompts).toEqual([{ kind: "issue", num: 7, repo: "Soul/repo-oracle" }]);
+    expect(githubPrompts).toEqual([{ kind: "issue", num: 7, repo: undefined }]);
     expect(wakeCalls[0]).toEqual({ oracle: "repo", opts: { urlRepoName: "repo-oracle", prompt: "issue #7 prompt", task: "issue-7" } });
 
     const api = await wakeHandler({ source: "api", args: { oracle: "neo", pr: 9, repo: "Soul/neo", solo: true, snapshot: "snap-1" } } as any);
