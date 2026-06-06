@@ -111,6 +111,7 @@ export {
   loadFleetEntries,
 } from "../core/fleet/fleet-load-core";
 export { cmdSleep } from "../commands/shared/fleet-wake";
+export { cmdPulseAdd, cmdPulseLs } from "../commands/shared/pulse";
 export { cmdWake, fetchIssuePrompt, findWorktrees, detectSession } from "../commands/shared/wake";
 export type {
   FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,

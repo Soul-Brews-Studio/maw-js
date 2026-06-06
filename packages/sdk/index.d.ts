@@ -658,3 +658,8 @@ export declare function scanSignals(root: string, opts?: { days?: number }): Sca
 
 export declare function fetchIssuePrompt(num: number, repo?: string): Promise<string>;
 export declare function cmdWake(oracle: string, opts: Record<string, unknown>): Promise<string>;
+
+// --- src/commands/shared/pulse ---
+
+export declare function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }): Promise<void>;
+export declare function cmdPulseLs(opts?: { sync?: boolean }): Promise<void>;
