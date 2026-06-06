@@ -30,7 +30,7 @@ await mock.module("fs", () => ({
   ...realFs,
   readFileSync: ((path: string | Buffer | URL, ...args: unknown[]) => {
     const pathText = String(path);
-    if (pathText === MOCK_CONFIG_FILE) {
+    if (pathText.startsWith(MOCK_CONFIG_FILE)) {
       readCalls.push(pathText);
       if (readError) throw readError;
       return rawConfigText;
@@ -39,7 +39,7 @@ await mock.module("fs", () => ({
   }) as typeof realFs.readFileSync,
   writeFileSync: ((path: string | Buffer | URL, data: string | ArrayBufferView, ...args: unknown[]) => {
     const pathText = String(path);
-    if (pathText === MOCK_CONFIG_FILE) {
+    if (pathText.startsWith(MOCK_CONFIG_FILE)) {
       writeCalls.push({ path: pathText, data: String(data) });
       if (writeError) throw writeError;
       return;
@@ -211,7 +211,7 @@ describe("config load second pass coverage", () => {
     expect(loaded.host).toBe("local");
     expect(loaded.node).toBe("m5");
     expect(writeCalls).toHaveLength(1);
-    expect(writeCalls[0]?.path).toBe(MOCK_CONFIG_FILE);
+    expect(writeCalls[0]?.path.startsWith(MOCK_CONFIG_FILE)).toBe(true);
     expect(stderrWrites.some((line) => line.includes("legacy init bug (#906)"))).toBe(true);
     expect(
       stderrWrites.some((line) =>

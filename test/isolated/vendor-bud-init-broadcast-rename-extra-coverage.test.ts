@@ -368,6 +368,7 @@ describe("init write-config extra isolated coverage", () => {
       expect(configExists(file)).toBe(true);
 
       expect(() => writeConfigAtomic(file, { node: "mba" } as any, false)).toThrow();
+      expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ node: "white" });
       writeConfigAtomic(file, { node: "mba" } as any, true);
       expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ node: "mba" });
 

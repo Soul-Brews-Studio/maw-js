@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { CONFIG_FILE, CONFIG_WEIGHTED_FILE, discoverConfigs, type DiscoveredConfig } from "../core/paths";
 import { refreshContext } from "../lib/context";
 import { verbose, info } from "../cli/verbosity";
@@ -79,6 +79,30 @@ const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
  */
 const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
 
+function generateTmpPath(filePath: string): string {
+  return `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function writeFileAtomic(filePath: string, body: string): void {
+  const tmpPath = generateTmpPath(filePath);
+  try {
+    writeFileSync(tmpPath, body, "utf-8");
+    renameSync(tmpPath, filePath);
+  } catch (e) {
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+    throw e;
+  }
+}
+
+function persistConfigFile(filePath: string, body: string): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileAtomic(filePath, body);
+}
+
 function canPersistConfigMigration(): boolean {
   return !(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG);
 }
@@ -89,7 +113,7 @@ function maybeMigrateLegacyConfigFile(): void {
   if (!existsSync(CONFIG_FILE) || existsSync(CONFIG_WEIGHTED_FILE)) return;
   try {
     const body = readFileSync(CONFIG_FILE, "utf-8");
-    writeFileSync(CONFIG_WEIGHTED_FILE, body.endsWith("\n") ? body : `${body}\n`, "utf-8");
+    persistConfigFile(CONFIG_WEIGHTED_FILE, body.endsWith("\n") ? body : `${body}\n`);
     process.stderr.write(
       `[maw] migrating ${CONFIG_FILE} → ${CONFIG_WEIGHTED_FILE} ` +
       `(legacy file kept for compatibility)\n`,
@@ -106,8 +130,8 @@ function persistLoadedConfig(label: string): void {
   if (!canPersistConfigMigration()) return;
   try {
     const body = JSON.stringify(cached, null, 2) + "\n";
-    writeFileSync(CONFIG_FILE, body, "utf-8");
-    if (existsSync(CONFIG_WEIGHTED_FILE)) writeFileSync(CONFIG_WEIGHTED_FILE, body, "utf-8");
+    persistConfigFile(CONFIG_FILE, body);
+    if (existsSync(CONFIG_WEIGHTED_FILE)) persistConfigFile(CONFIG_WEIGHTED_FILE, body);
   } catch (e) {
     process.stderr.write(
       `[maw] ${label}: in-memory heal applied but disk persist failed: ` +
@@ -504,7 +528,7 @@ export function saveConfig(update: Partial<MawConfig>) {
     current = {};
   }
   const merged = { ...current, ...update };
-  writeFileSync(target, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  persistConfigFile(target, JSON.stringify(merged, null, 2) + "\n");
   resetConfig(); // clear cache so next loadConfig() reads fresh
   refreshContext(); // clear DI cache so middleware picks up new config
   return loadConfig();
