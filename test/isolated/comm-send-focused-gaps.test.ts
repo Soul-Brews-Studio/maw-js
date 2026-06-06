@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
-const srcRoot = join(import.meta.dir, "..");
+const srcRoot = join(import.meta.dir, "../..");
 
 type ResolvedTarget =
   | { type: "local" | "self-node"; target: string }
@@ -142,7 +142,7 @@ const origAgentName = process.env.CLAUDE_AGENT_NAME;
   sleepCalls.push(ms);
 };
 
-const { cmdSend, resolveTeamWorkspaceMemberTarget } = await import("../src/commands/shared/comm-send");
+const { cmdSend, resolveTeamWorkspaceMemberTarget } = await import("../../src/commands/shared/comm-send");
 
 let exitCode: number | undefined;
 let errs: string[];
