@@ -1,7 +1,5 @@
 import { execSync } from "child_process";
-import { loadConfig, cfgTimeout } from "maw-js/config";
-import { curlFetch } from "maw-js/sdk";
-import { tmux } from "maw-js/sdk";
+import { loadConfig, cfgTimeout, curlFetch, tmux } from "maw-js/sdk";
 
 export async function cmdHealth() {
   const checks: { name: string; status: string; detail: string }[] = [];

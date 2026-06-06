@@ -4,6 +4,7 @@ import { getGhqRoot } from "maw-js/config/ghq-root";
 import { takeSnapshot } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
+import { resolveOracle } from "maw-js/commands/shared/wake-resolve";
 import { signalParentInbox, autoSave } from "./done-autosave";
 import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig, warnRemainingWorktrees } from "./done-worktree";
 
@@ -14,6 +15,8 @@ export interface DoneOpts {
   cwd?: string;
   /** Restrict window-name lookup to a specific tmux session. Used by done --all. */
   sessionName?: string;
+  /** Optional oracle target for `maw done --all <oracle>`. */
+  oracle?: string;
 }
 
 type DoneWindow = { index: number; name: string; active: boolean };
@@ -25,7 +28,17 @@ export interface DoneAllSummary {
   skipped: string[];
 }
 
-async function currentSessionName(sessions: DoneSession[]): Promise<string | null> {
+async function currentSessionName(sessions: DoneSession[], oracle?: string): Promise<string | null> {
+  if (oracle) {
+    const candidate = oracle.replace(/-oracle$/i, "").trim();
+    if (candidate) {
+      for (const session of sessions) {
+        const stem = session.name.toLowerCase().replace(/^\d+-/, "").replace(/-oracle$/i, "");
+        if (stem === candidate.toLowerCase()) return session.name;
+      }
+    }
+  }
+
   try {
     const current = (await tmux.run("display-message", "-p", "#{session_name}")).trim();
     if (current && sessions.some(s => s.name === current)) return current;
@@ -188,12 +201,27 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
  * and snapshots stay consistent with `maw done <window>`.
  */
 export async function cmdDoneAll(opts: DoneOpts = {}): Promise<DoneAllSummary> {
+  const originalCwd = process.cwd();
   const sessions = await listSessions() as DoneSession[];
-  const sessionName = await currentSessionName(sessions);
+  let sessionName: string | null = null;
+  try {
+    if (opts.oracle) {
+      const resolved = await resolveOracle(opts.oracle);
+      process.chdir(resolved.repoPath);
+      sessionName = await currentSessionName(sessions, resolved.repoName);
+    } else {
+      sessionName = await currentSessionName(sessions);
+    }
+  } finally {
+    if (process.cwd() !== originalCwd) process.chdir(originalCwd);
+  }
+
   if (!sessionName) {
-    const reason = sessions.length === 0
-      ? "no tmux sessions to clean"
-      : "could not identify current tmux session; run inside tmux";
+    const reason = opts.oracle
+      ? `no tmux session found for oracle '${opts.oracle}'`
+      : sessions.length === 0
+        ? "no tmux sessions to clean"
+        : "could not identify current tmux session; run inside tmux";
     console.log(`  \x1b[90m○\x1b[0m ${reason}`);
     return { sessionName: null, processed: [], skipped: [] };
   }

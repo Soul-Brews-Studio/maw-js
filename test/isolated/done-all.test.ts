@@ -7,6 +7,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 
 type Window = { index: number; name: string; active: boolean };
 type Session = { name: string; windows: Window[] };
@@ -22,6 +24,12 @@ let currentSession = "work";
 let tmuxRunFails = false;
 let killWindowFails = false;
 let signalErrorFor: string | null = null;
+let resolveOracleCalls: string[] = [];
+let resolveOracleResult: { repoPath: string; repoName: string; parentDir: string } = {
+  repoPath: "/tmp/mawjs-oracle",
+  repoName: "mawjs-oracle",
+  parentDir: "/tmp",
+};
 
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
@@ -75,6 +83,13 @@ mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/done/done-worktr
   warnRemainingWorktrees: async () => [],
 }));
 
+mock.module("maw-js/commands/shared/wake-resolve", () => ({
+  resolveOracle: async (oracle: string) => {
+    resolveOracleCalls.push(oracle);
+    return resolveOracleResult;
+  },
+}));
+
 const { cmdDoneAll } = await import("../../src/vendor/mpr-plugins/done/impl");
 const donePlugin = await import("../../src/vendor/mpr-plugins/done/index");
 
@@ -106,6 +121,12 @@ beforeEach(() => {
   tmuxRunFails = false;
   killWindowFails = false;
   signalErrorFor = null;
+  resolveOracleCalls = [];
+  resolveOracleResult = {
+    repoPath: "/tmp/mawjs-oracle",
+    repoName: "mawjs-oracle",
+    parentDir: "/tmp",
+  };
 });
 
 describe("cmdDoneAll", () => {
@@ -246,5 +267,31 @@ describe("cmdDoneAll", () => {
     expect(result.ok).toBe(true);
     expect(autoSaveCalls.map(c => c.windowName)).toEqual(["alpha", "duplicate"]);
     expect(output.join("\n")).toContain("would process 2 non-lead window(s) in work");
+  });
+
+  test("cmdDoneAll({ oracle }) resolves oracle, cds internally, and processes that oracle session", async () => {
+    const workTree = mkdtempSync(join(tmpdir(), "maw-done-all-oracle-"));
+    const previousCwd = process.cwd();
+    sessions = [{
+      name: "mawjs",
+      windows: [
+        { index: 0, name: "lead", active: true },
+        { index: 1, name: "alpha", active: false },
+      ],
+    }];
+    currentSession = "mawjs";
+    resolveOracleResult = {
+      repoPath: workTree,
+      repoName: "mawjs-oracle",
+      parentDir: join(workTree, ".."),
+    };
+
+    const summary = await cmdDoneAll({ oracle: "mawjs" });
+
+    expect(summary).toEqual({ sessionName: "mawjs", processed: ["alpha"], skipped: [] });
+    expect(resolveOracleCalls).toEqual(["mawjs"]);
+    expect(process.cwd()).toEqual(previousCwd);
+    expect(autoSaveCalls).toEqual([{ windowName: "alpha", sessionName: "mawjs", dryRun: undefined }]);
+    rmSync(workTree, { recursive: true, force: true });
   });
 });

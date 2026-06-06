@@ -10,7 +10,7 @@
     "aliases": [
       "finish"
     ],
-    "help": "maw done <window-name> [--force] [--dry-run] [--clean-branch] | maw done --all [--force] [--dry-run] [--clean-branch] — finish worktrees; see maw sleep/kill for non-worktree shutdown"
+    "help": "maw done <window-name> [--force] [--dry-run] [--clean-branch] | maw done --all [<oracle>] [--force] [--dry-run] [--clean-branch] — finish worktrees; see maw sleep/kill for non-worktree shutdown"
   },
   "api": {
     "path": "/api/done",
