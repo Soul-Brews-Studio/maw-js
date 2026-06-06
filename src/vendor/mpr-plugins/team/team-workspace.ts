@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { loadOracleRegistry, type OracleMember } from "./oracle-members";
 import { resolvePsi } from "./team-helpers";
+import { listPaneSnapshots } from "./team-liveness";
 
 export interface TeamBringOptions {
   /** Explicit tmux session to bring members into. Defaults to current tmux session or the team name. */
@@ -15,6 +16,8 @@ export interface TeamBringOptions {
   dryRun?: boolean;
   /** Open each brought oracle beside the current pane using maw wake --split. */
   split?: boolean;
+  /** Pull already-live members from existing windows instead of re-waking them. */
+  gather?: boolean;
   /** How long to watch newly woken panes for immediate context-limit freeze. */
   contextLimitPollMs?: number;
 }
@@ -59,6 +62,12 @@ function loadTeamManifestMemberNames(teamName: string): string[] {
   } catch {
     return [];
   }
+}
+
+function teamWorkspaceWindowCandidates(member: string): string[] {
+  const raw = member.trim();
+  const stripped = raw.replace(/-oracle$/i, "");
+  return [...new Set([raw, stripped, stripped ? `${stripped}-oracle` : ""].filter(Boolean))];
 }
 
 export function loadTeamOracleMemberNames(teamName: string): string[] {
@@ -127,9 +136,30 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
 
   const targets: string[] = [];
   const woken: Array<{ oracle: string; target: string }> = [];
+  const liveTargets = opts.gather ? await findLiveTeamTargets(members, session).catch(() => new Map()) : new Map<string, string | null>();
   for (const oracle of members) {
+    const liveTarget = liveTargets.get(oracle) ?? null;
+    const alreadyInSession = liveTarget && liveTarget.startsWith(`${session}:`);
+
     if (opts.dryRun) {
-      console.log(`  \x1b[90mwould wake ${oracle} --session ${session}${opts.split ? " --split" : ""}\x1b[0m`);
+      if (opts.gather && liveTarget && !alreadyInSession) {
+        console.log(`\x1b[90mwould gather ${oracle} from ${liveTarget}\x1b[0m`);
+      } else if (opts.gather && liveTarget && alreadyInSession) {
+        console.log(`\x1b[90m${oracle} already live in ${liveTarget}\x1b[0m`);
+      } else {
+        console.log(`\x1b[90mwould wake ${oracle} --session ${session}${opts.split && !opts.gather ? " --split" : ""}\x1b[0m`);
+      }
+      targets.push(liveTarget && !alreadyInSession ? `${session}:${oracle}` : liveTarget ?? `${session}:${oracle}`);
+      continue;
+    }
+
+    if (opts.gather && liveTarget && alreadyInSession) {
+      targets.push(liveTarget);
+      continue;
+    }
+
+    if (opts.gather && liveTarget && !alreadyInSession) {
+      await tmux.run("join-pane", "-s", liveTarget);
       targets.push(`${session}:${oracle}`);
       continue;
     }
@@ -138,7 +168,7 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
       session,
       noRehydrate: true,
       engine: opts.engine,
-      split: opts.split,
+      split: opts.gather ? false : opts.split,
     });
     targets.push(target);
     woken.push({ oracle, target });
@@ -150,7 +180,7 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
         label: `${session}/${oracle}`,
         pollMs: opts.contextLimitPollMs,
       }).catch((error) => {
-        console.warn(`  \x1b[33m⚠\x1b[0m ${session}/${oracle}: context-limit probe failed (${error?.message ?? error})`);
+        console.warn(`\x1b[33m⚠\x1b[0m ${session}/${oracle}: context-limit probe failed (${error?.message ?? error})`);
         return false;
       })
     ));
@@ -159,4 +189,33 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
   }
 
   return targets;
+}
+
+async function findLiveTeamTargets(members: string[], session: string): Promise<Map<string, string | null>> {
+  const targetSet = new Set(members);
+  if (targetSet.size === 0) return new Map();
+
+  const panes = await listPaneSnapshots();
+  const output = new Map<string, string | null>();
+
+  for (const oracle of members) {
+    if (!targetSet.has(oracle)) continue;
+
+    const wanted = new Set(teamWorkspaceWindowCandidates(oracle).map((value) => value.toLowerCase()));
+
+    const inSession = panes.find((pane) =>
+      pane.sessionName === session && wanted.has(pane.windowName.toLowerCase())
+    );
+    if (inSession) {
+      output.set(oracle, `${session}:${inSession.windowName}`);
+      continue;
+    }
+
+    const inOther = panes.find((pane) =>
+      pane.sessionName !== session && wanted.has(pane.windowName.toLowerCase())
+    );
+    output.set(oracle, inOther ? `${inOther.sessionName}:${inOther.windowName}` : null);
+  }
+
+  return output;
 }

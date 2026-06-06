@@ -171,10 +171,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--engine": String, "-e": "--engine",
         "--dry-run": Boolean,
         "--split": Boolean,
+        "--gather": Boolean,
       }, 1);
       const team = flags._[0];
       if (!team) {
-        logs.push("usage: maw team bring <team> [--session <session>] [-e|--engine <name>] [--split] [--dry-run]");
+        logs.push("usage: maw team bring <team> [--session <session>] [-e|--engine <name>] [--split] [--gather] [--dry-run]");
         return { ok: false, error: "team required", output: logs.join("\n") };
       }
       await cmdTeamBring(team, {
@@ -182,6 +183,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         engine: flags["--engine"] as string | undefined,
         dryRun: !!flags["--dry-run"],
         split: !!flags["--split"],
+        gather: !!flags["--gather"],
       });
     } else if (sub === "resume") {
       if (!args[1]) {
