@@ -219,7 +219,7 @@ export declare function parseFlags<T extends Record<string, unknown>>(
 // --- src/commands/shared/comm ---
 
 /** Peek/capture a target session or window and print the result. */
-export declare function cmdPeek(target: string): Promise<void>;
+export declare function cmdPeek(query?: string): Promise<void>;
 
 /** Send a message to an oracle/window target. */
 export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;

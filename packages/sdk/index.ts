@@ -52,7 +52,8 @@ export type {
 // NOTE: also re-exported from "@maw-js/sdk/plugin" for ergonomics — both work.
 export { parseFlags } from "../../src/cli/parse-args";
 
-// Plugin extraction helpers for tab-like command surfaces.
+// ─── src/commands/shared/comm ────────────────────────────────────────────────
+// Federation-aware communication helpers used by small command plugins.
 export { cmdPeek, cmdSend } from "../../src/commands/shared/comm";
 
 // ─── src/config ──────────────────────────────────────────────────────────────

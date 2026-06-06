@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { cmdPeek } from "maw-js/commands/shared/comm";
+import { cmdPeek } from "maw-js/sdk";
 
 export const command = { name: "peek", description: "Peek at the latest output from an agent without attaching; use capture for scrollback or view to attach." };
 

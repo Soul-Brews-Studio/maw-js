@@ -1,69 +1,51 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
+const peekCalls: Array<string | undefined> = [];
+let shouldThrow: Error | null = null;
 
-let peekCalls: Array<string | undefined> = [];
-let shouldThrow = false;
-
-mock.module("maw-js/commands/shared/comm", () => ({
-  cmdPeek: async (target?: string) => {
-    peekCalls.push(target);
-    console.log(`peeked:${target ?? "default"}`);
-    if (shouldThrow) throw new Error("peek failed");
+mock.module("maw-js/sdk", () => ({
+  cmdPeek: async (query?: string) => {
+    peekCalls.push(query);
+    if (shouldThrow) throw shouldThrow;
+    console.log(`peeked:${query ?? "overview"}`);
   },
 }));
 
-const { command, default: peekHandler } = await import("../../src/vendor/mpr-plugins/peek/index.ts");
+const { default: peekHandler } = await import("../../src/vendor/mpr-plugins/peek/index.ts?plugin-peek-standalone");
 
 beforeEach(() => {
-  peekCalls = [];
-  shouldThrow = false;
+  peekCalls.length = 0;
+  shouldThrow = null;
 });
 
-describe("peek plugin standalone coverage (#2185)", () => {
-  test("has no direct core imports", () => {
+describe("peek plugin standalone boundary (#2113)", () => {
+  test("imports runtime behavior from the SDK boundary", () => {
     const source = readFileSync(join(root, "src/vendor/mpr-plugins/peek/index.ts"), "utf8");
-
-    expect(source).not.toMatch(/maw-js\/core(?:\/|")/);
-    expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+core\//);
-    expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+src\/core\//);
+    expect(source).toContain('from "maw-js/sdk"');
+    expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|lib|config)(?:\/|")/);
+    expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+/);
   });
 
-  test("exports command metadata", () => {
-    expect(command).toMatchObject({
-      name: "peek",
-      description: expect.stringContaining("Peek at the latest output"),
-    });
+  test("CLI handler routes target to SDK cmdPeek", async () => {
+    const result = await peekHandler({ source: "cli", args: ["neo", "ignored"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(peekCalls).toEqual(["neo"]);
+    expect(result.output).toContain("peeked:neo");
   });
 
-  test("CLI args call cmdPeek and capture console output without writer", async () => {
-    const result = await peekHandler({ source: "cli", args: ["mawjs-codex-1"] } as any);
-
-    expect(peekCalls).toEqual(["mawjs-codex-1"]);
-    expect(result).toEqual({ ok: true, output: "peeked:mawjs-codex-1" });
-  });
-
-  test("writer receives output and API source uses default target", async () => {
-    const written: string[] = [];
-    const result = await peekHandler({
-      source: "api",
-      args: { target: "ignored-by-wrapper" },
-      writer: (...parts: unknown[]) => written.push(parts.map(String).join(" ")),
-    } as any);
-
+  test("non-CLI handler uses fleet overview and returns errors from SDK", async () => {
+    const overview = await peekHandler({ source: "api", args: { target: "neo" } } as any);
+    expect(overview.ok).toBe(true);
     expect(peekCalls).toEqual([undefined]);
-    expect(written).toEqual(["peeked:default"]);
-    expect(result).toEqual({ ok: true, output: undefined });
-  });
 
-  test("returns captured output as error when cmdPeek fails", async () => {
-    shouldThrow = true;
-
-    const result = await peekHandler({ source: "cli", args: ["broken"] } as any);
-
-    expect(peekCalls).toEqual(["broken"]);
-    expect(result).toEqual({ ok: false, error: "peeked:broken", output: "peeked:broken" });
+    shouldThrow = new Error("no such oracle");
+    const failed = await peekHandler({ source: "cli", args: ["ghost"] } as any);
+    expect(failed.ok).toBe(false);
+    expect(failed.error).toContain("no such oracle");
+    expect(failed.output).toBeUndefined();
   });
 });
