@@ -158,6 +158,22 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   latestSnapshot: () => null,
+  listSnapshots: () =>
+    snapshotReturn
+      ? [
+          {
+            file: "snap-1.json",
+            timestamp: snapshotReturn.timestamp,
+            trigger: snapshotReturn.trigger ?? "wake",
+            sessionCount: snapshotReturn.sessions?.length ?? 0,
+            windowCount:
+              snapshotReturn.sessions?.reduce(
+                (n: number, s: any) => n + (s.windows?.length ?? 0),
+                0,
+              ) ?? 0,
+          },
+        ]
+      : [],
   loadSnapshot: () => snapshotReturn,
 }));
 

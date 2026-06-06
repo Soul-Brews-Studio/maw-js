@@ -49,6 +49,12 @@ let logs: string[] = [];
 let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
+const originalBunSpawnSync = Bun.spawnSync;
+Bun.spawnSync = ((_cmd: string[], _opts?: unknown) => {
+  const [, ...args] = Array.isArray(_cmd) ? _cmd : [String(_cmd)];
+  spawnCalls.push(args);
+  return spawnResponses.shift() ?? { status: 0, stdout: "", stderr: "" };
+}) as typeof Bun.spawnSync;
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => config,
@@ -158,13 +164,6 @@ mock.module("maw-js/core/fleet/nicknames", () => ({
   },
 }));
 
-mock.module("node:child_process", () => ({
-  spawnSync: (_cmd: string, args: string[]) => {
-    spawnCalls.push(args);
-    return spawnResponses.shift() ?? { status: 0, stdout: "", stderr: "" };
-  },
-}));
-
 function archiveImplMock() {
   return {
     cmdArchive: async (...args: any[]) => {
@@ -240,6 +239,7 @@ beforeEach(() => {
 afterAll(() => {
   console.log = originalLog;
   console.error = originalError;
+  Bun.spawnSync = originalBunSpawnSync;
 });
 
 describe("bud impl extra isolated coverage", () => {
