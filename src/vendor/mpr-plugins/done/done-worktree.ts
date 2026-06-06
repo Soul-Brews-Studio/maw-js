@@ -143,6 +143,7 @@ export async function removeWorktreeViaConfig(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
+        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
         await hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
         await hostExec(`git -C '${mainPath}' worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
@@ -209,6 +210,7 @@ export async function removeWorktreeByGhqScan(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
+        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
         await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
         await hostExec(`git -C '${mainPath}' worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
