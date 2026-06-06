@@ -507,8 +507,20 @@ mock.module(join(import.meta.dir, "../src/core/fleet/snapshot"), () => ({
   ..._rSnapshot,
   latestSnapshot: () =>
     mockActive ? snapshotReturn : realSnapshot.latestSnapshot(),
+  listSnapshots: () => {
+    if (!mockActive) return _rSnapshot.listSnapshots();
+    return snapshotReturn
+      ? [{
+          file: "snap-1.json",
+          timestamp: snapshotReturn.timestamp,
+          trigger: snapshotReturn.trigger,
+          sessionCount: snapshotReturn.sessions.length,
+          windowCount: snapshotReturn.sessions.reduce((sum, session) => sum + session.windows.length, 0),
+        }]
+      : [];
+  },
   loadSnapshot: (id: string) =>
-    mockActive ? snapshotReturn : realSnapshot.loadSnapshot(id),
+    mockActive ? (id === "snap-1" || id === "snap-1.json" ? snapshotReturn : null) : realSnapshot.loadSnapshot(id),
 }));
 
 mock.module(join(import.meta.dir, "../src/core/fleet/claude-sessions"), () => ({
