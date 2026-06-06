@@ -207,6 +207,7 @@ const origSleep = Bun.sleep.bind(Bun);
 const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
+const origWarn = console.warn;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
 const origTestMode = process.env.MAW_TEST_MODE;
 const origMawSender = process.env.MAW_SENDER;
@@ -224,13 +225,16 @@ const { cmdSend } = await import("../src/commands/shared/comm-send");
 let exitCode: number | undefined;
 let errs: string[];
 let logs: string[];
+let warns: string[];
 
 async function runCmd(fn: () => Promise<unknown>) {
   exitCode = undefined;
   errs = [];
   logs = [];
+  warns = [];
   console.error = (...args: unknown[]) => { errs.push(args.map(String).join(" ")); };
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+  console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
   (process as unknown as { exit: (code?: number) => never }).exit = (code?: number): never => {
     exitCode = code ?? 0;
     throw new Error(`__exit__:${exitCode}`);
@@ -243,6 +247,7 @@ async function runCmd(fn: () => Promise<unknown>) {
   } finally {
     console.error = origErr;
     console.log = origLog;
+    console.warn = origWarn;
     (process as unknown as { exit: typeof origExit }).exit = origExit;
   }
 }
@@ -314,6 +319,7 @@ afterAll(() => {
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
   console.error = origErr;
   console.log = origLog;
+  console.warn = origWarn;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
 });
 
@@ -788,19 +794,41 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(JSON.parse(curlFetchCalls[0].options.body)).toMatchObject({ target: "volt-oracle:1" });
   });
 
-  test("cross-node wake failures stop before send", async () => {
+  test("#1998: cross-node wake failure warns but still attempts send (live non-wakeable target)", async () => {
+    // Repro: target is a live window/pane that isn't a wakeable oracle (repo),
+    // so remote /api/wake returns "missing oracle name" — but /api/send to the
+    // same target succeeds via the receiver's lenient pane resolution.
     config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
     resolveTargetReturn = { type: "peer", target: "oracle", node: "remote", peerUrl: "http://remote:3456" };
     curlFetchHandler = (url) => {
-      if (url.endsWith("/api/wake")) return { ok: false, status: 503, data: { error: "wake down" } };
-      return { ok: true, status: 200, data: { ok: true } };
+      if (url.endsWith("/api/wake")) return { ok: false, status: 200, data: { ok: false, error: "missing oracle name" } };
+      return { ok: true, status: 200, data: { ok: true, target: "oracle.0", state: "delivered" } };
+    };
+
+    await runCmd(() => cmdSend("remote:oracle", "hello"));
+
+    // No hard exit — send was attempted and succeeded.
+    expect(exitCode).toBeUndefined();
+    expect(curlFetchCalls.map(c => c.url)).toEqual(["http://remote:3456/api/wake", "http://remote:3456/api/send"]);
+    // Wake failure is surfaced as a non-fatal warning, not a fatal error.
+    expect(warns.join("\n")).toContain("cross-node wake skipped");
+  });
+
+  test("#1998: when wake fails AND send fails, the send error surfaces and exits", async () => {
+    // Genuinely unreachable peer: wake fails, then send also fails → clean exit
+    // with the send-path "Remote fetch failed" error (#411 contract preserved).
+    config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
+    resolveTargetReturn = { type: "peer", target: "oracle", node: "remote", peerUrl: "http://remote:3456" };
+    curlFetchHandler = (url) => {
+      if (url.endsWith("/api/wake")) return { ok: false, status: 0, data: undefined };
+      return { ok: false, status: 0, data: undefined };
     };
 
     await runCmd(() => cmdSend("remote:oracle", "hello"));
 
     expect(exitCode).toBe(1);
-    expect(curlFetchCalls.map(c => c.url)).toEqual(["http://remote:3456/api/wake"]);
-    expect(errs.join("\n")).toContain("cross-node wake failed");
+    expect(curlFetchCalls.map(c => c.url)).toEqual(["http://remote:3456/api/wake", "http://remote:3456/api/send"]);
+    expect(errs.join("\n")).toContain("Remote fetch failed for peer");
   });
 
   test("ACL queue stores pending peer sends instead of delivering", async () => {

@@ -632,17 +632,26 @@ export async function cmdSend(
         }
       } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
-      // #791: cross-node auto-wake. Sender does explicit /api/wake before
+      // #791: cross-node auto-wake. Sender does a best-effort /api/wake before
       // /api/send (Option B). Wake is idempotent on the receiver — if the
-      // session already exists, cmdWake returns quickly. If wake errors,
-      // surface and exit (do NOT silently fall through to send — design
-      // call requires wake errors to be visible).
+      // session already exists, cmdWake returns quickly.
       //
       // #835 — decision routed through shouldAutoWake(). For cross-node hey
       // we don't know the remote isLive locally; the receiver's /api/wake
       // is idempotent, so we always ask. shouldAutoWake gives us
       // wake=true on hey + !isLive + isFleetKnown=true. We model the
       // cross-node target as fleet-known (peer is configured) and not-live.
+      //
+      // #1998 — wake failure is NON-FATAL. The original #791 design hard-exited
+      // on any wake error to keep failures visible. But that wrongly blocks
+      // delivery to targets that are already live yet NOT a wakeable oracle
+      // (a window / worktree-pane / non-repo alias, e.g. `mawjs-oss-world`):
+      // the remote /api/wake can't resolve the bare name to a repo and returns
+      // "missing oracle name", even though `maw peek` on the same target works.
+      // Since the send path below (POST /api/send) uses the receiver's lenient
+      // capture-by-pane resolution — the same path peek uses — we now warn and
+      // fall through. If the target is genuinely unreachable, the send attempt
+      // surfaces its own clear "Remote fetch failed" error (#411 contract).
       const peer = (config.namedPeers || []).find(p => p.name === targetNode);
       if (peer) {
         const { shouldAutoWake } = await import("./should-auto-wake");
@@ -660,11 +669,10 @@ export async function cmdSend(
           });
           if (!wakeRes.ok || !wakeRes.data?.ok) {
             const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
-            // #942 — surface as "Remote fetch failed for peer" so callers see a
-            // consistent network-failure shape across wake + send (#411 contract).
-            console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peer.url} (${targetNode}): cross-node wake failed for ${bareAgent}: ${underlying}`);
-            console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
-            process.exit(1);
+            // #1998 — warn (keep wake failure visible) but DO NOT exit. The
+            // target may be a live window that simply isn't a wakeable oracle;
+            // let the send attempt below decide success vs. a real failure.
+            console.warn(`\x1b[33mwarn\x1b[0m:  cross-node wake skipped for ${bareAgent} on ${targetNode}: ${underlying} — attempting direct send (target may be live)`);
           }
         }
       }
