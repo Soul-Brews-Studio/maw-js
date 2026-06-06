@@ -26,7 +26,7 @@ export {
 } from "../config";
 export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
 export { getGhqRoot } from "../config/ghq-root";
-export { mawConfigDir, mawMessageLogPath } from "../core/xdg";
+export { mawConfigDir, mawDataPath, mawMessageLogPath } from "../core/xdg";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
 export type { TScope } from "../lib/schemas";
@@ -115,7 +115,7 @@ export {
   loadDisabledFleetEntries as loadDisabledFleetEntriesCore,
   loadFleetEntries,
 } from "../core/fleet/fleet-load-core";
-export { cmdSleep } from "../commands/shared/fleet-wake";
+export { cmdSleep, cmdWakeAll } from "../commands/shared/fleet-wake";
 export { cmdPulseAdd, cmdPulseLs } from "../commands/shared/pulse";
 export { cmdWake, fetchIssuePrompt, findWorktrees, detectSession } from "../commands/shared/wake";
 export { parseWakeTarget, ensureCloned } from "../commands/shared/wake-target";

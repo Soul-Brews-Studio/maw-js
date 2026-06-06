@@ -10,13 +10,9 @@
  *   4. Wake fleet (maw wake all)
  */
 
-import { listSessions } from "maw-js/sdk";
-import { Tmux } from "maw-js/sdk";
-import { cmdSleep, cmdWakeAll } from "maw-js/commands/shared/fleet";
+import { cmdSleep, cmdWakeAll, ghqFindSync, listSessions, mawDataPath, Tmux } from "maw-js/sdk";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { ghqFindSync } from "maw-js/core/ghq";
-import { mawDataPath } from "../../../core/xdg";
 
 const HELP_TEXT = [
   "usage: maw restart [--no-update] [--ref <git-ref>]",

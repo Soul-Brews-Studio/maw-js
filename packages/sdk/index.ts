@@ -204,7 +204,7 @@ export {
   loadDisabledFleetEntries as loadDisabledFleetEntriesCore,
   loadFleetEntries,
 } from "../../src/core/fleet/fleet-load-core";
-export { cmdSleep } from "../../src/commands/shared/fleet-wake";
+export { cmdSleep, cmdWakeAll } from "../../src/commands/shared/fleet-wake";
 export { detectSession } from "../../src/commands/shared/wake";
 export type {
   FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,

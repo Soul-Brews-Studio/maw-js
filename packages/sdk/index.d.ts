@@ -502,6 +502,8 @@ export declare function loadFleetEntries(dirs?: string[]): FleetEntry[];
 
 /** Stop all configured fleet sessions. */
 export declare function cmdSleep(): Promise<void>;
+/** Wake all configured fleet sessions. */
+export declare function cmdWakeAll(opts?: { kill?: boolean; all?: boolean; resume?: boolean }): Promise<void>;
 export declare function detectSession(oracle: string, urlRepoName?: string): Promise<string | null>;
 
 // --- src/lib/artifacts ---
