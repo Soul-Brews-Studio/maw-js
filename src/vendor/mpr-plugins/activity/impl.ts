@@ -1,6 +1,4 @@
-import { loadConfig } from "maw-js/config";
-import { capture, findWindow, listSessions } from "maw-js/sdk";
-import { loadFleet, loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
+import { capture, findWindow, listSessions, loadConfig, loadFleetCore as loadFleet, loadFleetEntries, type FleetEntry } from "maw-js/sdk";
 import {
   followUrlFromConfig,
   parseDurationMs,
