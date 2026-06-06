@@ -54,6 +54,7 @@ await mock.module("maw-js/commands/shared/fleet-load", () => ({
 }));
 
 const sdkMock = {
+  getGhqRoot: () => mockedGhqRoot,
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
 
@@ -78,7 +79,10 @@ const sdkMock = {
 };
 await mock.module("maw-js/sdk", () => sdkMock);
 await mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
 await mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+await mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => sdkMock);
 
 const { cmdFind } = await import("../../src/vendor/mpr-plugins/find/impl.ts?find-impl-coverage");
 
