@@ -901,8 +901,8 @@ export interface TmuxAttachOpts {
  * Attach to a tmux session.
  *
  * Branch behavior (issue #962, fix for #395 print-only regression):
- *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <session>`
- *   - Outside tmux + TTY            → `tmux attach -t <session>`
+ *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <target>`
+ *   - Outside tmux + TTY            → `tmux attach -t <target>`
  *   - No TTY (script/pipe/CI)       → fall back to 3-line print (don't break automation)
  *   - Explicit --print              → force print mode regardless of TTY
  *
@@ -914,7 +914,11 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
-  const session = resolved.split(":")[0] ?? "";
+  // Preserve an explicit window target (`session:window`) so attach lands on
+  // that window instead of tmux's last-active window. Pane targets still attach
+  // at window granularity by stripping only the trailing `.pane` suffix.
+  const attachTarget = resolved.includes(":") ? resolved.replace(/\.\d+$/, "") : resolved;
+  const session = attachTarget.split(":")[0] ?? "";
 
   // Pre-flight: check if resolved session is actually alive. If not, show
   // recovery suggestions instead of printing stale instructions or failing.
@@ -928,17 +932,17 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const inTmux = !!process.env.TMUX;
 
   const attachArgs = opts.readonly
-    ? ["attach", "-r", "-t", session]
+    ? ["attach", "-r", "-t", attachTarget]
     : inTmux
-    ? ["switch-client", "-t", session]
-    : ["attach", "-t", session];
+    ? ["switch-client", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
   const printArgs = opts.readonly
-    ? ["attach", "-r", "-t", session]
-    : ["attach", "-t", session];
+    ? ["attach", "-r", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
 
   if (opts.print || !isTty) {
     console.log(`\x1b[36mRun:\x1b[0m tmux ${printArgs.join(" ")}`);
-    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]${opts.readonly ? " (read-only)" : ""}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${attachTarget} [${source}]${opts.readonly ? " (read-only)" : ""}`);
     console.log(`  detach with: Ctrl-b d\x1b[0m`);
     return;
   }
