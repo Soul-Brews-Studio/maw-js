@@ -827,7 +827,18 @@ export async function cmdSend(
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
     }
-    await sendKeys(target, outboundMessage);
+    // #1967: the receiver inbox is the durable delivery guarantee; pane
+    // injection is only the live wake-up. Persist first so a tmux race cannot
+    // silently drop the message before it reaches ψ/inbox.
+    const inbox = await writeReceiverInbox(target);
+    try {
+      await sendKeys(target, outboundMessage);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (logQueuedInbox(inbox, target, `tmux delivery failed: ${msg}`)) return;
+      console.error(`\x1b[31merror\x1b[0m: tmux delivery failed for ${target}: ${msg}`);
+      process.exit(1);
+    }
     // #1907 — verify the implicit Enter actually submitted. Default-on
     // for live use; opt out per-call with --no-verify-submit; auto-skip
     // under MAW_TEST_MODE so existing cmdSend mock harnesses (which don't
@@ -840,7 +851,6 @@ export async function cmdSend(
         console.log(`  \x1b[33m⚠\x1b[0m submit needed ${verify.retriesNeeded} Enter retry — TUI may have been in scroll-mode`);
       }
     }
-    await writeReceiverInbox(target);
     await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
     logMessage(senderName, query, outboundMessage, "local");
