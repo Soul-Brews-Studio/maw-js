@@ -58,6 +58,7 @@ export { sparkline } from "../../src/lib/sparkline";
 // ─── src/commands/shared/comm ────────────────────────────────────────────────
 // Federation-aware communication helpers used by small command plugins.
 export { cmdPeek, cmdSend } from "../../src/commands/shared/comm";
+export { cmdSplit } from "../../src/commands/plugins/split/impl";
 
 // ─── src/config ──────────────────────────────────────────────────────────────
 // Operator config loader + key-typed accessors. Used by:
@@ -113,6 +114,9 @@ export type { ConsentAction } from "../../src/core/consent";
 // Hyperlink helper for OSC-8-capable terminals.
 //   tlink — check
 export { tlink } from "../../src/core/util/terminal";
+export { assertValidOracleName } from "../../src/core/fleet/validate";
+export { writeSignal } from "../../src/core/fleet/leaf";
+export { validateNickname, writeNickname, setCachedNickname } from "../../src/core/fleet/nicknames";
 
 // ─── src/core/xdg ───────────────────────────────────────────────────────────
 // XDG-aware maw path helpers. Used by messages extraction and other plugins
@@ -174,6 +178,8 @@ export { importPluginSymbol } from "../../src/plugin/registry";
 // ─── src/commands/shared/wake ───────────────────────────────────────────────
 // Wake helpers used by small orchestration plugins like assign.
 export { cmdWake, fetchIssuePrompt } from "../../src/commands/shared/wake";
+export { parseWakeTarget, ensureCloned } from "../../src/commands/shared/wake-target";
+export { shouldAutoWake } from "../../src/commands/shared/should-auto-wake";
 
 
 // ─── src/core/agent-detect ──────────────────────────────────────────────────

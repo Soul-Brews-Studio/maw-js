@@ -11,7 +11,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
 import { execFileSync } from "child_process";
-import { fleetDirForWrite, loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
+import { fleetLoadDirForWrite, loadFleetEntries, type FleetEntry } from "maw-js/sdk";
 
 /** Parsed `org/repo` slug from a remote URL. */
 export interface RepoSlug {
@@ -62,7 +62,7 @@ export function resolveSlug(target: string): RepoSlug {
 
 /** Absolute source path for an entry, falling back to the current write dir. */
 function fleetEntryPath(entry: Pick<FleetEntry, "file" | "path">): string {
-  return entry.path ?? join(fleetDirForWrite(), entry.file);
+  return entry.path ?? join(fleetLoadDirForWrite(), entry.file);
 }
 
 /** Find the next NN prefix by scanning existing fleet entries across read roots. */
@@ -112,7 +112,7 @@ export function registerFleetEntry(opts: RegisterFleetOpts): RegisterFleetResult
   }
   const num = nextFleetNum(entries);
   const padded = String(num).padStart(2, "0");
-  const writeDir = fleetDirForWrite();
+  const writeDir = fleetLoadDirForWrite();
   mkdirSync(writeDir, { recursive: true });
   const file = join(writeDir, `${padded}-${opts.stem}.json`);
   const cfg: Record<string, unknown> = {

@@ -116,6 +116,8 @@ export {
 export { cmdSleep } from "../commands/shared/fleet-wake";
 export { cmdPulseAdd, cmdPulseLs } from "../commands/shared/pulse";
 export { cmdWake, fetchIssuePrompt, findWorktrees, detectSession } from "../commands/shared/wake";
+export { parseWakeTarget, ensureCloned } from "../commands/shared/wake-target";
+export { shouldAutoWake } from "../commands/shared/should-auto-wake";
 export type {
   FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
 } from "../core/fleet/fleet-load-core";
@@ -175,11 +177,16 @@ export {
 } from "../commands/shared/workspace";
 export { ghqFind, ghqList, ghqFindSync, ghqListSync } from "../core/ghq";
 export { UserError, isUserError } from "../core/util/user-error";
+export { assertValidOracleName } from "../core/fleet/validate";
+export { writeSignal } from "../core/fleet/leaf";
+export { validateNickname, writeNickname, setCachedNickname } from "../core/fleet/nicknames";
 export { sparkline } from "../lib/sparkline";
 export { tlink } from "../core/util/terminal";
+export { legacyMawPath, mawStatePath } from "../core/xdg";
 
 // Plugin extraction helpers for tab-like command surfaces.
 export { cmdPeek, cmdSend } from "../commands/shared/comm";
+export { cmdSplit } from "../commands/plugins/split/impl";
 
 // ─── Transport Router ────────────────────────────────────────────────────────
 

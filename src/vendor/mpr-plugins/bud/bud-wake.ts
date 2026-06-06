@@ -1,8 +1,8 @@
-import { hostExec } from "maw-js/sdk";
+import {
+  cmdSplit, cmdWake, ensureCloned, fetchIssuePrompt, fleetLoadDirForWrite, getGhqRoot, hostExec,
+  loadFleetCore as loadFleet, loadFleetEntries, shouldAutoWake,
+} from "maw-js/sdk";
 import { cmdSoulSync } from "./internal/soul-sync-impl";
-import { cmdWake } from "maw-js/commands/shared/wake";
-import { fleetDirForWrite, loadFleetEntries, loadFleet } from "maw-js/commands/shared/fleet-load";
-import { getGhqRoot } from "maw-js/config/ghq-root";
 import { resolveOraclePath } from "./internal/resolve";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
@@ -116,7 +116,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   for (const entry of parentName ? loadFleetEntries() : []) {
     const entryName = entry.session.name.replace(/^\d+-/, "");
     if (entryName === parentName) {
-      const parentFile = entry.path ?? join(fleetDirForWrite(), entry.file);
+      const parentFile = entry.path ?? join(fleetLoadDirForWrite(), entry.file);
       const parentConfig = JSON.parse(readFileSync(parentFile, "utf-8"));
       const peers: string[] = parentConfig.sync_peers || [];
       if (!peers.includes(name)) {
@@ -133,7 +133,6 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // #835 — consult unified shouldAutoWake helper. bud's policy is "always
   // wake" — a freshly-cloned bud has no session yet and the whole point of
   // bud is to spawn one. The helper makes that explicit and auditable.
-  const { shouldAutoWake } = await import("maw-js/commands/shared/should-auto-wake");
   const decision = shouldAutoWake(name, { site: "bud" });
   if (!decision.wake) {
     // Defensive — site=bud never returns wake=false today. Preserve the
@@ -148,7 +147,6 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   if (opts.parentSessionId) wakeOpts.parentSessionId = opts.parentSessionId;
   if (opts.sessionId) wakeOpts.sessionId = opts.sessionId;
   if (opts.issue) {
-    const { fetchIssuePrompt } = await import("maw-js/commands/shared/wake");
     const issueRepo = await resolveIssueRepoForBud(ctx);
     wakeOpts.prompt = await fetchIssuePrompt(opts.issue, issueRepo);
     wakeOpts.task = `issue-${opts.issue}`;
@@ -156,7 +154,6 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   if (opts.repo) {
     // Clone the target repo via ghq (resolve-first, no worktree).
     // Previously set wakeOpts.incubate which auto-created a worktree — see #271.
-    const { ensureCloned } = await import("maw-js/commands/shared/wake-target");
     await ensureCloned(opts.repo);
   }
   try {
@@ -173,7 +170,6 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // failed inside tmux (nested attach-session refused to nest, pane died immediately).
   if (opts.split && process.env.TMUX) {
     try {
-      const { cmdSplit } = await import("../split/impl");
       await cmdSplit(name);
     } catch (e: any) {
       console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);

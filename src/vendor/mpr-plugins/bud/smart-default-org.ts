@@ -28,8 +28,7 @@
  * before `gh repo create` fires.
  */
 
-import { hostExec } from "maw-js/sdk";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { hostExec, loadFleetCore as loadFleet } from "maw-js/sdk";
 
 export type OrgSource = "flag" | "env" | "config" | "fleet" | "gh" | "default";
 

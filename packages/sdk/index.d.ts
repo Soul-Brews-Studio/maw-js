@@ -223,6 +223,11 @@ export declare class UserError extends Error {
 
 /** True when an error was raised for user-facing command feedback. */
 export declare function isUserError(e: unknown): e is UserError;
+export declare function assertValidOracleName(name: string): void;
+export declare function writeSignal(parentRoot: string, budName: string, payload: { kind: "info" | "alert" | "pattern"; message: string; context?: Record<string, unknown> }): string;
+export declare function validateNickname(raw: string): { ok: true; value: string } | { ok: false; error: string };
+export declare function writeNickname(repoPath: string, nickname: string): void;
+export declare function setCachedNickname(name: string, nickname: string): void;
 
 /** Render numeric buckets as a compact Unicode sparkline. */
 export declare function sparkline(values: number[], hadActivity?: boolean[]): string;
@@ -234,6 +239,7 @@ export declare function cmdPeek(query?: string): Promise<void>;
 
 /** Send a message to an oracle/window target. */
 export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;
+export declare function cmdSplit(target: string, opts?: Record<string, unknown>): Promise<void>;
 
 // --- src/config ---
 
@@ -667,6 +673,11 @@ export declare function scanSignals(root: string, opts?: { days?: number }): Sca
 
 export declare function fetchIssuePrompt(num: number, repo?: string): Promise<string>;
 export declare function cmdWake(oracle: string, opts: Record<string, unknown>): Promise<string>;
+export interface ParsedWakeTarget { oracle: string; slug: string; issueNum?: number }
+export declare function parseWakeTarget(target: string): ParsedWakeTarget | null;
+export declare function ensureCloned(slug: string): Promise<void>;
+export interface ShouldAutoWakeDecision { wake: boolean; reason: string }
+export declare function shouldAutoWake(oracle: string, opts: Record<string, unknown>): ShouldAutoWakeDecision;
 
 // --- src/commands/shared/pulse ---
 

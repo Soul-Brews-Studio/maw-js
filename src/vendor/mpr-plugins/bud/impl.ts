@@ -1,14 +1,10 @@
-import { loadConfig } from "maw-js/config";
-import { getGhqRoot } from "maw-js/config/ghq-root";
-import { parseWakeTarget, ensureCloned } from "maw-js/commands/shared/wake-target";
-import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
-import { assertValidOracleName } from "maw-js/core/fleet/validate";
-import { hostExec } from "maw-js/sdk";
+import {
+  assertValidOracleName, ensureCloned, getGhqRoot, hostExec, loadConfig, normalizeTarget, parseWakeTarget,
+  setCachedNickname, validateNickname, writeNickname, writeSignal,
+} from "maw-js/sdk";
 import { ensureBudRepo } from "./bud-repo";
 import { initVault, generateClaudeMd, generateClaudeSettings, configureFleet, writeBirthNote } from "./bud-init";
 import { finalizeBud } from "./bud-wake";
-import { writeSignal } from "maw-js/core/fleet/leaf";
-import { validateNickname, writeNickname, setCachedNickname } from "maw-js/core/fleet/nicknames";
 import { resolveOrg, formatOrgSource, type OrgResolution } from "./smart-default-org";
 import { join } from "path";
 
