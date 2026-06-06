@@ -14,16 +14,16 @@ let dataDir: string;
 const prevConfig = process.env.MAW_CONFIG_DIR;
 const prevData = process.env.MAW_DATA_DIR;
 const prevHome = process.env.MAW_HOME;
-const prevMaxMessages = process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
 const prevKeepLast = process.env.MAW_MESSAGE_KEEP_LAST;
+const prevMaxAgeDays = process.env.MAW_MESSAGE_MAX_AGE_DAYS;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "maw-message-ledger-"));
   configDir = join(tmp, "config");
   dataDir = join(tmp, "data");
   delete process.env.MAW_HOME;
-  delete process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
   delete process.env.MAW_MESSAGE_KEEP_LAST;
+  delete process.env.MAW_MESSAGE_MAX_AGE_DAYS;
   process.env.MAW_CONFIG_DIR = configDir;
   process.env.MAW_DATA_DIR = dataDir;
 });
@@ -35,10 +35,10 @@ afterEach(() => {
   else process.env.MAW_DATA_DIR = prevData;
   if (prevHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = prevHome;
-  if (prevMaxMessages === undefined) delete process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES;
-  else process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES = prevMaxMessages;
   if (prevKeepLast === undefined) delete process.env.MAW_MESSAGE_KEEP_LAST;
   else process.env.MAW_MESSAGE_KEEP_LAST = prevKeepLast;
+  if (prevMaxAgeDays === undefined) delete process.env.MAW_MESSAGE_MAX_AGE_DAYS;
+  else process.env.MAW_MESSAGE_MAX_AGE_DAYS = prevMaxAgeDays;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -125,6 +125,7 @@ describe("messages plugin ledger", () => {
 
   test("prunes oldest rows when message retention is exceeded", () => {
     process.env.MAW_MESSAGE_KEEP_LAST = "3";
+    process.env.MAW_MESSAGE_MAX_AGE_DAYS = "9999";
 
     for (let i = 1; i <= 5; i += 1) {
       recordMessageLedgerEvent({
@@ -147,7 +148,7 @@ describe("messages plugin ledger", () => {
     ]);
 
     process.env.MAW_MESSAGE_KEEP_LAST = "2";
-    expect(pruneMessageLedgerEvents().removed).toBe(1);
+    expect(pruneMessageLedgerEvents()).toMatchObject({ removed: 1, retained: 2 });
     expect(listMessageLedgerEvents({ limit: 10 }).map(row => row.id)).toEqual([
       "retention-5",
       "retention-4",
