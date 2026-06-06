@@ -64,7 +64,8 @@ export {
 } from "../core/transport/peers";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
-export { resolveSessionTarget, resolveWorktreeTarget } from "../core/matcher/resolve-target";
+export { resolveSessionTarget, resolveWorktreeTarget, resolveFleetWindowSessionTarget } from "../core/matcher/resolve-target";
+export { isInfrastructureChannelSessionName } from "../core/matcher/channel-session";
 export { resolveOracle, pickOracle } from "../core/resolve";
 export type {
   OracleRef,
