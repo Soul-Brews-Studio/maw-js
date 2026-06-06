@@ -113,7 +113,7 @@ members:
       ["lead", "live", undefined],
       ["bridge", "skipped", "other node: oracle-world"],
     ]);
-    expect(status.output).toContain("bridge\tclaude\tskipped\tskip (other node: oracle-world)");
+    expect(status.output).toContain("bridge\tmawjs-oss-world\tclaude\tskipped\tskip (other node: oracle-world)");
     expect(status.output).not.toContain("bridge\tclaude\tmissing");
     expect(wakes).toHaveLength(0);
 
@@ -385,7 +385,7 @@ members:
 
     const missing = fakeTmux([]);
     const status = await cmdTeamUp("lead", { status: true }, { cwd: root, tmux: missing.tmux, repoSlug: "Soul-Brews-Studio/mawjs-oracle", loadConfigFn: () => config, logger: () => {} });
-    expect(status.output).toContain("lead\tclaude\tmissing\twakeable mawjs-oracle -e claude --session charter-session");
+    expect(status.output).toContain("lead\tmawjs-oracle\tclaude\tmissing\twakeable mawjs-oracle -e claude --session charter-session");
     expect(status.output).not.toContain("--wt mawjs-oracle");
 
     expect(memberWakeTarget("Soul-Brews-Studio/mawjs-oracle", status.roster[0].member)).toBe("mawjs-oracle");

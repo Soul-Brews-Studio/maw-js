@@ -37,9 +37,14 @@ export interface TeamUpOptions {
 
 export interface TeamUpAction {
   role: string;
+  memberKey: string;
   state: string;
   action: string;
   command?: string;
+}
+
+function memberActionKey(member: ClassifiedTeamMember, index: number): string {
+  return `${member.windowIdentity}#${index}`;
 }
 
 export interface TeamUpResult {
@@ -69,11 +74,11 @@ const DEFAULT_SLEEP = (ms: number) => new Promise<void>((resolve) => setTimeout(
 const SHELL_RE = /^-?(zsh|bash|sh|fish)$/i;
 
 function renderRoster(team: string, session: string, roster: ClassifiedTeamMember[], actions: TeamUpAction[], warnings: string[], tail?: string): string {
-  const actionByRole = new Map(actions.map((action) => [action.role, action]));
-  const lines = [`team up: ${team} (${session})`, "role\tengine\tstate\taction"];
-  for (const item of roster) {
-    const action = actionByRole.get(item.role)?.action ?? "skip";
-    lines.push(`${item.role}\t${item.engine}\t${item.state}\t${action}`);
+  const actionByMember = new Map(actions.map((action) => [action.memberKey, action]));
+  const lines = [`team up: ${team} (${session})`, "role\tidentity\tengine\tstate\taction"];
+  for (const [index, item] of roster.entries()) {
+    const action = actionByMember.get(`${item.windowIdentity}#${index}`)?.action ?? "skip";
+    lines.push(`${item.role}\t${item.windowIdentity}\t${item.engine}\t${item.state}\t${action}`);
   }
   if (warnings.length) lines.push("", "warnings:", ...warnings.map((warning) => `  - ${warning}`));
   if (tail) lines.push("", tail);
@@ -182,11 +187,12 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   const actions: TeamUpAction[] = [];
 
   if (opts.status) {
-    for (const item of roster) {
-      if (item.state === "skipped") actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
-      else if (item.state === "missing") actions.push({ role: item.role, state: item.state, action: wakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)) });
-      else if (item.state === "dead") actions.push({ role: item.role, state: item.state, action: "wakeable resume in place" });
-      else actions.push({ role: item.role, state: item.state, action: "skip live" });
+    for (const [index, item] of roster.entries()) {
+      const memberKey = memberActionKey(item, index);
+      if (item.state === "skipped") actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+      else if (item.state === "missing") actions.push({ role: item.role, memberKey, state: item.state, action: wakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)) });
+      else if (item.state === "dead") actions.push({ role: item.role, memberKey, state: item.state, action: "wakeable resume in place" });
+      else actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
     }
     warnOnPathCollisions(roster, warnings);
     const output = renderRoster(team, session, roster, actions, warnings);
@@ -195,20 +201,21 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   if (opts.dryRun) {
-    for (const item of roster) {
+    for (const [index, item] of roster.entries()) {
+      const memberKey = memberActionKey(item, index);
       if (item.state === "skipped") {
-        actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+        actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
       } else if (opts.force) {
         const command = engineCommand(item.engine, { resume: false }, config);
-        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
+        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
       } else if (item.state === "live") {
-        actions.push({ role: item.role, state: item.state, action: "skip live" });
+        actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
       } else if (item.state === "dead") {
         const command = engineCommand(item.engine, { resume: true }, config);
-        actions.push({ role: item.role, state: item.state, action: "would relaunch in place with resume", command });
+        actions.push({ role: item.role, memberKey, state: item.state, action: "would relaunch in place with resume", command });
       } else {
         const command = engineCommand(item.engine, { resume: false }, config);
-        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)), command });
+        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)), command });
       }
     }
     warnOnPathCollisions(roster, warnings);
@@ -218,29 +225,30 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   const sleep = deps.sleep ?? DEFAULT_SLEEP;
-  for (const item of roster) {
+  for (const [index, item] of roster.entries()) {
+    const memberKey = memberActionKey(item, index);
     if (item.state === "skipped") {
-      actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+      actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
     } else if (opts.force) {
       if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
       const command = engineCommand(item.engine, { resume: false }, config);
       await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
-      actions.push({ role: item.role, state: item.state, action: "force fresh wake", command });
+      actions.push({ role: item.role, memberKey, state: item.state, action: "force fresh wake", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
       await primeMember(item.member, repoRoot, deps, warnings);
     } else if (item.state === "live") {
-      actions.push({ role: item.role, state: item.state, action: "skip live" });
+      actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
     } else if (item.state === "dead") {
       const command = engineCommand(item.engine, { resume: true }, config);
       await tmux.run("send-keys", "-t", item.pane!.paneId, "C-u");
       await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
-      actions.push({ role: item.role, state: item.state, action: "resume in place", command });
+      actions.push({ role: item.role, memberKey, state: item.state, action: "resume in place", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
       await primeMember(item.member, repoRoot, deps, warnings);
     } else {
       const command = engineCommand(item.engine, { resume: false }, config);
       await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
-      actions.push({ role: item.role, state: item.state, action: "fresh wake", command });
+      actions.push({ role: item.role, memberKey, state: item.state, action: "fresh wake", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
       await primeMember(item.member, repoRoot, deps, warnings);
     }
@@ -255,7 +263,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
       if (item.pane && item.state === "live") await tmux.run("join-pane", "-s", item.pane.paneId);
     }
     await tmux.run("select-layout", "main-vertical");
-    actions.push({ role: "*", state: "live", action: "gather main-vertical" });
+    actions.push({ role: "*", memberKey: "gather", state: "live", action: "gather main-vertical" });
   }
 
   if (!opts.status && !opts.dryRun && finalRoster.some((item) => item.state === "live")) {
