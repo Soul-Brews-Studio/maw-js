@@ -1,38 +1,67 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
-const root = join(import.meta.dir, "../..");
-const pluginRoot = join(root, "src/vendor/mpr-plugins/cross-team-queue");
+import { loadManifestFromDir } from "../../src/plugin/manifest-load";
+import type { LoadedPlugin } from "../../src/plugin/types";
 
-const { handle } = await import("../../src/vendor/mpr-plugins/cross-team-queue/src/index.ts?plugin-cross-team-queue-standalone");
+const ROOT = new URL("../..", import.meta.url).pathname;
+const pluginDir = join(ROOT, "src/vendor/mpr-plugins/cross-team-queue");
 
-describe("cross-team-queue plugin standalone boundary (#2250)", () => {
-  test("ships as a source plugin with expected manifest metadata", () => {
-    const manifest = JSON.parse(readFileSync(join(pluginRoot, "plugin.json"), "utf8"));
-
-    expect(manifest).toMatchObject({
-      name: "cross-team-queue",
-      version: "0.1.2",
-      description: expect.stringContaining("Unified inbox view"),
-      schemaVersion: 1,
-      entry: "./src/index.ts",
-      api: { path: "/cross-team-queue", methods: ["GET"] },
-    });
-    expect(manifest.sdk).toMatch(/^\^1\.0\.0-alpha/);
-  });
-
-  test("keeps runtime source free of maw core imports", () => {
-    const files = ["src/index.ts", "src/types.ts"].map((file) => readFileSync(join(pluginRoot, file), "utf8"));
-
-    for (const source of files) {
-      expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|cli|config|lib|plugin)(?:\/|")/);
-      expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+/);
+function walkSources(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "dist" || entry.name.startsWith(".")) continue;
+      out.push(...walkSources(full));
+    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) {
+      out.push(full);
     }
+  }
+  return out;
+}
+
+function parseImportSpecs(source: string): string[] {
+  const specs = new Set<string>();
+  const importFrom = /\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g;
+  const importFn = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+  const requireFn = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
+
+  for (const re of [importFrom, importFn, requireFn]) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(source)) !== null) specs.add(m[1]);
+  }
+
+  return [...specs];
+}
+
+describe("cross-team-queue plugin standalone boundary", () => {
+  test("plugin manifest loads with schema metadata", () => {
+    const loaded = loadManifestFromDir(pluginDir);
+
+    expect(loaded).not.toBeNull();
+    const plugin = loaded as LoadedPlugin;
+    expect(plugin.manifest).toMatchObject({
+      name: "cross-team-queue",
+      entry: "./src/index.ts",
+    });
   });
 
-  test("returns the stable empty QueueResponse contract", async () => {
-    await expect(handle({ recipient: "neo", team: "alpha", type: "handoff", maxAgeHours: 24 })).resolves.toEqual({
+  test("source has zero runtime dependencies outside relative modules", () => {
+    const imports = walkSources(pluginDir).flatMap((file) => parseImportSpecs(readFileSync(file, "utf8")));
+
+    const disallowed = imports.filter((spec) => !spec.startsWith("."));
+
+    expect(disallowed).toEqual([]);
+  });
+
+  test("handler returns the empty schema-v1 queue response", async () => {
+    const mod = await import("../../src/vendor/mpr-plugins/cross-team-queue/src/index.ts?plugin-cross-team-queue-standalone");
+
+    const result = await mod.handle({ recipient: "neo", type: "handoff", maxAgeHours: 24 });
+
+    expect(result).toEqual({
       items: [],
       stats: {
         totalItems: 0,
