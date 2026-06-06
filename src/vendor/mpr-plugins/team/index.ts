@@ -1,4 +1,4 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
+import type { InvokeContext, InvokeResult } from "maw-js/sdk";
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -7,8 +7,7 @@ import {
   cmdTeamSend, cmdTeamBroadcast, cmdTeamBring, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { resolveTeamSendMode, teamMessageTargets } from "./team-comms";
-import { parseFlags } from "maw-js/cli/parse-args";
-import { hostExec } from "maw-js/sdk";
+import { hostExec, parseFlags } from "maw-js/sdk";
 
 export const command = {
   name: "team",
