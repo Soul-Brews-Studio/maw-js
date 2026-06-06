@@ -190,8 +190,13 @@ export async function removeWorktreeViaConfig(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        // Try without --force first; fall back to --force if dirty (#2065).
+        try {
+          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)}`);
+        } catch {
+          console.log(`  \x1b[33m⚠\x1b[0m non-force remove failed, retrying with --force`);
+          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        }
         await hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         await cleanupDoneBranch(mainPath, branch, opts);
@@ -252,8 +257,13 @@ export async function removeWorktreeByGhqScan(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        // Try without --force first; fall back to --force if dirty (#2065).
+        try {
+          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)}`);
+        } catch {
+          console.log(`  \x1b[33m⚠\x1b[0m non-force remove failed, retrying with --force`);
+          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        }
         await hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
