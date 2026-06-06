@@ -474,6 +474,9 @@ export declare function countDisabledFleetFilesCore(dirs?: string[]): number;
 export declare function loadDisabledFleetEntriesCore(dirs?: string[]): DisabledFleetEntry[];
 export declare function loadFleetEntries(dirs?: string[]): FleetEntry[];
 
+/** Stop all configured fleet sessions. */
+export declare function cmdSleep(): Promise<void>;
+
 // --- src/lib/artifacts ---
 
 export interface ArtifactMeta {
