@@ -12,10 +12,16 @@ let layoutCalls: Array<{ target: string; layout: string }> = [];
 let sentText: Array<{ target: string; text: string }> = [];
 let captureByTarget = new Map<string, string>();
 
+const manifestRoot = join(tmp, "psi", "memory", "mailbox", "teams");
+mock.module("../../src/vendor/mpr-plugins/team/team-helpers", () => ({
+  resolvePsi: () => join(tmp, "psi"),
+}));
+
 mock.module("maw-js/core/paths", () => ({
   CONFIG_DIR: configDir,
   CONFIG_FILE: join(configDir, "maw.config.json"),
   FLEET_DIR: join(configDir, "fleet"),
+  discoverConfigs: () => [],
   MAW_ROOT: "/repo/maw-js",
   resolveHome: () => tmp,
 }));
@@ -52,7 +58,13 @@ writeFileSync(join(registryDir, "oracle-members.json"), JSON.stringify({
   ],
 }, null, 2));
 
-const { cmdTeamBring } = await import("../../src/vendor/mpr-plugins/team/team-workspace");
+const { cmdTeamBring, loadTeamOracleMemberNames } = await import("../../src/vendor/mpr-plugins/team/team-workspace");
+
+function writeManifest(team: string, manifest: unknown): void {
+  const dir = join(manifestRoot, team);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+}
 
 beforeEach(() => {
   wakeCalls = [];
@@ -99,4 +111,40 @@ describe("cmdTeamBring", () => {
     expect(sentText).toEqual([{ target: "project:volt", text: "/compact" }]);
     expect(layoutCalls).toEqual([{ target: "project:lead", layout: "main-vertical" }]);
   });
+
+  test("brings members from charter manifest files and dedupes registry+manifest entries", async () => {
+    writeManifest("charter-only", {
+      name: "charter-only",
+      members: ["alpha-oracle", "reviewer"],
+      charter: {
+        members: [
+          { role: "builder", name: "volt" },
+          { role: "reviewer" },
+          { role: "builder" },
+        ],
+      },
+    });
+
+    const membersBefore = loadTeamOracleMemberNames("charter-only");
+    const targets = await cmdTeamBring("charter-only", { session: "project", dryRun: true });
+
+    expect(membersBefore).toEqual(["alpha-oracle", "reviewer", "volt", "builder"]);
+    expect(targets).toEqual(["project:alpha-oracle", "project:reviewer", "project:volt", "project:builder"]);
+
+    writeManifest("myteam", {
+      name: "myteam",
+      members: ["volt", "odin", "extra"],
+      charter: {
+        members: [
+          { role: "odin", name: "odin-live" },
+          { role: "new-role" },
+        ],
+      },
+    });
+
+    const mergedTargets = await cmdTeamBring("myteam", { session: "project", dryRun: true });
+
+    expect(mergedTargets).toEqual(["project:volt", "project:odin", "project:extra", "project:odin-live", "project:new-role"]);
+  });
+
 });
