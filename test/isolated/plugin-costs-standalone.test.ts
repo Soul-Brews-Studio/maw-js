@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
-const root = join(import.meta.dir, "../..");
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+
 let config: Record<string, unknown> = { host: "local", port: 4242 };
 let fetchCalls: string[] = [];
 let responseBody = "";
@@ -46,6 +45,7 @@ const sdkMock = {
 };
 
 mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 const { default: costsHandler, command } = await import("../../src/vendor/mpr-plugins/costs/index.ts");
@@ -75,18 +75,10 @@ beforeEach(() => {
 
 describe("costs plugin standalone boundary", () => {
   test("imports runtime helpers only through the SDK boundary", () => {
-    const indexSource = readFileSync(join(root, "src/vendor/mpr-plugins/costs/index.ts"), "utf8");
-    const implSource = readFileSync(join(root, "src/vendor/mpr-plugins/costs/impl.ts"), "utf8");
-    const combined = `${indexSource}\n${implSource}`;
+    const imports = expectStandalonePluginBoundary({ plugin: "costs", files: ["index.ts", "impl.ts"] });
 
     expect(command).toMatchObject({ name: "costs" });
-    expect(combined).toContain('from "maw-js/sdk"');
-    expect(combined).not.toMatch(/maw-js\/(?:core|commands\/shared|cli|config|lib|plugin)(?:\/|")/);
-    expect(combined).not.toMatch(/from\s+["'](?:\.\.\/)+(?:core|commands|cli|config|lib|src)\//);
-
-    const sdkSource = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
-    expect(sdkSource).toContain("../core/util/user-error");
-    expect(sdkSource).toContain("../lib/sparkline");
+    expect(imports.map((record) => record.spec)).toEqual(expect.arrayContaining(["maw-js/sdk"]));
   });
 
   test("default CLI view fetches aggregate costs from the configured maw server", async () => {

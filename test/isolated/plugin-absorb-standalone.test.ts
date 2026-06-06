@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/absorb");
@@ -54,18 +55,6 @@ mock.module(syncHelpersPath, () => ({
 }));
 
 
-function parseImportSpecs(source: string): string[] {
-  const specs = new Set<string>();
-  const importFrom = /\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g;
-  const importFn = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
-  const requireFn = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
-  for (const re of [importFrom, importFn, requireFn]) {
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(source)) !== null) specs.add(m[1]);
-  }
-  return [...specs];
-}
-
 function entry(name: string, repo?: string): FleetEntry {
   return {
     file: `${name}.json`,
@@ -106,10 +95,12 @@ beforeEach(() => {
 
 describe("absorb plugin standalone boundary (#2221)", () => {
   test("plugin sources stay off direct core/shared/lib/config imports", () => {
-    const files = ["index.ts", "impl.ts"].map((file) => readFileSync(join(pluginDir, file), "utf8"));
-    const imports = files.flatMap(parseImportSpecs);
+    const imports = expectStandalonePluginBoundary({
+      plugin: "absorb",
+      files: ["index.ts", "impl.ts"],
+      allowRelative: ["../archive/impl", "../soul-sync/resolve", "../soul-sync/sync-helpers"],
+    }).map((record) => record.spec);
 
-    expect(imports.filter((spec) => spec.startsWith("maw-js/core/") || spec.startsWith("maw-js/commands/shared/") || spec.startsWith("maw-js/lib/") || spec === "maw-js/config" || spec.startsWith("maw-js/config/"))).toEqual([]);
     expect(imports).toEqual(expect.arrayContaining(["maw-js/plugin/types", "maw-js/sdk", "../archive/impl", "../soul-sync/resolve", "../soul-sync/sync-helpers"]));
   });
 
