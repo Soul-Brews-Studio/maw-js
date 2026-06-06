@@ -17,7 +17,7 @@ type ResolvedTarget =
   | { type: "error"; detail: string; hint?: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsReturn: any[];
 let listSessionsCalls: number;
 let resolveTargetReturn: ResolvedTarget;
