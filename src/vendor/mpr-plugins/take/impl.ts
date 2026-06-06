@@ -1,6 +1,4 @@
 import { listSessions, hostExec } from "maw-js/sdk";
-import { tmux } from "maw-js/sdk";
-import { buildCommandInDir } from "maw-js/config";
 
 /**
  * maw take <source-session>:<window> [target-session]
