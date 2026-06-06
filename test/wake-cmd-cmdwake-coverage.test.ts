@@ -5,7 +5,7 @@
  * to avoid cross-file pollution.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -664,6 +664,34 @@ describe("cmdWake main-suite coverage", () => {
 
     _wtPicker.readChoice = () => "1";
     expect(promptAmbiguousBringPick("features", [candidate])).toEqual(candidate);
+  });
+
+  test("--list is read-only and does not drain unread ψ/inbox messages (#2056)", async () => {
+    const inboxDir = join(repoPath, "ψ", "inbox");
+    mkdirSync(inboxDir, { recursive: true });
+    const unreadPath = join(inboxDir, "001.md");
+    writeFileSync(unreadPath, [
+      "---",
+      "from: m5:sender",
+      "to: mawjs",
+      "timestamp: 2026-06-06T07:30:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "do not drain during preview",
+      "",
+    ].join("\n"));
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { listWt: true }),
+    );
+
+    expect(result).toBe("mawjs:list");
+    expect(readFileSync(unreadPath, "utf-8")).toContain("read: false");
+    expect(readFileSync(unreadPath, "utf-8")).not.toContain("readAt:");
+    expect(logs.join("\n")).not.toContain("drained");
+    expect(detectSessionCalls).toHaveLength(0);
+    expect(sendTextCalls).toHaveLength(0);
   });
 
   test("lists worktrees without detecting or mutating tmux", async () => {
