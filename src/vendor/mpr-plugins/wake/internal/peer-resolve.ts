@@ -13,7 +13,7 @@
  * URL lookup at dispatch time.
  */
 import { readFileSync, existsSync } from "fs";
-import { legacyMawPath, mawStatePath } from "../../../../core/xdg";
+import { legacyMawPath, mawStatePath } from "maw-js/sdk";
 
 export interface ResolvedPeer {
   url: string;
