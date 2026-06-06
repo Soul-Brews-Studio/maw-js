@@ -1,8 +1,6 @@
 import { existsSync } from "fs";
 import { join } from "path";
-import { hostExec } from "maw-js/sdk";
-import { getGhqRoot } from "maw-js/config/ghq-root";
-import { loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
+import { getGhqRoot, hostExec, loadFleetEntries, type FleetEntry } from "maw-js/sdk";
 import { cmdArchive, fleetConfigFilePath } from "../archive/impl";
 import { resolveOraclePath } from "../soul-sync/resolve";
 import { syncOracleVaults } from "../soul-sync/sync-helpers";
