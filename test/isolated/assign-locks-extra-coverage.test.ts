@@ -118,6 +118,16 @@ await mock.module("maw-js/sdk", () => ({
     hostExecCalls.push(cmd);
     return hostExecImpl(cmd);
   },
+  fetchIssuePrompt: async (issueNum: number, slug: string) => {
+    fetchIssueCalls.push([issueNum, slug]);
+    return fetchIssuePromptImpl(issueNum, slug);
+  },
+  cmdWake: async (
+    oracle: string,
+    opts: { incubate: string; task: string; prompt: string },
+  ) => {
+    wakeCalls.push([oracle, opts]);
+  },
 }));
 
 await mock.module("maw-js/commands/shared/wake", () => ({

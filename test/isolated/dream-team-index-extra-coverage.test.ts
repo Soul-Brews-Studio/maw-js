@@ -52,6 +52,8 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 }));
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => fakeHostExec(cmd),
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [{ name: "dream-team-extra", windows: [{ name: "alpha", repo: "Soul-Brews-Studio/alpha-oracle" }] }],
 }));
 mock.module("maw-js/cli/parse-args", () => ({ parseFlags: parseTestFlags }));
 
@@ -131,6 +133,8 @@ mock.module(at("../../src/sdk"), () => ({
     if (next instanceof Error) throw next;
     return next ?? "";
   },
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [{ name: "dream-team-extra", windows: [{ name: "alpha", repo: "Soul-Brews-Studio/alpha-oracle" }] }],
   withPaneLock: async (fn: () => Promise<void>) => fn(),
 }));
 mock.module(at("../../src/commands/plugins/tmux/layout-manager"), () => ({
