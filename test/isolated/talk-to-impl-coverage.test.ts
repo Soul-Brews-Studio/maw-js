@@ -53,6 +53,10 @@ mock.module("maw-js/config", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  loadConfig: loadConfigMock,
+  mawMessageLogPath: () => "/home/tester/.maw/maw-log.jsonl",
+  resolveOraclePane: (...args: unknown[]) => resolveOraclePaneMock(...args),
+  checkBusyGuard: async () => ({ busy: false, status: "unknown", oracle: "alpha" }),
   listSessions: (...args: unknown[]) => listSessionsMock(...args),
   sendKeys: (...args: unknown[]) => sendKeysMock(args[0] as string, args[1] as string),
   getPaneCommand: (...args: unknown[]) => getPaneCommandMock(...args),

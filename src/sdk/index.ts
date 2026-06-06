@@ -85,6 +85,7 @@ export type {
 } from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
 export { isAgentCommand } from "../core/agent-detect";
+export { checkBusyGuard, extractOracleName } from "../core/agent-status-guard";
 export type { Session, Window } from "../core/runtime/find-window";
 export {
   loadOracleChannels,
