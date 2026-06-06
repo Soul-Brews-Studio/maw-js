@@ -87,6 +87,16 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   return config.node || "cli";
 }
 
+async function currentTmuxSessionName(): Promise<string | undefined> {
+  if (!process.env.TMUX) return undefined;
+  try {
+    const session = (await new Tmux().run("display-message", "-p", "#S")).trim();
+    return session || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface SenderIdentity {
   /** Human-facing node name used in visible `[node:oracle]` message prefixes. */
   node: string;
@@ -380,11 +390,12 @@ async function resolveBareLocalTarget(
   query: string,
   config: ReturnType<typeof loadConfig>,
   sessions: Awaited<ReturnType<typeof listSessions>>,
+  currentSession?: string,
 ): Promise<{ result: ReturnType<typeof resolveTarget> | null; locate: HeyLocateResolution | null }> {
   if (!isBareLocalHeyTarget(query)) return { result: null, locate: null };
 
   try {
-    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions), config);
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions, currentSession), config);
     if (localResult) return { result: localResult, locate: null };
   } catch (e) {
     if (e instanceof AmbiguousMatchError) {
@@ -586,7 +597,8 @@ export async function cmdSend(
   }
 
   let sessions = await listSessions();
-  let bareResolution = await resolveBareLocalTarget(query, config, sessions);
+  const currentSession = await currentTmuxSessionName();
+  let bareResolution = await resolveBareLocalTarget(query, config, sessions, currentSession);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -638,7 +650,7 @@ export async function cmdSend(
           await cmdWake(bareAgent, {});
           // Refresh after wake — resolver needs the new tmux session visible.
           sessions = await listSessions();
-          bareResolution = await resolveBareLocalTarget(query, config, sessions);
+          bareResolution = await resolveBareLocalTarget(query, config, sessions, currentSession);
         }
       } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
@@ -694,7 +706,7 @@ export async function cmdSend(
   const result = bareResolution.result ?? (
     isBareLocalHeyTarget(query)
       ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
-      : resolveTarget(query, config, sessions)
+      : resolveTarget(query, config, sessions, currentSession)
   );
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---

@@ -63,6 +63,7 @@ export function resolveTarget(
   query: string,
   config: MawConfig,
   sessions: (Session & { source?: string })[],
+  currentSession?: string,
 ): ResolveResult {
   if (!query) return { type: "error", reason: "empty_query", detail: "no target specified", hint: "usage: maw hey <agent> <message>" };
 
@@ -99,7 +100,7 @@ export function resolveTarget(
   }
 
   // --- Step 1: Local findWindow ---
-  const localTarget = findWindow(writable, query);
+  const localTarget = findWindow(writable, query, currentSession);
   if (localTarget) {
     return { type: "local", target: localTarget };
   }
@@ -131,7 +132,7 @@ export function resolveTarget(
       if (sessionAliasResult) return sessionAliasResult;
       const sessionWindowAliasResult = resolveSessionWindowAliasTarget(agentName, writable, "self-node");
       if (sessionWindowAliasResult) return sessionWindowAliasResult;
-      const selfTarget = findWindow(writable, agentName);
+      const selfTarget = findWindow(writable, agentName, currentSession);
       if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }

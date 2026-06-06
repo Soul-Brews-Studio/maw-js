@@ -58,7 +58,7 @@ function matchSession(sessions: Session[], part: string, strict = false): Sessio
   return null;
 }
 
-export function findWindow(sessions: Session[], query: string): string | null {
+export function findWindow(sessions: Session[], query: string, currentSession?: string): string | null {
   const q = query.toLowerCase();
 
   // session:window syntax — strict session match to prevent node:agent collision (#186)
@@ -87,8 +87,10 @@ export function findWindow(sessions: Session[], query: string): string | null {
   //   window-name matches because a stale session may still have a window named
   //   `<name>-oracle` while the live session itself is named `NN-<name>-oracle`
   //   (#1752). Pass 1b collects exact window matches only when no exact session
-  //   match exists. Pass 2 collects substring matches only if Pass 1 was empty.
-  //   Multi-candidate inside any pass → AmbiguousMatchError.
+  //   match exists. Pass 1c scopes substring matching to the caller-supplied
+  //   current tmux session before falling back to Pass 2's cross-session
+  //   substring search (#2134). Multi-candidate inside any pass →
+  //   AmbiguousMatchError.
   const exactSessions = new Set<string>();
   for (const s of sessions) {
     if (s.windows.length > 0) {
@@ -109,6 +111,21 @@ export function findWindow(sessions: Session[], query: string): string | null {
   }
   if (exact.size === 1) return [...exact][0];
   if (exact.size > 1) throw new AmbiguousMatchError(query, [...exact]);
+
+  const current = currentSession
+    ? sessions.find((s) => s.name.toLowerCase() === currentSession.toLowerCase())
+    : undefined;
+  if (current) {
+    const scopedSub = new Set<string>();
+    for (const w of current.windows) {
+      if (w.name.toLowerCase().includes(q)) scopedSub.add(`${current.name}:${w.index}`);
+    }
+    if (current.name.toLowerCase().includes(q) && current.windows.length > 0) {
+      scopedSub.add(`${current.name}:${current.windows[0].index}`);
+    }
+    if (scopedSub.size === 1) return [...scopedSub][0];
+    if (scopedSub.size > 1) throw new AmbiguousMatchError(query, [...scopedSub]);
+  }
 
   const sub = new Set<string>();
   for (const s of sessions) {
