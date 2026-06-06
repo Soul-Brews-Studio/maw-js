@@ -94,6 +94,19 @@ export class AgentStatusStore {
     this.store.delete(oracle);
   }
 
+  /** Prune terminal/stale statuses so long-lived maw serve processes do not retain old oracle names forever. */
+  prune(maxAge = 24 * 60 * 60_000): number {
+    const cutoff = Date.now() - maxAge;
+    let removed = 0;
+    for (const [oracle, entry] of this.store) {
+      if (entry.updatedAt >= cutoff) continue;
+      if (entry.status === "busy" || entry.status === "ready") continue;
+      this.remove(oracle);
+      removed++;
+    }
+    return removed;
+  }
+
   private clearTimer(oracle: string) {
     const t = this.timers.get(oracle);
     if (t) { clearTimeout(t); this.timers.delete(oracle); }

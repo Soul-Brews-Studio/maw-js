@@ -27,6 +27,9 @@ import { mawDataPath } from "./xdg";
 import { UserError } from "./util/user-error";
 import { startDispatchEngine } from "./dispatch-engine";
 import { sendKeys } from "./transport/ssh";
+import { messageQueue } from "./message-queue";
+import { requestReplyStore } from "./request-reply";
+import { agentStatusStore } from "./agent-status";
 
 // --- Version info (computed once at startup) ---
 
@@ -337,6 +340,19 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       .catch((err) => console.error("[pty-sweep] failed:", err));
   }, cfgInterval("ptySweep"));
   (ptySweepTimer as { unref?: () => void }).unref?.();
+
+  // #2165: maw serve is a multi-day process; keep in-memory queues/request
+  // reply records/status cache bounded. The stores already expose pruning for
+  // completed messages and expired request/reply entries, but serve never
+  // called them, so active federation traffic could retain old objects until
+  // process restart. Pending queues are preserved; only completed/expired/stale
+  // terminal state is removed.
+  const memoryMaintenanceTimer = setInterval(() => {
+    try { messageQueue.prune(); } catch { /* best effort */ }
+    try { requestReplyStore.prune(); } catch { /* best effort */ }
+    try { agentStatusStore.prune(); } catch { /* best effort */ }
+  }, 60_000);
+  (memoryMaintenanceTimer as { unref?: () => void }).unref?.();
 
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
