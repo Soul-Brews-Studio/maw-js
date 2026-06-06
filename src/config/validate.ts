@@ -75,6 +75,30 @@ export function validateBasicFields(
     }
   }
 
+  // engines: Record<string, EngineDef> (#1960 P1). Dormant typed surface; keep
+  // validation intentionally light so future optional EngineDef fields can roll
+  // out without rejecting existing config.
+  if ("engines" in raw) {
+    if (raw.engines && typeof raw.engines === "object" && !Array.isArray(raw.engines)) {
+      const engines: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(raw.engines as Record<string, unknown>)) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          warn(`engines.${name}`, "must be an object");
+          continue;
+        }
+        const def = value as Record<string, unknown>;
+        if (typeof def.cmd !== "string" || def.cmd.trim().length === 0) {
+          warn(`engines.${name}.cmd`, "must be a non-empty string");
+          continue;
+        }
+        engines[name] = { ...def, name: typeof def.name === "string" && def.name ? def.name : name };
+      }
+      if (Object.keys(engines).length > 0) result.engines = engines;
+    } else {
+      warn("engines", "must be an object");
+    }
+  }
+
   // sessions: Record<string, string>
   if ("sessions" in raw) {
     if (raw.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
@@ -111,6 +135,7 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.oracleUrl !== undefined && typeof c.oracleUrl !== "string") errors.push("oracleUrl must be a string");
   if (c.tmuxSocket !== undefined && typeof c.tmuxSocket !== "string") errors.push("tmuxSocket must be a string");
   if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
+  if (c.scout !== undefined && typeof c.scout !== "boolean") errors.push("scout must be a boolean");
 
   if (c.env !== undefined) {
     if (!c.env || typeof c.env !== "object" || Array.isArray(c.env)) {
@@ -128,6 +153,22 @@ export function validateConfigShape(config: unknown): string[] {
     } else {
       for (const [k, v] of Object.entries(c.commands as Record<string, unknown>)) {
         if (typeof v !== "string") errors.push(`commands.${k} must be a string`);
+      }
+    }
+  }
+
+  if (c.engines !== undefined) {
+    if (!c.engines || typeof c.engines !== "object" || Array.isArray(c.engines)) {
+      errors.push("engines must be a Record<string, EngineDef>");
+    } else {
+      for (const [k, v] of Object.entries(c.engines as Record<string, unknown>)) {
+        if (!v || typeof v !== "object" || Array.isArray(v)) {
+          errors.push(`engines.${k} must be an object`);
+          continue;
+        }
+        const def = v as Record<string, unknown>;
+        if (def.name !== undefined && typeof def.name !== "string") errors.push(`engines.${k}.name must be a string`);
+        if (typeof def.cmd !== "string" || def.cmd.length === 0) errors.push(`engines.${k}.cmd must be a non-empty string`);
       }
     }
   }

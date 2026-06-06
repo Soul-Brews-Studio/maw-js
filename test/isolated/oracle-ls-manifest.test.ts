@@ -22,12 +22,14 @@ import { tmpdir } from "os";
 // ─── Pin CONFIG_DIR + cache/FLEET dirs to sandboxed tmp dirs BEFORE imports ─
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-ls-841-"));
 const TEST_CACHE_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-ls-cache-"));
+const TEST_STATE_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-ls-state-"));
 const TEST_FLEET_DIR = join(TEST_CONFIG_DIR, "fleet");
 mkdirSync(TEST_FLEET_DIR, { recursive: true });
 mkdirSync(TEST_CACHE_DIR, { recursive: true });
 
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
 process.env.MAW_CACHE_DIR = TEST_CACHE_DIR;
+process.env.MAW_STATE_DIR = TEST_STATE_DIR;
 delete process.env.MAW_HOME;
 process.env.MAW_TEST_MODE = "1";
 
@@ -63,17 +65,19 @@ const config = await import("../../src/config");
 const manifest = await import("../../src/lib/oracle-manifest");
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
+const CONFIG_WEIGHTED_FILE = join(TEST_CONFIG_DIR, "maw.config.50.json");
 const ORACLES_JSON = join(TEST_CACHE_DIR, "oracles.json");
 const ORACLE_BIRTHS_JSON = join(TEST_CACHE_DIR, "oracle-births.json");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
   rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
+  rmSync(TEST_STATE_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {
   mkdirSync(TEST_CACHE_DIR, { recursive: true });
-  for (const f of [CONFIG_FILE, ORACLES_JSON, ORACLE_BIRTHS_JSON]) {
+  for (const f of [CONFIG_FILE, CONFIG_WEIGHTED_FILE, ORACLES_JSON, ORACLE_BIRTHS_JSON]) {
     try { rmSync(f, { force: true }); } catch { /* ok */ }
   }
   try {

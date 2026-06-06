@@ -8,6 +8,7 @@ import {
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
+import { detectWindowMismatch } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
@@ -17,6 +18,10 @@ import {
   type ReceiverInboxWriter,
 } from "./receiver-inbox";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
+import {
+  resolveBareHeyByLocatePath,
+  type HeyLocateResolution,
+} from "./hey-locate-resolution";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -80,6 +85,98 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
     if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
   } catch {}
   return config.node || "cli";
+}
+
+export interface SenderIdentity {
+  /** Human-facing node name used in visible `[node:oracle]` message prefixes. */
+  node: string;
+  /** Human-facing oracle/session name used in visible `[node:oracle]` message prefixes. */
+  oracle: string;
+  /** `node:oracle`, the form operators type with `--from` / `MAW_SENDER`. */
+  display: string;
+  /** `oracle:node`, the existing v3 from-signing wire form. */
+  wireFrom: string | "auto";
+  /** Back-compat name for message log rows. */
+  senderName: string;
+  source: "auto" | "flag" | "env";
+}
+
+const SENDER_PART_RE = /^[A-Za-z0-9_.-]+$/;
+
+/** @internal exported for tests. Parse user-facing `<node>:<oracle>` sender overrides. */
+export function parseSenderOverride(raw: string | undefined | null): Pick<SenderIdentity, "node" | "oracle" | "display" | "wireFrom" | "senderName"> | null {
+  const value = (raw ?? "").trim();
+  if (!value) return null;
+  const parts = value.split(":");
+  if (parts.length !== 2) return null;
+  const [node, oracle] = parts.map((part) => part.trim());
+  if (!node || !oracle) return null;
+  if (!SENDER_PART_RE.test(node) || !SENDER_PART_RE.test(oracle)) return null;
+  return {
+    node,
+    oracle,
+    display: `${node}:${oracle}`,
+    // Existing from-signing contract is `<oracle>:<node>` even though human
+    // message attribution is `[node:oracle]`. Keep both explicit.
+    wireFrom: `${oracle}:${node}`,
+    senderName: oracle,
+  };
+}
+
+/** @internal exported for tests. */
+export function hasSshRelayEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.SSH_CLIENT || env.SSH_CONNECTION || env.SSH_TTY);
+}
+
+/**
+ * Resolve the visible + signed sender for `maw hey`.
+ *
+ * Precedence for #1889:
+ *   1. CLI `--from <node:oracle>`
+ *   2. `MAW_SENDER=<node:oracle>` for SSH relay wrappers
+ *   3. Auto local identity, but only when not running under SSH relay env
+ */
+export function resolveSenderIdentity(
+  config: ReturnType<typeof loadConfig>,
+  opts: Pick<CmdSendOptions, "from"> = {},
+  env: NodeJS.ProcessEnv = process.env,
+): SenderIdentity {
+  const explicit = opts.from?.trim();
+  const envSender = env.MAW_SENDER?.trim();
+  const raw = explicit || envSender;
+  if (raw) {
+    const parsed = parseSenderOverride(raw);
+    if (!parsed) throw new Error(`invalid sender '${raw}' (expected <node>:<oracle>)`);
+    return { ...parsed, source: explicit ? "flag" : "env" };
+  }
+
+  if (hasSshRelayEnv(env)) {
+    throw new Error("refusing to stamp SSH-relayed maw hey as the local oracle; set --from <node:oracle> or MAW_SENDER=<node:oracle>");
+  }
+
+  const senderName = resolveMyName(config);
+  const node = config.node || "local";
+  return {
+    node,
+    oracle: senderName,
+    display: `${node}:${senderName}`,
+    wireFrom: "auto",
+    senderName,
+    source: "auto",
+  };
+}
+
+function rejectSenderIdentity(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`\x1b[31merror\x1b[0m: ${message}`);
+  console.error("\x1b[33mhint\x1b[0m:  use `maw hey --from alpha:volt-oracle <target> <message>` or set `MAW_SENDER=alpha:volt-oracle`");
+  process.exit(1);
+}
+
+function aclSenderOracle(config: ReturnType<typeof loadConfig>, senderIdentity: SenderIdentity): string {
+  return senderIdentity.source === "auto"
+    ? (config.oracle ?? "mawjs")
+    : senderIdentity.senderName;
 }
 
 /**
@@ -253,31 +350,52 @@ function rejectBareAmbiguous(query: string, candidates: string[]): never {
 function normalizeBareLocalResult(
   query: string,
   result: ReturnType<typeof resolveTarget>,
+  config: ReturnType<typeof loadConfig>,
 ): ReturnType<typeof resolveTarget> | null {
   if (!result) return null;
   if (result.type === "local" || result.type === "self-node") return result;
   // A bare query may discover a remote peer via config.agents/manifest. Do not
   // use that implicit remote route: #1572 makes bare names local-only so
-  // operators must spell cross-node delivery with `<node>:`.
+  // operators must spell cross-node delivery with `<node>:`. Peer aliases are
+  // the narrow exception: `maw peers add world-mawjs ...` should make
+  // `maw hey world-mawjs ...` usable (#1940).
+  if (result.type === "peer" && isConfiguredPeerAlias(query, config)) return result;
   return null;
 }
 
-function assertBareLocalTarget(
+function isConfiguredPeerAlias(query: string, config: ReturnType<typeof loadConfig>): boolean {
+  if (!isBareLocalHeyTarget(query)) return false;
+  const peer = (config.namedPeers ?? []).find((p: any) => p?.name === query);
+  if (peer && (typeof (peer as any).node === "string" || typeof (peer as any).identity?.node === "string")) return true;
+  try {
+    const { loadPeers } = require("../../lib/peers/store");
+    const stored = loadPeers().peers?.[query];
+    return Boolean(stored && (typeof stored.node === "string" || typeof stored.identity?.node === "string"));
+  } catch {
+    return false;
+  }
+}
+
+async function resolveBareLocalTarget(
   query: string,
   config: ReturnType<typeof loadConfig>,
   sessions: Awaited<ReturnType<typeof listSessions>>,
-): ReturnType<typeof resolveTarget> | null {
-  if (!isBareLocalHeyTarget(query)) return null;
+): Promise<{ result: ReturnType<typeof resolveTarget> | null; locate: HeyLocateResolution | null }> {
+  if (!isBareLocalHeyTarget(query)) return { result: null, locate: null };
 
   try {
-    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions));
-    if (localResult) return localResult;
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions), config);
+    if (localResult) return { result: localResult, locate: null };
   } catch (e) {
     if (e instanceof AmbiguousMatchError) {
       rejectBareAmbiguous(query, e.candidates);
     }
     throw e;
   }
+
+  const locate = await resolveBareHeyByLocatePath(query, config, sessions);
+  if (locate.result) return { result: locate.result, locate };
+  if (locate.repoPath) return { result: null, locate };
 
   rejectBareMiss(query);
 }
@@ -295,12 +413,94 @@ function assertBareLocalTarget(
  *   either direction skip the gate without operator intervention.
  * - `inboxOnly` (#1860): persist to the receiver inbox without injecting
  *   into the live pane. Normal sends now always inject by default.
+ * - `from` (#1889): explicit user-facing sender override, `<node>:<oracle>`,
+ *   used for SSH relays where auto local identity would impersonate the host.
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
   inboxOnly?: boolean;
+  from?: string;
   receiverInbox?: ReceiverInboxWriter | false;
+  /**
+   * #1907 — opt out of post-send verify-submit retry. Default behaviour
+   * (when this is undefined or false) is to peek the target pane after
+   * send-keys, detect when the implicit Enter was eaten by Claude TUI
+   * scroll-mode / popup, and send an explicit C-m. Set true for tight
+   * loops where the +800ms verify cost is unacceptable.
+   */
+  noVerifySubmit?: boolean;
+}
+
+/** @internal — exported for test injection only. */
+export interface VerifySubmitOpts {
+  delayMs?: number;
+  maxRetries?: number;
+  captureFn?: (target: string, lines: number, host?: string) => Promise<string>;
+  sendKeysFn?: (target: string, text: string, host?: string) => Promise<void>;
+  sleepFn?: (ms: number) => Promise<void>;
+  host?: string;
+}
+
+export interface VerifySubmitResult {
+  delivered: boolean;
+  retriesNeeded: number;
+  warning?: string;
+}
+
+/**
+ * #1907 — verify that the implicit Enter from `tmux send-keys` actually
+ * submitted, by peeking the target pane and re-sending Enter if the message
+ * text still sits in the input area. Up to 2 Enter retries before giving up.
+ *
+ * Heuristic: capture last 10 lines, search the last 3 for the first 80 chars
+ * of the message. The input line is the bottommost; chat history scrolls up
+ * and out of the 3-line tail under normal Claude TUI rendering. False-positive
+ * cost is a benign extra Enter (no-op in most TUIs).
+ */
+export async function verifySubmitDelivered(
+  target: string,
+  message: string,
+  opts: VerifySubmitOpts = {},
+): Promise<VerifySubmitResult> {
+  const envDelay = parseInt(process.env.MAW_HEY_VERIFY_DELAY_MS ?? "", 10);
+  const delayMs = opts.delayMs ?? (Number.isFinite(envDelay) && envDelay > 0 ? envDelay : 800);
+  const maxRetries = opts.maxRetries ?? 2;
+  const captureFn = opts.captureFn ?? capture;
+  const sendKeysFn = opts.sendKeysFn ?? sendKeys;
+  const sleepFn = opts.sleepFn ?? ((ms: number) => Bun.sleep(ms));
+  const host = opts.host;
+
+  const needle = message.slice(0, 80).trim();
+  if (!needle) return { delivered: true, retriesNeeded: 0 };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await sleepFn(delayMs);
+    let content: string;
+    try {
+      content = await captureFn(target, 10, host);
+    } catch (e: unknown) {
+      const reason = e instanceof Error ? e.message : String(e);
+      return { delivered: false, retriesNeeded: attempt,
+        warning: `submit unverified — capture-pane failed: ${reason}` };
+    }
+    const tail = content.split("\n").slice(-3).join("\n");
+    if (!tail.includes(needle)) {
+      return { delivered: true, retriesNeeded: attempt };
+    }
+    if (attempt < maxRetries) {
+      try {
+        // "\r" → Enter via ssh.ts SPECIAL_KEYS map; goes through exitModeIfNeeded.
+        await sendKeysFn(target, "\r", host);
+      } catch (e: unknown) {
+        const reason = e instanceof Error ? e.message : String(e);
+        return { delivered: false, retriesNeeded: attempt + 1,
+          warning: `submit unverified — Enter retry failed: ${reason}` };
+      }
+    }
+  }
+  return { delivered: false, retriesNeeded: maxRetries,
+    warning: `submit unverified after ${maxRetries} Enter retries` };
 }
 
 export async function cmdSend(
@@ -310,6 +510,12 @@ export async function cmdSend(
   opts: CmdSendOptions = {},
 ) {
   const config = loadConfig();
+  let senderIdentity: SenderIdentity;
+  try {
+    senderIdentity = resolveSenderIdentity(config, opts);
+  } catch (error) {
+    rejectSenderIdentity(error);
+  }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
   if (query.startsWith("team:")) {
@@ -319,7 +525,7 @@ export async function cmdSend(
       process.exit(1);
     }
     const { getOracleMembers, loadOracleRegistry } = await import("../../lib/oracle-members");
-    const senderOracle = resolveMyName(config);
+    const senderOracle = senderIdentity.senderName;
     const members = getOracleMembers(teamName, senderOracle);
     if (members.length === 0) {
       const registry = loadOracleRegistry(teamName);
@@ -372,14 +578,15 @@ export async function cmdSend(
     const { discoverPackages, invokePlugin } = await import("../../plugin/registry");
     const plugin = discoverPackages().find(p => p.manifest.name === name);
     if (!plugin) { console.error(`plugin not found: ${name}`); process.exit(1); }
-    const result = await invokePlugin(plugin, { source: "peer", args: { message, from: config.node ?? "local" } });
+    const pluginFrom = senderIdentity.source === "auto" ? (config.node ?? "local") : senderIdentity.display;
+    const result = await invokePlugin(plugin, { source: "peer", args: { message, from: pluginFrom } });
     if (result.ok) { console.log(result.output ?? "(no output)"); return; }
     console.error(`plugin error: ${result.error}`);
     process.exit(1);
   }
 
   let sessions = await listSessions();
-  const bareLocalResult = assertBareLocalTarget(query, config, sessions);
+  let bareResolution = await resolveBareLocalTarget(query, config, sessions);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -398,7 +605,8 @@ export async function cmdSend(
     const parts = query.split(":");
     const targetNode = parts.length >= 2 ? parts[0] : null;
     const bareAgent = parts.length >= 2 ? parts[1] : query;
-    const isCanonical = parts.length >= 3 || (parts.length === 2 && isTmuxSessionIdTarget(bareAgent));
+    const isExplicitRemoteSession = parts.length === 2 && /-oracle$/i.test(bareAgent);
+    const isCanonical = parts.length >= 3 || (parts.length === 2 && (isTmuxSessionIdTarget(bareAgent) || isExplicitRemoteSession));
     const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
     if (isLocalScope && bareAgent && !isCanonical) {
       const hasLocalSession = sessions.some(s =>
@@ -430,20 +638,30 @@ export async function cmdSend(
           await cmdWake(bareAgent, {});
           // Refresh after wake — resolver needs the new tmux session visible.
           sessions = await listSessions();
+          bareResolution = await resolveBareLocalTarget(query, config, sessions);
         }
       } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
-      // #791: cross-node auto-wake. Sender does explicit /api/wake before
+      // #791: cross-node auto-wake. Sender does a best-effort /api/wake before
       // /api/send (Option B). Wake is idempotent on the receiver — if the
-      // session already exists, cmdWake returns quickly. If wake errors,
-      // surface and exit (do NOT silently fall through to send — design
-      // call requires wake errors to be visible).
+      // session already exists, cmdWake returns quickly.
       //
       // #835 — decision routed through shouldAutoWake(). For cross-node hey
       // we don't know the remote isLive locally; the receiver's /api/wake
       // is idempotent, so we always ask. shouldAutoWake gives us
       // wake=true on hey + !isLive + isFleetKnown=true. We model the
       // cross-node target as fleet-known (peer is configured) and not-live.
+      //
+      // #1998 — wake failure is NON-FATAL. The original #791 design hard-exited
+      // on any wake error to keep failures visible. But that wrongly blocks
+      // delivery to targets that are already live yet NOT a wakeable oracle
+      // (a window / worktree-pane / non-repo alias, e.g. `mawjs-oss-world`):
+      // the remote /api/wake can't resolve the bare name to a repo and returns
+      // "missing oracle name", even though `maw peek` on the same target works.
+      // Since the send path below (POST /api/send) uses the receiver's lenient
+      // capture-by-pane resolution — the same path peek uses — we now warn and
+      // fall through. If the target is genuinely unreachable, the send attempt
+      // surfaces its own clear "Remote fetch failed" error (#411 contract).
       const peer = (config.namedPeers || []).find(p => p.name === targetNode);
       if (peer) {
         const { shouldAutoWake } = await import("./should-auto-wake");
@@ -457,15 +675,14 @@ export async function cmdSend(
           const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
             method: "POST",
             body: JSON.stringify({ target: bareAgent }),
-            from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
+            from: senderIdentity.wireFrom, // #804 Step 4 SIGN — sign cross-node /api/wake
           });
           if (!wakeRes.ok || !wakeRes.data?.ok) {
             const underlying = wakeRes.data?.error || (wakeRes.status ? `HTTP ${wakeRes.status}` : "connection failed");
-            // #942 — surface as "Remote fetch failed for peer" so callers see a
-            // consistent network-failure shape across wake + send (#411 contract).
-            console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peer.url} (${targetNode}): cross-node wake failed for ${bareAgent}: ${underlying}`);
-            console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
-            process.exit(1);
+            // #1998 — warn (keep wake failure visible) but DO NOT exit. The
+            // target may be a live window that simply isn't a wakeable oracle;
+            // let the send attempt below decide success vs. a real failure.
+            console.warn(`\x1b[33mwarn\x1b[0m:  cross-node wake skipped for ${bareAgent} on ${targetNode}: ${underlying} — attempting direct send (target may be live)`);
           }
         }
       }
@@ -474,7 +691,11 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const result = bareLocalResult ?? resolveTarget(query, config, sessions);
+  const result = bareResolution.result ?? (
+    isBareLocalHeyTarget(query)
+      ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
+      : resolveTarget(query, config, sessions)
+  );
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //
@@ -509,7 +730,7 @@ export async function cmdSend(
       // pre-#642 setups working unchanged. Operators opt in to the gate
       // by creating their first scope via `maw scope create`.
       if (scopes.length > 0) {
-        const senderOracle = config.oracle ?? "mawjs";
+        const senderOracle = aclSenderOracle(config, senderIdentity);
         const targetOracle = result.target; // agent name from `<node>:<agent>`
         const decision = evaluateAclFromDisk(senderOracle, targetOracle);
         if (decision === "queue") {
@@ -546,7 +767,7 @@ export async function cmdSend(
   if (opts.approve && opts.trust && result?.type === "peer") {
     try {
       const { cmdAdd } = await import("../../lib/trust-store");
-      const senderOracle = config.oracle ?? "mawjs";
+      const senderOracle = aclSenderOracle(config, senderIdentity);
       const targetOracle = result.target;
       cmdAdd(senderOracle, targetOracle);
       console.log(
@@ -574,8 +795,8 @@ export async function cmdSend(
     }
   }
 
-  const senderName = resolveMyName(config);
-  const outboundMessage = formatSignedMessage(message, config, senderName);
+  const senderName = senderIdentity.senderName;
+  const outboundMessage = formatSignedMessage(message, { node: senderIdentity.node }, senderName);
   const receiverInboxWriter = opts.receiverInbox === false
     ? null
     : opts.receiverInbox ?? defaultReceiverInboxWriter();
@@ -586,7 +807,7 @@ export async function cmdSend(
         query,
         target,
         to: query,
-        from: `${config.node ?? "local"}:${senderName}`,
+        from: senderIdentity.display,
         message: outboundMessage,
         config,
       });
@@ -602,7 +823,7 @@ export async function cmdSend(
       state: "queued",
       channel: "hey",
       route: "inbox",
-      from: `${config.node ?? "local"}:${senderName}`,
+      from: senderIdentity.display,
       to: query,
       target,
       text: outboundMessage,
@@ -637,8 +858,26 @@ export async function cmdSend(
       console.log(`\x1b[33mqueued\x1b[0m target '${guard.oracle}' is busy — will auto-deliver when idle`);
       return;
     }
-    await sendKeys(target, outboundMessage);
-    await writeReceiverInbox(target);
+    // #1967: the receiver inbox is the durable delivery guarantee; pane
+    // injection is only the live wake-up. Persist first so a tmux race cannot
+    // silently drop the message before it reaches ψ/inbox.
+    const inbox = await writeReceiverInbox(target);
+    try {
+      await sendKeys(target, outboundMessage);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (logQueuedInbox(inbox, target, `tmux delivery failed: ${msg}`)) return;
+      console.error(`\x1b[31merror\x1b[0m: tmux delivery failed for ${target}: ${msg}`);
+      process.exit(1);
+    }
+    if (!opts.noVerifySubmit && process.env.MAW_TEST_MODE !== "1") {
+      const verify = await verifySubmitDelivered(target, outboundMessage);
+      if (verify.warning) {
+        console.log(`  \x1b[33m⚠\x1b[0m ${verify.warning}`);
+      } else if (verify.retriesNeeded > 0) {
+        console.log(`  \x1b[33m⚠\x1b[0m submit needed ${verify.retriesNeeded} Enter retry — TUI may have been in scroll-mode`);
+      }
+    }
     await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
     logMessage(senderName, query, outboundMessage, "local");
@@ -650,7 +889,7 @@ export async function cmdSend(
       state: "delivered",
       channel: "hey",
       route: "local",
-      from: `${config.node}:${senderName}`,
+      from: senderIdentity.display,
       to: query,
       target,
       text: outboundMessage,
@@ -659,6 +898,9 @@ export async function cmdSend(
     }, config.port || 3456);
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+    // #1980: warn on silent misdelivery to a window that isn't the named oracle.
+    const mismatch = detectWindowMismatch(query, result.target, sessions);
+    if (mismatch) console.log(`  \x1b[33m⚠\x1b[0m ${mismatch}`);
     return;
   }
 
@@ -667,7 +909,7 @@ export async function cmdSend(
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: result.target, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
-      from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
+      from: senderIdentity.wireFrom, // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
       const state = res.data.state === "delivered" ? "delivered" : "queued";
@@ -677,7 +919,7 @@ export async function cmdSend(
         state,
         channel: "hey",
         route: "peer",
-        from: `${config.node!}:${senderName}`,
+        from: senderIdentity.display,
         to: `${result.node}:${result.target}`,
         target: res.data.target || result.target,
         peerUrl: result.peerUrl,
@@ -688,6 +930,8 @@ export async function cmdSend(
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
       console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      // #1980: surface the receiving node's misdelivery warning, if any.
+      if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
@@ -697,7 +941,7 @@ export async function cmdSend(
       state: "failed",
       channel: "hey",
       route: "peer",
-      from: `${config.node ?? "local"}:${senderName}`,
+      from: senderIdentity.display,
       to: `${result.node}:${result.target}`,
       target: result.target,
       peerUrl: result.peerUrl,
@@ -713,12 +957,12 @@ export async function cmdSend(
   // Fallback: async peer discovery (network scan — slow path).
   // Only reached when resolveTarget found no local session AND no config-mapped peer.
   // Local sessions were already checked above — if we reach here, local genuinely missed.
-  const peerUrl = await findPeerForTarget(query, sessions);
+  const peerUrl = isBareLocalHeyTarget(query) ? null : await findPeerForTarget(query, sessions);
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: query, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
-      from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
+      from: senderIdentity.wireFrom, // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
       const state = res.data.state === "delivered" ? "delivered" : "queued";
@@ -728,7 +972,7 @@ export async function cmdSend(
         state,
         channel: "hey",
         route: "discovery",
-        from: `${config.node ?? "local"}:${senderName}`,
+        from: senderIdentity.display,
         to: query,
         target: res.data.target || query,
         peerUrl,
@@ -750,7 +994,7 @@ export async function cmdSend(
       state: "failed",
       channel: "hey",
       route: "discovery",
-      from: `${config.node ?? "local"}:${senderName}`,
+      from: senderIdentity.display,
       to: query,
       target: query,
       peerUrl,
@@ -764,7 +1008,11 @@ export async function cmdSend(
   }
 
   // Try receiver inbox queue before surfacing a local-only resolver miss.
-  if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
+  if (bareResolution.locate?.repoPath) {
+    const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
+    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) return;
+    console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
+  } else if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {

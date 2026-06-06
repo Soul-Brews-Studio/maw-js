@@ -247,6 +247,16 @@ describe("Tmux", () => {
       })).resolves.toBe("%77\n");
       expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -c /tmp/work 'bun dev; exec zsh'");
     });
+
+    test("passes explicit split direction before cwd and command", async () => {
+      await t.splitWindow(undefined, {
+        direction: "horizontal",
+        cwd: "/tmp/work",
+        command: "zsh",
+        printFormat: "#{pane_id}",
+      });
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -h -c /tmp/work zsh");
+    });
   });
 
   describe("selectPane", () => {

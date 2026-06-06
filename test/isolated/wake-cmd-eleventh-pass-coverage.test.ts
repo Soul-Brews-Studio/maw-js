@@ -162,6 +162,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   attachToSession: async (session: string) => { attachCalls.push(session); },
   reconcileParentClaudeDir: async () => {},
+  waitForEngine: async () => {},
   ensureSessionRunning: async () => ensureSessionRunningReturn,
   createWorktree: async (...args: any[]) => {
     worktreeCreates.push(args);
@@ -354,10 +355,16 @@ describe("wake-cmd eleventh-pass isolated coverage", () => {
     expect(hostExecCalls).toEqual(["git -C '/tmp/neo.wt-o'\\''hai' branch --show-current 2>/dev/null || true"]);
     expect(capacityChecks).toEqual(["neo"]);
     expect(newWindows).toEqual([{ session: "54-neo", window: "neo-stable", opts: { cwd: "/tmp/neo.wt-o'hai" } }]);
-    expect(sentText.at(-1)).toEqual({
-      target: "54-neo:neo-stable",
-      text: "cd /tmp/neo.wt-o'hai && codex --agent neo-stable -p 'don'\\''t stop'",
-    });
+    expect(sentText).toEqual([
+      {
+        target: "54-neo:neo-stable",
+        text: "cd /tmp/neo.wt-o'hai && codex --agent neo-stable",
+      },
+      {
+        target: "54-neo:neo-stable",
+        text: "don't stop",
+      },
+    ]);
     expect(attachCalls).toEqual(["54-neo"]);
     expect(splitCalls).toEqual(["54-neo:neo-stable"]);
     expect(openCalls).toEqual(["54-neo:neo-stable"]);

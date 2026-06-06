@@ -1,4 +1,4 @@
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
@@ -11,6 +11,8 @@ import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  cleanBranch?: boolean;
+  cwd?: string;
 }
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
@@ -29,6 +31,7 @@ export interface DoneDeps {
   listSessions?: () => Promise<SessionInfo[]>;
   hostExec?: (command: string) => Promise<string>;
   tmux?: {
+    run?: (subcommand: string, ...args: (string | number)[]) => Promise<string>;
     killWindow?: (target: string) => Promise<unknown>;
     sendText?: (target: string, text: string) => Promise<unknown>;
   };
@@ -38,6 +41,7 @@ export interface DoneDeps {
   homeDir?: string;
   inboxDir?: string;
   takeSnapshot?: (trigger: string) => Promise<unknown>;
+  branchBase?: string;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   fs?: Partial<DoneFs>;
@@ -50,6 +54,7 @@ function doneDeps(deps: DoneDeps = {}) {
     listSessions: deps.listSessions ?? (listSessions as () => Promise<SessionInfo[]>),
     hostExec: deps.hostExec ?? hostExec,
     tmux: {
+      run: deps.tmux?.run ?? tmux.run.bind(tmux),
       killWindow: deps.tmux?.killWindow ?? tmux.killWindow,
       sendText: deps.tmux?.sendText ?? tmux.sendText,
     },
@@ -59,6 +64,7 @@ function doneDeps(deps: DoneDeps = {}) {
     homeDir,
     inboxDir: deps.inboxDir ?? mawDataPath("inbox"),
     takeSnapshot: deps.takeSnapshot ?? takeSnapshot,
+    branchBase: deps.branchBase,
     now: deps.now ?? (() => new Date()),
     sleep: deps.sleep ?? Bun.sleep,
     fs: {
@@ -73,6 +79,193 @@ function doneDeps(deps: DoneDeps = {}) {
 }
 
 type ResolvedDoneDeps = ReturnType<typeof doneDeps>;
+
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function isNotWorkingTreeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not a working tree/i.test(message);
+}
+
+function archivePathFor(wtPath: string, d: ResolvedDoneDeps): string {
+  const stamp = d.now().toISOString().replace(/[^0-9A-Za-z_.-]/g, "-");
+  const safeBase = basename(wtPath).replace(/[^0-9A-Za-z_.-]/g, "-");
+  return `/tmp/maw-done-orphan-worktrees/${safeBase}-${stamp}`;
+}
+
+async function dirExists(path: string, d: ResolvedDoneDeps): Promise<boolean> {
+  try {
+    await d.hostExec(`test -d ${shellArg(path)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function movePrunedWorktreeDir(wtPath: string, mainPath: string, d: ResolvedDoneDeps): Promise<boolean> {
+  if (!(await dirExists(wtPath, d))) return false;
+  const archived = archivePathFor(wtPath, d);
+  try {
+    await d.hostExec(`mkdir -p ${shellArg(dirname(archived))}`);
+    await d.hostExec(`mv ${shellArg(wtPath)} ${shellArg(archived)}`);
+    await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
+    d.logger.log(`  \x1b[32m✓\x1b[0m moved orphan directory ${basename(wtPath)} to ${archived}`);
+    return true;
+  } catch (e: any) {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m orphan directory move failed: ${e?.message || e}`);
+    return false;
+  }
+}
+
+async function findMatchingWorktreePaths(
+  windowName: string,
+  reposRoot: string,
+  d: ResolvedDoneDeps,
+): Promise<string[]> {
+  const suffix = windowName.replace(/^[^-]+-/, "");
+  const ghqOut = await d.hostExec(`find ${shellArg(reposRoot)} -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
+  const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
+  return allWtPaths.filter(p => {
+    const parsed = parseWorktreePath(p, reposRoot);
+    if (!parsed) return false;
+    const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
+    return wtSuffix.toLowerCase() === suffix.toLowerCase();
+  });
+}
+
+async function cwdMainPath(cwd: string | undefined, reposRoot: string, d: ResolvedDoneDeps): Promise<string | null> {
+  if (!cwd) return null;
+  try {
+    const top = (await d.hostExec(`git -C ${shellArg(cwd)} rev-parse --show-toplevel`)).trim();
+    if (!top) return null;
+    const parsed = parseWorktreePath(top, reposRoot);
+    return parsed?.mainPath ?? top;
+  } catch {
+    return null;
+  }
+}
+
+function branchBaseFor(mainPath: string, d: ResolvedDoneDeps): string {
+  if (d.branchBase) return d.branchBase;
+  const normalized = mainPath.split("\\").join("/");
+  if (normalized.endsWith("/Soul-Brews-Studio/maw-js") || normalized.includes("/github.com/Soul-Brews-Studio/maw-js")) {
+    return "alpha";
+  }
+  return "main";
+}
+
+function isProtectedBranch(branch: string, baseBranch: string): boolean {
+  return branch === "HEAD" || branch === "main" || branch === "master" || branch === "alpha" || branch === baseBranch;
+}
+
+async function ghMergedPrExists(branch: string, d: ResolvedDoneDeps): Promise<"yes" | "no" | "unavailable"> {
+  try {
+    const out = await d.hostExec(`gh pr list --head ${shellArg(branch)} --state merged --json number --limit 1`);
+    const parsed = JSON.parse(out || "[]");
+    return Array.isArray(parsed) && parsed.length > 0 ? "yes" : "no";
+  } catch {
+    return "unavailable";
+  }
+}
+
+export async function cleanupDoneBranch(
+  mainPath: string,
+  branch: string,
+  opts: DoneOpts = {},
+  deps: DoneDeps = {},
+): Promise<void> {
+  const d = doneDeps(deps);
+  const cleanBranch = Boolean(opts.cleanBranch);
+  const baseBranch = branchBaseFor(mainPath, d);
+  if (!branch || isProtectedBranch(branch, baseBranch)) return;
+
+  const quotedMain = shellArg(mainPath);
+  const quotedBranch = shellArg(branch);
+  if (cleanBranch) {
+    try {
+      await d.hostExec(`git -C ${quotedMain} branch -D ${quotedBranch}`);
+      d.logger.log(`  \x1b[32m✓\x1b[0m force-deleted branch ${branch}`);
+    } catch (e: any) {
+      d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): force delete failed: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  try {
+    await d.hostExec(`git -C ${quotedMain} merge-base --is-ancestor ${quotedBranch} ${shellArg(baseBranch)}`);
+    await d.hostExec(`git -C ${quotedMain} branch -d ${quotedBranch}`);
+    d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch} (merged into ${baseBranch})`);
+    return;
+  } catch {
+    // Not an ancestor of the configured base, or local refs are unavailable.
+  }
+
+  const prState = await ghMergedPrExists(branch, d);
+  if (prState === "yes") {
+    try {
+      await d.hostExec(`git -C ${quotedMain} branch -D ${quotedBranch}`);
+      d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch} (merged PR)`);
+    } catch (e: any) {
+      d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): delete failed after merged PR proof: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  if (prState === "unavailable") {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m branch retained (${branch}): gh unavailable and not merged into ${baseBranch}`);
+  } else {
+    d.logger.log(`  \x1b[90m○\x1b[0m branch retained (${branch}): not merged into ${baseBranch} and no merged PR found`);
+  }
+}
+
+function missingDoneTargetMessage(windowName: string): string {
+  const hint = windowName.toLowerCase() === "all" ? "\n  did you mean `maw done --all`?" : "";
+  return `no done target matched '${windowName}'${hint}`;
+}
+
+function failMissingDoneTarget(windowName: string, d: ResolvedDoneDeps): never {
+  const message = missingDoneTargetMessage(windowName);
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  throw new Error(message);
+}
+
+function leadWindow(session: SessionInfo): SessionInfo["windows"][number] | null {
+  if (session.windows.length === 0) return null;
+  const leadIndex = Math.min(...session.windows.map(w => w.index));
+  return session.windows.find(w => w.index === leadIndex) ?? null;
+}
+
+async function currentTmuxIdentity(d: ResolvedDoneDeps): Promise<{ sessionName: string; windowIndex: number } | null> {
+  try {
+    const raw = (await d.tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
+    const [sessionName, indexRaw] = raw.split("\t");
+    const windowIndex = Number(indexRaw);
+    if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
+  } catch {
+    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
+  }
+  return null;
+}
+
+async function assertDoneMayTargetWindow(
+  session: SessionInfo,
+  windowIndex: number,
+  windowName: string,
+  d: ResolvedDoneDeps,
+): Promise<void> {
+  const lead = leadWindow(session);
+  if (!lead || lead.index !== windowIndex) return;
+
+  const current = await currentTmuxIdentity(d);
+  if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
+
+  const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  d.logger.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
+  throw new Error(message);
+}
 
 function activeFleetConfigFiles(d: ResolvedDoneDeps): Array<{ file: string; path: string }> {
   const filesByName = new Map<string, { file: string; path: string }>();
@@ -107,10 +300,15 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
+  let matchedSession: SessionInfo | null = null;
   let windowIndex: number | null = null;
   for (const s of sessions) {
     const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
-    if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
+    if (w) { sessionName = s.name; matchedSession = s; windowIndex = w.index; windowName = w.name; break; }
+  }
+
+  if (matchedSession && windowIndex !== null) {
+    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName, d);
   }
 
   if (sessionName) {
@@ -135,18 +333,29 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
     d.logger.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
   }
 
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps, opts);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps, opts);
   }
   if (!removedWorktree) {
     d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+  } else if (!opts.dryRun && opts.cwd) {
+    await warnRemainingWorktrees(windowName, reposRoot, deps);
+  }
+
+  const matchedWindow = sessionName !== null && windowIndex !== null;
+  if (opts.dryRun) {
+    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName, d);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
+    d.logger.log();
+    return;
   }
 
   const removedFromConfig = removeFromFleetConfig(windowNameLower, deps);
   if (!removedFromConfig) {
     d.logger.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
+  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName, d);
 
   d.takeSnapshot("done").catch(() => {});
   d.logger.log();
@@ -234,6 +443,7 @@ export async function removeWorktreeViaConfig(
   windowNameLower: string,
   reposRoot: string,
   deps: DoneDeps = {},
+  opts: DoneOpts = {},
 ): Promise<boolean> {
   const d = doneDeps(deps);
   try {
@@ -252,16 +462,24 @@ export async function removeWorktreeViaConfig(
       const mainPath = parsed.mainPath;
 
       try {
+        if (opts.dryRun) {
+          d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${win.repo}`);
+          return true;
+        }
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        await d.hostExec(`git -C '${mainPath}' worktree remove '${fullPath}' --force`);
-        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
         return true;
       } catch (e: any) {
+        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(fullPath, mainPath, d)) {
+          return true;
+        }
         d.logger.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
       }
       break;
@@ -274,45 +492,82 @@ export async function removeWorktreeByGhqScan(
   windowName: string,
   reposRoot: string,
   deps: DoneDeps = {},
+  opts: DoneOpts = {},
 ): Promise<boolean> {
   const d = doneDeps(deps);
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, "");
-    const safeRoot = reposRoot.replace(/'/g, "'\''");
-    const ghqOut = await d.hostExec(`find '${safeRoot}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
-    const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
-    const exactMatch = allWtPaths.filter(p => {
-      const parsed = parseWorktreePath(p, reposRoot);
-      if (!parsed) return false;
-      const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
-      return wtSuffix.toLowerCase() === suffix.toLowerCase();
-    });
-    if (exactMatch.length > 1) {
-      d.logger.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${exactMatch.length} repos:`);
-      for (const wtPath of exactMatch) d.logger.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
+    const exactMatch = await findMatchingWorktreePaths(windowName, reposRoot, d);
+    let matches = exactMatch;
+    if (matches.length > 1) {
+      const mainPath = await cwdMainPath(opts.cwd, reposRoot, d);
+      if (mainPath) {
+        const scoped = matches.filter((p) => parseWorktreePath(p, reposRoot)?.mainPath === mainPath);
+        if (scoped.length === 1) {
+          matches = scoped;
+          d.logger.log(`  \x1b[36m⬡\x1b[0m scoped ambiguous worktree '${suffix}' to cwd repo ${mainPath}`);
+        }
+      }
+    }
+    if (matches.length > 1) {
+      d.logger.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${matches.length} repos:`);
+      for (const wtPath of matches) d.logger.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
       d.logger.error(`  \x1b[90m  use fleet config or remove the exact worktree manually\x1b[0m`);
       return false;
     }
-    for (const wtPath of exactMatch) {
+    for (const wtPath of matches) {
       const base = basename(wtPath);
       const parsed = parseWorktreePath(wtPath, reposRoot);
       if (!parsed) continue;
       const mainPath = parsed.mainPath;
       try {
+        if (opts.dryRun) {
+          d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${base}`);
+          removed = true;
+          continue;
+        }
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        await d.hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);
-        await d.hostExec(`git -C '${mainPath}' worktree prune`);
+        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
         if (branch && branch !== "main" && branch !== "HEAD") {
-          try { await d.hostExec(`git -C '${mainPath}' branch -d '${branch}'`); d.logger.log(`  \x1b[32m✓\x1b[0m deleted branch ${branch}`); } catch { /* expected */ }
+          await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
-      } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`); }
+      } catch (e) {
+        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(wtPath, mainPath, d)) {
+          removed = true;
+          continue;
+        }
+        d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`);
+      }
     }
   } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
   return removed;
+}
+
+export async function warnRemainingWorktrees(
+  windowName: string,
+  reposRoot: string,
+  deps: DoneDeps = {},
+): Promise<string[]> {
+  const d = doneDeps(deps);
+  let matches: string[] = [];
+  try {
+    matches = await findMatchingWorktreePaths(windowName, reposRoot, d);
+  } catch (e: any) {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m cross-repo worktree scan failed: ${e?.message || e}`);
+    return [];
+  }
+  if (matches.length === 0) return [];
+
+  d.logger.log(`  \x1b[33m⚠\x1b[0m ${matches.length} same-member worktree(s) still exist in other repo(s):`);
+  for (const match of matches) d.logger.log(`  \x1b[90m    • ${match}\x1b[0m`);
+  d.logger.log(`  \x1b[90m  inspect them or run maw cleanup --worktrees before respawning\x1b[0m`);
+  return matches;
 }
 
 export function removeFromFleetConfig(windowNameLower: string, deps: DoneDeps = {}): boolean {

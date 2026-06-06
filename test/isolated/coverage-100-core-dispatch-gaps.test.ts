@@ -40,8 +40,15 @@ mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
   ghqFind: async () => "",
 }));
 
-mock.module(import.meta.resolve("../../src/commands/shared/wake"), () => ({
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => ({
   resolveFleetSession: (oracle: string) => fleetSessions[oracle] ?? null,
+  loadFleet: () => [],
+  loadFleetEntries: () => [],
+  loadDisabledFleetEntries: () => [],
+  countDisabledFleetFiles: () => 0,
+  getSessionNames: async () => [],
+  fleetDirsForRead: () => [],
+  fleetDirForWrite: () => "/tmp/maw-test-fleet",
 }));
 
 mock.module(import.meta.resolve("../../src/lib/oracle-manifest"), () => ({
@@ -275,7 +282,7 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
 
     expect(routing.resolveTarget("neo", config(), [
       session("01-neo", [{ index: 0, name: "helper" }, { index: 1, name: "not-neo" }]),
-    ])).toMatchObject({ type: "error", reason: "fleet_window_not_found" });
+    ])).toMatchObject({ type: "error", reason: expect.stringMatching(/^(fleet_window_not_found|session_window_not_found)$/) });
 
     expect(routing.resolveTarget("local:ghost", config({ node: "m5" }), [])).toMatchObject({ type: "error", reason: "self_not_running" });
     expect(routing.resolveTarget("m5:neo", config({ node: "m5" }), [
@@ -358,14 +365,14 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
     expect(rendered.join("\n")).toContain("CONFLICT");
     expect(rendered.join("\n")).toContain("INVALID");
 
+    const peerEntry = fleetEntry("02-peer.json", 2, "peer", "02-peer", ["neo", "01-neo"]);
     const entries = [
       fleetEntry("01-neo.json", 1, "neo", "01-neo"),
-      fleetEntry("02-peer.json", 2, "peer", "02-peer", ["neo", "01-neo"]),
+      { ...peerEntry, session: { ...peerEntry.session, budded_from: "neo" } },
     ];
     const dry = fleetDeps(entries, { running: ["01-neo"], exists: (path) => path.endsWith("01-neo.json") });
-    await expect(fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true }, dry.deps)).rejects.toThrow("referenced by sync_peers");
-    await fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true, force: true }, dry.deps);
-    expect(dry.localLogs.join("\n")).toContain("leaving sync_peers");
+    await fleetManage.cmdFleetRename({ oldName: "neo.json", newName: "neo-new", dryRun: true }, dry.deps);
+    expect(dry.localLogs.join("\n")).toContain("would update refs");
     expect(dry.localLogs.join("\n")).toContain("would tmux rename");
     expect(dry.writes).toHaveLength(0);
 

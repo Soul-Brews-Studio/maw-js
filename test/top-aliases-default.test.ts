@@ -53,7 +53,6 @@ describe("top alias resolution table", () => {
       [["t", "send"], ["team", "send"]],
       [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
-      [["cleanup"], ["team", "cleanup", "--zombie-agents"]],
       [["tile", "4"], ["tile", "4"]],
       [["scaffold", "neo"], ["bud", "--scaffold-only", "neo"]],
       [["snapshots", "list"], ["fleet", "snapshots", "list"]],
@@ -62,7 +61,10 @@ describe("top alias resolution table", () => {
     for (const [input, expected] of cases) {
       expect(resolveTopAlias(input)).toEqual({ kind: "argv", argv: expected });
     }
-    expect(ALIAS_DESCRIPTIONS.cleanup).toContain("zombie");
+    // #1902 — cleanup alias deleted; bare 'maw cleanup' resolves via the
+    // cleanup plugin in the registry, not via top-aliases.
+    expect(resolveTopAlias(["cleanup"])).toBeNull();
+    expect(ALIAS_DESCRIPTIONS.cleanup).toBeUndefined();
     expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
     expect(ALIAS_DESCRIPTIONS.bring).toContain("Bring");
   });
@@ -111,7 +113,6 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
-      oracleOnly: true,
     });
     expect(parseLsAliasOpts(["--json", "--all", "--recent", "12", "--compact", "--verbose"])).toEqual({
       all: true,
@@ -129,7 +130,6 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
-      oracleOnly: true,
       recent: true,
     });
     expect(parseLsAliasOpts(["--active", "1h"])).toEqual({
@@ -138,7 +138,6 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
-      oracleOnly: true,
       active: true,
       activeThresholdSec: 3600,
     });
@@ -148,6 +147,22 @@ describe("top alias option parsers", () => {
       verbose: true,
       roster: false,
       json: false,
+    });
+    expect(parseLsAliasOpts(["--fleet-only"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      fleetOnly: true,
+    });
+    expect(parseLsAliasOpts(["--no-teams"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      teams: false,
     });
   });
 
@@ -189,6 +204,7 @@ describe("direct handler invocation", () => {
       recentLimit: 5,
       active: true,
       activeThresholdSec: 3600,
+      teams: true,
     }]);
   });
 
@@ -200,6 +216,8 @@ describe("direct handler invocation", () => {
     expect(calls.tmuxLs).toEqual([]);
     expect(calls.logs.join("\n")).toContain("usage: maw ls");
     expect(calls.logs.join("\n")).toContain("--active");
+    expect(calls.logs.join("\n")).toContain("--fleet-only");
+    expect(calls.logs.join("\n")).toContain("--no-teams");
   });
 
   test("cmdLs missing --node value prints friendly usage instead of ArgError", async () => {
@@ -255,9 +273,12 @@ describe("direct handler invocation", () => {
       "-a",
       "--list",
       "--dry-run",
+      "--no-fleet",
       "--snapshot", "snap-1",
       "--solo",
       "--split",
+      "--parent-session-id", "parent-1",
+      "--session-id", "child-1",
       "--all-local",
       "--codex",
     ], deps);
@@ -278,13 +299,24 @@ describe("direct handler invocation", () => {
       attach: true,
       listWt: true,
       dryRun: true,
+      noFleet: true,
       fromSnapshot: true,
       snapshotId: "snap-1",
       noRehydrate: true,
       split: true,
+      parentSessionId: "parent-1",
+      sessionId: "child-1",
       allLocal: true,
       engine: "codex",
     }]]);
+  });
+
+  test("#1897 wake -a is attach-only and does not set bring/split flags", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", ["neo", "-a"], deps);
+
+    expect(calls.wake).toEqual([["neo", { attach: true }]]);
   });
 
   test("awake supports help and explicit engine without loading config", async () => {

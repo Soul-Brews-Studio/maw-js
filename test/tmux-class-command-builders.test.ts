@@ -162,9 +162,9 @@ describe("Tmux command wrapper coverage", () => {
   test("pane list/info helpers parse optional fields and tolerate failures", async () => {
     const t = new FakeTmux(byCommand({
       "list-panes -a -F #{pane_id}": "%1\n%2\n",
-      "list-panes -a -F #{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}": [
-        "%1|||claude|||s:main.0|||oracle|||123|||/repo|||1715840000",
-        "%2|||zsh|||s:shell.1||||||",
+      "list-panes -a -F #{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}": [
+        "%1|||claude|||s:main.0|||oracle|||123|||/repo|||1715840000|||1|||2|||80|||24|||0|||3|||main|||1|||160|||48|||1|||1",
+        "%2|||zsh|||s:shell.1||||||||||||||||||||||||||||||||||||||||||||||||",
       ].join("\n"),
       "list-panes -t s:main.0 -F #{pane_current_command}": "claude\n",
       "list-panes -a -F #{session_name}:#{window_index}|||#{pane_current_command}": "s:0|||claude\ns:1|||zsh\n",
@@ -174,8 +174,8 @@ describe("Tmux command wrapper coverage", () => {
 
     expect(await t.listPaneIds()).toEqual(new Set(["%1", "%2"]));
     expect(await t.listPanes()).toEqual([
-      { id: "%1", command: "claude", target: "s:main.0", title: "oracle", pid: 123, cwd: "/repo", lastActivity: 1715840000 },
-      { id: "%2", command: "zsh", target: "s:shell.1", title: "", pid: undefined, cwd: undefined, lastActivity: undefined },
+      { id: "%1", command: "claude", target: "s:main.0", title: "oracle", pid: 123, cwd: "/repo", lastActivity: 1715840000, top: 1, left: 2, w: 80, h: 24, paneIdx: 0, winIdx: 3, winName: "main", active: true, window: { w: 160, h: 48, active: true }, attached: true },
+      { id: "%2", command: "zsh", target: "s:shell.1", title: "", pid: undefined, cwd: undefined, lastActivity: undefined, top: 0, left: 0, w: 0, h: 0, paneIdx: 0, winIdx: 0, winName: undefined, active: false, window: { w: 0, h: 0, active: false }, attached: false },
     ]);
     expect(await t.getPaneCommand("s:main.0")).toBe("claude");
     expect(await t.getPaneCommands(["s:0", "s:missing"])).toEqual({ "s:0": "claude" });

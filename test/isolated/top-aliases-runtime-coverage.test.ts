@@ -6,6 +6,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { UserError } from "../../src/core/util/user-error";
 
+// #1914 — cmdLayout now resolves the caller's current tmux window via
+// `tmux display-message` when MAW_TEST_MODE is unset. Tests mock the
+// downstream cmdTmuxLayout dep but cannot mock execSync mid-process, so
+// hard-set the env to keep target="." in this isolated harness.
+process.env.MAW_TEST_MODE = "1";
+
 let tmuxLsCalls: unknown[] = [];
 let tmuxLayoutCalls: unknown[][] = [];
 let wakeCalls: unknown[][] = [];
@@ -65,6 +71,21 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
     loadConfigCalls += 1;
     return { commands: { codex: "codex", spark: "spark" } };
   },
+  // Stub the additional config helpers re-exported by src/config barrel —
+  // transitive imports from tmux-class.ts / pty.ts / etc. need these at
+  // module-link time even when the test doesn't directly invoke them.
+  cfgLimit: (_key: string, fallback: number = 0) => fallback,
+  cfgInterval: (_key: string, fallback: number = 0) => fallback,
+  cfgTimeout: (_key: string, fallback: number = 0) => fallback,
+  cfg: (_key: string, fallback: any = undefined) => fallback,
+  configForDisplay: () => ({}),
+  resetConfig: () => {},
+  saveConfig: () => {},
+  buildCommand: (name: string) => name,
+  buildCommandInDir: (name: string) => name,
+  getEnvVars: () => ({}),
+  validateConfigShape: () => ({ ok: true }),
+  D: {} as any,
 }));
 
 const {
@@ -111,7 +132,6 @@ describe("top alias resolution table", () => {
       [["t", "send"], ["team", "send"]],
       [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
-      [["cleanup"], ["team", "cleanup", "--zombie-agents"]],
       [["tile", "4"], ["tile", "4"]],
       [["scaffold", "neo"], ["bud", "--scaffold-only", "neo"]],
       [["snapshots", "list"], ["fleet", "snapshots", "list"]],
@@ -121,7 +141,10 @@ describe("top alias resolution table", () => {
       const out = resolveTopAlias(input);
       expect(out).toEqual({ kind: "argv", argv: expected });
     }
-    expect(ALIAS_DESCRIPTIONS.cleanup).toContain("zombie");
+    // #1902 — cleanup alias deleted; bare 'maw cleanup' resolves via the
+    // cleanup plugin in the registry, not via top-aliases.
+    expect(resolveTopAlias(["cleanup"])).toBeNull();
+    expect(ALIAS_DESCRIPTIONS.cleanup).toBeUndefined();
     expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
   });
 
@@ -148,7 +171,6 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
-      oracleOnly: true,
       recent: true,
     });
     expect(parseLsAliasOpts(["--active", "1h", "alpha"])).toEqual({
@@ -158,7 +180,6 @@ describe("top alias option parsers", () => {
       roster: false,
       json: false,
       filter: "alpha",
-      oracleOnly: true,
       active: true,
       activeThresholdSec: 3600,
     });
@@ -182,6 +203,19 @@ describe("top alias option parsers", () => {
 });
 
 describe("direct handler invocation", () => {
+  test("#1891 cmdLs bare compact path does not request the legacy fleet-only filter", async () => {
+    await invokeDirectHandler("cmdLs", []);
+    expect(tmuxLsCalls).toEqual([{
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      teams: true,
+    }]);
+    expect(lsFederatedCalls).toEqual([]);
+  });
+
   test("cmdLs dispatches parsed default ls options to local tmux ls", async () => {
     await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "--active", "45m", "-v"]);
     expect(tmuxLsCalls).toEqual([{
@@ -194,6 +228,7 @@ describe("direct handler invocation", () => {
       recentLimit: 5,
       active: true,
       activeThresholdSec: 2700,
+      teams: true,
     }]);
     expect(lsFederatedCalls).toEqual([]);
   });
@@ -224,6 +259,30 @@ describe("direct handler invocation", () => {
 
     await expect(invokeDirectHandler("cmdLayout", [])).rejects.toThrow("layout: missing preset");
     expect(errors.join("\n")).toContain("usage: maw layout <preset>");
+  });
+
+  test("cmdLayout wraps downstream failures in a clean UserError (#1914)", async () => {
+    // Simulate cmdTmuxLayout throwing (e.g. select-layout failure) → should
+    // surface as `✗ maw layout: …` + UserError, not raw stack trace.
+    const origLayout = tmuxLayoutCalls;
+    tmuxLayoutCalls = [];
+    let threw: unknown;
+    const failingDeps = {
+      cmdTmuxLayout: async () => { throw new Error("select-layout failed for 'foo': boom"); },
+    };
+    // Re-import handler with failing dep injected via top-aliases deps param
+    const { invokeDirectHandler: invoke2 } = await import("../../src/cli/top-aliases");
+    logs = [];
+    errors = [];
+    try {
+      await invoke2("cmdLayout", ["tiled"], failingDeps);
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeInstanceOf(UserError);
+    expect(errors.join("\n")).toContain("✗ maw layout:");
+    expect(errors.join("\n")).toContain("select-layout failed");
+    tmuxLayoutCalls = origLayout;
   });
 
   test("wake help prints usage without invoking wake", async () => {

@@ -89,6 +89,17 @@ describe("vendor take impl coverage", () => {
     await expect(cmdTake("neo:skills", "pulse")).rejects.toThrow("window 'skills' not found in session 'neo'");
   });
 
+  test("accepts tmux displayed trailing-dash window names by moving canonical window", async () => {
+    sessions = [{ name: "neo", windows: [{ index: 2, name: "skills" }] }];
+
+    await cmdTake("neo:skills-");
+
+    expect(hostExecCalls[0]).toContain("tmux new-session -d -s 'skills'");
+    expect(hostExecCalls).toContain("tmux display-message -t 'neo:skills' -p '#{pane_current_path}'");
+    expect(hostExecCalls).toContain("tmux move-window -s 'neo:skills' -t 'skills:'");
+    expect(logs.join("\n")).toContain("neo:skills → skills (new session)");
+  });
+
   test("moves by numeric window index, tolerates cwd and kill-window failures, and wraps move errors", async () => {
     sessions = [{ name: "Neo", windows: [{ index: 2, name: "skills" }] }];
     hostExecImpl = async (cmd: string) => {

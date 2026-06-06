@@ -33,6 +33,7 @@ describe("validateConfig extended fields", () => {
         },
       },
       discovery: { transport: "both" },
+      scout: false,
       pluginSources: ["https://plugins.example/registry.json"],
       disabledPlugins: ["debug-only"],
       migrations: { healedDefaults: true, keptManual: false, ignored: "nope" },
@@ -65,6 +66,7 @@ describe("validateConfig extended fields", () => {
         },
       },
       discovery: { transport: "both" },
+      scout: false,
       pluginSources: ["https://plugins.example/registry.json"],
       disabledPlugins: ["debug-only"],
       migrations: { healedDefaults: true, keptManual: false },
@@ -93,6 +95,7 @@ describe("validateConfig extended fields", () => {
         scout: { enabled: "yes", locator: 456, timeoutMs: -1, keyPrefix: "" },
       },
       discovery: { transport: "carrier-pigeon" },
+      scout: "no",
       pluginSources: ["file:///plugins.json", 7, "https://plugins.example/index.json"],
       disabledPlugins: ["dev-only", false, "experimental"],
       migrations: { done: true, pending: false, ignored: "no" },
@@ -126,6 +129,7 @@ describe("validateConfig extended fields", () => {
       "[maw] config warning: allowPeersWithoutToken must be a boolean, using default",
       "[maw] config warning: trustLoopback must be a boolean, using default",
       "[maw] config warning: pin must be a string, using default",
+      "[maw] config warning: scout must be a boolean, using default",
       "[maw] config warning: discovery.transport must be one of: scout, zenoh, both, off, using default",
       "[maw] config warning: node must be a non-empty string, using default",
       "[maw] config warning: nodeUser must be a non-empty string, using default",
@@ -176,6 +180,7 @@ describe("validateConfig extended fields", () => {
         migrations: {},
         agents: {},
         discovery: { transport },
+        scout: true,
       });
 
       expect(warnings).toEqual([]);
@@ -188,6 +193,7 @@ describe("validateConfig extended fields", () => {
         migrations: {},
         agents: {},
         discovery: { transport },
+        scout: true,
       });
     }
   });

@@ -68,6 +68,9 @@ describe("transport index function coverage", () => {
     expect(transports.discoveryTransport({ discovery: { transport: "scout" }, disabledPlugins: ["zenoh-scout"] } as any)).toBe("scout");
     expect(transports.discoveryTransport({ zenoh: { scout: { enabled: true } } } as any)).toBe("both");
     expect(transports.discoveryTransport({ disabledPlugins: ["zenoh-scout"] } as any)).toBe("scout");
+    expect(transports.discoveryTransport({ scout: false } as any)).toBe("off");
+    expect(transports.discoveryTransport({ scout: false, zenoh: { scout: { enabled: true } } } as any)).toBe("zenoh");
+    expect(transports.discoveryTransport({ scout: false, discovery: { transport: "both" } } as any)).toBe("zenoh");
   });
 
   test("create/get/reset router registers every optional transport and handles async catches", async () => {

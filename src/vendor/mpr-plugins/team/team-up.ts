@@ -1,0 +1,268 @@
+// Vendored copy of the team-up verb (#1976). The runtime loads THIS plugin
+// (~/.maw/plugins/team → src/vendor/mpr-plugins/team), not src/commands/plugins/team.
+// Paths differ from the core copy: charter is a sibling here, and commands/shared
+// is three levels up (vendored dir is src/vendor/mpr-plugins/team).
+import { existsSync, readFileSync } from "fs";
+import { resolve } from "path";
+import { readTeamCharter, type TeamCharter } from "./team-charter";
+import { loadConfig } from "../../../config/load";
+import type { MawConfig } from "../../../config/types";
+import { Tmux } from "../../../core/transport/tmux";
+import { cmdWake } from "../../../commands/shared/wake-cmd";
+import { cmdSend } from "../../../commands/shared/comm-send";
+import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
+import {
+  classifyMember,
+  currentTmuxSession,
+  engineCommand,
+  findRepoRoot,
+  listPaneSnapshots,
+  repoSlugFromRoot,
+  resolveCharterPath,
+  memberWakeTarget,
+  memberWindowIdentity,
+  wakeMember,
+  type ClassifiedTeamMember,
+} from "./team-liveness";
+
+export interface TeamUpOptions {
+  dryRun?: boolean;
+  force?: boolean;
+  status?: boolean;
+  gather?: boolean;
+  engine?: string;
+  only?: string[];
+  session?: string;
+}
+
+export interface TeamUpAction {
+  role: string;
+  state: string;
+  action: string;
+  command?: string;
+}
+
+export interface TeamUpResult {
+  team: string;
+  session: string;
+  roster: ClassifiedTeamMember[];
+  actions: TeamUpAction[];
+  warnings: string[];
+  output: string;
+}
+
+export interface TeamUpDeps {
+  tmux?: Pick<Tmux, "run">;
+  cwd?: string;
+  charterPath?: string | null;
+  readTeamCharterFn?: typeof readTeamCharter;
+  loadConfigFn?: typeof loadConfig;
+  cmdWakeFn?: typeof cmdWake;
+  cmdSendFn?: typeof cmdSend;
+  sleep?: (ms: number) => Promise<void>;
+  repoRoot?: string;
+  repoSlug?: string;
+  logger?: (line: string) => void;
+}
+
+const DEFAULT_SLEEP = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const SHELL_RE = /^-?(zsh|bash|sh|fish)$/i;
+
+function renderRoster(team: string, session: string, roster: ClassifiedTeamMember[], actions: TeamUpAction[], warnings: string[], tail?: string): string {
+  const actionByRole = new Map(actions.map((action) => [action.role, action]));
+  const lines = [`team up: ${team} (${session})`, "role\tengine\tstate\taction"];
+  for (const item of roster) {
+    const action = actionByRole.get(item.role)?.action ?? "skip";
+    lines.push(`${item.role}\t${item.engine}\t${item.state}\t${action}`);
+  }
+  if (warnings.length) lines.push("", "warnings:", ...warnings.map((warning) => `  - ${warning}`));
+  if (tail) lines.push("", tail);
+  return lines.join("\n");
+}
+
+async function waitForNonShell(
+  member: TeamCharter["members"][number],
+  session: string,
+  tmux: Pick<Tmux, "run">,
+  sleep: (ms: number) => Promise<void>,
+  repoSlug: string,
+): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    const panes = await listPaneSnapshots(tmux);
+    const current = classifyMember(member, panes, session, { repoSlug });
+    if (current.pane && !SHELL_RE.test(current.pane.command)) return;
+    await sleep(1000);
+  }
+}
+
+function warnOnPathCollisions(roster: ClassifiedTeamMember[], warnings: string[]): void {
+  const seen = new Map<string, string>();
+  for (const item of roster) {
+    if (!item.member.worktree || !item.pane?.path) continue;
+    const prior = seen.get(item.pane.path);
+    if (prior && prior !== item.role) warnings.push(`worktree path collision: ${prior} and ${item.role} both at ${item.pane.path}`);
+    else seen.set(item.pane.path, item.role);
+  }
+}
+
+function memberChannels(charter: TeamCharter, member: TeamCharter["members"][number]): boolean {
+  if (member.discord === false) return false;
+  if (charter.discord && charter.discord !== false) return true;
+  return member.channels === true;
+}
+
+function channelFlag(channels: boolean): string {
+  return channels ? " --channels" : "";
+}
+
+function wakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false): string {
+  if (item.member.worktree === false) {
+    return `wakeable ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+  }
+  return `wakeable --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+}
+
+function freshWakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false, prefix = "would fresh wake"): string {
+  if (item.member.worktree === false) {
+    return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+  }
+  return `${prefix} --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+}
+
+function resolvePrimingPrompt(member: TeamCharter["members"][number], repoRoot: string): string | undefined {
+  const prompt = member.prompt?.trim();
+  if (!prompt) return undefined;
+  if (!prompt.startsWith("./")) return prompt;
+  const path = resolve(repoRoot, prompt);
+  if (!existsSync(path)) throw new Error(`prompt file not found for ${member.role}: ${prompt}`);
+  return readFileSync(path, "utf-8").trim();
+}
+
+async function primeMember(
+  member: TeamCharter["members"][number],
+  repoRoot: string,
+  deps: Pick<TeamUpDeps, "cmdSendFn">,
+  warnings: string[],
+): Promise<void> {
+  const prompt = resolvePrimingPrompt(member, repoRoot);
+  if (!prompt) return;
+  const send = deps.cmdSendFn ?? cmdSend;
+  try {
+    await send(memberWindowIdentity(member), prompt, false);
+  } catch (error) {
+    warnings.push(`prompt prime failed for ${member.role}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: TeamUpDeps = {}): Promise<TeamUpResult> {
+  const cwd = deps.cwd ?? process.cwd();
+  const config: MawConfig = (deps.loadConfigFn ?? loadConfig)();
+  const charterPath = deps.charterPath !== undefined ? deps.charterPath : resolveCharterPath(team, cwd, config.node);
+  if (!charterPath) throw new Error(config.node ? `charter not found: ${team} (no team file for node '${config.node}')` : `charter not found: ${team}`);
+
+  const read = deps.readTeamCharterFn ?? readTeamCharter;
+  const charter: TeamCharter = read(charterPath);
+  const tmux = deps.tmux ?? new Tmux();
+  const repoRoot = deps.repoRoot ?? findRepoRoot(cwd);
+  const repoSlug = deps.repoSlug ?? repoSlugFromRoot(repoRoot);
+  const targetRepoSlug = charter.project ?? repoSlug;
+  const currentSession = await currentTmuxSession(tmux).catch(() => "");
+  const session = opts.session?.trim() || charter.session || currentSession;
+  if (!session) throw new Error(`session required: pass --session <name> when running team up outside tmux and charter.session is omitted`);
+  const warnings: string[] = [];
+  if (opts.session && currentSession && opts.session !== currentSession) {
+    warnings.push(`current tmux session '${currentSession}' differs from --session '${opts.session}'; targeting explicit session`);
+  } else if (charter.session && currentSession && charter.session !== currentSession) {
+    warnings.push(`current tmux session '${currentSession}' differs from charter.session '${charter.session}'; targeting charter session`);
+  }
+
+  const panes = await listPaneSnapshots(tmux);
+  const only = opts.only?.length ? new Set(opts.only.map((item) => item.trim()).filter(Boolean)) : undefined;
+  const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
+  const actions: TeamUpAction[] = [];
+
+  if (opts.status) {
+    for (const item of roster) {
+      if (item.state === "skipped") actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+      else if (item.state === "missing") actions.push({ role: item.role, state: item.state, action: wakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)) });
+      else if (item.state === "dead") actions.push({ role: item.role, state: item.state, action: "wakeable resume in place" });
+      else actions.push({ role: item.role, state: item.state, action: "skip live" });
+    }
+    warnOnPathCollisions(roster, warnings);
+    const output = renderRoster(team, session, roster, actions, warnings);
+    if (deps.logger) deps.logger(output); else console.log(output);
+    return { team, session, roster, actions, warnings, output };
+  }
+
+  if (opts.dryRun) {
+    for (const item of roster) {
+      if (item.state === "skipped") {
+        actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+      } else if (opts.force) {
+        const command = engineCommand(item.engine, { resume: false }, config);
+        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
+      } else if (item.state === "live") {
+        actions.push({ role: item.role, state: item.state, action: "skip live" });
+      } else if (item.state === "dead") {
+        const command = engineCommand(item.engine, { resume: true }, config);
+        actions.push({ role: item.role, state: item.state, action: "would relaunch in place with resume", command });
+      } else {
+        const command = engineCommand(item.engine, { resume: false }, config);
+        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)), command });
+      }
+    }
+    warnOnPathCollisions(roster, warnings);
+    const output = renderRoster(team, session, roster, actions, warnings, "No changes made");
+    if (deps.logger) deps.logger(output); else console.log(output);
+    return { team, session, roster, actions, warnings, output };
+  }
+
+  const sleep = deps.sleep ?? DEFAULT_SLEEP;
+  for (const item of roster) {
+    if (item.state === "skipped") {
+      actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
+    } else if (opts.force) {
+      if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
+      const command = engineCommand(item.engine, { resume: false }, config);
+      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+      actions.push({ role: item.role, state: item.state, action: "force fresh wake", command });
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
+    } else if (item.state === "live") {
+      actions.push({ role: item.role, state: item.state, action: "skip live" });
+    } else if (item.state === "dead") {
+      const command = engineCommand(item.engine, { resume: true }, config);
+      await tmux.run("send-keys", "-t", item.pane!.paneId, "C-u");
+      await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
+      actions.push({ role: item.role, state: item.state, action: "resume in place", command });
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
+    } else {
+      const command = engineCommand(item.engine, { resume: false }, config);
+      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+      actions.push({ role: item.role, state: item.state, action: "fresh wake", command });
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
+    }
+  }
+
+  const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);
+  const finalRoster = charter.members.map((member) => classifyMember(member, finalPanes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
+  warnOnPathCollisions(finalRoster, warnings);
+
+  if (opts.gather) {
+    for (const item of finalRoster) {
+      if (item.pane && item.state === "live") await tmux.run("join-pane", "-s", item.pane.paneId);
+    }
+    await tmux.run("select-layout", "main-vertical");
+    actions.push({ role: "*", state: "live", action: "gather main-vertical" });
+  }
+
+  if (!opts.status && !opts.dryRun && finalRoster.some((item) => item.state === "live")) {
+    await tmux.run("kill-window", "-t", `${session}:${TEAM_LIFECYCLE_GUARD_WINDOW}`).catch(() => undefined);
+  }
+
+  const output = renderRoster(team, session, finalRoster, actions, warnings);
+  if (deps.logger) deps.logger(output); else console.log(output);
+  return { team, session, roster: finalRoster, actions, warnings, output };
+}

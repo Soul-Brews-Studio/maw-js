@@ -10,7 +10,7 @@
  * Schema v1:
  *   { version: 1, peers: { <alias>: { url, node, addedAt, lastSeen,
  *                                     [lastError, nickname, pubkey, pubkeyFirstSeen,
- *                                      identity] } } }
+ *                                      identity, ssh, sshUser] } } }
  *   — fields in brackets are optional. `pubkey` / `pubkeyFirstSeen` were
  *   added in #804 Step 2 for TOFU peer-identity pinning. `identity` was
  *   added in #804 Step 3 to capture the peer's self-reported `<oracle>:<node>`
@@ -84,6 +84,21 @@ export interface Peer {
    * Doctor + boot-warn skip undefined identity (no false-positive collision).
    */
   identity?: { oracle: string; node: string };
+  /**
+   * Optional SSH config alias or SSH target used for cross-node attach (#1879).
+   *
+   * When set, attach uses this before trying ~/.ssh/config alias discovery or
+   * raw peer URL fallback. May be a bare Host alias ("oracle-world") or a full
+   * target ("sila@oracle-world").
+   */
+  ssh?: string;
+  /**
+   * Optional SSH user override for multi-user hosts (#1879).
+   *
+   * Applied to bare `ssh` / discovered SSH config aliases / URL fallback
+   * targets, but not to full `user@host` targets.
+   */
+  sshUser?: string;
 }
 
 export interface PeersFile {

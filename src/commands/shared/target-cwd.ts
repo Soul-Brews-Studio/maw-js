@@ -3,15 +3,33 @@ import { loadFleet } from "./fleet-load";
 import { getGhqRoot } from "../../config/ghq-root";
 
 /**
- * Extract oracle name from a tmux target. Sessions are conventionally
- * `NN-<oracle>` (e.g. `05-nari` → `nari`). The previous extraction
- * (`target.split(":").pop()`) returned the window index/name, which
- * `buildCommand` could not match — falling back to the default command
- * regardless of which oracle was being woken.
+ * Extract oracle name from a tmux target.
+ *
+ * Prefer the window segment when present so command-map overrides keyed by
+ * window names still apply on wake/resume. Fall back to session slug when
+ * window is numeric/absent or when target is session-only.
  */
 export function extractOracleName(target: string): string {
-  const session = target?.split(":")[0] || "";
-  return session.replace(/^\d+-/, "");
+  const clean = stripPaneSuffix(target);
+  if (!clean) return "";
+  const parts = clean.split(":");
+
+  const hasNodePrefix = parts.length >= 3;
+  const sessionPart = hasNodePrefix ? parts[1] : parts[0] || "";
+  const windowPart = hasNodePrefix ? parts[2] : parts[1];
+
+  if (windowPart && !/^[0-9]+$/.test(windowPart)) {
+    return windowPart.replace(/^\d+-/, "");
+  }
+  return sessionPart.replace(/^\d+-/, "");
+}
+
+/**
+ * Strip pane suffixes like `target.0` while preserving dots in window names
+ * (e.g. `mawjs-v2`).
+ */
+function stripPaneSuffix(target: string): string {
+  return target.replace(/\.[0-9]+$/, "");
 }
 
 /**
@@ -26,7 +44,12 @@ export function extractOracleName(target: string): string {
  */
 export function resolveTargetCwd(target: string): string | null {
   if (!target) return null;
-  const [session, winRef] = target.split(":");
+  const clean = stripPaneSuffix(target);
+  const parts = clean.split(":");
+  const hasNodePrefix = parts.length >= 3;
+
+  const session = hasNodePrefix ? parts[1] : parts[0] || "";
+  const winRef = hasNodePrefix ? parts[2] : parts[1];
   if (!session) return null;
 
   let fleets;

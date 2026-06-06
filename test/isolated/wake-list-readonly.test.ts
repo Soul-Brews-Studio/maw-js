@@ -9,7 +9,7 @@ describe("wake --list readonly preview (#1563)", () => {
     const cmdWakeIdx = wakeCmdSrc.indexOf("export async function cmdWake");
     const cmdWakeSrc = wakeCmdSrc.slice(cmdWakeIdx);
     const listIdx = cmdWakeSrc.indexOf("if (opts.listWt)");
-    const detectIdx = cmdWakeSrc.indexOf("let session = foreignSession || preResolvedSession");
+    const detectIdx = cmdWakeSrc.indexOf("let session = foreignSession ?");
     const setEnvIdx = cmdWakeSrc.indexOf("await setSessionEnv(session)");
     const newSessionIdx = cmdWakeSrc.indexOf("await tmux.newSession");
     const newWindowIdx = cmdWakeSrc.indexOf("await tmux.newWindow(session");

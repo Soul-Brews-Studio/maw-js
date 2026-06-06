@@ -105,6 +105,7 @@ describe("wake-cmd helper coverage", () => {
     expect(shouldOfferExistingSessionAttach({ bring: true }, true, {} as NodeJS.ProcessEnv)).toBe(false);
     expect(shouldOfferExistingSessionAttach({}, false, {} as NodeJS.ProcessEnv)).toBe(false);
     expect(shouldOfferExistingSessionAttach({}, true, { MAW_TEST_MODE: "1" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({}, true, { MAW_ATTACH_FOLLOWS: "1" } as NodeJS.ProcessEnv)).toBe(false);
   });
 
   test("waitForTmuxSessionReady retries, waits between attempts, and throws after exhaustion", async () => {

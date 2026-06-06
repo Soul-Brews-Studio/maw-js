@@ -1,7 +1,8 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { FLEET_DIR, tmux } from "../../sdk";
+import * as sdk from "../../sdk";
 import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
+import { resolveFleetWindowSessionTarget } from "../../core/matcher/resolve-target";
 
 export interface FleetWindow {
   name: string;
@@ -14,6 +15,8 @@ export interface FleetSession {
   skip_command?: boolean;
   /** Peer oracle names for soul-sync (flat, no hierarchy). */
   sync_peers?: string[];
+  /** Optional parent oracle/fleet name for bud lineage. */
+  budded_from?: string;
   /** Project repos (org/repo) this oracle absorbs ψ/ from via `maw soul-sync --project`. */
   project_repos?: string[];
 }
@@ -38,7 +41,8 @@ export interface DisabledFleetEntry {
 }
 
 export function fleetDirsForRead(): string[] {
-  return coreFleetDirsForRead({ legacyFleetDir: FLEET_DIR });
+  const legacyFleetDir = (sdk as any).FLEET_DIR as string | undefined;
+  return legacyFleetDir ? coreFleetDirsForRead({ legacyFleetDir }) : uniqueDirs([coreFleetDirForWrite()]);
 }
 
 export function fleetDirForWrite(): string {
@@ -134,7 +138,25 @@ export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntr
 
 export async function getSessionNames(): Promise<string[]> {
   try {
-    const out = await tmux.run("list-sessions", "-F", "#{session_name}");
+    const out = await sdk.tmux.run("list-sessions", "-F", "#{session_name}");
     return out.trim().split("\n").filter(Boolean);
   } catch { return []; }
+}
+
+/**
+ * Oracle name → fleet session name via the fleet config (#281).
+ *
+ * Lives here (not in wake-resolve-impl) so the hot, sync `resolveTarget`
+ * path can pull it WITHOUT dragging the whole wake subsystem — wake-resolve-impl
+ * statically `import { hostExec, tmux } from "../../sdk"`, which made any test
+ * partial-mocking the sdk barrel fail to link (the release blocker on
+ * v26.6.5-alpha.1323). This module only uses `import * as sdk` (namespace —
+ * link-safe), and resolveFleetSession itself touches neither hostExec nor tmux.
+ */
+export function resolveFleetSession(oracle: string): string | null {
+  try {
+    const resolved = resolveFleetWindowSessionTarget(oracle, loadFleet());
+    if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
+  } catch { /* fleet dir may not exist */ }
+  return null;
 }

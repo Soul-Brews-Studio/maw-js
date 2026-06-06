@@ -13,6 +13,8 @@ type PeerShape = {
   pubkeyFirstSeen?: string;
   nickname?: string | null;
   lastError?: { code: string; message: string; at: string };
+  ssh?: string;
+  sshUser?: string;
   oneWay?: boolean;
   lastSymmetricCheck?: string;
 };
@@ -196,6 +198,8 @@ describe("src/lib/peers impl extra branch coverage", () => {
       alias: "zulu",
       url: "http://zulu.local:3456",
       identity: { oracle: "fallback-oracle", node: "fallback-node" },
+      ssh: "zulu-tunnel",
+      sshUser: "sila",
     });
 
     expect(added).toMatchObject({ alias: "zulu", overwrote: false });
@@ -204,6 +208,8 @@ describe("src/lib/peers impl extra branch coverage", () => {
       nickname: "Peer Nick",
       pubkey: "observed-key",
       identity: { oracle: "probe-oracle", node: "probe-node" },
+      ssh: "zulu-tunnel",
+      sshUser: "sila",
     });
     expect(added.peer.lastSeen).toBeString();
     expect(appliedKinds).toEqual(["tofu-bootstrap"]);

@@ -19,6 +19,9 @@ import { loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-
 import { loadConfig } from "maw-js/config";
 import { resolveSessionTarget } from "maw-js/core/matcher/resolve-target";
 import { UserError } from "maw-js/core/util/user-error";
+import { loadManifestCached, type OracleManifestEntry } from "maw-js/lib/oracle-manifest";
+import { fetchPeerPayload, type PeerSession } from "../ls/internal/peer-call";
+import { resolveAllPeers } from "../ls/internal/peer-resolve";
 
 export interface LocateOpts {
   path?: boolean;
@@ -34,6 +37,56 @@ interface LocateResult {
   fleetConfigPath: string | null;
   federationNode: string | null;
   inAgentsConfig: boolean;
+  federation: LocateFederationHit[];
+  manifestEntry: OracleManifestEntry | null;
+}
+
+interface LocateFederationHit {
+  alias: string;
+  node: string | null;
+  url: string | null;
+  sessionName: string;
+  windowCount: number;
+}
+
+function normalizedNames(name: string): string[] {
+  const raw = name.trim().toLowerCase();
+  const unnumbered = raw.replace(/^\d+-/, "");
+  return [...new Set([
+    raw,
+    raw.replace(/-oracle$/, ""),
+    unnumbered,
+    unnumbered.replace(/-oracle$/, ""),
+  ].filter(Boolean))];
+}
+
+function peerSessionMatches(session: PeerSession, oracle: string): boolean {
+  const wanted = new Set(normalizedNames(oracle));
+  const sessionNames = normalizedNames(session.name);
+  if (sessionNames.some(name => wanted.has(name))) return true;
+  return (session.windows ?? []).some((w) => normalizedNames(w.name).some(name => wanted.has(name)));
+}
+
+async function findFederationHits(oracle: string): Promise<LocateFederationHit[]> {
+  const peers = resolveAllPeers();
+  if (!peers.length) return [];
+
+  const payloads = await Promise.all(peers.map(peer => fetchPeerPayload(peer, 2000)));
+  const hits: LocateFederationHit[] = [];
+  for (const payload of payloads) {
+    if (payload.error) continue;
+    for (const session of payload.sessions ?? []) {
+      if (!peerSessionMatches(session, oracle)) continue;
+      hits.push({
+        alias: payload.alias ?? payload.node ?? "peer",
+        node: payload.node ?? null,
+        url: payload.url ?? null,
+        sessionName: session.name,
+        windowCount: session.windows?.length ?? 0,
+      });
+    }
+  }
+  return hits;
 }
 
 function fleetEntryMatches(entry: FleetEntry, names: Set<string>): boolean {
@@ -58,7 +111,20 @@ function findFleetConfigPath(oracle: string, sessionName: string | null): string
   return null;
 }
 
-async function gatherInfo(oracle: string): Promise<LocateResult> {
+function lookupManifestEntry(oracle: string): OracleManifestEntry | undefined {
+  try {
+    const manifest = loadManifestCached();
+    const stripped = oracle.replace(/-oracle$/, "");
+    return (
+      manifest.find((entry) => entry.name === oracle) ||
+      (stripped !== oracle ? manifest.find((entry) => entry.name === stripped) : undefined)
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {}): Promise<LocateResult> {
   // ghq repo path — try `<name>-oracle` suffix first (canonical), then bare name
   const repoPath =
     (await ghqFind(`/${oracle}-oracle`)) ?? (await ghqFind(`/${oracle}`));
@@ -85,21 +151,34 @@ async function gatherInfo(oracle: string): Promise<LocateResult> {
   // shadow legacy entries and report the exact source path.
   const fleetConfigPath = findFleetConfigPath(oracle, sessionName);
 
+  // Manifest fallback — includes oracles.json entries that do not have a
+  // local repo, tmux session, or fleet config yet. This keeps `maw locate`
+  // aligned with `maw oracle list` for registry-only oracles.
+  const manifestEntry = lookupManifestEntry(oracle);
+
   // Federation — config.agents map + node
   const config = loadConfig();
   const agents = config.agents ?? {};
   const inAgentsConfig = oracle in agents;
-  const federationNode = inAgentsConfig ? agents[oracle]! : (config.node ?? null);
+  const federationNode = inAgentsConfig
+    ? agents[oracle]!
+    : sessionName
+      ? (config.node ?? "local")
+      : (manifestEntry?.node ?? config.node ?? null);
+
+  const federation = opts.scanFederation === false ? [] : await findFederationHits(oracle);
 
   return {
     name: oracle,
-    repoPath,
-    hasPsi,
+    repoPath: repoPath ?? manifestEntry?.localPath ?? null,
+    hasPsi: repoPath ? hasPsi : (manifestEntry?.hasPsi ?? false),
     sessionName,
     windowCount,
     fleetConfigPath,
     federationNode,
     inAgentsConfig,
+    federation,
+    manifestEntry: manifestEntry ?? null,
   };
 }
 
@@ -110,10 +189,10 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
     throw new UserError("missing oracle name");
   }
 
-  const info = await gatherInfo(oracle);
+  const info = await gatherInfo(oracle, { scanFederation: !opts.path });
 
   // Nothing found at all → not-found error (mirrors alpha.75 oracle-about fix)
-  if (!info.repoPath && !info.sessionName && !info.fleetConfigPath) {
+  if (!info.repoPath && !info.sessionName && !info.fleetConfigPath && info.federation.length === 0 && !info.manifestEntry) {
     throw new UserError(`no oracle named '${oracle}' — try: maw oracle ls`);
   }
 
@@ -146,9 +225,29 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
   if (info.fleetConfigPath) {
     console.log(`   fleet:    ${info.fleetConfigPath}`);
   }
+  if (info.manifestEntry) {
+    console.log(`   source:   ${info.manifestEntry.sources.join(", ")}`);
+    if (info.manifestEntry.repo && !info.repoPath) {
+      console.log(`   repo:     ${info.manifestEntry.repo}`);
+    }
+    if (info.manifestEntry.hasFleetConfig && !info.fleetConfigPath) {
+      console.log("   fleet:    known (manifest)");
+    }
+  }
   if (info.federationNode) {
-    const suffix = info.inAgentsConfig ? " (from config.agents)" : " (this node)";
+    const suffix = info.inAgentsConfig
+      ? " (from config.agents)"
+      : info.sessionName
+        ? " (this node)"
+        : info.manifestEntry?.node
+          ? " (from manifest)"
+          : " (this node)";
     console.log(`   node:     ${info.federationNode}${suffix}`);
+  }
+  for (const hit of info.federation) {
+    const label = hit.node ?? hit.alias;
+    const location = hit.url ? ` (${hit.url})` : "";
+    console.log(`   remote:   ${label}:${hit.sessionName}${location} (${hit.windowCount} window${hit.windowCount === 1 ? "" : "s"})`);
   }
   console.log();
 }

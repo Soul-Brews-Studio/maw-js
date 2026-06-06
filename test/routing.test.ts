@@ -3,10 +3,13 @@
  * Test cases designed by oracle-world:mawjs, implemented by white:mawjs-oracle.
  * See: #201
  */
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import { resolveTarget } from "../src/core/routing";
 import type { Session } from "../src/core/runtime/find-window";
 import type { MawConfig } from "../src/config";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
 // --- Fixtures ---
 
@@ -15,6 +18,21 @@ const SESSIONS: Session[] = [
   { name: "13-mother", windows: [{ index: 1, name: "mother-oracle", active: true }] },
   { name: "01-pulse", windows: [{ index: 1, name: "pulse-oracle", active: true }] },
 ];
+
+const ORIGINAL_PEERS_FILE = process.env.PEERS_FILE;
+
+afterEach(() => {
+  if (ORIGINAL_PEERS_FILE === undefined) delete process.env.PEERS_FILE;
+  else process.env.PEERS_FILE = ORIGINAL_PEERS_FILE;
+});
+
+function withPeersFile(peers: Record<string, unknown>): string {
+  const dir = mkdtempSync(join(tmpdir(), "maw-routing-peers-"));
+  const file = join(dir, "peers.json");
+  writeFileSync(file, JSON.stringify({ version: 1, peers }), "utf-8");
+  process.env.PEERS_FILE = file;
+  return dir;
+}
 
 const BASE_CONFIG: MawConfig = {
   host: "local",
@@ -156,6 +174,52 @@ describe("resolveTarget", () => {
     const config = { ...BASE_CONFIG, namedPeers: [], peers: [] };
     const r = resolveTarget("homekeeper", config, SESSIONS);
     expect(r).toMatchObject({ type: "error", reason: "no_peer_url" });
+  });
+
+
+  test("bare peer alias routes to the peer identity oracle (#1940)", () => {
+    const dir = withPeersFile({
+      "world-mawjs": {
+        url: "http://oracle-world.wg:3462",
+        node: "oracle-world",
+        addedAt: "2026-05-30T00:00:00.000Z",
+        lastSeen: "2026-05-30T00:00:00.000Z",
+        identity: { oracle: "mawjs", node: "oracle-world" },
+      },
+    });
+    try {
+      const r = resolveTarget("world-mawjs", { ...BASE_CONFIG, agents: {}, namedPeers: [] }, []);
+      expect(r).toEqual({
+        type: "peer",
+        peerUrl: "http://oracle-world.wg:3462",
+        target: "mawjs",
+        node: "oracle-world",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare peer alias can infer a single configured agent for that node (#1940)", () => {
+    const dir = withPeersFile({
+      alpha: {
+        url: "http://white.wg:3461",
+        node: "white",
+        addedAt: "2026-05-30T00:00:00.000Z",
+        lastSeen: "2026-05-30T00:00:00.000Z",
+      },
+    });
+    try {
+      const r = resolveTarget("alpha", { ...BASE_CONFIG, agents: { volt: "white" }, namedPeers: [] }, []);
+      expect(r).toEqual({
+        type: "peer",
+        peerUrl: "http://white.wg:3461",
+        target: "volt",
+        node: "white",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // #15: EMPTY QUERY

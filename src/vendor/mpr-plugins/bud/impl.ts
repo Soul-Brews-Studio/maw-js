@@ -17,6 +17,9 @@ export interface BudOpts {
   repo?: string;
   org?: string;
   issue?: number;
+  /** #1912 — explicit owner/repo override for --issue lookup. Defaults to
+   *  parent's repo (via --from) or new repo when --from is absent. */
+  issueRepo?: string;
   fast?: boolean;
   root?: boolean;
   dryRun?: boolean;
@@ -33,6 +36,10 @@ export interface BudOpts {
   nickname?: string;
   /** Create repo + local oracle skeleton only; stop before commit/push/wake/parent mutation. */
   scaffoldOnly?: boolean;
+  /** Parent session id to expose to the spawned bud's wake command (#1925). */
+  parentSessionId?: string;
+  /** Deterministic child session id to expose to the spawned bud's wake command (#1925). */
+  sessionId?: string;
 }
 
 function oracleStemFromMaybeWorktreePath(path: string): string {
@@ -227,7 +234,16 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   // 5-8.5. Soul-sync, commit, sync peers, wake, split, copy
   await finalizeBud({
     name, parentName, org, budRepoName, budRepoPath, psiDir, fleetFile,
-    opts: { seed: opts.seed, issue: opts.issue, repo: opts.repo, split: opts.split, fast: opts.fast },
+    opts: {
+      seed: opts.seed,
+      issue: opts.issue,
+      issueRepo: opts.issueRepo,
+      repo: opts.repo,
+      split: opts.split,
+      fast: opts.fast,
+      parentSessionId: opts.parentSessionId,
+      sessionId: opts.sessionId,
+    },
   });
 
   // Optional: drop birth signal into parent's ψ/

@@ -269,7 +269,9 @@ describe("shellenv implementation and zsh snippet coverage", () => {
     expect(snippet).toContain('path="$(command maw locate "$target" --path 2>/dev/null)"');
     expect(snippet).toContain('builtin cd "$path"');
     expect(snippet).toContain('command maw "$@"');
-    expect(snippet).toContain('command claude "${@/--continue/}"');
+    // #1896 — claude wrapper now spreads ${opts[@]} (--dangerously-skip-permissions
+    // + optional --channels) before $@; the fallback still strips --continue.
+    expect(snippet).toContain('command claude "${opts[@]}" "${@/--continue/}"');
     expect(snippet).toContain('ANTHROPIC_MODEL="claude-opus-4-7" claude "$@"');
   });
 });

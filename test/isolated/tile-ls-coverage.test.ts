@@ -247,6 +247,7 @@ describe("ls plugin index coverage", () => {
 
     expect(result.ok).toBe(true);
     expect(result.output).toContain("maw ls --federation");
+    expect(result.output).toContain("maw ls --fleet-only");
     expect(result.output).toContain("maw fleet ls");
     expect(cmdListCalls).toEqual([]);
     expect(lsPeerCalls).toEqual([]);
@@ -281,7 +282,8 @@ describe("ls plugin index coverage", () => {
       active: true,
       activeThresholdSec: 3600,
       filter: "mawjs",
-      oracleOnly: true,
+      fleetOnly: false,
+      teams: true,
     }]);
     expect(lsPeerCalls).toEqual([]);
     expect(cmdListCalls).toEqual([]);
@@ -290,7 +292,7 @@ describe("ls plugin index coverage", () => {
   test("returns captured stderr as catch error/output when local listing logs before throwing", async () => {
     cmdListBehavior = "log-then-throw";
 
-    const result = await lsHandler({ source: "cli", args: [] } as any);
+    const result = await lsHandler({ source: "cli", args: ["--fix"] } as any);
 
     expect(result).toEqual({ ok: false, error: "local list warning", output: "local list warning" });
   });
@@ -298,7 +300,7 @@ describe("ls plugin index coverage", () => {
   test("falls back to thrown error messages when no logs were captured", async () => {
     cmdListBehavior = "throw";
 
-    let result = await lsHandler({ source: "cli", args: [] } as any);
+    let result = await lsHandler({ source: "cli", args: ["--fix"] } as any);
     expect(result).toEqual({ ok: false, error: "local list exploded", output: undefined });
 
     peerThrow = "federated";

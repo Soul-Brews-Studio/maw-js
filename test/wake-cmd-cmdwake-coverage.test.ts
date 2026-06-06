@@ -5,7 +5,7 @@
  * to avoid cross-file pollution.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -28,6 +28,7 @@ const _rClaudeSessions = await import("../src/core/fleet/claude-sessions");
 const _rShouldAutoWake =
   await import("../src/commands/shared/should-auto-wake");
 const _rTeamEnsure = await import("../src/commands/plugins/team/ensure-config");
+const _rFleetEnsure = await import("../src/commands/shared/fleet-ensure");
 
 const realSdk = {
   hostExec: _rSdk.hostExec,
@@ -93,6 +94,7 @@ const realClaudeSessions = {
 };
 const realShouldAutoWake = { shouldAutoWake: _rShouldAutoWake.shouldAutoWake };
 const realTeamEnsure = { ensureTeamConfig: _rTeamEnsure.ensureTeamConfig };
+const realFleetEnsure = { ensureFleetSessionEntry: _rFleetEnsure.ensureFleetSessionEntry };
 
 type TmuxWindow = {
   index: number;
@@ -170,6 +172,7 @@ let maybeSplitCalls: Array<{ target: string; opts: any }>;
 let maybeOpenWindowCalls: Array<{ target: string; opts: any }>;
 let writeSignalCalls: Array<{ root: string; child: string; signal: any }>;
 let ensureClonedCalls: string[];
+let ensureFleetSessionEntryCalls: Array<Parameters<typeof _rFleetEnsure.ensureFleetSessionEntry>[0]>;
 let createdWorktrees: Array<{
   repoPath: string;
   parentDir: string;
@@ -539,12 +542,35 @@ mock.module(
   }),
 );
 
+mock.module(join(import.meta.dir, "../src/commands/shared/fleet-ensure"), () => ({
+  ..._rFleetEnsure,
+  ensureFleetSessionEntry: (input: Parameters<typeof _rFleetEnsure.ensureFleetSessionEntry>[0]) => {
+    if (!mockActive) return realFleetEnsure.ensureFleetSessionEntry(input);
+    ensureFleetSessionEntryCalls.push(input);
+    return {
+      status: "updated",
+      file: "/fleet/session.json",
+      entry: {
+        file: "session.json",
+        path: "/fleet/session.json",
+        num: 0,
+        groupName: "session",
+        session: { name: input.session, windows: [{ name: input.window, repo: input.cwd }] },
+      },
+    } as ReturnType<typeof _rFleetEnsure.ensureFleetSessionEntry>;
+  },
+}));
+
 const { cmdWake, _wtPicker, promptAmbiguousBringPick } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
 
 beforeEach(() => {
   mockActive = true;
+  // #1906 — skip waitForEngine's poll budget in tests so existing-window
+  // re-launch + new-session paths return immediately. Specific tests
+  // exercising the poll opt back in by overriding this.
+  process.env.MAW_AGENT_BOOT_POLL_MS = "0";
   tempRoot = mkdtempSync(join(tmpdir(), "maw-wake-cmd-coverage-"));
   repoName = "mawjs-oracle";
   parentDir = tempRoot;
@@ -602,6 +628,7 @@ beforeEach(() => {
   maybeOpenWindowCalls = [];
   writeSignalCalls = [];
   ensureClonedCalls = [];
+  ensureFleetSessionEntryCalls = [];
   createdWorktrees = [];
 });
 
@@ -637,6 +664,34 @@ describe("cmdWake main-suite coverage", () => {
 
     _wtPicker.readChoice = () => "1";
     expect(promptAmbiguousBringPick("features", [candidate])).toEqual(candidate);
+  });
+
+  test("--list is read-only and does not drain unread ψ/inbox messages (#2056)", async () => {
+    const inboxDir = join(repoPath, "ψ", "inbox");
+    mkdirSync(inboxDir, { recursive: true });
+    const unreadPath = join(inboxDir, "001.md");
+    writeFileSync(unreadPath, [
+      "---",
+      "from: m5:sender",
+      "to: mawjs",
+      "timestamp: 2026-06-06T07:30:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "do not drain during preview",
+      "",
+    ].join("\n"));
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { listWt: true }),
+    );
+
+    expect(result).toBe("mawjs:list");
+    expect(readFileSync(unreadPath, "utf-8")).toContain("read: false");
+    expect(readFileSync(unreadPath, "utf-8")).not.toContain("readAt:");
+    expect(logs.join("\n")).not.toContain("drained");
+    expect(detectSessionCalls).toHaveLength(0);
+    expect(sendTextCalls).toHaveLength(0);
   });
 
   test("lists worktrees without detecting or mutating tmux", async () => {
@@ -720,6 +775,37 @@ describe("cmdWake main-suite coverage", () => {
     expect(newSessionCalls).toHaveLength(0);
     expect(newWindowCalls).toHaveLength(0);
     expect(sendTextCalls).toHaveLength(0);
+  });
+
+  test("#1897 wake -a attaches to live targets without bring/split/window mutation", async () => {
+    worktrees = [
+      { name: "1-alpha", path: join(parentDir, `${repoName}.wt-1-alpha`) },
+    ];
+
+    let result = await captureLogs(() => cmdWake("mawjs", { attach: true }));
+
+    expect(result.result).toBe("54-mawjs:mawjs-oracle");
+    expect(result.logs.join("\n")).toContain("live tmux session: 54-mawjs");
+    expect(attachCalls).toEqual(["54-mawjs"]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(maybeOpenWindowCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(setSessionEnvCalls).toEqual([]);
+    expect(ensureSessionRunningCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+
+    attachCalls = [];
+    takeSnapshotCalls = [];
+    result = await captureLogs(() => cmdWake("54-mawjs", { attach: true }));
+
+    expect(result.result).toBe("54-mawjs:mawjs-oracle");
+    expect(attachCalls).toEqual(["54-mawjs"]);
+    expect(detectSessionCalls).toEqual([{ oracle: "mawjs", urlRepoName: undefined }]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(maybeOpenWindowCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
   });
 
   test("#1816 bring resolves an exact live tmux window before fuzzy oracle lookup", async () => {
@@ -1161,10 +1247,18 @@ describe("cmdWake main-suite coverage", () => {
     await expect(captureLogs(() => cmdWake("mawjs", { bud: true }))).rejects.toThrow("--bud requires --task <slug> or --wt <slug>");
     await expect(captureLogs(() => cmdWake("mawjs", { signalOnBirth: true }))).rejects.toThrow("--signal-on-birth requires --bud");
     await expect(captureLogs(() => cmdWake("mawjs", { session: "bad/session" }))).rejects.toThrow("invalid target session 'bad/session'");
+    expect(newSessionCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+  });
+
+  test("creates missing explicit workspace sessions for lifecycle reconcile", async () => {
     sessions = [];
     hasSessions = new Set();
-    await expect(captureLogs(() => cmdWake("mawjs", { session: "project" }))).rejects.toThrow("target session 'project' not found");
-    expect(newSessionCalls).toEqual([]);
+    const { result, logs } = await captureLogs(() => cmdWake("mawjs", { session: "project", noRehydrate: true }));
+
+    expect(result).toBe("project:mawjs");
+    expect(logs.join("\n")).toContain("target workspace session missing, creating: project");
+    expect(newSessionCalls).toEqual([{ name: "project", opts: { window: "mawjs", cwd: repoPath } }]);
     expect(newWindowCalls).toEqual([]);
   });
 
@@ -1285,6 +1379,41 @@ describe("cmdWake main-suite coverage", () => {
       text: `cd ${repoPath} && codex --agent mawjs-oracle`,
     });
     expect(attachCalls).toEqual(["63-mawjs"]);
+  });
+
+  test("#2005 --session into a MISSING workspace session creates it (no adhoc 'maw new')", async () => {
+    // Regression for the team down --all → up cycle: a destroyed target session
+    // must be re-created by wake, not error with "run: maw new <session>".
+    shouldWakeDecision = { wake: true, reason: "missing" };
+    hasSessions = new Set(["54-mawjs"]); // target "01-mawjs" absent
+    newSessionVisibleToHasSession = true;
+    windowsBySession = {};
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { session: "01-mawjs", engine: "codex", noRehydrate: true }),
+    );
+
+    expect(result).toBe("01-mawjs:mawjs");
+    expect(newSessionCalls).toEqual([
+      { name: "01-mawjs", opts: { window: "mawjs", cwd: repoPath } },
+    ]);
+    const rendered = logs.join("\n");
+    expect(rendered).toContain("target workspace session missing, creating: 01-mawjs");
+    expect(rendered).not.toContain("maw new");
+  });
+
+  test("#2005 --session into an EXISTING workspace session reuses it (no newSession)", async () => {
+    shouldWakeDecision = { wake: true, reason: "missing" };
+    hasSessions = new Set(["54-mawjs", "01-mawjs"]); // target already present
+    windowsBySession = { "01-mawjs": [] };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { session: "01-mawjs", engine: "codex", noRehydrate: true }),
+    );
+
+    expect(result).toBe("01-mawjs:mawjs");
+    expect(newSessionCalls).toEqual([]); // reused, not recreated
+    expect(logs.join("\n")).toContain("target workspace session: 01-mawjs");
   });
 
   test("restores requested snapshot windows, rehydrates missing worktrees, and relaunches a dead existing agent", async () => {
@@ -1433,6 +1562,42 @@ describe("cmdWake main-suite coverage", () => {
       opts: { cwd: join(parentDir, "homekeeper-oracle.wt-2-white") },
     });
     expect(logs.join("\n")).toContain("reusing worktree");
+  });
+
+  test("registers split worktree windows before they can be joined away (#1956)", async () => {
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "04-homekeeper" }];
+    hasSessions = new Set(["04-homekeeper"]);
+    detectSessionReturn = "04-homekeeper";
+    windowsBySession = {
+      "04-homekeeper": [{ index: 0, name: "homekeeper-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("homekeeper", { wt: "white", name: "osmosis", split: true }),
+    );
+
+    const wtPath = join(repoPath, "agents", "osmosis-white");
+    expect(result).toBe("04-homekeeper:homekeeper-osmosis-white");
+    expect(newWindowCalls).toContainEqual({
+      session: "04-homekeeper",
+      name: "homekeeper-osmosis-white",
+      opts: { cwd: wtPath },
+    });
+    expect(ensureFleetSessionEntryCalls).toContainEqual({
+      session: "04-homekeeper",
+      window: "homekeeper-osmosis-white",
+      cwd: wtPath,
+      createdBy: "maw wake",
+    });
+    expect(maybeSplitCalls).toContainEqual({
+      target: "04-homekeeper:homekeeper-osmosis-white",
+      opts: expect.objectContaining({ split: true }),
+    });
+    expect(logs.join("\n")).toContain("fleet registered window 04-homekeeper:homekeeper-osmosis-white");
   });
 
   test("creates a stable named worktree for --wt plus --name (#1768)", async () => {

@@ -89,6 +89,13 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("foo-bar")).toBe("echo hi");
   });
 
+  test("short oracle slug can match window-name command overrides", () => {
+    fakeConfig.commands = { default: "claude --continue", "foo-oracle": "bash start.sh" };
+
+    expect(buildCommand("foo")).toBe("bash start.sh");
+    expect(buildCommandInDir("foo-oracle", "/tmp/foo")).toBe("bash start.sh");
+  });
+
   test('pattern-match ignores the literal "default" key', () => {
     // Agent literally named "default" must still hit the default branch, not
     // match the "default" key as a pattern.
@@ -140,6 +147,11 @@ describe("buildCommand — post-#541 contract", () => {
   test("engine param selects named command from config", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
     expect(buildCommand("any-agent", "codex")).toBe("codex --search");
+  });
+
+  test("engine param selects built-in engines even when config omits them", () => {
+    fakeConfig.commands = { default: "claude" };
+    expect(buildCommand("any-agent", "codex")).toBe("codex");
   });
 
   test("engine param falls back to default when engine not in config", () => {

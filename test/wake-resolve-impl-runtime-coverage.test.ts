@@ -529,6 +529,14 @@ describe("findWorktrees and detectSession runtime paths", () => {
     errors = [];
     await expect(detectSession("mawjs")).resolves.toBeNull();
     expect(exitCalls).toEqual([]);
+
+    writeFleet("77-mawjs", [{ name: "mawjs-oracle", repo: "Soul-Brews-Studio/mawjs-oracle" }]);
+    writeFleet("79-mawjscodex", [{ name: "mawjs-codex-oracle", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }]);
+    sessions = [{ name: "79-mawjscodex" }];
+    exitCalls = [];
+    errors = [];
+    await expect(detectSession("mawjs")).resolves.toBeNull();
+    expect(exitCalls).toEqual([]);
   });
 
 

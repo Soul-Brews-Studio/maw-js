@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { cmdBroadcast } from "./impl";
+import { cmdBroadcast, parseBroadcastArgs } from "./impl";
 
 export const command = { name: "broadcast", description: "Broadcast a message to all agents." };
 
@@ -17,7 +17,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-    await cmdBroadcast(args.join(" "));
+    const { message, scope } = parseBroadcastArgs(args);
+    await cmdBroadcast(message, scope);
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

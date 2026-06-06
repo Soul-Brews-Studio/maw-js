@@ -22,6 +22,8 @@ let resolveOraclePaneValue: string | null = "alpha:oracle.0";
 let mkdirCalls: Array<{ path: string; opts?: unknown }> = [];
 let appendFileCalls: Array<{ path: string; data: string }> = [];
 let appendFileError: Error | null = null;
+let curlFetchCalls: Array<{ url: string; options: any }> = [];
+let curlFetchResult: any = { ok: true, status: 200, data: { ok: true, target: "remote:1" } };
 
 const loadConfigMock = () => ({ oracleUrl: "https://oracle.test" });
 const listSessionsMock = async () => listSessionsValue;
@@ -34,6 +36,10 @@ const runHookMock = async (name: string, payload: unknown) => {
   runHookCalls.push({ name, payload });
 };
 const resolveOraclePaneMock = async () => resolveOraclePaneValue;
+const curlFetchMock = async (url: string, options: any) => {
+  curlFetchCalls.push({ url, options });
+  return curlFetchResult;
+};
 const mkdirMock = async (path: string, opts?: unknown) => {
   mkdirCalls.push({ path, opts });
 };
@@ -52,6 +58,7 @@ mock.module("maw-js/sdk", () => ({
   getPaneCommand: (...args: unknown[]) => getPaneCommandMock(...args),
   resolveTarget: (...args: unknown[]) => resolveTargetMock(...args),
   runHook: (...args: unknown[]) => runHookMock(args[0] as string, args[1]),
+  curlFetch: (...args: unknown[]) => curlFetchMock(args[0] as string, args[1]),
 }));
 
 mock.module("maw-js/commands/shared/comm-send", () => ({
@@ -107,6 +114,8 @@ describe("talk-to impl isolated coverage", () => {
     mkdirCalls = [];
     appendFileCalls = [];
     appendFileError = null;
+    curlFetchCalls = [];
+    curlFetchResult = { ok: true, status: 200, data: { ok: true, target: "remote:1" } };
     process.env.CLAUDE_AGENT_NAME = "mawjs-codex";
     process.env.CLAUDE_SESSION_ID = "sess-123";
     delete process.env.ORACLE_URL;
@@ -219,6 +228,34 @@ describe("talk-to impl isolated coverage", () => {
   });
 
 
+
+  test("cross-node peer targets use signed /api/send instead of local pane fallback", async () => {
+    resolveTargetValue = { type: "peer", node: "alpha", target: "volt-oracle:1", peerUrl: "http://alpha.wg:3461" };
+
+    for (const cmdTalkTo of talkToCommands) {
+      fetchQueue = [
+        jsonResponse({ threads: [] }),
+        jsonResponse({ thread_id: 18, message_id: 44, status: "ok" }),
+        jsonResponse({ thread: { id: 18, title: "channel:alpha:volt-oracle:1", status: "open", created_at: "now" }, messages: [] }),
+      ];
+      curlFetchCalls = [];
+      sendKeysCalls = [];
+      runHookCalls = [];
+
+      await cmdTalkTo("alpha:volt-oracle:1", "cross node hello");
+
+      expect(sendKeysCalls).toEqual([]);
+      expect(curlFetchCalls).toHaveLength(1);
+      expect(curlFetchCalls[0]?.url).toBe("http://alpha.wg:3461/api/send");
+      expect(JSON.parse(curlFetchCalls[0]?.options.body)).toEqual({
+        target: "volt-oracle:1",
+        text: expect.stringContaining("cross node hello"),
+      });
+      expect(curlFetchCalls[0]?.options.from).toBe("auto");
+      expect(runHookCalls).toHaveLength(1);
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining("sent → alpha:remote:1"));
+    }
+  });
 
   test("thread info fetch failures fall back to unknown message count but still notify", async () => {
     for (const cmdTalkTo of talkToCommands) {

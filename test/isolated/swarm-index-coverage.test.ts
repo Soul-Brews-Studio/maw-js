@@ -210,6 +210,28 @@ describe("swarm index handler isolated coverage", () => {
     expect(calls.saveLayoutSnapshot).toEqual([]);
   });
 
+  test("rejects unknown flags before spawning panes and points --wt users to wake split", async () => {
+    const result = await run(["omx", "--wt"]);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("unknown flag for swarm: --wt");
+    expect(result.error).toContain("maw wake <oracle> --wt <slot> --split -e <engine>");
+    expect(result.output).toContain("unknown flag for swarm: --wt");
+    expect(calls.hostExec).toEqual([]);
+    expect(calls.withPaneLock).toBe(0);
+    expect(calls.saveLayoutSnapshot).toEqual([]);
+    expect(existsSync(configPath())).toBe(false);
+  });
+
+  test("rejects generic unknown flags with the supported swarm flag list", async () => {
+    const result = await run(["codex", "--bogus"]);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("unknown flag for swarm: --bogus (supported: --tiled, --count, --help, -h, --parent, --parent-session-id, --session-id)");
+    expect(calls.hostExec).toEqual([]);
+    expect(existsSync(configPath())).toBe(false);
+  });
+
   test("spawns default claude agents from a cli invocation using anchored main-vertical layout", async () => {
     const result = await run([]);
 

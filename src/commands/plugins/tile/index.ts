@@ -55,10 +55,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--shell": Boolean,
       "--engine": String, "-e": "--engine",
       "--layout": String,
+      "--parent": String,
+      "--parent-session-id": String,
+      "--session-id": String,
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw tile [N] [--wt <name>] [--layout nested|legacy] [--path <dir>] [--cmd <cmd>] [--shell] [--engine <name>]");
+      console.log("usage: maw tile [N] [--wt <name>] [--layout nested|legacy] [--path <dir>] [--cmd <cmd>] [--shell] [--engine <name>] [--parent-session-id <id>] [--session-id <id>]");
       console.log("       maw tile clean");
       console.log("       maw tile swap <a> <b>");
       console.log("");
@@ -118,6 +121,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       shell: !!flags["--shell"],
       engine: flags["--engine"] as string | undefined,
       layout: layout as "nested" | "legacy" | undefined,
+      parentSessionId: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
+      sessionId: count === 1 ? flags["--session-id"] as string | undefined : undefined,
     });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {

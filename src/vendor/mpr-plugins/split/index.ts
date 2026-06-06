@@ -28,13 +28,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args, {
         "--pct": Number,
         "--vertical": Boolean,
+        "--bottom": "--vertical",
+        "--horizontal": Boolean,
+        "--right": "--horizontal",
         "--no-attach": Boolean,
         "--claude-pane-policy": String,
       }, 0);
 
       target = flags._[0];
       if (!target || target === "--help" || target === "-h") {
-        return { ok: false, error: "usage: maw split <target> [--pct N] [--vertical] [--no-attach]" };
+        return { ok: false, error: "usage: maw split <target> [--pct N] [--horizontal|--vertical] [--no-attach]" };
       }
       if (target.startsWith("-")) {
         return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw split <target>` };
@@ -43,6 +46,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       opts = {
         pct: flags["--pct"],
         vertical: flags["--vertical"],
+        horizontal: flags["--horizontal"],
         noAttach: flags["--no-attach"],
       };
       if (flags["--claude-pane-policy"] !== undefined) {
@@ -57,6 +61,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       opts = {
         pct: body.pct as number | undefined,
         vertical: body.vertical as boolean | undefined,
+        horizontal: body.horizontal as boolean | undefined,
         noAttach: body.noAttach as boolean | undefined,
       };
       if (body.claudePanePolicy !== undefined) {

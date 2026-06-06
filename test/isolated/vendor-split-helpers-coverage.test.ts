@@ -164,7 +164,7 @@ for (const helper of helpers) {
       normalizeImpl = () => "";
 
       await expect(helper.cmdSplit("anything/.git/")).rejects.toThrow(
-        "usage: maw split <target> [--pct N] [--vertical] [--no-attach]",
+        "usage: maw split <target> [--pct N] [--horizontal|--right|--vertical|--bottom] [--no-attach]",
       );
 
       expect(stderr()).toContain("usage: maw split <target>");
@@ -207,6 +207,12 @@ for (const helper of helpers) {
       const escapedAnchor = "%a'b".replace(/'/g, "'\\''");
       expect(hostExecCalls).toEqual([`tmux split-window -t '${escapedAnchor}' -v -l 33% "bash"`]);
       expect(stdout()).toContain("split below — empty pane (33%) (anchored at %a'b)");
+    });
+
+    test("rejects conflicting split direction options", async () => {
+      await expect(helper.cmdSplit("alpha:2", { vertical: true, horizontal: true }))
+        .rejects.toThrow("choose only one split direction");
+      expect(hostExecCalls).toEqual([]);
     });
 
     test("resolves bare targets to their window index and falls back to window zero", async () => {

@@ -20,16 +20,20 @@ type DiscoveryTransport = "scout" | "zenoh" | "both" | "off";
 const ZENOH_SCOUT_PLUGIN = "zenoh-scout";
 
 export function discoveryTransport(config: ReturnType<typeof loadConfig>): DiscoveryTransport {
+  const scoutDisabled = process.env.MAW_NO_SCOUT === "1" || config.scout === false;
   const zenohPluginEnabled = !(config.disabledPlugins ?? []).includes(ZENOH_SCOUT_PLUGIN);
   const configured = config.discovery?.transport;
   if (configured === "scout" || configured === "zenoh" || configured === "both" || configured === "off") {
+    if (scoutDisabled && configured === "scout") return "off";
+    if (scoutDisabled && configured === "both") return zenohPluginEnabled ? "zenoh" : "off";
     if (zenohPluginEnabled) return configured;
     if (configured === "zenoh") return "off";
     if (configured === "both") return "scout";
     return configured;
   }
-  if (!zenohPluginEnabled) return "scout";
-  return config.zenoh?.scout?.enabled === true ? "both" : "scout";
+  if (!zenohPluginEnabled) return scoutDisabled ? "off" : "scout";
+  if (config.zenoh?.scout?.enabled === true) return scoutDisabled ? "zenoh" : "both";
+  return scoutDisabled ? "off" : "scout";
 }
 
 /** Singleton router instance */

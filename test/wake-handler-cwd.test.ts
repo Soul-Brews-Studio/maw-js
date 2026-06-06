@@ -38,8 +38,13 @@ const { extractOracleName, resolveTargetCwd, shellQuote } = await import("../src
 describe("extractOracleName", () => {
   test("strips numeric prefix from session — 05-acme → acme", () => {
     expect(extractOracleName("05-acme:0")).toBe("acme");
-    expect(extractOracleName("05-acme:acme-oracle")).toBe("acme");
+    expect(extractOracleName("05-acme:acme-oracle")).toBe("acme-oracle");
     expect(extractOracleName("05-acme")).toBe("acme");
+  });
+
+  test("resolves by window name when target is node:session:window", () => {
+    expect(extractOracleName("m5:05-acme:acme-oracle")).toBe("acme-oracle");
+    expect(extractOracleName("m5:05-acme:0")).toBe("acme");
   });
 
   test("session without numeric prefix is passed through", () => {

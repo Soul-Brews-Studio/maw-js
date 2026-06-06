@@ -1,7 +1,7 @@
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmux, saveTabOrder, restoreTabOrder } from "../../sdk";
-import { buildCommand, getEnvVars } from "../../config";
+import { buildCommandInDir, getEnvVars } from "../../config";
 import { getGhqRoot } from "../../config/ghq-root";
 import { ensureSessionRunning } from "./wake";
 import { countDisabledFleetFiles, loadFleet } from "./fleet-load";
@@ -94,7 +94,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       if (!sess.skip_command) {
         await new Promise(r => setTimeout(r, 300));
-        try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
+        try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommandInDir(first.name, firstPath)); } catch { /* ok */ }
       }
       winCount++;
 
@@ -115,7 +115,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
           await pinWindowWide(`${sess.name}:${win.name}`);
           if (!sess.skip_command) {
             await new Promise(r => setTimeout(r, 300));
-            await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
+            await tmux.sendText(`${sess.name}:${win.name}`, buildCommandInDir(win.name, winPath));
           }
           winCount++;
         } catch (e) {

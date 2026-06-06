@@ -223,6 +223,11 @@ describe("resolveSessionTarget — #535 regression (numeric-prefix fleet collisi
     const dashed = resolveNumericFleetStemPrefix("mawjs", [sess("114-mawjs-no2")]);
     expect(dashed.kind).toBe("none");
 
+    const knownFullStem = resolveNumericFleetStemPrefix("mawjs", [sess("79-mawjscodex")], {
+      knownFullStems: ["77-mawjs", "79-mawjscodex"],
+    });
+    expect(knownFullStem.kind).toBe("none");
+
     const ambiguous = resolveNumericFleetStemPrefix("homeke", [
       sess("20-homekeeper"),
       sess("21-homekey"),

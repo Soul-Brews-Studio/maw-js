@@ -1,7 +1,7 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdWhoami } from "./impl";
 
-export const command = { name: "whoami", description: "Print the current tmux session name." };
+export const command = { name: "whoami", description: "Print session + window + pane address. --short for legacy #S only, --json for machine-readable." };
 
 export default async function handler(_ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -15,7 +15,8 @@ export default async function handler(_ctx: InvokeContext): Promise<InvokeResult
     else logs.push(a.map(String).join(" "));
   };
   try {
-    await cmdWhoami();
+    const argv = (_ctx.source === "cli" ? (_ctx.args as string[]) : []) ?? [];
+    await cmdWhoami(argv);
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

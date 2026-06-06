@@ -5,7 +5,7 @@ import { findWindow } from "../core/runtime/find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer, sendKeysToPeerDetailed } from "../core/transport/peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../core/transport/curl-fetch";
-import { resolveTarget } from "../core/routing";
+import { resolveTarget, detectWindowMismatch } from "../core/routing";
 import { processMirror } from "../lib/process-mirror";
 import { cmdWake as defaultCmdWake, resolveFleetSession } from "../commands/shared/wake";
 import { shouldAutoWake as defaultShouldAutoWake } from "../commands/shared/should-auto-wake";
@@ -20,7 +20,7 @@ import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
 type IdleCheck = Awaited<ReturnType<typeof checkPaneIdle>>;
-type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys">;
+type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys" | "listPanes" | "capture">;
 
 type AutoWakeDecision = Awaited<ReturnType<typeof defaultShouldAutoWake>>;
 type AutoWakeOpts = Parameters<typeof defaultShouldAutoWake>[1];
@@ -98,6 +98,32 @@ export function messageSignedRequest(request: Request): boolean {
   return Boolean(request.headers.get("x-maw-from"));
 }
 
+export type DeliveryReceiptState =
+  | "remote_node_accepted"
+  | "target_pane_resolved"
+  | "send_keys_injected"
+  | "live_pane_consumed"
+  | "fallback_queued"
+  | "busy_rejected"
+  | "stale_target"
+  | "node_unreachable";
+
+function deliveryReceipt(...states: Array<DeliveryReceiptState | undefined | null | false>): DeliveryReceiptState[] {
+  return [...new Set(states.filter(Boolean) as DeliveryReceiptState[])];
+}
+
+function queuedReceipt(reason: string): DeliveryReceiptState[] {
+  if (/busy/i.test(reason)) return deliveryReceipt("busy_rejected", "fallback_queued");
+  if (/unreachable|unavailable|connection|timeout/i.test(reason)) return deliveryReceipt("node_unreachable", "fallback_queued");
+  if (/not live|not found|stale/i.test(reason)) return deliveryReceipt("stale_target", "fallback_queued");
+  return deliveryReceipt("fallback_queued");
+}
+
+function peerReceipt(data: any, state: "delivered" | "queued"): DeliveryReceiptState[] {
+  const remote = Array.isArray(data?.receipt) ? data.receipt : [];
+  return deliveryReceipt("remote_node_accepted", ...remote, state === "queued" ? "fallback_queued" : undefined);
+}
+
 function stripPaneIndex(target: string): string {
   return target.replace(/\.[0-9]+$/, "");
 }
@@ -110,6 +136,46 @@ export function sessionTargetExists(sessions: Session[], target: string): boolea
   if (!session) return false;
   if (!windowName) return true;
   return session.windows.some(w => String(w.index) === windowName || w.name === windowName);
+}
+
+function normalizeInboxTargetName(value: string | undefined): string {
+  return (value ?? "")
+    .trim()
+    .replace(/\.[0-9]+$/, "")
+    .replace(/^\d+-/, "")
+    .replace(/-oracle$/i, "")
+    .toLowerCase();
+}
+
+function windowTarget(session: Session, window: Session["windows"][number] | undefined): string {
+  if (!window) return session.name;
+  return `${session.name}:${window.name || window.index}`;
+}
+
+function receiverNamedWindow(session: Session, wanted: string): Session["windows"][number] | undefined {
+  return session.windows.find((window) => normalizeInboxTargetName(window.name) === wanted);
+}
+
+/** @internal exported for tests. Resolve an inbox oracle to a live tmux target. */
+export function resolveLiveInboxNotificationTarget(oracle: string, sessions: Session[]): string | null {
+  const wanted = normalizeInboxTargetName(oracle);
+  if (!wanted) return null;
+
+  for (const session of sessions) {
+    const namedWindow = receiverNamedWindow(session, wanted);
+    if (namedWindow) return windowTarget(session, namedWindow);
+
+    if (normalizeInboxTargetName(session.name) === wanted) {
+      return windowTarget(session, session.windows.find(w => w.active) ?? session.windows[0]);
+    }
+  }
+
+  return null;
+}
+
+/** @internal exported for tests. */
+export function formatInboxNotification(inbox: Extract<ReceiverInboxResult, { ok: true }>, from: string): string {
+  return `📬 maw inbox: new message from ${from} in ψ/inbox/${inbox.filename}. Run \`maw inbox\` to read.`;
 }
 
 export function emitMessageLifecycle(input: MessageLifecycleInput, deps: SessionsApiDeps = {}) {
@@ -163,6 +229,16 @@ function sessionsUnavailablePayload(error: unknown): { error: string; hint?: str
 /** Resolve oracle name → tmux target, same logic as local peek (#273). */
 export function resolveCapture(query: string, sessions: { name: string }[], deps: SessionsApiDeps = {}): string {
   const d = defaults(deps);
+  // #1908 — strip ":active" or ":*" sentinel so the resolver falls back to
+  // the bare-name auto-resolve path (which selects the session's active
+  // window regardless of tmux base-index). Recommended cross-peer format
+  // for federation clients that want "active window of session X".
+  if (query.endsWith(":active") || query.endsWith(":*")) {
+    const bare = query.replace(/:(active|\*)$/, "");
+    if (bare.length > 0) {
+      return resolveCapture(bare, sessions, deps);
+    }
+  }
   const config = d.loadConfig();
   const mapped = (config.sessions as Record<string, string>)?.[query];
   if (mapped) {
@@ -201,6 +277,25 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
     }),
   });
 
+  api.get("/captures", async ({ set }) => {
+    try {
+      const tmux = d.createTmux();
+      const panes = await tmux.listPanes();
+      const entries = await Promise.all(panes.map(async pane => {
+        try {
+          return [pane.id, await tmux.capture(pane.id, 200)] as const;
+        } catch {
+          // Pane may close between list-panes and capture-pane; keep response total.
+          return [pane.id, ""] as const;
+        }
+      }));
+      return { captures: Object.fromEntries(entries) };
+    } catch (error) {
+      set.status = 503;
+      return sessionsUnavailablePayload(error);
+    }
+  });
+
   api.get("/capture", async ({ query, set }) => {
     const target = query.target;
     if (!target) { set.status = 400; return { error: "target required" }; }
@@ -209,7 +304,33 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       const resolved = resolveCapture(target, sessions, d);
       return { content: await d.capture(resolved) };
     } catch (e: any) {
-      return { content: "", error: e.message };
+      // #1908 — when the failure is "can't find window: N", enrich the
+      // response with the session's actual window indices and a hint
+      // about base-index. Helps federation clients format cross-peer
+      // targets without inspecting per-peer tmux config. Kept 200 status
+      // for backward compat with clients that handle {content:"",error:...}.
+      const msg = String(e?.message ?? e);
+      const winMatch = msg.match(/can'?t find window: (\S+)/i);
+      if (winMatch && target.includes(":")) {
+        const sessionName = target.split(":")[0] || "";
+        try {
+          const sessions = await d.listSessions();
+          const session = sessions.find(s => s.name === sessionName);
+          const validWindows = (session as any)?.windows?.map((w: any) => w.index) ?? [];
+          return {
+            content: "",
+            error: "window not found",
+            target,
+            validWindows,
+            hint: validWindows.length > 0
+              ? `tmux base-index appears to be ${Math.min(...validWindows)} on this peer; use bare name '${sessionName}' or '${sessionName}:active' for cross-peer requests`
+              : "session has no windows",
+          };
+        } catch {
+          // Fall through to legacy shape if listSessions fails again.
+        }
+      }
+      return { content: "", error: msg };
     }
   }, {
     query: t.Object({
@@ -288,10 +409,22 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           state: "queued" as const,
           inbox: inbox.path,
           reason,
+          receipt: queuedReceipt(reason),
         };
+      };
+      const notifyLiveInboxReceiver = async (inbox: ReceiverInboxResult) => {
+        if (!inbox.ok) return;
+        try {
+          const liveTarget = resolveLiveInboxNotificationTarget(inbox.oracle, await d.listSessions());
+          if (liveTarget) await d.sendKeys(liveTarget, formatInboxNotification(inbox, messageFrom));
+        } catch {
+          // Inbox persistence is the durable path. Live notification is only a
+          // best-effort nudge for already-running receiver sessions (#2057).
+        }
       };
       const queueOrFail = async (tmuxTarget: string, reason: string, status = 502) => {
         const inbox = await writeInboundInbox(tmuxTarget);
+        if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
         const queued = inbox ? queuedInboxResponse(inbox, tmuxTarget, reason) : null;
         if (queued) return queued;
         set.status = status;
@@ -377,7 +510,22 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           lastLine,
           signed: messageSigned,
         });
-        return { ok: true, target: resolved.target, text, source: "local", lastLine, state, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
+        // #1980: flag silent misdelivery — a forwarded `<oracle>-oracle`
+        // target that resolved to a window NOT named like that oracle (e.g.
+        // `mawjs-oracle` landing on a bare `mawjs` shell pane). The sender
+        // surfaces this warning alongside its `delivered` line.
+        const mismatch = detectWindowMismatch(target, resolved.target, local);
+        return {
+          ok: true,
+          target: resolved.target,
+          text,
+          source: "local",
+          lastLine,
+          state,
+          receipt: deliveryReceipt("target_pane_resolved", "send_keys_injected", state === "delivered" ? "live_pane_consumed" : "fallback_queued"),
+          ...(inbox?.ok ? { inbox: inbox.path } : {}),
+          ...(mismatch ? { warning: mismatch } : {}),
+        };
       }
 
       // Remote peer → federation HTTP
@@ -403,7 +551,15 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
             lastLine: res.data.lastLine || "",
             signed: messageSigned,
           });
-          return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state };
+          return {
+            ok: true,
+            target: res.data.target || target,
+            text,
+            source: resolved.peerUrl,
+            lastLine: res.data.lastLine || "",
+            state,
+            receipt: peerReceipt(res.data, state),
+          };
         }
         emitLifecycle({
           direction: "forwarded",
@@ -440,7 +596,15 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           signed: messageSigned,
         });
         if (send.ok) {
-          return { ok: true, target: send.target || target, text, source: peerUrl, state: send.state, lastLine: send.lastLine || "" };
+          return {
+            ok: true,
+            target: send.target || target,
+            text,
+            source: peerUrl,
+            state: send.state,
+            lastLine: send.lastLine || "",
+            receipt: deliveryReceipt("remote_node_accepted", ...(send.receipt ?? []), send.state === "queued" ? "fallback_queued" : undefined),
+          };
         }
         set.status = 502; return { error: send.error || "Failed to send to peer", target, source: peerUrl };
       }
@@ -490,7 +654,17 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                 lastLine,
                 signed: messageSigned,
               });
-              return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
+              return {
+                ok: true,
+                target: retry.target,
+                text,
+                source: "local",
+                lastLine,
+                state: "delivered" as const,
+                receipt: deliveryReceipt("target_pane_resolved", "send_keys_injected", "live_pane_consumed"),
+                wokeFor: target,
+                ...(inbox?.ok ? { inbox: inbox.path } : {}),
+              };
             }
           } catch { /* wake best-effort — fall through to 404 */ }
         }
@@ -498,6 +672,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
       const inbox = await writeInboundInbox(target);
+      if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
       const queued = inbox ? queuedInboxResponse(inbox, target, errDetail.detail || "target not live; persisted for receiver inbox polling") : null;
       if (queued) return queued;
       emitLifecycle({

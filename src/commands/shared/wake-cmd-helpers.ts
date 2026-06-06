@@ -85,7 +85,14 @@ export function shouldOfferExistingSessionAttach(
   isTTY = process.stdin.isTTY,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY) && env.MAW_TEST_MODE !== "1";
+  return (
+    !opts.attach &&
+    !opts.split &&
+    !opts.bring &&
+    Boolean(isTTY) &&
+    env.MAW_TEST_MODE !== "1" &&
+    env.MAW_ATTACH_FOLLOWS !== "1"
+  );
 }
 
 const FRESH_SESSION_READY_ATTEMPTS = 120;

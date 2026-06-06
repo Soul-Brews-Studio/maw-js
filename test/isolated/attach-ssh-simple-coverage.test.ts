@@ -24,6 +24,8 @@ describe("attach-ssh strategy simple coverage", () => {
     const calls: unknown[] = [];
 
     await attachSsh.execute(target, {
+      // #1905 — stub probe so tests don't spawn real ssh against "m5-ssh".
+      probe: () => ({ ok: true }),
       ssh: (opts) => {
         calls.push(opts);
       },
@@ -38,6 +40,8 @@ describe("attach-ssh strategy simple coverage", () => {
     console.error = (...parts: unknown[]) => errors.push(parts.map(String).join(" "));
     try {
       await expect(attachSsh.execute(target, {
+        // #1905 — stub probe so the SshAttachError path is exercised.
+        probe: () => ({ ok: true }),
         ssh: () => {
           throw new MockSshAttachError("ssh attach blocked");
         },

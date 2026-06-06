@@ -5,7 +5,8 @@
  *   1. Local findWindow → { type: 'local' }
  *   2. Node:prefix → namedPeers → { type: 'peer' } or { type: 'self-node' }
  *   3. Agents map → peer URL → { type: 'peer' } (skip if self-node)
- *   4. null (caller handles peer discovery fallback separately — it's async/network)
+ *   4. Peer alias → peers.json node/identity → { type: 'peer' }
+ *   5. null (caller handles peer discovery fallback separately — it's async/network)
  *
  * Sub-PR 3 of #841 — manifest as primary lookup
  * ─────────────────────────────────────────────
@@ -36,8 +37,14 @@
 
 import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
-import { resolveFleetSession } from "../commands/shared/wake";
+// #1976-release: import from the light fleet-load module, NOT the wake barrel.
+// The wake barrel statically pulls wake-session/wake-resolve-impl, which
+// `import { hostExec, tmux } from "../../sdk"` — dragging the sdk barrel into
+// every routing/comm-send consumer's graph and breaking tests that partially
+// mock it ("Export named 'hostExec' not found", the v26.6.5-alpha.1323 CI block).
+import { resolveFleetSession } from "../commands/shared/fleet-load";
 import { loadManifestCached, type OracleManifestEntry } from "../lib/oracle-manifest";
+import { loadPeers, type Peer } from "../lib/peers/store";
 
 export type { Session };
 
@@ -50,7 +57,7 @@ export type ResolveResult =
 
 /**
  * Resolve a query to a local target, remote peer, or null.
- * Pure + sync — no network calls, no side effects. Testable without mocks.
+ * Sync and read-only — no network calls. Testable without mocks.
  */
 export function resolveTarget(
   query: string,
@@ -97,6 +104,12 @@ export function resolveTarget(
     return { type: "local", target: localTarget };
   }
 
+  // A forwarded /api/send target such as `volt-oracle:1` is a local
+  // session/window alias on the receiving node, not a remote node named
+  // `volt-oracle`. Try that explicit tmux shape before node-prefix routing.
+  const localSessionWindowAlias = resolveSessionWindowAliasTarget(query, writable, "local");
+  if (localSessionWindowAlias) return localSessionWindowAlias;
+
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---
   if (query.includes(":") && !query.includes("/")) {
     const colonIdx = query.indexOf(":");
@@ -116,6 +129,8 @@ export function resolveTarget(
       }
       const sessionAliasResult = resolveSessionAliasWindowTarget(agentName, writable, "self-node");
       if (sessionAliasResult) return sessionAliasResult;
+      const sessionWindowAliasResult = resolveSessionWindowAliasTarget(agentName, writable, "self-node");
+      if (sessionWindowAliasResult) return sessionWindowAliasResult;
       const selfTarget = findWindow(writable, agentName);
       if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
@@ -164,8 +179,70 @@ export function resolveTarget(
     return { type: "error", reason: "no_peer_url", detail: `'${query}' mapped to node '${agentNode}' but no URL found`, hint: `add ${agentNode} to maw.config.json namedPeers` };
   }
 
+  // --- Step 3c: peer alias (e.g. `maw hey world-mawjs`) ---
+  // Peers added through `maw peers add <alias> <url> --node <node>` live in
+  // peers.json, not necessarily in config.namedPeers. A bare alias should be
+  // a usable federation target: resolve the backend node + default oracle and
+  // route as if the user typed `<node>:<oracle>` (#1940).
+  const peerAlias = findPeerAliasRoute(query, config);
+  if (peerAlias) return peerAlias;
+
   // --- Step 4: Not resolved (caller handles peer discovery fallback) ---
-  return { type: "error", reason: "not_found", detail: `'${query}' not in local sessions or agents map`, hint: "check: maw ls" };
+  return { type: "error", reason: "not_found", detail: `'${query}' not in local sessions, agents map, or peer aliases`, hint: "check: maw ls" };
+}
+
+
+function findPeerAliasRoute(query: string, config: MawConfig): ResolveResult {
+  if (!query || query.includes(":") || query.includes("/")) return null;
+
+  const configured = config.namedPeers?.find((p) => p.name === query) as (PeerConfigLike | undefined);
+  if (configured?.url) {
+    const node = configured.node || configured.identity?.node;
+    const target = defaultPeerOracle(query, node, configured.identity?.oracle, config);
+    if (node && target) return { type: "peer", peerUrl: configured.url, target, node };
+  }
+
+  const stored = readStoredPeer(query);
+  if (!stored?.url) return null;
+  const node = stored.node || stored.identity?.node;
+  const target = defaultPeerOracle(query, node, stored.identity?.oracle, config);
+  if (!node || !target) return null;
+  return { type: "peer", peerUrl: stored.url, target, node };
+}
+
+type PeerConfigLike = {
+  name: string;
+  url: string;
+  node?: string | null;
+  identity?: { oracle?: string; node?: string };
+};
+
+function readStoredPeer(alias: string): Peer | null {
+  try {
+    return loadPeers().peers[alias] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultPeerOracle(alias: string, node: string | null | undefined, identityOracle: string | undefined, config: MawConfig): string | null {
+  if (identityOracle?.trim()) return identityOracle.trim();
+
+  const agentsForNode = Object.entries(config.agents ?? {})
+    .filter(([, agentNode]) => node && agentNode === node)
+    .map(([agent]) => agent);
+  if (agentsForNode.length === 1) return agentsForNode[0];
+
+  const aliasLower = alias.toLowerCase();
+  const aliasMatched = agentsForNode.find((agent) => {
+    const a = agent.toLowerCase();
+    return aliasLower === a || aliasLower.endsWith(`-${a}`) || aliasLower.includes(a);
+  });
+  if (aliasMatched) return aliasMatched;
+
+  // maw-js federation listeners default to the mawjs oracle when older peers
+  // have node but not /api/identity yet. This matches ADR family-default use.
+  return "mawjs";
 }
 
 /** Find a peer URL by node name from namedPeers or legacy peers[] */
@@ -207,6 +284,58 @@ function resolveFleetWindowTarget(
     reason: "fleet_window_not_found",
     detail: `'${query}' matched fleet session '${fleetSession}', but no window named ${candidateNames.map((n) => `'${n}'`).join(" or ")} was found; refusing to default to the first window`,
     hint: `candidates: ${candidates}`,
+  };
+}
+
+function resolveSessionWindowAliasTarget(
+  query: string,
+  writable: Session[],
+  routeType: FleetRouteType,
+): FleetWindowResult | null {
+  const match = query.trim().match(/^([^:]+):(\d+)(?:\.(\d+))?$/);
+  if (!match) return null;
+
+  const [, sessionQuery, rawWindowIndex, paneIndex] = match;
+  const wanted = new Set(sessionAliasNames(sessionQuery).map((name) => name.toLowerCase()));
+  if (!wanted.size) return null;
+
+  let matches = writable.filter((s) =>
+    sessionAliasNames(s.name).some((name) => wanted.has(name.toLowerCase())),
+  );
+  if (!matches.length) return null;
+
+  if (matches.length > 1) {
+    const normalizedQuery = sessionQuery.trim().toLowerCase();
+    const exactUnnumbered = matches.filter((s) =>
+      s.name.trim().replace(/^\d+-/, "").toLowerCase() === normalizedQuery,
+    );
+    if (exactUnnumbered.length === 1) matches = exactUnnumbered;
+  }
+
+  if (matches.length > 1) {
+    return {
+      type: "error",
+      reason: "session_alias_ambiguous",
+      detail: `'${sessionQuery}' matches multiple local sessions; refusing to guess a window`,
+      hint: `candidates: ${matches.map((s) => s.name).join(", ")}`,
+    };
+  }
+
+  const session = matches[0];
+  const windowIndex = Number(rawWindowIndex);
+  const window = session.windows.find((w) => w.index === windowIndex);
+  if (!window) {
+    return {
+      type: "error",
+      reason: "session_window_index_not_found",
+      detail: `'${sessionQuery}' matched local session '${session.name}', but window ${rawWindowIndex} was not found`,
+      hint: `candidates: ${session.windows.map((w) => `${session.name}:${w.index} (${w.name})`).join(", ") || "none"}`,
+    };
+  }
+
+  return {
+    type: routeType,
+    target: `${session.name}:${window.index}${paneIndex ? `.${paneIndex}` : ""}`,
   };
 }
 
@@ -307,6 +436,72 @@ function sessionAliasNames(name: string): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+/**
+ * #1980: Detect silent misdelivery — flag when a specific `<oracle>-oracle`
+ * window was requested but resolution landed on a window that is NOT that
+ * oracle window.
+ *
+ * The reported failure: `maw hey oracle-world-oracle:mawjs-oracle` forwarded
+ * `mawjs-oracle` to the peer, where fleet/alias resolution picked a bare
+ * `mawjs` shell pane (`mawjs:0`) over the real `mawjs-oracle` window
+ * (`01-mawjs:1`) — because `fleetWindowCandidateNames` matches the
+ * `-oracle`-stripped form `mawjs` against a window literally named `mawjs`.
+ * Injection succeeded on the wrong pane, so `hey` reported `delivered`.
+ *
+ * This runs AFTER resolution, independent of which path resolved the target,
+ * and returns a warning string when the intent was more specific than the
+ * window it reached. Intentionally narrow to avoid false positives:
+ *   - Only fires for `-oracle`-suffixed intents (operator named a specific
+ *     oracle window). Bare session aliases (`mawjs` → `mawjs-oracle`) and
+ *     explicit `session:index` / `peer:session:window` pane forms are exempt
+ *     — the latter satisfies the "full-form bypass" escape hatch.
+ *   - No warning when the resolved window's name matches the intent
+ *     (modulo a leading `NN-` and case).
+ */
+export function detectWindowMismatch(
+  query: string,
+  resolvedTarget: string,
+  sessions: Session[],
+): string | null {
+  if (!query) return null;
+
+  const intent = windowMismatchIntent(query);
+  if (!intent) return null;
+
+  const qNorm = intent.toLowerCase().replace(/^\d+-/, "");
+  if (!qNorm.endsWith("-oracle")) return null;
+
+  const addr = resolvedTarget.match(/^(.+):(\d+)(?:\.\d+)?$/);
+  if (!addr) return null;
+  const [, sessName, idxStr] = addr;
+  const sess = sessions.find((s) => s.name === sessName);
+  const win = sess?.windows.find((w) => w.index === Number(idxStr));
+  if (!win) return null;
+
+  const wNorm = win.name.trim().toLowerCase().replace(/^\d+-/, "");
+  if (wNorm === qNorm) return null; // exact oracle-window hit — unambiguous
+
+  return (
+    `delivered to ${resolvedTarget} (window '${win.name}'), but target was '${query}' — ` +
+    `resolved window is not named '${intent}'; the message may have landed on the ` +
+    `wrong pane. Use the full 'peer:session:window' form to disambiguate.`
+  );
+}
+
+function windowMismatchIntent(query: string): string | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split(":").filter(Boolean);
+  if (parts.length >= 3) return null; // Full peer:session:window form.
+  if (parts.length === 2) {
+    const targetPart = parts[1]!.trim();
+    if (/^\d+(?:\.\d+)?$/.test(targetPart)) return null; // Explicit session:index(.pane).
+    return targetPart || null;
+  }
+  return trimmed;
 }
 
 /**

@@ -81,14 +81,20 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       cmdTeamCreate(args[1], { description });
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
+        logs.push("usage: maw team spawn <team> <role> [--engine <engine>] [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--parent-session-id <id>] [--session-id <id>] [--exec]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
+      const engineIdx = args.indexOf("--engine") !== -1 ? args.indexOf("--engine") : args.indexOf("-e");
+      const engine = engineIdx !== -1 ? args[engineIdx + 1] : undefined;
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
       const cwdIdx = args.indexOf("--cwd");
       const worktreeIdx = args.indexOf("--worktree");
       const cwd = cwdIdx !== -1 ? args[cwdIdx + 1] : (worktreeIdx !== -1 ? args[worktreeIdx + 1] : undefined);
+      const parentIdx = args.indexOf("--parent-session-id") !== -1 ? args.indexOf("--parent-session-id") : args.indexOf("--parent");
+      const parentSessionId = parentIdx !== -1 ? args[parentIdx + 1] : undefined;
+      const sessionIdx = args.indexOf("--session-id");
+      const sessionId = sessionIdx !== -1 ? args[sessionIdx + 1] : undefined;
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
       // --prompt is greedy to end-of-argv; strip --exec if it appears in the tail
@@ -99,7 +105,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         for (let i = 0; i < rawTail.length; i++) {
           const a = rawTail[i];
           if (a === "--exec") continue;
-          if (a === "--model" || a === "--cwd" || a === "--worktree") {
+          if (a === "--engine" || a === "-e" || a === "--model" || a === "--cwd" || a === "--worktree" || a === "--parent" || a === "--parent-session-id" || a === "--session-id") {
             i++;
             continue;
           }
@@ -107,7 +113,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         }
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd });
+      await cmdTeamSpawn(args[1], args[2], { engine, model, prompt, exec, cwd, parentSessionId, sessionId });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");
@@ -136,6 +142,27 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       await cmdTeamShutdown(args[1], {
         force: args.includes("--force"),
         merge: args.includes("--merge"),
+      });
+    } else if (sub === "up") {
+      if (!args[1]) {
+        logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      const { cmdTeamUp } = await import("../../../vendor/mpr-plugins/team/team-up");
+      const flags = parseFlags(args, {
+        "--dry-run": Boolean,
+        "--status": Boolean,
+        "--force": Boolean,
+        "--gather": Boolean,
+        "--engine": String,
+        "-e": "--engine",
+      }, 2);
+      await cmdTeamUp(args[1], {
+        dryRun: Boolean(flags["--dry-run"]),
+        status: Boolean(flags["--status"]),
+        force: Boolean(flags["--force"]),
+        gather: Boolean(flags["--gather"]),
+        engine: flags["--engine"] as string | undefined,
       });
     } else if (sub === "list" || sub === "ls" || !sub) {
       await cmdTeamList();
@@ -539,7 +566,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|enter|inbox|layout|prep|recover|resume|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|up|split|peek|hey|enter|inbox|layout|prep|recover|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

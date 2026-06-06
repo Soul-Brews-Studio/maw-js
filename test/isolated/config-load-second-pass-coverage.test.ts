@@ -4,6 +4,7 @@ const realFs = await import("fs");
 const realPaths = await import("../../src/core/paths");
 
 const MOCK_CONFIG_FILE = "/tmp/maw-config-second-pass-coverage/maw.config.json";
+const mockedConfigFileWrites: Record<string, string> = {};
 
 let rawConfigText = "{}";
 let readError: Error | null = null;
@@ -22,7 +23,8 @@ await mock.module("fs", () => ({
   ...realFs,
   readFileSync: ((path: string | Buffer | URL, ...args: unknown[]) => {
     const pathText = String(path);
-    if (pathText === MOCK_CONFIG_FILE) {
+    if (pathText.startsWith(MOCK_CONFIG_FILE)) {
+      if (pathText in mockedConfigFileWrites) return mockedConfigFileWrites[pathText];
       if (readError) throw readError;
       return rawConfigText;
     }
@@ -30,18 +32,49 @@ await mock.module("fs", () => ({
   }) as typeof realFs.readFileSync,
   writeFileSync: ((path: string | Buffer | URL, data: string | ArrayBufferView, ...args: unknown[]) => {
     const pathText = String(path);
-    if (pathText === MOCK_CONFIG_FILE) {
+    if (pathText.startsWith(MOCK_CONFIG_FILE)) {
       writeCalls.push({ path: pathText, data: String(data) });
+      mockedConfigFileWrites[pathText] = String(data);
       if (writeError) throw writeError;
       return;
     }
     return (realFs.writeFileSync as any)(path, data, ...args);
   }) as typeof realFs.writeFileSync,
+  renameSync: ((oldPath: string | URL, newPath: string | URL) => {
+    const oldPathText = String(oldPath);
+    const newPathText = String(newPath);
+    if (oldPathText.startsWith(MOCK_CONFIG_FILE)) {
+      if (oldPathText in mockedConfigFileWrites) {
+        mockedConfigFileWrites[newPathText] = mockedConfigFileWrites[oldPathText];
+        delete mockedConfigFileWrites[oldPathText];
+      }
+      return;
+    }
+    return realFs.renameSync(oldPath as any, newPath as any);
+  }) as typeof realFs.renameSync,
+  rmSync: ((path: string | URL, ...args: unknown[]) => {
+    const pathText = String(path);
+    if (pathText.startsWith(MOCK_CONFIG_FILE)) {
+      delete mockedConfigFileWrites[pathText];
+      return;
+    }
+    return realFs.rmSync(path as any, ...args);
+  }) as typeof realFs.rmSync,
 }));
 
 await mock.module(import.meta.resolve("../../src/core/paths"), () => ({
   ...realPaths,
   CONFIG_FILE: MOCK_CONFIG_FILE,
+  CONFIG_WEIGHTED_FILE: MOCK_CONFIG_FILE.replace(/\.json$/, ".50.json"),
+  discoverConfigs: () => [{
+    path: MOCK_CONFIG_FILE,
+    weight: 50,
+    isLocal: false,
+    scope: "legacy",
+    scopeRank: 20,
+    depth: 0,
+    mtimeMs: 0,
+  }],
 }));
 
 await mock.module(import.meta.resolve("../../src/lib/context"), () => ({
@@ -73,6 +106,7 @@ beforeEach(() => {
   readError = null;
   writeError = null;
   writeCalls = [];
+  for (const key of Object.keys(mockedConfigFileWrites)) delete mockedConfigFileWrites[key];
   validatedConfig = {};
   validateError = null;
   loadFleetResult = {};
@@ -115,7 +149,7 @@ describe("config load second pass coverage", () => {
       defaultActivePlugins1531: true,
     });
     expect(writeCalls).toHaveLength(5);
-    expect(writeCalls.every((call) => call.path === MOCK_CONFIG_FILE)).toBe(true);
+    expect(writeCalls.every((call) => call.path.startsWith(MOCK_CONFIG_FILE))).toBe(true);
     expect(JSON.parse(writeCalls.at(-1)!.data).disabledPlugins).toEqual(loaded.disabledPlugins);
     expect(stderrWrites.join("")).toContain("config.disabledPlugins migration (#1500)");
     expect(stderrWrites.join("")).toContain("config.disabledPlugins migration (#1514)");

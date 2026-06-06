@@ -11,7 +11,7 @@ import type { MawConfig, MawIntervals, MawTimeouts, MawLimits } from "../../src/
 
 const INTERVALS: Record<keyof MawIntervals, number> = {
   capture: 50, sessions: 5000, status: 3000, teams: 3000,
-  preview: 2000, peerFetch: 10000, crashCheck: 30000,
+  preview: 2000, peerFetch: 10000, crashCheck: 30000, peerRetryBackoff: 300,
 };
 
 const TIMEOUTS: Record<keyof MawTimeouts, number> = {
@@ -23,7 +23,7 @@ const LIMITS: Record<keyof MawLimits, number> = {
   feedMax: 500, feedDefault: 50, feedHistory: 50,
   logsMax: 500, logsDefault: 50, logsTruncate: 500,
   messageTruncate: 100, ptyCols: 500, ptyRows: 200,
-  maxConcurrentAgents: 0,
+  maxConcurrentAgents: 0, peerProbeRetries: 2,
 };
 
 export const TEST_D = {

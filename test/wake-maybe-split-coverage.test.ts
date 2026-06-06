@@ -174,7 +174,7 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).not.toContain("refusing to split-bring");
   });
 
-  test("#1835 — split refuses different target windows in the caller session", async () => {
+  test("#1909 — same-session different-window moves the target pane via join-pane (multi-pane source)", async () => {
     paneSessionWindowResponse = "20-homekeeper:homekeeper-oracle";
 
     await maybeSplit("20-homekeeper:homekeeper-bridge", { split: true });
@@ -182,10 +182,31 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
-    expect(output()).toContain("same-session --split unsupported");
-    expect(output()).toContain("#1835");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux join-pane -h -l 50% -s '20-homekeeper:homekeeper-bridge' -t '%42'"))).toBe(true);
+    expect(output()).toContain("✓ joined beside — 20-homekeeper:homekeeper-bridge (same-session move; active pane)");
+    expect(output()).toContain("other panes remain in source window");
+    expect(output()).not.toContain("same-session --split unsupported");
     expect(output()).not.toContain("✓ split beside");
   });
+
+  test("#1909 — same-session move emits 'window auto-destroyed' warning when source is the last pane", async () => {
+    paneSessionWindowResponse = "20-homekeeper:homekeeper-oracle";
+    listPanesResponse = "1\n";
+
+    await maybeSplit("20-homekeeper:homekeeper-bridge", { split: true });
+
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux join-pane -h -l 50% -s '20-homekeeper:homekeeper-bridge' -t '%42'"))).toBe(true);
+    expect(output()).toContain("✓ joined beside — 20-homekeeper:homekeeper-bridge (same-session move; active pane)");
+    expect(output()).toContain("source window 'homekeeper-bridge' removed");
+    expect(output()).toContain("pane was the last; window auto-destroyed");
+    expect(output()).toContain("restore later: tmux break-pane");
+  });
+
+  // Note: Q1 (bare-session same-session refuse with explicit-window hint) is
+  // defensive code in the new branch but unreachable in practice: bare same-
+  // session targets are caught earlier by isSelfBring (#1816, bring-flags.ts:99).
+  // The Q1 path stays as belt-and-suspenders for any future refactor that
+  // reorders the guards.
 
   test("#1816 — splitTarget anchors the split in a destination session:window", async () => {
     await maybeSplit("50-mawjs:mawjs-features", {
@@ -248,7 +269,7 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).toContain("linked as background tab");
   });
 
-  test("Claude-like bring to an existing window in the same session still refuses nested split (#1835)", async () => {
+  test("#1909 — Claude-like bring to an existing window in the same session moves via join-pane", async () => {
     paneCommandResponse = "2.1.139";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -260,10 +281,12 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("link-window"))).toBe(false);
-    expect(output()).toContain("same-session --split unsupported");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux join-pane -h -l 50% -s '50-mawjs:mawjs-features' -t '%42'"))).toBe(true);
+    expect(output()).toContain("✓ joined beside — 50-mawjs:mawjs-features (same-session move; active pane)");
+    expect(output()).not.toContain("same-session --split unsupported");
   });
 
-  test("#1827 Claude-like bring with explicit --to in the target session still refuses nested split", async () => {
+  test("#1909 — #1827 Claude-like bring with explicit --to in the target session moves via join-pane", async () => {
     paneCommandResponse = "2.1.139";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -278,7 +301,9 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("link-window"))).toBe(false);
-    expect(output()).toContain("same-session --split unsupported");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux join-pane -h -l 50% -s '50-mawjs:mawjs-features' -t '50-mawjs:mawjs-oracle'"))).toBe(true);
+    expect(output()).toContain("✓ joined beside — 50-mawjs:mawjs-features (same-session move; active pane)");
+    expect(output()).not.toContain("same-session --split unsupported");
   });
 
   test("#1836 Claude-like bring splits cross-session targets by default", async () => {
@@ -320,7 +345,7 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).not.toContain("opened as background tab");
   });
 
-  test("#1835 — same-session guard still blocks nested attach from Claude-like panes", async () => {
+  test("#1909 — same-session guard from Claude-like panes uses join-pane (no nested attach)", async () => {
     paneCommandResponse = "2.1.139";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -330,8 +355,10 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
-    expect(output()).toContain("same-session --split unsupported");
-    expect(output()).toContain("nested attach would close the pane");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux join-pane"))).toBe(true);
+    expect(output()).toContain("✓ joined beside — 50-mawjs:mawjs-features (same-session move; active pane)");
+    expect(output()).not.toContain("same-session --split unsupported");
+    expect(output()).not.toContain("nested attach would close the pane");
   });
 
   test("split skips layout for two panes, tile anchors, invalid counts, and layout probe failures", async () => {

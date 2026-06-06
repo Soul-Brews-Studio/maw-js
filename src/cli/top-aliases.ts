@@ -25,6 +25,7 @@ import { cmdWake } from "../commands/shared/wake-cmd";
 import { activeDurationArg, cmdTmuxLayout, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
+import { cmdPromote } from "../commands/shared/promote-cmd";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
@@ -45,7 +46,6 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   layout: "Apply tmux layout to the current window",
   zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
-  cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — thin alias for `wake --split`",
   b: "Bring an oracle HERE (short form of `bring`)",
@@ -69,7 +69,6 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   layout: { kind: "direct", handler: "cmdLayout" },
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
-  cleanup: ["team", "cleanup", "--zombie-agents"],
   tile: ["tile"],
   bring: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
@@ -88,6 +87,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
   awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
+  promote: { kind: "direct", handler: "../commands/shared/promote-cmd:cmdPromote" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
   snapshots: ["fleet", "snapshots"],
@@ -152,6 +152,8 @@ function printLayoutUsage(write: (line: string) => void = console.log): void {
   write("usage: maw layout <preset>");
   write("  Re-apply a tmux layout preset to the current window.");
   write("  presets: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled");
+  write("  alias: reset → main-vertical");
+  write("  To swap two panes predictably: maw tile swap <a> <b>");
   write("  For explicit targets, use: maw tmux layout <target> <preset>");
 }
 
@@ -166,7 +168,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -181,6 +183,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
   write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
   write("  --signal-on-birth with --bud also drops a parent ψ/memory/signals birth signal.");
+  write("  --parent-session-id/--parent sets MAW_PARENT_SESSION_ID for spawned agents; --session-id sets MAW_SESSION_ID (#1925).");
 }
 
 /**
@@ -216,6 +219,8 @@ export function parseLsAliasOpts(argv: string[]) {
     "--active": Boolean,
     "--node": String,
     "--channels": Boolean,
+    "--fleet-only": Boolean,
+    "--no-teams": Boolean,
     "--verify": Boolean,
   }, 0);
 
@@ -237,8 +242,9 @@ export function parseLsAliasOpts(argv: string[]) {
     activeThresholdSec?: number;
     filter?: string;
     channels?: boolean;
-    oracleOnly?: boolean;
+    fleetOnly?: boolean;
     verify?: boolean;
+    teams?: boolean;
     federation?: boolean;
   } = {
     all: true,
@@ -248,8 +254,9 @@ export function parseLsAliasOpts(argv: string[]) {
     json: !!flags["--json"],
   };
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
-  if (compact && !flags["--all"] && !flags["--channels"]) opts.oracleOnly = true;
+  if (flags["--fleet-only"]) opts.fleetOnly = true;
   if (flags["--verify"]) opts.verify = true;
+  if (flags["--no-teams"]) opts.teams = false;
   if (flags["--federation"]) opts.federation = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
@@ -278,7 +285,7 @@ export function parseLsAliasOpts(argv: string[]) {
 function printLsAliasUsage(write: (line: string) => void): void {
   write("usage: maw ls [filter] [--all|-a] [--verbose|-v] [--compact|-c] [--json] [--recent|-r [N]] [--active [30m|1h]]");
   write("       maw ls --federation [--node <node>] [--json]");
-  write("       maw ls --channels | --verify | --fix");
+  write("       maw ls --channels | --fleet-only | --no-teams | --verify | --fix");
   write("");
   write("List live local sessions by default. Use --federation for local + peer inventory.");
   write("");
@@ -287,6 +294,8 @@ function printLsAliasUsage(write: (line: string) => void): void {
   write("  -v, --verbose      show full per-pane detail");
   write("  -a, --all          include sleeping roster and channel sessions");
   write("  --channels         include channel/infrastructure sessions");
+  write("  --fleet-only       hide orphan/ad hoc tmux sessions (legacy compact filter)");
+  write("  --no-teams         hide L2 Claude Code teams from ~/.claude/teams");
   write("  -r, --recent [N]   sort newest-first, optionally limiting to N sessions");
   write("  --active [DUR]     show sessions touched within a duration (default from tmux helper)");
   write("  --node <node>      filter sessions by node/name");
@@ -303,6 +312,7 @@ export interface TopAliasHandlerDeps {
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
+  cmdPromote?: (argv: string[]) => MaybePromise;
   loadConfig?: () => { commands?: Record<string, unknown> };
   log?: (line: string) => void;
   error?: (line: string) => void;
@@ -324,6 +334,7 @@ export async function invokeDirectHandler(
   const directCmdWake = deps.cmdWake ?? cmdWake;
   const directCmdNew = deps.cmdNew ?? cmdNew;
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
+  const directCmdPromote = deps.cmdPromote ?? cmdPromote;
   const log = deps.log ?? console.log;
   const error = deps.error ?? console.error;
 
@@ -335,7 +346,7 @@ export async function invokeDirectHandler(
     try {
       const opts = parseLsAliasOpts(argv);
       if (!opts.federation) {
-        await directCmdTmuxLs(opts);
+        await directCmdTmuxLs({ ...opts, teams: opts.teams !== false });
         return;
       }
       const result = await directLsFederated({
@@ -365,12 +376,32 @@ export async function invokeDirectHandler(
       return;
     }
     const flags = parseFlags(argv, {}, 0);
-    const preset = (flags._ as string[])[0];
+    const rawPreset = (flags._ as string[])[0];
+    const preset = rawPreset === "reset" ? "main-vertical" : rawPreset;
     if (!preset) {
       printLayoutUsage(error);
       throw new UserError("layout: missing preset");
     }
-    await directCmdTmuxLayout(".", preset);
+    // #1914 — resolve the caller's CURRENT window directly. Passing "."
+    // to the fleet-aware resolver fuzzy-matched stale fleet stems like
+    // "25-.bak202605130508discord" (any session name containing a dot).
+    let target = ".";
+    if (process.env.MAW_TEST_MODE !== "1") {
+      try {
+        const { execSync } = await import("child_process");
+        const raw = execSync(`tmux display-message -p '#{session_name}:#{window_name}'`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+        if (raw) target = raw;
+      } catch {
+        error("✗ maw layout: not in a tmux session — pass an explicit target: maw tmux layout <target> <preset>");
+        throw new UserError("layout: no current tmux window");
+      }
+    }
+    try {
+      await directCmdTmuxLayout(target, preset);
+    } catch (e: any) {
+      error(`✗ maw layout: ${e?.message ?? e}`);
+      throw new UserError(`layout: ${e?.message ?? e}`);
+    }
     return;
   }
 
@@ -396,6 +427,7 @@ export async function invokeDirectHandler(
       "--attach": Boolean, "-a": "--attach",
       "--list": Boolean,
       "--dry-run": Boolean,
+      "--no-fleet": Boolean,
       "--from-snapshot": Boolean,
       "--snapshot": String,
       "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
@@ -404,6 +436,9 @@ export async function invokeDirectHandler(
       "--bring-alias": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
+      "--parent": String,
+      "--parent-session-id": String,
+      "--session-id": String,
     }, 0);
 
     const positional = flags._;
@@ -426,6 +461,7 @@ export async function invokeDirectHandler(
       listWt?: boolean;
       dryRun?: boolean;
       noRehydrate?: boolean;
+      noFleet?: boolean;
       split?: boolean;
       splitTarget?: string;
       bringAlias?: boolean;
@@ -433,6 +469,8 @@ export async function invokeDirectHandler(
       signalOnBirth?: boolean;
       allLocal?: boolean;
       engine?: string;
+      parentSessionId?: string;
+      sessionId?: string;
       fromSnapshot?: boolean;
       snapshotId?: string;
       layout?: "nested" | "legacy";
@@ -455,6 +493,7 @@ export async function invokeDirectHandler(
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
     if (flags["--dry-run"]) opts.dryRun = true;
+    if (flags["--no-fleet"]) opts.noFleet = true;
     if (flags["--from-snapshot"]) opts.fromSnapshot = true;
     if (flags["--snapshot"]) {
       opts.snapshotId = flags["--snapshot"];
@@ -466,6 +505,10 @@ export async function invokeDirectHandler(
     if (flags["--bring-alias"]) opts.bringAlias = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
+    if (flags["--parent-session-id"] || flags["--parent"]) {
+      opts.parentSessionId = (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined);
+    }
+    if (flags["--session-id"]) opts.sessionId = flags["--session-id"] as string;
 
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
@@ -503,6 +546,11 @@ export async function invokeDirectHandler(
 
   if (exportName === "cmdNew") {
     await directCmdNew(argv);
+    return;
+  }
+
+  if (exportName === "cmdPromote") {
+    await directCmdPromote(argv);
     return;
   }
 

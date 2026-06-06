@@ -78,7 +78,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const action = sub === "snapshot-ls" ? "list" : (args[1] || "list");
       const json = args.includes("--json");
       if (action === "list" || action === "ls") {
-        const snaps = listSnapshots();
+        const allSnaps = listSnapshots();
+        // #1916 MED-1 — filter sentinel/junk rows: placeholder IDs like
+        // "99999999-999999" and entries whose timestamp is unparseable
+        // (Invalid Date) pollute the table. Drop them at display.
+        const snaps = allSnaps.filter(s => {
+          if (s.file.startsWith("99999999-")) return false;
+          const t = new Date(s.timestamp);
+          if (Number.isNaN(t.getTime())) return false;
+          return true;
+        });
         if (json) {
           console.log(JSON.stringify({ snapshots: snaps }, null, 2));
         } else if (snaps.length === 0) {

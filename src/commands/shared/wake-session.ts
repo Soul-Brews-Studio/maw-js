@@ -69,6 +69,44 @@ export async function isPaneIdle(paneTarget: string, deps: Partial<WakeSessionDe
   }
 }
 
+/**
+ * Poll until the pane's command is recognised as an agent binary, or timeout.
+ *
+ * Fixes the new-session race (#1906): after sendText() launches a non-claude
+ * engine (e.g. thclaws --cli), the tmux pane command may still report 'zsh'
+ * for several hundred ms before the shell execs the engine. Without this wait,
+ * the liveness check that follows immediately can see 'zsh', decide the agent
+ * is dead, and issue a second sendText() — which lands in the already-running
+ * engine's chat instead of the shell.
+ *
+ * @returns true when the engine is confirmed, false on timeout (5 s default).
+ */
+export async function waitForEngine(
+  paneTarget: string,
+  getPaneInfos: (targets: string[]) => Promise<Record<string, { command: string }>>,
+  isAgentCommand: (cmd: string | null | undefined) => boolean,
+  timeoutMs?: number,
+  pollIntervalMs = 250,
+): Promise<boolean> {
+  // Env-gated override so tests can short-circuit the poll budget.
+  // MAW_AGENT_BOOT_POLL_MS=0 → skip the poll entirely (return false immediately).
+  const envBudget = process.env.MAW_AGENT_BOOT_POLL_MS;
+  const effectiveTimeout = envBudget !== undefined ? Number(envBudget) : (timeoutMs ?? 5000);
+  if (effectiveTimeout <= 0) return false;
+  const deadline = Date.now() + effectiveTimeout;
+  while (Date.now() < deadline) {
+    try {
+      const infos = await getPaneInfos([paneTarget]);
+      const info = infos[paneTarget];
+      if (info && isAgentCommand(info.command)) return true;
+    } catch { /* tolerate transient tmux errors during engine startup */ }
+    if (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, pollIntervalMs));
+    }
+  }
+  return false;
+}
+
 export async function reconcileParentClaudeDir(repoPath: string, wtPath: string, log: WakeSessionDeps["log"]): Promise<void> {
   const { existsSync, lstatSync, mkdirSync, readdirSync, rmSync } = await import("fs");
   const { symlink } = await import("fs/promises");

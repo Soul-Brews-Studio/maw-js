@@ -73,6 +73,11 @@ const sessionSdkMock = () => ({
     if (cmd.includes("#S")) {
       sessionHostExecCalls.push(cmd);
       console.error("session stderr");
+      // #1916 LOW-2 — session/whoami now emit a tab-separated 5-field payload
+      // (#S\t#W\t#{window_id}\t#{pane_title}\t#{pane_id}) for the enriched
+      // human / JSON rendering. The legacy '#S' short form still gets just
+      // the session name.
+      if (cmd.includes("#W")) return "session-alpha\tlead\t@3\tClaude\t%21\n";
       return "session-alpha\n";
     }
     sdkCalls.hostExec.push(cmd);
@@ -241,7 +246,12 @@ describe("small hotspot plugin handler coverage", () => {
     } as any);
     expect(sessionResult.ok).toBe(true);
     expect(sessionHostExecCalls[0]).toContain("tmux display-message");
-    expect(sessionWrites).toEqual(["session stderr", "session-alpha"]);
+    // #1916 LOW-2 — enriched session output: header + 4 detail lines.
+    expect(sessionWrites[0]).toBe("session stderr");
+    expect(sessionWrites.join("\n")).toContain("session  session-alpha");
+    expect(sessionWrites.join("\n")).toContain("window   lead");
+    expect(sessionWrites.join("\n")).toContain("pane     Claude");
+    expect(sessionWrites.join("\n")).toContain("%21");
   });
 
   test("pane metadata read mode reports fallback guidance when no hints exist", async () => {

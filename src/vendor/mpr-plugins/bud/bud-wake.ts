@@ -1,8 +1,9 @@
 import { hostExec } from "maw-js/sdk";
 import { cmdSoulSync } from "./internal/soul-sync-impl";
 import { cmdWake } from "maw-js/commands/shared/wake";
-import { fleetDirForWrite, loadFleetEntries } from "maw-js/commands/shared/fleet-load";
+import { fleetDirForWrite, loadFleetEntries, loadFleet } from "maw-js/commands/shared/fleet-load";
 import { getGhqRoot } from "maw-js/config/ghq-root";
+import { resolveOraclePath } from "./internal/resolve";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 
@@ -17,10 +18,63 @@ export interface BudFinalizeCtx {
   opts: {
     seed?: boolean;
     issue?: number;
+    /** #1912 — explicit issue-repo override (owner/repo). */
+    issueRepo?: string;
     repo?: string;
     split?: boolean;
     fast?: boolean;
+    parentSessionId?: string;
+    sessionId?: string;
   };
+}
+
+/**
+ * #1912 — resolve the GitHub `owner/repo` slug to use for the --issue
+ * lookup at bud-wake time.
+ *
+ * Priority:
+ *   1. ctx.opts.issueRepo (explicit override)
+ *   2. Parent oracle's repo when ctx.parentName is set:
+ *        a. Fleet config (authoritative — windows[].repo is "owner/repo")
+ *        b. Local clone's git origin remote (parse owner/repo from URL)
+ *        c. Last-resort fallback: {ctx.org}/{parent}-oracle (warn the operator)
+ *   3. ctx.org/{budRepoName} — current behavior (useful when bud is seeded
+ *      with starter issues; preserved for back-compat)
+ *
+ * @internal — exported for tests.
+ */
+export async function resolveIssueRepoForBud(ctx: BudFinalizeCtx): Promise<string> {
+  const { opts, parentName, org, budRepoName } = ctx;
+  if (opts.issueRepo) {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(opts.issueRepo)) {
+      throw new Error(`bud: --issue-repo must be 'owner/repo' format — got '${opts.issueRepo}'`);
+    }
+    return opts.issueRepo;
+  }
+  if (!parentName) return `${org}/${budRepoName}`;
+
+  // (2a) Fleet config — windows[].repo is "owner/repo".
+  try {
+    const fleet = loadFleet();
+    for (const sess of fleet) {
+      const win = (sess.windows || []).find(w => w.name === `${parentName}-oracle` || w.name === parentName);
+      if (win?.repo) return win.repo;
+    }
+  } catch { /* fleet load failed — fall through */ }
+
+  // (2b) Local clone's git remote.
+  try {
+    const localPath = await resolveOraclePath(parentName);
+    if (localPath) {
+      const remote = await hostExec(`git -C '${localPath.replace(/'/g, "'\\''")}' remote get-url origin`);
+      const m = remote.trim().match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      if (m && m[1]) return m[1];
+    }
+  } catch { /* remote inspection failed — fall through */ }
+
+  // (2c) Last resort.
+  console.log(`  \x1b[33m⚠\x1b[0m --issue-repo not set and parent '${parentName}' repo not in fleet/local; falling back to '${org}/${parentName}-oracle'. Use --issue-repo to override.`);
+  return `${org}/${parentName}-oracle`;
 }
 
 /** Steps 5-8.5: soul-sync, initial commit, sync_peers update, wake, split, copy ψ/. */
@@ -91,9 +145,12 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // #421 — pass the exact cloned path so wake doesn't re-resolve via ghqFind,
   // which would match any same-named repo in any org (stale-clone bug).
   const wakeOpts: any = { noAttach: true, repoPath: budRepoPath };
+  if (opts.parentSessionId) wakeOpts.parentSessionId = opts.parentSessionId;
+  if (opts.sessionId) wakeOpts.sessionId = opts.sessionId;
   if (opts.issue) {
     const { fetchIssuePrompt } = await import("maw-js/commands/shared/wake");
-    wakeOpts.prompt = await fetchIssuePrompt(opts.issue, `${org}/${budRepoName}`);
+    const issueRepo = await resolveIssueRepoForBud(ctx);
+    wakeOpts.prompt = await fetchIssuePrompt(opts.issue, issueRepo);
     wakeOpts.task = `issue-${opts.issue}`;
   }
   if (opts.repo) {

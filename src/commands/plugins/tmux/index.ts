@@ -23,6 +23,21 @@ interface TmuxHandlerDeps {
   cmdSplit: (target: string, opts: { lock?: boolean }) => Promise<void>;
 }
 
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function breakPaneDetached(hostExecFn: typeof hostExec, pane: string): Promise<void> {
+  let windowName = "";
+  try {
+    windowName = (await hostExecFn(`tmux display-message -p -t ${shellArg(pane)} '#{window_name}'`)).trim();
+  } catch {
+    // Let break-pane surface the actionable tmux error below.
+  }
+  const nameArg = windowName ? ` -n ${shellArg(windowName)}` : "";
+  await hostExecFn(`tmux break-pane -d -t ${shellArg(pane)}${nameArg}`);
+}
+
 const defaultDeps: TmuxHandlerDeps = {
   cmdTmuxPeek,
   cmdTmuxLs,
@@ -99,6 +114,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         "--active": Boolean,
         "--node": String,
         "--channels": Boolean,
+        "--fleet-only": Boolean,
         "--help": Boolean,
         "-h": "--help",
       }, 1);
@@ -113,6 +129,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         console.log("  --active:   filter to sessions active within threshold (default 30m)");
         console.log("  --node:     filter sessions by node/session text");
         console.log("  --channels: include infrastructure channel sessions such as *-discord");
+        console.log("  --fleet-only: hide orphan/ad hoc tmux sessions");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const positionals = flags._ as string[];
@@ -140,6 +157,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
       const filter = nodeFilter || positionalFilter;
       if (filter) lsOpts.filter = filter;
       if (flags["--channels"] || flags["--all"]) lsOpts.channels = true;
+      if (flags["--fleet-only"]) lsOpts.fleetOnly = true;
       await deps.cmdTmuxLs(lsOpts);
     } else if (sub === "peek") {
       const flags = parseFlags(args, {
@@ -289,20 +307,40 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         return { ok: false, error: "not in tmux" };
       }
       const myPane = process.env.TMUX_PANE;
-      const paneList = (await deps.hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
-      if (paneList.length <= 1) {
-        console.log("\x1b[90mno panes to close\x1b[0m");
-        return { ok: true };
-      }
-      let hidden = 0;
-      for (const pane of paneList) {
-        if (pane === myPane) continue;
+      // #1916 MED-3 — accept an explicit pane target. Without one, default to
+      // the caller's current window. Previously the unscoped list-panes used
+      // the current window regardless of any arg, so `maw tmux close foo:1`
+      // silently no-op'd.
+      const explicitTarget = args[1];
+      if (explicitTarget) {
+        // Single specific pane → break it out unless it's the caller.
+        if (explicitTarget === myPane) {
+          console.log("\x1b[90mrefusing to close current pane (would lose this shell)\x1b[0m");
+          return { ok: false, error: "cannot close current pane" };
+        }
         try {
-          await deps.hostExec(`tmux break-pane -d -t '${pane}'`);
-          hidden++;
-        } catch { /* already gone */ }
+          await breakPaneDetached(deps.hostExec, explicitTarget);
+          console.log(`\x1b[32m✓\x1b[0m closed ${explicitTarget} (hidden — still alive)`);
+        } catch (e: any) {
+          console.log(`\x1b[31m✗\x1b[0m close failed for '${explicitTarget}': ${e?.message ?? e}`);
+          return { ok: false, error: e?.message ?? String(e) };
+        }
+      } else {
+        const paneList = (await deps.hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
+        if (paneList.length <= 1) {
+          console.log("\x1b[90mno panes to close\x1b[0m");
+          return { ok: true };
+        }
+        let hidden = 0;
+        for (const pane of paneList) {
+          if (pane === myPane) continue;
+          try {
+            await breakPaneDetached(deps.hostExec, pane);
+            hidden++;
+          } catch { /* already gone */ }
+        }
+        console.log(`\x1b[32m✓\x1b[0m closed ${hidden} pane${hidden !== 1 ? "s" : ""} (hidden — still alive)`);
       }
-      console.log(`\x1b[32m✓\x1b[0m closed ${hidden} pane${hidden !== 1 ? "s" : ""} (hidden — still alive)`);
     } else if (sub === "open") {
       if (!process.env.TMUX) {
         console.log("\x1b[33m⚠\x1b[0m open requires tmux");

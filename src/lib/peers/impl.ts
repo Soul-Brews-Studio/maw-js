@@ -33,6 +33,14 @@ export function validateUrl(raw: string): string | null {
   return null;
 }
 
+function cleanOptionalSshField(raw: string | undefined, label: string): string | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error(`invalid ${label} (must be non-empty)`);
+  if (/\s/.test(trimmed)) throw new Error(`invalid ${label} "${raw}" (must not contain whitespace)`);
+  return trimmed;
+}
+
 /**
  * Thin back-compat wrapper returning `string | null`. New callers should
  * use probePeer() directly to get structured errors — but pre-#565 code
@@ -51,6 +59,10 @@ export interface AddOptions {
   pubkey?: string;
   /** Peer identity supplied by an authenticated higher-level handshake. */
   identity?: { oracle: string; node: string };
+  /** Optional SSH config alias/target used by cross-node attach (#1879). */
+  ssh?: string;
+  /** Optional SSH user override for multi-user hosts (#1879). */
+  sshUser?: string;
   /** Stamp pair-symmetry fields while adding/updating the peer (#1494). */
   markSymmetricCheck?: boolean;
   /** Explicit symmetry result from the responder; defaults to probe failure. */
@@ -72,6 +84,8 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   if (aliasErr) throw new Error(aliasErr);
   const urlErr = validateUrl(opts.url);
   if (urlErr) throw new Error(urlErr);
+  const ssh = cleanOptionalSshField(opts.ssh, "--ssh");
+  const sshUser = cleanOptionalSshField(opts.sshUser, "--user");
 
   // Probe OUTSIDE the lock — it does network I/O. If --node was supplied
   // we still probe to surface errors, but the user-supplied node wins.
@@ -125,6 +139,8 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     addedAt: now,
     lastSeen: probe.error ? null : now,
   };
+  if (ssh) peer.ssh = ssh;
+  if (sshUser) peer.sshUser = sshUser;
   if (probe.error) peer.lastError = probe.error;
   if (probe.nickname) peer.nickname = probe.nickname;
   // Preserve cached pubkey across re-adds — TOFU has already certified it

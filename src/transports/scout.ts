@@ -39,6 +39,17 @@ export interface ScoutTransportConfig {
   autoPair?: boolean;
 }
 
+const PAIR_FAILURE_COOLDOWN_BASE_MS = 5_000;
+const PAIR_FAILURE_COOLDOWN_MAX_MS = 5 * 60_000;
+const PAIR_FAILURE_LONG_COOLDOWN_AFTER = 3;
+
+interface PairFailureState {
+  count: number;
+  cooldownUntil: number;
+  lastError: string;
+  cooldownLogged: boolean;
+}
+
 export class ScoutTransport implements Transport {
   readonly name = "scout-p2p";
   private _connected = false;
@@ -50,6 +61,7 @@ export class ScoutTransport implements Transport {
   private msgHandlers = new Set<(msg: TransportMessage) => void>();
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private pairFailures = new Map<string, PairFailureState>();
 
   constructor(config: ScoutTransportConfig) {
     this.config = config;
@@ -237,7 +249,7 @@ export class ScoutTransport implements Transport {
 
     this.emitPresence(hello.node, fromHost, "ready");
 
-    if (shouldPair && this.config.autoPair !== false) {
+    if (shouldPair && this.config.autoPair !== false && this.canAttemptPair(hello)) {
       this.state.markPending(hello.zid);
       this.doPair(hello.zid);
     }
@@ -311,10 +323,11 @@ export class ScoutTransport implements Transport {
 
     if (result.ok) {
       this.state.markPaired(zid);
+      this.clearPairFailure(peer);
       console.log(`[scout] ✓ paired with ${peer.node}`);
     } else {
       this.state.clearPending(zid);
-      console.warn(`[scout] pair failed with ${peer.node}: ${result.error}`);
+      this.recordPairFailure(peer, result.error);
     }
   }
 
@@ -349,5 +362,45 @@ export class ScoutTransport implements Transport {
         this.state.markExistingPeerPaired(alias);
       }
     } catch {}
+  }
+
+  private pairFailureKey(peer: HelloMessage | { zid: string; node: string }): string {
+    return peer.node || peer.zid;
+  }
+
+  private canAttemptPair(hello: HelloMessage): boolean {
+    const key = this.pairFailureKey(hello);
+    const failure = this.pairFailures.get(key);
+    if (!failure) return true;
+    const remainingMs = failure.cooldownUntil - Date.now();
+    if (remainingMs <= 0) return true;
+    if (!failure.cooldownLogged) {
+      failure.cooldownLogged = true;
+      const seconds = Math.ceil(remainingMs / 1000);
+      const mode = failure.count >= PAIR_FAILURE_LONG_COOLDOWN_AFTER ? "cooldown" : "backoff";
+      console.warn(
+        `[scout] pair ${mode} for ${hello.node}: ${seconds}s after ${failure.count} failure${failure.count === 1 ? "" : "s"} (${failure.lastError})`,
+      );
+    }
+    return false;
+  }
+
+  private recordPairFailure(peer: { zid: string; node: string }, error: string): void {
+    const key = this.pairFailureKey(peer);
+    const previous = this.pairFailures.get(key);
+    const count = (previous?.count ?? 0) + 1;
+    const delay = Math.min(PAIR_FAILURE_COOLDOWN_BASE_MS * 2 ** Math.max(0, count - 1), PAIR_FAILURE_COOLDOWN_MAX_MS);
+    this.pairFailures.set(key, {
+      count,
+      cooldownUntil: Date.now() + delay,
+      lastError: error,
+      cooldownLogged: false,
+    });
+    const mode = count >= PAIR_FAILURE_LONG_COOLDOWN_AFTER ? "cooling down" : "backing off";
+    console.warn(`[scout] pair failed with ${peer.node}: ${error}; ${mode} for ${Math.ceil(delay / 1000)}s`);
+  }
+
+  private clearPairFailure(peer: { zid: string; node: string }): void {
+    this.pairFailures.delete(this.pairFailureKey(peer));
   }
 }

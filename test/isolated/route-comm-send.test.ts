@@ -77,8 +77,9 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
 
     expect(handled).toBe(true);
     expect(calls).toEqual([]);
-    expect(logs.join("\n")).toContain("usage: maw send <target> <message>");
-    expect(logs.join("\n")).toContain("local:<agent>");
+    expect(logs.join("\n")).toContain("usage: maw send");
+    expect(logs.join("\n")).toContain("MAW_SENDER");
+    expect(logs.join("\n")).toContain("local:");
   });
 
   test("maw hey -h prints usage instead of treating -h as a target (#1531)", async () => {
@@ -86,7 +87,8 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
 
     expect(handled).toBe(true);
     expect(calls).toEqual([]);
-    expect(logs.join("\n")).toContain("usage: maw hey <target> <message>");
+    expect(logs.join("\n")).toContain("usage: maw hey");
+    expect(logs.join("\n")).toContain("MAW_SENDER");
   });
 
   test("--approve/--trust are stripped from the delivered message and passed as delivery opts", async () => {
@@ -98,11 +100,38 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
     ]);
   });
 
+  test("--from may appear before target and is passed as a sender override", async () => {
+    const handled = await routeComm("hey", ["hey", "--from", "alpha:volt-oracle", "m5:mawjs", "hello"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["m5:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: false, from: "alpha:volt-oracle" }],
+    ]);
+  });
+
+  test("--from=value is stripped from delivered message", async () => {
+    const handled = await routeComm("send", ["send", "local:mawjs", "hello", "--from=alpha:volt-oracle"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: false, from: "alpha:volt-oracle" }],
+    ]);
+  });
+
+  test("--from without a value reports a usage error", async () => {
+    await expect(routeComm("hey", ["hey", "--from", "--inbox", "m5:mawjs", "hello"])).rejects.toThrow("missing value for --from");
+
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain("missing value for --from");
+    expect(errors.join("\n")).toContain("node:oracle");
+  });
+
   test("missing target prints usage to stderr and throws a UserError", async () => {
     await expect(routeComm("send", ["send"])).rejects.toThrow("missing target and message");
 
     expect(calls).toEqual([]);
-    expect(errors.join("\n")).toContain("usage: maw send <target> <message>");
+    expect(errors.join("\n")).toContain("usage: maw send");
+    expect(errors.join("\n")).toContain("MAW_SENDER");
   });
 
   test("missing message names the target and throws a UserError", async () => {

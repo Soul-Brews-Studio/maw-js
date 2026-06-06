@@ -7,6 +7,7 @@ import {
   findWakeSnapshotSession,
   getLiveTileRoles,
   promptAmbiguousWorktreePick,
+  resolveWakeFleetSessionMetadata,
   _wtPicker,
   planRehydrateWorktreeWindows,
   planSnapshotRestoreWindows,
@@ -124,6 +125,33 @@ describe("wake-bud lineage helpers — default coverage", () => {
   });
 });
 
+
+describe("wake fleet session metadata — default coverage", () => {
+  it("keeps compact fleet session stems tied to their pinned repo (#1892)", () => {
+    expect(resolveWakeFleetSessionMetadata("79-mawjscodex", [{
+      name: "79-mawjscodex",
+      windows: [{ name: "mawjscodex-oracle", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }],
+    }])).toEqual({
+      session: "79-mawjscodex",
+      oracle: "mawjscodex",
+      windowName: "mawjscodex-oracle",
+      repo: "Soul-Brews-Studio/mawjs-codex-oracle",
+    });
+  });
+
+  it("falls back to repo stems when a fleet window is not oracle-named", () => {
+    expect(resolveWakeFleetSessionMetadata("23-discord-admin", [{
+      name: "23-discord-admin",
+      windows: [{ name: "admin", repo: "Soul-Brews-Studio/discord-oracle.git" }],
+    }])).toEqual({
+      session: "23-discord-admin",
+      oracle: "discord",
+      windowName: "admin",
+      repo: "Soul-Brews-Studio/discord-oracle",
+    });
+  });
+});
+
 describe("wake attach prompt gate — default coverage", () => {
   it("offers attach only for interactive plain wake", () => {
     const env = {} as NodeJS.ProcessEnv;
@@ -136,6 +164,7 @@ describe("wake attach prompt gate — default coverage", () => {
 
   it("suppresses attach prompts in automated MAW_TEST_MODE runs", () => {
     expect(shouldOfferExistingSessionAttach({}, true, { MAW_TEST_MODE: "1" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({}, true, { MAW_ATTACH_FOLLOWS: "1" } as NodeJS.ProcessEnv)).toBe(false);
   });
 });
 

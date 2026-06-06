@@ -8,6 +8,7 @@ const realFs = require("fs") as typeof import("fs");
 
 let resolveResult: any = null;
 let spawnCalls: string[][] = [];
+let spawnEnvs: Array<NodeJS.ProcessEnv | undefined> = [];
 let spawnExitCode = 0;
 let tmuxAttachCalls: string[] = [];
 let logs: string[] = [];
@@ -50,6 +51,7 @@ const { cmdAttach } = await import("../../src/vendor/mpr-plugins/attach/impl.ts?
 beforeEach(() => {
   resolveResult = null;
   spawnCalls = [];
+  spawnEnvs = [];
   spawnExitCode = 0;
   tmuxAttachCalls = [];
   logs = [];
@@ -78,8 +80,9 @@ beforeEach(() => {
     return answer.length;
   }) as typeof realFs.readSync;
   realFs.closeSync = (() => undefined) as typeof realFs.closeSync;
-  Bun.spawn = ((cmd: string[], opts?: { stdin?: string; stdout?: string; stderr?: string }) => {
+  Bun.spawn = ((cmd: string[], opts?: { stdin?: string; stdout?: string; stderr?: string; env?: NodeJS.ProcessEnv }) => {
     spawnCalls.push([...cmd]);
+    spawnEnvs.push(opts?.env);
     expect(opts).toMatchObject({ stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return { exited: Promise.resolve(spawnExitCode) } as ReturnType<typeof Bun.spawn>;
   }) as typeof Bun.spawn;
@@ -107,6 +110,7 @@ describe("attach impl interactive prompt coverage", () => {
     expect(ttyWrites.join("")).toContain('Wake "sleepy-oracle"? [y/N]');
     expect(logs.join("\n")).toContain("'sleepy-oracle' is sleeping");
     expect(spawnCalls).toEqual([["maw", "wake", "sleepy-oracle"]]);
+    expect(spawnEnvs[0]?.MAW_ATTACH_FOLLOWS).toBe("1");
     expect(tmuxAttachCalls).toEqual(["sleepy-oracle"]);
   });
 

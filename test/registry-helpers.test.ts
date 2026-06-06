@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
-import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
   __resetDiscoverStateForTests,
+  discoverLocalPluginDirs,
   hashFile,
   isDevModeInstall,
   runtimeSdkVersion,
@@ -39,7 +40,22 @@ describe("plugin registry runtime helpers", () => {
   test("scanDirs honors MAW_PLUGINS_DIR override", () => {
     saveEnv("MAW_PLUGINS_DIR");
     process.env.MAW_PLUGINS_DIR = "/tmp/maw-test-plugins";
-    expect(scanDirs()).toEqual(["/tmp/maw-test-plugins"]);
+    expect(scanDirs(tempDir("maw-clean-cwd-"))).toEqual(["/tmp/maw-test-plugins"]);
+  });
+
+  test("scanDirs adds project .maw/plugins from the cwd ancestor chain", () => {
+    saveEnv("MAW_PLUGINS_DIR");
+    process.env.MAW_PLUGINS_DIR = "/tmp/maw-test-plugins";
+    const root = tempDir("maw-local-plugins-");
+    const projectPlugins = join(root, ".maw", "plugins");
+    const packagePlugins = join(root, "packages", "app", ".maw", "plugins");
+    const cwd = join(root, "packages", "app", "src");
+    mkdirSync(projectPlugins, { recursive: true });
+    mkdirSync(packagePlugins, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+
+    expect(discoverLocalPluginDirs(cwd)).toEqual([packagePlugins, projectPlugins]);
+    expect(scanDirs(cwd)).toEqual(["/tmp/maw-test-plugins", packagePlugins, projectPlugins]);
   });
 
   test("runtimeSdkVersion resolves and caches the bundled SDK package version", () => {

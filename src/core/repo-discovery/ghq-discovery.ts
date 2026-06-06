@@ -40,7 +40,10 @@ export const GhqDiscovery: RepoDiscovery = {
 
   listSync(): string[] {
     try {
-      return normalize(execSync("ghq list --full-path", { encoding: "utf-8" }));
+      return normalize(execSync("ghq list --full-path", {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }));
     } catch {
       return [];
     }

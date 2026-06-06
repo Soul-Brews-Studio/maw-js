@@ -107,6 +107,9 @@ const SAFE_DRAIN_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
   { reason: "verified", pattern: /(?:✅|🏆).{0,120}\bverified\b|\b(?:verified\s+[0-9a-f]{7,}|[0-9a-f]{7,}\s+verified)\b|\bslice\s+\d+.{0,80}\bverified\b|\b#\d+\s+verified\b|\bbatch verified\b/i },
   { reason: "next-slice-shipped", pattern: /\bshipped next slice\b/i },
   { reason: "slice-shipped", pattern: /\bshipped\b.{0,80}\bslice\b/i },
+  { reason: "delivery-confirm", pattern: /\bdelivery\s*[- ]?confirm(?:ed|s)?\b/i },
+  { reason: "council", pattern: /\b(ratified|no\s*response\s*needed|co-?sign(?:ed|ing)?|โหวต|ปิดวง|ไม่ต้อง\s*ตอบ)\b/i },
+  { reason: "council", pattern: /\bstage\s+\d+\s+closed\b/i },
 ];
 
 export function resolveInboxDir(): string {
@@ -326,11 +329,12 @@ function buildInboxStatus(
   nowMs: number,
   cursor: InboxCursorStore,
 ): InboxStatus {
-  const files = topLevelInboxFiles(inboxDir);
-  const unread = files.length;
+  const messages = loadInboxMessages(inboxDir);
+  const unreadMessages = messages.filter(msg => !msg.frontmatter.read);
+  const unread = unreadMessages.length;
 
-  const oldestTimestampMs = files
-    .map(file => parseInboxFilenameTimestamp(file)?.getTime() ?? null)
+  const oldestTimestampMs = unreadMessages
+    .map(msg => msg.timestamp.getTime())
     .filter((time): time is number => time !== null && isFinite(time))
     .sort((a, b) => a - b)[0] ?? null;
   const oldestAgeSeconds = oldestTimestampMs === null ? null : ageSeconds(oldestTimestampMs, nowMs);

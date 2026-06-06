@@ -4,7 +4,7 @@ import { cmdAttach } from "./impl";
 
 export const command = {
   name: "attach",
-  description: "Smart attach — local live or sleeping-fleet wake (#25 Phase 1, local only).",
+  description: "Smart attach — local live/sleeping fleet, plus explicit node:session SSH attach.",
 };
 
 const USAGE = "usage: maw attach <name> [--shell [--split|--no-split]] [--dry-run] [-y|--yes]";

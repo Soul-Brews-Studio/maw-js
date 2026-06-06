@@ -129,17 +129,34 @@ export const resolveSessionTarget = <T extends { name: string }>(
  * accepts prefixes that continue within the same word; a dash boundary after
  * the target stays unresolved (`mawjs` does not match `114-mawjs-no2`).
  */
+export interface NumericFleetStemPrefixOptions {
+  /**
+   * Full canonical fleet stems that exist even if their tmux session is not
+   * currently live. If the user typed one of these exactly, do not reinterpret
+   * it as a prefix of a different live oracle (`mawjs` must not wake/attach
+   * `mawjscodex` just because only `79-mawjscodex` is running).
+   */
+  knownFullStems?: readonly string[];
+}
+
+function numericFleetStem(name: string): string {
+  return name.toLowerCase().replace(/^\d+-/, "");
+}
+
 export function resolveNumericFleetStemPrefix<T extends { name: string }>(
   target: string,
   items: readonly T[],
+  options: NumericFleetStemPrefixOptions = {},
 ): ResolveResult<T> {
   const lc = target.trim().toLowerCase();
   if (!lc) return { kind: "none" };
+  const knownFullStems = new Set((options.knownFullStems || []).map(stem => numericFleetStem(stem.trim())).filter(Boolean));
+  if (knownFullStems.has(lc)) return { kind: "none" };
 
   const matches = items.filter((it) => {
     const n = it.name.toLowerCase();
     if (!/^\d+-/.test(n)) return false;
-    const stem = n.replace(/^\d+-/, "");
+    const stem = numericFleetStem(n);
     if (!stem.startsWith(lc) || stem.length <= lc.length) return false;
     return stem.charAt(lc.length) !== "-";
   });

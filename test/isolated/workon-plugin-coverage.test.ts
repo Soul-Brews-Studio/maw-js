@@ -55,7 +55,7 @@ mock.module("maw-js/sdk", () => ({
   },
 }));
 
-const { cmdWorkon } = await import("../../src/vendor/mpr-plugins/workon/impl.ts?workon-plugin-coverage");
+const { cmdWorkon, sanitizeWorkonTaskSlug } = await import("../../src/vendor/mpr-plugins/workon/impl.ts?workon-plugin-coverage");
 
 beforeEach(() => {
   ghqFindResult = "/opt/Code/github.com/Soul-Brews-Studio/maw-js";
@@ -141,6 +141,21 @@ describe("workon plugin coverage", () => {
       opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/8-new-task" },
     });
     expect(sendTextCalls[0]).toEqual({ target: "alpha-session:maw-js-new-task", text: "agent --name maw-js-new-task" });
+  });
+
+  test("sanitizes slash-separated task names before resolving paths and branches", async () => {
+    expect(sanitizeWorkonTaskSlug("feat/message-tracking")).toBe("feat-message-tracking");
+    hostExecFailures.set("branch -D", new Error("branch not found"));
+
+    await cmdWorkon("maw-js", "feat/message-tracking");
+
+    expect(hostExecCalls.some((cmd) => cmd.includes("branch -D 'agents/1-feat-message-tracking'"))).toBe(true);
+    expect(hostExecCalls.some((cmd) => cmd.includes("worktree add '/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/1-feat-message-tracking' -b 'agents/1-feat-message-tracking'"))).toBe(true);
+    expect(newWindowCalls[0]).toEqual({
+      session: "alpha-session",
+      name: "maw-js-feat-message-tracking",
+      opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/1-feat-message-tracking" },
+    });
   });
 
   test("honors --layout legacy for new task worktrees", async () => {

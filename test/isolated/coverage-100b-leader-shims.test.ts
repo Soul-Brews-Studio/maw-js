@@ -25,6 +25,8 @@ mock.module(import.meta.resolve("../../src/core/paths"), () => ({
   CONFIG_DIR: "/tmp/maw-coverage-home/config",
   FLEET_DIR: "/tmp/maw-coverage-home/config/fleet",
   CONFIG_FILE: "/tmp/maw-coverage-home/config/maw.config.json",
+  CONFIG_WEIGHTED_FILE: "/tmp/maw-coverage-home/config/maw.config.50.json",
+  discoverConfigs: () => [],
 }));
 mock.module(import.meta.resolve("../../src/config"), () => ({
   D: { limits: {}, intervals: {}, timeouts: {} },

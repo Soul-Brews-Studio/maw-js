@@ -1,10 +1,10 @@
 import { loadConfig } from "./load";
-import { buildCommandFromConfig, buildCommandInDirFromConfig } from "./command-logic";
+import { buildCommandFromConfig, buildCommandInDirFromConfig, type BuildCommandInput } from "./command-logic";
 
-export { buildCommandFromConfig, buildCommandInDirFromConfig } from "./command-logic";
+export { buildCommandFromConfig, buildCommandInDirFromConfig, type BuildCommandInput, type BuildCommandOpts } from "./command-logic";
 
-export function buildCommand(agentName: string, engine?: string): string {
-  return buildCommandFromConfig(loadConfig(), agentName, engine);
+export function buildCommand(agentName: string, optsOrEngine?: BuildCommandInput): string {
+  return buildCommandFromConfig(loadConfig(), agentName, optsOrEngine);
 }
 
 /**
@@ -14,8 +14,8 @@ export function buildCommand(agentName: string, engine?: string): string {
  * the reboot-recovery edge case. `cwd` now also drives repo-local launch
  * detection such as Discord bot `--channels` injection.
  */
-export function buildCommandInDir(agentName: string, cwd: string, engine?: string): string {
-  return buildCommandInDirFromConfig(loadConfig(), agentName, cwd, engine);
+export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: BuildCommandInput): string {
+  return buildCommandInDirFromConfig(loadConfig({ cwd }), agentName, cwd, optsOrEngine);
 }
 
 export function getEnvVars(): Record<string, string> {

@@ -284,13 +284,16 @@ describe("wake-cmd isolated executable branch coverage", () => {
     expect(sendTextCalls).toEqual([]);
   });
 
-  test("rejects missing foreign workspace sessions", async () => {
+  test("creates missing foreign workspace sessions", async () => {
     hasSessions = new Set();
 
-    await expect(cmdWake("mawjs", { session: "project", noRehydrate: true })).rejects.toThrow("target session 'project' not found");
+    const result = await cmdWake("mawjs", { session: "project", noRehydrate: true });
 
+    expect(result).toBe("project:mawjs");
+    expect(sessions).toContainEqual({ name: "project" });
+    expect(windowsBySession.project).toEqual([{ name: "mawjs", cwd: repoPath }]);
     expect(newWindowCalls).toEqual([]);
-    expect(sendTextCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([{ target: "project:mawjs", text: expect.stringContaining("--agent mawjs") }]);
   });
 
   test("rejects unavailable and non-matching requested snapshots", async () => {

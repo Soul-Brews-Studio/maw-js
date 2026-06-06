@@ -286,6 +286,8 @@ describe("transport registry default coverage", () => {
       discovery: {},
       disabledPlugins: ["zenoh-scout"],
     } as any)).toBe("scout");
+    expect(discoveryTransport({ ...defaultConfig, scout: false, discovery: { transport: "scout" } } as any)).toBe("off");
+    expect(discoveryTransport({ ...defaultConfig, scout: false, discovery: { transport: "both" } } as any)).toBe("zenoh");
   });
 
   test("dynamically loads and registers zenoh transport when locator is configured", async () => {

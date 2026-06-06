@@ -165,7 +165,12 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
   function isAgentCommand(cmd: string | null | undefined): boolean {
     const c = (cmd ?? "").trim();
     if (!c) return false;
-    if (/claude|codex/i.test(c)) return true;
+    // #1906 — non-claude/codex agents (thclaws, thclaude, …) need the same
+    // detection path so wake doesn't re-send the launch command into their
+    // chat input. Config-driven match below covers exotics; this hardcoded
+    // list covers the common-case fleet engines that ship without explicit
+    // config.commands entries.
+    if (/claude|codex|thclaws|thclaude/i.test(c)) return true;
     if (/^node$/i.test(c)) return true;
     if (/^\d+\.\d+\.\d+$/.test(c)) return true;
     try {

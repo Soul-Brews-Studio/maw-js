@@ -2,14 +2,14 @@ import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind, ghqList } from "../../core/ghq";
 import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
-import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
+import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { worktreeNameFromPath } from "../../core/fleet/worktree-layout";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
-import { loadFleet, type FleetWindow } from "./fleet-load";
+import { loadFleet, resolveFleetSession, type FleetWindow } from "./fleet-load";
 import type { Session } from "../../core/runtime/find-window";
 
 /**
@@ -198,7 +198,7 @@ async function resolveLocalOracleWithPicker(
 
 export async function resolveOracle(
   oracle: string,
-  opts?: { allLocal?: boolean },
+  opts?: { allLocal?: boolean; quietWorktreeScan?: boolean },
 ): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // #997 — match against local *-oracle repos in ghq before remote lookups.
   // e.g. "v3" matches "arra-oracle-v3-oracle" so `maw wake v3` works like `maw ls -a`.
@@ -236,7 +236,13 @@ export async function resolveOracle(
   // or on a machine where ghq was never configured). Nat's insight: having a
   // worktree guarantees a git repo.
   try {
-    const worktreeResult = await resolveFromWorktrees(oracle, scanWorktrees, hostExec, existsSync);
+    // #1916 MED-2 — under dry-run we don't want unrelated ambiguous-binding
+    // errors from worktree scan polluting stderr (the user asked "what WOULD
+    // wake do for X", not "what's wrong with the rest of the fleet").
+    const scanFn = opts?.quietWorktreeScan
+      ? () => scanWorktrees({ error: () => { /* silenced under dry-run */ } })
+      : scanWorktrees;
+    const worktreeResult = await resolveFromWorktrees(oracle, scanFn, hostExec, existsSync);
     if (worktreeResult) return worktreeResult;
   } catch { /* scanWorktrees failed — fall through to clone */ }
 
@@ -418,12 +424,17 @@ export function findReusableWorktreeBySlug(
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
 
-export function resolveFleetSession(oracle: string): string | null {
+// #1976-release: resolveFleetSession moved to ./fleet-load so the sync
+// resolveTarget path can import it without pulling this sdk-coupled module.
+// Re-exported here to keep existing importers (wake barrel, etc.) working.
+export { resolveFleetSession };
+
+function knownFleetSessionStems(): string[] {
   try {
-    const resolved = resolveFleetWindowSessionTarget(oracle, loadFleet());
-    if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
-  } catch { /* fleet dir may not exist */ }
-  return null;
+    return loadFleet().map(session => session.name);
+  } catch {
+    return [];
+  }
 }
 
 export async function detectSession(oracle: string, urlRepoName?: string): Promise<string | null> {
@@ -502,7 +513,9 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // canonical fleet stem misses and wake tries to create a duplicate session.
   // Accept only prefixes that continue inside the same word, not at a dash
   // boundary, and fail loudly when more than one live fleet stem matches.
-  const numericPrefix = resolveNumericFleetStemPrefix(oracle, numericSessions);
+  const numericPrefix = resolveNumericFleetStemPrefix(oracle, numericSessions, {
+    knownFullStems: knownFleetSessionStems(),
+  });
   if (numericPrefix.kind === "fuzzy") return numericPrefix.match.name;
   if (numericPrefix.kind === "ambiguous") {
     console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numericPrefix.candidates.length} fleet sessions:`);

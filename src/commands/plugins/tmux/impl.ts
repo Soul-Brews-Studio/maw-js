@@ -23,6 +23,30 @@ import {
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
+export interface ClaudeTeamSummary {
+  name: string;
+  memberCount: number;
+  configPath: string;
+}
+
+export function loadClaudeTeams(teamsDir = TEAMS_DIR): ClaudeTeamSummary[] {
+  if (!existsSync(teamsDir)) return [];
+  const teams: ClaudeTeamSummary[] = [];
+  for (const dir of readdirSync(teamsDir).sort()) {
+    const cfg = join(teamsDir, dir, "config.json");
+    if (!existsSync(cfg)) continue;
+    try {
+      const team = JSON.parse(readFileSync(cfg, "utf-8"));
+      teams.push({
+        name: dir,
+        memberCount: Array.isArray(team.members) ? team.members.length : 0,
+        configPath: cfg,
+      });
+    } catch { /* skip bad config */ }
+  }
+  return teams;
+}
+
 async function resolvePaneTargetForKill(target: string): Promise<PaneTargetResolution> {
   const raw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
   if (!raw.trim()) return { kind: "none" };
@@ -181,13 +205,41 @@ export interface TmuxLsOpts {
   filter?: string;
   /** Include infrastructure channel sessions such as *-discord. */
   channels?: boolean;
-  /** Hide non-oracle junk sessions in top-level maw ls compact views. */
+  /** Deprecated internal alias kept as a no-op so old compact callers cannot hide live orphans. */
   oracleOnly?: boolean;
+  /** Hide live sessions that are not fleet-shaped/fleet-registered. */
+  fleetOnly?: boolean;
   /** Include expensive verification/noise such as worktree-bind rows. */
   verify?: boolean;
+  /** Include L2 Claude Code teams from ~/.claude/teams in maw ls output. */
+  teams?: boolean;
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
+export type PaneActivity = "busy" | "idle" | "stuck" | "unknown";
+
+export interface PaneWorktreeJson {
+  path: string;
+  branch: string | null;
+  head: string | null;
+}
+
+export interface PaneProvenanceJson {
+  oracle: string | null;
+  machine: string | null;
+  session: string | null;
+  federation: string | null;
+  org: string | null;
+  repo: string | null;
+  commit: string | null;
+  engine: string | null;
+}
+
+export interface PaneActivityJson {
+  activity: PaneActivity;
+  activitySource: "context-limit" | "tmux-window-activity" | "unknown";
+  activityWindow: "30s";
+}
 
 interface AnnotatedPane {
   id: string;
@@ -201,6 +253,174 @@ interface AnnotatedPane {
   sessionCreated?: number;
   sessionActivity?: number;
   source?: string;
+  cwd?: string;
+  top?: number;
+  left?: number;
+  w?: number;
+  h?: number;
+  paneIdx?: number;
+  winIdx?: number;
+  winName?: string;
+  active?: boolean;
+  window?: {
+    w?: number;
+    h?: number;
+    active?: boolean;
+  };
+  attached?: boolean;
+}
+
+export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
+  if (status === "frozen") return "stuck";
+  if (status === "active") return "busy";
+  if (status === "idle" || status === "stale") return "idle";
+  return "unknown";
+}
+
+export function paneActivityJson(pane: Pick<AnnotatedPane, "status">): PaneActivityJson {
+  const activity = classifyLsPaneActivity(pane.status);
+  return {
+    activity,
+    activitySource: activity === "stuck"
+      ? "context-limit"
+      : activity === "unknown"
+      ? "unknown"
+      : "tmux-window-activity",
+    activityWindow: "30s",
+  };
+}
+
+function sh(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export interface PaneGitMetadata {
+  root: string;
+  branch: string | null;
+  head: string | null;
+  org: string | null;
+  repo: string | null;
+}
+
+function paneWindowName(target: string): string | null {
+  const afterColon = target.split(":").slice(1).join(":");
+  if (!afterColon) return null;
+  const match = /^(.*)\.\d+$/.exec(afterColon);
+  return (match?.[1] ?? afterColon).trim() || null;
+}
+
+function oracleNameForPane(session: string, target: string, configured?: string): string | null {
+  const window = paneWindowName(target);
+  if (window && !/^\d+$/.test(window)) return window;
+  const fallback = configured || session.replace(/^\d+-/, "");
+  if (!fallback) return null;
+  return fallback.endsWith("-oracle") ? fallback : `${fallback}-oracle`;
+}
+
+function repoPartsFromRemote(remote: string): { org: string | null; repo: string | null } {
+  const trimmed = remote.trim().replace(/\.git$/, "");
+  const match = /[:/]([^/:\s]+)\/([^/\s]+)$/.exec(trimmed);
+  return { org: match?.[1] ?? null, repo: match?.[2] ?? null };
+}
+
+function repoPartsFromPath(path: string): { org: string | null; repo: string | null } {
+  const parts = path.split("/").filter(Boolean);
+  const hostIndex = parts.lastIndexOf("github.com");
+  if (hostIndex >= 0 && parts[hostIndex + 1] && parts[hostIndex + 2]) {
+    return { org: parts[hostIndex + 1], repo: parts[hostIndex + 2] };
+  }
+  return { org: null, repo: parts.at(-1) ?? null };
+}
+
+export async function resolvePaneGitMetadata(cwd: string | undefined): Promise<PaneGitMetadata | null> {
+  const start = cwd?.trim();
+  if (!start) return null;
+  const root = (await hostExec(`git -C ${sh(start)} rev-parse --show-toplevel`).catch(() => "")).trim();
+  if (!root) return null;
+  const [branch, head, remote] = await Promise.all([
+    hostExec(`git -C ${sh(root)} branch --show-current`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} rev-parse --short=8 HEAD`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} config --get remote.origin.url`).catch(() => ""),
+  ]);
+  const parts = remote.trim() ? repoPartsFromRemote(remote) : repoPartsFromPath(root);
+  return {
+    root,
+    branch: branch.trim() || null,
+    head: head.trim() || null,
+    ...parts,
+  };
+}
+
+export async function describePaneWorktree(
+  cwd: string | undefined,
+  git?: PaneGitMetadata | null,
+): Promise<PaneWorktreeJson | null> {
+  const metadata = git === undefined ? await resolvePaneGitMetadata(cwd) : git;
+  if (!metadata) return null;
+  return {
+    path: metadata.root,
+    branch: metadata.branch,
+    head: metadata.head,
+  };
+}
+
+type ProvenanceConfig = { node?: string; oracle?: string; sessionIds?: Record<string, string> };
+
+async function loadProvenanceConfig(): Promise<ProvenanceConfig> {
+  try {
+    const mod = await import("../../../config");
+    return mod.loadConfig() as ProvenanceConfig;
+  } catch {
+    return {};
+  }
+}
+
+async function fallbackHostname(): Promise<string | null> {
+  try {
+    const os = await import("os");
+    return typeof os.hostname === "function" ? os.hostname() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function paneProvenance(
+  pane: Pick<AnnotatedPane, "target" | "session" | "command" | "cwd">,
+  config?: ProvenanceConfig,
+  git?: PaneGitMetadata | null,
+): Promise<PaneProvenanceJson> {
+  const resolvedConfig = config ?? await loadProvenanceConfig();
+  const metadata = git === undefined ? await resolvePaneGitMetadata(pane.cwd) : git;
+  const oracle = oracleNameForPane(pane.session, pane.target, resolvedConfig.oracle);
+  const machine = resolvedConfig.node || process.env.MAW_NODE || await fallbackHostname();
+  const logicalSession = (oracle && (resolvedConfig.sessionIds?.[oracle] || resolvedConfig.sessionIds?.[oracle.replace(/-oracle$/, "")]))
+    || process.env.MAW_SESSION_ID
+    || null;
+  return {
+    oracle,
+    machine,
+    session: logicalSession,
+    federation: oracle && machine ? `${machine}:${oracle}` : null,
+    org: metadata?.org ?? null,
+    repo: metadata?.repo ?? null,
+    commit: metadata?.head ?? null,
+    engine: pane.command?.trim() || null,
+  };
+}
+
+async function panesForJson(
+  panes: AnnotatedPane[],
+): Promise<Array<AnnotatedPane & PaneActivityJson & { worktree: PaneWorktreeJson | null; provenance: PaneProvenanceJson }>> {
+  const config = await loadProvenanceConfig();
+  return await Promise.all(panes.map(async (pane) => {
+    const git = await resolvePaneGitMetadata(pane.cwd);
+    return {
+      ...pane,
+      ...paneActivityJson(pane),
+      worktree: await describePaneWorktree(pane.cwd, git),
+      provenance: await paneProvenance(pane, config, git),
+    };
+  }));
 }
 
 async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
@@ -277,13 +497,18 @@ function sessionNameFromPaneTarget(target: string): string {
   return target.split(":")[0] || target;
 }
 
-function isDefaultOracleListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
-  // Top-level `maw ls` is an oracle roster, not a raw tmux dump. Hide junk
-  // sessions like `--help`, `foo`, and stale app names by default (#1796).
-  // `--all`/`--roster` and `maw tmux ls` remain available for raw inventory.
+function isFleetListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  // Legacy `maw ls --fleet-only` filter: keep fleet-shaped sessions and
+  // registered fleet entries, hiding ad hoc/orphan tmux sessions.
   const numericFleet = sessionName.match(/^\d+-(.+)$/);
   if (numericFleet) return !numericFleet[1].startsWith("-");
   return fleetSessions.has(sessionName);
+}
+
+function isOrphanListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  if (isFleetListSession(sessionName, fleetSessions)) return false;
+  if (sessionName === "maw-view" || /-view$/.test(sessionName)) return false;
+  return true;
 }
 
 async function sessionCreatedTimes(): Promise<Map<string, number>> {
@@ -296,12 +521,15 @@ async function sessionActivityTimes(): Promise<Map<string, number>> {
   return parseSessionActivityList(raw);
 }
 
-/**
- * List tmux panes with fleet + team annotations. Supersedes `maw panes`
- * with smarter labeling — if a pane is a fleet oracle or a team agent,
- * say so explicitly so operators don't need to cross-check configs.
- */
-export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
+interface TmuxLsState {
+  scope: AnnotatedPane[];
+  visibleTeams: ClaudeTeamSummary[];
+  currentSession: string;
+  activeThresholdSec: number;
+  nowEpoch: number;
+}
+
+async function collectTmuxLsState(opts: TmuxLsOpts = {}): Promise<TmuxLsState> {
   const allPanes = await tmux.listPanes();
   const currentSession = process.env.TMUX
     ? (await hostExec("tmux display-message -p '#{session_name}'").catch(() => "")).trim()
@@ -317,8 +545,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
   // Team members for annotation: pane_id → "agent @ team-name"
   const teamByPane = new Map<string, string>();
+  const l2Teams = opts.teams ? loadClaudeTeams() : [];
   if (existsSync(TEAMS_DIR)) {
-    for (const dir of readdirSync(TEAMS_DIR)) {
+    for (const dir of readdirSync(TEAMS_DIR).sort()) {
       const cfg = join(TEAMS_DIR, dir, "config.json");
       if (!existsSync(cfg)) continue;
       try {
@@ -341,18 +570,31 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
     const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
     const session = sessionNameFromPaneTarget(p.target);
+    const annotation = annotatePane(p, fleetSessions, teamByPane)
+      || (isOrphanListSession(session, fleetSessions) ? "orphan" : "");
     return {
       id: p.id,
       target: p.target,
       session,
       command: p.command,
       title: p.title,
-      annotation: annotatePane(p, fleetSessions, teamByPane),
+      annotation,
       status,
       lastActivitySec: ageSec < 0 ? 0 : ageSec,
       sessionCreated: createdBySession.get(session),
       sessionActivity: activityBySession.get(session),
       source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
+      cwd: p.cwd,
+      top: p.top,
+      left: p.left,
+      w: p.w,
+      h: p.h,
+      paneIdx: p.paneIdx,
+      winIdx: p.winIdx,
+      winName: p.winName,
+      active: p.active,
+      window: p.window,
+      attached: p.attached,
     };
   });
 
@@ -370,8 +612,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       .some(value => String(value ?? "").toLowerCase().includes(filter)));
   }
 
-  if (opts.oracleOnly && opts.compact && !opts.roster && !opts.channels) {
-    scope = scope.filter(p => isDefaultOracleListSession(p.session, fleetSessions));
+  let visibleTeams = opts.teams && opts.all && !opts.fleetOnly && !opts.active
+    ? l2Teams
+    : [];
+  if (filter) {
+    visibleTeams = visibleTeams.filter(team => [team.name, team.configPath, `${team.memberCount} members`]
+      .some(value => value.toLowerCase().includes(filter)));
+  }
+
+  if (opts.fleetOnly && !opts.roster && !opts.channels) {
+    scope = scope.filter(p => isFleetListSession(p.session, fleetSessions));
   }
 
   const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;
@@ -404,12 +654,46 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
   await markContextLimitedPanes(scope);
 
+  return { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch };
+}
+
+async function tmuxLsJsonRowsFromState({ scope, visibleTeams }: Pick<TmuxLsState, "scope" | "visibleTeams">): Promise<unknown[]> {
+  const paneRows = await panesForJson(scope);
+  const teamRows = visibleTeams.map(team => ({
+    kind: "team",
+    id: `team:${team.name}`,
+    target: `team:${team.name}`,
+    session: team.name,
+    command: "team",
+    title: `L2 team (${team.memberCount} member${team.memberCount === 1 ? "" : "s"})`,
+    annotation: `team: ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`,
+    status: "unknown",
+    lastActivitySec: 0,
+    source: "l2-team",
+    members: team.memberCount,
+    configPath: team.configPath,
+  }));
+  return [...paneRows, ...teamRows];
+}
+
+export async function tmuxLsJsonRows(opts: TmuxLsOpts = {}): Promise<unknown[]> {
+  return tmuxLsJsonRowsFromState(await collectTmuxLsState(opts));
+}
+
+/**
+ * List tmux panes with fleet + team annotations. Supersedes `maw panes`
+ * with smarter labeling — if a pane is a fleet oracle or a team agent,
+ * say so explicitly so operators don't need to cross-check configs.
+ */
+export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
+  const { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch } = await collectTmuxLsState(opts);
+
   if (opts.json) {
-    console.log(JSON.stringify(scope, null, 2));
+    console.log(JSON.stringify(await tmuxLsJsonRowsFromState({ scope, visibleTeams }), null, 2));
     return;
   }
 
-  if (!scope.length && !(opts.compact && opts.roster)) {
+  if (!scope.length && visibleTeams.length === 0 && !(opts.compact && opts.roster)) {
     console.log(opts.active
       ? `\x1b[90mNo sessions active in the last ${formatDuration(activeThresholdSec)}.\x1b[0m`
       : opts.all
@@ -476,13 +760,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       const activeTag = opts.active && panes[0]?.sessionActivity
         ? `  \x1b[90mlast ${formatAge(Math.max(0, nowEpoch - panes[0].sessionActivity))}\x1b[0m`
         : "";
+      const orphanTag = panes.length > 0 && panes.every(p => p.annotation === "orphan")
+        ? "  \x1b[33m[orphan]\x1b[0m"
+        : "";
       if (opts.recent) {
         const sessionWidth = Math.max(18, ...sessionRows.map(([name]) => name.length));
         const created = formatSessionCreated(panes[0]?.sessionCreated);
         const afterName = " ".repeat(Math.max(1, sessionWidth - sess.length + 1));
-        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}${activeTag}`);
+        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}${activeTag}${orphanTag}`);
       } else {
-        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${activeTag}`);
+        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${activeTag}${orphanTag}`);
       }
       for (const p of panes.filter(p => p.status === "frozen")) {
         console.log(`    \x1b[33m⚠\x1b[0m \x1b[90m${p.target} context-limit — /compact needed\x1b[0m`);
@@ -493,6 +780,11 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
         const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
         console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
       }
+    }
+
+    for (const team of visibleTeams) {
+      const memberLabel = `${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`;
+      console.log(`  \x1b[90m·\x1b[0m \x1b[36m${team.name}\x1b[0m  \x1b[90m[team] L2 team (${memberLabel} in ~/.claude/teams/${team.name})\x1b[0m`);
     }
 
     if (opts.roster) {
@@ -530,13 +822,14 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   for (const p of scope) {
     const dot = STATUS_DOT[p.status];
     const age = formatAge(p.lastActivitySec);
-    const annColored = p.annotation.startsWith("team:") ? `\x1b[36m${p.annotation}\x1b[0m`
-      : p.annotation.startsWith("fleet:") ? `\x1b[32m${p.annotation}\x1b[0m`
-      : p.annotation.startsWith("view:") ? `\x1b[90m${p.annotation}\x1b[0m`
-      : p.annotation === "orphan" ? `\x1b[33morphan\x1b[0m`
+    const annotation = p.annotation === "orphan" ? "[orphan]" : p.annotation;
+    const annColored = p.annotation.startsWith("team:") ? `\x1b[36m${annotation}\x1b[0m`
+      : p.annotation.startsWith("fleet:") ? `\x1b[32m${annotation}\x1b[0m`
+      : p.annotation.startsWith("view:") ? `\x1b[90m${annotation}\x1b[0m`
+      : p.annotation === "orphan" ? `\x1b[33m${annotation}\x1b[0m`
       : "";
-    const annPad = pad(p.annotation, 30);
-    const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
+    const annPad = pad(annotation, 30);
+    const annRendered = annColored ? annColored + annPad.slice(annotation.length) : annPad;
     const created = opts.recent ? `${pad(formatSessionCreated(p.sessionCreated), createdWidth)} ` : "";
     console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${created}${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
@@ -834,8 +1127,8 @@ export interface TmuxAttachOpts {
  * Attach to a tmux session.
  *
  * Branch behavior (issue #962, fix for #395 print-only regression):
- *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <session>`
- *   - Outside tmux + TTY            → `tmux attach -t <session>`
+ *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <target>`
+ *   - Outside tmux + TTY            → `tmux attach -t <target>`
  *   - No TTY (script/pipe/CI)       → fall back to 3-line print (don't break automation)
  *   - Explicit --print              → force print mode regardless of TTY
  *
@@ -847,7 +1140,11 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
-  const session = resolved.split(":")[0] ?? "";
+  // Preserve an explicit window target (`session:window`) so attach lands on
+  // that window instead of tmux's last-active window. Pane targets still attach
+  // at window granularity by stripping only the trailing `.pane` suffix.
+  const attachTarget = resolved.includes(":") ? resolved.replace(/\.\d+$/, "") : resolved;
+  const session = attachTarget.split(":")[0] ?? "";
 
   // Pre-flight: check if resolved session is actually alive. If not, show
   // recovery suggestions instead of printing stale instructions or failing.
@@ -861,17 +1158,17 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const inTmux = !!process.env.TMUX;
 
   const attachArgs = opts.readonly
-    ? ["attach", "-r", "-t", session]
+    ? ["attach", "-r", "-t", attachTarget]
     : inTmux
-    ? ["switch-client", "-t", session]
-    : ["attach", "-t", session];
+    ? ["switch-client", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
   const printArgs = opts.readonly
-    ? ["attach", "-r", "-t", session]
-    : ["attach", "-t", session];
+    ? ["attach", "-r", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
 
   if (opts.print || !isTty) {
     console.log(`\x1b[36mRun:\x1b[0m tmux ${printArgs.join(" ")}`);
-    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]${opts.readonly ? " (read-only)" : ""}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${attachTarget} [${source}]${opts.readonly ? " (read-only)" : ""}`);
     console.log(`  detach with: Ctrl-b d\x1b[0m`);
     return;
   }
@@ -1005,7 +1302,7 @@ function findSimilarOracles(target: string): string[] {
  * lookup map, return the one-line label for the "ANNOTATION" column.
  * Exported for unit test.
  *
- * Precedence: team > fleet > view > orphan (claude-only) > "".
+ * Precedence: team > fleet > view > orphan (claude-like unknown pane) > "".
  */
 export function annotatePane(
   p: { id: string; target: string; command?: string },
@@ -1017,6 +1314,6 @@ export function annotatePane(
   if (team) return `team: ${team}`;
   if (fleetSessions.has(session)) return `fleet: ${session.replace(/^\d+-/, "")}`;
   if (session === "maw-view" || /-view$/.test(session)) return `view: ${session}`;
-  if (p.command?.includes("claude")) return "orphan";
+  if (isClaudeLikePane(p.command)) return "orphan";
   return "";
 }

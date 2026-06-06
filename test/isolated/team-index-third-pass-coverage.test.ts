@@ -148,7 +148,7 @@ describe("vendor team index third-pass coverage", () => {
   test("dispatches resume, lives, shutdown, status, and delete success paths", async () => {
     await teamHandler({ source: "cli", args: ["resume", "team-a", "--model", "gpt-x"] });
     await teamHandler({ source: "cli", args: ["history", "agent-a"] });
-    await teamHandler({ source: "cli", args: ["down", "team-a", "--force", "--merge"] });
+    await teamHandler({ source: "cli", args: ["shutdown", "team-a", "--force", "--merge"] });
     await teamHandler({ source: "cli", args: ["status", "team-a"] });
     await teamHandler({ source: "cli", args: ["delete", "team-a"] });
 

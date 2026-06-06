@@ -10,6 +10,7 @@ import { join } from "path";
 import { AmbiguousMatchError } from "../../src/core/runtime/find-window";
 
 const srcRoot = join(import.meta.dir, "../..");
+const realSdk = await import("../../src/sdk");
 
 type ResolvedTarget =
   | { type: "local" | "self-node"; target: string }
@@ -64,6 +65,7 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
 });
 
 mock.module(join(srcRoot, "src/sdk"), () => ({
+  ...realSdk,
   listSessions: async () => listSessionsReturn,
   capture: async (target: string, lines: number, host?: string) => {
     captureCalls.push({ target, lines, host });
@@ -117,6 +119,7 @@ mock.module(join(srcRoot, "src/lib/oracle-members"), () => ({
 }));
 
 mock.module(join(srcRoot, "src/lib/oracle-manifest"), () => ({
+  loadManifestCached: () => [],
   findOracle: () => findOracleResult,
 }));
 
@@ -282,10 +285,13 @@ describe("comm-send edge branch coverage", () => {
     curlFetchHandler = () => ({ ok: false });
 
     await runCmd(() => cmdSend("remote:oracle", "hello"));
-
     expect(exitCode).toBe(1);
-    expect(curlFetchCalls.map((call) => call.url)).toEqual(["http://remote:3456/api/wake"]);
-    expect(errs.join("\n")).toContain("cross-node wake failed for oracle: connection failed");
+    expect(curlFetchCalls).toHaveLength(2);
+    expect(curlFetchCalls.map((call) => call.url)).toEqual([
+      "http://remote:3456/api/wake",
+      "http://remote:3456/api/send",
+    ]);
+    expect(errs.join("\n")).toContain("Remote fetch failed for peer http://remote:3456 (remote): connection failed");
   });
 
   test("ACL queue branch records pending peer sends and returns before delivery", async () => {

@@ -35,9 +35,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const out = () => logs.join("\n");
   const help = () => [
     "usage: maw peers <add|list|info|probe|probe-all|accept|remove|forget> [...]",
-    "  add       <alias> <url> [--node <name>] [--allow-unreachable]",
+    "  add       <alias> <url> [--node <name>] [--ssh <target>] [--user <name>] [--allow-unreachable]",
     "            — register alias (auto-probes /info). Exits non-zero on handshake failure:",
     "              2=UNKNOWN/BAD_BODY/TLS  3=DNS  4=REFUSED  5=TIMEOUT  6=HTTP_4XX/5XX",
+    "            --ssh sets the SSH config alias/target for cross-node attach; --user overrides SSH user.",
     "            --allow-unreachable keeps exit 0 even when the probe fails (CI/bootstrap).",
     "  list      [--discovered] [--all] [--json] [--limit N]",
     "            — tabular list of all peers. --discovered: LAN candidates from Scout (#1237).",
@@ -70,12 +71,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         const alias = positional[1];
         const url = positional[2];
         if (!alias || !url) {
-          return { ok: false, error: "usage: maw peers add <alias> <url> [--node <name>] [--allow-unreachable]" };
+          return { ok: false, error: "usage: maw peers add <alias> <url> [--node <name>] [--ssh <target>] [--user <name>] [--allow-unreachable]" };
         }
         const nodeIdx = args.indexOf("--node");
         const node = nodeIdx >= 0 ? args[nodeIdx + 1] : undefined;
+        const sshIdx = args.indexOf("--ssh");
+        const ssh = sshIdx >= 0 ? args[sshIdx + 1] : undefined;
+        const userIdx = args.indexOf("--user");
+        const sshUser = userIdx >= 0 ? args[userIdx + 1] : undefined;
         const allowUnreachable = args.includes("--allow-unreachable");
-        const res = await impl.cmdAdd({ alias, url, node });
+        const res = await impl.cmdAdd({ alias, url, node, ssh, sshUser });
         // TOFU mismatch refusal — fail loud, do not write. Operator must
         // `maw peers forget <alias>` first to re-pin (#804 Step 2).
         if (res.pubkeyMismatch) {

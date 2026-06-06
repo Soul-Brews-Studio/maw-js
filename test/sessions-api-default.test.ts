@@ -59,6 +59,8 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
     createTmux: () => ({
       sendKeysLiteral: async (target: string, text: string) => { calls.push(["literal", target, text]); },
       sendKeys: async (target: string, key: string) => { calls.push(["tmuxKeys", target, key]); },
+      listPanes: async () => [],
+      capture: async (target: string, lines?: number) => { calls.push(["tmuxCapture", target, lines]); return ""; },
     } as any),
     emitMessageLifecycle: (input) => { lifecycle.push(input); },
     writeReceiverInbox: null,
@@ -169,6 +171,57 @@ describe("sessions, capture, and mirror routes", () => {
     expect(await readJson(await err.app.handle(new Request("http://local/capture?target=neo")))).toEqual({ content: "", error: "capture boom" });
   });
 
+  test("GET /captures returns ANSI captures for every tmux pane using 200 lines", async () => {
+    const captureCalls: any[] = [];
+    const h = makeHarness({
+      createTmux: () => ({
+        sendKeysLiteral: async () => {},
+        sendKeys: async () => {},
+        listPanes: async () => [
+          { id: "%1", command: "zsh", target: "maw:main.0", title: "one", pid: 101, cwd: "/tmp" },
+          { id: "%2", command: "bun", target: "maw:api.0", title: "two", pid: 102, cwd: "/repo" },
+        ],
+        capture: async (target: string, lines?: number) => {
+          captureCalls.push([target, lines]);
+          return target === "%1" ? "\x1b[31mred\x1b[0m" : "second pane";
+        },
+      } as any),
+    });
+
+    const res = await h.app.handle(new Request("http://local/captures"));
+
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toEqual({
+      captures: {
+        "%1": "\x1b[31mred\x1b[0m",
+        "%2": "second pane",
+      },
+    });
+    expect(captureCalls).toEqual([["%1", 200], ["%2", 200]]);
+  });
+
+  test("GET /captures keeps pane keys when a pane closes during capture", async () => {
+    const h = makeHarness({
+      createTmux: () => ({
+        sendKeysLiteral: async () => {},
+        sendKeys: async () => {},
+        listPanes: async () => [
+          { id: "%1", command: "zsh", target: "maw:main.0", title: "one", pid: 101, cwd: "/tmp" },
+          { id: "%2", command: "bun", target: "maw:api.0", title: "two", pid: 102, cwd: "/repo" },
+        ],
+        capture: async (target: string) => {
+          if (target === "%2") throw new Error("pane gone");
+          return "still here";
+        },
+      } as any),
+    });
+
+    const res = await h.app.handle(new Request("http://local/captures"));
+
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toEqual({ captures: { "%1": "still here", "%2": "" } });
+  });
+
   test("GET /mirror validates target and processes captured output", async () => {
     const h = makeHarness();
     const missing = await h.app.handle(new Request("http://local/mirror"));
@@ -191,7 +244,13 @@ describe("POST /send", () => {
     const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hello", attachments: ["a", "b"] }, { "x-maw-from": "sender:white" }));
 
     expect(res.status).toBe(200);
-    expect(await readJson(res)).toMatchObject({ ok: true, target: "local:main", source: "local", state: "delivered" });
+    expect(await readJson(res)).toMatchObject({
+      ok: true,
+      target: "local:main",
+      source: "local",
+      state: "delivered",
+      receipt: ["target_pane_resolved", "send_keys_injected", "live_pane_consumed"],
+    });
     expect(h.calls.some((c) => c[0] === "idle")).toBe(false);
     expect(h.calls).toContainEqual(["sendKeys", "local:main", "a\nb\nhello"]);
     expect(h.lifecycle[0]).toMatchObject({ state: "delivered", from: "white:sender", signed: true, text: "a\nb\nhello" });
@@ -210,7 +269,14 @@ describe("POST /send", () => {
 
     const res = await h.app.handle(jsonRequest("/send", { target: "neo-oracle", text: "hello" }));
 
-    expect(await readJson(res)).toMatchObject({ ok: true, target: "neo:main", source: "local", state: "queued", lastLine: "queued line" });
+    expect(await readJson(res)).toMatchObject({
+      ok: true,
+      target: "neo:main",
+      source: "local",
+      state: "queued",
+      lastLine: "queued line",
+      receipt: ["target_pane_resolved", "send_keys_injected", "fallback_queued"],
+    });
     expect(h.calls).toContainEqual(["sendKeys", "neo:main", "hello"]);
     expect(h.lifecycle[0]).toMatchObject({ state: "queued", signed: false });
   });
@@ -282,6 +348,7 @@ describe("POST /send", () => {
       state: "queued",
       inbox: "/repo/ψ/inbox/inbox-only.md",
       reason: "--inbox requested; pane injection skipped",
+      receipt: ["fallback_queued"],
     });
     expect(h.calls.some((c) => c[0] === "sendKeys")).toBe(false);
     expect(inboxCalls).toHaveLength(1);
@@ -305,16 +372,25 @@ describe("POST /send", () => {
   test("forwards peer sends and reports peer failures", async () => {
     const success = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
-      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual", state: "queued", lastLine: "queued" } }) as any,
+      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual", state: "queued", lastLine: "queued", receipt: ["target_pane_resolved", "send_keys_injected", "fallback_queued"] } }) as any,
     });
-    expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://peer", target: "actual", state: "queued" });
+    expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://peer",
+      target: "actual",
+      state: "queued",
+      receipt: ["remote_node_accepted", "target_pane_resolved", "send_keys_injected", "fallback_queued"],
+    });
     expect(success.lifecycle[0]).toMatchObject({ route: "peer", state: "queued", to: "white:remote:main" });
 
     const acceptedOnly = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
       curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual" } }) as any,
     });
-    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ state: "queued" });
+    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      state: "queued",
+      receipt: ["remote_node_accepted", "fallback_queued"],
+    });
     expect(acceptedOnly.lifecycle[0]).toMatchObject({ route: "peer", state: "queued" });
 
     const failure = makeHarness({
@@ -330,7 +406,7 @@ describe("POST /send", () => {
   test("falls back to peer discovery and preserves receiver delivery state", async () => {
     const ok = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed" }) as any,
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed", receipt: ["target_pane_resolved", "send_keys_injected", "live_pane_consumed"] }) as any,
     });
     expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
       ok: true,
@@ -338,6 +414,7 @@ describe("POST /send", () => {
       target: "remote:main",
       state: "delivered",
       lastLine: "landed",
+      receipt: ["remote_node_accepted", "target_pane_resolved", "send_keys_injected", "live_pane_consumed"],
     });
 
     const queued = makeHarness({
@@ -544,6 +621,7 @@ describe("POST /send", () => {
       state: "queued",
       inbox: "/repo/ψ/inbox/offline.md",
       reason: "not live",
+      receipt: ["stale_target", "fallback_queued"],
     });
     expect(h.lifecycle[0]).toMatchObject({
       route: "inbox",
@@ -660,5 +738,85 @@ describe("pane keys, probe, select, wake, and sleep routes", () => {
     const res = await boom.app.handle(jsonRequest("/sleep", { target: "neo" }));
     expect(res.status).toBe(500);
     expect((await readJson(res)).error).toContain("sleep boom");
+  });
+});
+
+describe("/api/capture resolver + error enrichment (#1908)", () => {
+  test("resolveCapture: :active sentinel strips to bare-name path", () => {
+    const sessions = [session("100-pulse", [{ index: 0, name: "pulse", active: true }])];
+    const stubDeps: SessionsApiDeps = {
+      loadConfig: (() => ({ sessions: {} } as any)),
+      resolveFleetSession: () => null,
+      findWindow: ((s: any[], q: string) => {
+        const match = s.find((x: any) => x.name === q.split(":")[0]);
+        return match ? `${match.name}:${match.windows[0].index}` : null;
+      }) as any,
+    };
+    expect(resolveCapture("100-pulse:active", sessions as any, stubDeps)).toBe("100-pulse:0");
+  });
+
+  test("resolveCapture: :* sentinel also strips", () => {
+    const sessions = [session("100-pulse", [{ index: 0, name: "pulse", active: true }])];
+    const stubDeps: SessionsApiDeps = {
+      loadConfig: (() => ({ sessions: {} } as any)),
+      resolveFleetSession: () => null,
+      findWindow: ((s: any[], q: string) => {
+        const match = s.find((x: any) => x.name === q.split(":")[0]);
+        return match ? `${match.name}:${match.windows[0].index}` : null;
+      }) as any,
+    };
+    expect(resolveCapture("100-pulse:*", sessions as any, stubDeps)).toBe("100-pulse:0");
+  });
+
+  test("resolveCapture: explicit :1 stays as :1 (legacy passthrough)", () => {
+    const sessions = [session("100-pulse", [{ index: 0, name: "pulse", active: true }])];
+    const stubDeps: SessionsApiDeps = {
+      loadConfig: (() => ({ sessions: {} } as any)),
+      resolveFleetSession: () => null,
+      findWindow: ((_: any[], q: string) => q) as any,
+    };
+    expect(resolveCapture("100-pulse:1", sessions as any, stubDeps)).toBe("100-pulse:1");
+  });
+
+  test("/api/capture window-not-found error includes validWindows + hint", async () => {
+    const h = makeHarness({
+      capture: async () => { throw new Error("[local:local] can't find window: 1"); },
+    });
+    h.setSessions([session("100-pulse", [{ index: 0, name: "pulse", active: true }])]);
+
+    const resp = await h.app.handle(new Request("http://local/capture?target=100-pulse:1"));
+    const body = await readJson(resp);
+
+    expect(body.error).toBe("window not found");
+    expect(body.target).toBe("100-pulse:1");
+    expect(body.validWindows).toEqual([0]);
+    expect(body.hint).toContain("base-index appears to be 0");
+    expect(body.content).toBe("");
+  });
+
+  test("/api/capture :active sentinel returns content (no error)", async () => {
+    const h = makeHarness();
+    h.setSessions([session("100-pulse", [{ index: 0, name: "pulse", active: true }])]);
+
+    const resp = await h.app.handle(new Request("http://local/capture?target=100-pulse:active"));
+    const body = await readJson(resp);
+
+    expect(body.error).toBeUndefined();
+    expect(body.content).toBe("line one\nlast line");
+  });
+
+  test("/api/capture preserves legacy error shape for non-window-not-found failures", async () => {
+    const h = makeHarness({
+      capture: async () => { throw new Error("tmux server died unexpectedly"); },
+    });
+    h.setSessions([session("100-pulse", [{ index: 0, name: "pulse", active: true }])]);
+
+    const resp = await h.app.handle(new Request("http://local/capture?target=100-pulse:1"));
+    const body = await readJson(resp);
+
+    expect(body.content).toBe("");
+    expect(body.error).toContain("tmux server died unexpectedly");
+    expect(body.validWindows).toBeUndefined();
+    expect(body.hint).toBeUndefined();
   });
 });

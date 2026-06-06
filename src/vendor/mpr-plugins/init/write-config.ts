@@ -1,17 +1,55 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import type { MawConfig } from "maw-js/config/types";
+
+function generateTmpPath(filePath: string): string {
+  return `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function writeFileAtomic(filePath: string, body: string): void {
+  const tmpPath = generateTmpPath(filePath);
+  try {
+    writeFileSync(tmpPath, body, "utf-8");
+    renameSync(tmpPath, filePath);
+  } catch (e) {
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+    throw e;
+  }
+}
 
 /** Atomically write JSON config; throws EEXIST if `wx` flag and file exists. */
 export function writeConfigAtomic(filePath: string, config: Partial<MawConfig>, overwrite: boolean): void {
   mkdirSync(dirname(filePath), { recursive: true });
   const body = JSON.stringify(config, null, 2) + "\n";
   if (overwrite) {
-    writeFileSync(filePath, body, "utf-8");
+    writeFileAtomic(filePath, body);
     return;
   }
-  // wx mode: fail if exists
-  writeFileSync(filePath, body, { encoding: "utf-8", flag: "wx" });
+
+  const tmpPath = generateTmpPath(filePath);
+  try {
+    writeFileSync(tmpPath, body, { encoding: "utf-8", flag: "wx" });
+    // Atomic no-overwrite install: hard-link fails with EEXIST if the visible
+    // config path already exists, so disk-full temp writes never truncate it.
+    linkSync(tmpPath, filePath);
+  } catch (e) {
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+    throw e;
+  } finally {
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
 }
 
 export function backupConfig(filePath: string): string {

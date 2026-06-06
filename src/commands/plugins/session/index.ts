@@ -4,18 +4,14 @@ import { UserError } from "../../../core/util/user-error";
 
 export const command = {
   name: "session",
-  description: "Print the current tmux session name (alias of former `maw whoami`).",
+  description: "Alias of `maw whoami` — prints session + window + pane address. --short for #S only, --json for machine-readable.",
 };
 
 /**
- * Inlined from the former `whoami/` plugin (extracted to registry in #936).
- * `session/` and `whoami/` were always 1:1 aliases — fix #953 inlines the
- * five-line impl here so `session/` no longer dangles on the deleted module.
- *
- * Behavior preserved:
- *   - Requires an active tmux ($TMUX). Otherwise throws UserError.
- *   - Runs `tmux display-message -p '#S'` via hostExec, prints trimmed.
- *   - Output is captured via ctx.writer (CLI stream) or logs[] (api/peer).
+ * `session` and `whoami` are 1:1 aliases. #1916 LOW-2 enriches the human
+ * output for both; the implementation is inlined here (per #953) so this
+ * file does not depend on the registry plugin. Keep behavior in sync with
+ * `src/vendor/mpr-plugins/whoami/impl.ts::cmdWhoami`.
  */
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -34,8 +30,34 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "maw session requires an active tmux session — run 'maw wake <oracle>' or attach to tmux first",
       );
     }
-    const raw = await hostExec(`tmux display-message -p '#S'`);
-    console.log(raw.trim());
+    const argv = (ctx.source === "cli" ? (ctx.args as string[]) : []) ?? [];
+    const short = argv.includes("--short") || argv.includes("-s");
+    const json = argv.includes("--json");
+
+    if (short) {
+      const raw = await hostExec(`tmux display-message -p '#S'`);
+      console.log(raw.trim());
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    const raw = await hostExec(`tmux display-message -p '#S\t#W\t#{window_id}\t#{pane_title}\t#{pane_id}'`);
+    const [session, window, windowId, paneTitle, paneId] = raw.trim().split("\t");
+
+    if (json) {
+      console.log(JSON.stringify({
+        session: session || "",
+        window: window || "",
+        window_id: windowId || "",
+        pane_title: paneTitle || "",
+        pane_id: paneId || "",
+        target: `${session}:${window}.${(paneId ?? "").replace(/^%/, "")}`,
+      }));
+    } else {
+      console.log(`session  ${session}`);
+      console.log(`window   ${window}  \x1b[90m(${windowId})\x1b[0m`);
+      console.log(`pane     ${paneTitle}  \x1b[90m(${paneId})\x1b[0m`);
+      console.log(`target   \x1b[36m${session}:${window}\x1b[0m  (or ${paneId} for the exact pane)`);
+    }
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

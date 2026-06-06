@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 const snapshotPath = import.meta.resolve("../../src/core/fleet/snapshot.ts");
@@ -60,6 +60,8 @@ const { cmdTransportStatus } = await import("../../src/commands/shared/transport
 
 const originalLog = console.log;
 const originalWrite = process.stdout.write;
+const originalStdinIsTTY = process.stdin.isTTY;
+const originalStdoutIsTTY = process.stdout.isTTY;
 
 beforeEach(() => {
   sessions = [];
@@ -77,6 +79,19 @@ beforeEach(() => {
     writes.push(String(chunk));
     return true;
   }) as typeof process.stdout.write;
+  delete process.env.MAW_NO_PROMPT;
+  delete process.env.CI;
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+  Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+});
+
+afterEach(() => {
+  console.log = originalLog;
+  process.stdout.write = originalWrite;
+  delete process.env.MAW_NO_PROMPT;
+  delete process.env.CI;
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: originalStdinIsTTY });
+  Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: originalStdoutIsTTY });
 });
 
 describe("auto restore startup helper", () => {
@@ -98,6 +113,27 @@ describe("auto restore startup helper", () => {
     snapshot = { timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), sessions: [{ name: "01-old" }] };
     await maybeAutoRestore("wake");
     expect(wakeCalls).toEqual([]);
+  });
+
+  test("skips diagnostics, env-disabled prompts, CI, and non-tty automation", async () => {
+    snapshot = { timestamp: new Date(Date.now() - 10 * 60_000).toISOString(), sessions: [{ name: "01-alpha" }] };
+
+    await maybeAutoRestore("locate");
+    expect(writes.join("")).not.toContain("Restore all?");
+
+    process.env.MAW_NO_PROMPT = "1";
+    await maybeAutoRestore("wake");
+    expect(writes.join("")).not.toContain("Restore all?");
+    delete process.env.MAW_NO_PROMPT;
+
+    process.env.CI = "true";
+    await maybeAutoRestore("wake");
+    expect(writes.join("")).not.toContain("Restore all?");
+    delete process.env.CI;
+
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: false });
+    await maybeAutoRestore("wake");
+    expect(writes.join("")).not.toContain("Restore all?");
   });
 
   test("swallows list/session errors and handles declined restore prompts", async () => {

@@ -9,6 +9,13 @@ describe("isAgentCommand", () => {
     expect(isAgentCommand("Claude")).toBe(true);
   });
 
+  test("matches non-claude/codex fleet engines (#1906)", () => {
+    expect(isAgentCommand("thclaws")).toBe(true);
+    expect(isAgentCommand("thclaude")).toBe(true);
+    expect(isAgentCommand("THClaws")).toBe(true);
+    expect(isAgentCommand("/usr/local/bin/thclaws")).toBe(true);
+  });
+
   test("matches Claude Code 2.1+ versioned binary signature", () => {
     expect(isAgentCommand("2.1.121")).toBe(true);
     expect(isAgentCommand("2.1.116")).toBe(true);

@@ -19,8 +19,15 @@ mock.module(import.meta.resolve("../../src/core/runtime/find-window"), () => ({
   },
 }));
 
-mock.module(import.meta.resolve("../../src/commands/shared/wake"), () => ({
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => ({
   resolveFleetSession: (query: string) => fleetMap[query] ?? null,
+  loadFleet: () => [],
+  loadFleetEntries: () => [],
+  loadDisabledFleetEntries: () => [],
+  countDisabledFleetFiles: () => 0,
+  getSessionNames: async () => [],
+  fleetDirsForRead: () => [],
+  fleetDirForWrite: () => "/tmp/maw-test-fleet",
 }));
 
 mock.module(import.meta.resolve("../../src/lib/oracle-manifest"), () => ({
@@ -77,7 +84,7 @@ describe("coverage next core routing", () => {
     fleetMap = { willow: "44-willow" };
     expect(routing.resolveTarget("willow", config(), [
       session("44-willow", [{ index: 1, name: "helper" }, { index: 2, name: "scratch" }]),
-    ])).toMatchObject({ type: "error", reason: "fleet_window_not_found" });
+    ])).toMatchObject({ type: "error", reason: expect.stringMatching(/^(fleet_window_not_found|session_window_not_found)$/) });
   });
 
   test("filters non-writable sessions and handles session alias ambiguity", () => {

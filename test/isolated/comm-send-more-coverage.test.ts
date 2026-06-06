@@ -98,6 +98,7 @@ mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
 }));
 
 mock.module(join(srcRoot, "src/lib/oracle-manifest"), () => ({
+  loadManifestCached: () => [],
   findOracle: () => findOracleResult,
 }));
 

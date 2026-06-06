@@ -1,5 +1,5 @@
 import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, writeFileSync as fsWriteFileSync } from "fs";
-import { basename, join } from "path";
+import { basename, isAbsolute, join } from "path";
 import { getGhqRoot as defaultGetGhqRoot } from "../../config/ghq-root";
 import { ghqFindSync as defaultGhqFindSync } from "../../core/ghq";
 import { loadManifestCached, type OracleManifestEntry } from "../../lib/oracle-manifest";
@@ -111,7 +111,9 @@ function repoPathCandidates(
 
   if (input.target) {
     try {
-      const cwd = deps.resolveTargetCwd(stripPaneSuffix(input.target));
+      const strippedTarget = stripPaneSuffix(input.target);
+      if (isAbsolute(strippedTarget)) candidates.push(strippedTarget);
+      const cwd = deps.resolveTargetCwd(strippedTarget);
       if (cwd) candidates.push(cwd);
     } catch {
       // Best effort: inbox persistence must never break message delivery.
@@ -175,6 +177,20 @@ function buildInboxBody(from: string, to: string, timestamp: string, message: st
   ].join("\n");
 }
 
+function filenameWithCollisionSuffix(base: string, attempt: number): string {
+  if (attempt <= 1) return base;
+  return base.replace(/\.md$/, `-${attempt}.md`);
+}
+
+function isExistingFileError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: string }).code === "EEXIST",
+  );
+}
+
 export function persistReceiverInbox(input: ReceiverInboxInput, deps: ReceiverInboxDeps = {}): ReceiverInboxResult {
   const existsSync = deps.existsSync ?? fsExistsSync;
   const mkdirSync = deps.mkdirSync ?? fsMkdirSync;
@@ -197,14 +213,28 @@ export function persistReceiverInbox(input: ReceiverInboxInput, deps: ReceiverIn
   const timestamp = now.toISOString();
   const datePart = timestamp.slice(0, 10);
   const timePart = timestamp.slice(11, 16).replace(":", "-");
-  const filename = `${datePart}_${timePart}_${safeSegment(input.from)}_${slugifyBody(input.message)}.md`;
+  const baseFilename = `${datePart}_${timePart}_${safeSegment(input.from)}_${slugifyBody(input.message)}.md`;
   const inboxDir = join(repoPath, "ψ", "inbox");
-  const path = join(inboxDir, filename);
+  const body = buildInboxBody(input.from, oracle, timestamp, input.message);
 
   try {
     mkdirSync(inboxDir, { recursive: true });
-    writeFileSync(path, buildInboxBody(input.from, oracle, timestamp, input.message));
-    return { ok: true, oracle, inboxDir, path, filename };
+    for (let attempt = 1; attempt <= 1000; attempt += 1) {
+      const filename = filenameWithCollisionSuffix(baseFilename, attempt);
+      const path = join(inboxDir, filename);
+      try {
+        writeFileSync(path, body, { flag: "wx" });
+        return { ok: true, oracle, inboxDir, path, filename };
+      } catch (error) {
+        if (isExistingFileError(error)) continue;
+        throw error;
+      }
+    }
+    return {
+      ok: false,
+      oracle,
+      reason: `receiver inbox filename collision limit reached for ${baseFilename}`,
+    };
   } catch (error) {
     return {
       ok: false,

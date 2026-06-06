@@ -127,6 +127,16 @@ export interface InvokeContext {
    * Plugins use: `ctx.writer?.(...args) ?? logs.push(args.join(" "))`
    */
   writer?: (...args: unknown[]) => void;
+  /**
+   * #1885 — parsed CLI flags per manifest.cli.flags schema. Optional;
+   * present only when the invoker provides them (currently the dispatch.ts
+   * plugin-registry path; route-tools.ts path is unaffected pending design).
+   * Keys are flag names WITHOUT the leading dashes ("bare", "team-id") to
+   * follow the standard mri/yargs convention. Plugins reading ctx.flags
+   * don't need to re-implement argv parsing — see src/cli/dispatch-flag-parse.ts
+   * for the parser contract.
+   */
+  flags?: Record<string, boolean | string | number | string[]>;
 }
 
 export interface InvokeResult {

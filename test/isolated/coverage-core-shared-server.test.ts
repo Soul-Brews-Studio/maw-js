@@ -15,6 +15,7 @@ let killed: string[] = [];
 let engineCalls: string[] = [];
 let ptyMessages: unknown[] = [];
 let ptyCloses: unknown[] = [];
+let tmuxStreamEvents: string[] = [];
 let apiPaths: string[] = [];
 let proxiedPaths: string[] = [];
 let lifecyclePayloads: unknown[] = [];
@@ -48,6 +49,11 @@ mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
 mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
   handlePtyMessage: (...args: unknown[]) => { ptyMessages.push(args); },
   handlePtyClose: (...args: unknown[]) => { ptyCloses.push(args); },
+}));
+mock.module(import.meta.resolve("../../src/api/tmux-stream"), () => ({
+  handleTmuxStreamOpen: () => { tmuxStreamEvents.push("open"); },
+  handleTmuxStreamMessage: () => { tmuxStreamEvents.push("message"); },
+  handleTmuxStreamClose: () => { tmuxStreamEvents.push("close"); },
 }));
 mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: () => {} }));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
@@ -91,6 +97,7 @@ beforeEach(() => {
   engineCalls = [];
   ptyMessages = [];
   ptyCloses = [];
+  tmuxStreamEvents = [];
   apiPaths = [];
   proxiedPaths = [];
   lifecyclePayloads = [];
@@ -141,15 +148,20 @@ describe("coverage core shared server", () => {
     const ws = serveCalls[0].websocket;
     const normal = { data: {} };
     const pty = { data: { mode: "pty" } };
+    const tmuxStream = { data: { mode: "tmux-stream" } };
     ws.open(normal);
     ws.open(pty);
+    ws.open(tmuxStream);
     ws.message(normal, "hello");
     ws.message(pty, "resize");
+    ws.message(tmuxStream, "refresh");
     ws.close(normal);
     ws.close(pty);
+    ws.close(tmuxStream);
     expect(engineCalls).toEqual(["router", "open", "message", "close"]);
     expect(ptyMessages).toHaveLength(1);
     expect(ptyCloses).toHaveLength(1);
+    expect(tmuxStreamEvents).toEqual(["open", "message", "close"]);
 
     const fetch = serveCalls[0].fetch;
     const options = await fetch(new Request("http://local/anything", { method: "OPTIONS", headers: { origin: "http://origin.test" } }), upgradeServer(true));
@@ -163,6 +175,9 @@ describe("coverage core shared server", () => {
     const ptyUpgrade = upgradeServer(true);
     expect(await fetch(new Request("http://local/ws/pty"), ptyUpgrade)).toBeUndefined();
     expect(ptyUpgrade.upgrades[0].data.mode).toBe("pty");
+    const tmuxUpgrade = upgradeServer(true);
+    expect(await fetch(new Request("http://local/ws/tmux"), tmuxUpgrade)).toBeUndefined();
+    expect(tmuxUpgrade.upgrades[0].data.mode).toBe("tmux-stream");
     const failedUpgrade = await fetch(new Request("http://local/ws"), upgradeServer(false));
     expect(failedUpgrade.status).toBe(400);
   });

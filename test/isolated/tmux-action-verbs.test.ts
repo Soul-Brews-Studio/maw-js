@@ -134,7 +134,7 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
 });
 
 describe("cmdTmuxAttach — TTY exec branches", () => {
-  test("inside tmux + TTY → spawns `tmux switch-client -t <session>`", () => {
+  test("inside tmux + TTY → spawns `tmux switch-client -t <target>`", () => {
     const origTTY = impl._tty.isStdoutTTY;
     impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
@@ -157,7 +157,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     }
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].args).toEqual(["tmux", "switch-client", "-t", "some-session"]);
+    expect(calls[0].args).toEqual(["tmux", "switch-client", "-t", "some-session:0"]);
     expect(logs.join("\n")).not.toContain("Run: tmux attach -t");
   });
 
@@ -179,7 +179,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     }
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session"]);
+    expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session:0"]);
   });
 
   test("readonly attach uses `tmux attach -r` even from inside tmux", () => {
@@ -201,7 +201,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     }
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].args).toEqual(["tmux", "attach", "-r", "-t", "some-session"]);
+    expect(calls[0].args).toEqual(["tmux", "attach", "-r", "-t", "some-session:0"]);
   });
 
   test("dead resolved session → prints recovery and exits non-zero", () => {

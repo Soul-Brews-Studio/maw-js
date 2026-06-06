@@ -5,11 +5,13 @@ import { takeSnapshot } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
 import { signalParentInbox, autoSave } from "./done-autosave";
-import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig } from "./done-worktree";
+import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig, warnRemainingWorktrees } from "./done-worktree";
 
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
+  cleanBranch?: boolean;
+  cwd?: string;
   /** Restrict window-name lookup to a specific tmux session. Used by done --all. */
   sessionName?: string;
 }
@@ -44,8 +46,54 @@ function nonLeadWindows(session: DoneSession): DoneWindow[] {
     .sort((a, b) => a.index - b.index);
 }
 
+function missingDoneTargetMessage(windowName: string): string {
+  const hint = windowName.toLowerCase() === "all" ? "\n  did you mean `maw done --all`?" : "";
+  return `no done target matched '${windowName}'${hint}`;
+}
+
+function failMissingDoneTarget(windowName: string): never {
+  const message = missingDoneTargetMessage(windowName);
+  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  throw new Error(message);
+}
+
+function leadWindow(session: DoneSession): DoneWindow | null {
+  if (session.windows.length === 0) return null;
+  const leadIndex = Math.min(...session.windows.map(w => w.index));
+  return session.windows.find(w => w.index === leadIndex) ?? null;
+}
+
+async function currentTmuxIdentity(): Promise<{ sessionName: string; windowIndex: number } | null> {
+  try {
+    const raw = (await tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
+    const [sessionName, indexRaw] = raw.split("\t");
+    const windowIndex = Number(indexRaw);
+    if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
+  } catch {
+    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
+  }
+  return null;
+}
+
+async function assertDoneMayTargetWindow(
+  session: DoneSession,
+  windowIndex: number,
+  windowName: string,
+): Promise<void> {
+  const lead = leadWindow(session);
+  if (!lead || lead.index !== windowIndex) return;
+
+  const current = await currentTmuxIdentity();
+  if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
+
+  const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
+  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  console.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
+  throw new Error(message);
+}
+
 /**
- * maw done <window-name> [--force] [--dry-run]
+ * maw done <window-name> [--force] [--dry-run] [--clean-branch]
  *
  * Clean up a finished worktree window:
  * 0. Send /rrr to agent + git auto-save (unless --force)
@@ -60,13 +108,18 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
+  let matchedSession: DoneSession | null = null;
   let windowIndex: number | null = null;
   const searchSessions = opts.sessionName
     ? sessions.filter(s => s.name === opts.sessionName)
     : sessions;
   for (const s of searchSessions) {
     const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
-    if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
+    if (w) { sessionName = s.name; matchedSession = s; windowIndex = w.index; windowName = w.name; break; }
+  }
+
+  if (matchedSession && windowIndex !== null) {
+    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName);
   }
 
   // 0. Signal parent inbox (#81) — write before kill so parent knows
@@ -96,12 +149,22 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   // 2. Remove git worktree
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, opts);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, opts);
   }
   if (!removedWorktree) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+  } else if (!opts.dryRun && opts.cwd) {
+    await warnRemainingWorktrees(windowName, reposRoot);
+  }
+
+  const matchedWindow = sessionName !== null && windowIndex !== null;
+  if (opts.dryRun) {
+    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName);
+    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
+    console.log();
+    return;
   }
 
   // 3. Remove from fleet config
@@ -109,6 +172,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   if (!removedFromConfig) {
     console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
+  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName);
 
   // Snapshot after done
   takeSnapshot("done").catch(() => {});

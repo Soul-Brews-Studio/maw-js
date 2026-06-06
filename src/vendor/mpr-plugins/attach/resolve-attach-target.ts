@@ -1,5 +1,9 @@
 import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
 import { resolveFleetWindowSessionTarget } from "../../../core/matcher/resolve-target";
+import { resolvePeer as resolveConfiguredPeer } from "../ls/internal/peer-resolve";
+import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 
 /**
  * Resolve a `maw attach <target>` invocation into a tiered match.
@@ -11,11 +15,10 @@ import { resolveFleetWindowSessionTarget } from "../../../core/matcher/resolve-t
  *                      → prompt to wake, then attach
  *   null               → nothing matched: caller emits "available oracles" hint
  *
- * Tier 3 (cross-node federation attach) lived here briefly (#1236). It was
- * pulled back out — the built-in stays local-only. Cross-node attach is now
- * the job of the `attach-ssh` plugin (registry). Operators who want it
- * install that plugin explicitly. See:
- *   ψ/memory/traces/2026-05-13/1124_maw-a-original.md
+ * Tier 3 (cross-node attach): explicit `maw a <node>:<session>` resolves a
+ * configured peer directly (#1876). Bare `maw a <session>` may also opt into a
+ * bounded federation precheck after local Tier 1/2 misses and before wake/scan
+ * (#1878), then hands the remote-live match to the same attach-ssh strategy.
  *
  * Deps are injected for testability — same shape as the sleep resolver.
  */
@@ -30,9 +33,25 @@ export interface FleetLike {
   windows: Array<{ name: string }>;
 }
 
+export interface RemotePeerLike {
+  alias: string;
+  url: string;
+  node: string | null;
+  sshAlias?: string;
+  sshHost?: string;
+  sshUser?: string;
+}
+
+export interface RemoteSessionNodeLike extends RemotePeerLike {
+  sessions: SessionLike[];
+  error?: string;
+}
+
 export interface ResolveDeps {
   listSessions: () => Promise<SessionLike[]>;
   loadFleet: () => FleetLike[];
+  resolvePeer?: (alias: string) => RemotePeerLike | null | Promise<RemotePeerLike | null>;
+  listRemoteSessions?: () => Promise<RemoteSessionNodeLike[]>;
 }
 
 export type ResolveResult =
@@ -43,21 +62,145 @@ export type ResolveResult =
       ambiguousCandidates?: string[];
     }
   | { tier: 2; fleetName: string; ambiguousCandidates?: string[] }
+  | { tier: 3; sessionName: string; node: string; peerUrl: string; sshAlias: string; ambiguousCandidates?: string[] }
+  | { tier: "error"; error: string; hint?: string }
   | null;
 
 const stripDash = (s: string) => s.replace(/-+$/, "");
 
 function normalizeAttachQuery(target: string): string {
+  return target.trim();
+}
+
+function parseExplicitPeerAttachTarget(target: string): { node: string; sessionName: string } | { error: string; hint?: string } | null {
   const trimmed = target.trim();
   const colon = trimmed.indexOf(":");
-  if (colon < 0) return trimmed;
-  const left = trimmed.slice(0, colon);
-  const right = trimmed.slice(colon + 1);
-  // Node-qualified targets such as `m5:mawjs` should resolve the oracle part
-  // locally. Numeric window/pane suffixes (`neo:0`, `neo:1.2`) are tmux
-  // syntax and must remain attached to the session target.
-  if (left && right && !/^\d+(?:\.\d+)?$/.test(right)) return right;
-  return trimmed;
+  if (colon < 0) return null;
+
+  const left = trimmed.slice(0, colon).trim();
+  const right = trimmed.slice(colon + 1).trim();
+
+  // Numeric window/pane suffixes (`neo:0`, `neo:1.2`) are local tmux syntax
+  // and must remain attached to the session target.
+  if (left && right && /^\d+(?:\.\d+)?$/.test(right)) return null;
+
+  if (!left || !right) {
+    return {
+      error: `invalid remote attach target '${trimmed}'`,
+      hint: "use: maw attach <node>:<session>",
+    };
+  }
+
+  return { node: left, sessionName: right };
+}
+
+function withSshUser(target: string, user?: string): string {
+  const trimmed = target.trim();
+  const sshUser = user?.trim();
+  if (!trimmed || !sshUser || trimmed.includes("@")) return trimmed;
+  return `${sshUser}@${trimmed}`;
+}
+
+function peerUrlHost(peer: RemotePeerLike): { host: string; user: string } {
+  try {
+    const url = new URL(peer.url);
+    return { host: url.hostname || peer.url, user: url.username };
+  } catch {
+    return {
+      host: peer.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, ""),
+      user: "",
+    };
+  }
+}
+
+interface SshConfigBlock {
+  aliases: string[];
+  hostName?: string;
+}
+
+function sshConfigPath(): string {
+  return process.env.SSH_CONFIG_FILE || join(process.env.HOME || homedir(), ".ssh", "config");
+}
+
+function readSshConfigBlocks(): SshConfigBlock[] {
+  const path = sshConfigPath();
+  if (!existsSync(path)) return [];
+
+  const blocks: SshConfigBlock[] = [];
+  let current: SshConfigBlock | null = null;
+  let rawConfig = "";
+  try {
+    rawConfig = readFileSync(path, "utf8");
+  } catch {
+    return [];
+  }
+  for (const rawLine of rawConfig.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+#.*$/, "").trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(\S+)\s+(.+)$/);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    const value = match[2].trim();
+
+    if (key === "host") {
+      current = {
+        aliases: value.split(/\s+/).filter(alias => alias && !/[?*]/.test(alias)),
+      };
+      if (current.aliases.length > 0) blocks.push(current);
+      continue;
+    }
+
+    if (current && key === "hostname") {
+      current.hostName = value;
+    }
+  }
+
+  return blocks;
+}
+
+function firstSshConfigAlias(peer: RemotePeerLike, nodeAlias: string, rawHost: string): string | null {
+  const blocks = readSshConfigBlocks();
+  const candidates = new Set(
+    [nodeAlias, peer.alias, peer.node ?? "", rawHost]
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  for (const block of blocks) {
+    const aliasMatch = block.aliases.find(alias => candidates.has(alias.toLowerCase()));
+    if (aliasMatch) return aliasMatch;
+  }
+
+  const rawHostLower = rawHost.trim().toLowerCase();
+  if (!rawHostLower) return null;
+  for (const block of blocks) {
+    if (block.hostName?.trim().toLowerCase() === rawHostLower) {
+      return block.aliases[0] ?? null;
+    }
+  }
+
+  return null;
+}
+
+function deriveSshAlias(peer: RemotePeerLike, nodeAlias: string): string {
+  const explicitUser = peer.sshUser?.trim() || "";
+  const explicitAlias = peer.sshAlias?.trim();
+  if (explicitAlias) return withSshUser(explicitAlias, explicitUser);
+
+  const parsedUrl = peerUrlHost(peer);
+  const configAlias = firstSshConfigAlias(peer, nodeAlias, parsedUrl.host);
+  if (configAlias) return withSshUser(configAlias, explicitUser);
+
+  let host = peer.sshHost?.trim() || "";
+  let user = explicitUser;
+  if (!host) {
+    host = parsedUrl.host;
+    user = user || parsedUrl.user;
+  }
+
+  if (!user && peer.node && peer.node !== nodeAlias) user = nodeAlias;
+  if (!host) return nodeAlias;
+  return user ? `${user}@${host}` : host;
 }
 
 function stripFleetAndOracle(name: string): string {
@@ -105,27 +248,151 @@ function exactWindowName(session: SessionLike, target: string): string | undefin
   return session.windows.find(w => w.name.toLowerCase() === t)?.name;
 }
 
-function runningMatchFor(session: SessionLike, target: string, fuzzy: boolean): { session: SessionLike; windowName?: string } | null {
-  if (nameMatches(session.name, target, fuzzy)) return { session };
+function runningMatchFor(
+  session: SessionLike,
+  target: string,
+  fuzzy: boolean,
+  preferOracleWindow: boolean = false,
+): { session: SessionLike; windowName?: string } | null {
+  // #1911 — when preferOracleWindow is set, look up the oracle-named window
+  // in this session so callers can build a `session:window` attach target
+  // that doesn't depend on which tmux window happened to be last-active.
+  // Default (false) preserves the legacy behavior for non-attach callers
+  // (capture, follow) whose tests assert on the bare `{ tier:1, sessionName }` shape.
+  const oracleWindow = preferOracleWindow
+    ? session.windows.find(w => windowMatchesOracle(w.name, target))
+    : undefined;
+
+  if (nameMatches(session.name, target, fuzzy)) {
+    return oracleWindow ? { session, windowName: oracleWindow.name } : { session };
+  }
   const windowName = exactWindowName(session, target);
   if (windowName) return { session, windowName };
+  if (oracleWindow) return { session, windowName: oracleWindow.name };
   if (session.windows.some(w => windowMatchesOracle(w.name, target))) return { session };
   return null;
+}
+
+function isNumberedFleetStyleSessionName(name: string): boolean {
+  return /^\d+-/.test(name);
+}
+
+function isFleetRegisteredSession(session: SessionLike, fleet: FleetLike[]): boolean {
+  const sessionName = session.name.toLowerCase();
+  return fleet.some(entry => entry.name.toLowerCase() === sessionName);
+}
+
+function preferredTrustedRunningMatch(
+  matches: Array<{ session: SessionLike; windowName?: string }>,
+  fleet: FleetLike[],
+): { session: SessionLike; windowName?: string } | null {
+  const fleetRegistered = matches.filter(match => isFleetRegisteredSession(match.session, fleet));
+  if (fleetRegistered.length === 1) return fleetRegistered[0];
+
+  // Fleet-created sessions use a numeric slot prefix (`77-mawjs`). If one live
+  // numbered match is competing only with orphan/ad-hoc suffix matches
+  // (`cnx-mawjs`), trust the fleet-style session instead of surfacing a false
+  // ambiguity (#1895). Multiple numbered matches stay ambiguous.
+  const numbered = matches.filter(match => isNumberedFleetStyleSessionName(match.session.name));
+  if (numbered.length === 1) return numbered[0];
+
+  return null;
+}
+
+async function listFederatedRemoteSessions(): Promise<RemoteSessionNodeLike[]> {
+  const [{ resolveAllPeers }, { fetchPeerPayload }] = await Promise.all([
+    import("../ls/internal/peer-resolve"),
+    import("../ls/internal/peer-call"),
+  ]);
+  const peers = resolveAllPeers();
+  return await Promise.all(peers.map(async (peer) => {
+    const payload = await fetchPeerPayload(peer, 2000);
+    return {
+      ...peer,
+      // Keep the configured peer alias for attach routing/ssh derivation even
+      // when the remote /api/ls payload identifies itself by a different node.
+      alias: peer.alias,
+      node: payload.node ?? peer.node,
+      url: peer.url,
+      sessions: payload.error ? [] : (payload.sessions ?? []),
+      ...(payload.error ? { error: payload.error } : {}),
+    };
+  }));
+}
+
+function tier3Result(node: RemoteSessionNodeLike, sessionName: string, ambiguousCandidates?: string[]): Extract<ResolveResult, { tier: 3 }> {
+  const alias = node.alias;
+  return {
+    tier: 3,
+    node: alias,
+    sessionName,
+    peerUrl: node.url,
+    sshAlias: deriveSshAlias(node, alias),
+    ...(ambiguousCandidates && ambiguousCandidates.length > 1 ? { ambiguousCandidates } : {}),
+  };
+}
+
+async function remoteMatchFor(target: string, deps: ResolveDeps): Promise<Extract<ResolveResult, { tier: 3 }> | null> {
+  const nodes = await (deps.listRemoteSessions ?? listFederatedRemoteSessions)();
+  const matches: Array<{ node: RemoteSessionNodeLike; session: SessionLike }> = [];
+
+  for (const node of nodes) {
+    if (node.error) continue;
+    for (const session of node.sessions || []) {
+      if (isInfrastructureChannelSessionName(session.name, target)) continue;
+      if (runningMatchFor(session, target, true)) matches.push({ node, session });
+    }
+  }
+
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return tier3Result(matches[0].node, matches[0].session.name);
+
+  const exactSessionMatches = matches.filter(
+    match => match.session.name.toLowerCase() === target.toLowerCase(),
+  );
+  if (exactSessionMatches.length === 1) {
+    return tier3Result(exactSessionMatches[0].node, exactSessionMatches[0].session.name);
+  }
+
+  const candidates = matches.map(match => `${match.node.alias}:${match.session.name}`);
+  return tier3Result(matches[0].node, matches[0].session.name, candidates);
 }
 
 export async function resolveAttachTarget(
   target: string,
   deps: ResolveDeps,
-  opts: { fuzzy?: boolean } = {},
+  opts: { fuzzy?: boolean; federation?: boolean; preferOracleWindow?: boolean } = {},
 ): Promise<ResolveResult> {
+  const explicitPeerTarget = parseExplicitPeerAttachTarget(target);
+  if (explicitPeerTarget && "error" in explicitPeerTarget) {
+    return { tier: "error", error: explicitPeerTarget.error, hint: explicitPeerTarget.hint };
+  }
+  if (explicitPeerTarget) {
+    const peer = await (deps.resolvePeer ?? resolveConfiguredPeer)(explicitPeerTarget.node);
+    if (!peer) {
+      return {
+        tier: "error",
+        error: `peer '${explicitPeerTarget.node}' not found — check maw peers list`,
+      };
+    }
+    return {
+      tier: 3,
+      node: explicitPeerTarget.node,
+      sessionName: explicitPeerTarget.sessionName,
+      peerUrl: peer.url,
+      sshAlias: deriveSshAlias(peer, explicitPeerTarget.node),
+    };
+  }
+
   target = normalizeAttachQuery(target);
   const fuzzy = Boolean(opts.fuzzy);
+  const preferOracleWindow = Boolean(opts.preferOracleWindow);
   const sessions = (await deps.listSessions())
     .filter(s => !isInfrastructureChannelSessionName(s.name, target));
 
   // Tier 1 — live tmux session/window matches.
   const runningMatches = sessions
-    .map(s => runningMatchFor(s, target, fuzzy))
+    .map(s => runningMatchFor(s, target, fuzzy, preferOracleWindow))
     .filter((s): s is { session: SessionLike; windowName?: string } => Boolean(s));
   if (runningMatches.length === 1) {
     const match = runningMatches[0];
@@ -145,6 +412,14 @@ export async function resolveAttachTarget(
         tier: 1,
         sessionName: match.session.name,
         ...(match.windowName ? { windowName: match.windowName } : {}),
+      };
+    }
+    const trustedMatch = preferredTrustedRunningMatch(runningMatches, deps.loadFleet());
+    if (trustedMatch) {
+      return {
+        tier: 1,
+        sessionName: trustedMatch.session.name,
+        ...(trustedMatch.windowName ? { windowName: trustedMatch.windowName } : {}),
       };
     }
     return {
@@ -183,6 +458,14 @@ export async function resolveAttachTarget(
       fleetName: fleetMatches[0].name,
       ambiguousCandidates: fleetMatches.map(f => f.name),
     };
+  }
+
+  // Tier 3 — optional federation precheck before the caller falls through to
+  // `maw wake`, whose final fallback can run slow GitHub/org scans (#1878).
+  // Other resolver consumers (capture/follow) stay local-only unless they opt in.
+  if (opts.federation) {
+    const remote = await remoteMatchFor(target, deps);
+    if (remote) return remote;
   }
 
   return null;

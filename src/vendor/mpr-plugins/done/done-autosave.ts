@@ -9,6 +9,12 @@ import { mawDataPath } from "../../../core/xdg";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
+type RetrospectiveCommand = "/rrr" | "$rrr";
+
+function inferRetrospectiveCommand(paneCurrentCommand: string): RetrospectiveCommand {
+  return /\bomx\b/i.test(paneCurrentCommand || "") ? "$rrr" : "/rrr";
+}
+
 /** Signal parent oracle inbox that a worktree window is done (#81). */
 export async function signalParentInbox(
   windowName: string,
@@ -30,7 +36,7 @@ export async function signalParentInbox(
   }
 }
 
-/** Auto-save: send /rrr, git commit+push, reunion + soul-sync (unless --force or dry-run). */
+/** Auto-save: send engine-appropriate retrospective command, git commit+push, reunion + soul-sync (unless --force or dry-run). */
 export async function autoSave(
   windowName: string,
   sessionName: string,
@@ -39,12 +45,18 @@ export async function autoSave(
   const target = `${sessionName}:${windowName}`;
 
   let paneCwd = "";
+  let paneCurrentCommand = "";
   try {
-    paneCwd = (await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
+    const paneInfo = await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_command}\t#{pane_current_path}'`);
+    const [rawPaneCommand, rawPanePath] = paneInfo.split("\t");
+    paneCurrentCommand = (rawPaneCommand ?? "").trim();
+    paneCwd = (rawPanePath ?? "").trim();
   } catch { /* expected: pane may not exist */ }
 
+  const retrospectiveCommand = inferRetrospectiveCommand(paneCurrentCommand);
+
   if (opts.dryRun) {
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send /rrr to ${target} and wait 10s`);
+    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
     if (paneCwd) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
@@ -54,14 +66,14 @@ export async function autoSave(
     return;
   }
 
-  // Send /rrr to the agent for a session retrospective
-  console.log(`  \x1b[36m⏳\x1b[0m sending /rrr to ${target}...`);
+  // Send a retrospective command aligned with the panel's engine.
+  console.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
   try {
-    await tmux.sendText(target, "/rrr");
+    await tmux.sendText(target, retrospectiveCommand);
     await new Promise(r => setTimeout(r, 10_000));
-    console.log(`  \x1b[32m✓\x1b[0m /rrr sent (waited 10s)`);
+    console.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
   } catch {
-    console.log(`  \x1b[33m⚠\x1b[0m could not send /rrr (agent may not be running)`);
+    console.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
   }
 
   // Git auto-save in pane's cwd

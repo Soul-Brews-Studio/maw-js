@@ -60,6 +60,9 @@ mock.module("node:child_process", () => ({
 }));
 mock.module("child_process", () => ({
   spawnSync: (cmd: string, args: string[]) => spawnSyncImpl(cmd, args),
+  // Stub execSync — transitive import via attach-ssh preflight (#1905) etc.
+  execSync: (_cmd: string, _opts?: any) => "",
+  exec: (_cmd: string, cb?: (e: any, o: string) => void) => { cb?.(null, ""); },
   spawn: (cmd: string, args: string[]) => {
     spawnCalls.push([cmd, ...args]);
     const child = new EventEmitter();
@@ -96,7 +99,22 @@ mock.module(join(budRoot, "internal/soul-sync-impl"), () => ({
 mock.module(join(root, "src/vendor/mpr-plugins/split/impl"), () => ({
   cmdSplit: async (name: string) => { if (splitThrows) throw new Error(`split nope ${name}`); },
 }));
-mock.module("maw-js/config", () => ({ loadConfig: () => ({ githubOrg: "ConfigOrg" }) }));
+mock.module("maw-js/config", () => ({
+  loadConfig: () => ({ githubOrg: "ConfigOrg" }),
+  // Stub additional config helpers for transitive transport-layer imports.
+  cfgLimit: (_key: string, fallback: number = 0) => fallback,
+  cfgInterval: (_key: string, fallback: number = 0) => fallback,
+  cfgTimeout: (_key: string, fallback: number = 0) => fallback,
+  cfg: (_key: string, fallback: any = undefined) => fallback,
+  configForDisplay: () => ({}),
+  resetConfig: () => {},
+  saveConfig: () => {},
+  buildCommand: (name: string) => name,
+  buildCommandInDir: (name: string) => name,
+  getEnvVars: () => ({}),
+  validateConfigShape: () => ({ ok: true }),
+  D: {} as any,
+}));
 mock.module("maw-js/core/matcher/normalize-target", () => ({ normalizeTarget: (s: string) => s.replace(/\/$/, "").replace(/\.git$/, "") }));
 mock.module("maw-js/core/fleet/validate", () => ({ assertValidOracleName: (name: string) => { if (name === "bad-view") throw new Error("reserved"); } }));
 mock.module("maw-js/core/fleet/leaf", () => ({ writeSignal: (...args: unknown[]) => { hostExecCalls.push(`writeSignal:${JSON.stringify(args)}`); } }));

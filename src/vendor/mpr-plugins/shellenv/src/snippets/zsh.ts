@@ -32,14 +32,21 @@ maw() {
     command maw "$@"
   fi
 }
-# claude() wrapper — auto-fallback when --continue fails (no prior session).
-# Lets \`maw wake\` send a clean \`claude --dangerously-skip-permissions --continue\`
-# instead of a verbose \`{ X || Y; }\` fallback chain.
+# claude() wrapper —
+#   • adds --dangerously-skip-permissions (default-on; redefine claude() to opt out)
+#   • adds --channels from \$MAW_CLAUDE_CHANNELS (default: discord plugin;
+#     set MAW_CLAUDE_CHANNELS="" to disable, unset = use default)
+#   • auto-fallback when --continue fails (no prior session)
+# Lets \`maw wake\` send a clean \`claude --continue\` instead of a verbose
+# \`{ X || Y; }\` fallback chain. (#1896)
 claude() {
+  local channels="\${MAW_CLAUDE_CHANNELS-plugin:discord@claude-plugins-official}"
+  local opts=(--dangerously-skip-permissions)
+  [[ -n "$channels" ]] && opts+=(--channels "$channels")
   if [[ "$*" == *"--continue"* ]]; then
-    command claude "$@" || command claude "\${@/--continue/}"
+    command claude "\${opts[@]}" "$@" || command claude "\${opts[@]}" "\${@/--continue/}"
   else
-    command claude "$@"
+    command claude "\${opts[@]}" "$@"
   fi
 }
 # claude46 — Opus 4.6 (1M context). Delegates to claude() for --continue fallback.

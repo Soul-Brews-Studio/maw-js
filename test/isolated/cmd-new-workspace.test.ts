@@ -102,6 +102,113 @@ describe("cmdNew workspace session factory", () => {
     expect(() => validateWorkspaceWindowName("bad:name")).toThrow("invalid window name");
   });
 
+  describe("auto-suffix on context-differ collision (#1894)", () => {
+    test("auto-derived name + collision + context differs → uses -2 suffix", async () => {
+      // Existing 'foo-echo-c' has same cmd ("echo C") but different cwd ("/tmp/other"),
+      // so the new invocation's auto-name collides but contextMatches is false → suffix.
+      sessions.add("foo-echo-c");
+      sessionOptions.set("foo-echo-c:@maw_new_cwd", "/tmp/other");
+      sessionOptions.set("foo-echo-c:@maw_new_command", "echo C");
+      sessionOptions.set("foo-echo-c:@maw_new_window", "lead");
+
+      mkdirSync("/tmp/foo", { recursive: true });
+      try {
+        await cmdNew(["--path", "/tmp/foo", "--cmd", "echo C", "--no-attach"]);
+      } finally {
+        rmSync("/tmp/foo", { recursive: true, force: true });
+      }
+
+      expect(newSessionCalls).toHaveLength(1);
+      expect(newSessionCalls[0]!.name).toBe("foo-echo-c-2");
+    });
+
+    test("auto-derived name + collision + context matches → reuses existing", async () => {
+      sessions.add("foo-echo-c");
+      sessionOptions.set("foo-echo-c:@maw_new_cwd", "/tmp/foo");
+      sessionOptions.set("foo-echo-c:@maw_new_command", "echo C");
+      sessionOptions.set("foo-echo-c:@maw_new_window", "lead");
+
+      mkdirSync("/tmp/foo", { recursive: true });
+      try {
+        await cmdNew(["--path", "/tmp/foo", "--cmd", "echo C", "--no-attach"]);
+      } finally {
+        rmSync("/tmp/foo", { recursive: true, force: true });
+      }
+
+      expect(newSessionCalls).toEqual([]);
+    });
+
+    test("explicit name + collision + context differs → throws UserError (unchanged)", async () => {
+      sessions.add("explicit-foo");
+      sessionOptions.set("explicit-foo:@maw_new_cwd", "/tmp/foo");
+      sessionOptions.set("explicit-foo:@maw_new_command", "echo C");
+      sessionOptions.set("explicit-foo:@maw_new_window", "lead");
+
+      mkdirSync("/tmp/foo", { recursive: true });
+      try {
+        await expect(
+          cmdNew(["explicit-foo", "--path", "/tmp/foo", "--cmd", "echo D", "--no-attach"]),
+        ).rejects.toThrow(/already exists with different launch context/);
+      } finally {
+        rmSync("/tmp/foo", { recursive: true, force: true });
+      }
+
+      expect(newSessionCalls).toEqual([]);
+    });
+
+    test("99 collisions → throws UserError with hint", async () => {
+      for (let i = 1; i <= 99; i++) {
+        const name = i === 1 ? "foo-echo-c" : `foo-echo-c-${i}`;
+        sessions.add(name);
+        sessionOptions.set(`${name}:@maw_new_cwd`, "/tmp/other");
+        sessionOptions.set(`${name}:@maw_new_command`, "echo other");
+        sessionOptions.set(`${name}:@maw_new_window`, "lead");
+      }
+
+      mkdirSync("/tmp/foo", { recursive: true });
+      try {
+        await expect(
+          cmdNew(["--path", "/tmp/foo", "--cmd", "echo C", "--no-attach"]),
+        ).rejects.toThrow(/99 collisions for 'foo-echo-c-N'/);
+      } finally {
+        rmSync("/tmp/foo", { recursive: true, force: true });
+      }
+    });
+
+    test("machine-readable (--print) suppresses the warning log", async () => {
+      // Same setup as the suffix test but with --print: warning must be silent,
+      // and the JSON output reports the suffixed session name.
+      sessions.add("foo-echo-c");
+      sessionOptions.set("foo-echo-c:@maw_new_cwd", "/tmp/other");
+      sessionOptions.set("foo-echo-c:@maw_new_command", "echo C");
+      sessionOptions.set("foo-echo-c:@maw_new_window", "lead");
+      firstPaneIds.set("foo-echo-c-2:lead", "%42");
+
+      const lines: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+        lines.push(String(line));
+      });
+      mkdirSync("/tmp/foo", { recursive: true });
+      try {
+        await cmdNew([
+          "--path", "/tmp/foo",
+          "--cmd", "echo C",
+          "--print",
+          "--no-attach",
+        ]);
+      } finally {
+        rmSync("/tmp/foo", { recursive: true, force: true });
+        logSpy.mockRestore();
+      }
+
+      expect(lines.some(l => l.includes("exists with different context"))).toBe(false);
+      const jsonLines = lines.filter(l => l.startsWith("{"));
+      expect(jsonLines).toHaveLength(1);
+      const payload = JSON.parse(jsonLines[0]!);
+      expect(payload.session).toBe("foo-echo-c-2");
+    });
+  });
+
   test("usage errors print help for missing, help, and flag-shaped session names", async () => {
     const errors: string[] = [];
     const errSpy = spyOn(console, "error").mockImplementation((line: string) => {
@@ -370,6 +477,22 @@ describe("cmdNew workspace session factory", () => {
     }
   });
 
+  test("--split accepts explicit right/horizontal and bottom/vertical direction flags", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
+    try {
+      await cmdNew(["righty", "-p", dir, "--split", "--right", "--no-attach"]);
+      await cmdNew(["bottomy", "-p", dir, "--split", "--bottom", "--no-attach"]);
+
+      expect(splitWindowCalls.map(call => call.opts.direction)).toEqual(["horizontal", "vertical"]);
+      await expect(cmdNew(["conflict", "-p", dir, "--split", "--right", "--vertical", "--no-attach"]))
+        .rejects.toThrow("choose only one split direction");
+      await expect(cmdNew(["no-split", "-p", dir, "--right", "--no-attach"]))
+        .rejects.toThrow("split direction flags require --split");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("prints machine-readable payloads for new and existing lead panes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
     const lines: string[] = [];
@@ -427,5 +550,65 @@ describe("cmdNew workspace session factory", () => {
 
     expect(newSessionCalls).toEqual([]);
     expect(attached).toEqual(["my-project"]);
+  });
+
+  describe("--dry-run (#1913)", () => {
+    test("dry-run skips newSession + rememberWorkspaceLaunch + attach", async () => {
+      const lines: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+        lines.push(String(line));
+      });
+      try {
+        await cmdNew(["taster", "--dry-run", "--no-attach"]);
+      } finally {
+        logSpy.mockRestore();
+      }
+      expect(newSessionCalls).toEqual([]);
+      expect(setOptionCalls).toEqual([]);
+      expect(attached).toEqual([]);
+      expect(lines.some(l => l.includes("[dry-run] would create"))).toBe(true);
+      expect(lines.some(l => /no tmux state changed/.test(l))).toBe(true);
+    });
+
+    test("dry-run with --split skips splitWindow + selectPane", async () => {
+      const lines: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+        lines.push(String(line));
+      });
+      try {
+        await cmdNew(["taster", "--split", "--dry-run"]);
+      } finally {
+        logSpy.mockRestore();
+      }
+      expect(splitWindowCalls).toEqual([]);
+      expect(selectPaneCalls).toEqual([]);
+      expect(lines.some(l => l.includes("[dry-run] would create split"))).toBe(true);
+    });
+
+    test("dry-run + --print emits JSON with dry_run: true", async () => {
+      const lines: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+        lines.push(String(line));
+      });
+      try {
+        await cmdNew(["taster", "--dry-run", "--print", "--no-attach"]);
+      } finally {
+        logSpy.mockRestore();
+      }
+      const jsonLines = lines.filter(l => l.startsWith("{"));
+      expect(jsonLines).toHaveLength(1);
+      const payload = JSON.parse(jsonLines[0]!);
+      expect(payload.dry_run).toBe(true);
+      expect(payload.session).toBe("taster");
+      expect(payload.pane_id).toBeUndefined();
+      expect(newSessionCalls).toEqual([]);
+    });
+
+    test("dry-run still validates name — invalid throws, no session created", async () => {
+      await expect(
+        cmdNew(["bad name", "--dry-run", "--no-attach"]),
+      ).rejects.toThrow(/invalid session name/);
+      expect(newSessionCalls).toEqual([]);
+    });
   });
 });

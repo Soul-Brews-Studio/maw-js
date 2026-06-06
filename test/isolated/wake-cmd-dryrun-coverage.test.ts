@@ -24,6 +24,7 @@ let ghqFindReturn: string | null = null;
 let hostExecCalls: string[] = [];
 let liveTileRolesRaw = "";
 let listSessionsReturn: Session[] = [];
+let fleetLoadReturn: Array<{ name: string; windows: Array<{ name: string; repo: string }> }> = [];
 let hasSessionReturn = true;
 let listWindowsReturn: Array<{ name: string }> = [];
 let resolveOracleCalls: Array<{ oracle: string; allLocal?: boolean }> = [];
@@ -101,6 +102,11 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
   saveConfig: () => {},
 }));
 
+
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => ({
+  loadFleet: () => fleetLoadReturn,
+}));
+
 mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () => ({
   ...realWakeResolve,
   resolveOracle: async (oracle: string, opts?: { allLocal?: boolean }) => {
@@ -125,6 +131,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   ...realWakeSession,
   attachToSession: async () => {},
+  waitForEngine: async () => {},
   ensureSessionRunning: async () => 0,
   createWorktree: async () => ({ wtPath: "/tmp/worktree", windowName: "neo-task" }),
 }));
@@ -186,6 +193,7 @@ beforeEach(() => {
   hostExecCalls = [];
   liveTileRolesRaw = "";
   listSessionsReturn = [];
+  fleetLoadReturn = [];
   hasSessionReturn = true;
   listWindowsReturn = [];
   resolveOracleCalls = [];
@@ -303,6 +311,27 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     expect(result).toBe("48-foo:foo-oracle");
     expect(detectSessionCalls).toEqual([]);
     expect(plain(logs)).toContain("would reuse session: 48-foo");
+  });
+
+  test("#1892 sleeping numeric fleet sessions use fleet-pinned repo without fuzzy re-resolution", async () => {
+    fleetLoadReturn = [{
+      name: "199-zzcodex",
+      windows: [{ name: "zzcodex-oracle", repo: "Soul-Brews-Studio/mawjs-codex-oracle" }],
+    }];
+    fleetSessionReturn = "199-zzcodex";
+    ghqFindReturn = "/tmp/ghq/github.com/Soul-Brews-Studio/mawjs-codex-oracle";
+    shouldAutoWakeReturn = { wake: true, reason: "missing" };
+
+    const { logs } = await captureLogs(() =>
+      cmdWake("199-zzcodex", { dryRun: true, noRehydrate: true }),
+    );
+
+    expect(resolveOracleCalls).toEqual([]);
+    expect(ghqFindCalls).toContain("/Soul-Brews-Studio/mawjs-codex-oracle");
+    const text = plain(logs);
+    expect(text).toContain("found Soul-Brews-Studio/mawjs-codex-oracle");
+    expect(text).toContain("would create session '199-zzcodex' (main: zzcodex-oracle)");
+    expect(text).not.toContain("fuzzy match: mawjs-oracle");
   });
 
   test("session map numeric names are used as-is for missing-session dry-runs", async () => {

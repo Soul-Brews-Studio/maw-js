@@ -170,7 +170,10 @@ describe("team-lifecycle coverage", () => {
     expect(json(join(root, "ψ/memory/mailbox/teams/qa-team/manifest.json")).members).toEqual(["reviewer"]);
     expect(json(join(teamsDir, "qa-team/config.json")).members).toEqual([{ name: "reviewer", model: "opus" }]);
     expect(logs.join("\n")).toContain("past life: yes");
-    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model opus");
+    expect(logs.join("\n")).toContain("cd '/tmp/work dir' && ");
+    expect(logs.join("\n")).toContain("--model opus");
+    expect(logs.join("\n")).toContain("--system-prompt-file");
+    expect(logs.join("\n")).not.toContain("--continue");
   });
 
   test("spawn still succeeds when launch prompt mirror cannot write to the tool store", async () => {
@@ -185,6 +188,22 @@ describe("team-lifecycle coverage", () => {
     expect(json(join(root, "ψ/memory/mailbox/teams/qa-team/manifest.json")).members).toEqual(["reviewer"]);
     expect(logs.join("\n")).toContain("--system-prompt-file");
     expect(logs.join("\n")).toContain("ψ/memory/mailbox/teams/qa-team/reviewer-spawn-prompt.md");
+  });
+
+
+  test("spawn can render a non-Claude engine through buildCommandFromConfig", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" });
+
+    const output = logs.join("\n");
+    expect(output).toContain("engine: codex");
+    expect(output).toContain("Run:");
+    expect(output).toContain("codex");
+    expect(output).not.toContain("--model sonnet");
+    expect(output).not.toContain("--system-prompt-file");
+    expect(output).not.toContain("--resume");
+    expect(json(join(teamsDir, "qa-team/config.json")).members).toEqual([{ name: "codexer", engine: "codex" }]);
   });
 
   test("spawn --exec outside tmux leaves a manual command instead of spawning", async () => {
@@ -205,7 +224,9 @@ describe("team-lifecycle coverage", () => {
 
     await lifecycle.cmdTeamSpawn("qa-team", "builder", { exec: true, model: "opus" });
 
-    expect(layoutCalls[0]).toEqual(["spawnTeammatePane", "builder", expect.stringContaining("claude --model opus"), { colorIndex: 1 }]);
+    expect(layoutCalls[0]).toEqual(["spawnTeammatePane", "builder", expect.stringContaining("--model opus"), { colorIndex: 1 }]);
+    expect((layoutCalls[0] as unknown[])[2] as string).toContain("--system-prompt-file");
+    expect((layoutCalls[0] as unknown[])[2] as string).not.toContain("--continue");
     expect(snapshotCalls).toEqual([["qa-team", "%leader"]]);
     const member = json(join(teamsDir, "qa-team/config.json")).members[0];
     expect(member).toMatchObject({ name: "builder", model: "opus", tmuxPaneId: "%42", color: "green", agentId: "builder@qa-team" });
@@ -220,7 +241,9 @@ describe("team-lifecycle coverage", () => {
     await lifecycle.cmdTeamSpawn("qa-team", "builder-λ", { exec: true, model: "opus" });
 
     const command = (layoutCalls[0] as unknown[])[2] as string;
-    expect(command).toContain("claude --model opus --system-prompt-file");
+    expect(command).toContain("--model opus");
+    expect(command).toContain("--system-prompt-file");
+    expect(command).not.toContain("--continue");
     expect(command).not.toContain("/ψ/");
     expect(command).not.toContain("λ");
     const launchFiles = readdirSync(join(teamsDir, "qa-team")).filter((name) => name.endsWith("-spawn-prompt.md"));
@@ -244,7 +267,9 @@ describe("team-lifecycle coverage", () => {
 
     await lifecycle.cmdTeamSpawn("qa-team", "scout", { exec: true, model: "haiku" });
 
-    expect(layoutCalls[0]).toEqual(["spawnTeammatePane", "scout", expect.stringContaining("claude --model haiku"), { colorIndex: 1 }]);
+    expect(layoutCalls[0]).toEqual(["spawnTeammatePane", "scout", expect.stringContaining("--model haiku"), { colorIndex: 1 }]);
+    expect((layoutCalls[0] as unknown[])[2] as string).toContain("--system-prompt-file");
+    expect((layoutCalls[0] as unknown[])[2] as string).not.toContain("--continue");
     expect(logs.join("\n")).toContain("--exec split failed: split denied");
     expect(logs.join("\n")).toContain("Run manually:");
   });

@@ -89,6 +89,15 @@ function validateExtFields(
     if (Object.keys(zenoh).length > 0) result.zenoh = zenoh;
   }
 
+  // scout: boolean — legacy UDP LAN discovery opt-out (#1903)
+  if ("scout" in raw) {
+    if (typeof raw.scout === "boolean") {
+      result.scout = raw.scout;
+    } else {
+      warn("scout", "must be a boolean");
+    }
+  }
+
   // discovery: { transport?: "scout" | "zenoh" | "both" | "off" }
   if ("discovery" in raw && raw.discovery && typeof raw.discovery === "object" && !Array.isArray(raw.discovery)) {
     const d = raw.discovery as Record<string, unknown>;

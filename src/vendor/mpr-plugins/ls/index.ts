@@ -16,6 +16,8 @@ const HELP = [
   "  maw ls --federation --node <node>  filter the federated view",
   "  maw ls --json           emit JSON",
   "  maw ls --active [30m]   local sessions touched within a recent threshold",
+  "  maw ls --fleet-only     hide orphan/ad hoc tmux sessions (legacy filter)",
+  "  maw ls --no-teams       hide L2 Claude Code teams from ~/.claude/teams",
   "  maw ls --verify         include worktree-bind diagnostics",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
@@ -69,6 +71,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--json": Boolean,
       "--active": Boolean,
       "--node": String,
+      "--fleet-only": Boolean,
+      "--no-teams": Boolean,
       "--verify": Boolean,
       "--fix": Boolean,
       "--help": Boolean,
@@ -93,7 +97,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         json,
         active: true,
         activeThresholdSec: parseActiveDurationSeconds(activeArg),
-        oracleOnly: true,
+        fleetOnly: Boolean(flags["--fleet-only"]),
+        teams: !flags["--no-teams"],
       };
       if (localFilter) lsOpts.filter = localFilter;
       await cmdTmuxLs(lsOpts);
@@ -121,7 +126,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     // Default/local-only sessions (fast path, no network).
-    await cmdList({ fix: Boolean(flags["--fix"]), verify: Boolean(flags["--verify"]) });
+    if (!flags["--fix"]) {
+      const lsOpts: Parameters<typeof cmdTmuxLs>[0] = {
+        all: true,
+        compact: true,
+        json,
+        verify: Boolean(flags["--verify"]),
+        fleetOnly: Boolean(flags["--fleet-only"]),
+        teams: !flags["--no-teams"],
+      };
+      if (localFilter) lsOpts.filter = localFilter;
+      await cmdTmuxLs(lsOpts);
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    await cmdList({ fix: true, verify: Boolean(flags["--verify"]) });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

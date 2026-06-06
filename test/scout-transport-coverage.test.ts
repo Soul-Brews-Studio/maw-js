@@ -476,7 +476,36 @@ describe("ScoutTransport coverage", () => {
     await transport.doPair("00-fail");
 
     expect(transport.state.pendingConnections.has("00-fail")).toBe(false);
-    expect(warns).toContain("[scout] pair failed with fail-node: denied");
+    expect(warns).toContain("[scout] pair failed with fail-node: denied; backing off for 5s");
+  });
+
+  test("pair failures back off and log cooldown only once per peer", async () => {
+    const transport = makeTransport();
+    transport.state = new ScoutState("ff-local-zzzz");
+    const hello = makeHello({
+      zid: "00-loop",
+      node: "loop-node",
+      oracle: "loop-oracle",
+      locators: ["http://loop:3456"],
+      capabilities: ["pair"],
+      oracles: ["loop-oracle"],
+    });
+
+    pairResults.push({ ok: false, error: "denied" });
+    transport.handleHello(hello, "10.0.0.20");
+    await flushAsync();
+
+    expect(pairCalls).toHaveLength(1);
+    expect(warns).toContain("[scout] pair failed with loop-node: denied; backing off for 5s");
+
+    transport.state.discoveredPeers.delete("00-loop");
+    transport.handleHello(hello, "10.0.0.20");
+    transport.state.discoveredPeers.delete("00-loop");
+    transport.handleHello(hello, "10.0.0.20");
+    await flushAsync();
+
+    expect(pairCalls).toHaveLength(1);
+    expect(warns.filter((line) => line.includes("pair backoff for loop-node"))).toHaveLength(1);
   });
 
   test("stale peer pruning emits offline presence and clears pending entries", () => {

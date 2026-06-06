@@ -53,6 +53,7 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/done/done-worktree
   removeWorktreeViaConfig: async () => false,
   removeWorktreeByGhqScan: async () => false,
   removeFromFleetConfig: () => false,
+  warnRemainingWorktrees: async () => [],
 }));
 mock.module("maw-js/plugin/lifecycle", () => ({ runSleepLifecycleHooks: async () => undefined, runWakeLifecycleHooks: async () => undefined }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/sleep/resolve-target.ts"), () => ({

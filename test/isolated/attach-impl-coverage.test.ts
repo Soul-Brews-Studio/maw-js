@@ -11,13 +11,15 @@ import { join } from "path";
 const attachRoot = join(import.meta.dir, "../../src/vendor/mpr-plugins/attach");
 
 type ResolveResult =
-  | { tier: 1; sessionName: string; ambiguousCandidates?: string[] }
+  | { tier: 1; sessionName: string; windowName?: string; ambiguousCandidates?: string[] }
   | { tier: 2; fleetName: string; ambiguousCandidates?: string[] }
+  | { tier: 3; sessionName: string; node: string; peerUrl: string; sshAlias: string }
+  | { tier: "error"; error: string; hint?: string }
   | null;
 
 type ResolveCall = {
   target: string;
-  opts: { fuzzy?: boolean };
+  opts: { fuzzy?: boolean; federation?: boolean };
   depsUseMockedListSessions: boolean;
   depsUseMockedLoadFleet: boolean;
 };
@@ -32,6 +34,7 @@ let spawnStdout = "";
 let spawnThrowsOnPipe = false;
 let tmuxAttachCalls: string[] = [];
 let tmuxAttachError: Error | null = null;
+let attachSshCalls: unknown[] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 
@@ -57,6 +60,14 @@ mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => (
   cmdTmuxAttach: (target: string) => {
     tmuxAttachCalls.push(target);
     if (tmuxAttachError) throw tmuxAttachError;
+  },
+}));
+
+mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/attach-ssh/index"), () => ({
+  default: {
+    execute: async (target: unknown) => {
+      attachSshCalls.push(target);
+    },
   },
 }));
 
@@ -89,6 +100,7 @@ beforeEach(() => {
   spawnThrowsOnPipe = false;
   tmuxAttachCalls = [];
   tmuxAttachError = null;
+  attachSshCalls = [];
   logs = [];
   errors = [];
 
@@ -135,12 +147,14 @@ describe("attach impl command routing", () => {
 
     await cmdAttach("ghost", { dryRun: true });
 
-    expect(logs.join("\n")).toContain("[dry-run] 'ghost' not local");
+    expect(logs.join("\n")).toContain("[dry-run] 'ghost' not local or federated");
     expect(spawnCalls).toEqual([]);
     expect(resolveCalls).toEqual([
       {
         target: "ghost",
-        opts: {},
+        // #1911 — attach opts in to preferOracleWindow so multi-window sessions
+        // resolve to session:window instead of last-active.
+        opts: { federation: true, preferOracleWindow: true },
         depsUseMockedListSessions: true,
         depsUseMockedLoadFleet: true,
       },
@@ -155,10 +169,11 @@ describe("attach impl command routing", () => {
     expect(spawnCalls).toEqual([["maw", "wake", "wind"]]);
     expect(tmuxAttachCalls).toEqual(["01-Somwind"]);
     expect(resolveCalls.map((call) => ({ target: call.target, opts: call.opts }))).toEqual([
-      { target: "wind", opts: {} },
-      { target: "wind", opts: { fuzzy: true } },
+      // #1911 — both passes opt in to preferOracleWindow.
+      { target: "wind", opts: { federation: true, preferOracleWindow: true } },
+      { target: "wind", opts: { fuzzy: true, preferOracleWindow: true } },
     ]);
-    expect(logs.join("\n")).toContain("'wind' not local");
+    expect(logs.join("\n")).toContain("'wind' not local or federated");
     expect(logs.join("\n")).toContain("attaching to 01-Somwind");
   });
 
@@ -169,7 +184,7 @@ describe("attach impl command routing", () => {
 
     expect(spawnCalls).toEqual([["maw", "wake", "ghost"]]);
     expect(errors.join("\n")).toContain("'ghost' still not running after wake");
-    expect(resolveCalls[1].opts).toEqual({ fuzzy: true });
+    expect(resolveCalls[1].opts).toEqual({ fuzzy: true, preferOracleWindow: true });
   });
 
   test("prints ambiguity candidates and refuses side effects", async () => {
@@ -181,6 +196,61 @@ describe("attach impl command routing", () => {
     expect(output).toContain("'alpha' is ambiguous");
     expect(output).toContain("01-alpha");
     expect(output).toContain("02-alpha");
+    expect(spawnCalls).toEqual([]);
+  });
+
+  test("prints resolver errors without waking or attaching", async () => {
+    resolveQueue = [{
+      tier: "error",
+      error: "peer 'badnode' not found — check maw peers list",
+      hint: "use: maw peers list",
+    }];
+
+    await expect(cmdAttach("badnode:ghost")).rejects.toThrow("peer 'badnode' not found");
+
+    expect(errors.join("\n")).toContain("peer 'badnode' not found");
+    expect(errors.join("\n")).toContain("use: maw peers list");
+    expect(spawnCalls).toEqual([]);
+    expect(tmuxAttachCalls).toEqual([]);
+    expect(attachSshCalls).toEqual([]);
+  });
+
+  test("handles Tier 3 dry-run and remote attach strategy handoff", async () => {
+    const remote = {
+      tier: 3 as const,
+      node: "alpha",
+      sessionName: "volt-oracle",
+      peerUrl: "http://white.wg:3461",
+      sshAlias: "alpha@white.wg",
+    };
+
+    resolveQueue = [remote];
+    await cmdAttach("alpha:volt-oracle", { dryRun: true });
+    expect(logs.join("\n")).toContain("[dry-run] Tier 3 (remote) — would attach to alpha:volt-oracle via ssh alpha@white.wg");
+    expect(attachSshCalls).toEqual([]);
+    expect(tmuxAttachCalls).toEqual([]);
+
+    logs = [];
+    resolveQueue = [remote];
+    await cmdAttach("alpha:volt-oracle");
+    expect(logs.join("\n")).toContain("attaching to alpha:volt-oracle via ssh alpha@white.wg");
+    expect(attachSshCalls).toEqual([remote]);
+    expect(tmuxAttachCalls).toEqual([]);
+  });
+
+  test("rejects remote attach shell mode before strategy handoff", async () => {
+    resolveQueue = [{
+      tier: 3,
+      node: "alpha",
+      sessionName: "volt-oracle",
+      peerUrl: "http://white.wg:3461",
+      sshAlias: "alpha@white.wg",
+    }];
+
+    await expect(cmdAttach("alpha:volt-oracle", { shell: true })).rejects.toThrow("remote attach does not support --shell");
+
+    expect(errors.join("\n")).toContain("remote attach does not support --shell");
+    expect(attachSshCalls).toEqual([]);
     expect(spawnCalls).toEqual([]);
   });
 
@@ -203,6 +273,15 @@ describe("attach impl command routing", () => {
     await expect(cmdAttach("broken")).rejects.toThrow("tmux attach failed");
     expect(spawnCalls).toEqual([]);
     expect(tmuxAttachCalls).toEqual(["01-broken"]);
+  });
+
+  test("Tier 1 attach preserves resolved oracle window target", async () => {
+    resolveQueue = [{ tier: 1, sessionName: "01-yd-patient-flow", windowName: "yd-patient-flow-oracle" }];
+
+    await cmdAttach("yd-patient-flow");
+
+    expect(tmuxAttachCalls).toEqual(["01-yd-patient-flow:yd-patient-flow-oracle"]);
+    expect(logs.join("\n")).toContain("attaching to 01-yd-patient-flow:yd-patient-flow-oracle");
   });
 
   test("opens a shell split at the live oracle repo without attaching to claude", async () => {
@@ -318,8 +397,9 @@ describe("attach impl command routing", () => {
     await cmdAttach("mawjs-oracle", { shell: true });
 
     expect(resolveCalls).toEqual([
-      expect.objectContaining({ target: "mawjs-oracle", opts: {} }),
-      expect.objectContaining({ target: "mawjs-oracle", opts: { fuzzy: true } }),
+      // #1911 — both passes opt in to preferOracleWindow.
+      expect.objectContaining({ target: "mawjs-oracle", opts: { federation: true, preferOracleWindow: true } }),
+      expect.objectContaining({ target: "mawjs-oracle", opts: { fuzzy: true, preferOracleWindow: true } }),
     ]);
     expect(spawnCalls).toEqual([
       ["maw", "wake", "mawjs-oracle"],
@@ -355,5 +435,29 @@ describe("attach impl command routing", () => {
       ],
     ]);
     expect(logs.join("\n")).toContain("waking 50-mawjs");
+  });
+
+  test("buildAttachShellPlan falls back to @maw_new_cwd for workspace sessions (#1916 MED-4)", async () => {
+    const { buildAttachShellPlan } = await import(`${attachRoot}/impl.ts`);
+
+    // Workspace session has no fleet entry. With @maw_new_cwd set, plan uses it.
+    const plan = buildAttachShellPlan("taster", "taster", [], {
+      readSessionOption: (session: string, option: string) => {
+        if (session === "taster" && option === "@maw_new_cwd") return "/tmp/work";
+        return undefined;
+      },
+    });
+    expect(plan.sessionName).toBe("taster");
+    expect(plan.cwd).toBe("/tmp/work");
+    expect(plan.command).toContain("cd '/tmp/work'");
+    expect(plan.windowName).toContain("-shell");
+  });
+
+  test("buildAttachShellPlan still throws with actionable hint when no fleet and no @maw_new_cwd", async () => {
+    const { buildAttachShellPlan } = await import(`${attachRoot}/impl.ts`);
+
+    expect(() => buildAttachShellPlan("orphan", "orphan", [], {
+      readSessionOption: () => undefined,
+    })).toThrow(/no oracle entry and no @maw_new_cwd set/);
   });
 });

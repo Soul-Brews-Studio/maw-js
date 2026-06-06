@@ -205,7 +205,7 @@ describe("cmdTmuxLs — mocked pane listing", () => {
     const parsed = JSON.parse(logs);
     expect(parsed).toMatchObject([
       { id: "%1", session: "101-mawjs", annotation: "fleet: mawjs", status: "active" },
-      { id: "%2", session: "scratch", annotation: "", status: "idle" },
+      { id: "%2", session: "scratch", annotation: "orphan", status: "idle" },
     ]);
     expect(hostCalls.filter(cmd => cmd.includes("display-message"))).toEqual(process.env.TMUX ? ["tmux display-message -p '#{session_name}'"] : []);
   });
@@ -242,7 +242,7 @@ describe("cmdTmuxLs — mocked pane listing", () => {
     expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual(["alpha-worker"]);
   });
 
-  test("compact oracle ls hides non-fleet junk sessions by default and --all roster shows them", async () => {
+  test("compact ls shows orphan sessions by default and --fleet-only hides them", async () => {
     const now = Math.floor(Date.now() / 1000);
     fleetFiles = ["50-mawjs.json"];
     panes = [
@@ -252,17 +252,46 @@ describe("cmdTmuxLs — mocked pane listing", () => {
       { id: "%4", target: "52---help:0.0", command: "zsh", title: "option artifact", lastActivity: now - 999 },
     ];
 
-    let out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, oracleOnly: true }));
+    let out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).toContain("--help");
+    expect(out.logs).toContain("foo");
+    expect(out.logs).toContain("52---help");
+    expect(out.logs).toContain("[orphan]");
+    expect(out.logs).not.toContain("No panes found");
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, fleetOnly: true }));
     expect(out.logs).toContain("50-mawjs");
     expect(out.logs).not.toContain("--help");
     expect(out.logs).not.toContain("foo");
     expect(out.logs).not.toContain("52---help");
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, oracleOnly: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).toContain("--help");
+    expect(out.logs).toContain("foo");
+    expect(out.logs).toContain("52---help");
+    expect(out.logs).toContain("[orphan]");
+    expect(out.logs).not.toContain("No panes found");
 
     out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, roster: true }));
     expect(out.logs).toContain("50-mawjs");
     expect(out.logs).toContain("--help");
     expect(out.logs).toContain("foo");
     expect(out.logs).toContain("52---help");
+  });
+
+  test("compact ls prints an orphan row instead of an empty message when only orphan sessions are awake", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fleetFiles = [];
+    panes = [
+      { id: "%1", target: "volt-oracle:0.0", command: "zsh", title: "debug", lastActivity: now - 45 },
+    ];
+
+    const out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true }));
+    expect(out.logs).toContain("volt-oracle");
+    expect(out.logs).toContain("[orphan]");
+    expect(out.logs).not.toContain("No panes found");
   });
 
 });

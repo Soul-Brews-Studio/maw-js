@@ -2,7 +2,7 @@
 
 import { createHash } from "crypto";
 import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
+import { dirname, join, resolve } from "path";
 import { warn } from "../cli/verbosity";
 import { mawDataPath, mawStatePath } from "../core/xdg";
 
@@ -13,10 +13,24 @@ import { mawDataPath, mawStatePath } from "../core/xdg";
 // import.meta.dir walks to a path that doesn't exist post-bundle.
 import sdkPkg from "../../packages/sdk/package.json" with { type: "json" };
 
-// Single scan dir — everything lives in ~/.maw/plugins/ (or MAW_PLUGINS_DIR
-// if set). Resolved at call time so tests can override the root.
-export function scanDirs(): string[] {
-  return [process.env.MAW_PLUGINS_DIR || mawDataPath("plugins")];
+// Scan the global plugin dir plus any repo-local `.maw/plugins` dirs found by
+// walking up from cwd. Resolved at call time so tests and per-command cwd
+// routing can override roots.
+export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
+  const dirs: string[] = [];
+  let dir = resolve(cwd);
+  for (let i = 0; i < 32; i += 1) {
+    const pluginsDir = join(dir, ".maw", "plugins");
+    if (existsSync(pluginsDir)) dirs.push(pluginsDir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dirs;
+}
+
+export function scanDirs(cwd = process.cwd()): string[] {
+  return [process.env.MAW_PLUGINS_DIR || mawDataPath("plugins"), ...discoverLocalPluginDirs(cwd)];
 }
 
 /** Runtime SDK version — sourced from @maw-js/sdk package.json (build-inlined). */

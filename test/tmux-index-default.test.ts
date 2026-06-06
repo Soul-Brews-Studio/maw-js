@@ -182,6 +182,25 @@ describe("tmux plugin command handler", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("closed 1 pane");
     expect(h.calls.some((c) => String(c[1]).includes("%2"))).toBe(true);
+
+    // #1916 MED-3 — explicit pane target. Before this fix `maw tmux close <id>`
+    // silently fell through to the unscoped list-panes path; now it breaks out
+    // the requested pane and refuses to close the caller's own pane.
+    process.env.TMUX_PANE = "%5";
+    const targeted = makeHarness({ hostExec: async (cmd: string) => {
+      targeted.calls.push(["hostExec", cmd]);
+      return "";
+    } });
+    const targetedResult = await targeted.handler(cli(["close", "%9"]));
+    expect(targetedResult.ok).toBe(true);
+    expect(targetedResult.output).toContain("closed %9");
+    expect(targeted.calls.some((c) => String(c[1]).includes("break-pane -d -t '%9'"))).toBe(true);
+    // No unscoped list-panes call — explicit target shouldn't enumerate.
+    expect(targeted.calls.some((c) => /list-panes/.test(String(c[1])))).toBe(false);
+
+    const refusal = makeHarness({ hostExec: async () => "" });
+    const refusalResult = await refusal.handler(cli(["close", "%5"]));
+    expect(refusalResult).toMatchObject({ ok: false, error: "cannot close current pane" });
   });
 
   test("open requires tmux, restores hidden panes, and delegates target opens to split", async () => {

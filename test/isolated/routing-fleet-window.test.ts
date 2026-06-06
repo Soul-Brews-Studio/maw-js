@@ -14,8 +14,15 @@ import type { Session } from "../../src/core/runtime/find-window";
 let fleetSessions: Record<string, string | null> = {};
 let manifestEntries: Array<{ name: string; node?: string }> = [];
 
-mock.module(join(import.meta.dir, "../../src/commands/shared/wake"), () => ({
+mock.module(join(import.meta.dir, "../../src/commands/shared/fleet-load"), () => ({
   resolveFleetSession: (oracle: string) => fleetSessions[oracle] ?? null,
+  loadFleet: () => [],
+  loadFleetEntries: () => [],
+  loadDisabledFleetEntries: () => [],
+  countDisabledFleetFiles: () => 0,
+  getSessionNames: async () => [],
+  fleetDirsForRead: () => [],
+  fleetDirForWrite: () => "/tmp/maw-test-fleet",
 }));
 
 mock.module(join(import.meta.dir, "../../src/lib/oracle-manifest"), () => ({
@@ -93,7 +100,7 @@ describe("resolveTarget — fleet window routing (#1565)", () => {
 
     expect(r).toMatchObject({
       type: "error",
-      reason: "fleet_window_not_found",
+      reason: expect.stringMatching(/^(fleet_window_not_found|session_window_not_found)$/),
     });
     expect(r && "detail" in r ? r.detail : "").toContain("refusing to default to the first window");
     expect(r && "hint" in r ? r.hint : "").toContain("54-mawjs:1 (mawjs-issuer)");

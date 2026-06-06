@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MawEngine } from "../engine";
 import type { WSData } from "./types";
-import { loadConfig } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serveStatic } from "hono/bun";
@@ -13,6 +13,7 @@ import { createTransportRouter } from "../transports";
 import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
+import { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../api/tmux-stream";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import {
@@ -206,14 +207,17 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const wsHandler = {
     open: (ws: any) => {
       if (ws.data.mode === "pty") return;
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamOpen(ws); return; }
       engine.handleOpen(ws);
     },
     message: (ws: any, msg: any) => {
       if (ws.data.mode === "pty") { handlePtyMessage(ws, msg); return; }
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamMessage(ws, msg); return; }
       engine.handleMessage(ws, msg);
     },
     close: (ws: any) => {
       if (ws.data.mode === "pty") { handlePtyClose(ws); return; }
+      if (ws.data.mode === "tmux-stream") { handleTmuxStreamClose(ws); return; }
       engine.handleClose(ws);
     },
   };
@@ -238,6 +242,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
     if (url.pathname === "/ws/pty") {
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+    if (url.pathname === "/ws/tmux") {
+      if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "tmux-stream" } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
     if (url.pathname === "/ws") {
@@ -296,9 +304,16 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
   }
 
+  // P1 heartbeat-reaper: Bun-managed ws ping/pong + idle close. Dead clients
+  // (ungraceful disconnect, no TCP FIN) close after wsIdleSec → close handler
+  // fires → handlePtyClose → detach → grace-timer reaps the maw-pty- tmux session.
+  // sendPings: true is Bun's default but pinned for explicitness. Shared across
+  // the HTTP + TLS Bun.serve calls below so both ws surfaces get the heartbeat.
+  const wsConfig = { ...wsHandler, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
+
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsConfig });
   } catch (err) {
     if (isAddressInUseError(err)) {
       for (const line of servePortInUseInstructions(port, hostname)) console.error(line);
@@ -328,7 +343,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
-    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
+    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsConfig });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 

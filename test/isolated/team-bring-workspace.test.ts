@@ -11,11 +11,30 @@ let wakeCalls: Array<{ oracle: string; opts: any }> = [];
 let layoutCalls: Array<{ target: string; layout: string }> = [];
 let sentText: Array<{ target: string; text: string }> = [];
 let captureByTarget = new Map<string, string>();
+let joinPaneCalls: Array<string[]> = [];
+let listPanesOutput = "";
+
+mock.module("../../src/vendor/mpr-plugins/team/team-liveness", () => ({
+  listPaneSnapshots: async () => listPanesOutput
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [sessionName = "", windowName = "", command = "", path = "", paneId = ""] = line.split("|");
+      return { sessionName, windowName, command, path, paneId };
+    }),
+}));
+
+const manifestRoot = join(tmp, "psi", "memory", "mailbox", "teams");
+mock.module("../../src/vendor/mpr-plugins/team/team-helpers", () => ({
+  resolvePsi: () => join(tmp, "psi"),
+}));
 
 mock.module("maw-js/core/paths", () => ({
   CONFIG_DIR: configDir,
   CONFIG_FILE: join(configDir, "maw.config.json"),
   FLEET_DIR: join(configDir, "fleet"),
+  discoverConfigs: () => [],
   MAW_ROOT: "/repo/maw-js",
   resolveHome: () => tmp,
 }));
@@ -23,7 +42,14 @@ mock.module("maw-js/core/paths", () => ({
 mock.module("maw-js/sdk", () => ({
   tmux: {
     hasSession: async (name: string) => name === "project" || name === "myteam",
-    run: async () => "54-mawjs",
+    run: async (command: string, ...args: string[]) => {
+      if (command === "list-panes") return listPanesOutput;
+      if (command === "join-pane") {
+        joinPaneCalls.push([command, ...args]);
+        return "";
+      }
+      return "54-mawjs";
+    },
     capture: async (target: string) => captureByTarget.get(target) ?? "",
     sendText: async (target: string, text: string) => {
       sentText.push({ target, text });
@@ -52,13 +78,21 @@ writeFileSync(join(registryDir, "oracle-members.json"), JSON.stringify({
   ],
 }, null, 2));
 
-const { cmdTeamBring } = await import("../../src/vendor/mpr-plugins/team/team-workspace");
+const { cmdTeamBring, loadTeamOracleMemberNames } = await import("../../src/vendor/mpr-plugins/team/team-workspace");
+
+function writeManifest(team: string, manifest: unknown): void {
+  const dir = join(manifestRoot, team);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+}
 
 beforeEach(() => {
   wakeCalls = [];
   layoutCalls = [];
   sentText = [];
+  joinPaneCalls = [];
   captureByTarget = new Map();
+  listPanesOutput = "";
 });
 
 describe("cmdTeamBring", () => {
@@ -98,5 +132,93 @@ describe("cmdTeamBring", () => {
     expect(targets).toEqual(["project:volt", "project:odin"]);
     expect(sentText).toEqual([{ target: "project:volt", text: "/compact" }]);
     expect(layoutCalls).toEqual([{ target: "project:lead", layout: "main-vertical" }]);
+  });
+
+  test("brings members from charter manifest files and dedupes registry+manifest entries", async () => {
+    writeManifest("charter-only", {
+      name: "charter-only",
+      members: ["alpha-oracle", "reviewer"],
+      charter: {
+        members: [
+          { role: "builder", name: "volt" },
+          { role: "reviewer" },
+          { role: "builder" },
+        ],
+      },
+    });
+
+    const membersBefore = loadTeamOracleMemberNames("charter-only");
+    const targets = await cmdTeamBring("charter-only", { session: "project", dryRun: true });
+
+    expect(membersBefore).toEqual(["alpha-oracle", "reviewer", "volt", "builder"]);
+    expect(targets).toEqual(["project:alpha-oracle", "project:reviewer", "project:volt", "project:builder"]);
+
+    writeManifest("myteam", {
+      name: "myteam",
+      members: ["volt", "odin", "extra"],
+      charter: {
+        members: [
+          { role: "odin", name: "odin-live" },
+          { role: "new-role" },
+        ],
+      },
+    });
+
+    const mergedTargets = await cmdTeamBring("myteam", { session: "project", dryRun: true });
+
+    expect(mergedTargets).toEqual(["project:volt", "project:odin", "project:extra", "project:odin-live", "project:new-role"]);
+  });
+
+  test("when --gather is set, live windows are pulled with join-pane and existing windows are skipped", async () => {
+    const manualRegistryDir = join(process.env.MAW_CONFIG_DIR!, "teams", "gather-team");
+    mkdirSync(manualRegistryDir, { recursive: true });
+    writeFileSync(join(manualRegistryDir, "oracle-members.json"), JSON.stringify({
+      name: "gather-team",
+      members: [
+        { oracle: "volt", role: "builder", addedAt: new Date().toISOString() },
+        { oracle: "odin", role: "reviewer", addedAt: new Date().toISOString() },
+      ],
+      createdAt: new Date().toISOString(),
+    }, null, 2));
+
+    listPanesOutput = [
+      "lead-session|volter|claude|/tmp|%10",
+      "gather-session|volt|claude|/tmp|%11",
+      "gather-session|odin|claude|/tmp|%12",
+    ].join("\n");
+
+    const targets = await cmdTeamBring("gather-team", { session: "project", gather: true });
+
+    expect(targets).toEqual(["project:volt", "project:odin"]);
+    expect(wakeCalls).toHaveLength(0);
+    expect(joinPaneCalls).toEqual([
+      ["join-pane", "-s", "gather-session:volt"],
+      ["join-pane", "-s", "gather-session:odin"],
+    ]);
+  });
+
+  test("--gather ignores --split and wakes missing members without split", async () => {
+    const missingDir = join(process.env.MAW_CONFIG_DIR!, "teams", "missing-team");
+    mkdirSync(missingDir, { recursive: true });
+    writeFileSync(join(missingDir, "oracle-members.json"), JSON.stringify({
+      name: "missing-team",
+      members: [{ oracle: "neo", role: "builder", addedAt: new Date().toISOString() }],
+      createdAt: new Date().toISOString(),
+    }, null, 2));
+
+    await cmdTeamBring("missing-team", { session: "project", gather: true, split: true, contextLimitPollMs: 0 });
+
+    expect(wakeCalls).toEqual([
+      {
+        oracle: "neo",
+        opts: {
+          session: "project",
+          noRehydrate: true,
+          engine: undefined,
+          split: false,
+        },
+      },
+    ]);
+    expect(joinPaneCalls).toHaveLength(0);
   });
 });

@@ -88,6 +88,48 @@ describe("vendor kill/wake peer alias resolvers", () => {
     });
   });
 
+  test("ls resolver normalizes explicit ssh target and nested ssh user metadata", () => {
+    writeFileSync(peersFile, JSON.stringify({
+      peers: {
+        oracleWorld: {
+          url: "http://10.20.0.16:3456",
+          node: "oracle-world",
+          ssh: { target: "oracle-world", user: "sila" },
+        },
+        white: {
+          url: "http://white.local:3456",
+          node: "white",
+          ssh: "white-tunnel",
+          sshUser: "alpha",
+        },
+      },
+    }), "utf-8");
+
+    expect(lsPeerResolve.resolvePeer("oracleWorld")).toEqual({
+      alias: "oracleWorld",
+      url: "http://10.20.0.16:3456",
+      node: "oracle-world",
+      sshAlias: "oracle-world",
+      sshUser: "sila",
+    });
+    expect(lsPeerResolve.resolveAllPeers()).toEqual([
+      {
+        alias: "oracleWorld",
+        url: "http://10.20.0.16:3456",
+        node: "oracle-world",
+        sshAlias: "oracle-world",
+        sshUser: "sila",
+      },
+      {
+        alias: "white",
+        url: "http://white.local:3456",
+        node: "white",
+        sshAlias: "white-tunnel",
+        sshUser: "alpha",
+      },
+    ]);
+  });
+
   test("state store wins, with legacy home peers as a read fallback", () => {
     delete process.env.PEERS_FILE;
     delete process.env.MAW_HOME;

@@ -40,12 +40,46 @@ describe("whoami impl isolated coverage", () => {
     expect(logs).toEqual([]);
   });
 
-  test("prints the trimmed current tmux session name", async () => {
+  test("--short mode prints just the trimmed tmux session name (legacy contract)", async () => {
     hostExecResult = "  live-oracle  \n";
 
-    await cmdWhoami();
+    await cmdWhoami(["--short"]);
 
     expect(hostExecCalls).toEqual([`tmux display-message -p '#S'`]);
     expect(logs).toEqual(["live-oracle"]);
+  });
+
+  test("default mode prints session + window + pane address (#1916 LOW-2)", async () => {
+    hostExecResult = "live-oracle\tmain\t@7\tClaude Code\t%42\n";
+
+    await cmdWhoami();
+
+    expect(hostExecCalls).toEqual([
+      `tmux display-message -p '#S\t#W\t#{window_id}\t#{pane_title}\t#{pane_id}'`,
+    ]);
+    expect(logs.join("\n")).toContain("session  live-oracle");
+    expect(logs.join("\n")).toContain("window   main");
+    expect(logs.join("\n")).toContain("@7");
+    expect(logs.join("\n")).toContain("pane     Claude Code");
+    expect(logs.join("\n")).toContain("%42");
+    expect(logs.join("\n")).toContain("target");
+    expect(logs.join("\n")).toContain("live-oracle:main");
+  });
+
+  test("--json mode prints a single machine-readable line", async () => {
+    hostExecResult = "live-oracle\tmain\t@7\tClaude Code\t%42\n";
+
+    await cmdWhoami(["--json"]);
+
+    expect(logs).toHaveLength(1);
+    const payload = JSON.parse(logs[0]!);
+    expect(payload).toEqual({
+      session: "live-oracle",
+      window: "main",
+      window_id: "@7",
+      pane_title: "Claude Code",
+      pane_id: "%42",
+      target: "live-oracle:main.42",
+    });
   });
 });

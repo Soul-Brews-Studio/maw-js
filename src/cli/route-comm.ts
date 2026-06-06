@@ -1,10 +1,28 @@
 import { cmdPeek, cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
-function printCommUsage(cmd: "hey" | "send", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${cmd} <target> <message> [--inbox] [--force deprecated] [--approve] [--trust]`);
+function printCommUsage(cmd: "hey" | "send" | "notify", write: (line: string) => void = console.log): void {
+  if (cmd === "notify") {
+    write(`usage: maw notify [--from <node:oracle>] <target> <message> [--approve] [--trust]`);
+    write("  Routine push — persists to recipient's ψ/inbox/ for them to pull via `maw inbox --unread`.");
+    write("  Does NOT inject into the target pane (unlike `maw hey`). #1882");
+    write("  --from <node:oracle>: explicit sender for SSH relays; env fallback: MAW_SENDER");
+    write("  target forms: same as maw hey (oracle-window | local:agent | session:window | node:session)");
+    write(`  e.g. maw notify mawjs-oracle "task done — fyi, recipient pulls when ready"`);
+    write(`       maw notify phaith:01-hojo:3 "routine cross-node ping"`);
+    write("  Pairs with `maw hey` (urgent, pane-injecting) and `maw broadcast` (fleet-wide).");
+    return;
+  }
+  write(`usage: maw ${cmd} [--from <node:oracle>] <target> <message> [--inbox] [--force deprecated] [--approve] [--trust] [--no-verify-submit]`);
+  if (cmd === "send") {
+    write("  note: top-level `maw send` is an alias of `maw hey` (#1388 / #1915) — both pane-inject");
+    write("        with a signed identity envelope and a trailing Enter. For raw text (no envelope,");
+    write("        no Enter), use `maw send-text`.");
+  }
   write("  default: write receiver inbox and inject into the target pane");
+  write("  --from <node:oracle>: explicit sender for SSH relays; env fallback: MAW_SENDER");
   write("  --inbox: write receiver inbox only; skip pane injection");
+  write("  --no-verify-submit: skip the post-send Enter-retry probe (#1907). Saves ~800ms per call; only set for tight loops.");
   write("  --force: deprecated compatibility alias; delivery is already forced by default");
   write("  target forms:");
   write("    <oracle-window>              same-node window name (local-only)");
@@ -30,25 +48,62 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
   // #1388: restore `maw send` to the same submitted delivery path as `maw hey`.
   // The raw-text compositor plugin remains available through lower-level tmux
   // verbs; top-level `send` must not leave text buffered without Enter.
-  if (cmd === "hey" || cmd === "send") {
+  // #1882: `notify` is a routine push — same transport as `hey --inbox` with a
+  //  cleaner verb. The --inbox flag is implicit; --force is N/A since notify
+  //  never pane-injects. Other flags (--from, --approve, --trust) parse the same.
+  if (cmd === "hey" || cmd === "send" || cmd === "notify") {
+    const isNotify = cmd === "notify";
+
     if (args[1] === "--help" || args[1] === "-h" || args[1] === "-help") {
       printCommUsage(cmd);
       return true;
     }
 
-    const force = args.includes("--force");
-    const inboxOnly = args.includes("--inbox");
+    const rest = args.slice(1);
+    let force = false;
+    let inboxOnly = isNotify;  // #1882 — notify always inbox-only
     // #842 Sub-C — `--approve` bypasses the cross-scope ACL queue gate.
     // Operator-explicit opt-in for THIS message; mirrors the consent
     // `--pin` escape hatch already wired in #644. Optional `--trust`
     // pairs with `--approve` to also persist the sender↔target trust
     // entry so the same pair stops queuing on subsequent sends.
-    const approve = args.includes("--approve");
-    const trust = args.includes("--trust");
-    const target = args[1];
-    const msgArgs = args
-      .slice(2)
-      .filter(a => a !== "--force" && a !== "--inbox" && a !== "--approve" && a !== "--trust");
+    let approve = false;
+    let trust = false;
+    let noVerifySubmit = false;
+    let from: string | undefined;
+    let target: string | undefined;
+    const msgArgs: string[] = [];
+
+    for (let i = 0; i < rest.length; i += 1) {
+      const arg = rest[i];
+      if (arg === "--force") { force = true; continue; }
+      if (arg === "--inbox") { inboxOnly = true; continue; }
+      if (arg === "--approve") { approve = true; continue; }
+      if (arg === "--trust") { trust = true; continue; }
+      if (arg === "--no-verify-submit") { noVerifySubmit = true; continue; }
+      if (arg === "--from") {
+        if (!rest[i + 1] || rest[i + 1].startsWith("--")) {
+          console.error("✗ missing value for --from");
+          console.error(`  maw ${cmd} --from <node:oracle> <target> <message>`);
+          throw new UserError("missing value for --from");
+        }
+        from = rest[i + 1];
+        i += 1;
+        continue;
+      }
+      if (arg.startsWith("--from=")) {
+        from = arg.slice("--from=".length);
+        continue;
+      }
+      if (!target) target = arg;
+      else msgArgs.push(arg);
+    }
+
+    if (from !== undefined && !from.trim()) {
+      console.error("✗ missing value for --from");
+      console.error(`  maw ${cmd} --from <node:oracle> <target> <message>`);
+      throw new UserError("missing value for --from");
+    }
 
     // Distinguish: zero-args usage error vs missing-message error (#388.3)
     // A user who typed `maw hey mawjs` (just the target, no message) was
@@ -66,9 +121,13 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       throw new UserError(`missing message for '${target}'`);
     }
     if (force) {
-      console.error("\x1b[90mnote: --force is deprecated; maw hey delivers by default. Use --inbox to queue without pane injection.\x1b[0m");
+      if (isNotify) {
+        console.error("\x1b[90mnote: --force is not meaningful for notify (delivery is always inbox-only).\x1b[0m");
+      } else {
+        console.error("\x1b[90mnote: --force is deprecated; maw hey delivers by default. Use --inbox to queue without pane injection.\x1b[0m");
+      }
     }
-    await cmdSend(target, msgArgs.join(" "), force, { approve, trust, inboxOnly });
+    await cmdSend(target, msgArgs.join(" "), force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
     return true;
   }
   return false;

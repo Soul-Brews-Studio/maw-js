@@ -7,12 +7,18 @@ export const command = {
   description: "Spawn multi-AI agent panes — claude, codex, opencode side by side.",
 };
 
-const KNOWN_AGENTS: Record<string, { cmd: string; label: string }> = {
-  claude:   { cmd: "claude",   label: "Claude Code" },
-  codex:    { cmd: "codex",    label: "Codex CLI" },
-  opencode: { cmd: "opencode", label: "OpenCode" },
-  aider:    { cmd: "aider",    label: "Aider" },
-};
+const SUPPORTED_FLAGS = ["--tiled", "--count", "--help", "-h", "--parent", "--parent-session-id", "--session-id"];
+
+function unknownSwarmFlag(positionals: string[]): string | undefined {
+  return positionals.find((arg) => arg.startsWith("-"));
+}
+
+function unknownFlagMessage(flag: string): string {
+  if (flag === "--wt" || flag === "--worktree") {
+    return "unknown flag for swarm: --wt. maw swarm is shared-cwd only; for an isolated worktree-per-member use: maw wake <oracle> --wt <slot> --split -e <engine>";
+  }
+  return `unknown flag for swarm: ${flag} (supported: ${SUPPORTED_FLAGS.join(", ")})`;
+}
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -33,10 +39,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--tiled": Boolean,
       "--count": Number,
       "--help": Boolean, "-h": "--help",
+      "--parent": String,
+      "--parent-session-id": String,
+      "--session-id": String,
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw swarm [agents...] [--tiled] [--count N]");
+      console.log("usage: maw swarm [agents...] [--tiled] [--count N] [--parent-session-id <id>] [--session-id <id>]");
       console.log("");
       console.log("  maw swarm                         3 claude agents (default)");
       console.log("  maw swarm claude codex opencode    one of each");
@@ -50,6 +59,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const tiled = !!flags["--tiled"];
     const positional = flags._ as string[];
+    const unknownFlag = unknownSwarmFlag(positional);
+    if (unknownFlag) {
+      const message = unknownFlagMessage(unknownFlag);
+      console.log(`[31m✗[0m ${message}`);
+      return { ok: false, error: message, output: logs.join("\n") || undefined };
+    }
 
     let agentList: string[];
     if (positional.length > 0) {
@@ -72,6 +87,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("fs");
     const { join } = await import("path");
     const { homedir } = await import("os");
+    const { prefixCommandWithSpawnSessionEnv } = await import("../../../core/fleet/parent-session");
 
     const anchor = process.env.TMUX_PANE ?? "";
     const teamName = "swarm";
@@ -88,15 +104,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     const { loadConfig } = await import("../../../config");
-    const configCommands = loadConfig().commands || {};
+    const { resolveEngine } = await import("../../../config/engine-registry");
+    const mawConfig = loadConfig();
 
     const paneIds: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor }[] = [];
     for (let i = 0; i < agentList.length; i++) {
       const agentType = agentList[i];
-      const known = KNOWN_AGENTS[agentType];
-      const fromConfig = configCommands[agentType];
-      const agentCmd = fromConfig || (known ? known.cmd : agentType);
-      const label = known ? known.label : agentType;
+      const engine = resolveEngine(agentType, mawConfig);
+      const agentCmd = engine.cmd;
+      const label = engine.label || agentType;
       const name = `${agentType}-${i + 1}`;
       const color = nextAgentColor(i);
       const agentId = `${name}@${teamName}`;
@@ -132,7 +148,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     for (const agent of spawned) {
       await stylePaneBorder(agent.paneId, `${agent.name} (${agent.label})`, agent.color);
 
-      const escaped = agent.agentCmd.replace(/'/g, "'\\''");
+      const commandWithEnv = prefixCommandWithSpawnSessionEnv(agent.agentCmd, {
+        explicit: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
+        sessionId: agentList.length === 1 ? flags["--session-id"] as string | undefined : undefined,
+      });
+      const escaped = commandWithEnv.replace(/'/g, "'\\''");
       await hostExec(
         `tmux send-keys -t '${agent.paneId}' '${escaped}; printf "\\e[?1049l"; clear; exec zsh -li' Enter`,
       );

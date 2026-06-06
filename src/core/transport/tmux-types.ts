@@ -19,6 +19,20 @@ export interface TmuxPane {
   pid?: number;
   cwd?: string;
   lastActivity?: number;
+  top?: number;
+  left?: number;
+  w?: number;
+  h?: number;
+  paneIdx?: number;
+  winIdx?: number;
+  winName?: string;
+  active?: boolean;
+  window?: {
+    w?: number;
+    h?: number;
+    active?: boolean;
+  };
+  attached?: boolean;
 }
 
 export interface TmuxWindow {

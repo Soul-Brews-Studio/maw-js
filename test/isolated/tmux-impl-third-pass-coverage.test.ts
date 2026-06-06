@@ -203,6 +203,40 @@ describe("tmux impl third-pass branch coverage", () => {
     expect(compactRoster).not.toContain("sleepy-oracle");
   });
 
+  test("cmdTmuxLs surfaces L2 teams as compact and JSON rows when requested", async () => {
+    existingPaths.add(teamsRoot);
+    dirEntries.set(teamsRoot, ["alpha", "bad"]);
+    const alphaCfg = `${teamsRoot}/alpha/config.json`;
+    const badCfg = `${teamsRoot}/bad/config.json`;
+    existingPaths.add(alphaCfg);
+    existingPaths.add(badCfg);
+    fileContents.set(alphaCfg, JSON.stringify({ members: [{ name: "scout" }, { name: "builder" }, { name: "critic" }] }));
+    fileContents.set(badCfg, "{not json");
+    panes = [];
+
+    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, teams: true }));
+    expect(compact).toContain("alpha");
+    expect(compact).toContain("[team] L2 team (3 members in ~/.claude/teams/alpha)");
+    expect(compact).not.toContain("No panes found");
+    expect(compact).not.toContain("bad");
+
+    const json = await capture(() => cmdTmuxLs({ all: true, json: true, teams: true }));
+    expect(JSON.parse(json)).toMatchObject([
+      {
+        kind: "team",
+        target: "team:alpha",
+        session: "alpha",
+        annotation: "team: 3 members",
+        source: "l2-team",
+        members: 3,
+      },
+    ]);
+
+    const hidden = await capture(() => cmdTmuxLs({ all: true, compact: true, teams: false }));
+    expect(hidden).toContain("No panes found");
+    expect(hidden).not.toContain("[team]");
+  });
+
   test("cmdTmuxLs filters to current session when inside tmux and split defaults to horizontal 50% without command", async () => {
     process.env.TMUX = "/tmp/tmux,1,0";
     panes = [

@@ -50,6 +50,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           "--force": Boolean,
           "--track-vault": Boolean,
           "--sync-peers": Boolean,
+          "--parent": String,
+          "--parent-session-id": String,
+          "--session-id": String,
           "--yes": Boolean,
           "-y": "--yes",
         },
@@ -84,6 +87,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         blank: flags["--blank"],
         signalOnBirth: flags["--signal-on-birth"],
         yes: flags["--yes"],
+        parentSessionId: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
+        sessionId: flags["--session-id"],
       });
     } else if (ctx.source === "api") {
       const body = ctx.args as Record<string, unknown>;
@@ -105,6 +110,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         seed: body.seed as boolean | undefined,
         blank: body.blank as boolean | undefined,
         signalOnBirth: body.signalOnBirth as boolean | undefined,
+        parentSessionId: (body.parentSessionId as string | undefined) || (body.parent as string | undefined),
+        sessionId: body.sessionId as string | undefined,
         // API/HTTP path has no TTY by definition, but pass through for parity.
         yes: (body.yes as boolean | undefined) ?? true,
       });

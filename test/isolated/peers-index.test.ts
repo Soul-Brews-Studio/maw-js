@@ -139,7 +139,7 @@ describe("vendor peers plugin dispatcher", () => {
   test("add validates args, handles overwrite, and returns probe exit code on handshake failure", async () => {
     expect(await invoke(["add"])).toEqual({
       ok: false,
-      error: "usage: maw peers add <alias> <url> [--node <name>] [--allow-unreachable]",
+      error: "usage: maw peers add <alias> <url> [--node <name>] [--ssh <target>] [--user <name>] [--allow-unreachable]",
     });
 
     addResult = {
@@ -149,9 +149,9 @@ describe("vendor peers plugin dispatcher", () => {
       pubkeyMismatch: null,
     };
 
-    const result = await invoke(["add", "mba", "http://mba:3456", "--node", "white"]);
+    const result = await invoke(["add", "mba", "http://mba:3456", "--node", "white", "--ssh", "white-tunnel", "--user", "sila"]);
 
-    expect(addCalls).toEqual([{ alias: "mba", url: "http://mba:3456", node: "white" }]);
+    expect(addCalls).toEqual([{ alias: "mba", url: "http://mba:3456", node: "white", ssh: "white-tunnel", sshUser: "sila" }]);
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(3);
     expect(result.output).toContain("warning: alias \"mba\" already existed");

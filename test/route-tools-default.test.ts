@@ -282,6 +282,15 @@ describe("routeTools default-suite seams", () => {
     expect(defaultPort.calls.locks).toEqual([{ instanceName: null, opts: { forceTakeover: false } }]);
     expect(defaultPort.calls.servers).toEqual([3456]);
 
+    const oldNoScout = process.env.MAW_NO_SCOUT;
+    delete process.env.MAW_NO_SCOUT;
+    const noScout = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4568", "--no-scout"], noScout.deps)).toBe(true);
+    expect(noScout.calls.servers).toEqual([4568]);
+    expect(process.env.MAW_NO_SCOUT).toBe("1");
+    if (oldNoScout === undefined) delete process.env.MAW_NO_SCOUT;
+    else process.env.MAW_NO_SCOUT = oldNoScout;
+
     const bad = harness();
     await expect(routeToolsWithDeps("serve", ["serve", "--as", "blue", "--force-takeover", "--bogus"], bad.deps)).rejects.toBeInstanceOf(UserError);
     expect(bad.calls.errors.join("\n")).toContain("unknown flag '--bogus'");

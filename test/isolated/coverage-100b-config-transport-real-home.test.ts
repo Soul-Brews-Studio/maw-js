@@ -9,6 +9,8 @@ const realConfigFile = join(realConfigDir, "maw.config.json");
 
 mock.module(join(root, "src/core/paths"), () => ({
   CONFIG_FILE: realConfigFile,
+  CONFIG_WEIGHTED_FILE: realConfigFile.replace(/\.json$/, ".50.json"),
+  discoverConfigs: () => [{ path: realConfigFile, weight: 50, isLocal: false, scope: "legacy", scopeRank: 20, depth: 0, mtimeMs: 0 }],
   CONFIG_DIR: realConfigDir,
   BASE_DIR: realConfigDir,
   FLEET_DIR: join(realConfigDir, "fleet"),

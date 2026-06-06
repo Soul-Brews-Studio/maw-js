@@ -24,5 +24,6 @@ describe("maw bring existing-session behavior", () => {
 
   test("MAW_TEST_MODE disables attach prompts even on interactive terminals", () => {
     expect(shouldOfferExistingSessionAttach({}, true, { MAW_TEST_MODE: "1" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({}, true, { MAW_ATTACH_FOLLOWS: "1" } as NodeJS.ProcessEnv)).toBe(false);
   });
 });

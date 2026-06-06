@@ -24,6 +24,7 @@ let setEnvCalls: string[] = [];
 let ensureSessionRunningCalls: string[] = [];
 let maybeSplitCalls: string[] = [];
 let maybeOpenWindowCalls: string[] = [];
+let newSessionCalls: Array<{ session: string; opts: any }> = [];
 
 function resetState(): void {
   parentDir = "/tmp/ghq/github.com/Soul-Brews-Studio";
@@ -47,6 +48,7 @@ function resetState(): void {
   ensureSessionRunningCalls = [];
   maybeSplitCalls = [];
   maybeOpenWindowCalls = [];
+  newSessionCalls = [];
 }
 
 async function captureLogs<T>(fn: () => Promise<T>): Promise<T> {
@@ -78,7 +80,9 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
       if (listWindowsThrows) throw new Error("tmux list failed");
       return listWindowsReturn;
     },
-    newSession: async () => {},
+    newSession: async (session: string, opts: any) => {
+      newSessionCalls.push({ session, opts });
+    },
     newWindow: async () => {},
     sendText: async (target: string, text: string) => {
       sentText.push({ target, text });
@@ -118,6 +122,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   attachToSession: async () => {},
   reconcileParentClaudeDir: async () => {},
+  waitForEngine: async () => {},
   ensureSessionRunning: async (session: string) => {
     ensureSessionRunningCalls.push(session);
     return 0;
@@ -211,7 +216,11 @@ describe("wake-cmd extra isolated coverage", () => {
     expect(sentText).toEqual([
       {
         target: "54-neo:neo-oracle",
-        text: `cd ${repoPath} && codex --agent neo-oracle -p 'it'\\''s alive'`,
+        text: `cd ${repoPath} && codex --agent neo-oracle`,
+      },
+      {
+        target: "54-neo:neo-oracle",
+        text: "it's alive",
       },
     ]);
     expect(maybeSplitCalls).toEqual(["54-neo:neo-oracle"]);
@@ -228,11 +237,13 @@ describe("wake-cmd extra isolated coverage", () => {
     ).rejects.toThrow("could not list windows for session '54-neo'");
   });
 
-  test("errors when a requested foreign workspace session is missing", async () => {
+  test("creates a requested foreign workspace session when missing", async () => {
     hasSessionReturn = false;
 
-    await expect(captureLogs(() => cmdWake("neo", { repoPath, session: "project-dev" }))).rejects.toThrow(
-      "target session 'project-dev' not found",
-    );
+    const result = await captureLogs(() => cmdWake("neo", { repoPath, session: "project-dev", noRehydrate: true }));
+
+    expect(result).toBe("project-dev:neo");
+    expect(newSessionCalls).toEqual([{ session: "project-dev", opts: { window: "neo", cwd: repoPath } }]);
+    expect(logs.join("\n")).toContain("target workspace session missing, creating: project-dev");
   });
 });

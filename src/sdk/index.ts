@@ -24,6 +24,9 @@ export {
   getEnvVars, cfgTimeout, cfgLimit, cfgInterval, cfg, D,
   resetConfig,
 } from "../config";
+export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
+export type { EngineDef } from "../config/engine-def";
+export type { EngineRegistry } from "../config/engine-registry";
 export type { MawConfig } from "../config";
 
 // ─── Transport ───────────────────────────────────────────────────────────────
@@ -43,6 +46,8 @@ export {
   HostExecError,
 } from "../core/transport/ssh";
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
+export { attachRemoteSession, SshAttachError } from "../core/transport/ssh-attach";
+export type { AttachRemoteSessionOptions } from "../core/transport/ssh-attach";
 export { curlFetch } from "../core/transport/curl-fetch";
 export {
   getPeers, getFederationStatus, findPeerForTarget,

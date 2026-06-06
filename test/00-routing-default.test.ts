@@ -197,6 +197,34 @@ describe("resolveTarget default routing branches", () => {
     });
   });
 
+  test("forwarded session:window aliases resolve locally before node-prefix routing", () => {
+    const sessions: Session[] = [
+      { name: "05-volt", windows: [win(1, "volt-oracle"), win(2, "notes")] },
+    ];
+
+    expect(resolveTarget("volt-oracle:1", BASE_CONFIG, sessions)).toEqual({
+      type: "local",
+      target: "05-volt:1",
+    });
+    expect(resolveTarget("m5:volt-oracle:1", BASE_CONFIG, sessions)).toEqual({
+      type: "self-node",
+      target: "05-volt:1",
+    });
+  });
+
+  test("explicit remote node prefixes keep session window suffixes for peer send", () => {
+    const withPeer = config({
+      namedPeers: [{ name: "alpha", url: "http://alpha.wg:3461" }],
+    });
+
+    expect(resolveTarget("alpha:volt-oracle:1", withPeer, [])).toEqual({
+      type: "peer",
+      peerUrl: "http://alpha.wg:3461",
+      target: "volt-oracle:1",
+      node: "alpha",
+    });
+  });
+
   test("explicit remote node prefixes use namedPeers and unknown nodes fail clearly", () => {
     const withPeer = config({
       namedPeers: [{ name: "mba", url: "http://mba.wg:3457" }],

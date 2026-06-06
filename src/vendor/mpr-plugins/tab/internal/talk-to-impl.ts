@@ -1,5 +1,5 @@
 import { loadConfig } from "maw-js/config";
-import { listSessions, sendKeys, getPaneCommand, resolveTarget } from "maw-js/sdk";
+import { listSessions, sendKeys, getPaneCommand, resolveTarget, curlFetch } from "maw-js/sdk";
 import { runHook } from "maw-js/sdk";
 import { resolveOraclePane } from "maw-js/commands/shared/comm-send";
 import { appendFile, mkdir } from "fs/promises";
@@ -138,10 +138,33 @@ export async function cmdTalkTo(target: string, message: string, force = false) 
   // Step 3: Send hey with context
   // Route through resolveTarget so the #758 writable filter (drop -view mirrors
   // and federated peer records before the ambiguity check) applies to talk-to too.
-  // talk-to is local-only delivery: only "local" / "self-node" results map to a tmux pane.
+  // Cross-node targets use the same signed /api/send federation path as maw hey.
   const config = loadConfig();
   const sessions = await listSessions();
   const resolved = resolveTarget(target, config, sessions);
+
+  if (resolved?.type === "peer") {
+    const res = await curlFetch(`${resolved.peerUrl}/api/send`, {
+      method: "POST",
+      body: JSON.stringify({ target: resolved.target, text: notification }),
+      timeout: 10000,
+      from: "auto",
+    });
+    if (res.ok && res.data?.ok) {
+      await runHook("after_send", { to: target, message: notification });
+      console.log(`\x1b[32m✓\x1b[0m thread #${threadResult?.thread_id ?? "?"} + sent → ${resolved.node}:${res.data.target || resolved.target}`);
+      return;
+    }
+
+    const reason = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    if (threadResult) {
+      console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);
+      console.log(`\x1b[33mwarn\x1b[0m: remote ${resolved.node}:${resolved.target} send failed: ${reason} — message saved to thread only`);
+      return;
+    }
+    throw new Error(`remote ${resolved.node}:${resolved.target} send failed: ${reason}`);
+  }
+
   // Resolve to a specific pane: when the oracle window has multiple panes
   // (team-agents spawned beside it), `send-keys -t session:window` would
   // otherwise land in whichever pane is currently active, not the oracle's

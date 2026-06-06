@@ -154,6 +154,50 @@ describe("localLsPayload and lsFederated", () => {
       { name: "volt-oracle", windows: [{ index: 0, name: "claude", active: true }, { index: 1, name: "logs", active: false }] },
     ]);
   });
+
+  test("dedups two aliases pointing to the same backend (node+port) into one rendered row (#1941)", async () => {
+    writePeers({
+      "world-mawjs": { url: "http://world.wg:3462", node: "oracle-world" },
+      "oracle-world-mawjs": { url: "http://oracle-world.wg:3462", node: "oracle-world" },
+    });
+    curlFetchHandler = () => ({ ok: true, status: 200, data: [] });
+
+    const result = await lsFederated({ json: false, includeLocal: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet view · 1/1 node reachable · 0 sessions total");
+    expect(result.output).toContain("aliases: world-mawjs, oracle-world-mawjs");
+    expect(result.output).toContain("urls:    http://world.wg:3462, http://oracle-world.wg:3462");
+    expect((result.output ?? "").match(/oracle-world/g)?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("keeps aliases on different ports as separate rows (no false dedup)", async () => {
+    writePeers({
+      "white-main": { url: "http://white.wg:3456", node: "white" },
+      "white-alpha": { url: "http://white.wg:3461", node: "white" },
+    });
+    curlFetchHandler = () => ({ ok: true, status: 200, data: [] });
+
+    const result = await lsFederated({ json: false, includeLocal: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet view · 2/2 nodes reachable");
+    expect(result.output).not.toContain("aliases:");
+  });
+
+  test("does not dedup errored peers (no handshake identity available)", async () => {
+    writePeers({
+      "down-a": { url: "http://down.local:3462", node: "down" },
+      "down-b": { url: "http://down.local:3462", node: "down" },
+    });
+    curlFetchHandler = () => ({ ok: false, status: 0, data: null });
+
+    const result = await lsFederated({ json: false, includeLocal: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet view · 0/2 nodes reachable");
+    expect(result.output).not.toContain("aliases:");
+  });
 });
 
 

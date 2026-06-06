@@ -49,7 +49,7 @@ describe("attach impl dry-run and validation branches", () => {
   test("dry-run reports missing local target without spawning wake", async () => {
     resolveResult = null;
     await cmdAttach("ghost", { dryRun: true });
-    expect(logs.join("\n")).toContain("[dry-run] 'ghost' not local");
+    expect(logs.join("\n")).toContain("[dry-run] 'ghost' not local or federated");
   });
 
   test("dry-run reports tier 1 live attach target", async () => {

@@ -238,10 +238,57 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
         sameSessionTarget(target, callerSW) &&
         !(process.env.MAW_ALLOW_SELF_BRING === "1" && callerSW && isSelfBring(target, callerSW))
       ) {
-        console.log(`  \x1b[31m✗\x1b[0m same-session --split unsupported — nested attach would close the pane (#1835).`);
-        console.log(`      \x1b[90mtarget:           ${target}\x1b[0m`);
-        console.log(`      \x1b[90mcaller pane:      ${callerSW}\x1b[0m`);
-        console.log(`      \x1b[90muse instead:      tmux switch-client -t ${target}\x1b[0m`);
+        const targetWin = targetWindow(target);
+        // Q1: bare session → refuse with explicit-window hint (move needs an
+        // unambiguous window target; "the whole session" is overload).
+        if (targetWin === null) {
+          console.log(`  \x1b[31m✗\x1b[0m same-session move needs an explicit window target.`);
+          console.log(`      \x1b[90muse:    maw bring <session>:<window> --split\x1b[0m`);
+          console.log(`      \x1b[90mor nav: tmux switch-client -t ${target}\x1b[0m`);
+          return;
+        }
+        // Defensive: outer guard ensures TMUX || splitTarget, so anchor is
+        // normally set. join-pane needs a destination — refuse cleanly if not.
+        if (!anchor) {
+          console.log(`  \x1b[31m✗\x1b[0m same-session --split needs a caller pane anchor.`);
+          console.log(`      \x1b[90mtarget:           ${target}\x1b[0m`);
+          console.log(`      \x1b[90muse instead:      tmux switch-client -t ${target}\x1b[0m`);
+          return;
+        }
+        // Q3+Q4: same-session different-window → join-pane (move semantics).
+        // Q2: -s without pane suffix moves source window's active pane.
+        let sourceLastPane = true;
+        try {
+          const raw = await hostExec(`tmux list-panes -t ${shellArg(target)} | wc -l`);
+          sourceLastPane = Number.parseInt(String(raw).trim(), 10) <= 1;
+        } catch {
+          // Best-effort: on probe failure, undercall destruction (less alarming
+          // default — never warn about removal that may not happen).
+          sourceLastPane = false;
+        }
+        try {
+          await hostExec(`tmux join-pane -h -l 50% -s ${shellArg(target)} -t ${shellArg(anchor)}`);
+          if (!(await isMawTilePane(anchor))) {
+            await restoreSplitLayout(anchor);
+          }
+          await refreshSplitClient();
+          console.log(`  \x1b[32m✓\x1b[0m joined beside — ${target} (same-session move; active pane)`);
+          if (sourceLastPane) {
+            console.log(`      \x1b[33m⚠\x1b[0m source window '${targetWin}' removed — pane was the last; window auto-destroyed.`);
+            console.log(`      \x1b[90m↻ restore later: tmux break-pane -s <here>.<idx> -n ${targetWin} -d\x1b[0m`);
+          } else {
+            console.log(`      \x1b[33m⚠\x1b[0m moved active pane from '${targetWin}' — other panes remain in source window.`);
+            console.log(`      \x1b[90m↻ undo: tmux join-pane -s <here>.<idx> -t ${target}\x1b[0m`);
+          }
+          console.log(`      \x1b[90mℹ navigate without moving: tmux switch-client -t ${target}\x1b[0m`);
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : String(e);
+          console.log(`  \x1b[33m⚠\x1b[0m same-session join-pane failed: ${message}`);
+          console.log(`      \x1b[90mfalling back to refusal — see #1835\x1b[0m`);
+          console.log(`      \x1b[90mtarget:           ${target}\x1b[0m`);
+          console.log(`      \x1b[90mcaller pane:      ${callerSW}\x1b[0m`);
+          console.log(`      \x1b[90muse instead:      tmux switch-client -t ${target}\x1b[0m`);
+        }
         return;
       }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";

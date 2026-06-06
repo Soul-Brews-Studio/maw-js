@@ -144,10 +144,37 @@ describe("tmux-class tenth-pass isolated coverage", () => {
         args: [
           "-a",
           "-F",
-          "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}",
+          "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}",
         ],
       },
     ]);
+  });
+
+  test("listPanes parses spatial pane, window, and session metadata", async () => {
+    const t = new RecordingTmux().queue(
+      "list-panes",
+      "%7|||claude|||alpha:main.1|||main|||123|||/repo|||1700|||4|||9|||80|||24|||1|||2|||main|||1|||160|||48|||0|||1\n",
+    );
+
+    await expect(t.listPanes()).resolves.toEqual([{
+      id: "%7",
+      command: "claude",
+      target: "alpha:main.1",
+      title: "main",
+      pid: 123,
+      cwd: "/repo",
+      lastActivity: 1700,
+      top: 4,
+      left: 9,
+      w: 80,
+      h: 24,
+      paneIdx: 1,
+      winIdx: 2,
+      winName: "main",
+      active: true,
+      window: { w: 160, h: 48, active: false },
+      attached: true,
+    }]);
   });
 
   test("getPaneCommands fails soft when the batch pane command lookup errors", async () => {

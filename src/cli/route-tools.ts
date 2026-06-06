@@ -296,12 +296,12 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const serveArgs = args.slice(1);
     const asIdx = serveArgs.indexOf("--as");
     const forceIdx = serveArgs.indexOf("--force-takeover");
+    const noScoutIdx = serveArgs.indexOf("--no-scout");
     const withoutAs = asIdx === -1
       ? serveArgs
       : [...serveArgs.slice(0, asIdx), ...serveArgs.slice(asIdx + 2)];
-    const filteredArgs = forceIdx === -1
-      ? withoutAs
-      : withoutAs.filter(a => a !== "--force-takeover");
+    const withoutKnownFlags = withoutAs.filter((a) => a !== "--force-takeover" && a !== "--no-scout");
+    const filteredArgs = forceIdx === -1 && noScoutIdx === -1 ? withoutAs : withoutKnownFlags;
     const sub = filteredArgs[0] === "--status" ? "status" : filteredArgs[0];
     if (sub === "status" || sub === "stop") {
       const { printServeStatusWithPlugins, stopServe } = await deps.loadServeStatusTools();
@@ -325,6 +325,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const { acquirePidLock, startServer } = await deps.loadServeStartTools();
     const instanceName = asIdx === -1 ? null : serveArgs[asIdx + 1];
     acquirePidLock(instanceName, { forceTakeover: forceIdx !== -1 });
+    if (noScoutIdx !== -1) process.env.MAW_NO_SCOUT = "1";
     await startServer(portArg ? +portArg : 3456);
     return true;
   }

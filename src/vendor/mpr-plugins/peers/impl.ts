@@ -33,6 +33,14 @@ export function validateUrl(raw: string): string | null {
   return null;
 }
 
+function cleanOptionalSshField(raw: string | undefined, label: string): string | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error(`invalid ${label} (must be non-empty)`);
+  if (/\s/.test(trimmed)) throw new Error(`invalid ${label} "${raw}" (must not contain whitespace)`);
+  return trimmed;
+}
+
 /**
  * Thin back-compat wrapper returning `string | null`. New callers should
  * use probePeer() directly to get structured errors — but pre-#565 code
@@ -47,6 +55,10 @@ export interface AddOptions {
   alias: string;
   url: string;
   node?: string;
+  /** Optional SSH config alias/target used by cross-node attach (#1879). */
+  ssh?: string;
+  /** Optional SSH user override for multi-user hosts (#1879). */
+  sshUser?: string;
 }
 
 export interface AddResult {
@@ -64,6 +76,8 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   if (aliasErr) throw new Error(aliasErr);
   const urlErr = validateUrl(opts.url);
   if (urlErr) throw new Error(urlErr);
+  const ssh = cleanOptionalSshField(opts.ssh, "--ssh");
+  const sshUser = cleanOptionalSshField(opts.sshUser, "--user");
 
   // Probe OUTSIDE the lock — it does network I/O. If --node was supplied
   // we still probe to surface errors, but the user-supplied node wins.
@@ -97,6 +111,8 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     addedAt: new Date().toISOString(),
     lastSeen: probe.error ? null : new Date().toISOString(),
   };
+  if (ssh) peer.ssh = ssh;
+  if (sshUser) peer.sshUser = sshUser;
   if (probe.error) peer.lastError = probe.error;
   if (probe.nickname) peer.nickname = probe.nickname;
   // Preserve cached pubkey across re-adds — TOFU has already certified it

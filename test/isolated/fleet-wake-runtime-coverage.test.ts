@@ -68,6 +68,7 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
   buildCommand: (name: string) => `run-${name}`,
+  buildCommandInDir: (name: string) => `run-${name}`,
   getEnvVars: () => ({ A: "1", B: "2" }),
 }));
 

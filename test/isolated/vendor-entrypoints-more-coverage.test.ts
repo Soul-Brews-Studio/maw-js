@@ -93,7 +93,7 @@ afterEach(() => {
 
 describe("whoami vendor entrypoint", () => {
   test("exports command metadata and routes console output through ctx.writer", async () => {
-    expect(whoami.command).toEqual({ name: "whoami", description: "Print the current tmux session name." });
+    expect(whoami.command).toEqual({ name: "whoami", description: "Print session + window + pane address. --short for legacy #S only, --json for machine-readable." });
 
     const out = writer();
     await expect(whoami.default({ source: "cli", args: [], writer: out.fn } as any)).resolves.toEqual({
