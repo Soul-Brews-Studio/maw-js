@@ -190,12 +190,17 @@ export async function removeWorktreeViaConfig(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // Try without --force first; fall back to --force if dirty (#2065).
+        // Try without --force first; only --force for dirty worktrees (#2065/#2098).
         try {
           await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)}`);
-        } catch {
-          console.log(`  \x1b[33m⚠\x1b[0m non-force remove failed, retrying with --force`);
-          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        } catch (removeErr: any) {
+          const msg = String(removeErr.message || removeErr);
+          if (/modified or untracked|contains modified/i.test(msg)) {
+            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing`);
+            await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+          } else {
+            throw removeErr;
+          }
         }
         await hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
@@ -257,12 +262,17 @@ export async function removeWorktreeByGhqScan(
         }
         let branch = "";
         try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // Try without --force first; fall back to --force if dirty (#2065).
+        // Try without --force first; only --force for dirty worktrees (#2065/#2098).
         try {
           await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)}`);
-        } catch {
-          console.log(`  \x1b[33m⚠\x1b[0m non-force remove failed, retrying with --force`);
-          await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        } catch (removeErr: any) {
+          const msg = String(removeErr.message || removeErr);
+          if (/modified or untracked|contains modified/i.test(msg)) {
+            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing`);
+            await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+          } else {
+            throw removeErr;
+          }
         }
         await hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         console.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
