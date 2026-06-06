@@ -6,9 +6,30 @@ import { join } from "node:path";
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
-import { resetConfig } from "maw-js/sdk";
+const resetConfig = () => {};
 
 const ROOT = new URL("../..", import.meta.url).pathname;
+
+const sdkMock = {
+  loadConfig: () => ({}),
+  parseFlags: (args: string[], spec: Record<string, unknown>, skip = 0) => {
+    const out: Record<string, any> = { _: [] };
+    const tokens = args.slice(skip);
+    for (let i = 0; i < tokens.length; i += 1) {
+      const token = tokens[i]!;
+      if (token.startsWith("--")) {
+        out[token] = spec[token] === String ? tokens[++i] : true;
+      } else out._.push(token);
+    }
+    return out;
+  },
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+
 
 function walkSources(dir: string): string[] {
   const out: string[] = [];

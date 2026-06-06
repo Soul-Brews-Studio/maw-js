@@ -84,14 +84,22 @@ const sdkMock = {
     resolveCalls.push({ target, sessions: seenSessions });
     return resolveResults.get(target) ?? { kind: "none", hints: [] };
   },
+  cmdPeek: async (target: string) => {
+    peekCalls.push(target);
+  },
+  cmdSend: async (target: string, message: string, force = false) => {
+    sendCalls.push({ target, message, force });
+  },
   parseFlags: (args: string[]) => {
     const out: Record<string, unknown> & { _: string[] } = { _: [] };
     for (let i = 0; i < args.length; i += 1) {
       const arg = args[i]!;
-      if (arg === "--pane") {
+      if (arg === "--pane" || arg === "--lines") {
         const value = args[++i];
-        if (value === undefined || value.startsWith("--")) throw new Error("option requires argument: --pane");
-        out["--pane"] = Number(value);
+        if (value === undefined || value.startsWith("--")) throw new Error(`option requires argument: ${arg}`);
+        out[arg] = Number(value);
+      } else if (["--full", "--dry-run", "--shell", "--split", "--no-split", "--yes", "-y"].includes(arg)) {
+        out[arg === "-y" ? "--yes" : arg] = true;
       } else out._.push(arg);
     }
     return out;
@@ -112,7 +120,12 @@ const sdkMock = {
   },
 };
 mock.module("maw-js/sdk", () => sdkMock);
+mock.module("maw-js/cli/parse-args", () => ({ parseFlags: sdkMock.parseFlags }));
+mock.module(import.meta.resolve("../../src/cli/parse-args"), () => ({ parseFlags: sdkMock.parseFlags }));
+mock.module(import.meta.resolve("../../src/cli/parse-args.ts"), () => ({ parseFlags: sdkMock.parseFlags }));
 mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/config", () => ({
