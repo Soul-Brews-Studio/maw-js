@@ -11,26 +11,16 @@ let logs: string[] = [];
 let fetchCalls: string[] = [];
 let fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-<<<<<<< Updated upstream
 const sdkMock = {
-  loadConfig: () => config,
-  UserError: class UserError extends Error {},
-  sparkline: (values: number[]) => values.map((value) => value <= 0 ? "▁" : value < 3 ? "░" : "█").join(""),
-};
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
-
-mock.module("maw-js/config", () => ({
-=======
-mock.module("maw-js/sdk", () => ({
->>>>>>> Stashed changes
   loadConfig: () => config,
   UserError: class UserError extends Error {},
   sparkline: (values: number[], hadActivity: boolean[] = []) => values
     .map((value, index) => (hadActivity[index] || value > 0 ? "▇" : "·"))
     .join(""),
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 const {
   cmdCosts,
@@ -309,11 +299,11 @@ describe("costs impl isolated coverage", () => {
     expect(out).toContain("DAILY COSTS");
     expect(out).toContain("(3d ending )");
     expect(out).toContain(`${longName.slice(0, 27)}…`);
-    expect(out).toContain("▁▁▁");
+    expect(out).toContain("▇▇▇");
     expect(out).toContain("short");
-    expect(out).toContain("▁░█");
+    expect(out).toContain("▇▇▇");
     expect(out).toContain("$6.00");
     expect(out).toContain("TOTAL");
-    expect(out).toContain("▁░█");
+    expect(out).toContain("·▇▇");
   });
 });

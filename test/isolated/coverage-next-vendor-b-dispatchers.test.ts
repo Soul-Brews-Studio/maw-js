@@ -97,8 +97,7 @@ mock.module(teamImplPath, () => ({
 }));
 const sdkMock = () => ({
   hostExec: async () => "",
-<<<<<<< Updated upstream
-  parseFlags: parseFlagsMock,
+parseFlags: parseFlagsMock,
   cmdWorkspaceCreate: async () => undefined,
   cmdWorkspaceJoin: async () => undefined,
   cmdWorkspaceShare: async () => undefined,
@@ -112,35 +111,6 @@ const sdkMock = () => ({
 mock.module("maw-js/sdk", sdkMock);
 mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
-=======
-  parseFlags: (args: string[], spec: Record<string, unknown>) => {
-    const out: Record<string, any> & { _: string[] } = { _: [] };
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
-      const parser = spec[arg];
-      if (!parser) {
-        out._.push(arg);
-      } else if (typeof parser === "string") {
-        out[parser] = args[++i];
-      } else if (parser === String) {
-        out[arg] = args[++i];
-      } else if (parser === Boolean) {
-        out[arg] = true;
-      }
-    }
-    return out;
-  },
-  cmdWorkspaceCreate: async (name: string, hub?: string) => record("ws-create", name, hub),
-  cmdWorkspaceJoin: async (code: string, hub?: string) => record("ws-join", code, hub),
-  cmdWorkspaceShare: async (agents: string[], ws?: string) => record("ws-share", agents, ws),
-  cmdWorkspaceUnshare: async (agents: string[], ws?: string) => record("ws-unshare", agents, ws),
-  cmdWorkspaceLs: async () => record("ws-ls"),
-  cmdWorkspaceAgents: async (id?: string) => record("ws-agents", id),
-  cmdWorkspaceInvite: async (id?: string) => record("ws-invite", id),
-  cmdWorkspaceLeave: async (id?: string) => record("ws-leave", id),
-  cmdWorkspaceStatus: async () => { console.error("workspace stderr"); },
-}));
->>>>>>> Stashed changes
 
 const { default: pairHandler } = await import("../../src/vendor/mpr-plugins/pair/index.ts?coverage-next-vendor-b-dispatchers");
 const { default: trustHandler } = await import("../../src/vendor/mpr-plugins/trust/index.ts?coverage-next-vendor-b-dispatchers");

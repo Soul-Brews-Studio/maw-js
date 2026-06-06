@@ -49,11 +49,11 @@ const listSessions = async () => sessions;
 const loadFleet = () => fleet;
 
 mock.module("maw-js/sdk", () => ({
+  getGhqRoot: () => "/tmp/ghq",
+  hostExec: async () => "",
   listSessions,
-}));
-
-mock.module("maw-js/commands/shared/fleet-load", () => ({
-  loadFleet,
+  loadFleetCore: loadFleet,
+  UserError: class UserError extends Error { readonly isUserError = true; },
 }));
 
 mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({

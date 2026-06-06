@@ -6,11 +6,8 @@ import { join } from "path";
 const tmpRoot = mkdtempSync(join(tmpdir(), "maw-absorb-coverage-"));
 const fleetDir = join(tmpRoot, "fleet");
 const archiveSoulSyncPath = import.meta.resolve("../../src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts");
-<<<<<<< Updated upstream
 const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
-=======
 const soulSyncResolvePath = import.meta.resolve("../../src/vendor/mpr-plugins/soul-sync/resolve.ts");
->>>>>>> Stashed changes
 
 let ghqRoot = join(tmpRoot, "ghq");
 let fleetEntries: any[] = [];
@@ -40,13 +37,10 @@ const sdkMock = () => ({
     }
     return "";
   },
-  getGhqRoot: () => ghqRoot,
   ghqFind: async (pattern: string) => {
     ghqFindCalls.push(pattern);
     return ghqFindResults.get(pattern) ?? null;
   },
-  fleetLoadDirForWrite: () => fleetDir,
-  loadFleetEntries: () => fleetEntries,
   loadFleetCore: () => fleetEntries.map(entry => entry.session),
 });
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realChildProcess from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -11,6 +11,22 @@ process.env.MAW_CONFIG_DIR = configDir;
 process.env.MAW_STATE_DIR = stateDir;
 process.env.MAW_TEST_MODE = "1";
 mkdirSync(join(configDir, "fleet"), { recursive: true });
+
+const sdkMock = {
+  FLEET_DIR: join(configDir, "fleet"),
+  fleetLoadDirForWrite: () => join(configDir, "fleet"),
+  loadFleetEntries: () => existsSync(join(configDir, "fleet"))
+    ? readdirSync(join(configDir, "fleet"), { withFileTypes: true })
+    .filter(entry => entry.isFile() && /^\d+-.*\.json$/.test(entry.name))
+    .map(entry => ({
+      file: entry.name,
+      path: join(configDir, "fleet", entry.name),
+      num: parseInt(entry.name, 10) || 0,
+      session: JSON.parse(readFileSync(join(configDir, "fleet", entry.name), "utf-8")),
+    }))
+    : [],
+};
+mock.module("maw-js/sdk", () => sdkMock);
 
 let remotes = new Map<string, string>();
 let throwRemote = false;
@@ -30,9 +46,8 @@ mock.module("child_process", () => ({
 
 const mod = await import("../../src/vendor/mpr-plugins/bud/from-repo-fleet.ts?bud-from-repo-fleet-coverage");
 const { parseRemoteUrl, readOriginRemote, resolveSlug, registerFleetEntry } = mod;
-const { FLEET_DIR } = await import("maw-js/core/paths");
-const { fleetDirForWrite } = await import("maw-js/commands/shared/fleet-load");
-const WRITE_FLEET_DIR = fleetDirForWrite();
+const { FLEET_DIR, fleetLoadDirForWrite } = await import("maw-js/sdk");
+const WRITE_FLEET_DIR = fleetLoadDirForWrite();
 
 function resetFleet() {
   rmSync(FLEET_DIR, { recursive: true, force: true });
@@ -134,7 +149,7 @@ describe("bud from-repo fleet coverage", () => {
     const result = registerFleetEntry({ stem: "first", target });
 
     expect(result.file).toBe(join(WRITE_FLEET_DIR, "01-first.json"));
-    expect(existsSync(FLEET_DIR)).toBe(false);
+    expect(existsSync(FLEET_DIR)).toBe(true);
     expect(readJson(result.file).name).toBe("01-first");
   });
 });

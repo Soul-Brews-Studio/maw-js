@@ -62,6 +62,8 @@ const sdkMock = {
     const hints = rows.filter(row => String(row.name).includes(target));
     return { kind: "none", hints };
   },
+  isInfrastructureChannelSessionName: (name: string) => name === "0-overview" || name.includes("channel"),
+  resolveFleetWindowSessionTarget: () => ({ kind: "none", hints: [] }),
   listSessions: async () => sessions,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return await hostExecImpl(cmd); },
   capture: async () => "",
@@ -86,27 +88,7 @@ const sdkMock = {
   loadFleetEntries: () => [],
   countDisabledFleetFilesCore: () => 0,
   loadDisabledFleetEntriesCore: () => [],
-<<<<<<< Updated upstream
-  parseFlags: parseFlagsMock,
-=======
-  parseFlags: (args: string[], spec: Record<string, unknown> = {}) => {
-    const out: Record<string, any> & { _: string[] } = { _: [] };
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
-      const parser = spec[arg];
-      if (!parser) {
-        out._.push(arg);
-      } else if (typeof parser === "string") {
-        out[parser] = args[++i];
-      } else if (parser === String) {
-        out[arg] = args[++i];
-      } else if (parser === Boolean) {
-        out[arg] = true;
-      }
-    }
-    return out;
-  },
->>>>>>> Stashed changes
+parseFlags: parseFlagsMock,
   cmdWorkspaceCreate: async (name: string, hub?: string) => record("ws-create", name, hub),
   cmdWorkspaceJoin: async (code: string, hub?: string) => record("ws-join", code, hub),
   cmdWorkspaceShare: async (agents: string[], ws?: string) => record("ws-share", agents, ws),
