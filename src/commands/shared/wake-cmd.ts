@@ -16,7 +16,13 @@ import { ensureFleetSessionEntry } from "./fleet-ensure";
 import { isClaudeLikeEngine } from "../../core/engine/is-claude-like";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
-import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
+import {
+  listSnapshots,
+  latestSnapshot,
+  loadSnapshot,
+  type Snapshot,
+  type SnapshotSession,
+} from "../../core/fleet/snapshot";
 import type { FleetSession } from "./fleet-load";
 import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
 import { UserError } from "../../core/util/user-error";
@@ -400,7 +406,34 @@ function buildWakeCommand(windowName: string, cwd: string, opts: Pick<WakeOption
 }
 
 function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
-  return snapshotId ? loadSnapshot(snapshotId) : latestSnapshot();
+  const snapshots = listSnapshots();
+  if (snapshotId) {
+    const match = snapshots.find(({ file }) =>
+      file === snapshotId ||
+      file === `${snapshotId}.json` ||
+      file.startsWith(snapshotId)
+    );
+    if (!match) return null;
+    return loadSnapshot(match.file) || null;
+  }
+
+  if (!snapshots[0]) return null;
+  return loadSnapshot(snapshots[0].file) || null;
+}
+
+function resolveSnapshotSourceFile(snapshot: Snapshot): string {
+  const fromTimestamp = snapshot.timestamp;
+  const listed = listSnapshots();
+  return listed.find(({ timestamp }) => timestamp === fromTimestamp)?.file
+    ?? `${fromTimestamp}.json`;
+}
+
+function formatWorktreeSource(path: string): string {
+  const marker = "/agents/";
+  const idx = path.lastIndexOf(marker);
+  if (idx >= 0) return `agents/${path.slice(idx + marker.length)}`;
+  const base = path.split("/").filter(Boolean).pop();
+  return `worktree/${base}`;
 }
 
 async function restoreSnapshotWindows(
@@ -410,16 +443,20 @@ async function restoreSnapshotWindows(
   existingWindows: Set<string>,
   worktrees: { name: string; path: string }[],
   repoPath: string,
+  snapshotFile: string,
   engine?: string,
 ): Promise<number> {
   const planned = planSnapshotRestoreWindows(oracle, snapshotSession, existingWindows, worktrees, repoPath);
+  if (planned.length > 0) {
+    console.log(`\x1b[36m↻\x1b[0m rehydrating from snapshot ${snapshotFile}:`);
+  }
   for (const win of planned) {
     await tmux.newWindow(session, win.windowName, { cwd: win.cwd });
     await new Promise(r => setTimeout(r, 300));
     await tmux.sendText(`${session}:${win.windowName}`, buildWakeCommand(win.windowName, win.cwd, { engine }));
     existingWindows.add(win.windowName);
     const label = win.source === "worktree" ? "worktree" : "repo";
-    console.log(`\x1b[36m↻\x1b[0m snapshot window: ${win.windowName}  \x1b[90m${label}: ${win.cwd}\x1b[0m`);
+    console.log(`\x1b[36m↻\x1b[0m snapshot window: ${win.windowName}  \x1b[90m${label}: ${win.cwd} (from snapshot)\x1b[0m`);
   }
   return planned.length;
 }
@@ -918,6 +955,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     throw new Error(opts.snapshotId ? `snapshot not found: ${opts.snapshotId}` : "no snapshot found");
   }
   const requestedSnapshotSession = requestedSnapshot ? findWakeSnapshotSession(requestedSnapshot, oracle, session) : null;
+  const requestedSnapshotFile = requestedSnapshot ? resolveSnapshotSourceFile(requestedSnapshot) : null;
   if (opts.fromSnapshot && requestedSnapshot && !requestedSnapshotSession) {
     throw new Error(`snapshot ${requestedSnapshot.timestamp} has no session for ${oracle}`);
   }
@@ -962,7 +1000,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       if (planned.length === 0) {
         console.log(`\x1b[90m↻ would restore snapshot windows: none\x1b[0m`);
       } else {
-        for (const win of planned) console.log(`\x1b[36m↻\x1b[0m would restore snapshot window: ${win.windowName}  \x1b[90m${win.cwd}\x1b[0m`);
+        if (requestedSnapshotFile) {
+          console.log(`\x1b[36m↻\x1b[0m rehydrating from snapshot ${requestedSnapshotFile}:`);
+        }
+        for (const win of planned) {
+          console.log(`\x1b[36m↻\x1b[0m would restore snapshot window: ${win.windowName}  \x1b[90m${win.cwd} (from snapshot)\x1b[0m`);
+        }
       }
     }
 
@@ -977,7 +1020,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     if (planned.length === 0) {
       console.log(`\x1b[90m↻ would respawn: none\x1b[0m`);
     } else {
-      for (const wt of planned) console.log(`\x1b[32m↻\x1b[0m would respawn: ${wt.windowName}  \x1b[90m${wt.path}\x1b[0m`);
+      console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
+      for (const wt of planned) {
+        console.log(`\x1b[32m↻\x1b[0m would respawn: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
+      }
     }
     return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
   }
@@ -1037,19 +1083,32 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     existingWindows.add(mainWindowName);
     if (requestedSnapshotSession) {
       const allWt = await findWorktrees(parentDir, repoName);
-      const restored = await restoreSnapshotWindows(oracle, session, requestedSnapshotSession, existingWindows, allWt, repoPath, opts.engine);
+      const restored = await restoreSnapshotWindows(
+        oracle,
+        session,
+        requestedSnapshotSession,
+        existingWindows,
+        allWt,
+        repoPath,
+        requestedSnapshotFile || "snapshot",
+        opts.engine,
+      );
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
     if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
-      for (const wt of planRehydrateWorktreeWindows(oracle, allWt, [...existingWindows])) {
+      const plan = planRehydrateWorktreeWindows(oracle, allWt, [...existingWindows]);
+      if (plan.length > 0) {
+        console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
+      }
+      for (const wt of plan) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
         await tmux.sendText(`${session}:${wt.windowName}`, buildWakeCommand(wt.windowName, wt.path, opts));
         await wakeSession.waitForEngine(`${session}:${wt.windowName}`, getPaneInfos, isAgentCommand);
         existingWindows.add(wt.windowName);
-        console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}`);
+        console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
       }
     }
     knownWindows = existingWindows;
@@ -1065,7 +1124,16 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
     if (requestedSnapshotSession) {
       const allWt = await findWorktrees(parentDir, repoName);
-      const restored = await restoreSnapshotWindows(oracle, session, requestedSnapshotSession, preExistingWindows, allWt, repoPath, opts.engine);
+      const restored = await restoreSnapshotWindows(
+        oracle,
+        session,
+        requestedSnapshotSession,
+        preExistingWindows,
+        allWt,
+        repoPath,
+        requestedSnapshotFile || "snapshot",
+        opts.engine,
+      );
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
@@ -1074,14 +1142,18 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
         const liveTileRoles = await getLiveTileRoles(session);
-        for (const wt of planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles)) {
+        const plan = planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles);
+        if (plan.length > 0) {
+          console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
+        }
+        for (const wt of plan) {
           await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${session}:${wt.windowName}`, buildWakeCommand(wt.windowName, wt.path, opts));
           preExistingWindows.add(wt.windowName);
-          console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}`);
+          console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
         }
-      }
+        }
     }
 
     await new Promise(r => setTimeout(r, cfgTimeout("wakeVerify")));
