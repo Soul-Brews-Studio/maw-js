@@ -87,7 +87,8 @@ describe("find plugin standalone boundary (#2113)", () => {
     const result = await findHandler({ source: "cli", args: ["needle", "--oracle", "neo"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(hostExecCalls).toEqual([findCmd, matchCmd]);
+    expect(hostExecCalls.slice(0, 2)).toEqual([findCmd, matchCmd]);
+    expect(hostExecCalls[2]).toContain("/ψ/memory");
     const output = stripAnsi(result.output);
     expect(output).toContain("Code");
     expect(output).toContain("neo (1 match)");

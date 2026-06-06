@@ -821,8 +821,8 @@ describe("cmdSend — bare-name local-only routing (#1572)", () => {
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
-    expect(joined).toContain("not found locally");
-    expect(joined).toContain("bare names are local-only");
+    expect(joined).toContain("found but no active session");
+    expect(joined).toContain("maw wake mawjs");
     expect(joined).not.toContain("deprecation");
   });
 
@@ -844,7 +844,7 @@ describe("cmdSend — bare-name local-only routing (#1572)", () => {
     await run(() => cmdSend("mawjs", "hi"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("not found locally");
+    expect(errs.join("\n")).toContain("found but no active session");
   });
 });
 

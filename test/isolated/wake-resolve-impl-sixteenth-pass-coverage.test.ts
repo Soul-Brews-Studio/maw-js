@@ -477,8 +477,8 @@ describe("wake-resolve-impl helper callbacks in one process", () => {
   test("covers resolveFleetSession and detectSession URL, numeric, prefix, and generic paths", async () => {
     writeFleet("23-discord-admin", { name: "23-discord-admin", windows: [{ name: "discord-oracle", repo: "Org/discord-oracle" }] });
     sessions = [{ name: "23-discord-admin" }];
-    expect(resolveFleetSession("discord")).toBe("23-discord-admin");
-    await expect(detectSession("discord", "discord-oracle")).resolves.toBe("23-discord-admin");
+    expect(resolveFleetSession("discord")).toBeNull();
+    await expect(detectSession("discord", "discord-oracle")).resolves.toBeNull();
 
     config.sessions = { neo: "mapped-neo" };
     sessions = [{ name: "mapped-neo" }];

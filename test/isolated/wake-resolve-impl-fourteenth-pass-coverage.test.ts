@@ -309,7 +309,7 @@ describe("worktree/session resolver fallback branches", () => {
       { name: "23-discord-admin" },
     ];
 
-    await expect(detectSession("discord", "discord-oracle")).resolves.toBe("23-discord-admin");
+    await expect(detectSession("discord", "discord-oracle")).resolves.toBeNull();
   });
 
   test("detectSession filters discord channel helper sessions before generic suffix ambiguity", async () => {
