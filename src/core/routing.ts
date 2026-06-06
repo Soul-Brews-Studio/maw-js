@@ -78,6 +78,13 @@ export function resolveTarget(
 
   const selfNode = config.node ?? "local";
 
+  // #1450 release blocker: a concrete tmux pane address already names the
+  // exact local session/window/pane. Do not run session-alias suffix matching
+  // on this shape, or `47-mawjs:1.0` can be misread as alias `mawjs` and become
+  // ambiguous with `08-mawjs`.
+  const exactTmuxAddress = resolveExactTmuxPaneAddress(query, writable, "local");
+  if (exactTmuxAddress) return exactTmuxAddress;
+
   // Fleet config: oracle name → session name → findWindow (#281)
   //
   // #1565: fleet-known oracle names must not silently inherit findWindow's
@@ -339,6 +346,32 @@ function resolveSessionWindowAliasTarget(
     type: routeType,
     target: `${session.name}:${window.index}${paneIndex ? `.${paneIndex}` : ""}`,
   };
+}
+
+function resolveExactTmuxPaneAddress(
+  query: string,
+  writable: Session[],
+  routeType: FleetRouteType,
+): FleetWindowResult | null {
+  const match = query.trim().match(/^([^:]+):(\d+)\.(\d+)$/);
+  if (!match) return null;
+
+  const [, sessionName, rawWindowIndex, paneIndex] = match;
+  const session = writable.find((s) => s.name === sessionName);
+  if (!session) return null;
+
+  const windowIndex = Number(rawWindowIndex);
+  const window = session.windows.find((w) => w.index === windowIndex);
+  if (!window) {
+    return {
+      type: "error",
+      reason: "session_window_index_not_found",
+      detail: `'${sessionName}' matched local session '${session.name}', but window ${rawWindowIndex} was not found`,
+      hint: `candidates: ${session.windows.map((w) => `${session.name}:${w.index} (${w.name})`).join(", ") || "none"}`,
+    };
+  }
+
+  return { type: routeType, target: `${session.name}:${window.index}.${paneIndex}` };
 }
 
 function resolveSessionAliasWindowTarget(
