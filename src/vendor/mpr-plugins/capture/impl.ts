@@ -1,5 +1,4 @@
-import { hostExec, listSessions, tmuxCmd } from "maw-js/sdk";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { hostExec, listSessions, loadFleetCore as loadFleet, tmuxCmd } from "maw-js/sdk";
 import { resolveAttachTarget } from "../attach/resolve-attach-target";
 
 export interface CaptureOpts {
