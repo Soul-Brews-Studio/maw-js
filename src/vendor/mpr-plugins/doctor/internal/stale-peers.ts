@@ -24,7 +24,7 @@
  * exclude. (Contrast with `cleanup --zombie-agents`, which had to
  * exclude the operator's live primary pane.)
  */
-import { C } from "maw-js/commands/shared/fleet-doctor-fixer";
+import { C } from "maw-js/sdk";
 import {
   loadPeers,
   mutatePeers,

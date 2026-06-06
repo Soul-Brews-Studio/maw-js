@@ -30,7 +30,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs";
 import { dirname } from "path";
-import { legacyMawPath, mawStatePath } from "../../../../core/xdg";
+import { legacyMawPath, mawStatePath } from "maw-js/sdk";
 import { withPeersLock } from "./lock";
 
 /**

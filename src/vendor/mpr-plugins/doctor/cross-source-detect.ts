@@ -30,7 +30,7 @@
  * `--allow-drift` for normal mid-migration states, defeating the purpose.
  */
 
-import type { OracleManifestEntry } from "maw-js/lib/oracle-manifest";
+import type { OracleManifestEntry } from "maw-js/sdk";
 
 /** One inconsistency flagged across the 5 registries for a single oracle. */
 export interface CrossSourceGap {

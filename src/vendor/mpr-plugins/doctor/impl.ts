@@ -4,18 +4,19 @@ import { homedir } from "os";
 import { join, dirname, resolve } from "path";
 import { loadPeers } from "./internal/peers-store";
 import { findDuplicateIdentities, formatDuplicate } from "./internal/duplicate-detect";
-import { loadConfig } from "maw-js/config";
-import { C } from "maw-js/commands/shared/fleet-doctor-fixer";
 import {
+  C,
+  invalidateManifest,
   isMawXdgEnabled,
+  legacyMawPath,
+  loadConfig,
+  loadManifestCached,
   mawCacheDir,
   mawConfigDir,
   mawDataDir,
   mawDataPath,
   mawStateDir,
-  legacyMawPath,
-} from "../../../core/xdg";
-import { loadManifestCached, invalidateManifest } from "maw-js/lib/oracle-manifest";
+} from "maw-js/sdk";
 import { findGaps, summarizeGaps } from "./cross-source-detect";
 import { checkMawJsBranch } from "./internal/maw-js-branch-check";
 import { checkStillbornWorktrees } from "./internal/stillborn-worktrees";

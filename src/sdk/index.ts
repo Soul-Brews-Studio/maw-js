@@ -26,7 +26,17 @@ export {
 } from "../config";
 export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
 export { getGhqRoot } from "../config/ghq-root";
-export { mawConfigDir, mawDataPath, mawMessageLogPath } from "../core/xdg";
+export {
+  isMawXdgEnabled,
+  legacyMawPath,
+  mawCacheDir,
+  mawConfigDir,
+  mawDataDir,
+  mawDataPath,
+  mawMessageLogPath,
+  mawStateDir,
+  mawStatePath,
+} from "../core/xdg";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
 export type { TScope } from "../lib/schemas";
@@ -178,6 +188,7 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+export { C } from "../commands/shared/fleet-doctor-fixer";
 export { parseFlags } from "../cli/parse-args";
 export {
   cmdWorkspaceCreate,
@@ -197,7 +208,6 @@ export { writeSignal } from "../core/fleet/leaf";
 export { validateNickname, writeNickname, setCachedNickname } from "../core/fleet/nicknames";
 export { sparkline } from "../lib/sparkline";
 export { tlink } from "../core/util/terminal";
-export { legacyMawPath, mawStatePath } from "../core/xdg";
 
 // Plugin extraction helpers for tab-like command surfaces.
 export { cmdPeek, cmdSend } from "../commands/shared/comm";
