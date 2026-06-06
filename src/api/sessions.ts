@@ -137,6 +137,42 @@ export function sessionTargetExists(sessions: Session[], target: string): boolea
   return session.windows.some(w => String(w.index) === windowName || w.name === windowName);
 }
 
+function normalizeInboxTargetName(value: string | undefined): string {
+  return (value ?? "")
+    .trim()
+    .replace(/\.[0-9]+$/, "")
+    .replace(/^\d+-/, "")
+    .replace(/-oracle$/i, "")
+    .toLowerCase();
+}
+
+function windowTarget(session: Session, window: Session["windows"][number] | undefined): string {
+  if (!window) return session.name;
+  return `${session.name}:${window.name || window.index}`;
+}
+
+/** @internal exported for tests. Resolve an inbox oracle to a live tmux target. */
+export function resolveLiveInboxNotificationTarget(oracle: string, sessions: Session[]): string | null {
+  const wanted = normalizeInboxTargetName(oracle);
+  if (!wanted) return null;
+
+  for (const session of sessions) {
+    if (normalizeInboxTargetName(session.name) === wanted) {
+      return windowTarget(session, session.windows.find(w => w.active) ?? session.windows[0]);
+    }
+
+    const win = session.windows.find(w => normalizeInboxTargetName(w.name) === wanted);
+    if (win) return windowTarget(session, win);
+  }
+
+  return null;
+}
+
+/** @internal exported for tests. */
+export function formatInboxNotification(inbox: Extract<ReceiverInboxResult, { ok: true }>, from: string): string {
+  return `📬 maw inbox: new message from ${from} in ψ/inbox/${inbox.filename}. Run \`maw inbox\` to read.`;
+}
+
 export function emitMessageLifecycle(input: MessageLifecycleInput, deps: SessionsApiDeps = {}) {
   try {
     const build = deps.buildMessageLifecycleFeedEvent ?? buildMessageLifecycleFeedEvent;
@@ -371,8 +407,19 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           receipt: queuedReceipt(reason),
         };
       };
+      const notifyLiveInboxReceiver = async (inbox: ReceiverInboxResult) => {
+        if (!inbox.ok) return;
+        try {
+          const liveTarget = resolveLiveInboxNotificationTarget(inbox.oracle, await d.listSessions());
+          if (liveTarget) await d.sendKeys(liveTarget, formatInboxNotification(inbox, messageFrom));
+        } catch {
+          // Inbox persistence is the durable path. Live notification is only a
+          // best-effort nudge for already-running receiver sessions (#2057).
+        }
+      };
       const queueOrFail = async (tmuxTarget: string, reason: string, status = 502) => {
         const inbox = await writeInboundInbox(tmuxTarget);
+        if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
         const queued = inbox ? queuedInboxResponse(inbox, tmuxTarget, reason) : null;
         if (queued) return queued;
         set.status = status;
@@ -614,6 +661,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
       const inbox = await writeInboundInbox(target);
+      if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
       const queued = inbox ? queuedInboxResponse(inbox, target, errDetail.detail || "target not live; persisted for receiver inbox polling") : null;
       if (queued) return queued;
       emitLifecycle({
