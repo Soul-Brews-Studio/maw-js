@@ -54,6 +54,7 @@ mock.module("maw-js/core/ghq", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  loadConfig: () => (configValue === undefined ? { namedPeers } : configValue),
   listSessions: async () => sessions,
   loadFleetCore: () => [],
   hostExec: async (cmd: string) => {
