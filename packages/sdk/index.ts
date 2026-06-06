@@ -175,3 +175,16 @@ export {
   artifactDir,
 } from "../../src/lib/artifacts";
 export type { ArtifactMeta, ArtifactSummary } from "../../src/lib/artifacts";
+
+// ─── src/commands/shared/channel-loader ─────────────────────────────────────
+// Channel config loader API for extracted channel plugins. Wake/build-command
+// still import the source module directly; this is a pure SDK barrel export.
+export {
+  loadOracleChannels,
+  saveOracleChannels,
+  listAllOracleChannels,
+  loadRepoChannels,
+  saveRepoChannels,
+  getChannelEnv,
+} from "../../src/commands/shared/channel-loader";
+export type { ChannelPlugin, OracleChannelConfig } from "../../src/commands/shared/channel-loader";

@@ -63,6 +63,15 @@ export type {
 } from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
 export type { Session, Window } from "../core/runtime/find-window";
+export {
+  loadOracleChannels,
+  saveOracleChannels,
+  listAllOracleChannels,
+  loadRepoChannels,
+  saveRepoChannels,
+  getChannelEnv,
+} from "../commands/shared/channel-loader";
+export type { ChannelPlugin, OracleChannelConfig } from "../commands/shared/channel-loader";
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 

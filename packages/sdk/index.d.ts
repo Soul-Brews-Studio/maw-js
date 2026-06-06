@@ -517,3 +517,27 @@ export type MessageLifecycleInput = Omit<MessageLifecycleData, "id" | "ts"> & {
 export declare function buildMessageLifecycleData(input: MessageLifecycleInput): MessageLifecycleData;
 export declare function buildMessageLifecycleFeedEvent(input: MessageLifecycleInput): FeedEvent;
 export declare function isMessageLifecycleData(value: unknown): value is MessageLifecycleData;
+
+// --- src/commands/shared/channel-loader ---
+
+export interface ChannelPlugin {
+  id: string;
+  env?: Record<string, string>;
+}
+
+export interface OracleChannelConfig {
+  plugins: ChannelPlugin[];
+  token_source?: string;
+  permissionMode?: "skip" | "relay";
+}
+
+export declare function loadOracleChannels(oracleStem: string): OracleChannelConfig | null;
+export declare function saveOracleChannels(oracleStem: string, config: OracleChannelConfig): void;
+export declare function listAllOracleChannels(): Array<{ oracle: string; plugins: ChannelPlugin[] }>;
+export declare function loadRepoChannels(repoPath: string): OracleChannelConfig | null;
+export declare function saveRepoChannels(repoPath: string, config: OracleChannelConfig): void;
+export declare function getChannelEnv(
+  oracleStem: string,
+  fleetEnvOverride?: Record<string, string>,
+  repoPath?: string,
+): Record<string, string>;

@@ -3,7 +3,7 @@ import {
   loadOracleChannels, saveOracleChannels, listAllOracleChannels,
   loadRepoChannels, saveRepoChannels,
   type OracleChannelConfig, type ChannelPlugin,
-} from "../../shared/channel-loader";
+} from "../../../sdk";
 import { resolve } from "path";
 
 interface GitChannelPlugin extends ChannelPlugin {
@@ -254,7 +254,7 @@ github: prefix → delegates to setup wizard`,
         return { ok: false, error: "no channels" };
       }
       console.log(`  \x1b[36;1mChannel Test: ${target}\x1b[0m\n`);
-      const { getChannelEnv } = await import("../../shared/channel-loader");
+      const { getChannelEnv } = await import("../../../sdk");
       const env = getChannelEnv(target);
       for (const p of config.plugins) {
         const checks: string[] = [];
