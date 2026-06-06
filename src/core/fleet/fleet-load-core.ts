@@ -100,15 +100,15 @@ function parseFleetFileInfo(file: string): { num: number; groupName: string } {
   };
 }
 
-export function loadFleet(dirs: string[]): FleetSession[] {
+export function loadFleet(dirs: string[] = fleetDirsForRead()): FleetSession[] {
   return readFleetFiles(dirs).map(({ session }) => session);
 }
 
-export function countDisabledFleetFiles(dirs: string[]): number {
+export function countDisabledFleetFiles(dirs: string[] = fleetDirsForRead()): number {
   return readDisabledFleetFiles(dirs).length;
 }
 
-export function loadDisabledFleetEntries(dirs: string[]): DisabledFleetEntry[] {
+export function loadDisabledFleetEntries(dirs: string[] = fleetDirsForRead()): DisabledFleetEntry[] {
   return readDisabledFleetFiles(dirs).map(({ file, path }) => {
     const { num, groupName } = parseFleetFileInfo(file);
     try {
@@ -119,7 +119,7 @@ export function loadDisabledFleetEntries(dirs: string[]): DisabledFleetEntry[] {
   });
 }
 
-export function loadFleetEntries(dirs: string[]): FleetEntry[] {
+export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntry[] {
   return readFleetFiles(dirs).map(({ file, path, session }) => {
     const { num, groupName } = parseFleetFileInfo(file);
     return { file, path, num, groupName, session };

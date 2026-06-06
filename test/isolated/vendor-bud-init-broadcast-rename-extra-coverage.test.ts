@@ -81,6 +81,9 @@ mock.module("maw-js/sdk", () => ({
     if (hostExecError) throw hostExecError;
     return hostExecResult;
   },
+  isAgentCommand: (cmd: string | null | undefined) => /claude|codex|thclaws|thclaude/i.test((cmd ?? "").trim()) || /^node$/i.test((cmd ?? "").trim()) || /^\d+\.\d+\.\d+$/.test((cmd ?? "").trim()),
+  loadOracleRegistry: () => null,
+  loadFleetEntries: () => [{ groupName: "neo", file: "01-neo.json", session: { name: "01-neo" } }],
   tmux: {
     run: async (...args: string[]) => {
       tmuxRunCalls.push(args);

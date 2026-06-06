@@ -163,6 +163,31 @@ export type { TProfile } from "../../src/lib/schemas";
 // plugin.json module.path + module.exports before another plugin may import it.
 export { importPluginSymbol } from "../../src/plugin/registry";
 
+
+// ─── src/core/agent-detect ──────────────────────────────────────────────────
+// Lightweight agent-pane detection used by broadcast and send helpers.
+export { isAgentCommand } from "../../src/core/agent-detect";
+
+// ─── src/lib/oracle-members ─────────────────────────────────────────────────
+// Team registry readers used by broadcast-style plugins.
+export { loadOracleRegistry, getOracleMembers, filterMembers } from "../../src/lib/oracle-members";
+export type { OracleMember, OracleTeamRegistry } from "../../src/lib/oracle-members";
+
+// ─── src/core/fleet/fleet-load-core ─────────────────────────────────────────
+// Core-only fleet config reads. Avoids src/commands/shared/fleet-load because
+// that module imports the SDK barrel for tmux helpers.
+export {
+  fleetDirsForRead as fleetLoadDirsForRead,
+  fleetDirForWrite as fleetLoadDirForWrite,
+  loadFleet as loadFleetCore,
+  countDisabledFleetFiles as countDisabledFleetFilesCore,
+  loadDisabledFleetEntries as loadDisabledFleetEntriesCore,
+  loadFleetEntries,
+} from "../../src/core/fleet/fleet-load-core";
+export type {
+  FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
+} from "../../src/core/fleet/fleet-load-core";
+
 // ─── src/lib/artifacts ───────────────────────────────────────────────────────
 // Artifact dir/spec/meta/result helpers. Used by `artifact-manager` plugin.
 export {

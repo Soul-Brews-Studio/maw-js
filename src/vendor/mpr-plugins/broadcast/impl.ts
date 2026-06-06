@@ -1,10 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import { tmux } from "maw-js/sdk";
-import { isAgentCommand } from "../../../core/agent-detect";
-import { loadOracleRegistry } from "../../../lib/oracle-members";
-import { loadFleetEntries } from "../../../commands/shared/fleet-load";
+import { tmux, isAgentCommand, loadOracleRegistry, loadFleetEntries } from "maw-js/sdk";
 
 export interface BroadcastScopeOptions {
   session?: string;

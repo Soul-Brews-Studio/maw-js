@@ -394,6 +394,75 @@ export declare function importPluginSymbol<T = unknown>(
   symbolName: string,
 ): Promise<T>;
 
+
+// --- src/core/agent-detect ---
+
+/** Return true when a tmux pane command appears to be an agent runtime. */
+export declare function isAgentCommand(cmd: string | null | undefined): boolean;
+
+// --- src/lib/oracle-members ---
+
+export interface OracleMember {
+  oracle: string;
+  role: string;
+  addedAt: string;
+}
+
+export interface OracleTeamRegistry {
+  name: string;
+  members: OracleMember[];
+  createdAt: string;
+  excludeSelf?: boolean;
+}
+
+export declare function loadOracleRegistry(teamName: string): OracleTeamRegistry | null;
+export declare function filterMembers(
+  members: OracleMember[],
+  excludeSelf: boolean | undefined,
+  currentOracle?: string,
+): string[];
+export declare function getOracleMembers(teamName: string, currentOracle?: string): string[];
+
+// --- src/core/fleet/fleet-load-core ---
+
+export interface FleetWindow {
+  name: string;
+  repo: string;
+}
+
+export interface FleetSession {
+  name: string;
+  windows: FleetWindow[];
+  skip_command?: boolean;
+  sync_peers?: string[];
+  budded_from?: string;
+  project_repos?: string[];
+}
+
+export interface FleetEntry {
+  file: string;
+  path?: string;
+  num: number;
+  groupName: string;
+  session: FleetSession;
+}
+
+export interface DisabledFleetEntry {
+  file: string;
+  path: string;
+  num: number;
+  groupName: string;
+  session?: FleetSession;
+  error?: unknown;
+}
+
+export declare function fleetLoadDirsForRead(legacyFleetDir?: string): string[];
+export declare function fleetLoadDirForWrite(): string;
+export declare function loadFleetCore(dirs?: string[]): FleetSession[];
+export declare function countDisabledFleetFilesCore(dirs?: string[]): number;
+export declare function loadDisabledFleetEntriesCore(dirs?: string[]): DisabledFleetEntry[];
+export declare function loadFleetEntries(dirs?: string[]): FleetEntry[];
+
 // --- src/lib/artifacts ---
 
 export interface ArtifactMeta {

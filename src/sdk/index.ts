@@ -42,7 +42,6 @@ export type {
 export {
   hostExec, listSessions, capture, sendKeys,
   getPaneCommand, getPaneCommands, getPaneInfos,
-  isAgentCommand,
   HostExecError,
 } from "../core/transport/ssh";
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
@@ -62,6 +61,7 @@ export type {
   PickOracleOptions,
 } from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
+export { isAgentCommand } from "../core/agent-detect";
 export type { Session, Window } from "../core/runtime/find-window";
 export {
   loadOracleChannels,
@@ -90,6 +90,19 @@ export {
   readCache, isCacheStale,
 } from "../core/fleet/oracle-registry";
 export type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
+export {
+  fleetDirsForRead as fleetLoadDirsForRead,
+  fleetDirForWrite as fleetLoadDirForWrite,
+  loadFleet as loadFleetCore,
+  countDisabledFleetFiles as countDisabledFleetFilesCore,
+  loadDisabledFleetEntries as loadDisabledFleetEntriesCore,
+  loadFleetEntries,
+} from "../core/fleet/fleet-load-core";
+export type {
+  FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
+} from "../core/fleet/fleet-load-core";
+export { loadOracleRegistry, getOracleMembers, filterMembers } from "../lib/oracle-members";
+export type { OracleMember, OracleTeamRegistry } from "../lib/oracle-members";
 // Sub-issue 2 of #736 Phase 2 / #836 — unified read-only view across the 5
 // oracle registries. Consumer-side rollouts (oracle ls, doctor, resolveTarget)
 // land in follow-up PRs.
