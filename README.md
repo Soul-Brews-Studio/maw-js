@@ -7,7 +7,8 @@
 **maw is a CLI for running multiple AI agents across machines.** You wake
 an agent in a tmux window, send it tasks, watch its screen, and see what
 it cost — all from one terminal. One node or twenty; same commands. Built
-on [Bun](https://bun.sh) and [Claude Code](https://claude.com/claude-code).
+on [Bun](https://bun.sh) and engine-agnostic — drives [Claude Code](https://claude.com/claude-code),
+[Codex](https://openai.com/codex), Aider, and OpenCode alike.
 
 
 ## Install
