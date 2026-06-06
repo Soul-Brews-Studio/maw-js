@@ -55,6 +55,7 @@ mock.module("maw-js/core/ghq", () => ({
 
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
+  loadFleetCore: () => [],
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (hostExecError) throw hostExecError;

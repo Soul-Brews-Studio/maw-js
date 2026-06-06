@@ -63,6 +63,11 @@ mock.module("maw-js/commands/shared/comm", () => ({
   cmdPeek: async (target?: string) => record("peek", target),
 }));
 
+mock.module("maw-js/sdk", () => ({
+  cmdPeek: async (target?: string) => record("peek", target),
+  cmdSleep: async () => record("stop", undefined),
+}));
+
 mock.module(prImplPath, () => ({
   cmdPr: async (window?: string) => record("pr", window),
 }));
