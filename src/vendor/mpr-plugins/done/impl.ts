@@ -5,7 +5,7 @@ import { takeSnapshot } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
 import { signalParentInbox, autoSave } from "./done-autosave";
-import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig } from "./done-worktree";
+import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig, warnRemainingWorktrees } from "./done-worktree";
 
 export interface DoneOpts {
   force?: boolean;
@@ -115,6 +115,8 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
   if (!removedWorktree) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+  } else if (!opts.dryRun && opts.cwd) {
+    await warnRemainingWorktrees(windowName, reposRoot);
   }
 
   const matchedWindow = sessionName !== null && windowIndex !== null;
