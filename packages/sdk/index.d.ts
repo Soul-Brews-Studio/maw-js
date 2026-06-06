@@ -216,6 +216,17 @@ export declare function parseFlags<T extends Record<string, unknown>>(
   skip?: number,
 ): { [key: string]: unknown; _: string[] };
 
+/** User-facing command error marker. */
+export declare class UserError extends Error {
+  readonly isUserError: true;
+}
+
+/** True when an error was raised for user-facing command feedback. */
+export declare function isUserError(e: unknown): e is UserError;
+
+/** Render numeric buckets as a compact Unicode sparkline. */
+export declare function sparkline(values: number[], hadActivity?: boolean[]): string;
+
 // --- src/commands/shared/comm ---
 
 /** Peek/capture a target session or window and print the result. */

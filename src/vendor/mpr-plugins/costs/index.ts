@@ -1,5 +1,4 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { parseFlags } from "maw-js/cli/parse-args";
+import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
 import { cmdCosts, cmdCostsDaily } from "./impl";
 
 export const command = {

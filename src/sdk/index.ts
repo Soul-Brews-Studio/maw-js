@@ -158,6 +158,8 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export { parseFlags } from "../cli/parse-args";
+export { UserError, isUserError } from "../core/util/user-error";
+export { sparkline } from "../lib/sparkline";
 export { tlink } from "../core/util/terminal";
 
 // Plugin extraction helpers for tab-like command surfaces.

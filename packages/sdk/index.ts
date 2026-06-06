@@ -51,6 +51,8 @@ export type {
 // kill, capture, panes, split, contacts, tag, locate.
 // NOTE: also re-exported from "@maw-js/sdk/plugin" for ergonomics — both work.
 export { parseFlags } from "../../src/cli/parse-args";
+export { UserError, isUserError } from "../../src/core/util/user-error";
+export { sparkline } from "../../src/lib/sparkline";
 
 // ─── src/commands/shared/comm ────────────────────────────────────────────────
 // Federation-aware communication helpers used by small command plugins.
