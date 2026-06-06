@@ -26,7 +26,7 @@ export {
 } from "../config";
 export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
 export { getGhqRoot } from "../config/ghq-root";
-export { mawConfigDir } from "../core/xdg";
+export { mawConfigDir, mawMessageLogPath } from "../core/xdg";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
 export type { TScope } from "../lib/schemas";
@@ -91,6 +91,8 @@ export type { ScannedSignal } from "../commands/shared/scan-signals";
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export { runHook } from "../core/runtime/hooks";
+export { runSleepLifecycleHooks } from "../plugin/lifecycle";
+export type { SleepLifecycleContextInput, LifecycleRunSummary } from "../plugin/lifecycle";
 export { getTriggers, getTriggerHistory } from "../core/runtime/triggers";
 
 // ─── Fleet ───────────────────────────────────────────────────────────────────

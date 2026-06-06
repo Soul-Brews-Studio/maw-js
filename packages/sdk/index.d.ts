@@ -502,6 +502,7 @@ export declare function loadFleetEntries(dirs?: string[]): FleetEntry[];
 
 /** Stop all configured fleet sessions. */
 export declare function cmdSleep(): Promise<void>;
+export declare function detectSession(oracle: string, urlRepoName?: string): Promise<string | null>;
 
 // --- src/lib/artifacts ---
 
@@ -574,6 +575,23 @@ export declare function getArtifact(
 
 /** Get the artifact directory path (for agents to write into). */
 export declare function artifactDir(team: string, taskId: string): string;
+
+
+export interface SleepLifecycleContextInput {
+  oracle: string;
+  session: string;
+  window: string;
+  target: string;
+}
+
+export interface LifecycleRunSummary {
+  phase: "wake" | "sleep" | "serve";
+  ran: number;
+  skipped: number;
+  failed: number;
+}
+
+export declare function runSleepLifecycleHooks(context: SleepLifecycleContextInput): Promise<LifecycleRunSummary>;
 
 // --- src/core/xdg ---
 

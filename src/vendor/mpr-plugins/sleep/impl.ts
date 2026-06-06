@@ -1,13 +1,16 @@
-import { tmux, listSessions } from "maw-js/sdk";
-import { detectSession } from "maw-js/commands/shared/wake";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
-import { saveTabOrder } from "maw-js/sdk";
+import {
+  detectSession,
+  listSessions,
+  loadFleetCore as loadFleet,
+  mawMessageLogPath,
+  runSleepLifecycleHooks,
+  saveTabOrder,
+  tmux,
+} from "maw-js/sdk";
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import { takeSnapshot } from "maw-js/sdk";
-import { runSleepLifecycleHooks } from "maw-js/plugin/lifecycle";
 import { resolveSleepTarget } from "./resolve-target";
-import { mawMessageLogPath } from "../../../core/xdg";
 
 /**
  * maw sleep <target> [window]

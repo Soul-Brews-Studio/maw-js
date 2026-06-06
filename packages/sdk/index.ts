@@ -174,6 +174,8 @@ export type { TProfile, TScope } from "../../src/lib/schemas";
 // Runtime bridge for cross-plugin helper reuse. A plugin must opt in via
 // plugin.json module.path + module.exports before another plugin may import it.
 export { importPluginSymbol } from "../../src/plugin/registry";
+export { runSleepLifecycleHooks } from "../../src/plugin/lifecycle";
+export type { SleepLifecycleContextInput, LifecycleRunSummary } from "../../src/plugin/lifecycle";
 
 // ─── src/commands/shared/wake ───────────────────────────────────────────────
 // Wake helpers used by small orchestration plugins like assign.
@@ -203,6 +205,7 @@ export {
   loadFleetEntries,
 } from "../../src/core/fleet/fleet-load-core";
 export { cmdSleep } from "../../src/commands/shared/fleet-wake";
+export { detectSession } from "../../src/commands/shared/wake";
 export type {
   FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
 } from "../../src/core/fleet/fleet-load-core";
