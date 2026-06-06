@@ -148,7 +148,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
         return { ok: false, error: "team required", output: logs.join("\n") };
       }
-      const { cmdTeamUp } = await import("./team-up");
+      const { cmdTeamUp } = await import("../../../vendor/mpr-plugins/team/team-up");
       const flags = parseFlags(args, {
         "--dry-run": Boolean,
         "--status": Boolean,
