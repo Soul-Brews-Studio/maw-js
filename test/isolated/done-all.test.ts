@@ -72,6 +72,7 @@ mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/done/done-worktr
     removedFleetEntries.push(windowNameLower);
     return false;
   },
+  warnRemainingWorktrees: async () => [],
 }));
 
 const { cmdDoneAll } = await import("../../src/vendor/mpr-plugins/done/impl");
