@@ -6,6 +6,7 @@ import { join } from "path";
 const tmpRoot = mkdtempSync(join(tmpdir(), "maw-absorb-coverage-"));
 const fleetDir = join(tmpRoot, "fleet");
 const archiveSoulSyncPath = import.meta.resolve("../../src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts");
+const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 
 let ghqRoot = join(tmpRoot, "ghq");
 let fleetEntries: any[] = [];
@@ -22,7 +23,7 @@ const originalLog = console.log;
 const originalError = console.error;
 const originalTmux = process.env.TMUX;
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   FLEET_DIR: fleetDir,
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
@@ -31,7 +32,18 @@ mock.module("maw-js/sdk", () => ({
     }
     return "";
   },
-}));
+  getGhqRoot: () => ghqRoot,
+  ghqFind: async (pattern: string) => {
+    ghqFindCalls.push(pattern);
+    return ghqFindResults.get(pattern) ?? null;
+  },
+  fleetLoadDirForWrite: () => fleetDir,
+  loadFleetEntries: () => fleetEntries,
+  loadFleetCore: () => fleetEntries.map(entry => entry.session),
+});
+
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
 
 mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,

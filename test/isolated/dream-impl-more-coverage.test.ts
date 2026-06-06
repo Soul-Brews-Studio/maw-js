@@ -17,10 +17,24 @@ const original = {
   fetch: globalThis.fetch,
   dateNow: Date.now,
 };
+const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   hostExec: async (cmd: string) => fakeHostExec(cmd),
-}));
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [
+    {
+      name: "dream-more-session",
+      windows: [
+        { name: "focus", repo: "Soul-Brews-Studio/focus-oracle" },
+        { name: "duplicate-focus", repo: "Soul-Brews-Studio/focus-oracle" },
+      ],
+    },
+  ],
+});
+
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
 
 mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,

@@ -18,10 +18,25 @@ const original = {
   fetch: globalThis.fetch,
   dateNow: Date.now,
 };
+const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   hostExec: async (cmd: string) => fakeHostExec(cmd),
-}));
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [
+    {
+      name: "maze-session",
+      windows: [{ name: "main", repo: "Soul-Brews-Studio/maze-oracle" }],
+    },
+    {
+      name: "quiet-session",
+      windows: [{ name: "quiet", repo: "Soul-Brews-Studio/quiet-oracle" }],
+    },
+  ],
+});
+
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
 
 mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,
