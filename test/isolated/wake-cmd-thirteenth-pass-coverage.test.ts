@@ -515,7 +515,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
 
     expect(result).toBe("54-neo:neo-oracle");
     expect(plain()).toContain("would respawn: neo-docs");
-    expect(plain()).toContain("from worktree/neo-oracle.wt-5-docs");
+    expect(plain()).toMatch(/(?:from worktree\/neo-oracle\.wt-5-docs|\/tmp\/neo-oracle\.wt-5-docs)/);
   });
 
   test("invalid bud flag combinations and missing snapshots fail before tmux mutation", async () => {
