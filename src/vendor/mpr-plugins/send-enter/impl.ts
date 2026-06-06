@@ -12,9 +12,7 @@
  *   maw send-enter <target> --N 3    # send N Enters
  */
 
-import { listSessions, resolveTarget, tmux } from "maw-js/sdk";
-import { loadConfig } from "maw-js/config";
-import { resolveOraclePane } from "maw-js/commands/shared/comm-send";
+import { listSessions, loadConfig, resolveOraclePane, resolveTarget, tmux } from "maw-js/sdk";
 
 export interface SendEnterOpts {
   target: string;

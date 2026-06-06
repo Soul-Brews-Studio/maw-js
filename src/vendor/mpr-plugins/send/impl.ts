@@ -13,9 +13,7 @@
  *   maw send <target> "<text>"
  */
 
-import { listSessions, resolveTarget, Tmux, curlFetch } from "maw-js/sdk";
-import { loadConfig } from "maw-js/config";
-import { resolveOraclePane } from "maw-js/commands/shared/comm-send";
+import { curlFetch, listSessions, loadConfig, resolveOraclePane, resolveTarget, Tmux } from "maw-js/sdk";
 
 export interface SendOpts {
   target: string;

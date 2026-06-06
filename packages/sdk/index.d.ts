@@ -239,6 +239,7 @@ export declare function cmdPeek(query?: string): Promise<void>;
 
 /** Send a message to an oracle/window target. */
 export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;
+export declare function resolveOraclePane(target: string): Promise<string>;
 export declare function cmdSplit(target: string, opts?: Record<string, unknown>): Promise<void>;
 
 // --- src/config ---
