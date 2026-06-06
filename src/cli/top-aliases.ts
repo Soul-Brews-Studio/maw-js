@@ -152,6 +152,8 @@ function printLayoutUsage(write: (line: string) => void = console.log): void {
   write("usage: maw layout <preset>");
   write("  Re-apply a tmux layout preset to the current window.");
   write("  presets: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled");
+  write("  alias: reset → main-vertical");
+  write("  To swap two panes predictably: maw tile swap <a> <b>");
   write("  For explicit targets, use: maw tmux layout <target> <preset>");
 }
 
@@ -374,7 +376,8 @@ export async function invokeDirectHandler(
       return;
     }
     const flags = parseFlags(argv, {}, 0);
-    const preset = (flags._ as string[])[0];
+    const rawPreset = (flags._ as string[])[0];
+    const preset = rawPreset === "reset" ? "main-vertical" : rawPreset;
     if (!preset) {
       printLayoutUsage(error);
       throw new UserError("layout: missing preset");
