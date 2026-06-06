@@ -1,7 +1,6 @@
 import { existsSync } from "fs";
 import { join, basename } from "path";
-import { hostExec } from "maw-js/sdk";
-import { getGhqRoot } from "maw-js/config/ghq-root";
+import { getGhqRoot, hostExec } from "maw-js/sdk";
 import { findPeers, findProjectsForOracle, syncOracleVaults, syncProjectVault, reportProjectResult, type SoulSyncResult, type ProjectSyncResult } from "./sync-helpers";
 import { resolveOraclePath, resolveProjectSlug, findOracleForProject } from "./resolve";
 
