@@ -495,11 +495,13 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     let result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
     expect(result).toBe("54-neo:neo-oracle");
     expect(plain()).toContain("would restore snapshot windows: none");
+    expect(plain()).toContain("snapshot rehydrate: none from snapshot latest.json");
 
     logs = [];
     plannedSnapshotWindows = [{ windowName: "neo-alpha", cwd: "/tmp/neo-oracle.wt-1-alpha", source: "worktree" }];
     result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
     expect(plain()).toContain("would restore snapshot window: neo-alpha");
 
     snapshotSessionReturn = null;
@@ -508,14 +510,15 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
   });
 
   test("dry-run reports concrete worktree rehydrate plans", async () => {
-    findWorktreesReturn = [{ name: "5-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
-    plannedRehydrateWindows = [{ windowName: "neo-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
+    findWorktreesReturn = [{ name: "5-docs", path: `${repoPath}/agents/5-docs` }];
+    plannedRehydrateWindows = [{ windowName: "neo-docs", path: `${repoPath}/agents/5-docs` }];
 
     const result = await captureLogs(() => cmdWake("neo", { repoPath, dryRun: true }));
 
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at /tmp/ghq/github.com/Soul-Brews-Studio/neo-oracle/agents");
     expect(plain()).toContain("would respawn: neo-docs");
-    expect(plain()).toMatch(/(?:from worktree\/neo-oracle\.wt-5-docs|\/tmp\/neo-oracle\.wt-5-docs)/);
+    expect(plain()).toContain("from agents/5-docs");
   });
 
   test("invalid bud flag combinations and missing snapshots fail before tmux mutation", async () => {
@@ -563,12 +566,13 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
 
   test("dry-run treats window listing failures as empty when planning rehydrate", async () => {
     listWindowsThrows = true;
-    findWorktreesReturn = [{ name: "5-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
-    plannedRehydrateWindows = [{ windowName: "neo-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
+    findWorktreesReturn = [{ name: "5-docs", path: `${repoPath}/agents/5-docs` }];
+    plannedRehydrateWindows = [{ windowName: "neo-docs", path: `${repoPath}/agents/5-docs` }];
 
     const result = await captureLogs(() => cmdWake("neo", { repoPath, dryRun: true }));
 
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at /tmp/ghq/github.com/Soul-Brews-Studio/neo-oracle/agents");
     expect(plain()).toContain("would respawn: neo-docs");
   });
 
@@ -624,6 +628,8 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       target: "54-neo:neo-review",
       text: "cd /tmp/neo-oracle.wt-3-review && codex --agent neo-review",
     });
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot restore: 1 window");
     expect(plain()).toContain("2 window(s) retried.");
   });
@@ -665,6 +671,8 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       text: "cd /tmp/neo-oracle.wt-2-beta && claude --agent neo-beta",
     });
     expect(snapshots).toEqual(["wake"]);
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot window: neo-restored");
     expect(plain()).toContain("1 window(s) reordered");
   });

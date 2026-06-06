@@ -438,6 +438,37 @@ function formatWorktreeSource(path: string): string {
   return `worktree/${base}`;
 }
 
+function rehydrationWindowLabel(count: number): string {
+  return `${count} window${count === 1 ? "" : "s"}`;
+}
+
+function agentsRehydrationSource(worktrees: { path: string }[]): string {
+  const agentsPath = worktrees
+    .map(wt => wt.path)
+    .find(path => path.includes("/agents/"));
+  if (agentsPath) {
+    return agentsPath.slice(0, agentsPath.indexOf("/agents/") + "/agents".length);
+  }
+  return worktrees.length > 0 ? "worktree folders" : "agents/ folder";
+}
+
+function logSnapshotRehydrationSource(count: number, snapshotFile: string): void {
+  if (count > 0) {
+    console.log(`\x1b[36m↻\x1b[0m Rehydrating ${rehydrationWindowLabel(count)} from snapshot ${snapshotFile}`);
+    return;
+  }
+  console.log(`\x1b[90m↻ snapshot rehydrate: none from snapshot ${snapshotFile}\x1b[0m`);
+}
+
+function logAgentsRehydrationSource(count: number, worktrees: { path: string }[]): void {
+  const source = agentsRehydrationSource(worktrees);
+  if (count > 0) {
+    console.log(`\x1b[36m↻\x1b[0m Rehydrating ${rehydrationWindowLabel(count)} from agents/ state at ${source}`);
+    return;
+  }
+  console.log(`\x1b[90m↻ agents/ rehydrate: none from ${source}\x1b[0m`);
+}
+
 async function restoreSnapshotWindows(
   oracle: string,
   session: string,
@@ -449,6 +480,7 @@ async function restoreSnapshotWindows(
   engine?: string,
 ): Promise<number> {
   const planned = planSnapshotRestoreWindows(oracle, snapshotSession, existingWindows, worktrees, repoPath);
+  logSnapshotRehydrationSource(planned.length, snapshotFile);
   if (planned.length > 0) {
     console.log(`\x1b[36m↻\x1b[0m rehydrating from snapshot ${snapshotFile}:`);
   }
@@ -1001,7 +1033,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const planned = planSnapshotRestoreWindows(oracle, requestedSnapshotSession, existingWindows, allWt, repoPath);
       if (planned.length === 0) {
         console.log(`\x1b[90m↻ would restore snapshot windows: none\x1b[0m`);
+        logSnapshotRehydrationSource(0, requestedSnapshotFile || "snapshot");
       } else {
+        logSnapshotRehydrationSource(planned.length, requestedSnapshotFile || "snapshot");
         if (requestedSnapshotFile) {
           console.log(`\x1b[36m↻\x1b[0m rehydrating from snapshot ${requestedSnapshotFile}:`);
         }
@@ -1021,7 +1055,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const planned = planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles);
     if (planned.length === 0) {
       console.log(`\x1b[90m↻ would respawn: none\x1b[0m`);
+      logAgentsRehydrationSource(0, allWt);
     } else {
+      logAgentsRehydrationSource(planned.length, allWt);
       console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
       for (const wt of planned) {
         console.log(`\x1b[32m↻\x1b[0m would respawn: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
@@ -1101,6 +1137,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       const plan = planRehydrateWorktreeWindows(oracle, allWt, [...existingWindows]);
+      logAgentsRehydrationSource(plan.length, allWt);
       if (plan.length > 0) {
         console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
       }
@@ -1145,6 +1182,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         const existingWindows = [...preExistingWindows];
         const liveTileRoles = await getLiveTileRoles(session);
         const plan = planRehydrateWorktreeWindows(oracle, allWt, existingWindows, liveTileRoles);
+        logAgentsRehydrationSource(plan.length, allWt);
         if (plan.length > 0) {
           console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
         }
@@ -1155,7 +1193,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
           preExistingWindows.add(wt.windowName);
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
         }
-        }
+      } else {
+        logAgentsRehydrationSource(0, allWt);
+      }
     }
 
     await new Promise(r => setTimeout(r, cfgTimeout("wakeVerify")));
