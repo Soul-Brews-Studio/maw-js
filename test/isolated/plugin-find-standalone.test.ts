@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
 const sandbox = join(import.meta.dir, ".tmp-find-standalone");
+const origCwd = process.cwd();
 const ghqRoot = join(sandbox, "ghq");
 const hostExecCalls: string[] = [];
 let fleet: Array<{
@@ -33,6 +34,7 @@ beforeEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
   mkdirSync(join(ghqRoot, "github.com", "Soul-Brews-Studio", "neo-oracle"), { recursive: true });
   mkdirSync(join(ghqRoot, "github.com", "Soul-Brews-Studio", "ghost"), { recursive: true });
+  process.chdir(sandbox);
   hostExecCalls.length = 0;
   hostResponses = {};
   fleet = [
@@ -44,6 +46,10 @@ beforeEach(() => {
     },
     { name: "2-ghost", windows: [{ name: "quiet", repo: "Soul-Brews-Studio/ghost" }] },
   ];
+});
+
+afterEach(() => {
+  process.chdir(origCwd);
 });
 
 describe("find plugin standalone boundary (#2113)", () => {

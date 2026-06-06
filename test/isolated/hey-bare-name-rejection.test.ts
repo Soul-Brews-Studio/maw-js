@@ -92,6 +92,10 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => (
   },
 }));
 
+mock.module(join(import.meta.dir, "../../src/commands/shared/hey-locate-resolution"), () => ({
+  resolveBareHeyByLocatePath: async () => ({ result: null, repoPath: null, crossNodeBlocked: false }),
+}));
+
 // Bun.sleep intercept — keep tests fast
 const origSleep = Bun.sleep.bind(Bun);
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async () => {};
@@ -178,8 +182,12 @@ describe("cmdSend — bare-name local-first (#1572)", () => {
     expect(exitCode).toBe(1);
     const allErr = errs.join("\n");
     expect(allErr).toContain("error");
-    expect(allErr).toContain("found but no active session");
-    expect(allErr).toContain("maw wake mawjs-oracle");
+    expect(allErr).toContain("not found locally");
+    expect(allErr).toContain("bare names are local-only");
+    expect(allErr).toContain("same-node targets:");
+    expect(allErr).toContain("maw hey local:mawjs-oracle");
+    expect(allErr).toContain("cross-node targets:");
+    expect(allErr).toContain("maw locate mawjs-oracle");
     // Local resolution happened, but remote/fallback delivery did not.
     expect(resolveTargetCalls).toBe(1);
     expect(listSessionsCalls).toBe(1);
@@ -191,7 +199,7 @@ describe("cmdSend — bare-name local-first (#1572)", () => {
     process.env.MAW_QUIET = "1";
     await run(() => cmdSend("mawjs-oracle", "test"));
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("found but no active session");
+    expect(errs.join("\n")).toContain("not found locally");
     expect(sendKeysCalls.length).toBe(0);
   });
 
