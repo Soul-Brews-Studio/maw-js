@@ -73,8 +73,13 @@ mock.module("child_process", () => ({
 
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => hostExecImpl(cmd),
+  ghqFind: async () => ghqPath,
   FLEET_DIR: join(tmpRoot || tmpdir(), "fleet"),
   getGhqRoot: () => ghqRoot,
+  fleetLoadDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
+  ensureCloned: async (slug: string) => { hostExecCalls.push(`ensureCloned:${slug}`); },
+  parseWakeTarget: (value: string) => value.includes("/") ? { oracle: value.split("/").pop()?.replace(/-oracle$/, "") ?? value, slug: value } : null,
+  shouldAutoWake: (name: string, ctx: unknown) => ({ wake: shouldWake, reason: `skip ${name} ${JSON.stringify(ctx)}` }),
   loadFleetCore: () => [],
   loadFleetEntries: () => fleetEntries,
   fleetLoadDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
