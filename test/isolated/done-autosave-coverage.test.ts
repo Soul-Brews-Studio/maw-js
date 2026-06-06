@@ -62,7 +62,7 @@ beforeEach(() => {
   rmSync(homeDir, { recursive: true, force: true });
   homeDir = join(SANDBOX, "home");
   hostExecCalls = [];
-  hostExecHandler = (command) => command.includes("pane_current_path") ? "/repo/worktree\n" : "";
+  hostExecHandler = (command) => command.includes("pane_current_path") ? "bash\t/repo/worktree\n" : "";
   sentTexts = [];
   sendTextError = null;
   reunionCalls = [];
@@ -148,7 +148,7 @@ describe("done autosave coverage", () => {
     expect(delays).toEqual([10_000]);
     expect(sentTexts).toEqual([{ target: "work:tile-1", text: "/rrr" }]);
     expect(hostExecCalls).toEqual([
-      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'",
       "git -C '/repo/worktree' add -A",
       "git -C '/repo/worktree' commit -m 'chore: auto-save before done'",
       "git -C '/repo/worktree' push",
@@ -158,6 +158,23 @@ describe("done autosave coverage", () => {
     expect(output).toContain("/rrr sent (waited 10s)");
     expect(output).toContain("committed changes");
     expect(output).toContain("pushed to remote");
+  });
+
+  test("autoSave uses $rrr for omx command panes", async () => {
+    hostExecHandler = (command) => {
+      if (command.includes("pane_current_path")) return "omx\t/repo/worktree\n";
+      return "";
+    };
+
+    let delays: number[] = [];
+    const output = await captureConsole(async () => {
+      delays = await withImmediateTimers(() => autoSave("tile-1", "work", {}));
+    });
+
+    expect(delays).toEqual([10_000]);
+    expect(sentTexts).toEqual([{ target: "work:tile-1", text: "$rrr" }]);
+    expect(output).toContain("$rrr sent (waited 10s)");
+    expect(output).toContain("committed changes");
   });
 
   test("autoSave dry-run explains cwd-aware and missing-pane flows without tmux or cleanup side effects", async () => {
@@ -172,7 +189,7 @@ describe("done autosave coverage", () => {
     hostExecCalls = [];
     hostExecHandler = () => { throw new Error("pane missing"); };
     const missingOutput = await captureConsole(() => autoSave("tile-1", "work", { dryRun: true }));
-    expect(hostExecCalls).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'"]);
+    expect(hostExecCalls).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'"]);
     expect(missingOutput).toContain("would send /rrr to work:tile-1");
     expect(missingOutput).not.toContain("would git add + commit + push");
   });
@@ -181,7 +198,7 @@ describe("done autosave coverage", () => {
     sendTextError = new Error("agent missing");
     soulSyncError = new Error("no peers");
     hostExecHandler = (command) => {
-      if (command.includes("pane_current_path")) return "/repo/worktree\n";
+      if (command.includes("pane_current_path")) return "bash\t/repo/worktree\n";
       if (command.includes(" commit ")) throw new Error("nothing to save");
       if (command.endsWith(" push")) throw new Error("denied");
       return "";
@@ -203,7 +220,7 @@ describe("done autosave coverage", () => {
 
   test("autoSave reports git add failures and skips git entirely when pane cwd is unavailable", async () => {
     hostExecHandler = (command) => {
-      if (command.includes("pane_current_path")) return "/repo/worktree\n";
+      if (command.includes("pane_current_path")) return "bash\t/repo/worktree\n";
       if (command.endsWith(" add -A")) throw new Error("add failed");
       return "";
     };
@@ -226,7 +243,7 @@ describe("done autosave coverage", () => {
     const noPaneOutput = await captureConsole(async () => {
       await withImmediateTimers(() => autoSave("tile-2", "work", {}));
     });
-    expect(hostExecCalls).toEqual(["tmux display-message -t 'work:tile-2' -p '#{pane_current_path}'"]);
+    expect(hostExecCalls).toEqual(["tmux display-message -t 'work:tile-2' -p '#{pane_current_command}\t#{pane_current_path}'"]);
     expect(sentTexts).toEqual([{ target: "work:tile-2", text: "/rrr" }]);
     expect(noPaneOutput).not.toContain("git auto-save in");
     expect(reunionCalls).toEqual(["tile-2"]);
