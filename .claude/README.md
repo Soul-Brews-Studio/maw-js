@@ -16,7 +16,7 @@ Soft-warning hooks for the size discipline documented in [CONTRIBUTING.md](../CO
 Claude Code auto-loads `.claude/settings.json` when invoked in this repo and runs the registered hooks at the lifecycle points:
 
 - **PostToolUse on Write/Edit**: each file write triggers a line-count check on the touched file; emits an `additionalContext` JSON line if > 200 LOC. The notification surfaces back to the agent's next turn.
-- **Stop**: at the end of each AI turn, sums production-code additions vs `origin/main`; warns to stderr if > 300 LOC.
+- **Stop**: at the end of each AI turn, sums production-code additions vs `origin/alpha`; warns to stderr if > 300 LOC.
 
 Both are **soft warnings — non-blocking** (exit 0 always). They surface drift early but never prevent shipping.
 

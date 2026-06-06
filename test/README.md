@@ -1,9 +1,12 @@
 # test/
 
+800+ test files covering 89 vendor plugins, core transport, federation,
+fleet management, and CLI commands.
+
 ## Canonical suite
 
-Use `bun run test:all`. This is the ship gate — the alpha release script
-(`scripts/ship-alpha.sh`) refuses to tag if it fails.
+Use `bun run test:all`. This is the ship gate — CI runs it on every PR
+to `alpha` via 4-shard parallelism.
 
 `test:all` runs four disjoint invocations so mocks don't cross-pollute:
 
