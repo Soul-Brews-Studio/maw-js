@@ -103,6 +103,7 @@ export {
   loadFleetEntries,
 } from "../core/fleet/fleet-load-core";
 export { cmdSleep } from "../commands/shared/fleet-wake";
+export { cmdWake, fetchIssuePrompt } from "../commands/shared/wake";
 export type {
   FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
 } from "../core/fleet/fleet-load-core";

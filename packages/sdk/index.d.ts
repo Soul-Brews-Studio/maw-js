@@ -642,3 +642,8 @@ export interface ScannedSignal extends Signal {
 }
 
 export declare function scanSignals(root: string, opts?: { days?: number }): ScannedSignal[];
+
+// --- src/commands/shared/wake ---
+
+export declare function fetchIssuePrompt(num: number, repo?: string): Promise<string>;
+export declare function cmdWake(oracle: string, opts: Record<string, unknown>): Promise<string>;

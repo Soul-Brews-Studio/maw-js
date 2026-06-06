@@ -168,6 +168,10 @@ export type { TProfile } from "../../src/lib/schemas";
 // plugin.json module.path + module.exports before another plugin may import it.
 export { importPluginSymbol } from "../../src/plugin/registry";
 
+// ─── src/commands/shared/wake ───────────────────────────────────────────────
+// Wake helpers used by small orchestration plugins like assign.
+export { cmdWake, fetchIssuePrompt } from "../../src/commands/shared/wake";
+
 
 // ─── src/core/agent-detect ──────────────────────────────────────────────────
 // Lightweight agent-pane detection used by broadcast and send helpers.
