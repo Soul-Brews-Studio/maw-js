@@ -74,6 +74,28 @@ mock.module("maw-js/sdk", () => ({
     return next ?? "";
   },
   tmuxCmd: () => "tmux-test",
+  loadConfig: () => configState,
+  cfgTimeout: (name: string) => {
+    cfgTimeoutCalls.push(name);
+    return 1234;
+  },
+  buildCommandInDir: (dir: string, cmd: string) => `cd ${dir} && ${cmd}`,
+  resolveSessionTarget: (target: string, seenSessions: Session[]) => {
+    resolveCalls.push({ target, sessions: seenSessions });
+    return resolveResults.get(target) ?? { kind: "none", hints: [] };
+  },
+  parseFlags: (args: string[]) => {
+    const out: Record<string, unknown> & { _: string[] } = { _: [] };
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i]!;
+      if (arg === "--pane") {
+        const value = args[++i];
+        if (value === undefined || value.startsWith("--")) throw new Error("option requires argument: --pane");
+        out["--pane"] = Number(value);
+      } else out._.push(arg);
+    }
+    return out;
+  },
   tmux: {
     run: async (...args: string[]) => {
       tmuxRunCalls.push(args);
