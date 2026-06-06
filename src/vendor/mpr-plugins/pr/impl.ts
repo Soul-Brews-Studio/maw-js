@@ -1,4 +1,4 @@
-import { Tmux } from "maw-js/core/transport/tmux";
+import { Tmux } from "maw-js/sdk";
 
 function branchToTitle(branch: string): string {
   // Strip prefix like "agents/" or "feature/"
