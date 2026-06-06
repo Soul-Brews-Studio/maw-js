@@ -216,6 +216,13 @@ export interface TmuxLsOpts {
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
+export type PaneActivity = "busy" | "idle" | "stuck" | "unknown";
+
+export interface PaneActivityJson {
+  activity: PaneActivity;
+  activitySource: "context-limit" | "tmux-window-activity" | "unknown";
+  activityWindow: "30s";
+}
 
 interface AnnotatedPane {
   id: string;
@@ -229,6 +236,26 @@ interface AnnotatedPane {
   sessionCreated?: number;
   sessionActivity?: number;
   source?: string;
+}
+
+export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
+  if (status === "frozen") return "stuck";
+  if (status === "active") return "busy";
+  if (status === "idle" || status === "stale") return "idle";
+  return "unknown";
+}
+
+export function paneActivityJson(pane: Pick<AnnotatedPane, "status">): PaneActivityJson {
+  const activity = classifyLsPaneActivity(pane.status);
+  return {
+    activity,
+    activitySource: activity === "stuck"
+      ? "context-limit"
+      : activity === "unknown"
+      ? "unknown"
+      : "tmux-window-activity",
+    activityWindow: "30s",
+  };
 }
 
 async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
@@ -449,6 +476,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   await markContextLimitedPanes(scope);
 
   if (opts.json) {
+    const paneRows = scope.map(pane => ({ ...pane, ...paneActivityJson(pane) }));
     const teamRows = visibleTeams.map(team => ({
       kind: "team",
       id: `team:${team.name}`,
@@ -463,7 +491,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       members: team.memberCount,
       configPath: team.configPath,
     }));
-    console.log(JSON.stringify([...scope, ...teamRows], null, 2));
+    console.log(JSON.stringify([...paneRows, ...teamRows], null, 2));
     return;
   }
 
