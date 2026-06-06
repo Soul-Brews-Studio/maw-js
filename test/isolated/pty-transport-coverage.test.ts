@@ -57,6 +57,7 @@ let groupedImpl: (sessionName: string, ptySessionName: string, opts: any) => Pro
 let setOptionCalls: Array<{ session: string; option: string; value: string }> = [];
 let setOptionImpl: (session: string, option: string, value: string) => Promise<void> = async () => {};
 let killSessionCalls: string[] = [];
+let resizeWindowCalls: Array<{ target: string; cols: number; rows: number }> = [];
 
 const originalSpawn = Bun.spawn;
 const originalSpawnSync = Bun.spawnSync;
@@ -95,6 +96,10 @@ mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
     killSession: async (session: string) => {
       if (!mockActive) return realTmux.tmux.killSession(session);
       killSessionCalls.push(session);
+    },
+    resizeWindow: async (target: string, cols: number, rows: number) => {
+      if (!mockActive) return realTmux.tmux.resizeWindow(target, cols, rows);
+      resizeWindowCalls.push({ target, cols, rows });
     },
   },
 }));
@@ -167,6 +172,7 @@ beforeEach(() => {
   setOptionCalls = [];
   setOptionImpl = async () => {};
   killSessionCalls = [];
+  resizeWindowCalls = [];
   if (originalHost === undefined) delete process.env.MAW_HOST;
   else process.env.MAW_HOST = originalHost;
   installSpawnMocks();
@@ -308,5 +314,30 @@ describe("PTY websocket bridge", () => {
     expect(failed.sent.map(decode)).toEqual([
       JSON.stringify({ type: "error", message: "Failed to create PTY session" }),
     ]);
+  });
+
+  test("reflows window rows to the client on attach + resize (width pinned 200) and restores the pinned canvas on detach", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+    const ws = makeWs();
+    spawnPlans = [{ chunks: ["x"], autoEnd: false }];
+
+    handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "demo:oracle", cols: 70, rows: 30 }));
+    await eventually(() => ws.sent.map(decode).includes("x"), "pty output");
+    const ptyName = groupedCalls[0].ptySessionName;
+
+    // attach-time: rows from client, WIDTH PINNED to 200 (bake guard, not client cols)
+    expect(resizeWindowCalls).toContainEqual({ target: ptyName, cols: 200, rows: 30 });
+
+    // resize message: honor new rows, width still pinned, ignore client cols (45)
+    handlePtyMessage(ws as any, JSON.stringify({ type: "resize", cols: 45, rows: 26 }));
+    await eventually(() => resizeWindowCalls.some(c => c.target === ptyName && c.rows === 26), "row resize honored");
+    expect(resizeWindowCalls).toContainEqual({ target: ptyName, cols: 200, rows: 26 });
+    expect(resizeWindowCalls.every(c => c.cols === 200)).toBe(true); // width never follows client
+
+    // detach: restore the shared parent window to the pinned 200x50 canvas
+    handlePtyClose(ws as any);
+    await eventually(() => resizeWindowCalls.some(c => c.target === "demo" && c.rows === 50), "pinned-canvas restore on detach");
+    expect(resizeWindowCalls).toContainEqual({ target: "demo", cols: 200, rows: 50 });
+    await finishReaders();
   });
 });
