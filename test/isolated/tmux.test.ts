@@ -186,7 +186,7 @@ describe("Tmux", () => {
 
   describe("listPanes", () => {
     test("uses stable window-name targets, not window indexes (#1567)", async () => {
-      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000";
+      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000|||4|||9|||80|||24|||0|||1|||mawjs-oracle|||1|||160|||48|||1|||1";
 
       const panes = await t.listPanes();
 
@@ -201,6 +201,16 @@ describe("Tmux", () => {
           pid: 1234,
           cwd: "/tmp/maw",
           lastActivity: 1715840000,
+          top: 4,
+          left: 9,
+          w: 80,
+          h: 24,
+          paneIdx: 0,
+          winIdx: 1,
+          winName: "mawjs-oracle",
+          active: true,
+          window: { w: 160, h: 48, active: true },
+          attached: true,
         },
       ]);
     });

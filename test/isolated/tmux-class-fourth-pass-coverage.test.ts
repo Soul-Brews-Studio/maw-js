@@ -205,6 +205,16 @@ describe("tmux-class fourth-pass isolated coverage", () => {
         pid: 0,
         cwd: "/",
         lastActivity: 0,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
     ]);
     await expect(t.getPaneCommand("alpha:empty.0")).resolves.toBe("");

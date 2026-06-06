@@ -188,6 +188,16 @@ describe("tmux-class sixth-pass isolated coverage", () => {
         pid: undefined,
         cwd: undefined,
         lastActivity: undefined,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
     ]);
     await expect(t.getPaneCommands(["alpha:2", "alpha:3"])).resolves.toEqual({
