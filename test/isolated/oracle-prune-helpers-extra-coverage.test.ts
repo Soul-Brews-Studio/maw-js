@@ -14,6 +14,7 @@ type Session = { name: string; windows: Array<{ index?: number; name: string }> 
 let sessions: Session[] = [];
 let listSessionsError: Error | null = null;
 let ghqCalls: string[] = [];
+let ghqListResult: string[] = [];
 let ghqResults = new Map<string, string | null>();
 let logs: string[] = [];
 
@@ -56,6 +57,7 @@ mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
     ghqCalls.push(pattern);
     return ghqResults.get(pattern) ?? null;
   },
+  ghqList: async () => ghqListResult,
 }));
 
 const prune = await import("../../src/commands/plugins/oracle/impl-prune.ts?oracle-prune-helpers-extra-coverage");
@@ -114,6 +116,7 @@ beforeEach(() => {
   sessions = [];
   listSessionsError = null;
   ghqCalls = [];
+  ghqListResult = [];
   ghqResults = new Map();
   Date.now = originalDateNow;
   captureConsole();
@@ -231,27 +234,48 @@ describe("oracle prune extra isolated coverage", () => {
 
 describe("oracle helper extra isolated coverage", () => {
   test("resolveOracleSafe prefers -oracle repos, falls back to exact repo names, and reports misses", async () => {
-    ghqResults.set("/neo-oracle$", "/ghq/Soul-Brews-Studio/neo-oracle");
+    ghqListResult = ["/ghq/Soul-Brews-Studio/neo-oracle"];
     await expect(helpers.resolveOracleSafe("neo")).resolves.toEqual({
       repoPath: "/ghq/Soul-Brews-Studio/neo-oracle",
       repoName: "neo-oracle",
       parentDir: "/ghq/Soul-Brews-Studio",
     });
-    expect(ghqCalls).toEqual(["/neo-oracle$"]);
+    expect(ghqCalls).toEqual([]);
 
-    ghqCalls = [];
-    ghqResults = new Map([["/homekeeper$", "/ghq/Soul-Brews-Studio/homekeeper"]]);
+    ghqListResult = ["/ghq/Soul-Brews-Studio/neo-oracle", "/ghq/Soul-Brews-Studio/homekeeper"];
     await expect(helpers.resolveOracleSafe("homekeeper")).resolves.toEqual({
       repoPath: "/ghq/Soul-Brews-Studio/homekeeper",
       repoName: "homekeeper",
       parentDir: "/ghq/Soul-Brews-Studio",
     });
-    expect(ghqCalls).toEqual(["/homekeeper-oracle$", "/homekeeper$"]);
+    expect(ghqCalls).toEqual([]);
 
     ghqCalls = [];
-    ghqResults = new Map();
+    ghqListResult = [];
     await expect(helpers.resolveOracleSafe("missing")).resolves.toEqual({ parentDir: "", repoName: "", repoPath: "" });
-    expect(ghqCalls).toEqual(["/missing-oracle$", "/missing$"]);
+    expect(ghqCalls).toEqual([]);
+    expect(ghqListResult).toEqual([]);
+  });
+
+  test("resolveOracleSafe throws on ambiguous -oracle short-name matches", async () => {
+    ghqCalls = [];
+    ghqListResult = [
+      "/ghq/Soul-Brews-Studio/pulse-oracle",
+      "/ghq/other-org/pulse-oracle",
+    ];
+
+    await expect(helpers.resolveOracleSafe("pulse")).rejects.toThrow(/ambiguous oracle short-name 'pulse'.*2 matches/);
+    expect(ghqCalls).toEqual([]);
+    expect(ghqListResult).toHaveLength(2);
+  });
+
+  test("resolveOracleSafe throws on ambiguous short-name direct matches", async () => {
+    ghqListResult = [
+      "/ghq/Soul-Brews-Studio/neo",
+      "/ghq/other-org/neo",
+    ];
+
+    await expect(helpers.resolveOracleSafe("neo")).rejects.toThrow(/ambiguous oracle short-name 'neo'.*2 matches/);
   });
 
   test("discoverOracles merges valid fleet configs with tmux, skips disabled files, and tolerates bad sources", async () => {

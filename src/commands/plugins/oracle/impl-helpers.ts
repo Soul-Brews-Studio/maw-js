@@ -1,12 +1,38 @@
 import { listSessions, type OracleEntry } from "../../../sdk";
-import { ghqFind } from "../../../core/ghq";
+import { ghqFind, ghqList } from "../../../core/ghq";
+import { UserError } from "../../../core/util/user-error";
 import { loadFleetEntries } from "../../shared/fleet-load";
 
 /** Like resolveOracle but returns null instead of throwing on miss */
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
-  // Try oracle-oracle pattern first, then direct name (e.g., homekeeper → homelab)
-  const repoPath = (await ghqFind(`/${oracle}-oracle$`)) ?? (await ghqFind(`/${oracle}$`));
-  if (!repoPath) return { parentDir: "", repoName: "", repoPath: "" };
+  if (oracle.includes("/")) {
+    const repoPath = await ghqFind(`/${oracle}$`).catch(() => null);
+    if (!repoPath) return { parentDir: "", repoName: "", repoPath: "" };
+    return parseRepoPath(repoPath);
+  }
+
+  const repos = await ghqList().catch(() => [] as string[]);
+  const wantedOracle = `${oracle}-oracle`.toLowerCase();
+  const directName = oracle.toLowerCase();
+
+  const oracleCandidates = repos
+    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === wantedOracle);
+  if (oracleCandidates.length > 1) {
+    throw new UserError(`ambiguous oracle short-name '${oracle}' (${oracleCandidates.length} matches): ${oracleCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+  }
+  if (oracleCandidates.length === 1) return parseRepoPath(oracleCandidates[0]!);
+
+  const directCandidates = repos
+    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === directName);
+  if (directCandidates.length > 1) {
+    throw new UserError(`ambiguous oracle short-name '${oracle}' (${directCandidates.length} matches): ${directCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+  }
+  if (directCandidates.length === 1) return parseRepoPath(directCandidates[0]!);
+
+  return { parentDir: "", repoName: "", repoPath: "" };
+}
+
+function parseRepoPath(repoPath: string): { repoPath: string; repoName: string; parentDir: string } {
   const repoName = repoPath.split("/").pop()!;
   const parentDir = repoPath.replace(/\/[^/]+$/, "");
   return { repoPath, repoName, parentDir };

@@ -14,6 +14,7 @@ let sessions: Session[] = [];
 let listSessionsError: Error | null = null;
 let ghqResults = new Map<string, string | null>();
 let ghqCalls: string[] = [];
+let ghqListResult: string[] = [];
 let hostExecCalls: string[] = [];
 let hostExecQueue: Array<string | Error> = [];
 let configState: Record<string, unknown> = { node: "local" };
@@ -99,6 +100,7 @@ mock.module("maw-js/core/ghq", () => ({
     ghqCalls.push(pattern);
     return ghqResults.get(pattern) ?? null;
   },
+  ghqList: async () => ghqListResult,
 }));
 
 mock.module("maw-js/config", () => ({
@@ -188,6 +190,7 @@ beforeEach(() => {
   listSessionsError = null;
   ghqResults = new Map();
   ghqCalls = [];
+  ghqListResult = [];
   hostExecCalls = [];
   hostExecQueue = [];
   resetSendState();
@@ -212,27 +215,42 @@ afterAll(() => {
 
 describe("about impl helpers", () => {
   test("resolveOracleSafe tries -oracle first, falls back to direct repo, and returns an empty miss", async () => {
-    ghqResults.set("/parent-oracle$", "/repos/parent-oracle");
+    ghqListResult = ["/repos/parent-oracle"];
     await expect(aboutHelpers.resolveOracleSafe("parent")).resolves.toEqual({
       repoPath: "/repos/parent-oracle",
       repoName: "parent-oracle",
       parentDir: "/repos",
     });
-    expect(ghqCalls).toEqual(["/parent-oracle$"]);
+    expect(ghqCalls).toEqual([]);
 
     ghqCalls = [];
-    ghqResults = new Map([["/homekeeper$", "/repos/homekeeper"]]);
+    ghqListResult = ["/repos/parent-oracle", "/repos/homekeeper"];
     await expect(aboutHelpers.resolveOracleSafe("homekeeper")).resolves.toEqual({
       repoPath: "/repos/homekeeper",
       repoName: "homekeeper",
       parentDir: "/repos",
     });
-    expect(ghqCalls).toEqual(["/homekeeper-oracle$", "/homekeeper$"]);
+    expect(ghqCalls).toEqual([]);
 
     ghqCalls = [];
-    ghqResults = new Map();
+    ghqListResult = [];
     await expect(aboutHelpers.resolveOracleSafe("ghost")).resolves.toEqual({ parentDir: "", repoName: "", repoPath: "" });
-    expect(ghqCalls).toEqual(["/ghost-oracle$", "/ghost$"]);
+    expect(ghqCalls).toEqual([]);
+  });
+
+  test("resolveOracleSafe throws for ambiguous short-name matches", async () => {
+    ghqListResult = [
+      "/repos/Soul-Brews-Studio/pulse-oracle",
+      "/repos/other-org/pulse-oracle",
+    ];
+
+    await expect(aboutHelpers.resolveOracleSafe("pulse")).rejects.toThrow(/ambiguous oracle short-name 'pulse'.*2 matches/);
+
+    ghqListResult = [
+      "/repos/Soul-Brews-Studio/pulse",
+      "/repos/other-org/pulse",
+    ];
+    await expect(aboutHelpers.resolveOracleSafe("pulse")).rejects.toThrow(/ambiguous oracle short-name 'pulse'.*2 matches/);
   });
 
   test("discoverOracles merges fleet and tmux names, sorts, and tolerates missing sources", async () => {
