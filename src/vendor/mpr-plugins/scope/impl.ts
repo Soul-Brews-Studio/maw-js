@@ -21,8 +21,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { mawConfigDir } from "../../../core/xdg";
-import type { TScope } from "maw-js/lib/schemas";
+import { mawConfigDir, type TScope } from "maw-js/sdk";
 
 // Scope name validation — same alphabet as peers aliases. Slug-safe so the
 // name can double as a filename without escaping.

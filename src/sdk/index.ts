@@ -26,8 +26,10 @@ export {
 } from "../config";
 export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
 export { getGhqRoot } from "../config/ghq-root";
+export { mawConfigDir } from "../core/xdg";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
+export type { TScope } from "../lib/schemas";
 export type { MawConfig } from "../config";
 
 // ─── Consent ────────────────────────────────────────────────────────────────

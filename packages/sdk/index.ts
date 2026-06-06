@@ -163,7 +163,7 @@ export {
 
 // ─── src/lib/schemas ─────────────────────────────────────────────────────────
 // Profile shape (TypeBox-derived). Used by `profile` plugin.
-export type { TProfile } from "../../src/lib/schemas";
+export type { TProfile, TScope } from "../../src/lib/schemas";
 
 // ─── src/plugin/registry ─────────────────────────────────────────────────────
 // Runtime bridge for cross-plugin helper reuse. A plugin must opt in via

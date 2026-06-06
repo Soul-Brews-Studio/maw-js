@@ -386,6 +386,15 @@ export declare function tlink(url: string, text?: string): string;
 // --- src/lib/profile-loader ---
 
 /** Profile shape (mirrors src/lib/schemas.ts Profile/TProfile). */
+
+export interface TScope {
+  name: string;
+  members: string[];
+  created: string;
+  ttl: string | null;
+  lead?: string;
+}
+
 export interface TProfile {
   name: string;
   plugins?: string[];
