@@ -5,7 +5,7 @@ let paneSnapshots: string[] = [];
 let rejectCleanup = false;
 let rejectListPanes = false;
 
-mock.module("maw-js/core/transport/ssh", () => ({
+mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => {
     execCalls.push(cmd);
     if (cmd === "tmux list-panes -a -F #{pane_id}") {
@@ -16,6 +16,18 @@ mock.module("maw-js/core/transport/ssh", () => ({
       throw new Error("cleanup failed");
     }
     return "";
+  },
+  parseFlags: (args: string[], spec: Record<string, unknown>) => {
+    const out: Record<string, any> = { _: [] };
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i]!;
+      const parser = spec[arg];
+      if (!parser) out._.push(arg);
+      else if (parser === Boolean) out[arg] = true;
+      else if (typeof parser === "string") out[parser] = true;
+      else out[arg] = args[++i];
+    }
+    return out;
   },
 }));
 

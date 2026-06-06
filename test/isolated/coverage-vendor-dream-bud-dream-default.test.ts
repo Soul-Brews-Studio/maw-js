@@ -20,6 +20,8 @@ mock.module("maw-js/sdk", () => ({
     if (command === "ghq list -p 2>/dev/null") return "";
     throw new Error(`unexpected hostExec command: ${command}`);
   },
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [],
 }));
 
 mock.module("maw-js/config/ghq-root", () => ({

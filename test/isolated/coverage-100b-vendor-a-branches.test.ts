@@ -74,6 +74,9 @@ mock.module("child_process", () => ({
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => hostExecImpl(cmd),
   FLEET_DIR: join(tmpRoot || tmpdir(), "fleet"),
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [],
+  loadFleetEntries: () => fleetEntries,
 }));
 mock.module("maw-js/config/ghq-root", () => ({ getGhqRoot: () => ghqRoot }));
 mock.module("maw-js/commands/shared/wake", () => ({
