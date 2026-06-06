@@ -2,15 +2,21 @@
  * #1881 — broadcast must use isAgentCommand (not hardcoded "claude" substring)
  * so panes running thclaws / codex / configured engines are reached.
  */
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 
 let paneCommands = new Map<string, string>();
+let sessions: Array<{ name: string; windows: Array<{ index: number; name: string }> }> = [];
+let teamMembers: string[] = [];
+let fleetEntries: Array<{ groupName: string; file: string; session: { name: string } }> = [];
 let sendCalls: Array<{ target: string; text: string }> = [];
 let logs: string[] = [];
 let originalLog: typeof console.log;
 
-mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+mock.module("maw-js/sdk", () => ({
+  hostExec: async () => "",
+  listSessions: async () => [],
+  tmuxCmd: () => "tmux",
   tmux: {
     run: async (subcommand: string, ...args: string[]) => {
       if (subcommand === "display-message") {
@@ -24,30 +30,103 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
       }
       return "";
     },
-    listAll: async () => [
-      {
-        name: "77-mawjs",
-        windows: [
-          { index: 0, name: "claude-pane" },
-          { index: 1, name: "thclaws-pane" },
-          { index: 2, name: "zsh-pane" },
-        ],
-      },
-    ],
+    listAll: async () => sessions,
     sendText: async (target: string, text: string) => {
       sendCalls.push({ target, text });
     },
   },
 }));
 
-const { cmdBroadcast } = await import("../../src/vendor/mpr-plugins/broadcast/impl");
+
+mock.module(join(import.meta.dir, "../../src/lib/oracle-members"), () => ({
+  loadOracleRegistry: (teamName: string) => teamMembers.length
+    ? { name: teamName, members: teamMembers.map(oracle => ({ oracle, role: "member", addedAt: "2026-06-06T00:00:00.000Z" })), createdAt: "2026-06-06T00:00:00.000Z" }
+    : null,
+}));
+
+mock.module(join(import.meta.dir, "../../src/commands/shared/fleet-load"), () => ({
+  loadFleetEntries: () => fleetEntries,
+}));
+
+const { cmdBroadcast, parseBroadcastArgs } = await import("../../src/vendor/mpr-plugins/broadcast/impl");
 
 beforeEach(() => {
   paneCommands = new Map();
+  sessions = [
+    {
+      name: "77-mawjs",
+      windows: [
+        { index: 0, name: "claude-pane" },
+        { index: 1, name: "thclaws-pane" },
+        { index: 2, name: "zsh-pane" },
+      ],
+    },
+  ];
+  teamMembers = [];
+  fleetEntries = [];
   sendCalls = [];
   logs = [];
   originalLog = console.log;
   console.log = (...args: any[]) => logs.push(args.map(String).join(" "));
+
+});
+
+afterEach(() => {
+  console.log = originalLog;
+});
+
+test("parses scope flags and preserves unquoted message", () => {
+  expect(parseBroadcastArgs(["--session", "77-mawjs", "--team", "builders", "--fleet", "mawjs", "hello", "team"])).toEqual({
+    message: "hello team",
+    scope: { session: "77-mawjs", team: "builders", fleet: "mawjs" },
+  });
+});
+
+test("--session limits broadcast to panes in that session", async () => {
+  sessions = [
+    { name: "77-mawjs", windows: [{ index: 0, name: "neo" }] },
+    { name: "88-other", windows: [{ index: 0, name: "trinity" }] },
+  ];
+  paneCommands.set("77-mawjs:0", "claude");
+  paneCommands.set("88-other:0", "claude");
+
+  await cmdBroadcast("hello", { session: "77-mawjs" });
+  console.log = originalLog;
+
+  expect(sendCalls.map(c => c.target)).toEqual(["77-mawjs:0"]);
+  expect(logs.some(l => l.includes("scope: session=77-mawjs"))).toBe(true);
+});
+
+test("--team limits broadcast to charter/member windows", async () => {
+  sessions = [
+    { name: "77-mawjs", windows: [{ index: 0, name: "builder" }, { index: 1, name: "reviewer-oracle" }, { index: 2, name: "bystander" }] },
+  ];
+  teamMembers = ["builder-oracle", "reviewer"];
+  paneCommands.set("77-mawjs:0", "claude");
+  paneCommands.set("77-mawjs:1", "codex");
+  paneCommands.set("77-mawjs:2", "claude");
+
+  await cmdBroadcast("standup", { team: "alpha" });
+  console.log = originalLog;
+
+  expect(sendCalls.map(c => c.target)).toEqual(["77-mawjs:0", "77-mawjs:1"]);
+  expect(logs.some(l => l.includes("scope: team=alpha"))).toBe(true);
+});
+
+test("--fleet limits broadcast to fleet-tagged session", async () => {
+  sessions = [
+    { name: "01-neo", windows: [{ index: 0, name: "neo" }] },
+    { name: "02-trinity", windows: [{ index: 0, name: "trinity" }] },
+  ];
+  fleetEntries = [{ groupName: "neo", file: "01-neo.json", session: { name: "01-neo" } }];
+  paneCommands.set("01-neo:0", "claude");
+  paneCommands.set("02-trinity:0", "claude");
+
+  await cmdBroadcast("ping", { fleet: "neo" });
+  console.log = originalLog;
+
+  expect(sendCalls.map(c => c.target)).toEqual(["01-neo:0"]);
+  expect(logs.some(l => l.includes("scope: fleet=neo"))).toBe(true);
 });
 
 describe("broadcast agent detection (#1881)", () => {
