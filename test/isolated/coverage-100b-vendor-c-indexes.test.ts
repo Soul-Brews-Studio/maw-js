@@ -25,16 +25,28 @@ function record(name: string, ...args: unknown[]) {
 
 const sdkMock = {
   resolveSessionTarget: (target: string, rows: any[]) => {
-    const match = rows.find(row => row.name === target) ?? rows[0];
-    return match ? { kind: "exact", match } : { kind: "none", hints: [] };
+    const match = rows.find(row => row.name === target);
+    if (match) return { kind: "exact", match };
+    const hints = rows.filter(row => String(row.name).includes(target));
+    return { kind: "none", hints };
   },
   listSessions: async () => sessions,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return await hostExecImpl(cmd); },
+  capture: async () => "",
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
   tmuxCmd: () => "tmux",
   tmux: "tmux",
   FLEET_DIR: "/tmp/fleet",
   CONFIG_DIR: "/tmp/config",
   MAW_ROOT: "/tmp/maw",
+  mawStatePath: (...parts: string[]) => ["/tmp/maw-state", ...parts].join("/"),
+  mawConfigPath: (...parts: string[]) => ["/tmp/maw-config", ...parts].join("/"),
+  mawDataPath: (...parts: string[]) => ["/tmp/maw-data", ...parts].join("/"),
+  isMessageLifecycleData: (data: unknown) => Boolean((data as any)?.id),
+  loadConfig: () => ({ host: "local", disabledPlugins: [] }),
+  scanWorktrees: () => [],
+  cleanupWorktree: async () => undefined,
   resolveTarget: () => resolveTargetResult,
   curlFetch: async () => ({ ok: true, data: { ok: true, target: "remote:1" } }),
   Tmux: class { async sendKeysLiteral(target: string, text: string) { sendKeysLiteralCalls.push([target, text]); } },
@@ -45,6 +57,8 @@ const sdkMock = {
   parseFlags: (args: string[]) => ({ _: args.filter((a) => !String(a).startsWith("--")) }),
 };
 mock.module("maw-js/sdk", () => sdkMock);
+mock.module("@maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../packages/sdk/index.ts"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 mock.module("maw-js/config", () => ({ loadConfig: () => ({ host: "local", disabledPlugins: [] }) }));
@@ -54,6 +68,12 @@ mock.module("maw-js/core/transport/tmux", () => ({
   Tmux: class { async run(...args: string[]) { return await tmuxRunImpl(...args); } },
 }));
 
+
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/contacts/impl.ts"), () => ({
+  cmdContactsLs: async () => record("contacts-ls"),
+  cmdContactsAdd: async (name: string, args: string[]) => record("contacts-add", name, args),
+  cmdContactsRm: async (name: string) => record("contacts-rm", name),
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/kill/impl.ts"), () => ({ cmdKill: async (target: string, opts: unknown) => record("kill", target, opts) }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/kill/internal/peer-resolve.ts"), () => ({
   resolvePeer: (alias: string) => peerMode === "missing" ? null : ({ url: `http://${alias}.invalid` }),
@@ -66,7 +86,10 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/kill/internal/peer
     return { ok: true, data: { output: "remote killed" } };
   },
 }));
-mock.module("maw-js/commands/shared/wake", () => ({ cmdWake: async (oracle: string, opts: unknown) => record("wake", oracle, opts) }));
+mock.module("maw-js/commands/shared/wake", () => ({
+  cmdWake: async (oracle: string, opts: unknown) => record("wake", oracle, opts),
+  resolveFleetSession: (oracle: string) => oracle === "alpha" ? "alpha" : null,
+}));
 mock.module("maw-js/commands/shared/fleet", () => ({ cmdWakeAll: async (opts: unknown) => record("wake-all", opts) }));
 mock.module("maw-js/commands/shared/wake-target", () => ({
   parseWakeTarget: () => null,
@@ -100,7 +123,10 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/messages/ledger.ts
   messageLedgerDbPath: () => "/tmp/messages.db",
   recordMessageLedgerEvent: (data: unknown) => calls.push(["message-event", data]),
 }));
-mock.module("maw-js/lib/message-events", () => ({ isMessageLifecycleData: (data: unknown) => Boolean((data as any)?.id) }));
+mock.module("maw-js/lib/message-events", () => ({
+  isMessageLifecycleData: (data: unknown) => Boolean((data as any)?.id),
+  buildMessageLifecycleFeedEvent: (data: any) => ({ event: "MessageSend", data }),
+}));
 mock.module(import.meta.resolve("../../src/commands/plugins/plugin/registry-fetch.ts"), () => ({
   registryUrl: () => "https://registry.invalid/plugins.json",
   getRegistry: async () => registry,
