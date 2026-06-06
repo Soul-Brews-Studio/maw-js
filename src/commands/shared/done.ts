@@ -6,6 +6,7 @@ import { listSessions, hostExec, tmux, takeSnapshot } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { mawDataPath } from "../../core/xdg";
+import { pruneJsonlFile } from "../../vendor/mpr-plugins/messages/retention";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 
 export interface DoneOpts {
@@ -383,7 +384,9 @@ export function signalParentInbox(
     JSON.stringify({ ts: d.now().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
   try {
     d.fs.mkdirSync(inboxDir, { recursive: true });
-    d.fs.appendFileSync(join(inboxDir, `${parentTarget}.jsonl`), signal);
+    const signalPath = join(inboxDir, `${parentTarget}.jsonl`);
+    d.fs.appendFileSync(signalPath, signal);
+    pruneJsonlFile(signalPath);
   } catch (e) {
     d.logger.error(`  \x1b[33m⚠\x1b[0m inbox signal failed: ${e}`);
   }

@@ -49,6 +49,14 @@ export interface MawSnapshotRetention {
   maxAgeDays?: number;
 }
 
+
+export interface MawRetentionPolicy {
+  /** Keep at least the newest N records. */
+  keepLast?: number;
+  /** Remove records older than D days. */
+  maxAgeDays?: number;
+}
+
 export interface MawLimits {
   feedMax?: number;
   feedDefault?: number;
@@ -209,6 +217,8 @@ export interface MawConfig {
   disabledPlugins?: string[];
   /** Fleet snapshot retention policy (#2146). */
   snapshotRetention?: MawSnapshotRetention;
+  /** Message/inbox retention policy (#2165). */
+  messageRetention?: MawRetentionPolicy;
   /** One-shot config migrations already applied. */
   migrations?: Record<string, boolean>;
 }

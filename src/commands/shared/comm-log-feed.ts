@@ -5,6 +5,7 @@
 
 import { loadConfig } from "../../config";
 import { appendFile, mkdir } from "fs/promises";
+import { pruneJsonlFile } from "../../vendor/mpr-plugins/messages/retention";
 import { hostname } from "os";
 import { dirname } from "path";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
@@ -24,7 +25,7 @@ export async function logMessage(from: string, to: string, msg: string, route: s
     host: hostname(),
     route,
   }) + "\n";
-  try { await mkdir(dirname(logFile), { recursive: true }); await appendFile(logFile, line); } catch {}
+  try { await mkdir(dirname(logFile), { recursive: true }); await appendFile(logFile, line); pruneJsonlFile(logFile); } catch {}
 }
 
 /** Emit feed event to server plugin pipeline (CLI → server bridge) */

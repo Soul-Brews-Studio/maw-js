@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { mawConfigPath, mawDataPath, type MessageDirection, type MessageLifecycleData, type MessageState } from "@maw-js/sdk";
+import { resolveMessageRetentionPolicy, type RetentionPolicy } from "./retention";
 
 export interface MessageLedgerQuery {
   limit?: number;
@@ -21,6 +22,12 @@ export interface MessageLedgerRow extends MessageLifecycleData {
 
 export interface MessageLedgerRetentionPolicy {
   maxMessages?: number;
+}
+
+export interface MessageLedgerRetentionSummary {
+  retained: number;
+  removed: number;
+  policy: { keepLast: number; maxAgeDays: number };
 }
 
 export const DEFAULT_MAX_MESSAGES = 50_000;
@@ -106,9 +113,26 @@ export function recordMessageLedgerEvent(event: MessageLifecycleData): void {
       $lastLine: event.lastLine ?? null,
       $signed: event.signed ? 1 : 0,
     });
-    pruneMessageLedgerDb(db);
+    pruneMessageLedgerEvents({}, db);
+
   } finally {
     db.close();
+  }
+}
+
+export function pruneMessageLedgerEvents(policy: RetentionPolicy = {}, dbOverride?: Database): MessageLedgerRetentionSummary {
+  const db = dbOverride ?? openDb();
+  try {
+    const resolved = resolveMessageRetentionPolicy(policy);
+    const now = policy.now ?? new Date();
+    const cutoff = new Date(now.getTime() - resolved.maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
+    const before = Number((db.query("SELECT COUNT(*) AS count FROM messages").get() as any)?.count || 0);
+    db.query("DELETE FROM messages WHERE ts < $cutoff AND id NOT IN (SELECT id FROM messages ORDER BY ts DESC LIMIT $keepLast)").run({ $cutoff: cutoff, $keepLast: resolved.keepLast });
+    db.query("DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY ts DESC LIMIT $keepLast)").run({ $keepLast: resolved.keepLast });
+    const retained = Number((db.query("SELECT COUNT(*) AS count FROM messages").get() as any)?.count || 0);
+    return { retained, removed: Math.max(0, before - retained), policy: resolved };
+  } finally {
+    if (!dbOverride) db.close();
   }
 }
 
