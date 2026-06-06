@@ -16,7 +16,7 @@ type ResolvedTarget =
 
 type CurlResult = { ok: boolean; status?: number; data?: any };
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let findPeerUrl: string | null;
@@ -35,10 +35,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsReturn,
   capture: async () => "accepted",
   sendKeys: async () => {},
@@ -166,20 +166,23 @@ afterAll(() => {
 });
 
 describe("cmdSend failure and forgiving branches", () => {
-  test("cross-node auto-wake failure exits before peer send", async () => {
+  test("cross-node auto-wake failure falls through to peer send", async () => {
     config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
     shouldWake = true;
     resolveTargetReturn = { type: "peer", target: "oracle", node: "remote", peerUrl: "http://remote:3456" };
-    curlFetchHandler = () => ({ ok: false, status: 503, data: { error: "wake offline" } });
+    curlFetchHandler = (url) => url.endsWith("/api/wake")
+      ? { ok: false, status: 503, data: { error: "wake offline" } }
+      : { ok: true, status: 200, data: { ok: true, target: "oracle.0", lastLine: "ack", state: "delivered" } };
 
     await runCmd(() => cmdSend("remote:oracle", "hello", false, { receiverInbox: false }));
 
-    expect(exitCode).toBe(1);
-    expect(curlFetchCalls).toHaveLength(1);
+    expect(exitCode).toBeUndefined();
+    expect(curlFetchCalls).toHaveLength(2);
     expect(curlFetchCalls[0].url).toBe("http://remote:3456/api/wake");
     expect(JSON.parse(curlFetchCalls[0].options.body)).toEqual({ target: "oracle" });
-    expect(errs.join("\n")).toContain("cross-node wake failed for oracle: wake offline");
-    expect(runHookCalls).toEqual([]);
+    expect(curlFetchCalls[1].url).toBe("http://remote:3456/api/send");
+    expect(JSON.parse(curlFetchCalls[1].options.body)).toEqual({ target: "oracle", text: "[test-node:sender] hello" });
+    expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "remote:oracle", message: "[test-node:sender] hello" } }]);
   });
 
   test("peer send failure emits failed lifecycle and exits with remote hint", async () => {

@@ -29,7 +29,7 @@ type ReceiverInboxResult =
   | { ok: false; reason: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let findPeerUrl: string | null;
@@ -58,10 +58,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return tmuxPaneList; }
     async tryRun() { return tmuxPaneList; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsReturn,
   capture: async () => {
     const next = captureResponses.shift();
@@ -350,7 +350,7 @@ describe("comm-send thirteenth-pass cmdSend branches", () => {
     resolveTargetReturn = { type: "self-node", target: "session:oracle" };
     tmuxPaneList = "0 bash\n3 node\n1 codex\n";
     getPaneCommandReturn = "vim";
-    captureResponses = ["final line after send"];
+    captureResponses = ["submitted", "final line after send"];
     defaultInboxResult = { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
 
     await runCmd(() => cmdSend("test-node:session:oracle", "forced", true));
@@ -358,7 +358,7 @@ describe("comm-send thirteenth-pass cmdSend branches", () => {
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.1", text: "[test-node:sender] forced" }]);
     expect(defaultInboxCalls[0]).toMatchObject({ target: "session:oracle.1", from: "test-node:sender" });
-    expect(sleepCalls).toEqual([150]);
+    expect(sleepCalls).toEqual([800, 150]);
     expect(logMessageCalls[0]).toMatchObject({ route: "local" });
     expect(logs.join("\n")).toContain("final line after send");
   });

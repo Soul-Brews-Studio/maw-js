@@ -15,7 +15,7 @@ type ResolvedTarget =
   | { type: "error"; detail: string; hint?: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let captureResponses: string[];
@@ -31,10 +31,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsReturn,
   capture: async () => captureResponses.shift() ?? "",
   sendKeys: async (target: string, text: string) => {
@@ -159,7 +159,7 @@ describe("comm-send fourteenth-pass uncovered branches", () => {
     await runCmd(() => cmdSend("local:session:oracle", "wait for idle", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toEqual([150]);
+    expect(sleepCalls).toEqual([800, 150]);
     expect(defaultInboxCalls).toEqual([]);
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] wait for idle" }]);
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] wait for idle" } }]);

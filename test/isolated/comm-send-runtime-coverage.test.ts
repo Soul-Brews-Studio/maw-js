@@ -52,10 +52,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsReturn,
   capture: async (target: string, lines: number, host?: string) => {
     captureCalls.push({ target, lines, host });

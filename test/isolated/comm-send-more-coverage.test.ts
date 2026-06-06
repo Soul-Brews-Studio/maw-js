@@ -26,7 +26,7 @@ type ReceiverInboxInput = {
   config: any;
 };
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsQueue: any[][];
 let resolveTargetReturn: ResolvedTarget;
 let findPeerUrl: string | null;
@@ -51,10 +51,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsQueue.length > 1 ? listSessionsQueue.shift()! : listSessionsQueue[0],
   capture: async (target: string, lines: number, host?: string) => {
     captureCalls.push({ target, lines, host });

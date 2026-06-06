@@ -22,7 +22,7 @@ type ReceiverInboxResult =
   | { ok: false; reason: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
 let listSessionsReturn: any[];
 let listSessionsCalls: number;
 let resolveTargetReturn: ResolvedTarget;
@@ -60,10 +60,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return tmuxPaneList; }
     async tryRun() { return tmuxPaneList; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => {
     listSessionsCalls += 1;
     return listSessionsReturn;
