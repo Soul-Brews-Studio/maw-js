@@ -101,7 +101,7 @@ describe("src/commands/plugins/config/index.ts", () => {
     const result = await run(["show"], (...parts) => logs.push(parts.map(String).join(" ")));
 
     const parsed = JSON.parse(logs.join("\n"));
-    expect(result).toEqual({ ok: true, output: logs.join("\n") });
+    expect(result).toEqual({ ok: true, output: undefined });
     expect(loadCallCount).toBe(1);
     expect(parsed).toMatchObject(loadedConfig.config);
     expect(lastLoadOptions).toEqual({ cwd: process.cwd() });
