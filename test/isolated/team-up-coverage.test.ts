@@ -8,7 +8,7 @@ import { tmpdir } from "os";
 // (core), which is tested but NOT dispatched, so `maw team up` was unreachable
 // despite green tests. Guard the copy that actually ships.
 import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-charter";
-import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget } from "../../src/vendor/mpr-plugins/team/team-liveness";
+import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
 import { cmdTeamUp } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 
@@ -172,6 +172,89 @@ members:
     expect(wakes).toEqual([[expect.any(String), { wt: "mawjs-oss-world", engine: "claude", session: "charter-session", repoPath: root, channels: true }]]);
   });
 
+
+
+
+  test("node yaml charter is resolved from config.node and new agents map defaults to worktrees", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-yaml-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+project: soul-brews-studio/maw-js
+discord: mawjs
+agents:
+  codex:
+    engine: omx
+    prompt: inline hello
+  oss-world:
+    engine: claude
+    discord: false
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+
+    expect(resolveCharterPath("missing-team", root, "m5")).toBe(join(root, ".maw", "m5.yaml"));
+
+    const status = await cmdTeamUp("missing-team", { status: true, session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      logger: () => {},
+    });
+
+    expect(status.roster.map((m) => [m.role, m.engine, m.worktree, m.state])).toEqual([
+      ["codex", "omx", "codex", "missing"],
+      ["oss-world", "claude", "oss-world", "missing"],
+    ]);
+    expect(status.output).toContain("codex\tomx\tmissing\twakeable --wt codex -e omx --session charter-session --channels");
+    expect(status.output).toContain("oss-world\tclaude\tmissing\twakeable --wt oss-world -e claude --session charter-session");
+    expect(status.output).not.toContain("oss-world\tclaude\tmissing\twakeable --wt oss-world -e claude --session charter-session --channels");
+  });
+
+  test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    mkdirSync(join(root, "prompts"), { recursive: true });
+    writeFileSync(join(root, "prompts", "claude48.md"), "file prompt\n", "utf-8");
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+project: soul-brews-studio/maw-js
+discord: mawjs
+agents:
+  codex:
+    engine: omx
+    prompt: |
+      inline prompt
+  claude48:
+    engine: claude48
+    prompt: ./prompts/claude48.md
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+    const wakes: any[] = [];
+    const sends: any[] = [];
+
+    await cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(wakes).toEqual([
+      ["soul-brews-studio/maw-js", { wt: "codex", engine: "omx", session: "charter-session", repoPath: root, channels: true }],
+      ["soul-brews-studio/maw-js", { wt: "claude48", engine: "claude48", session: "charter-session", repoPath: root, channels: true }],
+    ]);
+    expect(sends).toEqual([
+      ["codex", "inline prompt", false],
+      ["claude48", "file prompt", false],
+    ]);
+  });
 
   test("semantic role adopts live window by charter member name", async () => {
     const root = tempRepo();

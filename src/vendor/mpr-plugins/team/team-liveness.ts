@@ -55,12 +55,16 @@ export function memberWakeTarget(repoSlug: string, member: TeamCharterMember): s
   return repoSlug;
 }
 
-export function memberWakeOptions(member: TeamCharterMember, opts: WakeOptions & { engine: string; session: string; repoPath: string }): WakeOptions {
+export function memberWakeOptions(
+  member: TeamCharterMember,
+  opts: WakeOptions & { engine: string; session: string; repoPath: string },
+): WakeOptions {
+  const channels = opts.channels === undefined ? (member.channels === true) : opts.channels;
   const base: WakeOptions = {
     engine: opts.engine,
     session: opts.session,
     repoPath: opts.repoPath,
-    ...(member.channels === true ? { channels: true } : {}),
+    ...(channels ? { channels: true } : {}),
   };
   if (member.worktree === false) return base;
   return { ...base, wt: memberWorktree(member) };
@@ -103,12 +107,14 @@ export function findRepoRoot(cwd = process.cwd()): string {
   }
 }
 
-export function resolveCharterPath(team: string, cwd = process.cwd()): string | null {
+export function resolveCharterPath(team: string, cwd = process.cwd(), configNode?: string): string | null {
   const root = findRepoRoot(cwd);
   const local = join(root, ".maw", "teams", `${team}.yaml`);
   if (existsSync(local)) return local;
   const psi = join(root, "ψ", "teams", `${team}.yaml`);
   if (existsSync(psi)) return psi;
+  const nodeCandidate = configNode ? join(root, ".maw", `${configNode}.yaml`) : "";
+  if (configNode && existsSync(nodeCandidate)) return nodeCandidate;
   return null;
 }
 

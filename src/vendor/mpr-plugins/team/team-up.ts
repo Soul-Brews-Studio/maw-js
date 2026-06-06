@@ -2,11 +2,14 @@
 // (~/.maw/plugins/team → src/vendor/mpr-plugins/team), not src/commands/plugins/team.
 // Paths differ from the core copy: charter is a sibling here, and commands/shared
 // is three levels up (vendored dir is src/vendor/mpr-plugins/team).
+import { existsSync, readFileSync } from "fs";
+import { resolve } from "path";
 import { readTeamCharter, type TeamCharter } from "./team-charter";
 import { loadConfig } from "../../../config/load";
 import type { MawConfig } from "../../../config/types";
 import { Tmux } from "../../../core/transport/tmux";
 import { cmdWake } from "../../../commands/shared/wake-cmd";
+import { cmdSend } from "../../../commands/shared/comm-send";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
 import {
   classifyMember,
@@ -17,6 +20,7 @@ import {
   repoSlugFromRoot,
   resolveCharterPath,
   memberWakeTarget,
+  memberWindowIdentity,
   wakeMember,
   type ClassifiedTeamMember,
 } from "./team-liveness";
@@ -54,6 +58,7 @@ export interface TeamUpDeps {
   readTeamCharterFn?: typeof readTeamCharter;
   loadConfigFn?: typeof loadConfig;
   cmdWakeFn?: typeof cmdWake;
+  cmdSendFn?: typeof cmdSend;
   sleep?: (ms: number) => Promise<void>;
   repoRoot?: string;
   repoSlug?: string;
@@ -100,31 +105,67 @@ function warnOnPathCollisions(roster: ClassifiedTeamMember[], warnings: string[]
   }
 }
 
-function wakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string): string {
-  if (item.member.worktree === false) {
-    return `wakeable ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${item.member.channels ? " --channels" : ""}`;
-  }
-  return `wakeable --wt ${item.worktree} -e ${item.engine} --session ${session}${item.member.channels ? " --channels" : ""}`;
+function memberChannels(charter: TeamCharter, member: TeamCharter["members"][number]): boolean {
+  if (member.discord === false) return false;
+  if (charter.discord && charter.discord !== false) return true;
+  return member.channels === true;
 }
 
-function freshWakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, prefix = "would fresh wake"): string {
+function channelFlag(channels: boolean): string {
+  return channels ? " --channels" : "";
+}
+
+function wakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false): string {
   if (item.member.worktree === false) {
-    return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${item.member.channels ? " --channels" : ""}`;
+    return `wakeable ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
   }
-  return `${prefix} --wt ${item.worktree} -e ${item.engine} --session ${session}${item.member.channels ? " --channels" : ""}`;
+  return `wakeable --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+}
+
+function freshWakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false, prefix = "would fresh wake"): string {
+  if (item.member.worktree === false) {
+    return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+  }
+  return `${prefix} --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+}
+
+function resolvePrimingPrompt(member: TeamCharter["members"][number], repoRoot: string): string | undefined {
+  const prompt = member.prompt?.trim();
+  if (!prompt) return undefined;
+  if (!prompt.startsWith("./")) return prompt;
+  const path = resolve(repoRoot, prompt);
+  if (!existsSync(path)) throw new Error(`prompt file not found for ${member.role}: ${prompt}`);
+  return readFileSync(path, "utf-8").trim();
+}
+
+async function primeMember(
+  member: TeamCharter["members"][number],
+  repoRoot: string,
+  deps: Pick<TeamUpDeps, "cmdSendFn">,
+  warnings: string[],
+): Promise<void> {
+  const prompt = resolvePrimingPrompt(member, repoRoot);
+  if (!prompt) return;
+  const send = deps.cmdSendFn ?? cmdSend;
+  try {
+    await send(memberWindowIdentity(member), prompt, false);
+  } catch (error) {
+    warnings.push(`prompt prime failed for ${member.role}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: TeamUpDeps = {}): Promise<TeamUpResult> {
   const cwd = deps.cwd ?? process.cwd();
-  const charterPath = deps.charterPath !== undefined ? deps.charterPath : resolveCharterPath(team, cwd);
-  if (!charterPath) throw new Error(`charter not found: ${team}`);
+  const config: MawConfig = (deps.loadConfigFn ?? loadConfig)();
+  const charterPath = deps.charterPath !== undefined ? deps.charterPath : resolveCharterPath(team, cwd, config.node);
+  if (!charterPath) throw new Error(config.node ? `charter not found: ${team} (no team file for node '${config.node}')` : `charter not found: ${team}`);
 
   const read = deps.readTeamCharterFn ?? readTeamCharter;
   const charter: TeamCharter = read(charterPath);
   const tmux = deps.tmux ?? new Tmux();
-  const config: MawConfig = (deps.loadConfigFn ?? loadConfig)();
   const repoRoot = deps.repoRoot ?? findRepoRoot(cwd);
   const repoSlug = deps.repoSlug ?? repoSlugFromRoot(repoRoot);
+  const targetRepoSlug = charter.project ?? repoSlug;
   const currentSession = await currentTmuxSession(tmux).catch(() => "");
   const session = opts.session?.trim() || charter.session || currentSession;
   if (!session) throw new Error(`session required: pass --session <name> when running team up outside tmux and charter.session is omitted`);
@@ -137,13 +178,13 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
 
   const panes = await listPaneSnapshots(tmux);
   const only = opts.only?.length ? new Set(opts.only.map((item) => item.trim()).filter(Boolean)) : undefined;
-  const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug }));
+  const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
   const actions: TeamUpAction[] = [];
 
   if (opts.status) {
     for (const item of roster) {
       if (item.state === "skipped") actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
-      else if (item.state === "missing") actions.push({ role: item.role, state: item.state, action: wakePlan(item, repoSlug, session) });
+      else if (item.state === "missing") actions.push({ role: item.role, state: item.state, action: wakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)) });
       else if (item.state === "dead") actions.push({ role: item.role, state: item.state, action: "wakeable resume in place" });
       else actions.push({ role: item.role, state: item.state, action: "skip live" });
     }
@@ -159,7 +200,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         actions.push({ role: item.role, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
       } else if (opts.force) {
         const command = engineCommand(item.engine, { resume: false }, config);
-        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, repoSlug, session, "would force fresh wake"), command });
+        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
       } else if (item.state === "live") {
         actions.push({ role: item.role, state: item.state, action: "skip live" });
       } else if (item.state === "dead") {
@@ -167,7 +208,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         actions.push({ role: item.role, state: item.state, action: "would relaunch in place with resume", command });
       } else {
         const command = engineCommand(item.engine, { resume: false }, config);
-        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, repoSlug, session), command });
+        actions.push({ role: item.role, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)), command });
       }
     }
     warnOnPathCollisions(roster, warnings);
@@ -183,26 +224,29 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
     } else if (opts.force) {
       if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
       const command = engineCommand(item.engine, { resume: false }, config);
-      await wakeMember(repoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot }, { cmdWakeFn: deps.cmdWakeFn });
+      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, state: item.state, action: "force fresh wake", command });
-      await waitForNonShell(item.member, session, tmux, sleep, repoSlug);
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
     } else if (item.state === "live") {
       actions.push({ role: item.role, state: item.state, action: "skip live" });
     } else if (item.state === "dead") {
       const command = engineCommand(item.engine, { resume: true }, config);
       await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
       actions.push({ role: item.role, state: item.state, action: "resume in place", command });
-      await waitForNonShell(item.member, session, tmux, sleep, repoSlug);
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
     } else {
       const command = engineCommand(item.engine, { resume: false }, config);
-      await wakeMember(repoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot }, { cmdWakeFn: deps.cmdWakeFn });
+      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, state: item.state, action: "fresh wake", command });
-      await waitForNonShell(item.member, session, tmux, sleep, repoSlug);
+      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await primeMember(item.member, repoRoot, deps, warnings);
     }
   }
 
   const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);
-  const finalRoster = charter.members.map((member) => classifyMember(member, finalPanes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug }));
+  const finalRoster = charter.members.map((member) => classifyMember(member, finalPanes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
   warnOnPathCollisions(finalRoster, warnings);
 
   if (opts.gather) {

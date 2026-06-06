@@ -114,6 +114,33 @@ governance:
     expect(charter.governance?.requires_human_approval).toBe(false);
   });
 
+
+
+  test("parses node yaml project, discord, and agents map", () => {
+    const charter = parseTeamCharterText(`
+name: m5-team
+project: soul-brews-studio/maw-js
+discord: mawjs
+agents:
+  codex:
+    engine: omx
+    prompt: |
+      inline prompt
+  oss-world:
+    engine: claude
+    discord: false
+    prompt: ./prompts/bridge.md
+`);
+
+    expect(charter.project).toBe("soul-brews-studio/maw-js");
+    expect(charter.discord).toBe("mawjs");
+    expect(charter.warnings).toBeUndefined();
+    expect(charter.members).toEqual([
+      { role: "codex", engine: "omx", prompt: "inline prompt" },
+      { role: "oss-world", engine: "claude", discord: false, prompt: "./prompts/bridge.md" },
+    ]);
+  });
+
   test("warns and ignores unknown top-level and member keys", () => {
     const charter = parseTeamCharterText(`
 name: warn-team
