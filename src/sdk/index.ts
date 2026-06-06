@@ -149,6 +149,7 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export { parseFlags } from "../cli/parse-args";
+export { tlink } from "../core/util/terminal";
 
 // Plugin extraction helpers for tab-like command surfaces.
 export { cmdPeek, cmdSend } from "../commands/shared/comm";

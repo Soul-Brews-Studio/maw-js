@@ -20,9 +20,15 @@ mock.module("child_process", () => ({
   },
 }));
 
-mock.module("maw-js/core/util/terminal", () => ({
+const sdkMock = {
   tlink: (url: string) => `<${url}>`,
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => sdkMock);
 
 const { TOOLS, checkTool, cmdCheck } = await import("../../src/vendor/mpr-plugins/check/impl");
 
