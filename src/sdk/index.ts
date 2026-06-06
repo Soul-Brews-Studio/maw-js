@@ -130,6 +130,16 @@ export {
 } from "../lib/artifacts";
 export type { ArtifactMeta, ArtifactSummary } from "../lib/artifacts";
 
+// ─── Profile Loader ─────────────────────────────────────────────────────────
+
+export {
+  getActiveProfile,
+  loadAllProfiles,
+  loadProfile,
+  setActiveProfile,
+} from "../lib/profile-loader";
+export type { TProfile } from "../lib/schemas";
+
 // ─── Plugin System ───────────────────────────────────────────────────────────
 
 export { discoverPackages, importPluginSymbol, invokePlugin } from "../plugin/registry";
