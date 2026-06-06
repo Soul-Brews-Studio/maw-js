@@ -455,8 +455,8 @@ function uniqueStrings(values: string[]): string[] {
  * window it reached. Intentionally narrow to avoid false positives:
  *   - Only fires for `-oracle`-suffixed intents (operator named a specific
  *     oracle window). Bare session aliases (`mawjs` → `mawjs-oracle`) and
- *     explicit `session:index` / pane forms are exempt — the latter satisfies
- *     the "full-form bypass" escape hatch.
+ *     explicit `session:index` / `peer:session:window` pane forms are exempt
+ *     — the latter satisfies the "full-form bypass" escape hatch.
  *   - No warning when the resolved window's name matches the intent
  *     (modulo a leading `NN-` and case).
  */
@@ -465,10 +465,12 @@ export function detectWindowMismatch(
   resolvedTarget: string,
   sessions: Session[],
 ): string | null {
-  // Explicit tmux address forms are operator-chosen — never second-guess them.
-  if (!query || query.includes(":")) return null;
+  if (!query) return null;
 
-  const qNorm = query.trim().toLowerCase().replace(/^\d+-/, "");
+  const intent = windowMismatchIntent(query);
+  if (!intent) return null;
+
+  const qNorm = intent.toLowerCase().replace(/^\d+-/, "");
   if (!qNorm.endsWith("-oracle")) return null;
 
   const addr = resolvedTarget.match(/^(.+):(\d+)(?:\.\d+)?$/);
@@ -483,9 +485,23 @@ export function detectWindowMismatch(
 
   return (
     `delivered to ${resolvedTarget} (window '${win.name}'), but target was '${query}' — ` +
-    `resolved window is not named '${query.trim()}'; the message may have landed on the ` +
+    `resolved window is not named '${intent}'; the message may have landed on the ` +
     `wrong pane. Use the full 'peer:session:window' form to disambiguate.`
   );
+}
+
+function windowMismatchIntent(query: string): string | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split(":").filter(Boolean);
+  if (parts.length >= 3) return null; // Full peer:session:window form.
+  if (parts.length === 2) {
+    const targetPart = parts[1]!.trim();
+    if (/^\d+(?:\.\d+)?$/.test(targetPart)) return null; // Explicit session:index(.pane).
+    return targetPart || null;
+  }
+  return trimmed;
 }
 
 /**

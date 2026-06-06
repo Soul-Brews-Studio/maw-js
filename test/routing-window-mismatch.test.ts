@@ -33,6 +33,14 @@ describe("detectWindowMismatch (#1980)", () => {
   test("explicit session:index form bypasses the check (full-form escape hatch)", () => {
     expect(detectWindowMismatch("mawjs:0", "mawjs:0", SESSIONS)).toBeNull();
     expect(detectWindowMismatch("01-mawjs:1", "01-mawjs:1", SESSIONS)).toBeNull();
+    expect(detectWindowMismatch("oracle-world-oracle:mawjs:0", "mawjs:0", SESSIONS)).toBeNull();
+  });
+
+  test("warns for node-prefixed short-form oracle targets", () => {
+    const warning = detectWindowMismatch("oracle-world-oracle:mawjs-oracle", "mawjs:0", SESSIONS);
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("oracle-world-oracle:mawjs-oracle");
+    expect(warning).toContain("mawjs-oracle");
   });
 
   test("bare session alias resolving to its -oracle window is not flagged", () => {
