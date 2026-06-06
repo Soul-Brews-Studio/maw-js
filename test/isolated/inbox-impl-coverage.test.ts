@@ -71,6 +71,7 @@ beforeEach(() => {
   ghqRepos = {};
   fleetEntries = [];
   commSendCalls.length = 0;
+  process.chdir(rootDir);
 });
 
 function inboxFilenameAt(ms: number, suffix: string): string {
@@ -565,6 +566,83 @@ describe("inbox impl utility surface", () => {
     expect(existsSync(join(processed, "frontmatter-only-2.md"))).toBe(true);
     expect(existsSync(join(inbox, "frontmatter-only.md"))).toBe(false);
     expect(existsSync(join(inbox, "missing-timestamp.md"))).toBe(true);
+  });
+
+  test("status tracks unread only from read flag state", async () => {
+    const now = Date.now();
+    const inbox = join(rootDir, "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const unread = inboxFilenameAt(now - 5 * 60 * 60_000, "unread.md");
+    const read = inboxFilenameAt(now - 120 * 60_000, "read.md");
+    const alsoUnread = inboxFilenameAt(now - 60 * 60_000, "also-unread.md");
+    writeFileSync(join(inbox, unread), [
+      "---",
+      "from: council",
+      "to: node-oracle",
+      `timestamp: ${new Date(now - 5 * 60 * 60_000).toISOString()}`,
+      "read: false",
+      "---",
+      "",
+      "unread",
+    ].join("\n"));
+    writeFileSync(join(inbox, read), [
+      "---",
+      "from: council",
+      "to: node-oracle",
+      `timestamp: ${new Date(now - 120 * 60_000).toISOString()}`,
+      "read: true",
+      "---",
+      "",
+      "already read",
+    ].join("\n"));
+    writeFileSync(join(inbox, alsoUnread), [
+      "---",
+      "from: council",
+      "to: node-oracle",
+      `timestamp: ${new Date(now - 60 * 60_000).toISOString()}`,
+      "read: false",
+      "---",
+      "",
+      "another unread",
+    ].join("\n"));
+
+    const status = await getInboxStatus(undefined, now);
+    expect(status.unread).toBe(2);
+    expect(status.level).toBe("red");
+    expect(status.reasons).toContain("no_archive");
+  });
+
+  test("safe drain matches council confirmations and delivery-confirm phrases", async () => {
+    const now = Date.parse("2026-05-21T12:00:00Z");
+    const inbox = join(rootDir, "inbox");
+    mkdirSync(inbox, { recursive: true });
+
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 8 * 60 * 60_000, "council-stage-closed.md")),
+      "[m5:council-oracle] Stage 2 closed. No action needed.",
+    );
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 7 * 60 * 60_000, "council-ratified.md")),
+      "[m5:council-oracle] RATIFIED: โหวต accepted, no response needed.",
+    );
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 6 * 60 * 60_000, "council-confirm.md")),
+      "[m5:council-oracle] delivery-confirmed by council.",
+    );
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 5 * 60 * 60_000, "not-match.md")),
+      "[m5:council-oracle] routine status update without safe phrase",
+    );
+
+    const result = await cmdInboxDrain(undefined, { safe: true, max: 10 }, now);
+    expect(result.scanned).toBe(4);
+    expect(result.matched).toBe(3);
+    expect(result.archived).toBe(3);
+    expect(result.items.map((item) => item.reason).sort()).toEqual([
+      "council",
+      "council",
+      "delivery-confirm",
+    ].sort());
   });
 });
 
