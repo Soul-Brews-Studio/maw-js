@@ -35,7 +35,7 @@ mock.module(pairPeersImplPath, () => ({
   cmdAdd: async () => undefined,
 }));
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
   listSessions: async () => sessions,
   hostExec: async (cmd: string) => {
     calls.push(`host:${cmd}`);
@@ -70,7 +70,10 @@ mock.module("maw-js/sdk", () => ({
       calls.push(`kill:${target}`);
     },
   },
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/core/matcher/resolve-target", () => ({
   resolveSessionTarget: (target: string, inputSessions: typeof sessions) => {

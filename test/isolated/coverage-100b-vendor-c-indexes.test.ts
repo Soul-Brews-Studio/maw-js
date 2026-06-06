@@ -23,7 +23,7 @@ function record(name: string, ...args: unknown[]) {
   if (workspaceThrow) throw new Error(`${name} failed`);
 }
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
   resolveSessionTarget: (target: string, rows: any[]) => {
     const match = rows.find(row => row.name === target) ?? rows[0];
     return match ? { kind: "exact", match } : { kind: "none", hints: [] };
@@ -38,7 +38,15 @@ mock.module("maw-js/sdk", () => ({
   resolveTarget: () => resolveTargetResult,
   curlFetch: async () => ({ ok: true, data: { ok: true, target: "remote:1" } }),
   Tmux: class { async sendKeysLiteral(target: string, text: string) { sendKeysLiteralCalls.push([target, text]); } },
-}));
+  loadFleetCore: () => [],
+  loadFleetEntries: () => [],
+  countDisabledFleetFilesCore: () => 0,
+  loadDisabledFleetEntriesCore: () => [],
+  parseFlags: (args: string[]) => ({ _: args.filter((a) => !String(a).startsWith("--")) }),
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 mock.module("maw-js/config", () => ({ loadConfig: () => ({ host: "local", disabledPlugins: [] }) }));
 mock.module("maw-js/commands/shared/comm-send", () => ({ resolveOraclePane: async (target: string) => `pane:${target}` }));
 mock.module("maw-js/commands/shared/fleet-load", () => ({ loadFleet: () => [] }));
@@ -46,11 +54,6 @@ mock.module("maw-js/core/transport/tmux", () => ({
   Tmux: class { async run(...args: string[]) { return await tmuxRunImpl(...args); } },
 }));
 
-mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/contacts/impl.ts"), () => ({
-  cmdContactsLs: async () => record("contacts-ls"),
-  cmdContactsAdd: async (name: string, args: string[]) => record("contacts-add", name, args),
-  cmdContactsRm: async (name: string) => record("contacts-rm", name),
-}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/kill/impl.ts"), () => ({ cmdKill: async (target: string, opts: unknown) => record("kill", target, opts) }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/kill/internal/peer-resolve.ts"), () => ({
   resolvePeer: (alias: string) => peerMode === "missing" ? null : ({ url: `http://${alias}.invalid` }),

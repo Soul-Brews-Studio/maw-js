@@ -68,18 +68,24 @@ mock.module("maw-js/core/transport/tmux", () => ({
   },
 }));
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
   parseFlags: (args: string[], spec: Record<string, unknown>, skip = 0) => {
     const out: Record<string, any> = { _: [] };
     const aliases: Record<string, string> = {};
     for (const [key, value] of Object.entries(spec)) if (typeof value === "string") aliases[key] = value;
-    for (const tok of args.slice(skip)) {
+    const sliced = args.slice(skip);
+    for (let i = 0; i < sliced.length; i += 1) {
+      const tok = sliced[i]!;
       const key = aliases[tok] ?? tok;
-      if (key.startsWith("-")) out[key] = true;
-      else out._.push(tok);
+      if (key.startsWith("-")) {
+        const type = spec[key] ?? spec[tok];
+        if (type === String) out[key] = sliced[++i];
+        else out[key] = true;
+      } else out._.push(tok);
     }
     return out;
   },
+  loadConfig: () => configState,
   listSessions: async () => sessions,
   resolveTarget: (query: string, config: Record<string, any>, listedSessions: any[]) => {
     resolveTargetCalls.push({ query, config, sessions: listedSessions });
@@ -90,7 +96,10 @@ mock.module("maw-js/sdk", () => ({
       sendKeyCalls.push({ target, key });
     },
   },
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/commands/shared/comm-send", () => ({
   resolveOraclePane: async (target: string) => {

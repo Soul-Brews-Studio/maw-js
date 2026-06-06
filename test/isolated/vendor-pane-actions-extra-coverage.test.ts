@@ -62,7 +62,7 @@ let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
   listSessions: async () => {
     listSessionsCalls += 1;
     return sessions;
@@ -110,7 +110,10 @@ mock.module("maw-js/sdk", () => ({
     if (next instanceof Error) throw next;
     return next ?? { ok: true, data: {} };
   },
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => configState,
