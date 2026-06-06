@@ -148,6 +148,23 @@ describe("discoverPackages default-suite coverage", () => {
     expect(localShared?.dir.endsWith("/apps/bot/.maw/plugins/local-shared")).toBe(true);
   });
 
+  test("global plugins win on name collisions against repo-local plugins", () => {
+    const project = join(testRoot, "workspace", "pkg");
+    const localPlugins = join(project, ".maw", "plugins");
+    const cwd = join(project, "src");
+    mkdirSync(cwd, { recursive: true });
+
+    writeEntryPlugin(pluginsDir, "shared-name", { weight: 10 });
+    writeEntryPlugin(localPlugins, "shared-name", { weight: 1 });
+
+    process.chdir(cwd);
+    resetDiscoverCache();
+
+    const discovered = discoverPackages().find((p) => p.manifest.name === "shared-name");
+    expect(discovered?.dir).toBe(join(pluginsDir, "shared-name"));
+    expect(discovered?.manifest.weight).toBe(10);
+  });
+
   test("memoizes default discovery until resetDiscoverCache is called", () => {
     writeEntryPlugin(pluginsDir, "registry-cache-a");
 
