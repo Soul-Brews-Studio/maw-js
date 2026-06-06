@@ -89,7 +89,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult 
         : boolish(query.advertise) ?? true;
 
     if (transport === "scout") {
-      const { fetchDiscoveries, formatDiscoveries } = await import("../peers/discovered");
+      const { fetchDiscoveries, formatDiscoveries } = await import("maw-js/commands/shared/discovered-peers-client");
       const result = await fetchDiscoveries({
         all: hasFlag(args, "--all") || boolish(query.all) === true,
         limit: Number(readOption(args, "--limit") ?? query.limit) || undefined,
@@ -149,7 +149,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult 
       } satisfies ZenohScoutResult;
 
     if (transport === "both") {
-      const { fetchDiscoveries, formatDiscoveries } = await import("../peers/discovered");
+      const { fetchDiscoveries, formatDiscoveries } = await import("maw-js/commands/shared/discovered-peers-client");
       const scoutResult = await fetchDiscoveries({
         all: hasFlag(args, "--all") || boolish(query.all) === true,
         limit: Number(readOption(args, "--limit") ?? query.limit) || undefined,

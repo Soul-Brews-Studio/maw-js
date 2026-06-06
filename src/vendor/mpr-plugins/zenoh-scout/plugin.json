@@ -23,7 +23,7 @@
       "discover",
       "zenoh-scout"
     ],
-    "help": "maw scout [--transport zenoh|scout|both] [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query peer discovery",
+    "help": "maw scout [--transport zenoh|scout|both] [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] \u2014 query peer discovery",
     "flags": {
       "--transport": "string",
       "--force": "boolean",
@@ -36,5 +36,11 @@
   },
   "weight": 30,
   "license": "MIT",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "module": {
+    "path": "./impl.ts",
+    "exports": [
+      "createZenohScoutTransport"
+    ]
+  }
 }

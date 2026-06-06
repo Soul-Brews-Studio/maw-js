@@ -36,7 +36,7 @@ let configValue: any = { ...defaultConfig };
 let workspaceConfigsValue: any[] = [];
 let loadConfigCalls = 0;
 let loadWorkspaceConfigsCalls = 0;
-let readZenohScoutConfigCalls: any[] = [];
+let zenohScoutFactoryCalls: any[] = [];
 let zenohConnectReject: unknown = null;
 let connectRejectByName = new Map<string, unknown>();
 let disconnectAllReject: unknown = null;
@@ -69,9 +69,9 @@ class FakeRouter {
   registered: FakeTransport[] = [];
   register = mock((transport: FakeTransport) => {
     this.registered.push(transport);
-    transport.onMessage.mock.calls.length;
-    transport.onPresence.mock.calls.length;
-    transport.onFeed.mock.calls.length;
+    transport.onMessage?.mock?.calls?.length;
+    transport.onPresence?.mock?.calls?.length;
+    transport.onFeed?.mock?.calls?.length;
   });
   disconnectAll = mock(async () => {
     if (disconnectAllReject) throw disconnectAllReject;
@@ -140,12 +140,6 @@ mock.module(join(import.meta.dir, "../src/transports/scout"), () => ({ // mock-b
   },
 }));
 
-mock.module(join(import.meta.dir, "../src/transports/zenoh-scout"), () => ({ // mock-boundary-ok: requested default-suite coverage for discovery transport wiring
-  ZenohScoutTransport: class {
-    constructor(options: unknown) { return makeTransport("zenoh-scout", options); }
-  },
-}));
-
 function zenohModuleMock() {
   return {
     ZenohTransport: class {
@@ -164,10 +158,10 @@ function zenohModuleMock() {
 mock.module(join(import.meta.dir, "../src/transports/zenoh"), zenohModuleMock); // mock-boundary-ok: requested default-suite coverage for dynamic zenoh transport import wiring
 mock.module(join(import.meta.dir, "../src/transports/zenoh.ts"), zenohModuleMock); // mock-boundary-ok: requested default-suite coverage for dynamic zenoh transport import wiring
 
-mock.module(join(import.meta.dir, "../src/vendor/mpr-plugins/zenoh-scout/impl"), () => ({ // mock-boundary-ok: requested default-suite coverage for zenoh scout config wiring
-  readZenohScoutConfig: (config: unknown) => {
-    readZenohScoutConfigCalls.push(config);
-    return { locator: "tcp/127.0.0.1:7447", fromPluginConfig: true };
+mock.module(join(import.meta.dir, "../src/plugin/registry"), () => ({ // mock-boundary-ok: requested default-suite coverage for plugin transport wiring
+  importPluginSymbol: async (_plugin: string, _symbol: string) => (config: unknown) => {
+    zenohScoutFactoryCalls.push(config);
+    return makeTransport("zenoh-scout", { locator: "tcp/127.0.0.1:7447", fromPluginConfig: true });
   },
 }));
 
@@ -189,7 +183,7 @@ beforeEach(() => {
   workspaceConfigsValue = [];
   loadConfigCalls = 0;
   loadWorkspaceConfigsCalls = 0;
-  readZenohScoutConfigCalls = [];
+  zenohScoutFactoryCalls = [];
   zenohConnectReject = null;
   connectRejectByName = new Map();
   disconnectAllReject = null;
@@ -216,7 +210,7 @@ describe("transport registry default coverage", () => {
     expect(transportInstances.filter((transport) => transport.name !== "tmux").every((transport) => transport.connect.mock.calls.length === 0)).toBe(true);
   });
 
-  test("registers workspace, discovery, and peer transports with expected options", () => {
+  test("registers workspace, discovery, and peer transports with expected options", async () => {
     workspaceConfigsValue = [{ path: "/tmp/workspace-a" }];
     configValue = {
       ...defaultConfig,
@@ -252,11 +246,11 @@ describe("transport registry default coverage", () => {
       oracles: ["mawjs-oracle", "pulse-oracle"],
       autoPair: true,
     });
-    expect(readZenohScoutConfigCalls).toEqual([configValue]);
+    await waitForAsyncTransportWork();
+    expect(zenohScoutFactoryCalls).toEqual([configValue]);
     expect(transportInstances.find((transport) => transport.name === "zenoh-scout")?.options).toEqual({
       locator: "tcp/127.0.0.1:7447",
       fromPluginConfig: true,
-      enabled: true,
     });
     expect(transportInstances.find((transport) => transport.name === "http")?.options).toEqual({
       peers: [{ name: "white", url: "http://white.local:3456" }],
