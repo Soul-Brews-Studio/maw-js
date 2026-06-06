@@ -47,7 +47,7 @@ export interface TeamDownDeps {
 }
 
 function isLead(member: TeamCharterMember): boolean {
-  return member.role === "lead" || member.worktree === false;
+  return member.role === "lead" || member.role === "bridge";
 }
 
 function renderRoster(team: string, session: string, roster: ClassifiedTeamMember[], actions: TeamDownAction[], tail?: string): string {

@@ -26,6 +26,7 @@ export interface TeamCharter {
   members: TeamCharterMember[];
   lifecycle?: Record<string, unknown>;
   governance?: Record<string, unknown>;
+  warnings?: string[];
 }
 
 export interface TeamCharterPlan {
@@ -213,15 +214,33 @@ function parseYamlSubset(text: string): TeamCharter {
   return normalizeCharter(root);
 }
 
+const KNOWN_TOP_LEVEL_KEYS = new Set(["name", "description", "goal", "session", "members", "lifecycle", "governance"]);
+const KNOWN_MEMBER_KEYS = new Set(["role", "name", "target", "model", "cwd", "prompt", "engine", "worktree", "queue", "node", "channels"]);
+
 function normalizeCharter(value: unknown): TeamCharter {
   if (!value || typeof value !== "object") throw new Error("team charter must be an object");
   const raw = value as Record<string, unknown>;
+  const warnings: string[] = [];
+
+  for (const [key] of Object.entries(raw)) {
+    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
+      warnings.push(`team charter has unsupported top-level key: ${key}`);
+    }
+  }
+
   if (typeof raw.name !== "string" || !raw.name.trim()) throw new Error("team charter requires name");
   if (!Array.isArray(raw.members) || raw.members.length === 0) throw new Error("team charter requires at least one member");
   const members = raw.members.map((member, idx) => {
     if (!member || typeof member !== "object") throw new Error(`member ${idx + 1} must be an object`);
     const m = member as Record<string, unknown>;
+    for (const [key] of Object.entries(m)) {
+      if (!KNOWN_MEMBER_KEYS.has(key)) {
+        const memberRole = typeof m.role === "string" && m.role.trim() ? m.role.trim() : `#${idx + 1}`;
+        warnings.push(`member '${memberRole}' has unsupported key: ${key}`);
+      }
+    }
     if (typeof m.role !== "string" || !m.role.trim()) throw new Error(`member ${idx + 1} requires role`);
+
     return {
       role: m.role.trim(),
       ...(typeof m.name === "string" && m.name.trim() ? { name: m.name.trim() } : {}),
@@ -244,6 +263,7 @@ function normalizeCharter(value: unknown): TeamCharter {
     ...(typeof raw.goal === "string" && raw.goal.trim() ? { goal: raw.goal.trim() } : {}),
     ...(typeof raw.session === "string" && raw.session.trim() ? { session: raw.session.trim() } : {}),
     members,
+    ...(warnings.length ? { warnings } : {}),
     ...(raw.lifecycle && typeof raw.lifecycle === "object" && !Array.isArray(raw.lifecycle) ? { lifecycle: raw.lifecycle as Record<string, unknown> } : {}),
     ...(raw.governance && typeof raw.governance === "object" && !Array.isArray(raw.governance) ? { governance: raw.governance as Record<string, unknown> } : {}),
   };
@@ -315,6 +335,9 @@ export function formatTeamCharterPlan(plan: TeamCharterPlan): string {
   ].filter((line): line is string => line !== undefined);
   if (plan.warnings.length) {
     lines.push("", "warnings:", ...plan.warnings.map((warning) => `  - ${warning}`));
+  }
+  if (charter.warnings?.length) {
+    lines.push("", "parser warnings:", ...charter.warnings.map((warning) => `  - ${warning}`));
   }
   return lines.join("\n");
 }
@@ -416,6 +439,11 @@ function addPreflightCheck(
 
 export function preflightTeamCharter(charter: TeamCharter): TeamCharterPreflightResult {
   const checks: TeamCharterPreflightCheck[] = [];
+
+  for (const warning of charter.warnings ?? []) {
+    addPreflightCheck(checks, "warn", "parser", warning);
+  }
+
   try {
     assertValidOracleName(charter.name);
     addPreflightCheck(checks, "ok", "team name", `'${charter.name}' is accepted`);

@@ -114,6 +114,39 @@ governance:
     expect(charter.governance?.requires_human_approval).toBe(false);
   });
 
+  test("warns and ignores unknown top-level and member keys", () => {
+    const charter = parseTeamCharterText(`
+name: warn-team
+description: old-format charter
+legacy: true
+members:
+  - role: builder
+    target: auto
+    unknown: deprecated
+    model: opus
+`);
+
+    expect(charter.warnings).toMatchObject([
+      "team charter has unsupported top-level key: legacy",
+      "member 'builder' has unsupported key: unknown",
+    ]);
+
+    expect(charter).toMatchObject({
+      name: "warn-team",
+      members: [{ role: "builder", target: "auto", model: "opus" }],
+    });
+
+    const preflight = preflightTeamCharter(charter);
+    const planOutput = formatTeamCharterPlan(planTeamCharter(charter));
+    const preflightOutput = formatTeamCharterPreflight(preflight);
+
+    expect(planOutput).toContain("parser warnings:");
+    expect(planOutput).toContain("team charter has unsupported top-level key: legacy");
+    expect(planOutput).toContain("member 'builder' has unsupported key: unknown");
+    expect(preflightOutput).toContain("parser: team charter has unsupported top-level key: legacy");
+    expect(preflightOutput).toContain("parser: member 'builder' has unsupported key: unknown");
+  });
+
   test("team handler plan subcommand is read-only and prints planned artifacts", async () => {
     const file = tmpFile("team.yaml", `
 name: safe-plan

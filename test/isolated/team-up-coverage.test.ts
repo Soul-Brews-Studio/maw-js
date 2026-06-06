@@ -368,6 +368,55 @@ members:
     expect(doneCalls).toHaveLength(0);
   });
 
+  test("default down keeps role bridge members in-session", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "down.yaml"), `
+name: down
+session: charter-session
+members:
+  - role: lead
+    name: mawjs-oracle
+    engine: claude
+    worktree: false
+  - role: implementer
+    name: codex
+    engine: omx
+    worktree: true
+  - role: reviewer
+    name: coder-1
+    engine: claude48
+    worktree: true
+  - role: bridge
+    name: bridge-oracle
+    engine: claude
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-oracle|claude|/repo|%1",
+      "charter-session|mawjs-codex|codex|/wt/codex|%2",
+      "charter-session|mawjs-coder-1|claude|/wt/coder-1|%3",
+      "charter-session|mawjs-bridge-oracle|claude|/wt/bridge-oracle|%4",
+    ]);
+    const doneCalls: any[] = [];
+
+    await cmdTeamDown("down", {}, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      logger: () => {},
+    });
+
+    expect(doneCalls).toEqual([[
+      "mawjs-codex",
+      { sessionName: "charter-session" },
+    ], [
+      "mawjs-coder-1",
+      { sessionName: "charter-session" },
+    ]]);
+
+  });
+
   test("down executes done for selected live workers, supports --keep and --all", async () => {
     const root = tempRepo();
     writeFileSync(join(root, ".maw", "teams", "down.yaml"), `
