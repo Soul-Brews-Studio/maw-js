@@ -46,6 +46,17 @@ function nonLeadWindows(session: DoneSession): DoneWindow[] {
     .sort((a, b) => a.index - b.index);
 }
 
+function missingDoneTargetMessage(windowName: string): string {
+  const hint = windowName.toLowerCase() === "all" ? "\n  did you mean `maw done --all`?" : "";
+  return `no done target matched '${windowName}'${hint}`;
+}
+
+function failMissingDoneTarget(windowName: string): never {
+  const message = missingDoneTargetMessage(windowName);
+  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  throw new Error(message);
+}
+
 /**
  * maw done <window-name> [--force] [--dry-run] [--clean-branch]
  *
@@ -106,7 +117,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
   }
 
+  const matchedWindow = sessionName !== null && windowIndex !== null;
   if (opts.dryRun) {
+    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
     console.log();
     return;
@@ -117,6 +130,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   if (!removedFromConfig) {
     console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
+  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName);
 
   // Snapshot after done
   takeSnapshot("done").catch(() => {});

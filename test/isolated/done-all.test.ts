@@ -207,7 +207,7 @@ describe("cmdDoneAll", () => {
     expect(tmuxCommands).toContain("kill work:alpha");
 
     const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
-    await cmdDone("missing-window", { dryRun: true });
+    await expect(cmdDone("missing-window", { dryRun: true })).rejects.toThrow("no done target matched 'missing-window'");
     expect(autoSaveCalls.map(c => c.windowName)).not.toContain("missing-window");
   });
 

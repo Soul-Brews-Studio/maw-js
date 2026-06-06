@@ -167,6 +167,17 @@ export async function cleanupDoneBranch(
   }
 }
 
+function missingDoneTargetMessage(windowName: string): string {
+  const hint = windowName.toLowerCase() === "all" ? "\n  did you mean `maw done --all`?" : "";
+  return `no done target matched '${windowName}'${hint}`;
+}
+
+function failMissingDoneTarget(windowName: string, d: ResolvedDoneDeps): never {
+  const message = missingDoneTargetMessage(windowName);
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  throw new Error(message);
+}
+
 function activeFleetConfigFiles(d: ResolvedDoneDeps): Array<{ file: string; path: string }> {
   const filesByName = new Map<string, { file: string; path: string }>();
   const dirs = uniqueDirs(d.fleetDirs?.length ? d.fleetDirs : [d.fleetDir]);
@@ -236,7 +247,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
     d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
   }
 
+  const matchedWindow = sessionName !== null && windowIndex !== null;
   if (opts.dryRun) {
+    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName, d);
     d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
     d.logger.log();
     return;
@@ -246,6 +259,7 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
   if (!removedFromConfig) {
     d.logger.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
+  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName, d);
 
   d.takeSnapshot("done").catch(() => {});
   d.logger.log();

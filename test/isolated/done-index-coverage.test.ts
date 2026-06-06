@@ -74,6 +74,29 @@ describe("done plugin index wrapper", () => {
     expect(doneCalls).toEqual([{ name: "tile-2", opts: { force: true, dryRun: false, cleanBranch: true, cwd: process.cwd() } }]);
   });
 
+
+  test("rejects ambiguous CLI positional args before invoking teardown", async () => {
+    const typo = await donePlugin.default({
+      source: "cli",
+      args: ["all", "33-arraoraclev3", "--dry-run"],
+    } as InvokeCtx);
+
+    expect(typo.ok).toBe(false);
+    expect(typo.error).toContain("unexpected extra positional");
+    expect(typo.error).toContain("33-arraoraclev3");
+    expect(typo.error).toContain("did you mean `maw done --all`");
+
+    const allWithTarget = await donePlugin.default({
+      source: "cli",
+      args: ["--all", "33-arraoraclev3"],
+    } as InvokeCtx);
+
+    expect(allWithTarget.ok).toBe(false);
+    expect(allWithTarget.error).toContain("unexpected positional arg(s) with maw done --all");
+    expect(doneCalls).toEqual([]);
+    expect(doneAllCalls).toEqual([]);
+  });
+
   test("returns usage for missing API name without calling implementation", async () => {
     const result = await donePlugin.default({ source: "api", args: {} } as InvokeCtx);
 

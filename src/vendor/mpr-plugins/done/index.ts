@@ -33,6 +33,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       dryRun = args.includes("--dry-run");
       all = args.includes("--all");
       cleanBranch = args.includes("--clean-branch");
+      if (all && positional.length > 0) {
+        return { ok: false, error: `unexpected positional arg(s) with maw done --all: ${positional.join(" ")}\n  usage: maw done --all [--force] [--dry-run] [--clean-branch]` };
+      }
+      if (!all && positional.length > 1) {
+        const ignored = positional.slice(1).join(" ");
+        const hint = positional[0]?.toLowerCase() === "all" ? "\n  did you mean `maw done --all`?" : "";
+        return { ok: false, error: `unexpected extra positional arg(s) for maw done: ${ignored}${hint}\n  usage: maw done <window-name> [--force] [--dry-run] [--clean-branch] or maw done --all [--force] [--dry-run] [--clean-branch]` };
+      }
       name = positional[0];
     } else {
       const args = ctx.args as Record<string, unknown>;
