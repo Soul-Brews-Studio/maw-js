@@ -107,8 +107,11 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       matchedName: dispatch.matchedName,
       ...(Object.keys(parsedFlags).length > 0 ? { flags: parsedFlags } : {}),
     });
-    if (result.ok && result.output) console.log(result.output);
-    else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
+    if (result.output) console.log(result.output);
+    if (!result.ok) {
+      if (result.error) console.error(result.error);
+      process.exit(result.exitCode ?? 1);
+    }
     process.exit(0);
   }
 
@@ -205,8 +208,11 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
           matchedName: retryPlugin.matchedName,
           ...(Object.keys(retryParsedFlags).length > 0 ? { flags: retryParsedFlags } : {}),
         });
-        if (result.ok && result.output) console.log(result.output);
-        else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
+        if (result.output) console.log(result.output);
+        if (!result.ok) {
+          if (result.error) console.error(result.error);
+          process.exit(result.exitCode ?? 1);
+        }
         process.exit(0);
       }
       // Special case: core routes handled before plugin dispatch
