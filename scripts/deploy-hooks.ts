@@ -10,18 +10,19 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com/meganechan");
+const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com");
 const HOOK_SCRIPT = join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh");
 
-// Auto-discover oracles from fleet + ghq
+interface OracleEntry { name: string; repo: string; }
+
 const FLEET_DIR = join(process.env.HOME!, ".maw/fleet");
-const ORACLES: string[] = [];
+const ORACLES: OracleEntry[] = [];
 if (existsSync(FLEET_DIR)) {
   for (const f of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
     try {
       const cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
       for (const w of cfg.windows ?? []) {
-        if (w.name?.endsWith("-oracle")) ORACLES.push(w.name);
+        if (w.name?.endsWith("-oracle") && w.repo) ORACLES.push({ name: w.name, repo: w.repo });
       }
     } catch {}
   }
@@ -41,9 +42,9 @@ function isStatusReporterHook(hook: any): boolean {
 }
 
 for (const oracle of ORACLES) {
-  const oracleDir = join(GHQ_ROOT, oracle);
+  const oracleDir = join(GHQ_ROOT, oracle.repo);
   if (!existsSync(oracleDir)) {
-    console.log(`  skip: ${oracle} (dir not found)`);
+    console.log(`  skip: ${oracle.name} (dir not found)`);
     continue;
   }
 
@@ -55,7 +56,7 @@ for (const oracle of ORACLES) {
     try {
       settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     } catch {
-      console.log(`  warn: ${oracle} — invalid JSON, creating fresh`);
+      console.log(`  warn: ${oracle.name} — invalid JSON, creating fresh`);
       settings = {};
     }
   }
@@ -83,18 +84,18 @@ for (const oracle of ORACLES) {
   }
 
   if (!changed) {
-    console.log(`  ok: ${oracle} (already configured)`);
+    console.log(`  ok: ${oracle.name} (already configured)`);
     continue;
   }
 
   if (DRY_RUN) {
-    console.log(`  dry: ${oracle} — would update .claude/settings.json`);
+    console.log(`  dry: ${oracle.name} — would update .claude/settings.json`);
     continue;
   }
 
   mkdirSync(settingsDir, { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`  done: ${oracle} — hooks added`);
+  console.log(`  done: ${oracle.name} — hooks added`);
 }
 
 console.log(DRY_RUN ? "\n(dry run — no files changed)" : "\nDeploy complete.");

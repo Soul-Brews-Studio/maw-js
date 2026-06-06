@@ -9,17 +9,18 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com/meganechan");
+const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com");
 const FLEET_DIR = join(process.env.HOME!, ".maw/fleet");
 
-// Auto-discover oracles from fleet
-const ORACLES: string[] = [];
+interface OracleEntry { name: string; repo: string; }
+
+const ORACLES: OracleEntry[] = [];
 if (existsSync(FLEET_DIR)) {
   for (const f of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
     try {
       const cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
       for (const w of cfg.windows ?? []) {
-        if (w.name?.endsWith("-oracle")) ORACLES.push(w.name);
+        if (w.name?.endsWith("-oracle") && w.repo) ORACLES.push({ name: w.name, repo: w.repo });
       }
     } catch {}
   }
@@ -37,16 +38,16 @@ When you receive a message starting with \`[request:<correlationId>]\`:
 To see pending requests awaiting your reply: \`maw reply --list\``;
 
 for (const oracle of ORACLES) {
-  const claudeMd = join(GHQ_ROOT, oracle, "CLAUDE.md");
+  const claudeMd = join(GHQ_ROOT, oracle.repo, "CLAUDE.md");
   if (!existsSync(claudeMd)) {
-    console.log(`  skip: ${oracle} (CLAUDE.md not found)`);
+    console.log(`  skip: ${oracle.name} (CLAUDE.md not found)`);
     continue;
   }
 
   let content = readFileSync(claudeMd, "utf-8");
 
   if (content.includes("Request-Reply Protocol")) {
-    console.log(`  ok: ${oracle} (already has protocol)`);
+    console.log(`  ok: ${oracle.name} (already has protocol)`);
     continue;
   }
 
@@ -58,12 +59,12 @@ for (const oracle of ORACLES) {
   }
 
   if (DRY_RUN) {
-    console.log(`  dry: ${oracle} — would update CLAUDE.md`);
+    console.log(`  dry: ${oracle.name} — would update CLAUDE.md`);
     continue;
   }
 
   writeFileSync(claudeMd, content);
-  console.log(`  done: ${oracle} — protocol added`);
+  console.log(`  done: ${oracle.name} — protocol added`);
 }
 
 console.log(DRY_RUN ? "\n(dry run — no files changed)" : "\nDeploy complete.");
