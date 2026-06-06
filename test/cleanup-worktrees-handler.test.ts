@@ -8,6 +8,7 @@ const cleanupHandler = (await import("../src/vendor/mpr-plugins/cleanup/index.ts
 
 let tempRoot: string | null = null;
 const oldGhq = process.env.GHQ_ROOT;
+const oldCwd = process.cwd();
 
 afterEach(() => {
   if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
@@ -15,6 +16,7 @@ afterEach(() => {
   if (oldGhq === undefined) delete process.env.GHQ_ROOT;
   else process.env.GHQ_ROOT = oldGhq;
   resetGhqRootCache();
+  process.chdir(oldCwd);
 });
 
 describe("cleanup --worktrees handler", () => {
@@ -35,5 +37,22 @@ describe("cleanup --worktrees handler", () => {
     const result = await cleanupHandler({ source: "cli", args: [] } as any);
 
     expect(result.output).toContain("maw cleanup --worktrees [--yes] [--json]");
+  });
+
+  test("forwards --repo and --scope for worktrees", async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), "maw-cleanup-handler-scope-"));
+    const cwdRepo = join(tempRoot, "github.com", "owner", "repo");
+    mkdirSync(cwdRepo, { recursive: true });
+    process.chdir(cwdRepo);
+    process.env.GHQ_ROOT = tempRoot;
+    resetGhqRootCache();
+
+    const result = await cleanupHandler({
+      source: "cli",
+      args: ["--worktrees", "--json", "--repo", "owner/repo", "--scope", "."],
+    } as any);
+    const payload = JSON.parse(result.output ?? "{}");
+
+    expect(payload).toEqual({ ok: true, worktrees: [] });
   });
 });

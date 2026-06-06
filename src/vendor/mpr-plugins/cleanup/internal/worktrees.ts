@@ -26,11 +26,14 @@ export interface CleanupWorktreesDeps {
   getGhqRoot: () => string;
   statSync: typeof statSync;
   getUid: () => number | undefined;
+  getCwd: () => string;
 }
 
 export interface CleanupWorktreesOpts {
   yes?: boolean;
   json?: boolean;
+  repo?: string;
+  scope?: string;
   deps?: Partial<CleanupWorktreesDeps>;
 }
 
@@ -41,6 +44,7 @@ function deps(overrides: Partial<CleanupWorktreesDeps> = {}): CleanupWorktreesDe
     getGhqRoot: overrides.getGhqRoot ?? getGhqRoot,
     statSync: overrides.statSync ?? statSync,
     getUid: overrides.getUid ?? (() => process.getuid?.()),
+    getCwd: overrides.getCwd ?? (() => process.cwd()),
   };
 }
 
@@ -62,6 +66,46 @@ async function findCandidatePaths(d: CleanupWorktreesDeps, reposRoot: string): P
   } catch {
     return [];
   }
+}
+
+function normalizeRepoFilter(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  return value.replace(/\/+$/g, "");
+}
+
+function isRepoMatch(mainRepo: string, rawFilter: string | undefined): boolean {
+  const filter = normalizeRepoFilter(rawFilter);
+  if (!filter) return true;
+  if (mainRepo === filter) return true;
+  if (!filter.includes("/")) return mainRepo.split("/").at(-1) === filter;
+  return false;
+}
+
+function resolveScopeMainPath(reposRoot: string, scope: string | undefined, cwd: string): string | undefined {
+  if (scope !== ".") return undefined;
+  const rel = relative(reposRoot, cwd);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return undefined;
+
+  const parts = rel.split("/");
+  if (parts.length < 2) return undefined;
+
+  const org = parts[0]!;
+  const repo = parts[1]!.includes(".wt-") ? parts[1]!.split(".wt-")[0] : parts[1]!;
+  return join(reposRoot, org, repo);
+}
+
+function shouldKeepRow(
+  d: CleanupWorktreesDeps,
+  reposRoot: string,
+  opts: CleanupWorktreesOpts,
+  row: CleanupWorktreeRow,
+): boolean {
+  if (!isRepoMatch(row.mainRepo, opts.repo)) return false;
+  const scopeMainPath = resolveScopeMainPath(reposRoot, opts.scope, d.getCwd());
+  if (opts.scope === "." && !scopeMainPath) return false;
+  if (!scopeMainPath) return true;
+  return row.mainPath === scopeMainPath;
 }
 
 async function hasUnpushedCommits(
@@ -89,6 +133,7 @@ async function hasUnpushedCommits(
 async function classifyPath(
   d: CleanupWorktreesDeps,
   reposRoot: string,
+  opts: CleanupWorktreesOpts,
   path: string,
   livePanes: TmuxPane[],
 ): Promise<CleanupWorktreeRow | null> {
@@ -102,6 +147,10 @@ async function classifyPath(
     mainPath: parsed.mainPath,
     name: parsed.wtName,
   };
+
+  if (!shouldKeepRow(d, reposRoot, opts, { ...base, branch: "", classification: "ASK", reason: "" })) {
+    return null;
+  }
 
   try {
     const owner = d.statSync(path).uid;
@@ -154,7 +203,7 @@ export async function surveyCleanupWorktrees(opts: CleanupWorktreesOpts = {}): P
     findCandidatePaths(d, reposRoot),
     d.listPanes().catch(() => []),
   ]);
-  const rows = await Promise.all(paths.map(p => classifyPath(d, reposRoot, p, panes)));
+  const rows = await Promise.all(paths.map(p => classifyPath(d, reposRoot, opts, p, panes)));
   return rows.filter((row): row is CleanupWorktreeRow => row !== null);
 }
 

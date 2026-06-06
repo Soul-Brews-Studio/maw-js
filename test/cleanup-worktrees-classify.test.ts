@@ -9,13 +9,15 @@ const reposRoot = "/repos/github.com";
 const live = `${reposRoot}/org/repo/agents/1-live`;
 const clean = `${reposRoot}/org/repo/agents/2-clean`;
 const dirty = `${reposRoot}/org/repo/agents/3-dirty`;
+const otherRepo = `${reposRoot}/other/repo2/agents/5-clean`;
 const otherUser = `${reposRoot}/org/repo.wt-4-other`;
 
-function deps(commands: string[] = []): CleanupWorktreesDeps {
-  const paths = [live, clean, dirty, otherUser];
+function deps(commands: string[] = [], cwd = `${reposRoot}/org/repo`): CleanupWorktreesDeps {
+  const paths = [live, clean, dirty, otherUser, otherRepo];
   return {
     getGhqRoot: () => "/repos",
     getUid: () => 501,
+    getCwd: () => cwd,
     statSync: ((path: string) => ({ uid: path === otherUser ? 999 : 501 })) as any,
     listPanes: async () => [{
       id: "%1",
@@ -57,12 +59,37 @@ describe("cleanup --worktrees survey", () => {
 
   test("--yes removes only CLEAN rows from the main repo", async () => {
     const commands: string[] = [];
-    const rows = await cmdCleanupWorktrees({ yes: true, deps: deps(commands) });
+    const rows = await cmdCleanupWorktrees({
+      yes: true,
+      repo: "org/repo",
+      deps: deps(commands),
+    });
 
     expect(rows.find(row => row.name === "2-clean")?.removed).toBe(true);
     expect(rows.filter(row => row.removed).map(row => row.name)).toEqual(["2-clean"]);
     expect(commands).toContain(`git -C '${reposRoot}/org/repo' worktree remove '${clean}' --force`);
     expect(commands).toContain(`git -C '${reposRoot}/org/repo' worktree prune`);
     expect(commands.join("\n")).not.toContain("3-dirty' --force");
+  });
+
+  test("filters rows by --repo", async () => {
+    const rows = await surveyCleanupWorktrees({ repo: "org/repo", deps: deps() });
+    const names = rows.map((row) => row.name).sort();
+
+    expect(names).toEqual(["1-live", "2-clean", "3-dirty", "4-other"]);
+  });
+
+  test("filters rows by --scope . using cwd", async () => {
+    const inRepo = `${reposRoot}/org/repo`;
+    const rows = await surveyCleanupWorktrees({ scope: ".", deps: deps([], inRepo) });
+    const names = rows.map((row) => row.name).sort();
+
+    expect(names).toEqual(["1-live", "2-clean", "3-dirty", "4-other"]);
+  });
+
+  test("scope . outside ghq path returns no matches", async () => {
+    const rows = await surveyCleanupWorktrees({ scope: ".", deps: deps([], "/tmp") });
+
+    expect(rows).toEqual([]);
   });
 });

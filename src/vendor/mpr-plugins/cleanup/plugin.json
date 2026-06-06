@@ -8,7 +8,7 @@
   "cli": {
     "command": "cleanup",
     "aliases": [],
-    "help": "maw cleanup --zombie-agents [--yes] — kill orphan panes; maw cleanup --worktrees [--yes] [--json] — safe-remove orphan worktrees; maw cleanup --prune-stale [--yes|--ask|--dry-run] — prune dead oracles.json entries"
+    "help": "maw cleanup --zombie-agents [--yes] — kill orphan panes; maw cleanup --worktrees [--yes] [--json] [--repo <name>] [--scope .] — safe-remove orphan worktrees; maw cleanup --prune-stale [--yes|--ask|--dry-run] — prune dead oracles.json entries"
   },
   "weight": 30,
   "license": "MIT",

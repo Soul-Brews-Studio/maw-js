@@ -22,6 +22,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const has = (...flags: string[]) => flags.some((f) => args.includes(f));
+    const valueAfter = (name: string) => {
+      const i = args.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+      if (i < 0) return undefined;
+      if (args[i] === name && args[i + 1]) return String(args[i + 1]);
+      const explicit = args[i].slice(name.length + 1);
+      return explicit || undefined;
+    };
 
     if (has("--zombie-agents", "--zombies")) {
       await cmdCleanupZombies({ yes: has("--yes", "-y") });
@@ -30,6 +37,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const rows = await cmdCleanupWorktrees({
         yes: has("--yes", "-y"),
         json: has("--json"),
+        repo: valueAfter("--repo"),
+        scope: valueAfter("--scope"),
       });
       if (has("--json")) logs.push(JSON.stringify({ ok: true, worktrees: rows }, null, 2));
     } else if (has("--prune-stale")) {
@@ -44,7 +53,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       logs.push("\x1b[36mmaw cleanup\x1b[0m \u2014 Cleanup utilities\n");
       logs.push("  maw cleanup --zombie-agents [--yes]              Find and kill orphan zombie panes");
       logs.push("  maw cleanup --zombies [--yes]                    Alias for --zombie-agents");
-      logs.push("  maw cleanup --worktrees [--yes] [--json]         Survey and safe-remove orphan agent worktrees");
+      logs.push("  maw cleanup --worktrees [--yes] [--json] [--repo <name>] [--scope .]  Survey and safe-remove orphan agent worktrees");
       logs.push("  maw cleanup --prune-stale [--yes|--ask|--dry-run]  Prune dead oracles.json entries\n");
       logs.push("\x1b[90mWithout --yes, only lists candidates without modifying anything.\x1b[0m");
     }
