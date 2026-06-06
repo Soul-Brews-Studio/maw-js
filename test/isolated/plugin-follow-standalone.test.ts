@@ -26,11 +26,18 @@ mock.module("maw-js/cli/parse-args", () => ({
   },
 }));
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
+  isInfrastructureChannelSessionName: () => false,
+  resolveFleetWindowSessionTarget: () => null,
+  resolveSessionTarget: () => null,
   listSessions: async () => [{ name: "neo", windows: [{ index: 0, name: "main", active: true }] }],
   loadConfig: () => ({ port: 3456 }),
   loadFleetCore: () => [],
-}));
+};
+
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 const impl = await import("../../src/vendor/mpr-plugins/follow/impl.ts?plugin-follow-standalone");
 const { default: followHandler } = await import("../../src/vendor/mpr-plugins/follow/index.ts?plugin-follow-standalone");

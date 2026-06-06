@@ -41,6 +41,7 @@ const sdkMock = {
 };
 
 mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 mock.module("child_process", () => ({
   execSync: (cmd: string) => {
@@ -73,10 +74,10 @@ beforeEach(() => {
     throw new Error(`unexpected execSync: ${cmd}`);
   };
   setPlatform("linux");
-  globalThis.fetch = (async () => {
+  globalThis.fetch = mock(async () => {
     if (fetchResult instanceof Error) throw fetchResult;
     return fetchResult as Response;
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 });
 
 afterEach(() => {
