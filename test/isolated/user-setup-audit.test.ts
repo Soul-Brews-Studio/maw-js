@@ -126,3 +126,36 @@ describe("user-setup projects audit", () => {
     expect(entry.warnings.some(w => w.includes("stat failed") && w.includes("boom"))).toBe(true);
   });
 });
+
+test("top-level user-setup plan only prunes empty missing worktree-derived dirs", async () => {
+  const root = tempRoot();
+  const projects = join(root, "projects");
+  mkdirSync(projects, { recursive: true });
+
+  const pruneMe = "-tmp-repo-wt-1-task";
+  mkdirSync(join(projects, pruneMe), { recursive: true });
+  const keepMain = "-tmp-missing-main";
+  mkdirSync(join(projects, keepMain), { recursive: true });
+  const keepMemory = "-tmp-repo-wt-2-memory";
+  mkdirSync(join(projects, keepMemory), { recursive: true });
+  writeJsonl(join(projects, keepMemory, "session.jsonl"));
+  writeJsonl(join(projects, "orphan.jsonl"));
+
+  const { planUserSetupPrune, renderUserSetupPlan } = await import("../../src/vendor/mpr-plugins/user-setup/impl");
+  const plan = await planUserSetupPrune({ dryRun: true }, {
+    projectsRoot: projects,
+    now: () => new Date("2026-06-06T00:00:00Z"),
+    cwd: () => "/elsewhere",
+  });
+  plan.duplicateEncodedPaths.push({ inferred: "/tmp/dupe", encoded: ["-tmp-dupe-a", "-tmp-dupe-b"] });
+  const output = renderUserSetupPlan(plan);
+
+  expect(plan.staleProjectDirs.map(e => e.encoded)).toEqual([pruneMe]);
+  expect(plan.orphanSessionFiles.map(f => f.name)).toEqual(["orphan.jsonl"]);
+  expect(output).toContain("safe prune candidates: 1");
+  expect(output).toContain("why: worktree-derived name (-wt-/-agents-), 0 JSONL sessions, decoded path missing");
+  expect(output).not.toContain(keepMain);
+  expect(output).not.toContain(keepMemory);
+  expect(output).toContain("duplicate encoded paths: 1");
+  expect(output).toContain("prune offer:");
+});

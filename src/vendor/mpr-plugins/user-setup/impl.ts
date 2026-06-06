@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve, sep } from "path";
 import { execSync } from "child_process";
 
 export const USER_SETUP_AUDIT_USAGE = "usage: maw user-setup projects audit --json";
+export const USER_SETUP_USAGE = "usage: maw user-setup [--dry-run] or maw user-setup projects audit --json";
 
 export type PathConfidence = "exact" | "probable" | "ambiguous" | "unknown";
 
@@ -52,6 +53,31 @@ export interface UserSetupAuditResult {
   totalSizeBytes: number;
   entries: UserSetupAuditEntry[];
   warnings: string[];
+}
+
+export interface DuplicatePathFinding {
+  inferred: string;
+  encoded: string[];
+}
+
+export interface UserSetupPrunePlan {
+  root: string;
+  generatedAt: string;
+  dryRun: boolean;
+  staleProjectDirs: UserSetupAuditEntry[];
+  orphanSessionFiles: FileFinding[];
+  duplicateEncodedPaths: DuplicatePathFinding[];
+  warnings: string[];
+}
+
+function isWorktreeDerivedProject(encoded: string): boolean {
+  return encoded.includes("-wt-") || encoded.includes("-agents-");
+}
+
+function isSafePruneCandidate(entry: UserSetupAuditEntry): boolean {
+  return isWorktreeDerivedProject(entry.encoded)
+    && entry.sessionCount === 0
+    && entry.sourceExists === false;
 }
 
 type DirentLike = { name: string; isDirectory(): boolean; isFile(): boolean; isSymbolicLink?(): boolean };
@@ -303,7 +329,7 @@ export async function auditClaudeProjects(deps: UserSetupAuditDeps = {}): Promis
     if (scan.sessionCount === 0) warningsForEntry.push("no JSONL sessions found");
 
     let sourceExists: boolean | undefined;
-    if (path.inferred && (path.confidence === "exact" || path.confidence === "probable")) {
+    if (path.inferred) {
       try { sourceExists = d.existsSync(path.inferred); } catch { sourceExists = false; }
     }
 
@@ -332,4 +358,100 @@ export async function auditClaudeProjects(deps: UserSetupAuditDeps = {}): Promis
     entries,
     warnings,
   };
+}
+
+function rootSessionFiles(root: string, deps: ReturnType<typeof depsWithDefaults>): FileFinding[] {
+  let entries: DirentLike[];
+  try { entries = readDirents(root, deps); }
+  catch { return []; }
+
+  const files: FileFinding[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+    const full = join(root, entry.name);
+    try {
+      const st = deps.statSync(full);
+      files.push({ name: entry.name, sizeBytes: st.size || 0, lastModified: isoFromMs(st.mtimeMs || null) });
+    } catch {
+      files.push({ name: entry.name, sizeBytes: 0, lastModified: null });
+    }
+  }
+  return files.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function duplicateInferredPaths(entries: UserSetupAuditEntry[]): DuplicatePathFinding[] {
+  const groups = new Map<string, string[]>();
+  for (const entry of entries) {
+    const inferred = entry.path.inferred;
+    if (!inferred) continue;
+    const list = groups.get(inferred) ?? [];
+    list.push(entry.encoded);
+    groups.set(inferred, list);
+  }
+  return [...groups.entries()]
+    .filter(([, encoded]) => encoded.length > 1)
+    .map(([inferred, encoded]) => ({ inferred, encoded: encoded.sort() }))
+    .sort((a, b) => a.inferred.localeCompare(b.inferred));
+}
+
+export async function planUserSetupPrune(
+  opts: { dryRun?: boolean } = {},
+  deps: UserSetupAuditDeps = {},
+): Promise<UserSetupPrunePlan> {
+  const d = depsWithDefaults(deps);
+  const audit = await auditClaudeProjects(deps);
+  // Noah/m5 real-data rule: only prune empty worktree-derived Claude project dirs.
+  // Observed shape: ~370 dirs, ~167 worktree-derived, ~86 empty/prune-able, ~81
+  // with JSONL memory. Never prune main repo dirs or any dir with *.jsonl.
+  const staleProjectDirs = audit.entries
+    .filter(isSafePruneCandidate)
+    .sort((a, b) => a.encoded.localeCompare(b.encoded));
+  const orphanSessionFiles = rootSessionFiles(audit.root, d);
+  const duplicateEncodedPaths = duplicateInferredPaths(audit.entries);
+
+  return {
+    root: audit.root,
+    generatedAt: audit.generatedAt,
+    dryRun: opts.dryRun !== false,
+    staleProjectDirs,
+    orphanSessionFiles,
+    duplicateEncodedPaths,
+    warnings: audit.warnings,
+  };
+}
+
+export function renderUserSetupPlan(plan: UserSetupPrunePlan): string {
+  const lines = [
+    `maw user-setup ${plan.dryRun ? "dry-run " : ""}audit`,
+    `root: ${plan.root}`,
+    `safe prune candidates: ${plan.staleProjectDirs.length}`,
+    `orphan session files: ${plan.orphanSessionFiles.length}`,
+    `duplicate encoded paths: ${plan.duplicateEncodedPaths.length}`,
+  ];
+
+  if (plan.staleProjectDirs.length) {
+    lines.push("", "safe prune candidates:");
+    for (const entry of plan.staleProjectDirs) {
+      lines.push(`  - ${entry.encoded}${entry.path.inferred ? ` -> ${entry.path.inferred}` : ""}`);
+      lines.push("    why: worktree-derived name (-wt-/-agents-), 0 JSONL sessions, decoded path missing");
+    }
+  }
+  if (plan.orphanSessionFiles.length) {
+    lines.push("", "orphan session files:");
+    for (const file of plan.orphanSessionFiles) lines.push(`  - ${file.name} (${file.sizeBytes} bytes)`);
+  }
+  if (plan.duplicateEncodedPaths.length) {
+    lines.push("", "duplicate encoded paths:");
+    for (const group of plan.duplicateEncodedPaths) lines.push(`  - ${group.inferred}: ${group.encoded.join(", ")}`);
+  }
+  if (plan.warnings.length) lines.push("", "warnings:", ...plan.warnings.map(w => `  - ${w}`));
+
+  const pruneCount = plan.staleProjectDirs.length + plan.orphanSessionFiles.length;
+  lines.push(
+    "",
+    pruneCount
+      ? "prune offer: archive candidates are listed above; rerun after review when prune execution is enabled."
+      : "prune offer: nothing to prune.",
+  );
+  return lines.join("\n");
 }
