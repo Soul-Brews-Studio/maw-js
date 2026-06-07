@@ -32,6 +32,7 @@
   "files": [
     "index.ts",
     "index.d.ts",
+    "define.ts",
     "plugin.ts",
     "plugin.d.ts",
     "README.md",

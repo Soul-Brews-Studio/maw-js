@@ -41,6 +41,14 @@ export type {
   TmuxSession,
 } from "../../src/core/transport/tmux";
 export type { PluginEventMap } from "./events";
+export { definePlugin } from "./define";
+export type {
+  DefinedPlugin,
+  EventToHandlerName,
+  HandlersFor,
+  PluginManifestInput,
+  ValidateExports,
+} from "./define";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 2 widening — re-exports for plugin extraction Phase 2.

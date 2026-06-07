@@ -168,6 +168,64 @@ export interface PluginInfo {
   errors: number;
 }
 
+// --- plugin manifest helpers (definePlugin) ---
+
+export interface PluginManifestInput {
+  /** Plugin name (must match plugin.json name). */
+  name: string;
+  /** Optional plugin hooks, currently used for typed event handlers. */
+  hooks?: {
+    on?: readonly string[];
+    [key: string]: unknown;
+  };
+  /** Exports list consumed by module-loader consumers. */
+  module: {
+    exports: readonly string[];
+    path: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export type EventToHandlerName<E extends string> =
+  E extends `${infer Scope}:${infer Action}`
+    ? `on${Capitalize<Lowercase<Scope>>}${PascalFromSnake<Action>}`
+    : `on${Capitalize<Lowercase<E>>}`;
+
+type PascalFromSnake<T extends string> = T extends `${infer Head}_${infer Rest}`
+  ? `${Capitalize<Lowercase<Head>>}${PascalFromSnake<Rest>}`
+  : T extends `${infer Head}-${infer Rest}`
+    ? `${Capitalize<Lowercase<Head>>}${PascalFromSnake<Rest>}`
+    : Capitalize<Lowercase<T>>;
+
+/** Derive the typed handler map from hook event names. */
+export type HandlersFor<Events extends readonly string[]> = {
+  [Event in Events[number] as EventToHandlerName<Event>]:
+    Event extends keyof PluginEventMap
+      ? (event: PluginEventMap[Event]) => void | Promise<void>
+      : (event: unknown) => void | Promise<void>;
+};
+
+type ManifestHookEvents<T extends PluginManifestInput> =
+  T extends { hooks: { on: infer HookEvents } }
+    ? HookEvents extends readonly string[]
+      ? HookEvents
+      : []
+    : [];
+
+/** Validate `module.exports` contains all required typed handler names. */
+export type ValidateExports<T extends PluginManifestInput> =
+  keyof HandlersFor<ManifestHookEvents<T>> extends T["module"]["exports"][number]
+    ? T
+    : never;
+
+export type DefinedPlugin<T extends PluginManifestInput> =
+  ValidateExports<T> & {
+    implement(handlers: HandlersFor<ManifestHookEvents<T>>): ValidateExports<T> & HandlersFor<ManifestHookEvents<T>>;
+  };
+
+export declare function definePlugin<const T extends PluginManifestInput>(manifest: ValidateExports<T>): DefinedPlugin<T>;
+
 // --- Print helpers ---
 
 export interface PrintHelpers {
