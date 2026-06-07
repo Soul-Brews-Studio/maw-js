@@ -2,14 +2,10 @@ import type { MawEngine } from "../../../engine";
 import type { WSData } from "../../../core/types";
 import type { ServeWsRouteRegistrar, ServeWsSocket } from "../../../core/serve-ws-registry";
 import type { handlePtyClose, handlePtyMessage } from "../../../core/transport/pty";
-import type { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../../../api/tmux-stream";
 
 type WsDeps = {
   handlePtyMessage: typeof handlePtyMessage;
   handlePtyClose: typeof handlePtyClose;
-  handleTmuxStreamOpen: typeof handleTmuxStreamOpen;
-  handleTmuxStreamMessage: typeof handleTmuxStreamMessage;
-  handleTmuxStreamClose: typeof handleTmuxStreamClose;
 };
 
 type ServeWsContext = {
@@ -19,13 +15,9 @@ type ServeWsContext = {
 
 function defaultDeps(): WsDeps {
   const pty = require("../../../core/transport/pty");
-  const tmux = require("../../../api/tmux-stream");
   return {
     handlePtyMessage: pty.handlePtyMessage,
     handlePtyClose: pty.handlePtyClose,
-    handleTmuxStreamOpen: tmux.handleTmuxStreamOpen,
-    handleTmuxStreamMessage: tmux.handleTmuxStreamMessage,
-    handleTmuxStreamClose: tmux.handleTmuxStreamClose,
   };
 }
 
@@ -42,12 +34,6 @@ export function registerServeWsRoutes(ctx: ServeWsContext, deps: WsDeps = defaul
     close: (ws) => deps.handlePtyClose(ws),
   });
 
-  ctx.ws.route("/ws/tmux", () => defaultWsData("tmux-stream"), {
-    open: (ws) => deps.handleTmuxStreamOpen(ws),
-    message: (ws, msg) => deps.handleTmuxStreamMessage(ws, msg),
-    close: (ws) => deps.handleTmuxStreamClose(ws),
-  });
-
   ctx.ws.route("/ws", () => defaultWsData(), {
     open: (ws: ServeWsSocket) => ctx.engine!.handleOpen(ws as never),
     message: (ws: ServeWsSocket, msg: unknown) => ctx.engine!.handleMessage(ws as never, msg as never),
@@ -57,7 +43,7 @@ export function registerServeWsRoutes(ctx: ServeWsContext, deps: WsDeps = defaul
 
 export function serve(ctx: ServeWsContext, deps?: WsDeps): { ok: true; routes: string[] } {
   registerServeWsRoutes(ctx, deps);
-  return { ok: true, routes: ["/ws/pty", "/ws/tmux", "/ws"] };
+  return { ok: true, routes: ["/ws/pty", "/ws"] };
 }
 
 export default serve;

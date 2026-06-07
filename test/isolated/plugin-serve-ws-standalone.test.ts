@@ -17,13 +17,12 @@ describe("serve-ws plugin", () => {
   test("declares the serve hook and keeps the standalone boundary explicit", () => {
     const manifest = JSON.parse(readFileSync(join(root, "src/vendor/mpr-plugins/serve-ws/plugin.json"), "utf8"));
     expect(manifest.hooks.serve).toMatchObject({ script: "./index.ts", handler: "serve", policy: "fail-fast" });
-    expect(manifest.hooks.serve.ensures).toEqual(["ws:route:/ws", "ws:route:/ws/pty", "ws:route:/ws/tmux"]);
+    expect(manifest.hooks.serve.ensures).toEqual(["ws:route:/ws", "ws:route:/ws/pty"]);
 
     expectStandalonePluginBoundary({
       plugin: "serve-ws",
       requireSdk: false,
       allowRelative: [
-        /^\.\.\/\.\.\/\.\.\/api\/tmux-stream$/,
         /^\.\.\/\.\.\/\.\.\/core\/serve-ws-registry$/,
         /^\.\.\/\.\.\/\.\.\/core\/transport\/pty$/,
         /^\.\.\/\.\.\/\.\.\/core\/types$/,
@@ -31,7 +30,7 @@ describe("serve-ws plugin", () => {
     });
   });
 
-  test("registers /ws, /ws/pty, and /ws/tmux through the serve hook", () => {
+  test("registers /ws and /ws/pty through the serve hook", () => {
     const registry = new ServeWsRegistry();
     const calls: WsCall[] = [];
     const engine = {
@@ -42,32 +41,22 @@ describe("serve-ws plugin", () => {
     const deps = {
       handlePtyMessage: (_ws: unknown, msg: string | Buffer) => calls.push({ kind: "pty:message", msg }),
       handlePtyClose: () => calls.push({ kind: "pty:close" }),
-      handleTmuxStreamOpen: () => calls.push({ kind: "tmux:open" }),
-      handleTmuxStreamMessage: (_ws: unknown, msg: unknown) => calls.push({ kind: "tmux:message", msg }),
-      handleTmuxStreamClose: () => calls.push({ kind: "tmux:close" }),
     } as any;
 
-    expect(serve({ ws: registry, engine: engine as any }, deps)).toEqual({ ok: true, routes: ["/ws/pty", "/ws/tmux", "/ws"] });
-    expect(registry.snapshot()).toEqual(["/ws/pty", "/ws/tmux", "/ws"]);
+    expect(serve({ ws: registry, engine: engine as any }, deps)).toEqual({ ok: true, routes: ["/ws/pty", "/ws"] });
+    expect(registry.snapshot()).toEqual(["/ws/pty", "/ws"]);
 
     registry.handlers.open(makeSocket("/ws"));
     registry.handlers.message(makeSocket("/ws"), "hello");
     registry.handlers.close(makeSocket("/ws"));
     registry.handlers.message(makeSocket("/ws/pty"), "attach");
     registry.handlers.close(makeSocket("/ws/pty"));
-    registry.handlers.open(makeSocket("/ws/tmux"));
-    registry.handlers.message(makeSocket("/ws/tmux"), "refresh");
-    registry.handlers.close(makeSocket("/ws/tmux"));
-
     expect(calls).toEqual([
       { kind: "engine:open" },
       { kind: "engine:message", msg: "hello" },
       { kind: "engine:close" },
       { kind: "pty:message", msg: "attach" },
       { kind: "pty:close" },
-      { kind: "tmux:open" },
-      { kind: "tmux:message", msg: "refresh" },
-      { kind: "tmux:close" },
     ]);
   });
 
@@ -79,21 +68,16 @@ describe("serve-ws plugin", () => {
     }, {
       handlePtyMessage() {},
       handlePtyClose() {},
-      handleTmuxStreamOpen() {},
-      handleTmuxStreamMessage() {},
-      handleTmuxStreamClose() {},
     } as any);
 
     const upgrades: unknown[] = [];
     const okServer = { upgrade: (_req: Request, opts: unknown) => { upgrades.push(opts); return true; } };
     expect(registry.handleUpgrade(new Request("http://local/ws/pty"), okServer).matched).toBe(true);
-    expect(registry.handleUpgrade(new Request("http://local/ws/tmux"), okServer).matched).toBe(true);
     expect(registry.handleUpgrade(new Request("http://local/ws"), okServer).matched).toBe(true);
     expect(registry.handleUpgrade(new Request("http://local/not-ws"), okServer)).toEqual({ matched: false });
 
     expect(upgrades).toMatchObject([
       { data: { target: null, mode: "pty", __serveWsRoute: "/ws/pty" } },
-      { data: { target: null, mode: "tmux-stream", __serveWsRoute: "/ws/tmux" } },
       { data: { target: null, __serveWsRoute: "/ws" } },
     ]);
     for (const upgrade of upgrades as Array<{ data: { previewTargets: unknown } }>) {
