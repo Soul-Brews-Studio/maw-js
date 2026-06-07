@@ -55,6 +55,7 @@ let birthSignalWrites: any[] = [];
 let parseWakeTargetReturn: null | { slug: string; oracle: string } = null;
 let ghqFindReturn: string | null = null;
 let commandTemplateContinues = false;
+let worktreeEngineFiles: Record<string, string | undefined> = {};
 
 function resetState(): void {
   logs = [];
@@ -105,6 +106,7 @@ function resetState(): void {
   parseWakeTargetReturn = null;
   ghqFindReturn = null;
   commandTemplateContinues = false;
+  worktreeEngineFiles = {};
 }
 
 async function captureLogs<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -230,6 +232,8 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () =>
     attachCalls.push(session);
   },
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: (wtPath: string) => worktreeEngineFiles[wtPath],
+  writeWorktreeEngineFile: () => {},
   waitForEngine: async () => {},
   ensureSessionRunning: async () => ensureSessionRunningReturn,
   createWorktree: async (...args: any[]) => {
@@ -639,6 +643,30 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot restore: 1 window");
     expect(plain()).toContain("2 window(s) retried.");
+  });
+
+  test("rehydrate uses persisted per-worktree engine markers", async () => {
+    findWorktreesReturn = [
+      { name: "2-codex", path: "/tmp/neo-oracle.wt-2-codex" },
+      { name: "3-plain", path: "/tmp/neo-oracle.wt-3-plain" },
+    ];
+    plannedRehydrateWindows = [
+      { windowName: "neo-codex", path: "/tmp/neo-oracle.wt-2-codex" },
+      { windowName: "neo-plain", path: "/tmp/neo-oracle.wt-3-plain" },
+    ];
+    worktreeEngineFiles["/tmp/neo-oracle.wt-2-codex"] = "opencode";
+
+    const result = await captureLogs(() => cmdWake("neo", { repoPath }));
+
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(sentText).toContainEqual({
+      target: "54-neo:neo-codex",
+      text: "cd /tmp/neo-oracle.wt-2-codex && opencode --agent neo-codex",
+    });
+    expect(sentText).toContainEqual({
+      target: "54-neo:neo-plain",
+      text: "cd /tmp/neo-oracle.wt-3-plain && codex --agent neo-plain",
+    });
   });
 
   test("missing sessions restore snapshot windows, rehydrate worktrees, and reuse the live main window", async () => {

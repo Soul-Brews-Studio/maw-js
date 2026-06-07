@@ -52,6 +52,8 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () => ({
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: () => undefined,
+  writeWorktreeEngineFile: () => {},
   attachToSession: async (name: string) => { attached.push(name); },
 }));
 

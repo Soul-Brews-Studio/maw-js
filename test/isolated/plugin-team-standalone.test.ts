@@ -37,6 +37,9 @@ const sdkMock = {
 
 mock.module("maw-js/sdk", () => sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/commands/shared/wake-session.ts"), () => ({
+  writeWorktreeEngineFile: (...args: unknown[]) => record("writeWorktreeEngineFile", args),
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/impl.ts"), () => ({
   cmdTeamCreate: (team: string, opts: unknown) => record("create", { team, opts }),
   cmdTeamSpawn: async (...args: unknown[]) => calls.push({ name: "spawn", args }),

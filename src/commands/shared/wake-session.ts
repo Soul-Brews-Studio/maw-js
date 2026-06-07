@@ -1,6 +1,8 @@
 import { hostExec, tmux } from "../../sdk";
 import { buildCommand, buildCommandInDir, cfgTimeout } from "../../config";
 import { execSync } from "child_process";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
 
 type WakeTmuxDeps = Pick<typeof tmux, "switchClient" | "listWindows" | "getPaneCommands" | "sendText">;
@@ -22,6 +24,8 @@ export interface WakeSessionDeps {
   layout: WorktreeLayout;
   /** Existing tmux window names in the target session; used to avoid duplicate wake --task windows. */
   existingWindowNames: Iterable<string>;
+  /** Engine to persist for rehydrating this worktree later. Defaults to claude. */
+  engine: string;
 }
 
 export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
@@ -38,8 +42,43 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
     named: false,
     layout: "nested",
     existingWindowNames: [],
+    engine: "claude",
     ...overrides,
   };
+}
+
+export const WORKTREE_ENGINE_FILE = ".maw-engine";
+
+function normalizeWorktreeEngineName(engine: string | undefined, fallbackToClaude = false): string | undefined {
+  const normalized = ((engine ?? (fallbackToClaude ? "claude" : ""))).trim().split(/\r?\n/, 1)[0]?.trim();
+  if (!normalized) return undefined;
+  // Engine names are config keys / built-ins. Ignore unsafe file contents rather
+  // than letting a compromised worktree marker become a shell command.
+  if (!/^[A-Za-z0-9_.:-]+$/.test(normalized)) return undefined;
+  return normalized;
+}
+
+export function readWorktreeEngineFile(wtPath: string): string | undefined {
+  try {
+    return normalizeWorktreeEngineName(readFileSync(join(wtPath, WORKTREE_ENGINE_FILE), "utf-8"));
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeWorktreeEngineFile(
+  wtPath: string,
+  engine: string | undefined,
+  log: WakeSessionDeps["log"] = () => {},
+): void {
+  const normalized = normalizeWorktreeEngineName(engine, true);
+  if (!normalized) return;
+  try {
+    writeFileSync(join(wtPath, WORKTREE_ENGINE_FILE), `${normalized}\n`, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`\x1b[33m⚠\x1b[0m .maw-engine write skipped: ${message}`);
+  }
 }
 
 /** Attach to tmux session — switch-client if inside tmux, attach if fresh shell */
@@ -295,6 +334,7 @@ export async function createWorktree(
     : `'${safe(wtPath)}' -b '${safe(branch)}'`;
   await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
   await reconcileParentClaudeDir(repoPath, wtPath, d.log);
+  writeWorktreeEngineFile(wtPath, d.engine, d.log);
   d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
   return { wtPath, windowName };
 }

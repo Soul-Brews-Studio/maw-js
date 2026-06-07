@@ -1180,8 +1180,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       for (const wt of plan) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
+        const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
+        const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
         const target = `${session}:${wt.windowName}`;
-        await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, opts, target));
+        await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
         await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
@@ -1230,8 +1232,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         for (const wt of plan) {
           await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
+          const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
+          const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
           const target = `${session}:${wt.windowName}`;
-          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, opts, target));
+          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
           preExistingWindows.add(wt.windowName);
           preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
@@ -1333,6 +1337,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
           named: Boolean(stableName && !opts.fresh),
           layout: worktreeLayout,
           existingWindowNames: knownWindows,
+          engine: opts.engine || "claude",
         });
         targetPath = result.wtPath;
         windowName = result.windowName;

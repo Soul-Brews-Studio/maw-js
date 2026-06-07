@@ -5,6 +5,7 @@ import { tmux } from "maw-js/sdk";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
+import { writeWorktreeEngineFile } from "../../../commands/shared/wake-session";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -233,6 +234,7 @@ export async function cmdTeamSpawn(
 
   // Build spawn prompt
   const engine = opts.engine || "claude";
+  if (opts.cwd && existsSync(opts.cwd)) writeWorktreeEngineFile(opts.cwd, engine, console.log.bind(console));
   const model = opts.model || (engine === "claude" ? "sonnet" : undefined);
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";

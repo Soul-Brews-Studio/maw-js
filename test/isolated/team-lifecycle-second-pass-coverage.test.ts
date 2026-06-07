@@ -342,6 +342,15 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(readJson(join(teamsDir, "qa-team/config.json")).members).toEqual([{ name: "codexer", engine: "codex" }]);
   });
 
+  test("spawn persists engine markers in cwd worktrees", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    const cwd = mkdtempSync(join(tmpdir(), "maw-team-engine-cwd-"));
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex", cwd });
+
+    expect(readFileSync(join(cwd, ".maw-engine"), "utf-8")).toBe("codex\n");
+  });
+
   test("spawn --exec outside tmux prints a manual command instead of starting a pane", async () => {
     lifecycle.cmdTeamCreate("qa-team");
 
