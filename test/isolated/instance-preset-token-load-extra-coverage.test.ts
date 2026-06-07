@@ -309,11 +309,18 @@ describe("cmdPlugins isolated branch dispatcher", () => {
     const discover = () => [] as any[];
 
     await cmdPlugins("install", [], { _: ["/tmp/plugin"], "--force": true }, discover as any);
+    await cmdPlugins(
+      "install",
+      [],
+      { _: ["/tmp/local-plugin"], "--local": true, "--symlink": true },
+      discover as any,
+    );
     await cmdPlugins("uninstall", [], { _: ["old-plugin"] }, discover as any);
     await cmdPlugins("rm", [], { _: ["older-plugin"] }, discover as any);
 
     expect(pluginCalls).toEqual([
-      { fn: "doInstall", args: ["/tmp/plugin", true] },
+      { fn: "doInstall", args: ["/tmp/plugin", true, { local: false, symlink: false }] },
+      { fn: "doInstall", args: ["/tmp/local-plugin", false, { local: true, symlink: true }] },
       { fn: "doRemove", args: ["old-plugin", discover] },
       { fn: "doRemove", args: ["older-plugin", discover] },
     ]);
@@ -328,7 +335,7 @@ describe("cmdPlugins isolated branch dispatcher", () => {
 
     expect(exitCodes).toEqual([1, 1, 1, 1, 1]);
     expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins info <name>");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins install <path> [--force]");
+    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins install <path> [--force] [--local] [--symlink]");
     expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins remove <name>");
     expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin enable <name> [more...]");
     expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin disable <name>");
