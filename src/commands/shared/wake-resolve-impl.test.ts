@@ -8,6 +8,8 @@
  * session — and return null otherwise so the caller can auto-create.
  */
 import { afterEach, beforeEach, describe, it, expect, mock } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
@@ -311,10 +313,20 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
 
 describe("findWorktrees (#1775) — cross-repo slug fallback", () => {
   it("reuses a matching slug even when the repo stem changed", async () => {
-    hostExecOut = "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white";
-    await expect(findWorktrees("/ghq/github.com/laris-co", "homelab", "white", "homekeeper-oracle")).resolves.toEqual([
-      { path: "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white", name: "2-white" },
-    ]);
+    const parentDir = mkdtempSync(join(tmpdir(), "maw-find-worktrees-source-"));
+    const wtPath = join(parentDir, "homekeeper-oracle.wt-2-white");
+    const orphanPath = join(parentDir, "homekeeper-oracle.wt-3-white");
+    try {
+      mkdirSync(wtPath, { recursive: true });
+      mkdirSync(orphanPath, { recursive: true });
+      writeFileSync(join(wtPath, ".git"), "gitdir: homelab/.git/worktrees/2-white\n");
+      hostExecOut = `${wtPath}\n${orphanPath}\n`;
+      await expect(findWorktrees(parentDir, "homelab", "white", "homekeeper-oracle")).resolves.toEqual([
+        { path: wtPath, name: "2-white" },
+      ]);
+    } finally {
+      rmSync(parentDir, { recursive: true, force: true });
+    }
   });
 
   it("does not reuse a matching slug from another oracle", () => {

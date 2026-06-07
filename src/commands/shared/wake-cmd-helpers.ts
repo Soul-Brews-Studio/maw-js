@@ -190,6 +190,7 @@ export function planRehydrateWorktreeWindows(
   const planned: RehydrateWorktreePlan[] = [];
   for (const wt of worktrees) {
     const taskPart = wt.name.replace(/^\d+-/, "");
+    if (taskPart === oracle) continue;
     if (liveTileRoles.has(taskPart)) continue;
     let wtWindowName = `${oracle}-${taskPart}`;
     if (usedNames.has(wtWindowName)) {

@@ -419,26 +419,39 @@ describe("resolveOracle runtime paths", () => {
 describe("findWorktrees and detectSession runtime paths", () => {
   test("findWorktrees maps legacy and nested shell output into wake worktree records", async () => {
     const calls: string[] = [];
+    const root = mkdtempSync(join(tmpdir(), "maw-find-worktrees-"));
+    const legacyFeature = join(root, "mawjs-oracle.wt-feature");
+    const legacyBug = join(root, "mawjs-oracle.wt-2-bug");
+    const orphan = join(root, "mawjs-oracle.wt-orphan");
+    const nested = join(root, "mawjs-oracle", "agents", "3-nested");
+    mkdirSync(legacyFeature, { recursive: true });
+    mkdirSync(legacyBug, { recursive: true });
+    mkdirSync(orphan, { recursive: true });
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(legacyFeature, ".git"), "gitdir: ../mawjs-oracle/.git/worktrees/feature\n");
+    writeFileSync(join(legacyBug, ".git"), "gitdir: ../mawjs-oracle/.git/worktrees/2-bug\n");
+    writeFileSync(join(nested, ".git"), "gitdir: ../../.git/worktrees/3-nested\n");
     hostExecImpl = async (cmd) => {
       calls.push(cmd);
-      if (cmd === "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true") {
-        return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
+      if (cmd === `ls -d '${root}'/'mawjs-oracle'.wt-* 2>/dev/null || true`) {
+        return `${legacyFeature}\n${legacyBug}\n${orphan}\n`;
       }
-      if (cmd === "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true") {
-        return "/repos/mawjs-oracle/agents/3-nested\n";
+      if (cmd === `find '${root}/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`) {
+        return `${nested}\n`;
       }
       throw new Error(`unexpected command: ${cmd}`);
     };
 
-    await expect(findWorktrees("/repos", "mawjs-oracle")).resolves.toEqual([
-      { path: "/repos/mawjs-oracle.wt-feature", name: "feature" },
-      { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
-      { path: "/repos/mawjs-oracle/agents/3-nested", name: "3-nested" },
+    await expect(findWorktrees(root, "mawjs-oracle")).resolves.toEqual([
+      { path: legacyFeature, name: "feature" },
+      { path: legacyBug, name: "2-bug" },
+      { path: nested, name: "3-nested" },
     ]);
     expect(calls).toEqual([
-      "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true",
-      "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true",
+      `ls -d '${root}'/'mawjs-oracle'.wt-* 2>/dev/null || true`,
+      `find '${root}/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`,
     ]);
+    rmSync(root, { recursive: true, force: true });
   });
 
   test("findReusableWorktreeBySlug finds matching slug only within the requested oracle scope", () => {

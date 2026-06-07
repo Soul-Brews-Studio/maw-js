@@ -304,6 +304,7 @@ describe("wake worktree rehydrate planning — default coverage", () => {
         { name: "2-tile-1", path: "/repo/mawjs-oracle.wt-2-tile-1" },
         { name: "feature-a", path: "/repo/mawjs-oracle.wt-feature-a" },
         { name: "3-feature-c", path: "/repo/mawjs-oracle.wt-3-feature-c" },
+        { name: "4-mawjs", path: "/repo/mawjs-oracle.wt-4-mawjs" },
       ],
       ["mawjs-oracle", "mawjs-feature-a"],
       new Set(["tile-1"]),
@@ -322,6 +323,7 @@ describe("wake worktree rehydrate planning — default coverage", () => {
     const planned = planRehydrateWorktreeWindows("mawjs", [
       { name: "feature-a", path: "/repo/wt-feature-a" },
       { name: "2-feature-a", path: "/repo/wt-2-feature-a" },
+      { name: "3-mawjs", path: "/repo/wt-3-mawjs" },
     ]);
 
     expect(planned).toEqual([

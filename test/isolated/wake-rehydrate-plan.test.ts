@@ -6,6 +6,7 @@ describe("planRehydrateWorktreeWindows (#1563)", () => {
     { name: "1-alpha", path: "/repo.wt-1-alpha" },
     { name: "2-alpha", path: "/repo.wt-2-alpha" },
     { name: "3-beta", path: "/repo.wt-3-beta" },
+    { name: "4-mawjs", path: "/repo.wt-4-mawjs" },
   ];
 
   test("plans stable de-numbered window names and numbered fallback for true collisions", () => {

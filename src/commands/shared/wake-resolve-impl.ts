@@ -352,6 +352,13 @@ export async function findWorktrees(
   scopeStem?: string,
 ): Promise<{ path: string; name: string }[]> {
   const safe = (s: string) => s.replace(/'/g, "'\\''");
+  const isLinkedWorktree = (path: string): boolean => {
+    try {
+      return statSync(join(path, ".git")).isFile();
+    } catch {
+      return false;
+    }
+  };
   const repoPath = `${parentDir}/${repoName}`;
   const outs: string[] = [];
   const legacyOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
@@ -373,7 +380,7 @@ export async function findWorktrees(
     .filter(path => {
       if (seen.has(path)) return false;
       seen.add(path);
-      return true;
+      return isLinkedWorktree(path);
     })
     .map(path => ({ path, name: worktreeNameFromPath(path) ?? path.split("/").pop()! }));
 }
