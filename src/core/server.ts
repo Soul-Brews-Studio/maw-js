@@ -30,26 +30,11 @@ import { sendKeys } from "./transport/ssh";
 import { messageQueue } from "./message-queue";
 import { requestReplyStore } from "./request-reply";
 import { agentStatusStore } from "./agent-status";
+import { getRuntimeVersionLabel } from "./runtime/build-info";
 
 // --- Version info (computed once at startup) ---
 
-function getVersionString(): string {
-  try {
-    const rootDir = join(import.meta.dir, "..", "..");
-    const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf-8"));
-    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: rootDir }).toString().trim(); } catch {}
-    let buildDate = "";
-    try {
-      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: rootDir }).toString().trim();
-      const d = new Date(raw);
-      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
-    } catch {}
-    return `v${pkg.version}${hash ? ` (${hash})` : ""}${buildDate ? ` built ${buildDate}` : ""}`;
-  } catch { return ""; }
-}
-
-export const VERSION = getVersionString();
+export const VERSION = getRuntimeVersionLabel();
 
 export function isAddressInUseError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;

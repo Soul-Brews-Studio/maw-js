@@ -50,4 +50,14 @@ describe("getRuntimeVersionString", () => {
     expect(value).not.toContain(" built ");
     expect(execCalls).toHaveLength(2);
   });
+
+  test("uses dev instead of undefined when package version is missing", async () => {
+    const { formatRuntimeVersionLabel, normalizeRuntimeVersion } = await importBuildInfo("dev-fallback");
+
+    expect(normalizeRuntimeVersion(undefined)).toBe("dev");
+    expect(normalizeRuntimeVersion("")).toBe("dev");
+    expect(formatRuntimeVersionLabel(undefined)).toBe("vdev");
+    expect(formatRuntimeVersionLabel(" 26.6.8-alpha.1250 ", "abc1234", "2026-05-17 Sun 07:31"))
+      .toBe("v26.6.8-alpha.1250 (abc1234) built 2026-05-17 Sun 07:31");
+  });
 });
