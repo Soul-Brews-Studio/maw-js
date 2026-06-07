@@ -19,6 +19,10 @@ let pluginLoadShouldThrow = false;
 let peersShouldThrow: unknown = false;
 let watchCallbacks: Array<(changedFile: string) => unknown> = [];
 let pluginReloads: unknown[][] = [];
+let pluginLoads: unknown[][] = [];
+let projectPluginDirs: string[] = [];
+let unloadedScopes: string[] = [];
+let reloadMarks = 0;
 let skipDecisions: boolean[] = [];
 let logs: string[] = [];
 let warns: string[] = [];
@@ -43,6 +47,8 @@ class FakePluginSystem {
   }
   emit(_event: unknown) {}
   stats() { return { loaded: 1 }; }
+  unloadScope(scope: string) { unloadedScopes.push(scope); }
+  _markReloaded() { reloadMarks += 1; }
 }
 
 mock.module(import.meta.resolve("../../src/engine"), () => ({ MawEngine: FakeEngine }));
@@ -115,7 +121,8 @@ mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => 
 }));
 mock.module(import.meta.resolve("../../src/plugins/index"), () => ({
   PluginSystem: FakePluginSystem,
-  loadPlugins: async () => {
+  loadPlugins: async (...args: unknown[]) => {
+    pluginLoads.push(args);
     if (pluginLoadShouldThrow) throw new Error("plugin load failed");
   },
   reloadUserPlugins: async (...args: unknown[]) => { pluginReloads.push(args); },
@@ -178,6 +185,10 @@ describe("core server remaining isolated coverage", () => {
     peersShouldThrow = false;
     watchCallbacks = [];
     pluginReloads = [];
+    pluginLoads = [];
+    projectPluginDirs = [];
+    unloadedScopes = [];
+    reloadMarks = 0;
     skipDecisions = [];
     logs = [];
     warns = [];
@@ -241,6 +252,37 @@ describe("core server remaining isolated coverage", () => {
 
     expect(logs.join("\n")).toContain("changed-plugin.ts changed");
     expect(pluginReloads).toHaveLength(1);
+  });
+
+  test("server loads and watches project-local plugin directories", async () => {
+    projectPluginDirs = [join(tmp, "packages", "app", ".maw", "plugins"), join(tmp, ".maw", "plugins")];
+    const cwd = join(tmp, "packages", "app", "src");
+    for (const dir of projectPluginDirs) mkdirSync(dir, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    await startServer(4792);
+
+    const initialLoads = pluginLoads.map((args) => args.slice(1));
+    expect(String(initialLoads[0][0])).toContain("plugins/builtin");
+    expect(initialLoads[0][1]).toBe("builtin");
+    expect(String(initialLoads[1][0])).toContain("plugins");
+    expect(initialLoads[1][1]).toBe("user");
+    expect(initialLoads.slice(2).map((args) => args[1])).toEqual(["project", "project"]);
+    expect(String(initialLoads[2][0])).toContain("packages/app/.maw/plugins");
+    expect(String(initialLoads[3][0])).toContain(".maw/plugins");
+    expect(watchCallbacks).toHaveLength(3);
+
+    await watchCallbacks[1]("local-plugin.ts");
+
+    expect(logs.join("\n")).toContain("reloading project plugins (local-plugin.ts changed)");
+    expect(unloadedScopes).toEqual(["project"]);
+    const reloadedProjectLoads = pluginLoads.slice(-2).map((args) => args.slice(1));
+    expect(reloadedProjectLoads.map((args) => args[1])).toEqual(["project", "project"]);
+    expect(reloadedProjectLoads.map((args) => args[2])).toEqual([true, true]);
+    expect(String(reloadedProjectLoads[0][0])).toContain("packages/app/.maw/plugins");
+    expect(String(reloadedProjectLoads[1][0])).toContain(".maw/plugins");
+    expect(reloadMarks).toBe(1);
   });
 
   test("lifecycle failure rethrows even when server stop also fails", async () => {

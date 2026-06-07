@@ -16,6 +16,7 @@ import { handlePtyMessage, handlePtyClose, sweepOrphanPtySessions } from "./tran
 import { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../api/tmux-stream";
 import { setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
+import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
 import {
   dispatchEnginePluginEvent,
   findEnginePluginRegistration,
@@ -181,16 +182,34 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const userPluginsDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
     await loadPlugins(plugins, userPluginsDir, "user");
 
+    // Project-local plugins (.maw/plugins in cwd ancestors) are loaded after
+    // user plugins so repository-specific hooks can participate in serve.
+    const projectPluginDirs = discoverLocalPluginDirs(process.cwd());
+    for (const dir of projectPluginDirs) {
+      await loadPlugins(plugins, dir, "project");
+    }
+
     // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins
     // subscribe to feed events without direct core imports (#1566).
     await registerManifestHooks(plugins);
 
-    // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
-    // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.
+    // Hot-reload: watch user and project-local plugin dirs and re-import on
+    // .ts/.js/.wasm change. Builtin plugins are not touched. Opt out with
+    // MAW_HOT_RELOAD=0.
     watchUserPlugins(userPluginsDir, async (changedFile: string) => {
       console.log(`[plugin] reloading user plugins (${changedFile} changed)`);
       await reloadUserPlugins(plugins, userPluginsDir);
     });
+    for (const dir of projectPluginDirs) {
+      watchUserPlugins(dir, async (changedFile: string) => {
+        console.log(`[plugin] reloading project plugins (${changedFile} changed)`);
+        plugins.unloadScope("project");
+        for (const projectDir of projectPluginDirs) {
+          await loadPlugins(plugins, projectDir, "project", true);
+        }
+        plugins._markReloaded?.();
+      });
+    }
 
     // Single feedListener wires everything through the plugin pipeline
     feedListeners.add((event) => plugins.emit(event));
