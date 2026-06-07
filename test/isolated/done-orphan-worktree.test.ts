@@ -58,6 +58,26 @@ describe("maw done orphan worktree cleanup", () => {
     expect(h.commands).toContain(`rm -rf '${primary}'`);
   });
 
+  test("removes a clean worktree directory when git worktree remove leaves it behind (#2369)", async () => {
+    const h = harness((command) => {
+      if (command.includes("rev-parse --abbrev-ref")) return "feature/clean\n";
+      if (command.includes("worktree remove")) throw new Error("fatal: Directory not empty");
+      if (command.startsWith("test -d")) return "";
+      if (command.includes("status --porcelain")) return "";
+      if (command.startsWith("rm -rf")) return "";
+      if (command.includes("worktree prune")) return "";
+      if (command.startsWith("find ")) return "";
+      return "";
+    });
+
+    await cmdDone("mawjs-codex", { cwd: main }, h.deps);
+
+    expect(h.commands).toContain(`git -C '${primary}' status --porcelain --untracked-files=all`);
+    expect(h.commands).toContain(`rm -rf '${primary}'`);
+    expect(h.commands).toContain(`git -C '${main}' worktree prune`);
+    expect(h.logs.join("\n")).toContain("removed orphan directory 1-codex after verifying it was clean");
+  });
+
   test("refuses to remove a dirty orphan directory without force", async () => {
     const h = harness((command) => {
       if (command.includes("rev-parse --abbrev-ref")) return "feature\n";

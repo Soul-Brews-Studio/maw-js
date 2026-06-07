@@ -206,7 +206,9 @@ describe("vendor kill implementation branch coverage", () => {
       throw new Error(`unexpected command: ${cmd}`);
     };
 
-    await expect(cmdKill("mawjs:codex")).rejects.toThrow("window 'codex' is ambiguous in session 47-mawjs");
+    await expect(cmdKill("mawjs:codex")).rejects.toThrow(
+      "use --index N to kill one, or --all to kill all matching windows",
+    );
     expect(hostExecCalls).toEqual([]);
 
     await expect(captureConsole(() => cmdKill("mawjs:codex", { index: 5 }))).resolves.toMatchObject({
