@@ -24,8 +24,8 @@ delete process.env.MAW_JWT_SECRET;
 let app: Elysia;
 
 beforeAll(async () => {
-  const { federationApi } = await import("../../src/api/federation");
-  app = new Elysia().use(federationApi);
+  const { createIdentityApi } = await import("../../src/vendor/mpr-plugins/serve-identity/impl");
+  app = new Elysia().use(createIdentityApi());
 });
 
 afterAll(() => {

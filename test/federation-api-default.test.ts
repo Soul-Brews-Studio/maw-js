@@ -4,9 +4,14 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createFederationApi, type FederationApiDeps } from "../src/api/federation";
+import { createIdentityApi, type IdentityApiDeps } from "../src/vendor/mpr-plugins/serve-identity/impl";
 
 function makeApp(deps: FederationApiDeps = {}) {
   return new Elysia().use(createFederationApi(deps));
+}
+
+function makeIdentityApp(deps: IdentityApiDeps = {}) {
+  return new Elysia().use(createIdentityApi(deps));
 }
 
 async function readJson(res: Response) {
@@ -14,7 +19,7 @@ async function readJson(res: Response) {
 }
 
 describe("federation API identity/status/snapshot routes", () => {
-  test("serves federation status, snapshots, identity, and auth status", async () => {
+  test("serves federation status, snapshots, and auth status", async () => {
     const app = makeApp({
       getFederationStatus: async () => ({ peers: [{ name: "m5" }] }) as any,
       listSnapshots: () => [{ id: "s1" }] as any,
@@ -27,12 +32,6 @@ describe("federation API identity/status/snapshot routes", () => {
         agents: { codex: "m5", buddy: "codex@m5" },
         federationToken: "abcd-secret",
       })) as any,
-      hostedAgents: ((agents: any, node: string) => Object.entries(agents)
-        .filter(([, n]) => n === node)
-        .map(([name]) => ({ node, name }))) as any,
-      getPeerKey: () => "peer-public-key",
-      packageVersion: "v.test",
-      uptime: () => 42.9,
       nowIso: () => "2026-05-17T00:00:00.000Z",
     });
 
@@ -43,6 +42,54 @@ describe("federation API identity/status/snapshot routes", () => {
     const missing = await app.handle(new Request("http://localhost/snapshots/missing"));
     expect(missing.status).toBe(404);
     expect(await readJson(missing)).toEqual({ error: "snapshot not found" });
+
+
+    expect(await readJson(await app.handle(new Request("http://localhost/auth/status")))).toEqual({
+      enabled: true,
+      tokenConfigured: true,
+      tokenPreview: "abcd****",
+      method: "HMAC-SHA256",
+      clockUtc: "2026-05-17T00:00:00.000Z",
+      node: "m5",
+    });
+  });
+
+  test("identity and auth status default missing config fields", async () => {
+    const app = makeApp({
+      loadConfig: (() => ({})) as any,
+      nowIso: () => "now",
+    });
+
+    expect(await readJson(await app.handle(new Request("http://localhost/auth/status")))).toEqual({
+      enabled: false,
+      tokenConfigured: false,
+      tokenPreview: null,
+      method: "none",
+      clockUtc: "now",
+      node: "local",
+    });
+  });
+
+});
+
+describe("serve-identity plugin API", () => {
+  test("serves the existing identity contract", async () => {
+    const app = makeIdentityApp({
+      loadConfig: (() => ({
+        node: "m5",
+        nodeUser: "codex",
+        port: 4567,
+        oracle: "mawjs-oracle",
+        agents: { codex: "m5", buddy: "codex@m5" },
+      })) as any,
+      hostedAgents: ((agents: any, node: string) => Object.entries(agents)
+        .filter(([, n]) => n === node)
+        .map(([name]) => ({ node, name }))) as any,
+      getPeerKey: () => "peer-public-key",
+      packageVersion: "v.test",
+      uptime: () => 42.9,
+      nowIso: () => "2026-05-17T00:00:00.000Z",
+    });
 
     expect(await readJson(await app.handle(new Request("http://localhost/identity")))).toEqual({
       node: "codex@m5",
@@ -65,40 +112,10 @@ describe("federation API identity/status/snapshot routes", () => {
       ],
       pubkey: "peer-public-key",
     });
-
-    expect(await readJson(await app.handle(new Request("http://localhost/auth/status")))).toEqual({
-      enabled: true,
-      tokenConfigured: true,
-      tokenPreview: "abcd****",
-      method: "HMAC-SHA256",
-      clockUtc: "2026-05-17T00:00:00.000Z",
-      node: "m5",
-    });
   });
 
-  test("identity and auth status default missing config fields", async () => {
-    const app = makeApp({
-      loadConfig: (() => ({})) as any,
-      hostedAgents: (() => []) as any,
-      getPeerKey: () => "pub",
-      packageVersion: "v.test",
-      uptime: () => 1,
-      nowIso: () => "now",
-    });
-
-    expect((await readJson(await app.handle(new Request("http://localhost/identity")))).node).toBe("local");
-    expect(await readJson(await app.handle(new Request("http://localhost/auth/status")))).toEqual({
-      enabled: false,
-      tokenConfigured: false,
-      tokenPreview: null,
-      method: "none",
-      clockUtc: "now",
-      node: "local",
-    });
-  });
-
-  test("production default callbacks remain callable without writing peer keys", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "maw-federation-api-"));
+  test("defaults missing config fields and production callbacks remain callable", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-identity-plugin-"));
     const savedPeerKey = process.env.MAW_PEER_KEY;
     const savedConfigDir = process.env.MAW_CONFIG_DIR;
     const savedDataDir = process.env.MAW_DATA_DIR;
@@ -106,18 +123,12 @@ describe("federation API identity/status/snapshot routes", () => {
     process.env.MAW_CONFIG_DIR = tmp;
     process.env.MAW_DATA_DIR = join(tmp, "data");
     try {
-      const app = makeApp({
-        homedir: () => tmp,
-        readFileSync: (() => { throw new Error("no legacy log"); }) as any,
-      });
-
+      const app = makeIdentityApp({ loadConfig: (() => ({})) as any });
       const identity = await readJson(await app.handle(new Request("http://localhost/identity")));
+      expect(identity.node).toBe("local");
       expect(identity.pubkey).toBe("test-peer-key");
       expect(typeof identity.uptime).toBe("number");
       expect(typeof identity.clockUtc).toBe("string");
-
-      const messages = await readJson(await app.handle(new Request("http://localhost/messages?limit=1")));
-      expect(messages).toEqual({ messages: [], total: 0 });
     } finally {
       if (savedPeerKey === undefined) delete process.env.MAW_PEER_KEY;
       else process.env.MAW_PEER_KEY = savedPeerKey;
@@ -129,6 +140,7 @@ describe("federation API identity/status/snapshot routes", () => {
     }
   });
 });
+
 
 describe("federation API messages route", () => {
   test("returns sqlite ledger messages with bounded query options", async () => {
