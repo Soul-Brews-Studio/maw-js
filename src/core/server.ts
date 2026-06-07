@@ -1,5 +1,4 @@
 import { MawEngine } from "../engine";
-import type { WSData } from "./types";
 import { loadConfig, cfgInterval, cfgTimeout } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { api } from "../api";
@@ -8,8 +7,7 @@ import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createTransportRouter } from "../transports";
 import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
-import { handlePtyMessage, handlePtyClose, sweepOrphanPtySessions } from "./transport/pty";
-import { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../api/tmux-stream";
+import { sweepOrphanPtySessions } from "./transport/pty";
 import { isProtected, setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
@@ -29,6 +27,7 @@ import { requestReplyStore } from "./request-reply";
 import { agentStatusStore } from "./agent-status";
 import { getRuntimeVersionLabel } from "./runtime/build-info";
 import { ServeRouteRegistry } from "./serve-route-registry";
+import { ServeWsRegistry } from "./serve-ws-registry";
 
 // --- Version info (computed once at startup) ---
 
@@ -92,6 +91,9 @@ const registerServeViews = serveViewsPlugin.serve;
 export const createViews = serveViewsPlugin.createViews;
 export const views = serveViewsPlugin.createViews();
 
+const serveWsPlugin = await import(`../vendor/mpr-plugins/serve-ws/index.ts?server=${encodeURIComponent(import.meta.url)}`);
+const registerServeWs = serveWsPlugin.serve;
+
 const startupPeerWarningsLogged = new Set<string>();
 
 function warnMissingFederationTokenOnce(port: number, log = createServeLogger(1)): void {
@@ -110,11 +112,17 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const log = createServeLogger(verbosity);
   const engine = new MawEngine({ feedBuffer, feedListeners });
   const serveRoutes = new ServeRouteRegistry();
+  const serveWs = new ServeWsRegistry();
   const serveViews = createViews();
   await registerServeViews({
     http: serveRoutes,
     plugin: { name: "serve-views" },
   }, { views: serveViews });
+  registerServeWs({
+    ws: serveWs,
+    engine,
+    plugin: { name: "serve-ws" },
+  });
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
@@ -217,24 +225,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     log.error("[plugins] failed to init:", err);
   }
 
-  const wsHandler = {
-    open: (ws: any) => {
-      if (ws.data.mode === "pty") return;
-      if (ws.data.mode === "tmux-stream") { handleTmuxStreamOpen(ws); return; }
-      engine.handleOpen(ws);
-    },
-    message: (ws: any, msg: any) => {
-      if (ws.data.mode === "pty") { handlePtyMessage(ws, msg); return; }
-      if (ws.data.mode === "tmux-stream") { handleTmuxStreamMessage(ws, msg); return; }
-      engine.handleMessage(ws, msg);
-    },
-    close: (ws: any) => {
-      if (ws.data.mode === "pty") { handlePtyClose(ws); return; }
-      if (ws.data.mode === "tmux-stream") { handleTmuxStreamClose(ws); return; }
-      engine.handleClose(ws);
-    },
-  };
-
   const corsHeaders = (req: Request) => {
     const origin = req.headers.get("origin") ?? "*";
     return {
@@ -253,18 +243,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     if (req.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(req) });
     }
-    if (url.pathname === "/ws/pty") {
-      if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-    if (url.pathname === "/ws/tmux") {
-      if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "tmux-stream" } as WSData })) return;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-    if (url.pathname === "/ws") {
-      if (server.upgrade(req, { data: { target: null, previewTargets: new Set() } as WSData })) return;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
+    const wsUpgrade = serveWs.handleUpgrade(req, server);
+    if (wsUpgrade.matched) return wsUpgrade.response;
     // Elysia handles all /api/* routes (has its own CORS)
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
@@ -331,7 +311,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   // fires → handlePtyClose → detach → grace-timer reaps the maw-pty- tmux session.
   // sendPings: true is Bun's default but pinned for explicitness. Shared across
   // the HTTP + TLS Bun.serve calls below so both ws surfaces get the heartbeat.
-  const wsConfig = { ...wsHandler, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
+  const wsConfig = { ...serveWs.handlers, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
 
   let server: ReturnType<typeof Bun.serve>;
   try {
@@ -384,6 +364,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       wsUrl: WS_URL,
       hostname,
       http: serveRoutes,
+      ws: serveWs,
+      engine,
       plugins: serveLifecyclePlugins,
       reloadPlugins: serveLifecycleReloadPlugins,
     }, undefined, {

@@ -10,6 +10,8 @@ import { existsSync, realpathSync } from "fs";
 import { resolve, sep } from "path";
 import { pathToFileURL } from "url";
 import { discoverPackages } from "./registry";
+import type { MawEngine } from "../engine";
+import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
 import type { LoadedPlugin, PluginLifecycleHook, ServeHttpRouteRegistrar } from "./types";
 
 export type LifecyclePhase = "wake" | "sleep" | "serve";
@@ -28,6 +30,8 @@ export interface PluginLifecycleContext {
   wsUrl?: string;
   hostname?: string;
   http?: ServeHttpRouteRegistrar;
+  ws?: ServeWsRouteRegistrar;
+  engine?: MawEngine;
   ensures?: string[];
 }
 
@@ -51,6 +55,8 @@ export interface ServeLifecycleContextInput {
   wsUrl: string;
   hostname: string;
   http?: ServeHttpRouteRegistrar;
+  ws?: ServeWsRouteRegistrar;
+  engine?: MawEngine;
   /** In-memory feed plugin system, exposed for serve diagnostics/debug plugins. */
   plugins?: unknown;
   /** Reload user plugins and return the current plugin stats/debug payload. */
