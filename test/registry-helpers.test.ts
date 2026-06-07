@@ -58,6 +58,19 @@ describe("plugin registry runtime helpers", () => {
     expect(scanDirs(cwd)).toEqual([packagePlugins, projectPlugins, "/tmp/maw-test-plugins"]);
   });
 
+  test("scanDirs deduplicates plugin directories", () => {
+    const root = tempDir("maw-local-plugins-dupe-");
+    const packagePlugins = join(root, "packages", "app", ".maw", "plugins");
+    const cwd = join(root, "packages", "app", "src");
+    mkdirSync(packagePlugins, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+
+    saveEnv("MAW_PLUGINS_DIR");
+    process.env.MAW_PLUGINS_DIR = packagePlugins;
+
+    expect(scanDirs(cwd)).toEqual([packagePlugins]);
+  });
+
   test("discoverLocalPluginDirs stops walking at a .maw-root marker", () => {
     const root = tempDir("maw-root-marker-");
     const parentPlugins = join(root, ".maw", "plugins");
