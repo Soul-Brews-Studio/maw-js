@@ -21,6 +21,7 @@ type LedgerModule = {
 };
 
 export interface FederationApiDeps {
+  includeFederationStatus?: boolean;
   getFederationStatus?: typeof getFederationStatus;
   listSnapshots?: typeof listSnapshots;
   loadSnapshot?: typeof loadSnapshot;
@@ -52,16 +53,19 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
       ? [deps.fleetDir]
       : fleetDirsForRead();
   const loadLedger = deps.loadLedger ?? (async () => await import("../vendor/mpr-plugins/messages/ledger"));
+  const includeFederationStatus = deps.includeFederationStatus ?? true;
 
   const federationApi = new Elysia();
 
   // PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
   // clients; `peers[].node` and `peers[].agents` are optional (commit 9a0546d+).
   // See docs/federation.md before changing fields.
-  federationApi.get("/federation/status", async () => {
-    const status = await federationStatus();
-    return status;
-  });
+  if (includeFederationStatus) {
+    federationApi.get("/federation/status", async () => {
+      const status = await federationStatus();
+      return status;
+    });
+  }
 
   /** Snapshots API — list and view fleet time machine snapshots */
   federationApi.get("/snapshots", () => {
@@ -164,4 +168,4 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
   return federationApi;
 }
 
-export const federationApi = createFederationApi();
+export const federationApi = createFederationApi({ includeFederationStatus: false });

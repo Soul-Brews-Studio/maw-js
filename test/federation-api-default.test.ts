@@ -3,7 +3,7 @@ import { Elysia } from "elysia";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createFederationApi, type FederationApiDeps } from "../src/api/federation";
+import { createFederationApi, federationApi, type FederationApiDeps } from "../src/api/federation";
 import { createIdentityApi, type IdentityApiDeps } from "../src/vendor/mpr-plugins/serve-identity/impl";
 
 function makeApp(deps: FederationApiDeps = {}) {
@@ -19,6 +19,11 @@ async function readJson(res: Response) {
 }
 
 describe("federation API identity/status/snapshot routes", () => {
+  test("direct aggregate export leaves /federation/status to the serve-federation plugin", async () => {
+    const res = await federationApi.handle(new Request("http://localhost/federation/status"));
+    expect(res.status).toBe(404);
+  });
+
   test("serves federation status, snapshots, and auth status", async () => {
     const app = makeApp({
       getFederationStatus: async () => ({ peers: [{ name: "m5" }] }) as any,
