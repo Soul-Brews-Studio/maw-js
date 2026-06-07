@@ -1,12 +1,12 @@
 /**
  * Scout transport — zenoh-inspired zero-config LAN discovery + auto-pairing.
  *
- * Replaces MdnsTransport with a proper Scout→Hello→Pair handshake:
+ * Provides a Scout→Hello→Pair handshake:
  *   1. Scout (multicast) — "who's out there?"
  *   2. Hello (unicast)   — "I'm here, these are my capabilities"
  *   3. Pair  (HTTP)      — "let's establish a persistent peer relationship"
  *
- * Backward-compatible: accepts maw-announce from legacy MdnsTransport nodes.
+ * Backward-compatible: accepts maw-announce packets from legacy mDNS discovery nodes.
  */
 
 import { createSocket, type Socket } from "dgram";

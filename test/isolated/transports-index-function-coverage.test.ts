@@ -41,9 +41,7 @@ mock.module(join(srcRoot, "src/transports/hub"), () => ({
   HubTransport: fakeTransport("hub"),
 }));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
 mock.module(join(srcRoot, "src/plugin/registry"), () => ({
   importPluginSymbol: async () => (cfg: any) => new (fakeTransport("zenoh-scout"))({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
@@ -102,7 +100,6 @@ describe("transport index function coverage", () => {
       "zenoh-scout",
       "http",
       "nanoclaw",
-      "lora",
       "zenoh",
     ]);
     expect(warnings.join("\n")).toContain("[zenoh] connect failed: Error: zenoh down");

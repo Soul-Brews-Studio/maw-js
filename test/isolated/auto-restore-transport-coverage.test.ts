@@ -177,7 +177,6 @@ describe("transport status command", () => {
     transportStatuses = [
       { name: "tmux", connected: true },
       { name: "http-federation", connected: false },
-      { name: "lora", connected: false },
       { name: "custom", connected: true },
     ];
 

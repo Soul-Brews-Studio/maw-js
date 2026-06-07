@@ -31,24 +31,7 @@ async function withCapturedConsole<T>(fn: () => Promise<T> | T): Promise<{ resul
   }
 }
 
-describe("LoRa stub and transport router coverage", () => {
-  test("LoRa remains disconnected, rejects sends, and accepts event handlers", async () => {
-    const { LoRaTransport } = await import("../../src/transports/lora.ts");
-    const lora = new LoRaTransport();
-
-    expect(lora.name).toBe("lora");
-    expect(lora.connected).toBe(false);
-    lora.onMessage(() => {});
-    lora.onPresence(() => {});
-    lora.onFeed(() => {});
-    await lora.connect();
-    await lora.publishPresence({ oracle: "neo", host: "mesh", status: "ready", timestamp: 1 });
-    await lora.publishFeed({ oracle: "neo", event: "Stop", timestamp: new Date(0).toISOString(), ts: 0 } as any);
-    expect(await lora.send({ oracle: "neo" }, "hello")).toBe(false);
-    expect(lora.canReach({ oracle: "neo" })).toBe(false);
-    await lora.disconnect();
-    expect(lora.connected).toBe(false);
-  });
+describe("transport router coverage", () => {
 
   test("router failover, event wiring, broadcasts, discovery, and error classification", async () => {
     const { TransportRouter, classifyError } = await import("../../src/core/transport/transport.ts");
@@ -214,7 +197,6 @@ describe("transport registry and workspace barrel coverage", () => {
   mock.module(import.meta.resolve("../../src/transports/nanoclaw"), () => ({
     NanoclawTransport: class { name = "nanoclaw"; connected = false; async connect() {} async disconnect() {} async send() { return false; } async publishPresence() {} async publishFeed() {} onMessage() {} onPresence() {} onFeed() {} canReach() { return false; } },
   }));
-  mock.module(import.meta.resolve("../../src/transports/mdns"), () => ({ MdnsTransport: class {} }));
   mock.module(import.meta.resolve("../../src/transports/scout"), () => ({
     ScoutTransport: class {
       name = "scout"; connected = true;
@@ -284,7 +266,7 @@ describe("transport registry and workspace barrel coverage", () => {
     const mod = await import("../../src/transports/index.ts");
     const router = mod.createTransportRouter();
     expect(mod.getTransportRouter()).toBe(router);
-    expect(router.status().map((s: any) => s.name)).toEqual(["tmux", "hub", "scout", "zenoh-scout", "http", "nanoclaw", "lora"]);
+    expect(router.status().map((s: any) => s.name)).toEqual(["tmux", "hub", "scout", "zenoh-scout", "http", "nanoclaw"]);
     expect(constructed).toContainEqual(["hub", "node-a"]);
     expect(constructed.find((row) => row[0] === "scout")?.[1]).toMatchObject({ node: "node-a", oracle: "mawjs", port: 4567, oracles: ["neo-oracle"], autoPair: true });
     expect(router.status().map((s: any) => s.name)).toContain("zenoh-scout");

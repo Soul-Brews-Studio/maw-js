@@ -290,21 +290,3 @@ describe("coverage 100b from-signing body read failure", () => {
     expect(warnings.join("\n")).toContain("body read failed");
   });
 });
-
-describe("coverage 100b small transport functions", () => {
-  test("LoRa stub records handlers and remains unreachable", async () => {
-    const { LoRaTransport } = await import("../../src/transports/lora.ts");
-    const lora = new LoRaTransport();
-    lora.onMessage(() => undefined);
-    lora.onPresence(() => undefined);
-    lora.onFeed(() => undefined);
-    await lora.connect();
-    expect(lora.connected).toBe(false);
-    expect(await lora.send({ oracle: "neo" }, "hello")).toBe(false);
-    await lora.publishPresence({ oracle: "neo", host: "white", status: "ready", timestamp: 1 });
-    await lora.publishFeed({ type: "note", source: "test", message: "hello", timestamp: 1 } as any);
-    expect(lora.canReach({ oracle: "neo" })).toBe(false);
-    await lora.disconnect();
-    expect(lora.connected).toBe(false);
-  });
-});

@@ -16,7 +16,6 @@ export async function cmdTransportStatus() {
   const notes: Record<string, string> = {
     "tmux": "local",
     "http-federation": config.peers?.length ? `${config.peers.length} peer(s)` : "no peers",
-    "lora": "no hardware",
   };
 
   for (let i = 0; i < statuses.length; i++) {

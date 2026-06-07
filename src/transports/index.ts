@@ -7,9 +7,7 @@ import { TransportRouter } from "../core/transport/transport";
 import { TmuxTransport } from "./tmux";
 import { HttpTransport } from "./http";
 import { HubTransport, loadWorkspaceConfigs } from "./hub";
-import { LoRaTransport } from "./lora";
 import { NanoclawTransport } from "./nanoclaw";
-import { MdnsTransport } from "./mdns";
 import { ScoutTransport } from "./scout";
 import type { Transport } from "../core/transport/transport";
 import { importPluginSymbol } from "../plugin/registry";
@@ -110,9 +108,6 @@ export function createTransportRouter(): TransportRouter {
 
   // 4. NanoClaw (external chat channels — Telegram, Discord, etc.)
   router.register(new NanoclawTransport());
-
-  // 5. LoRa (future hardware — stub, canReach() always false)
-  router.register(new LoRaTransport());
 
   return router;
 }
@@ -221,8 +216,6 @@ export { TmuxTransport } from "./tmux";
 export { HubTransport } from "./hub";
 export { HttpTransport } from "./http";
 export { NanoclawTransport } from "./nanoclaw";
-export { LoRaTransport } from "./lora";
-export { MdnsTransport } from "./mdns";
 export { ScoutTransport } from "./scout";
 // Zenoh scout transport is provided by the zenoh-scout plugin module surface.
 // ZenohTransport exported via dynamic import only (WASM dependency)

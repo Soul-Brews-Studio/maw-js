@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { processMirror } from "../../src/lib/process-mirror";
 import { isUserError, UserError } from "../../src/core/util/user-error";
-import { LoRaTransport } from "../../src/transports/lora";
 import { discoveryTransport } from "../../src/transports";
 
-describe("tiny pure core helpers and transport stubs", () => {
+describe("tiny pure core helpers and transport registry", () => {
   test("processMirror filters empty lines, normalizes separators, tails, and pads", () => {
     const raw = [
       "",
@@ -39,25 +38,6 @@ describe("tiny pure core helpers and transport stubs", () => {
     expect(isUserError(null)).toBe(false);
   });
 
-  test("LoRa transport stays an inert disconnected future-hardware stub", async () => {
-    const transport = new LoRaTransport();
-    const calls: string[] = [];
-    transport.onMessage(() => calls.push("message"));
-    transport.onPresence(() => calls.push("presence"));
-    transport.onFeed(() => calls.push("feed"));
-
-    expect(transport.name).toBe("lora");
-    expect(transport.connected).toBe(false);
-    await transport.connect();
-    expect(transport.connected).toBe(false);
-    expect(transport.canReach({ oracle: "neo" })).toBe(false);
-    expect(await transport.send({ oracle: "neo" }, "hello")).toBe(false);
-    await transport.publishPresence({ oracle: "neo", host: "m5", status: "ready", timestamp: 1 });
-    await transport.publishFeed({ timestamp: "2026-05-16 00:00:00", oracle: "neo", host: "m5", event: "SessionStart", project: "", sessionId: "", message: "", ts: 1 });
-    await transport.disconnect();
-    expect(transport.connected).toBe(false);
-    expect(calls).toEqual([]);
-  });
 
   test("discoveryTransport honors configured fallbacks and disabled zenoh-scout plugin", () => {
     expect(discoveryTransport({})).toBe("scout");

@@ -44,9 +44,7 @@ mock.module(join(srcRoot, "src/transports/hub"), () => ({
   HubTransport: fakeTransport("hub"),
 }));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
 mock.module(join(srcRoot, "src/plugin/registry"), () => ({
   importPluginSymbol: async () => () => new (fakeTransport("zenoh-scout"))(),
@@ -77,7 +75,7 @@ describe("transport registry zenoh load failure coverage", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
 
-    expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw", "lora"]);
+    expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw"]);
     expect(warnings).toContain("[zenoh] load failed: Error: wasm unavailable");
   });
 });

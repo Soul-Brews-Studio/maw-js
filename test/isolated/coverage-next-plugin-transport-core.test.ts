@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
-import { LoRaTransport } from "../../src/transports/lora";
 import {
   classifyError,
   TransportRouter,
@@ -128,23 +127,6 @@ describe("coverage-next plugin transport core", () => {
     expect(errors.join("\n")).toContain("[hooks] Error hook boom");
   });
 
-  test("LoRa stub exposes a safe disconnected transport surface", async () => {
-    const lora = new LoRaTransport();
-
-    expect(lora.name).toBe("lora");
-    expect(lora.connected).toBe(false);
-    await lora.connect();
-    expect(lora.connected).toBe(false);
-    expect(await lora.send({ oracle: "lyra" }, "hello")).toBe(false);
-    await lora.publishPresence({ oracle: "lyra", host: "local", status: "idle", timestamp: 1 });
-    await lora.publishFeed({ oracle: "lyra", host: "local", event: "Stop", timestamp: "now", ts: 1 } as any);
-    lora.onMessage(() => undefined);
-    lora.onPresence(() => undefined);
-    lora.onFeed(() => undefined);
-    expect(lora.canReach({ oracle: "lyra" })).toBe(false);
-    await lora.disconnect();
-    expect(lora.connected).toBe(false);
-  });
 
   test("TransportRouter wires handlers, failover, broadcasts, status, and peer listing", async () => {
     const logs: string[] = [];

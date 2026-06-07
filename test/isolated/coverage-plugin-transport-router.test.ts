@@ -45,9 +45,7 @@ mock.module(join(srcRoot, "src/transports/hub"), () => ({
   HubTransport: fakeTransport("hub"),
 }));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
 mock.module(join(srcRoot, "src/plugin/registry"), () => ({
   importPluginSymbol: async () => (cfg: any) => new (fakeTransport("zenoh-scout"))({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
@@ -79,7 +77,7 @@ describe("transport router coverage", () => {
 
     const minimal = transports.createTransportRouter() as unknown as FakeRouter;
     expect(transports.getTransportRouter()).toBe(minimal);
-    expect(minimal.registered.map((t) => t.name)).toEqual(["tmux", "nanoclaw", "lora"]);
+    expect(minimal.registered.map((t) => t.name)).toEqual(["tmux", "nanoclaw"]);
     expect(calls).toContain("connect:tmux");
 
     transports.resetTransportRouter();
@@ -107,7 +105,6 @@ describe("transport router coverage", () => {
       "zenoh-scout",
       "http",
       "nanoclaw",
-      "lora",
       "zenoh",
     ]);
     expect(calls).toContain("construct:hub:1");
