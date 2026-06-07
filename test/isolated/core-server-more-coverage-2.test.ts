@@ -243,6 +243,17 @@ describe("core server remaining isolated coverage", () => {
     expect(warns.join("\n")).toContain("event dispatch failed: dispatch rejected");
   });
 
+  test("deduplicates missing federation token startup warning across repeated serve starts", async () => {
+    config = { peers: ["http://peer.local:3456"] };
+
+    await startServer(4792);
+    await startServer(4793);
+
+    const joined = warns.join("\n");
+    expect(joined.match(/peers configured but no federationToken set/g)?.length).toBe(1);
+    expect(joined.match(/exposed to network WITHOUT authentication/g)?.length).toBe(1);
+  });
+
   test("plugin reload watcher callback reloads user plugins", async () => {
     await startServer(4790);
 

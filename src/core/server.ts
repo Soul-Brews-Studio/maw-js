@@ -106,6 +106,17 @@ export function createViews(
 const views = createViews();
 export { views };
 
+const startupPeerWarningsLogged = new Set<string>();
+
+function warnMissingFederationTokenOnce(port: number): void {
+  const key = "missing-federation-token";
+  if (startupPeerWarningsLogged.has(key)) return;
+  startupPeerWarningsLogged.add(key);
+  console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
+  console.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
+  console.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
+}
+
 // --- Server ---
 
 export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
@@ -291,9 +302,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const hasPeers = heuristic.reason !== null;
 
   if (hasPeers && !config.federationToken) {
-    console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
-    console.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
-    console.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
+    warnMissingFederationTokenOnce(port);
   }
 
   // Duplicate <oracle>:<node> warn (#804 Step 3, ADR docs/federation/0001-peer-identity.md).
