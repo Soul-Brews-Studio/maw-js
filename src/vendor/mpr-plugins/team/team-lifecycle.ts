@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, rmSync } from "fs";
 import { createHash } from "crypto";
 import { join } from "path";
 import { tmux } from "maw-js/sdk";
@@ -151,6 +151,44 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   cleanupTeamDir(name);
   console.log(`\x1b[32m✓\x1b[0m team '${name}' shut down${opts.merge ? " (knowledge merged)" : ""}`);
+}
+
+
+function teamConfigHasNoMembers(name: string): boolean {
+  const team = loadTeam(name);
+  return Boolean(team && Array.isArray(team.members) && team.members.length === 0);
+}
+
+function sessionMatchesTeamName(sessionName: string, teamName: string): boolean {
+  return sessionName === teamName || sessionName.replace(/^\d+-/, "") === teamName;
+}
+
+export async function cmdTeamPrune(): Promise<string[]> {
+  let teamDirs: string[] = [];
+  try {
+    teamDirs = readdirSync(TEAMS_DIR).filter((name) => existsSync(join(TEAMS_DIR, name, "config.json")));
+  } catch {
+    teamDirs = [];
+  }
+
+  const sessions = await tmux.listSessions().catch(() => [] as Array<{ name: string }>);
+  const activeNames = new Set(sessions.map((session) => session.name));
+  const pruned: string[] = [];
+
+  for (const name of teamDirs) {
+    if (!teamConfigHasNoMembers(name)) continue;
+    if ([...activeNames].some((sessionName) => sessionMatchesTeamName(sessionName, name))) continue;
+    rmSync(join(TEAMS_DIR, name), { recursive: true, force: true });
+    pruned.push(name);
+  }
+
+  if (pruned.length === 0) {
+    console.log("\x1b[90mNo empty inactive teams to prune.\x1b[0m");
+  } else {
+    for (const name of pruned) console.log(`\x1b[32m✓\x1b[0m pruned empty team '${name}'`);
+    console.log(`\x1b[32m✓\x1b[0m pruned ${pruned.length} empty inactive team${pruned.length === 1 ? "" : "s"}`);
+  }
+  return pruned;
 }
 
 // ─── maw team create <name> ───

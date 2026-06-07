@@ -20,6 +20,7 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/impl"), () =>
   cmdTeamList: async () => {},
   cmdTeamCreate: () => {},
   cmdTeamSpawn: async () => {},
+  cmdTeamPrune: async () => {},
   cmdTeamSend: () => {},
   cmdTeamBroadcast: async () => {},
   cmdTeamBring: async () => {},

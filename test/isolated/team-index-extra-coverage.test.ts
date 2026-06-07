@@ -30,6 +30,7 @@ type InboxMessage = {
 const calls: Record<string, unknown[][]> = {
   cmdTeamCreate: [],
   cmdTeamSpawn: [],
+  cmdTeamPrune: [],
   cmdTeamSend: [],
   cmdTeamResume: [],
   cmdTeamLives: [],
@@ -79,6 +80,7 @@ mock.module("os", () => ({
 mock.module(at("../../src/commands/plugins/team/impl"), () => ({
   cmdTeamCreate: (...args: unknown[]) => calls.cmdTeamCreate.push(args),
   cmdTeamSpawn: async (...args: unknown[]) => { calls.cmdTeamSpawn.push(args); },
+  cmdTeamPrune: async (...args: unknown[]) => { calls.cmdTeamPrune.push(args); },
   cmdTeamSend: (...args: unknown[]) => calls.cmdTeamSend.push(args),
   cmdTeamResume: (...args: unknown[]) => {
     if (throwOnResume) throw new Error("resume exploded");

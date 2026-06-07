@@ -12,6 +12,7 @@ const calls: Record<string, unknown[]> = {
   cmdTeamLives: [],
   cmdTeamShutdown: [],
   cmdTeamList: [],
+  cmdTeamPrune: [],
   cmdTeamTaskAdd: [],
   cmdTeamTaskList: [],
   cmdTeamTaskDone: [],
@@ -36,6 +37,7 @@ function resetCalls() {
 
 mock.module(at("../../src/commands/plugins/team/impl"), () => ({
   cmdTeamCreate: (...args: unknown[]) => calls.cmdTeamCreate.push(args),
+  cmdTeamPrune: async (...args: unknown[]) => calls.cmdTeamPrune.push(args),
   cmdTeamSpawn: async (...args: unknown[]) => calls.cmdTeamSpawn.push(args),
   cmdTeamSend: (...args: unknown[]) => calls.cmdTeamSend.push(args),
   cmdTeamResume: (...args: unknown[]) => calls.cmdTeamResume.push(args),
@@ -199,6 +201,13 @@ describe("team command handler coverage slice", () => {
     const result = await teamHandler({ source: "cli", args: ["broadcast", "hello"] });
     expect(result.ok).toBe(false);
     expect(result.error).toBe("team not found");
+  });
+
+
+  test("prune dispatches to lifecycle helper", async () => {
+    const result = await teamHandler({ source: "cli", args: ["prune"] });
+    expect(result.ok).toBe(true);
+    expect(calls.cmdTeamPrune).toEqual([[]]);
   });
 
   test("tasks uses MAW_TEAM fallback", async () => {

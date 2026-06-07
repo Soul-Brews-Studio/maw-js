@@ -3,7 +3,7 @@ import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
-  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn,
+  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn, cmdTeamPrune,
   cmdTeamSend, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { parseFlags } from "../../../cli/parse-args";
@@ -143,6 +143,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: args.includes("--force"),
         merge: args.includes("--merge"),
       });
+    } else if (sub === "prune") {
+      await cmdTeamPrune();
     } else if (sub === "up") {
       if (!args[1]) {
         logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
@@ -165,7 +167,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         engine: flags["--engine"] as string | undefined,
       });
     } else if (sub === "list" || sub === "ls" || !sub) {
-      await cmdTeamList();
+      if (args.includes("--all")) await cmdTeamList({ all: true });
+      else await cmdTeamList();
     } else if (sub === "add" || sub === "task") {
       // maw team add "subject" [--team <name>] [--assign agent] [--description text]
       const { cmdTeamTaskAdd } = await import("./task-ops");

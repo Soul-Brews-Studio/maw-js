@@ -3,7 +3,7 @@ import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
-  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn,
+  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn, cmdTeamPrune,
   cmdTeamSend, cmdTeamBroadcast, cmdTeamBring, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { resolveTeamSendMode, teamMessageTargets } from "./team-comms";
@@ -207,8 +207,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: args.includes("--force"),
         merge: args.includes("--merge"),
       });
+    } else if (sub === "prune") {
+      await cmdTeamPrune();
     } else if (sub === "list" || sub === "ls" || !sub) {
-      await cmdTeamList();
+      if (args.includes("--all")) await cmdTeamList({ all: true });
+      else await cmdTeamList();
     } else if (sub === "add" || sub === "task") {
       // maw team add "subject" [--team <name>] [--assign agent] [--description text]
       const { cmdTeamTaskAdd } = await import("./task-ops");
@@ -432,7 +435,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|remove|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

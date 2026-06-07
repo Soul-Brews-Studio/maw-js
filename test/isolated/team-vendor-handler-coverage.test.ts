@@ -4,6 +4,7 @@ const calls: Record<string, unknown[]> = {
   cmdTeamCreate: [],
   cmdTeamSpawn: [],
   cmdTeamList: [],
+  cmdTeamPrune: [],
   cmdTeamSend: [],
   cmdTeamBroadcast: [],
   cmdTeamBring: [],
@@ -44,6 +45,7 @@ mock.module("maw-js/cli/parse-args", () => ({
 mock.module("../../src/vendor/mpr-plugins/team/impl", () => ({
   cmdTeamList: () => { calls.cmdTeamList.push([]); },
   cmdTeamCreate: (...args: unknown[]) => calls.cmdTeamCreate.push(args),
+  cmdTeamPrune: async (...args: unknown[]) => calls.cmdTeamPrune.push(args),
   cmdTeamSpawn: async (...args: unknown[]) => calls.cmdTeamSpawn.push(args),
   cmdTeamSend: (...args: unknown[]) => calls.cmdTeamSend.push(args),
   cmdTeamBroadcast: async (...args: unknown[]) => calls.cmdTeamBroadcast.push(args),
@@ -178,6 +180,13 @@ describe("vendor team handler coverage slice", () => {
       split: true,
       gather: false,
     }]]);
+  });
+
+
+  test("prune dispatches to lifecycle helper", async () => {
+    const result = await teamHandler({ source: "cli", args: ["prune"] });
+    expect(result.ok).toBe(true);
+    expect(calls.cmdTeamPrune).toEqual([[]]);
   });
 
   test("members uses --team flag when provided", async () => {

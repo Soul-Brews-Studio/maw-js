@@ -43,6 +43,7 @@ const commandCalls: Record<string, unknown[][]> = {
   cmdTeamLives: [],
   cmdTeamShutdown: [],
   cmdTeamList: [],
+  cmdTeamPrune: [],
   cmdTeamTaskAdd: [],
   cmdTeamTaskList: [],
   cmdTeamTaskDone: [],
@@ -153,6 +154,7 @@ async function captureLogs(fn: () => Promise<void> | void): Promise<string[]> {
 
 mock.module(at("../../src/commands/plugins/team/impl"), () => ({
   cmdTeamCreate: (...args: unknown[]) => commandCalls.cmdTeamCreate.push(args),
+  cmdTeamPrune: async (...args: unknown[]) => commandCalls.cmdTeamPrune.push(args),
   cmdTeamSpawn: async (...args: unknown[]) => commandCalls.cmdTeamSpawn.push(args),
   cmdTeamSend: (...args: unknown[]) => commandCalls.cmdTeamSend.push(args),
   cmdTeamResume: (...args: unknown[]) => commandCalls.cmdTeamResume.push(args),
@@ -269,6 +271,7 @@ mock.module(at("../../src/vendor/mpr-plugins/team/team-lifecycle"), () => ({
   cmdTeamShutdown: async () => {},
   cmdTeamCreate: () => {},
   cmdTeamSpawn: async () => {},
+  cmdTeamPrune: async () => {},
   mergeTeamKnowledge: () => {},
 }));
 
@@ -546,13 +549,16 @@ describe("src/vendor/mpr-plugins/team/impl cmdTeamList coverage", () => {
   test("reports empty stores without asking tmux for pane state", async () => {
     const root = tempRoot("maw-vendor-empty-");
     process.chdir(root);
-    vendorHelpers._setDirs(join(root, "tool-teams"), join(root, "tasks"));
+    const teamsDir = join(root, "tool-teams");
+    vendorHelpers._setDirs(teamsDir, join(root, "tasks"));
+    writeJson(join(teamsDir, "sprawl-empty/config.json"), { name: "sprawl-empty", members: [] });
 
     const logs = await captureLogs(() => vendorImpl.cmdTeamList());
     const output = stripAnsi(logs.join("\n"));
 
     expect(output).toContain("No teams found.");
     expect(output).toContain("looked in: ~/.claude/teams/ (tool) + ψ/memory/mailbox/teams/ (vault)");
+    expect(output).not.toContain("sprawl-empty");
     expect(vendorCalls.listPaneIds).toHaveLength(0);
     expect(vendorCalls.listPanes).toHaveLength(0);
   });
@@ -584,6 +590,10 @@ describe("src/vendor/mpr-plugins/team/impl cmdTeamList coverage", () => {
       name: "quiet",
       members: [{ name: "builder", tmuxPaneId: "" }],
     });
+    writeJson(join(teamsDir, "sprawl-empty/config.json"), {
+      name: "sprawl-empty",
+      members: [],
+    });
     mkdirSync(join(teamsDir, "broken"), { recursive: true });
     writeFileSync(join(teamsDir, "broken/config.json"), "{ nope");
 
@@ -612,6 +622,7 @@ describe("src/vendor/mpr-plugins/team/impl cmdTeamList coverage", () => {
     expect(output).toContain("orphaned (lead dead)");
     expect(output).toContain("quiet");
     expect(output).toContain("no live panes");
+    expect(output).not.toContain("sprawl-empty");
     expect(output).toContain("vault-only");
     expect(output).toContain("vault");
     expect(output).toContain("prep-only");
@@ -622,5 +633,11 @@ describe("src/vendor/mpr-plugins/team/impl cmdTeamList coverage", () => {
     expect(vendorCalls.listPaneIds).toEqual([[]]);
     expect(vendorCalls.listPanes).toEqual([[]]);
     expect(vendorCalls.findZombiePanes).toEqual([[vendorPanes]]);
+
+    resetCallRecord(vendorCalls);
+    const allLogs = await captureLogs(() => vendorImpl.cmdTeamList({ all: true }));
+    const allOutput = stripAnsi(allLogs.join("\n"));
+    expect(allOutput).toContain("sprawl-empty");
+    expect(vendorCalls.listPaneIds).toEqual([[]]);
   });
 });

@@ -3,6 +3,7 @@ export {
   cmdTeamList,
   cmdTeamCreate,
   cmdTeamSpawn,
+  cmdTeamPrune,
   cmdTeamSend,
   cmdTeamBroadcast,
   cmdTeamBring,

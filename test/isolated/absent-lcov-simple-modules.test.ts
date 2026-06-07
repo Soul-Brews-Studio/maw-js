@@ -12,6 +12,7 @@ mock.module(vendorTeamImplPath, () => ({
   cmdTeamList: () => {},
   cmdTeamCreate: () => {},
   cmdTeamSpawn: () => {},
+  cmdTeamPrune: () => {},
   cmdTeamSend: () => {},
   cmdTeamBroadcast: () => {},
   cmdTeamBring: () => {},

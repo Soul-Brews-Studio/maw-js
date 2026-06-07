@@ -587,7 +587,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(plain()).toContain("would respawn: neo-docs");
   });
 
-  test("missing session creation registers new agents and reports team auto-config", async () => {
+  test("missing session creation registers new agents without team auto-config", async () => {
     detectSessionReturn = null;
     shouldWake = true;
     listSessionsReturn = [{ name: "02-old" }];
@@ -600,7 +600,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(result).toBe("03-neo:neo-oracle");
     expect(savedConfigs).toEqual([{ agents: { neo: "m5" } }]);
     expect(plain()).toContain("registered agent 'neo' → 'm5'");
-    expect(plain()).toContain("team 'neo' auto-created");
+    expect(plain()).not.toContain("team 'neo' auto-created");
   });
 
   test("missing session creation tolerates post-create window listing failures", async () => {

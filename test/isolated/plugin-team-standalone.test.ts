@@ -42,6 +42,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-session.ts"), ()
 }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/impl.ts"), () => ({
   cmdTeamCreate: (team: string, opts: unknown) => record("create", { team, opts }),
+  cmdTeamPrune: async (...args: unknown[]) => calls.push({ name: "prune", args }),
   cmdTeamSpawn: async (...args: unknown[]) => calls.push({ name: "spawn", args }),
   cmdTeamShutdown: async (...args: unknown[]) => calls.push({ name: "shutdown", args }),
   cmdTeamList: async () => record("list"),

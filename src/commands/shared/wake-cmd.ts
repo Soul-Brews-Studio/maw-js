@@ -1142,12 +1142,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[32m+\x1b[0m registered agent '${oracle}' → '${node}' in config.agents`);
     }
 
-    // #1020 — session = team: auto-create team config so `maw team spawn`
-    // works without explicit `maw team create`.
-    const { ensureTeamConfig } = await import("../plugins/team/ensure-config");
-    if (ensureTeamConfig(oracle)) {
-      console.log(`\x1b[32m+\x1b[0m team '${oracle}' auto-created`);
-    }
 
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
 

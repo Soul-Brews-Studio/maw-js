@@ -332,7 +332,7 @@ describe("wake-cmd eleventh-pass isolated coverage", () => {
     expect(snapshots).toEqual(["wake"]);
     const text = plain();
     expect(text).toContain("created session '10-neo'");
-    expect(text).toContain("team 'neo' auto-created");
+    expect(text).not.toContain("team 'neo' auto-created");
     expect(text).toContain("snapshot restore: 1 window");
     expect(text).toContain("2 window(s) reordered");
   });

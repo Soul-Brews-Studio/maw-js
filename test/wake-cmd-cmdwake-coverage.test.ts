@@ -1346,7 +1346,7 @@ describe("cmdWake main-suite coverage", () => {
     ]);
   });
 
-  test("creates a fresh session, registers config, auto-creates team metadata, and rehydrates worktrees", async () => {
+  test("creates a fresh session, registers config without auto-creating team metadata, and rehydrates worktrees", async () => {
     detectSessionReturn = null;
     shouldWakeDecision = { wake: true, reason: "missing" };
     sessions = [{ name: "09-old" }];
@@ -1378,7 +1378,7 @@ describe("cmdWake main-suite coverage", () => {
       opts: { cwd: worktrees[0]!.path },
     });
     expect(saveConfigCalls).toEqual([{ agents: { mawjs: "m5" } }]);
-    expect(ensureTeamConfigCalls).toEqual(["mawjs"]);
+    expect(ensureTeamConfigCalls).toEqual([]);
     expect(lifecycleCalls).toContainEqual({
       oracle: "mawjs",
       session: "10-mawjs",
@@ -1386,7 +1386,7 @@ describe("cmdWake main-suite coverage", () => {
       repoName,
     });
     expect(restoreTabOrderCalls).toEqual(["10-mawjs"]);
-    expect(logs.join("\n")).toContain("auto-created");
+    expect(logs.join("\n")).not.toContain("auto-created");
   });
 
   test("creates and attaches a fresh session without trusting the external readiness probe", async () => {

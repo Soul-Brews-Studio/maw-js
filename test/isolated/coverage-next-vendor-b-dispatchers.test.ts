@@ -89,6 +89,7 @@ mock.module(teamImplPath, () => ({
   cmdTeamList: async () => { console.error("team stderr"); },
   cmdTeamCreate: () => undefined,
   cmdTeamSpawn: async () => undefined,
+  cmdTeamPrune: async () => undefined,
   cmdTeamSend: () => undefined,
   cmdTeamBroadcast: async () => undefined,
   [hiddenTeamExport]: async () => undefined,
