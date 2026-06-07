@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 
-const root = join(import.meta.dir, "../..");
 const { default: discordHandler } = await import("../../src/vendor/mpr-plugins/discord/index.ts?plugin-discord-standalone");
+const {
+  DISCORD_USER_CACHE_DEFAULT_MAX,
+  DISCORD_USER_CACHE_MAX_ENV,
+  cacheDiscordUserName,
+  clearDiscordUserCacheForTests,
+  getCachedDiscordUserName,
+  getDiscordUserCacheMaxSize,
+  snapshotDiscordUserCacheForTests,
+} = await import("../../src/vendor/mpr-plugins/discord/inventory.ts?plugin-discord-standalone");
 
 function stripAnsi(value: string | undefined) {
   return String(value ?? "").replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -11,25 +18,36 @@ function stripAnsi(value: string | undefined) {
 
 describe("discord plugin standalone boundary", () => {
   test("uses only SDK/plugin/platform dependencies and plugin-local imports", () => {
-    for (const rel of [
-      "src/vendor/mpr-plugins/discord/index.ts",
-      "src/vendor/mpr-plugins/discord/lib.ts",
-      "src/vendor/mpr-plugins/discord/tokens.ts",
-      "src/vendor/mpr-plugins/discord/status.ts",
-      "src/vendor/mpr-plugins/discord/bind.ts",
-      "src/vendor/mpr-plugins/discord/access.ts",
-      "src/vendor/mpr-plugins/discord/inventory.ts",
-    ]) {
-      const source = readFileSync(join(root, rel), "utf8");
-      expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|lib|config)(?:\/|")/);
-      expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+/);
-    }
+    const imports = expectStandalonePluginBoundary({ plugin: "discord" });
 
-    const combined = ["index.ts", "lib.ts", "access.ts", "bind.ts"].map((file) =>
-      readFileSync(join(root, "src/vendor/mpr-plugins/discord", file), "utf8"),
-    ).join("\n");
-    expect(combined).toContain('from "maw-js/plugin/types"');
-    expect(combined).toContain('from "maw-js/sdk"');
+    expect(imports.map((record) => record.spec)).toContain("maw-js/plugin/types");
+    expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
+  });
+
+  test("keeps Discord user-name cache bounded with LRU semantics", () => {
+    const previousMax = process.env[DISCORD_USER_CACHE_MAX_ENV];
+    try {
+      process.env[DISCORD_USER_CACHE_MAX_ENV] = "2";
+      clearDiscordUserCacheForTests();
+
+      expect(DISCORD_USER_CACHE_DEFAULT_MAX).toBe(1000);
+      expect(getDiscordUserCacheMaxSize()).toBe(2);
+
+      cacheDiscordUserName("u1", "one");
+      cacheDiscordUserName("u2", "two");
+      expect(getCachedDiscordUserName("u1")).toBe("one");
+      cacheDiscordUserName("u3", "three");
+
+      expect(snapshotDiscordUserCacheForTests()).toEqual([
+        ["u1", "one"],
+        ["u3", "three"],
+      ]);
+      expect(getCachedDiscordUserName("u2")).toBeUndefined();
+    } finally {
+      clearDiscordUserCacheForTests();
+      if (previousMax === undefined) delete process.env[DISCORD_USER_CACHE_MAX_ENV];
+      else process.env[DISCORD_USER_CACHE_MAX_ENV] = previousMax;
+    }
   });
 
   test("prints usage for help forms without touching token or host state", async () => {
