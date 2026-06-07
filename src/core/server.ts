@@ -38,6 +38,34 @@ import { ServeRouteRegistry } from "./serve-route-registry";
 
 export const VERSION = getRuntimeVersionLabel();
 
+export type ServeVerbosity = 0 | 1 | 2;
+export type StartServerOptions = {
+  /** 0=quiet (errors only), 1=normal, 2=verbose debug */
+  verbosity?: ServeVerbosity;
+};
+
+type ServeLogger = {
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+};
+
+export function normalizeServeVerbosity(value: unknown): ServeVerbosity {
+  if (value === 0 || value === "0" || value === "quiet") return 0;
+  if (value === 2 || value === "2" || value === "verbose") return 2;
+  return 1;
+}
+
+export function createServeLogger(verbosity: ServeVerbosity): ServeLogger {
+  return {
+    info: (...args: unknown[]) => { if (verbosity >= 1) console.log(...args); },
+    warn: (...args: unknown[]) => { if (verbosity >= 1) console.warn(...args); },
+    debug: (...args: unknown[]) => { if (verbosity >= 2) console.log(...args); },
+    error: (...args: unknown[]) => { console.error(...args); },
+  };
+}
+
 export function isAddressInUseError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as { code?: unknown; errno?: unknown; syscall?: unknown; message?: unknown };
@@ -109,18 +137,20 @@ export { views };
 
 const startupPeerWarningsLogged = new Set<string>();
 
-function warnMissingFederationTokenOnce(port: number): void {
+function warnMissingFederationTokenOnce(port: number, log = createServeLogger(1)): void {
   const key = "missing-federation-token";
   if (startupPeerWarningsLogged.has(key)) return;
   startupPeerWarningsLogged.add(key);
-  console.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
-  console.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
-  console.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
+  log.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
+  log.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
+  log.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
 }
 
 // --- Server ---
 
-export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
+export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
+  const verbosity = options.verbosity ?? normalizeServeVerbosity(process.env.MAW_SERVE_VERBOSITY);
+  const log = createServeLogger(verbosity);
   const engine = new MawEngine({ feedBuffer, feedListeners });
   const serveRoutes = new ServeRouteRegistry();
 
@@ -137,19 +167,19 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       const reaper = new Tmux();
       for (const s of stale) {
         await reaper.killSession(s.name);
-        console.log(`[startup] reaped orphan: ${s.name}`);
+        log.info(`[startup] reaped orphan: ${s.name}`);
       }
-      console.log(`[startup] cleaned ${stale.length} orphaned sessions`);
+      log.info(`[startup] cleaned ${stale.length} orphaned sessions`);
     }
   } catch { /* tmux may not be running */ }
 
   // Connect transport router (non-blocking — server starts even if transports fail)
   try {
     const router = createTransportRouter();
-    router.connectAll().catch(err => console.error("[transport] connect failed:", err));
+    router.connectAll().catch(err => log.error("[transport] connect failed:", err));
     engine.setTransportRouter(router);
   } catch (err) {
-    console.error("[transport] router init failed:", err);
+    log.error("[transport] router init failed:", err);
   }
 
   // Start dispatch engine — auto-delivers queued messages when agents become idle
@@ -159,7 +189,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   setupTriggerListener(feedListeners);
   feedListeners.add((event) => {
     dispatchEnginePluginEvent(event).catch((err) => {
-      console.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+      log.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   });
 
@@ -183,6 +213,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     // Project-local plugins (.maw/plugins in cwd ancestors) are loaded after
     // user plugins so repository-specific hooks can participate in serve.
     const projectPluginDirs = discoverLocalPluginDirs(process.cwd());
+    log.debug(`[serve:debug] plugins builtin=${builtinDir} user=${userPluginsDir} project=${projectPluginDirs.length}`);
     for (const dir of projectPluginDirs) {
       await loadPlugins(plugins, dir, "project");
     }
@@ -195,12 +226,12 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     // .ts/.js/.wasm change. Builtin plugins are not touched. Opt out with
     // MAW_HOT_RELOAD=0.
     watchUserPlugins(userPluginsDir, async (changedFile: string) => {
-      console.log(`[plugin] reloading user plugins (${changedFile} changed)`);
+      log.info(`[plugin] reloading user plugins (${changedFile} changed)`);
       await reloadUserPlugins(plugins, userPluginsDir);
     });
     for (const dir of projectPluginDirs) {
       watchUserPlugins(dir, async (changedFile: string) => {
-        console.log(`[plugin] reloading project plugins (${changedFile} changed)`);
+        log.info(`[plugin] reloading project plugins (${changedFile} changed)`);
         plugins.unloadScope("project");
         for (const projectDir of projectPluginDirs) {
           await loadPlugins(plugins, projectDir, "project", true);
@@ -221,7 +252,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const { pluginsView } = require("../views/plugins");
     views.route("/plugins", pluginsView(plugins));
   } catch (err) {
-    console.error("[plugins] failed to init:", err);
+    log.error("[plugins] failed to init:", err);
   }
 
   const wsHandler = {
@@ -304,9 +335,11 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const hostname = config.bind ?? heuristic.hostname;
   const reason = config.bind ? "config.bind" as const : heuristic.reason;
   const hasPeers = heuristic.reason !== null;
+  log.debug(`[serve:debug] verbosity=${verbosity} port=${port} hostname=${hostname} reason=${reason ?? "explicit-local"}`);
+  log.debug(`[serve:debug] peers=${hasPeers ? "configured" : "none"} tls=${config.tls?.cert && config.tls?.key ? "configured" : "off"}`);
 
   if (hasPeers && !config.federationToken) {
-    warnMissingFederationTokenOnce(port);
+    warnMissingFederationTokenOnce(port, log);
   }
 
   // Duplicate <oracle>:<node> warn (#804 Step 3, ADR docs/federation/0001-peer-identity.md).
@@ -318,10 +351,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const { warnDuplicatesAtBoot } = require("../lib/peers/duplicate-detect");
     const peers = loadPeers().peers;
     const local = config.node ? { oracle: config.oracle ?? "mawjs", node: config.node } : undefined;
-    warnDuplicatesAtBoot({ peers, local });
+    warnDuplicatesAtBoot({ peers, local, log: (message: string) => log.warn(message) });
   } catch (e: any) {
     // Never fail boot on a dedup-scan glitch — log and move on.
-    console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
+    log.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
   }
 
   // P1 heartbeat-reaper: Bun-managed ws ping/pong + idle close. Dead clients
@@ -336,7 +369,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsConfig });
   } catch (err) {
     if (isAddressInUseError(err)) {
-      for (const line of servePortInUseInstructions(port, hostname)) console.error(line);
+      for (const line of servePortInUseInstructions(port, hostname)) log.error(line);
       throw new UserError(`maw serve port ${port} is already in use`);
     }
     throw err;
@@ -351,10 +384,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     sweepOrphanPtySessions()
       .then(({ killed, checked }) => {
         if (killed.length > 0) {
-          console.log(`[pty-sweep] killed ${killed.length} orphan(s): ${killed.join(", ")} (checked ${checked})`);
+          log.info(`[pty-sweep] killed ${killed.length} orphan(s): ${killed.join(", ")} (checked ${checked})`);
         }
       })
-      .catch((err) => console.error("[pty-sweep] failed:", err));
+      .catch((err) => log.error("[pty-sweep] failed:", err));
   }, cfgInterval("ptySweep"));
   (ptySweepTimer as { unref?: () => void }).unref?.();
 
@@ -372,8 +405,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   (memoryMaintenanceTimer as { unref?: () => void }).unref?.();
 
   const bindNote = reason ? ` (${reason})` : "";
-  console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
+  log.info(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
 
+  log.debug(`[serve:debug] running serve lifecycle hooks`);
   try {
     await runServeLifecycleHooks({
       port,
@@ -381,6 +415,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       wsUrl: WS_URL,
       hostname,
       http: serveRoutes,
+    }, undefined, {
+      info: (message) => log.info(message),
+      warn: (message) => log.warn(message),
     });
   } catch (err) {
     try { server.stop(true); } catch { /* best effort */ }
@@ -393,7 +430,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
     Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsConfig });
-    console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
+    log.info(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 
   return server;

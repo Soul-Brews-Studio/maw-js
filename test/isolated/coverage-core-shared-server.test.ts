@@ -105,7 +105,7 @@ mock.module(import.meta.resolve("../../src/views/plugins"), () => ({ pluginsView
 mock.module(import.meta.resolve("../../src/lib/peers/store"), () => ({ loadPeers: () => ({ peers: {} }) }));
 mock.module(import.meta.resolve("../../src/lib/peers/duplicate-detect"), () => ({ warnDuplicatesAtBoot: () => {} }));
 
-const { createViews, startServer } = await import("../../src/core/server.ts?coverage-core-shared-server");
+const { createViews, startServer, createServeLogger, normalizeServeVerbosity } = await import("../../src/core/server.ts?coverage-core-shared-server");
 
 const original = {
   serve: Bun.serve,
@@ -149,6 +149,49 @@ afterEach(() => {
 });
 
 describe("coverage core shared server", () => {
+  test("serve verbosity logger gates non-error output", () => {
+    const logs: string[] = [];
+    const warns: string[] = [];
+    const errors: string[] = [];
+    const oldLog = console.log;
+    const oldWarn = console.warn;
+    const oldError = console.error;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+    console.warn = (...a: unknown[]) => { warns.push(a.map(String).join(" ")); };
+    console.error = (...a: unknown[]) => { errors.push(a.map(String).join(" ")); };
+    try {
+      expect(normalizeServeVerbosity("0")).toBe(0);
+      expect(normalizeServeVerbosity("quiet")).toBe(0);
+      expect(normalizeServeVerbosity("2")).toBe(2);
+      expect(normalizeServeVerbosity("verbose")).toBe(2);
+      expect(normalizeServeVerbosity(undefined)).toBe(1);
+
+      const quiet = createServeLogger(0);
+      quiet.info("quiet-info");
+      quiet.warn("quiet-warn");
+      quiet.debug("quiet-debug");
+      quiet.error("quiet-error");
+      expect(logs).toEqual([]);
+      expect(warns).toEqual([]);
+      expect(errors).toEqual(["quiet-error"]);
+
+      const normal = createServeLogger(1);
+      normal.info("normal-info");
+      normal.warn("normal-warn");
+      normal.debug("normal-debug");
+      expect(logs).toEqual(["normal-info"]);
+      expect(warns).toEqual(["normal-warn"]);
+
+      const verbose = createServeLogger(2);
+      verbose.debug("verbose-debug");
+      expect(logs).toEqual(["normal-info", "verbose-debug"]);
+    } finally {
+      console.log = oldLog;
+      console.warn = oldWarn;
+      console.error = oldError;
+    }
+  });
+
   test("createViews covers topology success, missing door fallback, and error JSON", async () => {
     mkdirSync(join(tmp, "ψ", "outbox"), { recursive: true });
     writeFileSync(join(tmp, "ψ", "outbox", "fleet-topology.html"), "<h1>topology</h1>");

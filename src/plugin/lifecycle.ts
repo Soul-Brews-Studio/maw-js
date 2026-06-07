@@ -61,6 +61,10 @@ export interface LifecycleRunSummary {
 }
 
 export type LifecycleDiscover = () => LoadedPlugin[];
+export type LifecycleLogger = {
+  info: (message: string) => void;
+  warn: (message: string) => void;
+};
 
 function sortByLifecycleOrder(plugins: LoadedPlugin[]): LoadedPlugin[] {
   return [...plugins].sort((a, b) =>
@@ -125,6 +129,10 @@ export async function runLifecycleHooks(
   phase: LifecyclePhase,
   baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures"> = {},
   discover: LifecycleDiscover = discoverPackages,
+  logger: LifecycleLogger = {
+    info: (message) => console.log(message),
+    warn: (message) => console.warn(message),
+  },
 ): Promise<LifecycleRunSummary> {
   const summary: LifecycleRunSummary = { phase, ran: 0, skipped: 0, failed: 0 };
 
@@ -143,12 +151,12 @@ export async function runLifecycleHooks(
       if (hook.policy === "fail-fast") {
         throw new Error(`plugin lifecycle ${phase} failed for ${plugin.manifest.name}: ${msg}`);
       }
-      console.warn(`\x1b[33m⚠\x1b[0m plugin lifecycle ${phase}:${plugin.manifest.name} failed: ${msg}`);
+      logger.warn(`\x1b[33m⚠\x1b[0m plugin lifecycle ${phase}:${plugin.manifest.name} failed: ${msg}`);
     }
   }
 
   if (summary.ran > 0) {
-    console.log(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}`);
+    logger.info(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}`);
   }
   return summary;
 }
@@ -170,6 +178,7 @@ export function runSleepLifecycleHooks(
 export function runServeLifecycleHooks(
   context: ServeLifecycleContextInput,
   discover?: LifecycleDiscover,
+  logger?: LifecycleLogger,
 ): Promise<LifecycleRunSummary> {
-  return runLifecycleHooks("serve", context, discover);
+  return runLifecycleHooks("serve", context, discover, logger);
 }
