@@ -68,7 +68,7 @@ function analyzeChangedFiles(files: string[]): GateResult {
   for (const file of files) {
     if (!isRuntimeSource(file)) continue;
 
-    const pluginMatch = file.match(/^src\/vendor\/mpr-plugins\/([^/]+)\//);
+    const pluginMatch = file.match(/^src\/(?:vendor\/mpr-plugins|vendor-plugins)\/([^/]+)\//);
     if (pluginMatch) {
       const plugin = pluginMatch[1];
       if (!pluginChanges.has(plugin)) pluginChanges.set(plugin, []);

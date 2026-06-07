@@ -417,14 +417,16 @@ export async function runUpdate(args: string[]): Promise<void> {
       const bundledRoots = [
         join(mawSrc, "commands", "plugins"),
         join(mawSrc, "vendor", "mpr-plugins"),
+        join(mawSrc, "vendor-plugins"),
       ];
       if (bundledRoots.some((root) => existsSync(root))) {
         const healed = healBrokenPluginSymlinks(pluginDir, bundledRoots);
         const refreshed = linkBundledPluginRoots(pluginDir, bundledRoots);
         if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);
 
-        // #1449 — silently heal broken symlinks when the same plugin is now
-        // bundled under src/vendor/mpr-plugins. Warn only for genuine losses.
+        // #1449/#2449 — silently heal broken symlinks when the same plugin is
+        // now bundled under one of the source plugin roots. Warn only for
+        // genuine losses.
         if (healed.pruned > 0) {
           console.log(`\n  \x1b[33m⚠\x1b[0m removed ${healed.pruned} broken plugin symlink${healed.pruned === 1 ? "" : "s"} (targets no longer exist)`);
         }

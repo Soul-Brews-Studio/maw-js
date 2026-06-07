@@ -1,5 +1,5 @@
 {
-  "name": "serve-health",
+  "name": "serve-config-health",
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",

@@ -31,6 +31,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   let pluginDir: string;
   let bundledDir: string;
   let vendoredDir: string;
+  let vendorPluginsDir: string;
 
   beforeEach(() => {
     // mkdtempSync is atomic — appends 6 random chars + creates the dir in one
@@ -41,6 +42,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     pluginDir = join(workDir, "plugins");
     bundledDir = join(srcDir, "commands", "plugins");
     vendoredDir = join(srcDir, "vendor", "mpr-plugins");
+    vendorPluginsDir = join(srcDir, "vendor-plugins");
     mkdirSync(bundledDir, { recursive: true });
   });
 
@@ -63,6 +65,15 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   /** Helper: create a vendored mpr plugin dir recognized by runBootstrap. */
   function makeVendoredPlugin(name: string) {
     const dir = join(vendoredDir, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
+    return dir;
+  }
+
+  /** Helper: create a top-level vendor plugin dir recognized by runBootstrap. */
+  function makeVendorPlugin(name: string) {
+    const dir = join(vendorPluginsDir, name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
     writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
@@ -111,17 +122,19 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     }
   });
 
-  it("#1339 — empty pluginDir also symlinks vendored maw-plugin-registry plugins", async () => {
+  it("#1339/#2449 — empty pluginDir also symlinks vendored and top-level vendor plugins", async () => {
     makeBundledPlugin("tile");
     makeVendoredPlugin("wake");
     makeVendoredPlugin("attach");
+    makeVendorPlugin("serve-config-health");
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(readdirSync(pluginDir).sort()).toEqual(["attach", "tile", "wake"]);
+    expect(readdirSync(pluginDir).sort()).toEqual(["attach", "serve-config-health", "tile", "wake"]);
     expect(readlinkSync(join(pluginDir, "tile"))).toBe(join(bundledDir, "tile"));
     expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
     expect(readlinkSync(join(pluginDir, "attach"))).toBe(join(vendoredDir, "attach"));
+    expect(readlinkSync(join(pluginDir, "serve-config-health"))).toBe(join(vendorPluginsDir, "serve-config-health"));
   });
 
   it("#1484 — incomplete in-tree plugin dir does not block vendored manifest plugin", async () => {

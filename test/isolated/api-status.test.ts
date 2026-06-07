@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { ServeRouteRegistry } from "../../src/core/serve-route-registry";
-import { registerServeHealthRoutes } from "../../src/vendor/mpr-plugins/serve-health/index";
+import { registerServeHealthRoutes } from "../../src/vendor-plugins/serve-config-health/index";
 import { agentStatusStore } from "../../src/core/agent-status";
 
 describe("Status API", () => {

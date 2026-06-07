@@ -34,6 +34,7 @@ function bundledMawJsRoot(target: string, entry: string): string | undefined {
   const suffixes = [
     `/src/commands/plugins/${entry}`,
     `/src/vendor/mpr-plugins/${entry}`,
+    `/src/vendor-plugins/${entry}`,
   ];
   for (const suffix of suffixes) {
     if (!normalized.endsWith(suffix)) continue;
@@ -144,6 +145,7 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   const bundledRoots = [
     join(srcDir, "commands", "plugins"),
     join(srcDir, "vendor", "mpr-plugins"),
+    join(srcDir, "vendor-plugins"),
   ];
   const { pruned } = healOrPruneBrokenSymlinks(pluginDir, bundledRoots);
   if (pruned > 0) {
@@ -161,6 +163,11 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   // source-only and intentionally uses the same pluginDir symlink mechanism as
   // in-tree plugins so user-installed plugins keep precedence.
   linkBundledPlugins(pluginDir, bundledRoots[1]);
+
+  // Core serve-route extractions live in the top-level vendor-plugins tree.
+  // Keep them on the same bundled symlink path so lifecycle hooks discover
+  // them like the older src/vendor/mpr-plugins packages.
+  linkBundledPlugins(pluginDir, bundledRoots[2]);
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
   //    should not retry every boot).

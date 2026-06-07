@@ -7,7 +7,7 @@ import {
   createServeHealthRouteHandlers,
   registerServeHealthRoutes,
   serve,
-} from "../../src/vendor/mpr-plugins/serve-health/index.ts?plugin-serve-health-standalone";
+} from "../../src/vendor-plugins/serve-config-health/index.ts?plugin-serve-config-health-standalone";
 
 const root = join(import.meta.dir, "../..");
 
@@ -23,9 +23,9 @@ async function readJson(res: Response) {
   return await res.json() as any;
 }
 
-describe("serve-health plugin standalone boundary", () => {
+describe("serve-config-health plugin standalone boundary", () => {
   test("declares serve hook routes and removes old health API auto-mount", () => {
-    const manifest = JSON.parse(readFileSync(join(root, "src/vendor/mpr-plugins/serve-health/plugin.json"), "utf8"));
+    const manifest = JSON.parse(readFileSync(join(root, "src/vendor-plugins/serve-config-health/plugin.json"), "utf8"));
     expect(manifest.hooks.serve).toMatchObject({ script: "./index.ts", handler: "serve", policy: "fail-fast" });
     expect(manifest.api).toBeUndefined();
 
@@ -35,13 +35,14 @@ describe("serve-health plugin standalone boundary", () => {
 
   test("boundary drift is explicit for this core serve route plugin", () => {
     expectStandalonePluginBoundary({
-      plugin: "serve-health",
+      plugin: "serve-config-health",
+      pluginDir: "src/vendor-plugins/serve-config-health",
       requireSdk: false,
       allowMawJs: ["maw-js/config"],
       allowRelative: [
-        /^\.\.\/health\/index$/,
-        /^\.\.\/\.\.\/\.\.\/core\/agent-status$/,
-        /^\.\.\/\.\.\/\.\.\/core\/message-queue$/,
+        /^\.\.\/\.\.\/vendor\/mpr-plugins\/health\/index$/,
+        /^\.\.\/\.\.\/core\/agent-status$/,
+        /^\.\.\/\.\.\/core\/message-queue$/,
       ],
     });
   });
@@ -154,6 +155,6 @@ describe("serve-health plugin standalone boundary", () => {
   });
 
   test("serve hook fails clearly without route registration context", () => {
-    expect(() => serve({})).toThrow("serve-health requires serve http route registration");
+    expect(() => serve({})).toThrow("serve-config-health requires serve http route registration");
   });
 });

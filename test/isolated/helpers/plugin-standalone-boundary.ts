@@ -10,6 +10,7 @@ type ImportRecord = {
 type BoundaryOptions = {
   plugin: string;
   root?: string;
+  pluginDir?: string;
   files?: string[];
   requireSdk?: boolean;
   allowMawJs?: Array<string | RegExp>;
@@ -45,6 +46,14 @@ function pluginSourceFiles(plugin: string, root = repoRootFromTest(), files?: st
   return files?.map((file) => join(dir, file)) ?? walkTsFiles(dir).sort();
 }
 
+function pluginSourceFilesFromOptions(options: BoundaryOptions): string[] {
+  const root = options.root ?? repoRootFromTest();
+  const dir = options.pluginDir
+    ? join(root, options.pluginDir)
+    : join(root, "src/vendor/mpr-plugins", options.plugin);
+  return options.files?.map((file) => join(dir, file)) ?? walkTsFiles(dir).sort();
+}
+
 function parseImportRecords(source: string): ImportRecord[] {
   const records: ImportRecord[] = [];
   const staticImport = /\b(import|export)\s+(type\s+)?(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g;
@@ -65,7 +74,7 @@ function matchesAny(value: string, patterns: Array<string | RegExp>): boolean {
 }
 
 function collectPluginImports(options: BoundaryOptions): ImportRecord[] {
-  return pluginSourceFiles(options.plugin, options.root, options.files)
+  return pluginSourceFilesFromOptions(options)
     .flatMap((file) => parseImportRecords(readFileSync(file, "utf8")));
 }
 

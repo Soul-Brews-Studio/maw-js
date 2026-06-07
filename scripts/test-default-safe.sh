@@ -233,9 +233,16 @@ for f in "${MOCK_FILES[@]}"; do
   mock_index=$((mock_index + 1))
   run_cwd="$REPO_ROOT"
   test_path="$f"
+  path_ignore_args=(--path-ignore-patterns '**/agents/**')
   if grep -q '@maw-test-isolate-cwd-neutral' "$f"; then
     run_cwd="${TMPDIR:-/tmp}"
     test_path="$REPO_ROOT/$f"
+    # This subprocess intentionally runs outside the repo. In worktrees whose
+    # absolute path contains "/agents/" (for example OMX agent worktrees),
+    # applying the repo-wide agents ignore to the absolute test filter hides the
+    # exact file we are trying to run. The exact file path is already bounded, so
+    # no recursive agents ignore is needed here.
+    path_ignore_args=()
   fi
-  run_bun_case "mock-$mock_index" "$run_cwd" "$test_path" --path-ignore-patterns '**/agents/**'
+  run_bun_case "mock-$mock_index" "$run_cwd" "$test_path" "${path_ignore_args[@]}"
 done

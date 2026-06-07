@@ -1,8 +1,8 @@
 import { loadConfig, saveConfig, configForDisplay, resetConfig, type MawConfig } from "maw-js/config";
 import type { ServeHttpRouteRegistrar } from "maw-js/plugin/types";
-import healthHandler from "../health/index";
-import { agentStatusStore as defaultAgentStatusStore, type AgentStatus } from "../../../core/agent-status";
-import { messageQueue as defaultMessageQueue } from "../../../core/message-queue";
+import healthHandler from "../../vendor/mpr-plugins/health/index";
+import { agentStatusStore as defaultAgentStatusStore, type AgentStatus } from "../../core/agent-status";
+import { messageQueue as defaultMessageQueue } from "../../core/message-queue";
 
 const VALID_STATUSES = new Set<AgentStatus>(["busy", "ready", "idle", "crashed", "offline"]);
 
@@ -144,7 +144,7 @@ export function registerServeHealthRoutes(http: ServeHttpRouteRegistrar, deps?: 
 }
 
 export function serve(ctx: ServeHealthContext): void {
-  if (!ctx.http) throw new Error("serve-health requires serve http route registration");
+  if (!ctx.http) throw new Error("serve-config-health requires serve http route registration");
   registerServeHealthRoutes(ctx.http);
 }
 
