@@ -103,7 +103,10 @@ mock.module(import.meta.resolve("../../src/core/transport/pty"), () => ({
   handlePtyClose: () => {},
   sweepOrphanPtySessions: async () => ({ killed: [], checked: 0 }),
 }));
-mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: () => {} }));
+mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({
+  isProtected: () => false,
+  setBunServer: () => {},
+}));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
   runServeLifecycleHooks: async () => {
     if (lifecycleShouldThrow) throw new Error("lifecycle failed");

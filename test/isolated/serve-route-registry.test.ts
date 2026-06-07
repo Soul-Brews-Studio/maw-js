@@ -6,6 +6,7 @@ describe("ServeRouteRegistry", () => {
     const registry = new ServeRouteRegistry();
     registry.route("GET", "/api/worktrees", () => Response.json({ ok: true, route: "worktrees" }));
     registry.route("GET", "/api/triggers", () => Response.json({ ok: true, route: "triggers" }));
+    registry.route("POST", "/api/triggers/fire", () => Response.json({ ok: true, route: "triggers-fire" }));
 
     const worktrees = await registry.handle(new Request("http://local/api/worktrees?ignored=1"));
     expect(worktrees?.status).toBe(200);
@@ -15,12 +16,17 @@ describe("ServeRouteRegistry", () => {
     expect(triggers?.status).toBe(200);
     expect(await triggers!.json()).toEqual({ ok: true, route: "triggers" });
 
+    const fire = await registry.handle(new Request("http://local/api/triggers/fire", { method: "POST" }));
+    expect(fire?.status).toBe(200);
+    expect(await fire!.json()).toEqual({ ok: true, route: "triggers-fire" });
+
     expect(await registry.handle(new Request("http://local/api/worktrees", { method: "POST" }))).toBeUndefined();
     expect(await registry.handle(new Request("http://local/api/triggers/extra"))).toBeUndefined();
     expect(await registry.handle(new Request("http://local/api/other"))).toBeUndefined();
     expect(registry.snapshot()).toEqual([
       { method: "GET", path: "/api/worktrees" },
       { method: "GET", path: "/api/triggers" },
+      { method: "POST", path: "/api/triggers/fire" },
     ]);
   });
 

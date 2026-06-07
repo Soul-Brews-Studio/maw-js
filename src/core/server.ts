@@ -10,7 +10,7 @@ import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose, sweepOrphanPtySessions } from "./transport/pty";
 import { handleTmuxStreamClose, handleTmuxStreamMessage, handleTmuxStreamOpen } from "../api/tmux-stream";
-import { setBunServer } from "../lib/elysia-auth";
+import { isProtected, setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
 import {
@@ -247,6 +247,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const fetchHandler = async (req: Request, server: any) => {
     const url = new URL(req.url);
+    const apiPath = url.pathname.replace(/^\/api/, "");
 
     // CORS preflight for all routes
     if (req.method === "OPTIONS") {
@@ -268,6 +269,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
       if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
+      if (isProtected(apiPath, req.method)) {
+        const authOrLegacyRoute = await api.handle(req.clone());
+        if (authOrLegacyRoute.status !== 404) return authOrLegacyRoute;
+      }
       const servedByPlugin = await serveRoutes.handle(req);
       if (servedByPlugin) return servedByPlugin;
       return api.handle(req);

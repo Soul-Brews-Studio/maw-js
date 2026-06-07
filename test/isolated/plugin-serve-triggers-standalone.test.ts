@@ -10,6 +10,7 @@ let history: any[] = [];
 mock.module("maw-js/sdk", () => ({
   getTriggers: () => triggers,
   getTriggerHistory: () => history,
+  fire: async () => [],
 }));
 
 const plugin = await import("../../src/vendor/mpr-plugins/serve-triggers/index.ts?plugin-serve-triggers-standalone");

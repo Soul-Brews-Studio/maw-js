@@ -31,7 +31,12 @@ class FakeEngine {
 mock.module(import.meta.resolve("../../src/engine"), () => ({ MawEngine: FakeEngine }));
 mock.module(import.meta.resolve("../../src/config"), () => mockConfigModule(() => config));
 mock.module(import.meta.resolve("../../src/api"), () => ({
-  api: { handle: (req: Request) => { apiPaths.push(new URL(req.url).pathname); return new Response("api"); } },
+  api: { handle: (req: Request) => {
+    const pathname = new URL(req.url).pathname;
+    apiPaths.push(pathname);
+    if (pathname === "/api/triggers/fire") return new Response("not found", { status: 404 });
+    return new Response("api");
+  } },
 }));
 mock.module(import.meta.resolve("../../src/api/feed"), () => ({
   feedBuffer: [],
@@ -79,11 +84,15 @@ mock.module(import.meta.resolve("../../src/api/tmux-stream"), () => ({
   handleTmuxStreamMessage: () => { tmuxStreamEvents.push("message"); },
   handleTmuxStreamClose: () => { tmuxStreamEvents.push("close"); },
 }));
-mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: () => {} }));
+mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({
+  isProtected: (path: string, method: string) => method === "POST" && path === "/triggers/fire",
+  setBunServer: () => {},
+}));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
   runServeLifecycleHooks: async (payload: any) => {
     lifecyclePayloads.push(payload);
     payload.http?.route("GET", "/api/triggers", () => new Response("plugin triggers"));
+    payload.http?.route("POST", "/api/triggers/fire", () => new Response("plugin trigger fire"));
   },
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
@@ -248,8 +257,9 @@ describe("coverage core shared server", () => {
     expect(await (await fetch(new Request("http://local/api/engine"), upgradeServer(true))).text()).toBe("proxied");
     expect(proxiedPaths).toEqual(["/api/engine"]);
     expect(await (await fetch(new Request("http://local/api/triggers"), upgradeServer(true))).text()).toBe("plugin triggers");
+    expect(await (await fetch(new Request("http://local/api/triggers/fire", { method: "POST" }), upgradeServer(true))).text()).toBe("plugin trigger fire");
     expect(await (await fetch(new Request("http://local/api/ordinary"), upgradeServer(true))).text()).toBe("api");
-    expect(apiPaths).toEqual(["/api/ordinary"]);
+    expect(apiPaths).toEqual(["/api/triggers/fire", "/api/ordinary"]);
 
     const ptyUpgrade = upgradeServer(true);
     expect(await fetch(new Request("http://local/ws/pty"), ptyUpgrade)).toBeUndefined();

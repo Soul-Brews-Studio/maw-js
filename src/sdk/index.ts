@@ -119,7 +119,7 @@ export type { ScannedSignal } from "../commands/shared/scan-signals";
 export { runHook } from "../core/runtime/hooks";
 export { runSleepLifecycleHooks } from "../plugin/lifecycle";
 export type { SleepLifecycleContextInput, LifecycleRunSummary } from "../plugin/lifecycle";
-export { getTriggers, getTriggerHistory } from "../core/runtime/triggers";
+export { getTriggers, getTriggerHistory, fire } from "../core/runtime/triggers";
 
 // ─── Fleet ───────────────────────────────────────────────────────────────────
 

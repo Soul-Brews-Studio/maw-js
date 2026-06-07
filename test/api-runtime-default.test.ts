@@ -170,54 +170,6 @@ describe("runtime API routers default-suite coverage", () => {
     expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
   });
 
-  test("triggers API awaits fire results and normalizes optional output/error", async () => {
-    const calls: any[] = [];
-    const app = apiWith(createTriggersApi({
-      fire: async (event, ctx) => {
-        calls.push({ event, ctx });
-        return [
-          {
-            trigger: { on: "issue-close", action: "ok" },
-            action: "ok",
-            ok: true,
-            output: "done",
-            ts: 1,
-          },
-          {
-            trigger: { on: "issue-close", action: "bad" },
-            action: "bad",
-            ok: false,
-            error: "boom",
-            ts: 2,
-          },
-        ];
-      },
-    }));
-
-    const res = await app.handle(new Request("http://local/api/triggers/fire", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        event: "issue-close",
-        context: { repo: "Soul-Brews-Studio/maw-js", issue: "1709" },
-      }),
-    }));
-    expect(res.status).toBe(200);
-    expect(await json(res)).toEqual({
-      ok: true,
-      event: "issue-close",
-      fired: 2,
-      results: [
-        { action: "ok", ok: true, output: "done", error: null },
-        { action: "bad", ok: false, output: null, error: "boom" },
-      ],
-    });
-    expect(calls).toEqual([{
-      event: "issue-close",
-      ctx: { repo: "Soul-Brews-Studio/maw-js", issue: "1709" },
-    }]);
-  });
-
   test("claude fleet API returns session count and discovery failures", async () => {
     const session = {
       sessionId: "abc",
