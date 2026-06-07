@@ -171,6 +171,7 @@ mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
 mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd-helpers"), () => ({
   ...realWakeHelpers,
   findWakeSnapshotSession: () => findWakeSnapshotSessionReturn,
+  filterMergedWorktreesForRehydrate: async (worktrees: any[]) => worktrees,
   planRehydrateWorktreeWindows: () => planRehydrateReturn,
   planSnapshotRestoreWindows: () => planSnapshotRestoreReturn,
   retryFreshSessionTmuxStep: async (_session: string, _label: string, fn: () => unknown) => await fn(),
