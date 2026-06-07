@@ -1,13 +1,10 @@
 import { MawEngine } from "../engine";
-import { loadConfig, cfgInterval, cfgTimeout } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
 import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createTransportRouter } from "../transports";
-import { listSessions } from "./transport/ssh";
-import { Tmux } from "./transport/tmux";
-import { sweepOrphanPtySessions } from "./transport/pty";
 import { isProtected, setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
@@ -22,9 +19,6 @@ import { mawDataPath } from "./xdg";
 import { UserError } from "./util/user-error";
 import { startDispatchEngine } from "./dispatch-engine";
 import { sendKeys } from "./transport/ssh";
-import { messageQueue } from "./message-queue";
-import { requestReplyStore } from "./request-reply";
-import { agentStatusStore } from "./agent-status";
 import { getRuntimeVersionLabel } from "./runtime/build-info";
 import { ServeRouteRegistry } from "./serve-route-registry";
 import { ServeWsRegistry } from "./serve-ws-registry";
@@ -121,22 +115,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
-
-  // Reap orphaned PTY + view sessions from previous server lifecycle (#300)
-  try {
-    const sessions = await listSessions();
-    const stale = sessions.filter(s =>
-      s.name.startsWith("maw-pty-") || s.name.endsWith("-view")
-    );
-    if (stale.length > 0) {
-      const reaper = new Tmux();
-      for (const s of stale) {
-        await reaper.killSession(s.name);
-        log.info(`[startup] reaped orphan: ${s.name}`);
-      }
-      log.info(`[startup] cleaned ${stale.length} orphaned sessions`);
-    }
-  } catch { /* tmux may not be running */ }
 
   // Connect transport router (non-blocking — server starts even if transports fail)
   try {
@@ -315,33 +293,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   setBunServer(server);
   startEnginePluginHealthPolling();
 
-  // #P2 — periodic orphan-PTY sweep. The boot reaper above (#300) clears the
-  // server-restart class once at startup; this catches in-memory/tmux drift on
-  // a long-lived process. unref() so it never holds the event loop open.
-  const ptySweepTimer = setInterval(() => {
-    sweepOrphanPtySessions()
-      .then(({ killed, checked }) => {
-        if (killed.length > 0) {
-          log.info(`[pty-sweep] killed ${killed.length} orphan(s): ${killed.join(", ")} (checked ${checked})`);
-        }
-      })
-      .catch((err) => log.error("[pty-sweep] failed:", err));
-  }, cfgInterval("ptySweep"));
-  (ptySweepTimer as { unref?: () => void }).unref?.();
-
-  // #2165: maw serve is a multi-day process; keep in-memory queues/request
-  // reply records/status cache bounded. The stores already expose pruning for
-  // completed messages and expired request/reply entries, but serve never
-  // called them, so active federation traffic could retain old objects until
-  // process restart. Pending queues are preserved; only completed/expired/stale
-  // terminal state is removed.
-  const memoryMaintenanceTimer = setInterval(() => {
-    try { messageQueue.prune(); } catch { /* best effort */ }
-    try { requestReplyStore.prune(); } catch { /* best effort */ }
-    try { agentStatusStore.prune(); } catch { /* best effort */ }
-  }, 60_000);
-  (memoryMaintenanceTimer as { unref?: () => void }).unref?.();
-
   const bindNote = reason ? ` (${reason})` : "";
   log.info(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
 
@@ -355,6 +306,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       http: serveRoutes,
       ws: serveWs,
       engine,
+      log,
       plugins: serveLifecyclePlugins,
       reloadPlugins: serveLifecycleReloadPlugins,
     }, undefined, {

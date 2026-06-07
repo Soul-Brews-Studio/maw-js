@@ -32,6 +32,12 @@ export interface PluginLifecycleContext {
   http?: ServeRouteRegistrar;
   ws?: ServeWsRouteRegistrar;
   engine?: MawEngine;
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
   ensures?: string[];
 }
 
@@ -57,6 +63,13 @@ export interface ServeLifecycleContextInput {
   http?: ServeRouteRegistrar;
   ws?: ServeWsRouteRegistrar;
   engine?: MawEngine;
+  /** Serve logger scoped by CLI verbosity for core lifecycle plugins. */
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
   /** In-memory feed plugin system, exposed for serve diagnostics/debug plugins. */
   plugins?: unknown;
   /** Reload user plugins and return the current plugin stats/debug payload. */

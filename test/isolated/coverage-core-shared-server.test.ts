@@ -229,7 +229,10 @@ describe("coverage core shared server", () => {
   test("startServer exposes fetch and websocket handlers without real network side effects", async () => {
     await startServer(4910);
 
-    expect(killed).toEqual(["maw-pty-stale", "sender-view"]);
+    // Startup stale-session cleanup moved to the serve-session-reaper lifecycle
+    // plugin; server.ts now proves the plugin context is wired instead of
+    // directly killing tmux sessions here.
+    expect(killed).toEqual([]);
     expect(engineCalls).toContain("router");
     expect(lifecyclePayloads).toHaveLength(1);
     expect(lifecyclePayloads[0]).toMatchObject({
@@ -237,6 +240,7 @@ describe("coverage core shared server", () => {
       httpUrl: "http://localhost:4910",
       wsUrl: "ws://localhost:4910/ws",
       hostname: "127.0.0.1",
+      log: expect.any(Object),
       plugins: expect.any(Object),
       reloadPlugins: expect.any(Function),
     });
