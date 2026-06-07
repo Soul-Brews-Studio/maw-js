@@ -40,6 +40,7 @@ export type {
   TmuxWindow,
   TmuxSession,
 } from "../../src/core/transport/tmux";
+export type { PluginEventMap } from "./events";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 2 widening — re-exports for plugin extraction Phase 2.
