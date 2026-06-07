@@ -55,7 +55,7 @@ describe("plugin registry runtime helpers", () => {
     mkdirSync(cwd, { recursive: true });
 
     expect(discoverLocalPluginDirs(cwd)).toEqual([packagePlugins, projectPlugins]);
-    expect(scanDirs(cwd)).toEqual(["/tmp/maw-test-plugins", packagePlugins, projectPlugins]);
+    expect(scanDirs(cwd)).toEqual([packagePlugins, projectPlugins, "/tmp/maw-test-plugins"]);
   });
 
   test("discoverLocalPluginDirs stops walking at a .maw-root marker", () => {

@@ -31,7 +31,7 @@ export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
 }
 
 export function scanDirs(cwd = process.cwd()): string[] {
-  return [process.env.MAW_PLUGINS_DIR || mawDataPath("plugins"), ...discoverLocalPluginDirs(cwd)];
+  return [...discoverLocalPluginDirs(cwd), process.env.MAW_PLUGINS_DIR || mawDataPath("plugins")];
 }
 
 /** Runtime SDK version — sourced from @maw-js/sdk package.json (build-inlined). */
