@@ -978,16 +978,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
-  const drainedInbox = drainWakeInbox(repoPath, { markRead: !opts.dryRun, engine: opts.engine });
+  const drainedInbox = drainWakeInbox(repoPath, { markRead: false, engine: opts.engine });
   if (drainedInbox.prompt.trim()) {
     opts = { ...opts, prompt: mergeWakeInboxPrompt(opts.prompt, drainedInbox.prompt) };
   }
-  if (drainedInbox.count > 0 || drainedInbox.omittedCount > 0) {
-    const dryRunSuffix = opts.dryRun ? " (dry-run; left unread)" : "";
-    const omittedSuffix = drainedInbox.omittedCount > 0
-      ? `; omitted ${drainedInbox.omittedCount} over ${drainedInbox.byteBudget} byte budget`
-      : "";
-    console.log(`\x1b[36m📬\x1b[0m drained ${drainedInbox.count} unread ψ/inbox message${drainedInbox.count === 1 ? "" : "s"} into wake prompt${omittedSuffix}${dryRunSuffix}`);
+  if (drainedInbox.count > 0) {
+    console.log(`\x1b[36m📬\x1b[0m ${drainedInbox.count} unread ψ/inbox message${drainedInbox.count === 1 ? "" : "s"}; left unread for maw inbox --unread`);
   }
 
   const foreignSession = requestedForeignSession;
