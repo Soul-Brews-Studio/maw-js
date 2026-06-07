@@ -280,14 +280,16 @@ describe("cmd-update runtime coverage", () => {
     prepareInstallHome();
     prepareLocalClone();
     prepareBundledPluginRoot();
-    spawnExitQueue = [0];
+    spawnExitQueue = [0, 0, 0];
 
     const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
 
     expect(res.code).toBeUndefined();
     expect(lockCalls).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
+      ["chmod", "+x", mawBin],
+      ["maw", "--version"],
     ]);
     expect(execSyncCalls).toContain(`cd ${cloneDir} && bun link`);
     expect(execSyncCalls).toContain(`cd ${join(homeDir, ".maw", "oracle-plugins")} && bun link maw`);
@@ -298,7 +300,7 @@ describe("cmd-update runtime coverage", () => {
     expect(res.stdout).toContain("✅");
   });
 
-  test("restores binary and package stashes when install, retry, and release fallback all fail", async () => {
+  test("restores binary and package stashes when release binary, install, and retry all fail", async () => {
     prepareInstallHome();
     writeFileSync(mawBin, "old working maw");
     spawnExitQueue = [1, 1, 1];
@@ -307,13 +309,12 @@ describe("cmd-update runtime coverage", () => {
 
     expect(res.code).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
       ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
     ]);
     expect(res.stderr).toContain("first install attempt failed");
-    expect(res.stderr).toContain("bun add failed — trying release-binary fallback");
-    expect(res.stderr).toContain("restored previous maw binary from stash");
+    expect(res.stderr).toContain("release binary not available — falling back to bun add");
     expect(res.stderr).toContain("previous maw restored from stash");
     expect(readFileSync(mawBin, "utf-8")).toBe("old working maw");
     expect(existsSync(`${mawBin}.prev`)).toBe(false);

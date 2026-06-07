@@ -63,10 +63,11 @@ describe("cmd-update source-order invariants", () => {
     expect(src).toMatch(/-o ~\/\.bun\/bin\/maw/);
   });
 
-  it("failure path prints fallback dep-loop instructions", () => {
-    // If the curl URL 404s (e.g. branch ref, not a tag), the user gets a
-    // pointer at the manual file-level eviction.
-    expect(src).toMatch(/edit ~\/\.bun\/install\/global\/package\.json to drop maw-js/);
+  it("failure path keeps resolver cleanup before retry", () => {
+    // If the release URL is unavailable (e.g. branch ref, not a tag), the bun
+    // fallback still clears resolver metadata before retrying.
+    expect(src).toContain("clearBunGlobalResolverState");
+    expect(src).toContain("release binary not available — falling back to bun add");
   });
 
   // #950 — direct-evict of global package.json + node_modules must run
@@ -95,7 +96,7 @@ describe("cmd-update source-order invariants", () => {
 
   it("#1449: resolver metadata is cleared before the first `bun add`", () => {
     const clearIdx = src.indexOf("const restoreResolverState = clearBunGlobalResolverState()");
-    const firstAddIdx = src.indexOf("let installCode = await spawnInstall().exited");
+    const firstAddIdx = src.indexOf("installCode = await spawnInstall().exited");
     expect(clearIdx).toBeGreaterThan(-1);
     expect(firstAddIdx).toBeGreaterThan(-1);
     expect(clearIdx).toBeLessThan(firstAddIdx);

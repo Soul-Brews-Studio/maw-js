@@ -142,6 +142,7 @@ if [ "${#REQUESTED_FILES[@]}" -gt 0 ]; then
     [[ "$f" == test/isolated/* ]] && continue
     [[ "$f" == *"/agents/"* ]] && continue
     [[ "$f" == test/zz-mock-tmux-smoke.test.ts ]] && continue
+    [[ "$f" == test/zz-mock-transport-smoke.test.ts ]] && continue
     ALL_TEST_FILES+=("$f")
   done
 else
@@ -155,6 +156,7 @@ else
         [[ "$f" == test/isolated/* ]] && continue
         [[ "$f" == *"/agents/"* ]] && continue
         [[ "$f" == test/zz-mock-tmux-smoke.test.ts ]] && continue
+        [[ "$f" == test/zz-mock-transport-smoke.test.ts ]] && continue
         printf '%s\n' "$f"
       done
   )

@@ -223,13 +223,14 @@ describe("cmd-update sixth-pass retry cleanup coverage", () => {
   test("retry cleanup removes maw-js cache entries created after preflight resolver cleanup", async () => {
     prepareInstallHome();
     createCacheAfterFirstAdd = true;
-    spawnExitQueue = [1, 0, 0];
+    spawnExitQueue = [1, 1, 0, 0];
 
     const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
 
     expect(res.code).toBeUndefined();
     expect(lockCalls).toBe(1);
     expect(spawnCalls).toEqual([
+      ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
       ["maw", "--version"],
@@ -252,13 +253,12 @@ describe("cmd-update sixth-pass retry cleanup coverage", () => {
     expect(res.code).toBe(1);
     expect(lockCalls).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
       ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
     ]);
-    expect(res.stderr).toContain("failed to restore maw-js package from stash: pkg restore blocked");
-    expect(res.stderr).toContain("failed to restore stash: bin restore blocked");
-    expect(res.stderr).toContain("previous maw restored from stash (if available)");
+    expect(res.stderr).toContain("install failed — previous maw restored from stash (if available)");
+    expect(res.stderr).toContain("Manual recovery");
     expect(_fs.existsSync(pkgStashPath())).toBe(true);
     expect(_fs.existsSync(`${mawBin}.prev`)).toBe(true);
   });
