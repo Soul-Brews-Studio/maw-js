@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+
+// Reset process-wide mocks before importing the real SDK for this file.
+mock.restore();
 
 const realSdk = await import("../../src/sdk");
 
@@ -7,8 +10,11 @@ let commands: string[] = [];
 let paneHeights = "12\n8\n4";
 let queryError: Error | null = null;
 
-mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+const sdkMock = () => ({
   ...realSdk,
+  // Keep broad enough for later module evaluation if this mock leaks.
+  loadFleetCore: () => [],
+  getGhqRoot: () => process.cwd(),
   hostExec: async (cmd: string) => {
     commands.push(cmd);
     if (cmd.includes("list-panes") && cmd.includes("#{pane_height}")) {
@@ -17,13 +23,20 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     }
     return "";
   },
-}));
+});
+
+mock.module(join(import.meta.dir, "../../src/sdk"), sdkMock);
+mock.module(join(import.meta.dir, "../../src/sdk/index.ts"), sdkMock);
 
 const {
   canEnableBorderStatus,
   enableBorderStatus,
   MIN_BORDER_STATUS_PANE_HEIGHT,
 } = await import("../../src/commands/plugins/tmux/layout-manager");
+
+afterAll(() => {
+  mock.restore();
+});
 
 describe("tmux layout-manager border status guard (#1468)", () => {
   beforeEach(() => {

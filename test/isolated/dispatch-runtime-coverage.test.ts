@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Reset leaked mocks before registering dispatch-specific shims.
+mock.restore();
+
 function at(path: string): string {
   return new URL(path, import.meta.url).pathname;
 }
@@ -32,6 +35,16 @@ let exitCode: number | undefined;
 const originalExit = process.exit;
 const originalLog = console.log;
 const originalError = console.error;
+
+Object.defineProperty(globalThis, "__dispatchRuntimePlugins", {
+  configurable: true,
+  value: () => plugins,
+});
+Object.defineProperty(globalThis, "__dispatchRuntimeInvokeResult", {
+  configurable: true,
+  value: () => invokeResult,
+});
+(globalThis as any).__dispatchRuntimeInvokeCalls = invokeCalls;
 
 mock.module(at("../../src/cli/route-comm"), () => ({
   routeComm: async (cmd: string, args: string[]) => {
@@ -172,6 +185,9 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  delete (globalThis as any).__dispatchRuntimePlugins;
+  delete (globalThis as any).__dispatchRuntimeInvokeResult;
+  delete (globalThis as any).__dispatchRuntimeInvokeCalls;
   console.log = originalLog;
   console.error = originalError;
   (process as any).exit = originalExit;

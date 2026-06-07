@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir as realHomedir } from "os";
@@ -53,7 +53,15 @@ mock.module(tokenLibPath, () => ({
 }));
 
 mock.module(pluginsRegistryPath, () => ({
-  discoverPackages: () => registryDiscoverResult,
+  // Keep broad: this registry mock can be visible to later isolated files.
+  discoverPackages: () => (globalThis as any).__dispatchRuntimePlugins?.() ?? registryDiscoverResult,
+  hashFile: () => "mock-hash",
+  importPluginSymbol: async () => undefined,
+  invokePlugin: async (plugin: any, ctx: any) => {
+    (globalThis as any).__dispatchRuntimeInvokeCalls?.push({ plugin, ctx });
+    return (globalThis as any).__dispatchRuntimeInvokeResult?.() ?? { ok: true };
+  },
+  resetDiscoverCache: () => undefined,
 }));
 
 mock.module(pluginsLsInfoPath, () => ({
@@ -138,6 +146,10 @@ afterEach(() => {
   if (originalMawHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = originalMawHome;
   for (const dir of tempRoots) rmSync(dir, { recursive: true, force: true });
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe("applyInstancePreset isolated branches", () => {

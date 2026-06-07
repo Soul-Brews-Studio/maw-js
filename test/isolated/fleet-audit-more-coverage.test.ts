@@ -4,9 +4,17 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
-import { tmpdir } from "os";
+import * as realFs from "node:fs";
+import * as realOs from "node:os";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "path";
+import { mock } from "bun:test";
+
+// Reset leaked mocks before importing audit helpers at module scope.
+mock.restore();
+mock.module("fs", () => realFs);
+mock.module("os", () => realOs);
 
 const mawConfigDir = mkdtempSync(join(tmpdir(), "maw-audit-config-"));
 const mawStateDir = mkdtempSync(join(tmpdir(), "maw-audit-state-"));

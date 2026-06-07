@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join, resolve } from "path";
 
+// Reset process-wide mocks before importing real modules for this file.
+mock.restore();
+
 const realFs = await import("fs");
 const realSdk = await import("../../src/sdk");
 
@@ -35,7 +38,7 @@ function shSingleQuote(value: string): string {
 
 mock.module("fs", () => ({
   ...realFs,
-  existsSync: (path: string) => existingPaths.has(path),
+  existsSync: (path: string) => existingPaths.has(path) || (path.includes("maw-audit-") && realFs.existsSync(path)),
   readdirSync: (path: string) => (readdirEntries.get(path) ?? []) as ReturnType<typeof realFs.readdirSync>,
 }));
 

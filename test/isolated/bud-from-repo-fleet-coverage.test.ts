@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realChildProcess from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -13,6 +13,11 @@ process.env.MAW_TEST_MODE = "1";
 mkdirSync(join(configDir, "fleet"), { recursive: true });
 
 const sdkMock = {
+  // Keep broad enough not to poison later isolated imports of maw-js/sdk.
+  hostExec: async () => "",
+  listSessions: async () => [],
+  loadFleetCore: () => [],
+  getGhqRoot: () => process.cwd(),
   FLEET_DIR: join(configDir, "fleet"),
   fleetLoadDirForWrite: () => join(configDir, "fleet"),
   loadFleetEntries: () => existsSync(join(configDir, "fleet"))
@@ -64,6 +69,14 @@ function readJson(file: string) {
 
 beforeEach(() => {
   resetFleet();
+});
+
+afterAll(() => {
+  mock.restore();
+  delete process.env.MAW_CONFIG_DIR;
+  delete process.env.MAW_STATE_DIR;
+  delete process.env.MAW_TEST_MODE;
+  rmSync(tempRoot, { recursive: true, force: true });
 });
 
 describe("bud from-repo fleet coverage", () => {
