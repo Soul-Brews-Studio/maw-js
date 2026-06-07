@@ -1,4 +1,4 @@
-import { basename, dirname, join } from "path";
+import { basename, join } from "path";
 import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
@@ -87,15 +87,11 @@ function shellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function isNotWorkingTreeError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /not a working tree/i.test(message);
-}
-
-function archivePathFor(wtPath: string, d: ResolvedDoneDeps): string {
-  const stamp = d.now().toISOString().replace(/[^0-9A-Za-z_.-]/g, "-");
-  const safeBase = basename(wtPath).replace(/[^0-9A-Za-z_.-]/g, "-");
-  return `/tmp/maw-done-orphan-worktrees/${safeBase}-${stamp}`;
+class DirtyWorktreeRemovalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DirtyWorktreeRemovalError";
+  }
 }
 
 async function dirExists(path: string, d: ResolvedDoneDeps): Promise<boolean> {
@@ -107,17 +103,48 @@ async function dirExists(path: string, d: ResolvedDoneDeps): Promise<boolean> {
   }
 }
 
-async function movePrunedWorktreeDir(wtPath: string, mainPath: string, d: ResolvedDoneDeps): Promise<boolean> {
+async function removeFailedWorktreeDir(
+  wtPath: string,
+  mainPath: string,
+  originalError: unknown,
+  opts: DoneOpts,
+  d: ResolvedDoneDeps,
+): Promise<boolean> {
   if (!(await dirExists(wtPath, d))) return false;
-  const archived = archivePathFor(wtPath, d);
+
+  let status = "";
+  let statusKnown = false;
   try {
-    await d.hostExec(`mkdir -p ${shellArg(dirname(archived))}`);
-    await d.hostExec(`mv ${shellArg(wtPath)} ${shellArg(archived)}`);
+    status = await d.hostExec(`git -C ${shellArg(wtPath)} status --porcelain --untracked-files=all`);
+    statusKnown = true;
+  } catch (e: any) {
+    if (!opts.force) {
+      throw new DirtyWorktreeRemovalError(
+        `worktree remove failed and ${wtPath} could not be checked for local changes (${e?.message || e}); rerun with --force to delete it`,
+      );
+    }
+    d.logger.log(`  \x1b[33m⚠\x1b[0m deleting ${basename(wtPath)} with --force after status check failed: ${e?.message || e}`);
+  }
+
+  const dirty = status.trim().length > 0;
+  if (dirty && !opts.force) {
+    throw new DirtyWorktreeRemovalError(
+      `worktree remove failed and ${wtPath} has uncommitted changes; rerun maw done --force to delete it`,
+    );
+  }
+
+  try {
+    await d.hostExec(`rm -rf ${shellArg(wtPath)}`);
     await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
-    d.logger.log(`  \x1b[32m✓\x1b[0m moved orphan directory ${basename(wtPath)} to ${archived}`);
+    const suffix = dirty
+      ? " with --force despite uncommitted changes"
+      : statusKnown
+        ? " after verifying it was clean"
+        : " with --force after status check failed";
+    d.logger.log(`  \x1b[32m✓\x1b[0m removed orphan directory ${basename(wtPath)}${suffix}`);
     return true;
   } catch (e: any) {
-    d.logger.log(`  \x1b[33m⚠\x1b[0m orphan directory move failed: ${e?.message || e}`);
+    d.logger.log(`  \x1b[33m⚠\x1b[0m orphan directory removal failed after worktree remove failed (${e?.message || e}); original error: ${originalError instanceof Error ? originalError.message : originalError}`);
     return false;
   }
 }
@@ -486,14 +513,17 @@ export async function removeWorktreeViaConfig(
         }
         return true;
       } catch (e: any) {
-        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(fullPath, mainPath, d)) {
+        if (await removeFailedWorktreeDir(fullPath, mainPath, e, opts, d)) {
           return true;
         }
         d.logger.log(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e.message || e}`);
       }
       break;
     }
-  } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`); }
+  } catch (e) {
+    if (e instanceof DirtyWorktreeRemovalError) throw e;
+    d.logger.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`);
+  }
   return false;
 }
 
@@ -547,14 +577,17 @@ export async function removeWorktreeByGhqScan(
           await cleanupDoneBranch(mainPath, branch, opts, deps);
         }
       } catch (e) {
-        if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(wtPath, mainPath, d)) {
+        if (await removeFailedWorktreeDir(wtPath, mainPath, e, opts, d)) {
           removed = true;
           continue;
         }
         d.logger.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`);
       }
     }
-  } catch (e) { d.logger.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
+  } catch (e) {
+    if (e instanceof DirtyWorktreeRemovalError) throw e;
+    d.logger.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`);
+  }
   return removed;
 }
 

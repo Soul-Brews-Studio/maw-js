@@ -521,6 +521,7 @@ describe("done worktree cleanup helpers", () => {
       },
       hostExec: (command) => {
         if (command.includes("worktree remove")) throw new Error("busy");
+        if (command.startsWith("test -d")) throw new Error("missing");
         return "feature\n";
       },
     });
@@ -630,6 +631,7 @@ describe("done worktree cleanup helpers", () => {
       hostExec: (command) => {
         if (command.startsWith("find ")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
         if (command.includes("worktree remove")) throw new Error("busy");
+        if (command.startsWith("test -d")) throw new Error("missing");
         return "";
       },
     });
