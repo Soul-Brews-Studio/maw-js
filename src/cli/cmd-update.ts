@@ -287,9 +287,11 @@ export async function runUpdate(args: string[]): Promise<void> {
           const archived = `${STASH}.crash.${Math.floor(Date.now() / 1000)}`;
           try {
             renameSync(STASH, archived);
+            console.warn(`\x1b[33m↺\x1b[0m rotated stale ${STASH} → ${archived} (prior crash leftover; in-flight stash will replace it)`);
           } catch (e: any) {
             console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${e.message || e}`);
-            console.error(`  resolve manually:  mv ${STASH} ${BIN}`);
+            console.error(`  resolve manually:  mv ${STASH} ${BIN}     \x1b[90m# restore last-known-good\x1b[0m`);
+            console.error(`  or discard it:     rm ${STASH}             \x1b[90m# only if you're sure\x1b[0m`);
             console.error(`  then re-run:       maw update ${ref}`);
             process.exit(1);
           }
@@ -339,20 +341,31 @@ export async function runUpdate(args: string[]): Promise<void> {
           try {
             rmSync(join(NM, "maw-js"), { recursive: true, force: true });
             renameSync(PKG_STASH, join(NM, "maw-js"));
-          } catch {}
+          } catch (e: any) {
+            console.error(`\x1b[31merror\x1b[0m: failed to restore maw-js package from stash: ${e.message || e}`);
+          }
+        };
+
+        const restoreBinStash = () => {
+          if (!stashed || !existsSync(STASH)) return;
+          try {
+            renameSync(STASH, BIN);
+            console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
+          } catch (e: any) {
+            console.error(`\x1b[31merror\x1b[0m: failed to restore stash: ${e.message || e}`);
+          }
         };
 
         if (installCode !== 0) {
           restorePkgStash();
-          if (stashed && existsSync(STASH)) {
-            try { renameSync(STASH, BIN); } catch {}
-          }
+          restoreBinStash();
         } else {
           const verify = Bun.spawn(["maw", "--version"], { stdout: "pipe", stderr: "pipe" });
           const freshOk = (await verify.exited) === 0;
           if (!freshOk) {
+            console.error(`\x1b[31merror\x1b[0m: fresh install did not run — rolling back to previous maw`);
             restorePkgStash();
-            if (stashed && existsSync(STASH)) { try { renameSync(STASH, BIN); } catch {} }
+            restoreBinStash();
             installCode = 1;
           } else {
             if (stashed && existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
@@ -366,6 +379,7 @@ export async function runUpdate(args: string[]): Promise<void> {
         restoreResolverState();
         console.error(`\x1b[31merror\x1b[0m: install failed — previous maw restored from stash (if available)`);
         console.error(`\n  Manual recovery:\n    curl -fsSL https://github.com/${repository}/releases/download/${ref}/maw -o ~/.bun/bin/maw && chmod +x ~/.bun/bin/maw`);
+        console.error(`    if bun still loops, edit ~/.bun/install/global/package.json to drop maw-js/maw and remove stale lockfiles`);
         process.exit(installCode);
       }
     }

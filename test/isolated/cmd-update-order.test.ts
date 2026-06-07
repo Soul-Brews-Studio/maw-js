@@ -8,9 +8,9 @@
  *
  * This test reads the source file and asserts two invariants:
  *   1. The REF_RE allowlist check appears BEFORE any `bun remove` call
- *   2. `bun add` appears BEFORE `bun remove` in the atomic happy-path
- *      (the remove-as-fallback is only on failure, and still only after
- *      at least one install attempt)
+ *   2. Branch-ref `bun add` fallback appears BEFORE `bun remove`
+ *      (the remove-as-fallback is only on branch install failure, and still
+ *      only after at least one install attempt)
  *
  * If someone refactors this file without preserving the invariants, this
  * test catches it — not by behavior (hard to test spawn ordering in unit
@@ -40,7 +40,7 @@ describe("cmd-update source-order invariants", () => {
     expect(refReIdx).toBeLessThan(removeCallIdx);
   });
 
-  it("`Bun.spawn(['bun', 'add', ...])` appears before the `bun remove` execSync (atomic: try add first)", () => {
+  it("branch fallback `Bun.spawn(['bun', 'add', ...])` appears before the `bun remove` execSync", () => {
     const addSpawnMatch = src.match(ADD_SPAWN_RE);
     const removeCallMatch = src.match(REMOVE_CALL_RE);
     expect(addSpawnMatch).not.toBeNull();

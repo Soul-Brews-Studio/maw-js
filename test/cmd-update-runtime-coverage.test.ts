@@ -300,21 +300,20 @@ describe("cmd-update runtime coverage", () => {
     expect(res.stdout).toContain("✅");
   });
 
-  test("restores binary and package stashes when release binary, install, and retry all fail", async () => {
+  test("restores binary and package stashes when branch install and retry fail", async () => {
     prepareInstallHome();
     writeFileSync(mawBin, "old working maw");
-    spawnExitQueue = [1, 1, 1];
+    spawnExitQueue = [1, 1];
 
-    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+    const res = await captureRun(["update", "main", "--yes"], { testMode: null });
 
     expect(res.code).toBe(1);
     expect(spawnCalls).toEqual([
-      ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
     ]);
     expect(res.stderr).toContain("first install attempt failed");
-    expect(res.stderr).toContain("release binary not available — falling back to bun add");
+    expect(res.stderr).toContain("restored previous maw binary from stash");
     expect(res.stderr).toContain("previous maw restored from stash");
     expect(readFileSync(mawBin, "utf-8")).toBe("old working maw");
     expect(existsSync(`${mawBin}.prev`)).toBe(false);
