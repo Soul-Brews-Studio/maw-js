@@ -68,7 +68,8 @@ export function isClaudeLikePane(paneCurrentCommand: string | undefined): boolea
 /**
  * Fleet session protection (shared with kill). A session whose name
  * matches a known fleet stem OR ends in `-view` must never be killed
- * without --force.
+ * as a whole session without --force. Window/pane-level kills inside the
+ * session remain allowed so one stuck fleet window can be cleaned up.
  */
 export function isFleetOrViewSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
   if (fleetSessions.has(sessionName)) return true;

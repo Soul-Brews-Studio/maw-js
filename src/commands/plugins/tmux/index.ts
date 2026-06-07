@@ -210,7 +210,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
       if (flags["--help"]) {
         console.log("usage: maw tmux kill <target> [--force] [--session|-s]");
         console.log("  default: kill the pane. --session/-s: kill the whole session.");
-        console.log("  refuses fleet/view sessions unless --force.");
+        console.log("  refuses whole fleet/view session kills unless --force; pane kills are allowed.");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const target = flags._[0];
