@@ -208,6 +208,56 @@ describe("createWorktree", () => {
     expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-white' -b 'agents/1-white'");
   });
 
+  test("skips a candidate when its tmux window name already exists", async () => {
+    const commands: string[] = [];
+    const result = await createWorktree(
+      "/repo",
+      "/tmp",
+      "repo",
+      "oracle",
+      "white",
+      [],
+      {
+        existingWindowNames: ["oracle-white"],
+        hostExec: async (cmd: string) => {
+          commands.push(cmd);
+          if (cmd.includes("rev-parse HEAD")) return "abc\n";
+          if (cmd.includes("show-ref")) throw new Error("missing branch");
+          return "";
+        },
+        log: () => {},
+      },
+    );
+
+    expect(result).toEqual({ wtPath: "/repo/agents/1-white", windowName: "oracle-1-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-white' -b 'agents/1-white'");
+  });
+
+  test("keeps allocating when the numbered fallback window also exists", async () => {
+    const commands: string[] = [];
+    const result = await createWorktree(
+      "/repo",
+      "/tmp",
+      "repo",
+      "oracle",
+      "white",
+      [],
+      {
+        existingWindowNames: ["oracle-white", "oracle-1-white"],
+        hostExec: async (cmd: string) => {
+          commands.push(cmd);
+          if (cmd.includes("rev-parse HEAD")) return "abc\n";
+          if (cmd.includes("show-ref")) throw new Error("missing branch");
+          return "";
+        },
+        log: () => {},
+      },
+    );
+
+    expect(result).toEqual({ wtPath: "/repo/agents/2-white", windowName: "oracle-2-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/2-white' -b 'agents/2-white'");
+  });
+
   test("reattaches an existing branch for the stable slot when the worktree dir is gone", async () => {
     const commands: string[] = [];
     const logs: string[] = [];

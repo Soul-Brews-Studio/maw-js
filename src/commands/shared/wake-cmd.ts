@@ -789,11 +789,28 @@ export async function chooseWakeSessionName(oracle: string, urlRepoName?: string
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
+type WakeWindowLookupEntry = { name: string; cwd?: string };
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findExistingWakeWindowEntry<T extends WakeWindowLookupEntry>(
+  windows: Iterable<T>,
+  oracle: string,
+  windowName: string,
+): T | undefined {
+  const entries = [...windows];
+  const nameSuffix = windowName.startsWith(`${oracle}-`)
+    ? windowName.slice(`${oracle}-`.length)
+    : windowName;
+  const numberedPattern = new RegExp(`^${escapeRegExp(oracle)}-\\d+-${escapeRegExp(nameSuffix)}$`);
+  return entries.find(w => w.name === windowName)
+    || entries.find(w => numberedPattern.test(w.name));
+}
+
 function findExistingWakeWindow(windowNames: Iterable<string>, oracle: string, windowName: string): string | undefined {
-  const names = [...windowNames];
-  const nameSuffix = windowName.replace(`${oracle}-`, "");
-  return names.find(w => w === windowName)
-    || names.find(w => new RegExp(`^${oracle}-\\d+-${nameSuffix}$`).test(w));
+  return findExistingWakeWindowEntry([...windowNames].map(name => ({ name })), oracle, windowName)?.name;
 }
 
 export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string> {
@@ -1067,6 +1084,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   let knownWindows = new Set<string>();
+  let knownWindowEntries: WakeWindowLookupEntry[] = [];
   let knownWindowsReliable = true;
 
   if (shouldCreateSession) {
@@ -1117,7 +1135,8 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
 
-    let existingWindows = new Set((await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name));
+    const initialWindows = await tmux.listWindows(session).catch(() => [] as WakeWindowLookupEntry[]);
+    let existingWindows = new Set(initialWindows.map(w => w.name));
     existingWindows.add(mainWindowName);
     if (requestedSnapshotSession) {
       const allWt = await findWorktrees(parentDir, repoName);
@@ -1151,12 +1170,15 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
     }
     knownWindows = existingWindows;
+    knownWindowEntries = [...initialWindows, { name: mainWindowName, cwd: repoPath }];
   } else {
     await setSessionEnv(session);
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
+    let preExistingWindowEntries: WakeWindowLookupEntry[] = [];
     let preExistingWindows = new Set<string>();
     try {
-      preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name));
+      preExistingWindowEntries = await tmux.listWindows(session);
+      preExistingWindows = new Set(preExistingWindowEntries.map(w => w.name));
     } catch {
       knownWindowsReliable = false;
     }
@@ -1191,6 +1213,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${session}:${wt.windowName}`, buildWakeCommand(wt.windowName, wt.path, opts));
           preExistingWindows.add(wt.windowName);
+          preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
         }
       } else {
@@ -1202,6 +1225,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const retried = await wakeSession.ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
     knownWindows = preExistingWindows;
+    knownWindowEntries = preExistingWindowEntries;
   }
 
   const reordered = foreignSession ? 0 : await restoreTabOrder(session);
@@ -1276,13 +1300,23 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {
-      const result = await wakeSession.createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
-        fresh: !!opts.fresh,
-        named: Boolean(stableName && !opts.fresh),
-        layout: worktreeLayout,
-      });
-      targetPath = result.wtPath;
-      windowName = result.windowName;
+      const existingTaskWindow = opts.fresh
+        ? undefined
+        : findExistingWakeWindowEntry(knownWindowEntries, oracle, `${oracle}-${name}`);
+      if (existingTaskWindow) {
+        console.log(`\x1b[33m⚡\x1b[0m reusing live window: ${session}:${existingTaskWindow.name}`);
+        targetPath = existingTaskWindow.cwd || repoPath;
+        windowName = existingTaskWindow.name;
+      } else {
+        const result = await wakeSession.createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
+          fresh: !!opts.fresh,
+          named: Boolean(stableName && !opts.fresh),
+          layout: worktreeLayout,
+          existingWindowNames: knownWindows,
+        });
+        targetPath = result.wtPath;
+        windowName = result.windowName;
+      }
     }
 
     if (opts.bud) {

@@ -432,11 +432,23 @@ mock.module(
         name,
         deps,
       });
+      const existingWindowNames = new Set([...(deps?.existingWindowNames ?? [])].filter(Boolean));
+      const preferredWindowName = `${oracleArg}-${name}`;
+      let wtName = name;
+      let windowName = preferredWindowName;
+      if (!deps?.named && existingWindowNames.has(preferredWindowName)) {
+        let nextNum = 1;
+        do {
+          wtName = `${nextNum}-${name}`;
+          windowName = `${oracleArg}-${wtName}`;
+          nextNum++;
+        } while (existingWindowNames.has(windowName));
+      }
       const wtPath = deps?.layout === "legacy"
-        ? join(parentDirArg, `${repoNameArg}.wt-${name}`)
-        : join(repoPathArg, "agents", name);
+        ? join(parentDirArg, `${repoNameArg}.wt-${wtName}`)
+        : join(repoPathArg, "agents", wtName);
       mkdirSync(wtPath, { recursive: true });
-      return { wtPath, windowName: `${oracleArg}-${name}` };
+      return { wtPath, windowName };
     },
   }),
 );
@@ -1251,7 +1263,14 @@ describe("cmdWake main-suite coverage", () => {
     expect(result).toBe("12-seed:seed-newtool");
     expect(hostExecCalls).toContain("ghq get -u github.com/Soul-Brews-Studio/new-tool");
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName, oracle: "seed", name: "newtool", deps: { fresh: false, named: false, layout: "nested" } },
+      expect.objectContaining({
+        repoPath,
+        parentDir,
+        repoName,
+        oracle: "seed",
+        name: "newtool",
+        deps: expect.objectContaining({ fresh: false, named: false, layout: "nested" }),
+      }),
     ]);
   });
 
@@ -1576,6 +1595,19 @@ describe("cmdWake main-suite coverage", () => {
     expect(logs.join("\n")).toContain("reusing worktree");
   });
 
+  test("reuses a live task window instead of creating a duplicate (#2366)", async () => {
+    addWindow("54-mawjs", "mawjs-fix-2366");
+
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { task: "fix-2366" }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-fix-2366");
+    expect(createdWorktrees).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(newWindowCalls.some(call => call.name === "mawjs-fix-2366")).toBe(false);
+  });
+
   test("registers split worktree windows before they can be joined away (#1956)", async () => {
     repoName = "homelab";
     repoPath = join(parentDir, repoName);
@@ -1635,7 +1667,14 @@ describe("cmdWake main-suite coverage", () => {
       scopeStem: "homekeeper-oracle",
     });
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName: "homelab", oracle: "homekeeper", name: "osmosis-white", deps: { fresh: false, named: true, layout: "nested" } },
+      expect.objectContaining({
+        repoPath,
+        parentDir,
+        repoName: "homelab",
+        oracle: "homekeeper",
+        name: "osmosis-white",
+        deps: expect.objectContaining({ fresh: false, named: true, layout: "nested" }),
+      }),
     ]);
     expect(newWindowCalls).toContainEqual({
       session: "04-homekeeper",
@@ -1686,7 +1725,14 @@ describe("cmdWake main-suite coverage", () => {
     const wtPath = join(repoPath, "agents", "fix-a");
     expect(result).toBe("54-mawjs:mawjs-fix-a");
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName, oracle: "mawjs", name: "fix-a", deps: { fresh: false, named: false, layout: "nested" } },
+      expect.objectContaining({
+        repoPath,
+        parentDir,
+        repoName,
+        oracle: "mawjs",
+        name: "fix-a",
+        deps: expect.objectContaining({ fresh: false, named: false, layout: "nested" }),
+      }),
     ]);
     expect(newWindowCalls).toContainEqual({
       session: "54-mawjs",

@@ -20,6 +20,8 @@ export interface WakeSessionDeps {
   named: boolean;
   /** Filesystem layout for newly-created worktrees (#1850). Defaults to nested repo/agents/<name>. */
   layout: WorktreeLayout;
+  /** Existing tmux window names in the target session; used to avoid duplicate wake --task windows. */
+  existingWindowNames: Iterable<string>;
 }
 
 export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
@@ -35,6 +37,7 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
     fresh: false,
     named: false,
     layout: "nested",
+    existingWindowNames: [],
     ...overrides,
   };
 }
@@ -224,15 +227,26 @@ export async function createWorktree(
   }
 
   const layout = normalizeWorktreeLayout(d.layout);
+  const existingWindowNames = new Set([...d.existingWindowNames].filter(Boolean));
+  const preferredWindowName = `${oracle}-${name}`;
+  const windowNameForWorktree = (wtName: string): string => {
+    if (d.named) return preferredWindowName;
+    return existingWindowNames.has(preferredWindowName) ? `${oracle}-${wtName}` : preferredWindowName;
+  };
   let wtName = "";
   let wtPath = "";
   let branch = "";
+  let windowName = "";
   let branchExists = false;
   let allocated = false;
   if (d.named) {
     wtName = name;
     wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
     branch = `agents/${wtName}`;
+    windowName = windowNameForWorktree(wtName);
+    if (existingWindowNames.has(windowName)) {
+      throw new Error(`tmux window '${windowName}' already exists`);
+    }
     const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
     if (!knownWorktree) {
       try {
@@ -248,8 +262,9 @@ export async function createWorktree(
       wtName = `${nextNum}-${name}`;
       wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
       branch = `agents/${wtName}`;
+      windowName = windowNameForWorktree(wtName);
       const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
-      if (knownWorktree) {
+      if (knownWorktree || existingWindowNames.has(windowName)) {
         nextNum++;
         continue;
       }
@@ -268,7 +283,7 @@ export async function createWorktree(
     }
   }
 
-  if (!allocated || !wtName || !wtPath || !branch) {
+  if (!allocated || !wtName || !wtPath || !branch || !windowName) {
     throw new Error(`could not allocate worktree for ${name}`);
   }
 
@@ -281,5 +296,5 @@ export async function createWorktree(
   await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
   await reconcileParentClaudeDir(repoPath, wtPath, d.log);
   d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
-  return { wtPath, windowName: `${oracle}-${name}` };
+  return { wtPath, windowName };
 }
