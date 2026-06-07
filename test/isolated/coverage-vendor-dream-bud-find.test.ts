@@ -1,14 +1,15 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { join, resolve } from "path";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "path";
 
 // Reset process-wide mocks before importing real modules for this file.
 mock.restore();
 
-const realFs = await import("fs");
 const realSdk = await import("../../src/sdk");
 
-const repoRoot = process.cwd();
-const ghqRoot = resolve(repoRoot, "../../../..");
+const tempRoot = mkdtempSync(join(tmpdir(), "maw-find-coverage-"));
+const ghqRoot = join(tempRoot, "ghq");
 const reposRoot = join(ghqRoot, "github.com");
 
 interface FleetSession {
@@ -18,29 +19,15 @@ interface FleetSession {
   project_repos?: string[];
 }
 
-type DirEntryLike = { name: string; isDirectory: () => boolean };
-
 let mockedFleet: FleetSession[] = [];
-let existingPaths = new Set<string>();
-let readdirEntries = new Map<string, DirEntryLike[]>();
 let searchFiles = new Map<string, string[]>();
 let matchLines = new Map<string, string>();
 let hostExecCalls: string[] = [];
 let logs: string[] = [];
 
-function dir(name: string): DirEntryLike {
-  return { name, isDirectory: () => true };
-}
-
 function shSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
-
-mock.module("fs", () => ({
-  ...realFs,
-  existsSync: (path: string) => existingPaths.has(path) || (path.includes("maw-audit-") && realFs.existsSync(path)),
-  readdirSync: (path: string) => (readdirEntries.get(path) ?? []) as ReturnType<typeof realFs.readdirSync>,
-}));
 
 mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,
@@ -81,8 +68,6 @@ const originalLog = console.log;
 
 beforeEach(() => {
   mockedFleet = [];
-  existingPaths = new Set<string>();
-  readdirEntries = new Map<string, DirEntryLike[]>();
   searchFiles = new Map<string, string[]>();
   matchLines = new Map<string, string>();
   hostExecCalls = [];
@@ -96,6 +81,11 @@ afterEach(() => {
   console.log = originalLog;
 });
 
+afterAll(() => {
+  mock.restore();
+  rmSync(tempRoot, { recursive: true, force: true });
+});
+
 describe("find impl fleet psi coverage", () => {
   test("searches fleet repo psi memory and renders overflow when more than ten code matches exist", async () => {
     const orgPath = join(reposRoot, "Soul-Brews-Studio");
@@ -103,9 +93,7 @@ describe("find impl fleet psi coverage", () => {
     const psiPath = join(repoPath, "ψ", "memory");
     const files = Array.from({ length: 12 }, (_, index) => join(psiPath, "notes", `hit-${index}.md`));
 
-    readdirEntries.set(reposRoot, [dir("Soul-Brews-Studio")]);
-    readdirEntries.set(orgPath, []);
-    existingPaths.add(psiPath);
+    mkdirSync(psiPath, { recursive: true });
     searchFiles.set(psiPath, files);
     for (const [index, file] of files.entries()) {
       matchLines.set(file, `needle line ${index}`);

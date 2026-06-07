@@ -3,16 +3,17 @@
  * @maw-test-isolate
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
-import * as realFs from "node:fs";
-import * as realOs from "node:os";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
-import { mock } from "bun:test";
 
-// Reset leaked mocks before importing audit helpers at module scope.
+// Reset leaked mocks before importing audit helpers or real node modules.
 mock.restore();
+
+const realFs = await import("node:fs");
+const realOs = await import("node:os");
+const { existsSync, mkdtempSync, readFileSync, rmSync } = realFs;
+const { tmpdir } = realOs;
+
 mock.module("fs", () => realFs);
 mock.module("os", () => realOs);
 
