@@ -38,10 +38,26 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     expect(cmdUpdateSrc).toMatch(/const\s+STASH\s*=\s*`\$\{BIN\}\.prev`/);
   });
 
+  // ── Release/bun install order ─────────────────────────────────────────
+  it("release tags try curl binary before bun fallback", () => {
+    const releaseGuardIdx = cmdUpdateSrc.indexOf("if (isReleaseTag)");
+    const curlIdx = cmdUpdateSrc.indexOf('Bun.spawn(["curl", "-fsSL", "-o", BIN, releaseUrl]');
+    const fallbackIdx = cmdUpdateSrc.indexOf("// Fallback: bun add -g");
+    const bunAddIdx = cmdUpdateSrc.indexOf('Bun.spawn(["bun", "add", "-g"');
+
+    expect(cmdUpdateSrc).toContain("const isReleaseTag = /^v\\d+\\.\\d+\\.\\d+/.test(ref);");
+    expect(releaseGuardIdx).toBeGreaterThan(-1);
+    expect(curlIdx).toBeGreaterThan(releaseGuardIdx);
+    expect(fallbackIdx).toBeGreaterThan(curlIdx);
+    expect(bunAddIdx).toBeGreaterThan(fallbackIdx);
+  });
+
   // ── Case 1: happy-path short-circuit ──────────────────────────────────
-  it("case 1 — first install success gates out of fallback (only retry after installCode !== 0)", () => {
-    // The stash/remove/retry block must be inside an `if (installCode !== 0)` guard,
-    // so a first-attempt success skips all stash machinery.
+  it("case 1 — successful install gates out of bun cleanup fallback", () => {
+    // The stash/remove/retry block must be inside the bun fallback's
+    // `if (installCode !== 0)` guard. For release tags, curl is tried first;
+    // if curl succeeds, this whole bun fallback block is skipped. For branch
+    // refs, a first-attempt bun success skips all stash machinery.
     expect(cmdUpdateSrc).toMatch(
       /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?const\s+spawnInstall\s*=[\s\S]*?installCode\s*=\s*await\s+spawnInstall\(\)\.exited\s*;[\s\S]*?if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{/,
     );
@@ -119,9 +135,12 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
   it("case 6 — retry failure restores the package dir then STASH → BIN", () => {
     // Restructured (crash-loop fix): guard is now plain `if (installCode !== 0)`;
     // restorePkgStash() runs FIRST so the stashed bin symlink resolves again,
-    // THEN the bin is moved back.
+    // THEN restoreBinStash() moves STASH back to BIN.
     expect(cmdUpdateSrc).toMatch(
-      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?restorePkgStash\(\)\s*;[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
+      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?restorePkgStash\(\)\s*;[\s\S]*?restoreBinStash\(\)\s*;/,
+    );
+    expect(cmdUpdateSrc).toMatch(
+      /const\s+restoreBinStash\s*=\s*\(\)\s*=>\s*\{[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
     );
   });
 
