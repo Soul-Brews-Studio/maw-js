@@ -182,12 +182,19 @@ describe("coverage core shared server", () => {
       expect(normalizeServeVerbosity("quiet")).toBe(0);
       expect(normalizeServeVerbosity("2")).toBe(2);
       expect(normalizeServeVerbosity("verbose")).toBe(2);
+      expect(normalizeServeVerbosity("3")).toBe(3);
+      expect(normalizeServeVerbosity("access")).toBe(3);
+      expect(normalizeServeVerbosity("4")).toBe(4);
+      expect(normalizeServeVerbosity("frames")).toBe(4);
+      expect(normalizeServeVerbosity(99)).toBe(4);
       expect(normalizeServeVerbosity(undefined)).toBe(1);
 
       const quiet = createServeLogger(0);
       quiet.info("quiet-info");
       quiet.warn("quiet-warn");
       quiet.debug("quiet-debug");
+      quiet.access("quiet-access");
+      quiet.frame("quiet-frame");
       quiet.error("quiet-error");
       expect(logs).toEqual([]);
       expect(warns).toEqual([]);
@@ -203,6 +210,15 @@ describe("coverage core shared server", () => {
       const verbose = createServeLogger(2);
       verbose.debug("verbose-debug");
       expect(logs).toEqual(["normal-info", "verbose-debug"]);
+
+      const access = createServeLogger(3);
+      access.access("access-log");
+      access.frame("hidden-frame");
+      expect(logs).toEqual(["normal-info", "verbose-debug", "access-log"]);
+
+      const frames = createServeLogger(4);
+      frames.frame("frame-log");
+      expect(logs).toEqual(["normal-info", "verbose-debug", "access-log", "frame-log"]);
     } finally {
       console.log = oldLog;
       console.warn = oldWarn;
@@ -227,7 +243,9 @@ describe("coverage core shared server", () => {
   });
 
   test("startServer exposes fetch and websocket handlers without real network side effects", async () => {
-    await startServer(4910);
+    const serveLogs: string[] = [];
+    console.log = (...a: unknown[]) => { serveLogs.push(a.map(String).join(" ")); };
+    await startServer(4910, { verbosity: 4 });
 
     // Startup stale-session cleanup moved to the serve-session-reaper lifecycle
     // plugin; server.ts now proves the plugin context is wired instead of
@@ -267,6 +285,8 @@ describe("coverage core shared server", () => {
     expect(ptyMessages).toHaveLength(1);
     expect(ptyCloses).toHaveLength(1);
     expect(tmuxStreamEvents).toEqual(["open", "message", "close"]);
+    expect(serveLogs.some((line) => line.includes("[serve:ws] open /ws"))).toBe(true);
+    expect(serveLogs.some((line) => line.includes("[serve:ws] message /ws:pty 6B"))).toBe(true);
 
     const fetch = serveCalls[0].fetch;
     const options = await fetch(new Request("http://local/anything", { method: "OPTIONS", headers: { origin: "http://origin.test" } }), upgradeServer(true));
@@ -291,6 +311,8 @@ describe("coverage core shared server", () => {
     expect(tmuxUpgrade.upgrades[0].data.mode).toBe("tmux-stream");
     const failedUpgrade = await fetch(new Request("http://local/ws"), upgradeServer(false));
     expect(failedUpgrade.status).toBe(400);
+    expect(serveLogs.some((line) => line.includes("[serve:http] OPTIONS /anything -> 204"))).toBe(true);
+    expect(serveLogs.some((line) => line.includes("[serve:http] GET /ws/pty -> 101"))).toBe(true);
   });
 });
 

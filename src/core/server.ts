@@ -30,9 +30,9 @@ export { createViews };
 
 export const VERSION = getRuntimeVersionLabel();
 
-export type ServeVerbosity = 0 | 1 | 2;
+export type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
 export type StartServerOptions = {
-  /** 0=quiet (errors only), 1=normal, 2=verbose debug */
+  /** 0=quiet (errors only), 1=normal, 2=debug, 3=HTTP access, 4=WS frames */
   verbosity?: ServeVerbosity;
 };
 
@@ -40,12 +40,25 @@ type ServeLogger = {
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
+  access: (...args: unknown[]) => void;
+  frame: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
 };
 
 export function normalizeServeVerbosity(value: unknown): ServeVerbosity {
-  if (value === 0 || value === "0" || value === "quiet") return 0;
-  if (value === 2 || value === "2" || value === "verbose") return 2;
+  if (value === "quiet") return 0;
+  if (value === "normal") return 1;
+  if (value === "verbose" || value === "debug") return 2;
+  if (value === "access") return 3;
+  if (value === "frames" || value === "frame" || value === "ws") return 4;
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^\d+$/.test(value)
+      ? Number(value)
+      : null;
+  if (parsed !== null && Number.isFinite(parsed)) {
+    return Math.max(0, Math.min(4, Math.trunc(parsed))) as ServeVerbosity;
+  }
   return 1;
 }
 
@@ -54,8 +67,24 @@ export function createServeLogger(verbosity: ServeVerbosity): ServeLogger {
     info: (...args: unknown[]) => { if (verbosity >= 1) console.log(...args); },
     warn: (...args: unknown[]) => { if (verbosity >= 1) console.warn(...args); },
     debug: (...args: unknown[]) => { if (verbosity >= 2) console.log(...args); },
+    access: (...args: unknown[]) => { if (verbosity >= 3) console.log(...args); },
+    frame: (...args: unknown[]) => { if (verbosity >= 4) console.log(...args); },
     error: (...args: unknown[]) => { console.error(...args); },
   };
+}
+
+function websocketRouteLabel(ws: { data?: Record<string, unknown> }): string {
+  const route = ws.data?.__serveWsRoute;
+  if (typeof route === "string") return route;
+  const mode = ws.data?.mode;
+  return typeof mode === "string" ? `/ws:${mode}` : "/ws";
+}
+
+function websocketFrameSize(message: unknown): string {
+  if (typeof message === "string") return `${message.length}B`;
+  if (message instanceof ArrayBuffer) return `${message.byteLength}B`;
+  if (ArrayBuffer.isView(message)) return `${message.byteLength}B`;
+  return "unknown-size";
 }
 
 export function isAddressInUseError(err: unknown): boolean {
@@ -196,33 +225,39 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   }
 
   const fetchHandler = async (req: Request, server: any) => {
+    const startedAt = Date.now();
     const url = new URL(req.url);
     const apiPath = url.pathname.replace(/^\/api/, "");
+    const logAccess = (response?: Response) => {
+      const status = response?.status ?? 101;
+      log.access(`[serve:http] ${req.method} ${url.pathname}${url.search} -> ${status} ${Date.now() - startedAt}ms`);
+      return response;
+    };
 
     // CORS preflight for all routes
     const corsPreflight = handleCorsOptions(req);
-    if (corsPreflight) return corsPreflight;
+    if (corsPreflight) return logAccess(corsPreflight);
     const wsUpgrade = serveWs.handleUpgrade(req, server);
-    if (wsUpgrade.matched) return wsUpgrade.response;
+    if (wsUpgrade.matched) return logAccess(wsUpgrade.response);
     // Elysia handles legacy /api/* routes (has its own CORS). Engine plugin
     // proxy stays first. For protected routes extracted into serve plugins,
     // preserve Elysia auth hooks by running legacy api.handle(req.clone())
     // before the registry and falling through only when legacy returns 404.
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
-      if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
+      if (enginePlugin) return logAccess(await proxyEnginePluginRequest(req, enginePlugin));
       if (isProtected(apiPath, req.method)) {
         const authOrLegacyRoute = await api.handle(req.clone());
-        if (authOrLegacyRoute.status !== 404) return authOrLegacyRoute;
+        if (authOrLegacyRoute.status !== 404) return logAccess(authOrLegacyRoute);
         const servedByPlugin = await serveRoutes.handle(req);
-        return servedByPlugin ?? authOrLegacyRoute;
+        return logAccess(servedByPlugin ?? authOrLegacyRoute);
       }
       const servedByPlugin = await serveRoutes.handle(req);
-      if (servedByPlugin) return servedByPlugin;
-      return api.handle(req);
+      if (servedByPlugin) return logAccess(servedByPlugin);
+      return logAccess(await api.handle(req));
     }
     const servedByPlugin = await serveRoutes.handle(req);
-    if (servedByPlugin) return servedByPlugin;
+    if (servedByPlugin) return logAccess(servedByPlugin);
 
     // Plugin-registered fallbacks handle views + static — clone response with CORS headers
     const addCors = (r: Response) => {
@@ -234,8 +269,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       });
     };
     const res = serveRoutes.handleFallback(req, { server });
-    if (res instanceof Promise) return res.then(addCors);
-    return addCors(res as Response);
+    if (res instanceof Promise) return logAccess(addCors(await res));
+    return logAccess(addCors(res as Response));
   };
 
   // HTTP server (always)
@@ -256,7 +291,22 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   // fires → handlePtyClose → detach → grace-timer reaps the maw-pty- tmux session.
   // sendPings: true is Bun's default but pinned for explicitness. Shared across
   // the HTTP + TLS Bun.serve calls below so both ws surfaces get the heartbeat.
-  const wsConfig = { ...serveWs.handlers, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
+  const wsHandlers = {
+    open: (ws: any) => {
+      log.frame(`[serve:ws] open ${websocketRouteLabel(ws)}`);
+      return serveWs.handlers.open(ws);
+    },
+    message: (ws: any, message: unknown) => {
+      log.frame(`[serve:ws] message ${websocketRouteLabel(ws)} ${websocketFrameSize(message)}`);
+      return serveWs.handlers.message(ws, message);
+    },
+    close: (ws: any, code?: number, reason?: string) => {
+      const suffix = code === undefined ? "" : ` code=${code}${reason ? ` reason=${reason}` : ""}`;
+      log.frame(`[serve:ws] close ${websocketRouteLabel(ws)}${suffix}`);
+      return serveWs.handlers.close(ws, code, reason);
+    },
+  };
+  const wsConfig = { ...wsHandlers, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
 
   let server: ReturnType<typeof Bun.serve>;
   try {

@@ -15,8 +15,10 @@ const CORE_HELP: Record<string, string> = {
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
   audit: "usage: maw audit [limit]",
-  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v] | maw serve status|--status|stop",
+  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv] | maw serve status|--status|stop",
 };
+
+type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
 
 type ParseFlags = (args: string[], spec: Record<string, unknown>, skip?: number) => any;
 type InvokeResult = { ok: boolean; output?: string; error?: string; exitCode?: number };
@@ -65,11 +67,11 @@ type ServeStatusTools = {
 
 type ServeStartTools = {
   acquirePidLock: (instanceName: string | null, opts: { forceTakeover: boolean }) => void;
-  startServer: (port: number, options?: { verbosity?: 0 | 1 | 2 }) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity }) => Promise<void> | void;
 };
 
 type CoreServerTools = {
-  startServer: (port: number, options?: { verbosity?: 0 | 1 | 2 }) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity }) => Promise<void> | void;
 };
 type CoreServerLoader = () => Promise<CoreServerTools>;
 
@@ -89,6 +91,35 @@ export type RouteToolsDeps = {
   loadServeStatusTools: () => Promise<ServeStatusTools>;
   loadServeStartTools: () => Promise<ServeStartTools>;
 };
+
+function clampServeVerbosity(value: number): ServeVerbosity {
+  return Math.max(0, Math.min(4, Math.trunc(value))) as ServeVerbosity;
+}
+
+function envServeVerbosity(value: string | undefined): ServeVerbosity | undefined {
+  if (value === undefined) return undefined;
+  if (value === "quiet") return 0;
+  if (value === "normal") return 1;
+  if (value === "verbose" || value === "debug") return 2;
+  if (value === "access") return 3;
+  if (value === "frames" || value === "frame" || value === "ws") return 4;
+  if (/^\d+$/.test(value)) return clampServeVerbosity(Number(value));
+  return undefined;
+}
+
+function serveVerbosityFromArgs(serveArgs: string[]): ServeVerbosity {
+  const hasQuietFlag = serveArgs.some((a) => a === "--quiet" || a === "-q")
+    || process.argv.some((a) => a === "--quiet" || a === "-q")
+    || process.env.MAW_QUIET === "1";
+  if (hasQuietFlag) return 0;
+
+  const stackedVCount = serveArgs.reduce((count, arg) => (
+    /^-v+$/.test(arg) ? count + arg.length - 1 : count
+  ), 0);
+  if (stackedVCount > 0) return clampServeVerbosity(1 + stackedVCount);
+  if (serveArgs.some((a) => a === "--verbose")) return 2;
+  return envServeVerbosity(process.env.MAW_SERVE_VERBOSITY) ?? 1;
+}
 
 export function createDefaultRouteToolsDeps(loadCoreServer?: CoreServerLoader): RouteToolsDeps {
   return {
@@ -299,19 +330,11 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const asIdx = serveArgs.indexOf("--as");
     const forceIdx = serveArgs.indexOf("--force-takeover");
     const noScoutIdx = serveArgs.indexOf("--no-scout");
-    const hasQuietFlag = serveArgs.some((a) => a === "--quiet" || a === "-q")
-      || process.argv.some((a) => a === "--quiet" || a === "-q")
-      || process.env.MAW_QUIET === "1"
-      || process.env.MAW_SERVE_VERBOSITY === "0"
-      || process.env.MAW_SERVE_VERBOSITY === "quiet";
-    const hasVerboseFlag = serveArgs.some((a) => a === "--verbose" || a === "-v")
-      || process.env.MAW_SERVE_VERBOSITY === "2"
-      || process.env.MAW_SERVE_VERBOSITY === "verbose";
-    const serveVerbosity: 0 | 1 | 2 = hasQuietFlag ? 0 : hasVerboseFlag ? 2 : 1;
+    const serveVerbosity = serveVerbosityFromArgs(serveArgs);
     const withoutAs = asIdx === -1
       ? serveArgs
       : [...serveArgs.slice(0, asIdx), ...serveArgs.slice(asIdx + 2)];
-    const withoutKnownFlags = withoutAs.filter((a) => !["--force-takeover", "--no-scout", "--quiet", "-q", "--verbose", "-v"].includes(a));
+    const withoutKnownFlags = withoutAs.filter((a) => !["--force-takeover", "--no-scout", "--quiet", "-q", "--verbose"].includes(a) && !/^-v+$/.test(a));
     const filteredArgs = withoutKnownFlags;
     const sub = filteredArgs[0] === "--status" ? "status" : filteredArgs[0];
     if (sub === "status" || sub === "stop") {
@@ -327,7 +350,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const unknownFlag = filteredArgs.find(a => a.startsWith("-"));
     if (unknownFlag) {
       deps.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
-      deps.error(`  usage: maw serve [port] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v]  (run 'maw serve --help' for more)`);
+      deps.error(`  usage: maw serve [port] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv]  (run 'maw serve --help' for more)`);
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));

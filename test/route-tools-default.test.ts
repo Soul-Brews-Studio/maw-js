@@ -314,6 +314,26 @@ describe("routeTools default-suite seams", () => {
     expect(await routeToolsWithDeps("serve", ["serve", "4572", "-v"], shortVerbose.deps)).toBe(true);
     expect(shortVerbose.calls.servers).toEqual([{ port: 4572, options: { verbosity: 2 } }]);
 
+    const accessVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4573", "-vv"], accessVerbose.deps)).toBe(true);
+    expect(accessVerbose.calls.servers).toEqual([{ port: 4573, options: { verbosity: 3 } }]);
+
+    const frameVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4574", "-vvv"], frameVerbose.deps)).toBe(true);
+    expect(frameVerbose.calls.servers).toEqual([{ port: 4574, options: { verbosity: 4 } }]);
+
+    const repeatedVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4575", "-v", "-v"], repeatedVerbose.deps)).toBe(true);
+    expect(repeatedVerbose.calls.servers).toEqual([{ port: 4575, options: { verbosity: 3 } }]);
+
+    const oldServeVerbosity = process.env.MAW_SERVE_VERBOSITY;
+    process.env.MAW_SERVE_VERBOSITY = "4";
+    const envFrameVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4576"], envFrameVerbose.deps)).toBe(true);
+    expect(envFrameVerbose.calls.servers).toEqual([{ port: 4576, options: { verbosity: 4 } }]);
+    if (oldServeVerbosity === undefined) delete process.env.MAW_SERVE_VERBOSITY;
+    else process.env.MAW_SERVE_VERBOSITY = oldServeVerbosity;
+
     const bad = harness();
     await expect(routeToolsWithDeps("serve", ["serve", "--as", "blue", "--force-takeover", "--bogus"], bad.deps)).rejects.toBeInstanceOf(UserError);
     expect(bad.calls.errors.join("\n")).toContain("unknown flag '--bogus'");
