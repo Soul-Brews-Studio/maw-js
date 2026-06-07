@@ -107,7 +107,7 @@ describe("attach plugin standalone boundary (#2313)", () => {
     fleet = [{ name: "02-sleepy", windows: [{ name: "sleepy", repo: "Soul/sleepy-oracle" }] }];
     const deps = { listSessions: async () => sessions, loadFleet: () => fleet };
 
-    await expect(resolver.resolveAttachTarget("mawjs", deps as any, { preferOracleWindow: true })).resolves.toEqual({
+    await expect(resolver.resolveAttachTarget("01-mawjs", deps as any, { preferOracleWindow: true })).resolves.toEqual({
       tier: 1,
       sessionName: "01-mawjs",
       windowName: "mawjs-oracle",
@@ -128,11 +128,11 @@ describe("attach plugin standalone boundary (#2313)", () => {
   test("handler parses CLI/API dry-run paths without touching tmux attach", async () => {
     sessions = [{ name: "01-mawjs", windows: [{ name: "mawjs-oracle" }] }];
 
-    const cli = await attachHandler({ source: "cli", args: ["mawjs", "--dry-run"] } as any);
+    const cli = await attachHandler({ source: "cli", args: ["01-mawjs", "--dry-run"] } as any);
     expect(cli.ok).toBe(true);
     expect(stripAnsi(cli.output)).toContain("[dry-run] Tier 1 (live) — would attach to 01-mawjs:mawjs-oracle");
 
-    const api = await attachHandler({ source: "api", args: { name: "mawjs", dryRun: true } } as any);
+    const api = await attachHandler({ source: "api", args: { name: "01-mawjs", dryRun: true } } as any);
     expect(api.ok).toBe(true);
     expect(stripAnsi(api.output)).toContain("would attach to 01-mawjs:mawjs-oracle");
     expect(attached).toEqual([]);
