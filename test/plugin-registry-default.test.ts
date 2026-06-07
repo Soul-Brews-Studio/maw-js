@@ -165,6 +165,38 @@ describe("discoverPackages default-suite coverage", () => {
     expect(discovered?.manifest.weight).toBe(10);
   });
 
+  test("warns when a later scanned plugin shadows an already loaded name", () => {
+    const project = join(testRoot, "workspace", "pkg");
+    const localPlugins = join(project, ".maw", "plugins");
+    const cwd = join(project, "src");
+    mkdirSync(cwd, { recursive: true });
+
+    const winnerDir = writeEntryPlugin(pluginsDir, "shadowed-plugin", { weight: 10 });
+    const ignoredDir = writeEntryPlugin(localPlugins, "shadowed-plugin", { weight: 1 });
+
+    process.chdir(cwd);
+    resetDiscoverCache();
+
+    const stderr: string[] = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const discovered = discoverPackages().filter((p) => p.manifest.name === "shadowed-plugin");
+      expect(discovered).toHaveLength(1);
+      expect(discovered[0].dir).toBe(winnerDir);
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const warning = stderr.join("");
+    expect(warning).toContain(`plugin 'shadowed-plugin' shadowed: using ${winnerDir}, ignoring `);
+    expect(warning).toContain("workspace/pkg/.maw/plugins/shadowed-plugin");
+    expect(warning).toContain(ignoredDir.split(`${testRoot}/`)[1]);
+  });
+
   test("memoizes default discovery until resetDiscoverCache is called", () => {
     writeEntryPlugin(pluginsDir, "registry-cache-a");
 
@@ -240,6 +272,29 @@ describe("discoverPackages default-suite coverage", () => {
     expect(warningText).toContain("plugin 'registry-unbuilt' is unbuilt");
     expect(warningText).toContain("plugin 'registry-missing-artifact' artifact missing");
     expect(warningText).toContain("plugin 'registry-hash-mismatch' artifact hash mismatch");
+  });
+
+  test("applies .overrides.json from every scanned plugin directory", () => {
+    const localPlugins = join(testRoot, "local-plugins");
+    writeEntryPlugin(pluginsDir, "global-weighted", { weight: 40 });
+    writeEntryPlugin(localPlugins, "local-weighted", { weight: 50 });
+
+    writeFileSync(join(pluginsDir, ".overrides.json"), JSON.stringify({
+      "global-weighted": 30,
+    }));
+    writeFileSync(join(localPlugins, ".overrides.json"), JSON.stringify({
+      "local-weighted": 1,
+    }));
+
+    const discovered = discoverPackages({
+      scanDirs: () => [pluginsDir, localPlugins],
+      loadConfig: () => ({ disabledPlugins: [] }),
+    }).map((p) => [p.manifest.name, p.manifest.weight] as const);
+
+    expect(discovered).toEqual([
+      ["local-weighted", 1],
+      ["global-weighted", 30],
+    ]);
   });
 
   test("applies injected active profile filters after defaulting missing tiers to core", () => {

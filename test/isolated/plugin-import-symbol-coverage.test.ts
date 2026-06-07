@@ -151,4 +151,33 @@ describe("importPluginSymbol", () => {
     expect(second).toBe(first);
     expect(discoverCalls).toBe(2);
   });
+
+  test("resetDiscoverCache clears cached symbols so changed module surfaces can load", async () => {
+    const dir = join(root, "helper");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "old.ts"), "export const stamp = 1;\n");
+    writeFileSync(join(dir, "new.ts"), "export const stamp = 2;\n");
+
+    const oldPlugin = makePlugin(dir, {
+      module: { path: "./old.ts", exports: ["stamp"] },
+    });
+    const newPlugin = makePlugin(dir, {
+      module: { path: "./new.ts", exports: ["stamp"] },
+    });
+
+    const first = await importPluginSymbol<number>("helper", "stamp", {
+      discoverPackages: () => [oldPlugin],
+    });
+    const staleWithoutReset = await importPluginSymbol<number>("helper", "stamp", {
+      discoverPackages: () => [newPlugin],
+    });
+    resetDiscoverCache();
+    const refreshed = await importPluginSymbol<number>("helper", "stamp", {
+      discoverPackages: () => [newPlugin],
+    });
+
+    expect(first).toBe(1);
+    expect(staleWithoutReset).toBe(1);
+    expect(refreshed).toBe(2);
+  });
 });

@@ -22,6 +22,7 @@ export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
   for (let i = 0; i < 32; i += 1) {
     const pluginsDir = join(dir, ".maw", "plugins");
     if (existsSync(pluginsDir)) dirs.push(pluginsDir);
+    if (existsSync(join(dir, ".maw-root"))) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;

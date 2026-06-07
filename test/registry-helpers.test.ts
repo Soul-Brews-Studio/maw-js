@@ -58,6 +58,22 @@ describe("plugin registry runtime helpers", () => {
     expect(scanDirs(cwd)).toEqual(["/tmp/maw-test-plugins", packagePlugins, projectPlugins]);
   });
 
+  test("discoverLocalPluginDirs stops walking at a .maw-root marker", () => {
+    const root = tempDir("maw-root-marker-");
+    const parentPlugins = join(root, ".maw", "plugins");
+    const project = join(root, "workspace");
+    const projectPlugins = join(project, ".maw", "plugins");
+    const packagePlugins = join(project, "packages", "app", ".maw", "plugins");
+    const cwd = join(project, "packages", "app", "src");
+    mkdirSync(parentPlugins, { recursive: true });
+    mkdirSync(projectPlugins, { recursive: true });
+    mkdirSync(packagePlugins, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(project, ".maw-root"), "");
+
+    expect(discoverLocalPluginDirs(cwd)).toEqual([packagePlugins, projectPlugins]);
+  });
+
   test("runtimeSdkVersion resolves and caches the bundled SDK package version", () => {
     __resetDiscoverStateForTests();
     const version = runtimeSdkVersion();

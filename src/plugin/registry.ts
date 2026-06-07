@@ -24,7 +24,7 @@ import { join, resolve, sep } from "path";
 import { pathToFileURL } from "url";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
-import { verbose, info } from "../cli/verbosity";
+import { verbose, info, warn } from "../cli/verbosity";
 import type { MawConfig } from "../config/types";
 import type { LoadedPlugin } from "./types";
 import { satisfies, formatSdkMismatchError } from "./registry-semver";
@@ -159,7 +159,7 @@ export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[
   // invariant (#343), but the right grain is SUMMARY, not per-entry.
   const modeCounts = { symlink: 0, artifact: 0, unbuilt: 0, legacy: 0 };
 
-  const seenPluginNames = new Set<string>();
+  const seenPluginNames = new Map<string, LoadedPlugin>();
 
   for (const baseDir of pluginDirs) {
     if (!existsSync(baseDir)) continue;
@@ -184,7 +184,11 @@ export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[
       if (!loaded) continue;
 
       const m = loaded.manifest;
-      if (seenPluginNames.has(m.name)) continue;
+      const winner = seenPluginNames.get(m.name);
+      if (winner) {
+        warn(`plugin '${m.name}' shadowed: using ${winner.dir}, ignoring ${pkgDir}`);
+        continue;
+      }
 
       // Gate 1: SDK semver. Mismatch → refuse with actionable error.
       if (!satisfies(runtimeVer, m.sdk)) {
@@ -228,7 +232,7 @@ export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[
         legacyCount++;
       }
 
-      seenPluginNames.add(m.name);
+      seenPluginNames.set(m.name, loaded);
 
       if (disabled.includes(m.name)) {
         loaded.disabled = true;
@@ -261,9 +265,8 @@ export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[
 
   // #404 — apply weight overrides so category survives `install --link` replaces
   // where the new plugin.json omitted `weight`.
-  const primaryPluginDir = pluginDirs[0];
-  if (primaryPluginDir) {
-    const overridesPath = join(primaryPluginDir, ".overrides.json");
+  for (const pluginDir of pluginDirs) {
+    const overridesPath = join(pluginDir, ".overrides.json");
     try {
       const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
       for (const p of plugins) {
