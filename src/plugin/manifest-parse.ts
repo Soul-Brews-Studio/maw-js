@@ -23,20 +23,11 @@ import {
 } from "./manifest-validate";
 
 /**
- * Parse and validate a plugin.json text.
- * @param jsonText - raw contents of plugin.json
- * @param dir      - absolute directory of the manifest (used to resolve wasm path)
- * @throws if any field is missing, invalid, or the wasm file is absent
+ * Internal parser shared by JSON + module-backed manifests.
  */
-export function parseManifest(jsonText: string, dir: string): PluginManifest {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(jsonText);
-  } catch {
-    throw new Error("plugin.json: invalid JSON");
-  }
+function parseManifestInput(raw: unknown, dir: string, source: string): PluginManifest {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("plugin.json: must be a JSON object");
+    throw new Error(`${source}: must be a JSON object`);
   }
   const r = raw as Record<string, unknown>;
 
@@ -44,12 +35,12 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
 
   if (typeof r.name !== "string" || !NAME_RE.test(r.name)) {
     throw new Error(
-      `plugin.json: name must match /^[a-z0-9-]+$/ (got ${JSON.stringify(r.name)})`,
+      `${source}: name must match /^[a-z0-9-]+$/ (got ${JSON.stringify(r.name)})`,
     );
   }
   if (typeof r.version !== "string" || !SEMVER_RE.test(r.version)) {
     throw new Error(
-      `plugin.json: version must be semver N.N.N (got ${JSON.stringify(r.version)})`,
+      `${source}: version must be semver N.N.N (got ${JSON.stringify(r.version)})`,
     );
   }
   // #869 — wasm / entry / artifact are all optional. When none are declared,
@@ -67,7 +58,7 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
 
   if (typeof r.sdk !== "string" || !SEMVER_RANGE_RE.test(r.sdk)) {
     throw new Error(
-      `plugin.json: sdk must be a semver range (got ${JSON.stringify(r.sdk)})`,
+      `${source}: sdk must be a semver range (got ${JSON.stringify(r.sdk)})`,
     );
   }
 
@@ -75,13 +66,13 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   if (hasWasm) {
     const resolvedWasm = resolve(dir, r.wasm as string);
     if (!existsSync(resolvedWasm)) {
-      throw new Error(`plugin.json: wasm file not found: ${resolvedWasm}`);
+      throw new Error(`${source}: wasm file not found: ${resolvedWasm}`);
     }
   }
   if (hasEntry) {
     const resolvedEntry = resolve(dir, r.entry as string);
     if (!existsSync(resolvedEntry)) {
-      throw new Error(`plugin.json: entry file not found: ${resolvedEntry}`);
+      throw new Error(`${source}: entry file not found: ${resolvedEntry}`);
     }
   }
 
@@ -123,4 +114,27 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
     ...(dependencies ? { dependencies } : {}),
     ...(artifact ? { artifact } : {}),
   };
+}
+
+/**
+ * Parse and validate plugin manifest text (from plugin.json).
+ *
+ * Kept for callsites that read JSON from disk and want parser errors to
+ * remain anchored to `plugin.json`.
+ */
+export function parseManifest(jsonText: string, dir: string): PluginManifest {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(jsonText);
+  } catch {
+    throw new Error("plugin.json: invalid JSON");
+  }
+  return parseManifestInput(raw, dir, "plugin.json");
+}
+
+/**
+ * Parse and validate manifest data emitted from executable sources (e.g. plugin.ts).
+ */
+export function parseManifestFromSource(raw: unknown, dir: string, source = "plugin.ts"): PluginManifest {
+  return parseManifestInput(raw, dir, source);
 }
