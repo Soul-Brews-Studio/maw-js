@@ -112,7 +112,7 @@ beforeEach(() => {
   spawnCalls = [];
   fsMode = "healthy";
   bunLinkCheckout = null;
-  delete process.env.MAW_DATA_DIR;
+  process.env.MAW_DATA_DIR = join(HOME, ".maw");
   delete process.env.MAW_PLUGINS_DIR;
   realFs.rmSync(HOME, { recursive: true, force: true });
   realFs.mkdirSync(PLUGINS_DIR, { recursive: true });
