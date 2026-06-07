@@ -226,7 +226,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
     ]);
 
     const noWhitespace = new SubmitProbeTmux();
-    noWhitespace.captureScript = ["agent%make test"];
+    noWhitespace.captureScript = ["agent%unrelated text"];
 
     await noWhitespace.sendText("alpha:0.0", "make test");
 

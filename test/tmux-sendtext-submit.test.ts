@@ -83,6 +83,33 @@ describe("Tmux.sendText — confirmed submit (#6)", () => {
     15_000,
   );
 
+
+  test(
+    "recognizes Codex U+203A prompts as pending via prompt fallback",
+    async () => {
+      const t = new FakeTmux();
+      t.captureScript = ["› [m5:mawjs] codex-1: unrelated pending input", "› "];
+      await t.sendText("sess:codex", "hello");
+
+      expect(enterCount(t.calls)).toBe(2);
+      expect(t.calls.at(-1)).toBe("capture");
+    },
+    15_000,
+  );
+
+  test(
+    "detects pending input from the sent text without known prompt markers",
+    async () => {
+      const t = new FakeTmux();
+      t.captureScript = ["ENGINE_PROMPT please handle this", "ENGINE_PROMPT "];
+      await t.sendText("sess:any-engine", "please handle this");
+
+      expect(enterCount(t.calls)).toBe(2);
+      expect(t.calls.at(-1)).toBe("capture");
+    },
+    15_000,
+  );
+
   test(
     "stops after MAX_SUBMIT_ATTEMPTS and warns when the pane never clears",
     async () => {

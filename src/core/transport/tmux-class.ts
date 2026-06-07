@@ -24,6 +24,24 @@ const MAX_SUBMIT_ATTEMPTS = 4;
 /** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
+function pendingInputNeedles(sentText: string): string[] {
+  const normalized = sentText.replace(/\r/g, "").trim();
+  if (!normalized) return [];
+
+  const needles = new Set<string>();
+  const compact = normalized.replace(/\s+/g, " ").trim();
+  if (compact) needles.add(compact.slice(0, 40));
+
+  const lastLine = normalized
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean)
+    .at(-1);
+  if (lastLine) needles.add(lastLine.slice(0, 40));
+
+  return [...needles].filter(Boolean);
+}
+
 function isTmuxNoServerError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /no server/i.test(message) || /failed to connect to server/i.test(message);
@@ -491,7 +509,7 @@ export class Tmux {
       await this.sendKeysLiteral(target, text);
     }
     await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
-    await this.submitWithConfirm(target);
+    await this.submitWithConfirm(target, text);
   }
 
   /**
@@ -499,11 +517,11 @@ export class Tmux {
    * the Enter while input is still pending — see sendText for the #6 race.
    * @internal — exported behavior is exercised via sendText in tests.
    */
-  private async submitWithConfirm(target: string): Promise<void> {
+  private async submitWithConfirm(target: string, sentText: string): Promise<void> {
     for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
       await this.sendKeys(target, "Enter");
       await new Promise(r => setTimeout(r, SUBMIT_CONFIRM_MS));
-      if (!(await this.paneInputPending(target))) return; // submitted — done
+      if (!(await this.paneInputPending(target, sentText))) return; // submitted — done
     }
     // Exhausted every retry and the input line still looks non-empty. The
     // caller has no visibility into tmux pane state, so warn loudly — a
@@ -514,20 +532,25 @@ export class Tmux {
   }
 
   /**
-   * True when the pane's prompt line still holds un-submitted input.
-   * Mirrors checkPaneIdle (comm-send.ts #405) but inlined here to avoid a
-   * circular import — comm-send.ts already imports Tmux. A read failure
-   * returns false (assume submitted) so a flaky capture can't spin the retry
-   * loop.
+   * True when the pane's input line still holds the text we just sent. Prefer
+   * sent-text visibility over prompt markers so submit confirmation works for
+   * any engine prompt. A prompt-marker fallback, including Codex's U+203A `›`,
+   * keeps legacy detection working when panes transform or truncate the text.
+   * A read failure returns false (assume submitted) so a flaky capture can't
+   * spin the retry loop.
    */
-  private async paneInputPending(target: string): Promise<boolean> {
+  private async paneInputPending(target: string, sentText: string): Promise<boolean> {
     try {
       const content = await this.capture(target, 5);
       const lines = content.split("\n").filter(l => l.trim());
       const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
-      // Prompt marker followed by non-whitespace → user/command text still
-      // sitting on the input line, i.e. Enter has not submitted it yet.
-      return /[#$%>❯»]\s+\S/.test(last);
+      const sentNeedles = pendingInputNeedles(sentText);
+      if (sentNeedles.some(needle => last.includes(needle))) return true;
+
+      // Fallback: prompt marker followed by non-whitespace → user/command text
+      // still sitting on the input line. Includes Codex `›` for immediate #2380
+      // relief while sent-text detection handles unknown future engines.
+      return /[#$%>❯»›]\s+\S/.test(last);
     } catch {
       return false;
     }
