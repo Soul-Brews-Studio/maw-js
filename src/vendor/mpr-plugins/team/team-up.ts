@@ -149,6 +149,11 @@ function memberPrimingTarget(session: string, member: TeamCharter["members"][num
   return `${session}:${identity}`;
 }
 
+function promptDelayMs(charter: TeamCharter): number {
+  const configured = charter.lifecycle?.prompt_delay;
+  return typeof configured === "number" ? configured : 3000;
+}
+
 async function primeMember(
   member: TeamCharter["members"][number],
   session: string,
@@ -242,6 +247,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
       await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, memberKey, state: item.state, action: "force fresh wake", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await sleep(promptDelayMs(charter));
       await primeMember(item.member, session, repoRoot, deps, warnings);
     } else if (item.state === "live") {
       actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
@@ -251,12 +257,14 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
       await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
       actions.push({ role: item.role, memberKey, state: item.state, action: "resume in place", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await sleep(promptDelayMs(charter));
       await primeMember(item.member, session, repoRoot, deps, warnings);
     } else {
       const command = engineCommand(item.engine, { resume: false }, config);
       await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, memberKey, state: item.state, action: "fresh wake", command });
       await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
+      await sleep(promptDelayMs(charter));
       await primeMember(item.member, session, repoRoot, deps, warnings);
     }
   }

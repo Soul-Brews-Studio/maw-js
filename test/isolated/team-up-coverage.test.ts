@@ -76,8 +76,11 @@ members:
     channels: true
     queue:
       - next
+lifecycle:
+  prompt_delay: 250
 `);
     expect(charter.session).toBe("named-session");
+    expect(charter.lifecycle?.prompt_delay).toBe(250);
     expect(charter.members[0]).toMatchObject({ role: "coder", name: "mawjs-codex", engine: "omx", worktree: true, node: "m5", channels: true, queue: ["next"] });
   });
 
@@ -210,6 +213,53 @@ agents:
     expect(status.output).toContain("codex\tomx\tmissing\twakeable --wt codex -e omx --session charter-session --channels");
     expect(status.output).toContain("oss-world\tclaude\tmissing\twakeable --wt oss-world -e claude --session charter-session");
     expect(status.output).not.toContain("oss-world\tclaude\tmissing\twakeable --wt oss-world -e claude --session charter-session --channels");
+  });
+
+  test("team up delays by lifecycle.prompt_delay after wake readiness before priming prompts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-delay-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+session: charter-session
+lifecycle:
+  prompt_delay: 42
+agents:
+  codex:
+    engine: omx
+    prompt: delayed hello
+`, "utf-8");
+
+    let listCalls = 0;
+    const events: string[] = [];
+    const tmux = {
+      run: async (...args: string[]) => {
+        events.push(`tmux:${args[0]}`);
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          if (listCalls === 2) return "charter-session|codex|zsh|/wt/codex|%1";
+          return "charter-session|codex|codex|/wt/codex|%1";
+        }
+        return "";
+      },
+    };
+
+    await cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async () => { events.push("wake"); return "woke"; },
+      cmdSendFn: async () => { events.push("send"); },
+      sleep: async (ms: number) => { events.push(`sleep:${ms}`); },
+      logger: () => {},
+    });
+
+    expect(events).toContain("sleep:42");
+    expect(events.indexOf("sleep:1000")).toBeLessThan(events.indexOf("sleep:42"));
+    expect(events.indexOf("sleep:42")).toBeLessThan(events.indexOf("send"));
   });
 
   test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {
