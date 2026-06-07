@@ -24,6 +24,23 @@ describe("ServeRouteRegistry", () => {
     ]);
   });
 
+  test("dispatches colon parameter routes after exact routes", async () => {
+    const registry = new ServeRouteRegistry();
+    registry.route("GET", "/api/status", () => Response.json({ route: "summary" }));
+    registry.route("GET", "/api/status/:oracle", (request) => {
+      const oracle = new URL(request.url).pathname.split("/").pop();
+      return Response.json({ route: "oracle", oracle });
+    });
+
+    const exact = await registry.handle(new Request("http://local/api/status"));
+    expect(await exact!.json()).toEqual({ route: "summary" });
+
+    const param = await registry.handle(new Request("http://local/api/status/neo"));
+    expect(await param!.json()).toEqual({ route: "oracle", oracle: "neo" });
+
+    expect(await registry.handle(new Request("http://local/api/status/neo/extra"))).toBeUndefined();
+  });
+
   test("rejects non-absolute paths and duplicate routes", () => {
     const registry = new ServeRouteRegistry();
     expect(() => registry.route("GET", "api/worktrees", () => new Response())).toThrow("serve route path must start");

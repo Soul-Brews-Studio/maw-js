@@ -227,7 +227,7 @@ describe("config API file routes", () => {
   });
 });
 
-describe("config API pin and public config routes", () => {
+describe("config API pin routes", () => {
   test("pin info, set, verify, reset, and rate-limit branches", async () => {
     const saves: any[] = [];
     const attempts = new Map<string, { count: number; resetAt: number }>();
@@ -292,24 +292,4 @@ describe("config API pin and public config routes", () => {
     }
   });
 
-  test("GET and POST /config preserve masked env values and report save errors", async () => {
-    const saves: any[] = [];
-    const app = makeApp({
-      loadConfig: (() => ({ raw: true, env: { SECRET: "raw-secret" } })) as any,
-      configForDisplay: (() => ({ display: true, envMasked: { SECRET: "••••" } })) as any,
-      saveConfig: ((data: any) => { saves.push(data); }) as any,
-    });
-
-    expect(await readJson(await app.handle(new Request("http://localhost/config?raw=1")))).toEqual({ raw: true, env: { SECRET: "raw-secret" } });
-    expect(await readJson(await app.handle(new Request("http://localhost/config")))).toEqual({ display: true, envMasked: { SECRET: "••••" } });
-
-    const save = await app.handle(jsonRequest("/config", "POST", { env: { SECRET: "••••", PLAIN: "ok" } }));
-    expect(save.status).toBe(200);
-    expect(saves).toEqual([{ env: { SECRET: "raw-secret", PLAIN: "ok" } }]);
-
-    const failing = makeApp({ saveConfig: (() => { throw new Error("config save boom"); }) as any });
-    const error = await failing.handle(jsonRequest("/config", "POST", { host: "local" }));
-    expect(error.status).toBe(400);
-    expect((await readJson(error)).error).toBe("config save boom");
-  });
 });

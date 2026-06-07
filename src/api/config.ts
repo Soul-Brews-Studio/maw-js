@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
-import { type MawConfig, loadConfig, saveConfig, configForDisplay } from "../config";
+import { loadConfig, saveConfig, configForDisplay } from "../config";
 import { CONFIG_FILE } from "../core/paths";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
@@ -245,36 +245,6 @@ export function createConfigApi(deps: ConfigApiDeps = {}) {
     return { ok };
   }, {
     body: t.Object({ pin: t.Optional(t.String()) }),
-  });
-
-  // PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
-  // clients (e.g. maw-ui#8). See docs/federation.md before changing fields.
-  configApi.get("/config", ({ query }) => {
-    if (query.raw === "1") return load();
-    return displayConfig();
-  }, {
-    query: t.Object({ raw: t.Optional(t.String()) }),
-  });
-
-  configApi.post("/config", async ({ body, set }) => {
-    try {
-      const data = body as Partial<MawConfig>;
-      // If env has masked values (bullet chars), keep originals for those keys
-      if (data.env && typeof data.env === "object") {
-        const current = load();
-        const merged: Record<string, string> = {};
-        for (const [k, v] of Object.entries(data.env as Record<string, string>)) {
-          merged[k] = /\u2022/.test(v) ? (current.env[k] || v) : v;
-        }
-        data.env = merged;
-      }
-      save(data);
-      return { ok: true };
-    } catch (e: unknown) {
-      set.status = 400; return { error: e instanceof Error ? e.message : String(e) };
-    }
-  }, {
-    body: t.Unknown(),
   });
 
   return configApi;

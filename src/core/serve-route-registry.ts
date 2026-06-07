@@ -33,6 +33,15 @@ function assertAbsolutePath(path: string): void {
   if (!path.startsWith("/")) throw new Error(`serve route path must start with '/': ${path}`);
 }
 
+function routePathMatches(pattern: string, pathname: string): boolean {
+  if (pattern === pathname) return true;
+  if (!pattern.includes(":")) return false;
+  const patternParts = pattern.split("/").filter(Boolean);
+  const pathParts = pathname.split("/").filter(Boolean);
+  if (patternParts.length !== pathParts.length) return false;
+  return patternParts.every((part, index) => part.startsWith(":") || part === pathParts[index]);
+}
+
 export class ServeRouteRegistry implements ServeHttpRouteRegistrar, ServeFallbackRegistrar {
   private readonly routes = new Map<string, RegisteredServeRoute>();
   private readonly fallbackHandlers: Array<{ id: string; handler: ServeFallbackHandler }> = [];
@@ -56,7 +65,12 @@ export class ServeRouteRegistry implements ServeHttpRouteRegistrar, ServeFallbac
 
   async handle(request: Request): Promise<Response | undefined> {
     const url = new URL(request.url);
-    const route = this.routes.get(`${request.method.toUpperCase()} ${url.pathname}`);
+    const method = request.method.toUpperCase() as ServeRouteMethod;
+    const exact = this.routes.get(`${method} ${url.pathname}`);
+    if (exact) return exact.handler(request);
+    const route = [...this.routes.values()].find((candidate) =>
+      candidate.method === method && routePathMatches(candidate.path, url.pathname),
+    );
     if (!route) return undefined;
     return route.handler(request);
   }

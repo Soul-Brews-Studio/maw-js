@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 const realSdk = await import("../../src/sdk/index.ts");
 afterAll(() => { mock.restore(); });
 
@@ -93,8 +94,12 @@ describe("health plugin standalone boundary", () => {
     const implSource = readFileSync(join(root, "src/vendor/mpr-plugins/health/impl.ts"), "utf8");
     const combined = `${indexSource}\n${implSource}`;
 
+    const manifest = JSON.parse(readFileSync(join(root, "src/vendor/mpr-plugins/health/plugin.json"), "utf8"));
+
     expect(command).toMatchObject({ name: "health" });
+    expect(manifest.api).toBeUndefined();
     expect(combined).toContain('from "maw-js/sdk"');
+    expectStandalonePluginBoundary({ plugin: "health" });
     expect(combined).not.toMatch(/maw-js\/(?:core|commands\/shared|cli|config|lib|plugin)(?:\/|")/);
     expect(combined).not.toMatch(/from\s+["'](?:\.\.\/)+(?:core|commands|cli|config|lib|src)\//);
   });
