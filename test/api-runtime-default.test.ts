@@ -170,57 +170,9 @@ describe("runtime API routers default-suite coverage", () => {
     expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
   });
 
-  test("triggers API renders configured triggers with last-fired history", async () => {
-    const app = apiWith(createTriggersApi({
-      getTriggers: () => [
-        { on: "pr-merge", repo: "Soul-Brews-Studio/maw-js", action: "maw hey", name: "notify" },
-        { on: "agent-idle", timeout: 60, action: "maw wake" },
-      ],
-      getTriggerHistory: () => [{
-        index: 0,
-        result: {
-          trigger: { on: "pr-merge", action: "maw hey" },
-          action: "maw hey",
-          ok: true,
-          output: "sent",
-          ts: 123,
-        },
-      }],
-      fire: (async () => []) as any,
-    }));
-
-    const res = await app.handle(new Request("http://local/api/triggers"));
-    expect(res.status).toBe(200);
-    expect(await json(res)).toEqual({
-      total: 2,
-      triggers: [
-        {
-          index: 0,
-          on: "pr-merge",
-          repo: "Soul-Brews-Studio/maw-js",
-          timeout: null,
-          action: "maw hey",
-          name: "notify",
-          lastFired: { ts: 123, ok: true, action: "maw hey", error: null },
-        },
-        {
-          index: 1,
-          on: "agent-idle",
-          repo: null,
-          timeout: 60,
-          action: "maw wake",
-          name: null,
-          lastFired: null,
-        },
-      ],
-    });
-  });
-
   test("triggers API awaits fire results and normalizes optional output/error", async () => {
     const calls: any[] = [];
     const app = apiWith(createTriggersApi({
-      getTriggers: () => [],
-      getTriggerHistory: () => [],
       fire: async (event, ctx) => {
         calls.push({ event, ctx });
         return [

@@ -120,6 +120,7 @@ export interface LoadedPlugin {
   disabled?: boolean;     // true if plugin is in disabledPlugins config list
 }
 
+
 export interface InvokeContext {
   source: "cli" | "api" | "peer";
   args: string[] | Record<string, unknown>;

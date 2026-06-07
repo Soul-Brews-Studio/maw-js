@@ -82,7 +82,10 @@ mock.module(import.meta.resolve("../../src/api/tmux-stream"), () => ({
 }));
 mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({ setBunServer: () => {} }));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
-  runServeLifecycleHooks: async (payload: unknown) => { lifecyclePayloads.push(payload); },
+  runServeLifecycleHooks: async (payload: any) => {
+    lifecyclePayloads.push(payload);
+    payload.http?.route("GET", "/api/triggers", () => new Response("plugin triggers"));
+  },
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
   dispatchEnginePluginEvent: async () => {},
@@ -169,7 +172,7 @@ describe("coverage core shared server", () => {
     expect(engineCalls).toContain("router");
     expect(lifecyclePayloads).toHaveLength(1);
     expect(lifecyclePayloads[0]).toMatchObject({ port: 4910, httpUrl: "http://localhost:4910", wsUrl: "ws://localhost:4910/ws", hostname: "127.0.0.1" });
-    expect((lifecyclePayloads[0] as any).http).toBeDefined();
+    expect((lifecyclePayloads[0] as any).http).toEqual(expect.objectContaining({ route: expect.any(Function) }));
     expect(healthPolls).toBe(1);
 
     const ws = serveCalls[0].websocket;
@@ -196,6 +199,7 @@ describe("coverage core shared server", () => {
     expect(options.headers.get("Access-Control-Allow-Origin")).toBe("http://origin.test");
     expect(await (await fetch(new Request("http://local/api/engine"), upgradeServer(true))).text()).toBe("proxied");
     expect(proxiedPaths).toEqual(["/api/engine"]);
+    expect(await (await fetch(new Request("http://local/api/triggers"), upgradeServer(true))).text()).toBe("plugin triggers");
     expect(await (await fetch(new Request("http://local/api/ordinary"), upgradeServer(true))).text()).toBe("api");
     expect(apiPaths).toEqual(["/api/ordinary"]);
 
