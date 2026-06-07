@@ -12,6 +12,7 @@ import { resolveNodeIdentity } from "../../../core/fleet/node-identity";
  * mounted routes — this is a contract, not documentation.
  */
 export const ADVERTISED_ENDPOINTS: string[] = [
+  "/api/agents",
   "/api/identity",
   "/api/messages",
   "/api/pane-keys",

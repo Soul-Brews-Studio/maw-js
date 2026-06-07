@@ -1,4 +1,4 @@
-import { tmux } from "../../sdk";
+import { tmux } from "../../core/transport/tmux";
 import { loadConfig } from "../../config";
 
 /** @internal — exported for tests only. */

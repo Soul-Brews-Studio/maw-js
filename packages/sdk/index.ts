@@ -72,6 +72,8 @@ export {
 } from "../../src/commands/shared/queue-store";
 export type { PendingMessage } from "../../src/commands/shared/queue-store";
 export { cmdSplit } from "../../src/commands/plugins/split/impl";
+export { buildAgentRows } from "../../src/commands/shared/agents";
+export type { AgentRow } from "../../src/commands/shared/agents";
 
 // ─── src/config ──────────────────────────────────────────────────────────────
 // Operator config loader + key-typed accessors. Used by:

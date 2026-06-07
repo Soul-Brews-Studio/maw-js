@@ -260,6 +260,20 @@ export declare function loadPendingById(id: string): PendingMessage | null;
 export declare function updatePending(id: string, patch: Partial<PendingMessage>): PendingMessage;
 export declare function deletePending(id: string): boolean;
 export declare function cmdSplit(target: string, opts?: Record<string, unknown>): Promise<void>;
+export interface AgentRow {
+  node: string;
+  session: string;
+  window: string;
+  oracle: string;
+  state: "active" | "idle";
+  pid: number | null;
+}
+export declare function buildAgentRows(
+  panes: Array<{ command: string; target: string; pid?: number }>,
+  windowNames: Map<string, string>,
+  nodeName: string,
+  opts?: { all?: boolean },
+): AgentRow[];
 
 // --- src/config ---
 

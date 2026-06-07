@@ -215,6 +215,8 @@ export { tlink } from "../core/util/terminal";
 // Plugin extraction helpers for tab-like command surfaces.
 export { cmdPeek, cmdSend } from "../commands/shared/comm";
 export { cmdSplit } from "../commands/plugins/split/impl";
+export { buildAgentRows } from "../commands/shared/agents";
+export type { AgentRow } from "../commands/shared/agents";
 
 // ─── Transport Router ────────────────────────────────────────────────────────
 

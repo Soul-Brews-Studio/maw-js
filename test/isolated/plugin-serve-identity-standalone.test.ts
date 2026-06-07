@@ -73,7 +73,7 @@ describe("serve-identity plugin standalone boundary", () => {
       agents: [{ node: "codex@m5", name: "neo" }],
       uptime: 2,
       clockUtc: "2026-06-07T00:00:00.000Z",
-      endpoints: ["/api/identity", "/api/messages", "/api/pane-keys", "/api/probe", "/api/send", "/api/sleep", "/api/wake"],
+      endpoints: ["/api/agents", "/api/identity", "/api/messages", "/api/pane-keys", "/api/probe", "/api/send", "/api/sleep", "/api/wake"],
       pubkey: "pub",
     });
   });
