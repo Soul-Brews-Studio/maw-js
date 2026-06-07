@@ -28,6 +28,7 @@ import { agentStatusStore } from "./agent-status";
 import { getRuntimeVersionLabel } from "./runtime/build-info";
 import { ServeRouteRegistry } from "./serve-route-registry";
 import { ServeWsRegistry } from "./serve-ws-registry";
+import { corsHeaders, handleCorsOptions } from "./serve-cors";
 
 // --- Version info (computed once at startup) ---
 
@@ -225,24 +226,13 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     log.error("[plugins] failed to init:", err);
   }
 
-  const corsHeaders = (req: Request) => {
-    const origin = req.headers.get("origin") ?? "*";
-    return {
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Federation-Token, X-From-Signature",
-      "Access-Control-Allow-Private-Network": "true",
-    };
-  };
-
   const fetchHandler = async (req: Request, server: any) => {
     const url = new URL(req.url);
     const apiPath = url.pathname.replace(/^\/api/, "");
 
     // CORS preflight for all routes
-    if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders(req) });
-    }
+    const corsPreflight = handleCorsOptions(req);
+    if (corsPreflight) return corsPreflight;
     const wsUpgrade = serveWs.handleUpgrade(req, server);
     if (wsUpgrade.matched) return wsUpgrade.response;
     // Elysia handles legacy /api/* routes (has its own CORS). Engine plugin
