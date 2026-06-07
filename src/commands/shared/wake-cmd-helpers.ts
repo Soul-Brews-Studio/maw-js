@@ -164,6 +164,57 @@ export async function retryFreshSessionTmuxStep<T>(
   throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
 }
 
+
+export type RehydrateWorktree = { name: string; path: string };
+
+export type RehydrateMergeCheckDeps = {
+  hostExec: (command: string) => Promise<string>;
+  baseBranch?: string;
+};
+
+function shellArg(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function parseMergedBranches(output: string): Set<string> {
+  return new Set(
+    output
+      .split("\n")
+      .map(line => line.replace(/^\*?\s*/, "").trim())
+      .filter(Boolean),
+  );
+}
+
+export async function isWorktreeBranchMergedToBase(
+  worktree: RehydrateWorktree,
+  deps: RehydrateMergeCheckDeps,
+): Promise<boolean> {
+  const baseBranch = deps.baseBranch ?? "alpha";
+  const cwd = shellArg(worktree.path);
+  try {
+    const branch = (await deps.hostExec(`git -C ${cwd} branch --show-current`)).trim();
+    if (!branch) return false;
+    const merged = await deps.hostExec(`git -C ${cwd} branch --merged ${shellArg(baseBranch)}`);
+    return parseMergedBranches(merged).has(branch);
+  } catch {
+    // Rehydrate conservatively if Git cannot answer. A stale or missing local
+    // alpha ref should not hide a still-active worktree.
+    return false;
+  }
+}
+
+export async function filterMergedWorktreesForRehydrate(
+  worktrees: RehydrateWorktree[],
+  deps: RehydrateMergeCheckDeps,
+): Promise<RehydrateWorktree[]> {
+  const kept: RehydrateWorktree[] = [];
+  for (const wt of worktrees) {
+    if (await isWorktreeBranchMergedToBase(wt, deps)) continue;
+    kept.push(wt);
+  }
+  return kept;
+}
+
 export type RehydrateWorktreePlan = {
   worktreeName: string;
   windowName: string;

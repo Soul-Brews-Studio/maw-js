@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   buildWakeBudLineage,
+  filterMergedWorktreesForRehydrate,
   findWakeSnapshotSession,
   getLiveTileRoles,
   promptAmbiguousWorktreePick,
@@ -327,6 +328,33 @@ describe("wake worktree rehydrate planning — default coverage", () => {
     expect(planned).toEqual([
       { worktreeName: "feature-a", windowName: "mawjs-feature-a", path: "/repo/wt-feature-a" },
       { worktreeName: "2-feature-a", windowName: "mawjs-2-feature-a", path: "/repo/wt-2-feature-a" },
+    ]);
+  });
+
+  it("filters worktrees whose current branch is already merged to alpha before planning", async () => {
+    const commands: string[] = [];
+    const worktrees = [
+      { name: "2370-done", path: "/repo/agents/2370-done" },
+      { name: "2370-open", path: "/repo/agents/2370-open" },
+    ];
+
+    const filtered = await filterMergedWorktreesForRehydrate(worktrees, {
+      hostExec: async (command: string) => {
+        commands.push(command);
+        if (command.includes("2370-done") && command.includes("branch --show-current")) return "feature/done\n";
+        if (command.includes("2370-done") && command.includes("branch --merged")) return "  alpha\n* feature/done\n";
+        if (command.includes("2370-open") && command.includes("branch --show-current")) return "feature/open\n";
+        if (command.includes("2370-open") && command.includes("branch --merged")) return "  alpha\n";
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    expect(filtered).toEqual([{ name: "2370-open", path: "/repo/agents/2370-open" }]);
+    expect(commands).toEqual([
+      "git -C '/repo/agents/2370-done' branch --show-current",
+      "git -C '/repo/agents/2370-done' branch --merged 'alpha'",
+      "git -C '/repo/agents/2370-open' branch --show-current",
+      "git -C '/repo/agents/2370-open' branch --merged 'alpha'",
     ]);
   });
 });
