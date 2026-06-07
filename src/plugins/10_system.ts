@@ -25,6 +25,7 @@ export class PluginSystem {
   private _currentPluginName?: string;
   private _reloads = 0;
   private _lastReloadAt?: string;
+  private _manifestPlugins = new Set<string>();
 
   constructor(private readonly opts: PluginSystemOptions = {}) {}
 
@@ -104,8 +105,13 @@ export class PluginSystem {
   load(plugin: MawPlugin, scope: PluginScope = "user", name?: string) {
     return this.withPluginContext(name, scope, () => {
       const teardown = plugin(this.hooks);
-      if (typeof teardown === "function") this.teardowns.push({ fn: teardown, scope });
+      if (typeof teardown === "function") this.teardowns.push({ fn: teardown, scope, name });
     });
+  }
+
+  registerManifest(name: string, type: PluginInfo["type"], source: PluginScope = "user") {
+    this._manifestPlugins.add(name);
+    this.register(name, type, source);
   }
 
   register(name: string, type: PluginInfo["type"], source: PluginScope = "user") {
@@ -127,6 +133,28 @@ export class PluginSystem {
     };
     clean(this.gates); clean(this.filters); clean(this.handlers); clean(this.lates);
     this._plugins = this._plugins.filter(p => p.source !== scope);
+  }
+
+  unloadManifestHooks() {
+    const names = this._manifestPlugins;
+    if (names.size === 0) return;
+
+    const keep: Scoped<() => void>[] = [];
+    for (const t of this.teardowns) {
+      if (t.name && names.has(t.name)) { try { t.fn(); } catch {} }
+      else keep.push(t);
+    }
+    this.teardowns = keep;
+
+    const clean = <T>(map: Map<string, Scoped<T>[]>) => {
+      for (const [key, list] of map) {
+        const kept = list.filter((e) => !(e.name && names.has(e.name)));
+        if (kept.length === 0) map.delete(key); else map.set(key, kept);
+      }
+    };
+    clean(this.gates); clean(this.filters); clean(this.handlers); clean(this.lates);
+    this._plugins = this._plugins.filter(p => !names.has(p.name));
+    names.clear();
   }
 
   _markReloaded() { this._reloads++; this._lastReloadAt = new Date().toISOString(); }

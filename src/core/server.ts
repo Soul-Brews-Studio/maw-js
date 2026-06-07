@@ -174,7 +174,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
     const refreshManifestHooks = async () => {
       resetDiscoverCache();
-      plugins.unloadScope("manifest");
+      if (typeof (plugins as { unloadManifestHooks?: () => Promise<unknown> | void }).unloadManifestHooks === "function") {
+        await (plugins as { unloadManifestHooks?: () => Promise<unknown> | void }).unloadManifestHooks?.();
+      }
       await registerManifestHooks(plugins);
     };
 
