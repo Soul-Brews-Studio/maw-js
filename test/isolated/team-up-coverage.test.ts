@@ -388,6 +388,37 @@ members:
   });
 
 
+  test("--members filters by charter role, warns unknown roles, and wakes only selected members", async () => {
+    const root = tempRepo();
+    const { tmux } = fakeTmux([]);
+    const wakes: any[] = [];
+
+    const status = await cmdTeamUp("alpha", { status: true, members: ["coder-1", "mawjs-oracle", "missing-role"] }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      logger: () => {},
+    });
+    expect(status.roster.map((m) => [m.role, m.state, m.skipReason])).toEqual([
+      ["coder-1", "missing", undefined],
+      ["coder-10", "skipped", "outside --members"],
+      ["oracle", "skipped", "outside --members"],
+    ]);
+    expect(status.warnings).toContain("--members role not found in charter: mawjs-oracle");
+    expect(status.warnings).toContain("--members role not found in charter: missing-role");
+
+    await cmdTeamUp("alpha", { members: ["coder-1"] }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      sleep: async () => {},
+      logger: () => {},
+    });
+    expect(wakes.map((w) => w[1].wt)).toEqual(["coder-1"]);
+  });
+
+
   test("--only skips members outside the selected role/name/worktree set", async () => {
     const root = tempRepo();
     const { tmux } = fakeTmux([]);
@@ -620,6 +651,7 @@ describe("vendored team plugin routes `up` (#1976 integration)", () => {
     const { res } = await dispatch(["up"]);
     expect(res.error).not.toContain("unknown subcommand");
     expect(res.error).toBe("team required");
+    expect(res.output).toContain("--members <roles>");
   });
 
   test("`team down` is a known subcommand", async () => {

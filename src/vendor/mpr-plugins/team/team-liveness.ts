@@ -41,6 +41,7 @@ export interface ClassifyMemberOptions {
   engine?: string;
   currentNode?: string;
   only?: Set<string>;
+  members?: Set<string>;
   repoSlug?: string;
 }
 
@@ -169,6 +170,9 @@ export function classifyMember(
   }
   if (opts.only && ![member.role, windowIdentity, worktree].some((value) => opts.only!.has(value))) {
     return { member, role, engine, worktree, windowIdentity, state: "skipped", skipReason: "outside --only" };
+  }
+  if (opts.members && !opts.members.has(member.role)) {
+    return { member, role, engine, worktree, windowIdentity, state: "skipped", skipReason: "outside --members" };
   }
 
   const candidates = memberWindowCandidates(member, opts.repoSlug);

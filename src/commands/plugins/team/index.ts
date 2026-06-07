@@ -147,7 +147,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       await cmdTeamPrune();
     } else if (sub === "up") {
       if (!args[1]) {
-        logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
+        logs.push("usage: maw team up <team> [--members <roles>] [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
         return { ok: false, error: "team required", output: logs.join("\n") };
       }
       const { cmdTeamUp } = await import("../../../vendor/mpr-plugins/team/team-up");
@@ -158,6 +158,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--gather": Boolean,
         "--engine": String,
         "-e": "--engine",
+        "--members": String,
       }, 2);
       await cmdTeamUp(args[1], {
         dryRun: Boolean(flags["--dry-run"]),
@@ -165,6 +166,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: Boolean(flags["--force"]),
         gather: Boolean(flags["--gather"]),
         engine: flags["--engine"] as string | undefined,
+        members: String(flags["--members"] || "").split(",").map((s) => s.trim()).filter(Boolean),
       });
     } else if (sub === "list" || sub === "ls" || !sub) {
       if (args.includes("--all")) await cmdTeamList({ all: true });

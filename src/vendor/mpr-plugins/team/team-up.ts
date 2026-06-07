@@ -32,6 +32,7 @@ export interface TeamUpOptions {
   gather?: boolean;
   engine?: string;
   only?: string[];
+  members?: string[];
   session?: string;
 }
 
@@ -194,8 +195,17 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   const panes = await listPaneSnapshots(tmux);
-  const only = opts.only?.length ? new Set(opts.only.map((item) => item.trim()).filter(Boolean)) : undefined;
-  const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
+  const onlyItems = opts.only?.map((item) => item.trim()).filter(Boolean) ?? [];
+  const only = onlyItems.length ? new Set(onlyItems) : undefined;
+  const requestedMemberItems = opts.members?.map((item) => item.trim()).filter(Boolean) ?? [];
+  const requestedMembers = requestedMemberItems.length ? new Set(requestedMemberItems) : undefined;
+  if (requestedMembers) {
+    const charterRoles = new Set(charter.members.map((member) => member.role));
+    for (const role of requestedMembers) {
+      if (!charterRoles.has(role)) warnings.push(`--members role not found in charter: ${role}`);
+    }
+  }
+  const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, members: requestedMembers, repoSlug: targetRepoSlug }));
   const actions: TeamUpAction[] = [];
 
   if (opts.status) {
@@ -270,7 +280,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);
-  const finalRoster = charter.members.map((member) => classifyMember(member, finalPanes, session, { engine: opts.engine, currentNode: config.node, only, repoSlug: targetRepoSlug }));
+  const finalRoster = charter.members.map((member) => classifyMember(member, finalPanes, session, { engine: opts.engine, currentNode: config.node, only, members: requestedMembers, repoSlug: targetRepoSlug }));
   warnOnPathCollisions(finalRoster, warnings);
 
   if (opts.gather) {
