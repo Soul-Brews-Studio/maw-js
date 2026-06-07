@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { FeedEvent } from "../src/lib/feed";
-import type { HubConnection } from "../src/transports/hub-connection";
-import type { WorkspaceConfig } from "../src/transports/hub-config";
-import { HubTransport } from "../src/transports/hub-transport";
+import type { HubConnection } from "../src/vendor/mpr-plugins/hub/hub-connection";
+import type { WorkspaceConfig } from "../src/vendor/mpr-plugins/hub/hub-config";
+import { HubTransport } from "../src/vendor/mpr-plugins/hub/hub-transport";
 
 function workspace(id = "ws-a"): WorkspaceConfig {
   return {

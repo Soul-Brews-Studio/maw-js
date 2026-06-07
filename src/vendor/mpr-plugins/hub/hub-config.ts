@@ -2,7 +2,7 @@
 
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { mawConfigPath, mawDataPath } from "../core/xdg";
+import { mawConfigPath, mawDataPath } from "../../../core/xdg";
 
 export function workspaceDir(): string {
   return mawDataPath("workspaces");

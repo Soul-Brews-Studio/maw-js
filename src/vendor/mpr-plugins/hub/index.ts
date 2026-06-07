@@ -27,5 +27,28 @@
  */
 
 export type { WorkspaceConfig } from "./hub-config";
-export { loadWorkspaceConfigs } from "./hub-config";
-export { HubTransport } from "./hub-transport";
+import { loadWorkspaceConfigs } from "./hub-config";
+import { HubTransport } from "./hub-transport";
+export { loadWorkspaceConfigs, HubTransport };
+
+import type { MawConfig } from "../../../config/types";
+import type { Transport, TransportRouter } from "../../../core/transport/transport";
+
+type TransportHookContext = {
+  config?: MawConfig;
+  register?: (transport: Transport) => void;
+  router?: Pick<TransportRouter, "register">;
+};
+
+export function createHubTransport(config?: Pick<MawConfig, "node">): Transport | null {
+  if (loadWorkspaceConfigs().length === 0) return null;
+  return new HubTransport(config?.node);
+}
+
+export async function transport(ctx: TransportHookContext = {}): Promise<{ ok: true; registered: string[] }> {
+  const hub = createHubTransport(ctx.config);
+  if (!hub) return { ok: true, registered: [] };
+  if (ctx.register) ctx.register(hub);
+  else ctx.router?.register(hub);
+  return { ok: true, registered: [hub.name] };
+}

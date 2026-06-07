@@ -3,11 +3,11 @@
  * Imported by hub-transport.ts; separated to keep per-file LOC under 200.
  */
 
-import type { TransportMessage, TransportPresence } from "../core/transport/transport";
-import type { FeedEvent } from "../lib/feed";
-import { sign } from "../lib/federation-auth";
-import { trySilent } from "../core/util/try-silent";
-import { sanitizeLogField } from "../core/util/sanitize-log";
+import type { TransportMessage, TransportPresence } from "../../../core/transport/transport";
+import type { FeedEvent } from "../../../lib/feed";
+import { sign } from "../../../lib/federation-auth";
+import { trySilent } from "../../../core/util/try-silent";
+import { sanitizeLogField } from "../../../core/util/sanitize-log";
 import { HEARTBEAT_MS, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "./hub-config";
 import type { WorkspaceConfig } from "./hub-config";
 import {

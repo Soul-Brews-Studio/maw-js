@@ -7,7 +7,7 @@ const tmpRoot = mkdtempSync(join(tmpdir(), "maw-hub-config-test-"));
 process.env.MAW_CONFIG_DIR = join(tmpRoot, "config");
 process.env.MAW_DATA_DIR = join(tmpRoot, "data");
 
-const { WORKSPACES_DIR, loadWorkspaceConfigs, validateWorkspaceConfig } = await import("../../src/transports/hub-config");
+const { WORKSPACES_DIR, loadWorkspaceConfigs, validateWorkspaceConfig } = await import("../../src/vendor/mpr-plugins/hub/hub-config");
 
 describe("hub workspace config validation (#1521)", () => {
   test("returns actionable reasons for invalid fields", () => {

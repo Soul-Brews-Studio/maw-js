@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Elysia } from "elysia";
-import type { HubConnection } from "../../src/transports/hub-connection";
+import type { HubConnection } from "../../src/vendor/mpr-plugins/hub/hub-connection";
 
 const root = join(import.meta.dir, "../..");
 const realFsPromises = await import("node:fs/promises");
@@ -177,7 +177,7 @@ describe("coverage 100b runtime hooks", () => {
 describe("coverage 100b hub config and connection", () => {
   test("workspace loader creates a missing directory, accepts valid files, and warns on parse errors", async () => {
     rmSync(mockConfigDir, { recursive: true, force: true });
-    const first = await import(`../../src/transports/hub-config.ts?coverage-100b-missing=${Date.now()}-${Math.random()}`);
+    const first = await import(`../../src/vendor/mpr-plugins/hub/hub-config.ts?coverage-100b-missing=${Date.now()}-${Math.random()}`);
     try {
       expect(first.loadWorkspaceConfigs()).toEqual([]);
 
@@ -203,7 +203,7 @@ describe("coverage 100b hub config and connection", () => {
   });
 
   test("hub connection default branch and error message fallback are no-ops/sanitized", async () => {
-    const { handleMessage } = await import("../../src/transports/hub-connection.ts");
+    const { handleMessage } = await import("../../src/vendor/mpr-plugins/hub/hub-connection.ts");
     const conn = makeConn("default-branch");
     const errors: string[] = [];
     console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));

@@ -33,9 +33,7 @@ const defaultConfig = {
 };
 
 let configValue: any = { ...defaultConfig };
-let workspaceConfigsValue: any[] = [];
 let loadConfigCalls = 0;
-let loadWorkspaceConfigsCalls = 0;
 let zenohScoutFactoryCalls: any[] = [];
 let zenohConnectReject: unknown = null;
 let connectRejectByName = new Map<string, unknown>();
@@ -102,15 +100,6 @@ mock.module(join(import.meta.dir, "../src/transports/tmux"), () => ({ // mock-bo
   },
 }));
 
-mock.module(join(import.meta.dir, "../src/transports/hub"), () => ({ // mock-boundary-ok: requested default-suite coverage for workspace-config hub wiring
-  loadWorkspaceConfigs: () => {
-    loadWorkspaceConfigsCalls += 1;
-    return workspaceConfigsValue;
-  },
-  HubTransport: class {
-    constructor(node: string) { return makeTransport("hub", node); }
-  },
-}));
 
 mock.module(join(import.meta.dir, "../src/transports/http"), () => ({ // mock-boundary-ok: requested default-suite coverage for transport class wiring
   HttpTransport: class {
@@ -172,9 +161,7 @@ const {
 beforeEach(() => {
   resetTransportRouter();
   configValue = { ...defaultConfig, discovery: { transport: "off" }, disabledPlugins: [], agents: {}, peers: [] };
-  workspaceConfigsValue = [];
   loadConfigCalls = 0;
-  loadWorkspaceConfigsCalls = 0;
   zenohScoutFactoryCalls = [];
   zenohConnectReject = null;
   connectRejectByName = new Map();
@@ -197,15 +184,13 @@ describe("transport registry default coverage", () => {
     expect(sameFromCreate).toBe(router);
     expect(sameFromGet).toBe(router);
     expect(loadConfigCalls).toBe(1);
-    expect(loadWorkspaceConfigsCalls).toBe(1);
     expect(routerConstructorArgs).toEqual([[[]]]);
     expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw"]);
     expect(transportInstances.find((transport) => transport.name === "tmux")?.connect).toHaveBeenCalledTimes(1);
     expect(transportInstances.filter((transport) => transport.name !== "tmux").every((transport) => transport.connect.mock.calls.length === 0)).toBe(true);
   });
 
-  test("registers workspace, discovery, and peer transports with expected options", async () => {
-    workspaceConfigsValue = [{ path: "/tmp/workspace-a" }];
+  test("registers discovery and peer transports with expected options", async () => {
     configValue = {
       ...defaultConfig,
       node: "m5",
@@ -227,13 +212,11 @@ describe("transport registry default coverage", () => {
     expect(routerConstructorArgs).toEqual([[["nanoclaw"]]]);
     expect(router.registered.map((transport) => transport.name)).toEqual([
       "tmux",
-      "hub",
       "scout",
       "zenoh-scout",
       "http",
       "nanoclaw",
     ]);
-    expect(transportInstances.find((transport) => transport.name === "hub")?.options).toBe("m5");
     expect(transportInstances.find((transport) => transport.name === "scout")?.options).toEqual({
       node: "m5",
       oracle: "mawjs-oracle",

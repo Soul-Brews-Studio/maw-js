@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { FeedEvent } from "../src/lib/feed";
 import type { TransportMessage, TransportPresence } from "../src/core/transport/transport";
-import type { HubConnection } from "../src/transports/hub-connection";
+import type { HubConnection } from "../src/vendor/mpr-plugins/hub/hub-connection";
 import {
   cleanupConnection,
   handleMessage,
@@ -10,12 +10,12 @@ import {
   sendAuth,
   startHeartbeat,
   stopHeartbeat,
-} from "../src/transports/hub-connection";
+} from "../src/vendor/mpr-plugins/hub/hub-connection";
 import {
   forgetRemoteAgentsForNode,
   pruneStaleRemoteAgents,
   rememberRemoteAgent,
-} from "../src/transports/hub-agent-registry";
+} from "../src/vendor/mpr-plugins/hub/hub-agent-registry";
 
 function makeConn(id = "ws-test"): HubConnection {
   return {

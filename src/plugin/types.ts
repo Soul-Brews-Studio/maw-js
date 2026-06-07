@@ -106,6 +106,7 @@ export interface PluginManifest {
     wake?: PluginLifecycleHook;  // lifecycle: oracle/session wake (#1576)
     sleep?: PluginLifecycleHook; // lifecycle: oracle/session sleep (#1576)
     serve?: PluginLifecycleHook; // lifecycle: plugin persistent serve (#1576)
+    transport?: PluginLifecycleHook; // lifecycle: transport registration (#2496/#2498)
   };
   cron?: {
     schedule: string;   // cron expression

@@ -178,22 +178,6 @@ describe("transport registry and workspace barrel coverage", () => {
       canReach() { return true; }
     },
   }));
-  mock.module(import.meta.resolve("../../src/transports/hub"), () => ({
-    loadWorkspaceConfigs: () => workspaceConfigs,
-    HubTransport: class {
-      name = "hub"; connected = true;
-      constructor(node: string) { constructed.push(["hub", node]); }
-      async connect() {}
-      async disconnect() {}
-      async send() { return true; }
-      async publishPresence() {}
-      async publishFeed() {}
-      onMessage() {}
-      onPresence() {}
-      onFeed() {}
-      canReach() { return true; }
-    },
-  }));
   mock.module(import.meta.resolve("../../src/transports/nanoclaw"), () => ({
     NanoclawTransport: class { name = "nanoclaw"; connected = false; async connect() {} async disconnect() {} async send() { return false; } async publishPresence() {} async publishFeed() {} onMessage() {} onPresence() {} onFeed() {} canReach() { return false; } },
   }));
@@ -266,8 +250,7 @@ describe("transport registry and workspace barrel coverage", () => {
     const mod = await import("../../src/transports/index.ts");
     const router = mod.createTransportRouter();
     expect(mod.getTransportRouter()).toBe(router);
-    expect(router.status().map((s: any) => s.name)).toEqual(["tmux", "hub", "scout", "zenoh-scout", "http", "nanoclaw"]);
-    expect(constructed).toContainEqual(["hub", "node-a"]);
+    expect(router.status().map((s: any) => s.name)).toEqual(["tmux", "scout", "zenoh-scout", "http", "nanoclaw"]);
     expect(constructed.find((row) => row[0] === "scout")?.[1]).toMatchObject({ node: "node-a", oracle: "mawjs", port: 4567, oracles: ["neo-oracle"], autoPair: true });
     expect(router.status().map((s: any) => s.name)).toContain("zenoh-scout");
     mod.resetTransportRouter();

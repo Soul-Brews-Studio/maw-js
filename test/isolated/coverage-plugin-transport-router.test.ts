@@ -4,7 +4,6 @@ import { join } from "path";
 const srcRoot = join(import.meta.dir, "../..");
 const calls: string[] = [];
 let config: any = {};
-let workspaces: any[] = [];
 
 class FakeRouter {
   registered: Array<{ name: string }> = [];
@@ -40,10 +39,6 @@ function fakeTransport(name: string) {
 mock.module(join(srcRoot, "src/config"), () => ({ loadConfig: () => config }));
 mock.module(join(srcRoot, "src/core/transport/transport"), () => ({ TransportRouter: FakeRouter }));
 mock.module(join(srcRoot, "src/transports/tmux"), () => ({ TmuxTransport: fakeTransport("tmux") }));
-mock.module(join(srcRoot, "src/transports/hub"), () => ({
-  loadWorkspaceConfigs: () => workspaces,
-  HubTransport: fakeTransport("hub"),
-}));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
@@ -59,7 +54,6 @@ afterEach(() => {
   transports.resetTransportRouter();
   calls.length = 0;
   config = {};
-  workspaces = [];
 });
 
 describe("transport router coverage", () => {
@@ -93,21 +87,17 @@ describe("transport router coverage", () => {
       discovery: { transport: "both" },
       zenoh: { locator: "ws/127.0.0.1:7447", scout: { locator: "memory" } },
     };
-    workspaces = [{ id: "workspace" }];
-
     const optional = transports.createTransportRouter() as unknown as FakeRouter;
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(optional.registered.map((t) => t.name)).toEqual([
       "tmux",
-      "hub",
       "scout",
       "zenoh-scout",
       "http",
       "nanoclaw",
       "zenoh",
     ]);
-    expect(calls).toContain("construct:hub:1");
     expect(calls).toContain("construct:http:1");
   });
 });

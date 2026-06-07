@@ -39,10 +39,6 @@ mock.module(join(srcRoot, "src/config"), () => ({
 
 mock.module(join(srcRoot, "src/core/transport/transport"), () => ({ TransportRouter: FakeRouter }));
 mock.module(join(srcRoot, "src/transports/tmux"), () => ({ TmuxTransport: fakeTransport("tmux") }));
-mock.module(join(srcRoot, "src/transports/hub"), () => ({
-  loadWorkspaceConfigs: () => [],
-  HubTransport: fakeTransport("hub"),
-}));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));

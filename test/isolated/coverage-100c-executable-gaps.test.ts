@@ -72,7 +72,7 @@ describe("coverage 100c executable gap tests", () => {
     process.env.MAW_CONFIG_DIR = configDir;
     delete process.env.MAW_HOME;
 
-    const hub = await import("../../src/transports/hub-config");
+    const hub = await import("../../src/vendor/mpr-plugins/hub/hub-config");
 
     expect(hub.loadWorkspaceConfigs()).toEqual([]);
     expect(realFs.existsSync(hub.WORKSPACES_DIR)).toBe(true);

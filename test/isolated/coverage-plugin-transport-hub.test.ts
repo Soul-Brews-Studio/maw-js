@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { HubTransport } from "../../src/transports/hub-transport";
-import type { HubConnection } from "../../src/transports/hub-connection";
+import { HubTransport } from "../../src/vendor/mpr-plugins/hub/hub-transport";
+import type { HubConnection } from "../../src/vendor/mpr-plugins/hub/hub-connection";
 import {
   cleanupConnection,
   handleMessage,
@@ -9,7 +9,7 @@ import {
   sendAuth,
   startHeartbeat,
   stopHeartbeat,
-} from "../../src/transports/hub-connection";
+} from "../../src/vendor/mpr-plugins/hub/hub-connection";
 
 const originalLog = console.log;
 const originalWarn = console.warn;

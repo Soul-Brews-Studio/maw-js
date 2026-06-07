@@ -3,10 +3,10 @@
  * See hub.ts for full protocol documentation.
  */
 
-import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
-import type { FeedEvent } from "../lib/feed";
-import { loadConfig } from "../config";
-import { trySilent } from "../core/util/try-silent";
+import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../../../core/transport/transport";
+import type { FeedEvent } from "../../../lib/feed";
+import { loadConfig } from "../../../config";
+import { trySilent } from "../../../core/util/try-silent";
 import type { HubConnection } from "./hub-connection";
 import { cleanupConnection, openWebSocket } from "./hub-connection";
 import { REMOTE_AGENT_STALE_MS, pruneStaleRemoteAgents } from "./hub-agent-registry";

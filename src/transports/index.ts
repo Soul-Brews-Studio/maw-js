@@ -6,7 +6,6 @@ import { loadConfig } from "../config";
 import { TransportRouter } from "../core/transport/transport";
 import { TmuxTransport } from "./tmux";
 import { HttpTransport } from "./http";
-import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { NanoclawTransport } from "./nanoclaw";
 import { ScoutTransport } from "./scout";
 import type { Transport } from "../core/transport/transport";
@@ -52,12 +51,6 @@ export function createTransportRouter(): TransportRouter {
   const tmux = new TmuxTransport();
   tmux.connect().catch(() => {}); // tmux is always available locally
   router.register(tmux);
-
-  // 2. Hub transport — workspace WebSocket connections (priority 30)
-  const workspaceConfigs = loadWorkspaceConfigs();
-  if (workspaceConfigs.length > 0) {
-    router.register(new HubTransport(config.node));
-  }
 
   const discovery = discoveryTransport(config);
 
@@ -213,7 +206,6 @@ export function resetTransportRouter() {
 }
 
 export { TmuxTransport } from "./tmux";
-export { HubTransport } from "./hub";
 export { HttpTransport } from "./http";
 export { NanoclawTransport } from "./nanoclaw";
 export { ScoutTransport } from "./scout";

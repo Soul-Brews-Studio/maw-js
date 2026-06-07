@@ -1,7 +1,7 @@
 /**
  * sanitize-log — neutralize attacker-influenced fields before they reach
  * console.log / console.error. Closes the four js/log-injection alerts in
- * src/transports/hub-connection.ts (#474).
+ * src/vendor/mpr-plugins/hub/hub-connection.ts (#474).
  *
  * Tests live in plain test/ (not test/isolated/) — the function is pure
  * (string in, string out, no side effects), so no mock.module is needed.
