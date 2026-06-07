@@ -359,6 +359,14 @@ describe("resolveOracle fallback branches", () => {
 });
 
 describe("detectSession and setSessionEnv uncovered function paths", () => {
+  test("detectSession joins hyphen-equivalent existing sessions instead of creating duplicates", async () => {
+    sessions = [{ name: "139-mawjs" }];
+    await expect(detectSession("maw-js")).resolves.toBe("139-mawjs");
+
+    sessions = [{ name: "139-mawjs" }];
+    await expect(detectSession("maw-js", "maw-js-oracle")).resolves.toBe("139-mawjs");
+  });
+
   test("detectSession covers URL-numbered, numeric, prefix, and generic ambiguities", async () => {
     sessions = [{ name: "77-wireboy-oracle" }];
     await expect(detectSession("wireboy", "wireboy-oracle")).resolves.toBe("77-wireboy-oracle");

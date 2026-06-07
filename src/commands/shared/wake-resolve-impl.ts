@@ -84,6 +84,40 @@ function stripNumericFleetPrefix(name: string): string {
   return name.replace(/^\d+-/, "");
 }
 
+function hyphenInsensitiveSessionKey(name: string): string {
+  return stripOracleSuffix(stripNumericFleetPrefix(name.trim().toLowerCase())).replace(/-/g, "");
+}
+
+function findHyphenInsensitiveSessions<T extends { name: string }>(
+  sessions: readonly T[],
+  targets: readonly string[],
+): T[] {
+  const targetKeys = new Set(
+    targets
+      .map(hyphenInsensitiveSessionKey)
+      .filter(Boolean),
+  );
+  if (targetKeys.size === 0) return [];
+
+  return sessions.filter(session => targetKeys.has(hyphenInsensitiveSessionKey(session.name)));
+}
+
+function resolveHyphenInsensitiveSession<T extends { name: string }>(
+  label: string,
+  sessions: readonly T[],
+  targets: readonly string[],
+): T | null {
+  const matches = findHyphenInsensitiveSessions(sessions, targets);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    console.error(`\x1b[31merror\x1b[0m: '${label}' is ambiguous — matches ${matches.length} hyphen-equivalent sessions:`);
+    for (const s of matches) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+  return null;
+}
+
 function localOracleIntentNames(oracle: string): string[] {
   const raw = oracle.trim().toLowerCase();
   const withoutNumeric = stripNumericFleetPrefix(raw);
@@ -466,6 +500,13 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
       resolveFleetSession(oracle);
     if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
 
+    // #2461 — session stems may be registered/generated with or without
+    // human-readable hyphens. A URL/repo target like `maw-js-oracle` should
+    // still join the live numbered session `139-mawjs` instead of creating a
+    // duplicate `NN-maw-js`.
+    const hyphenInsensitive = resolveHyphenInsensitiveSession(urlRepoName, scopedSessions, [urlRepoName, oracle]);
+    if (hyphenInsensitive) return hyphenInsensitive.name;
+
     const numbered = scopedSessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
     if (numbered.length === 1) return numbered[0]!.name;
     if (numbered.length > 1) {
@@ -497,6 +538,11 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
     process.exit(1);
   }
+
+  // #2461 — allow `maw wake maw-js` to find `139-mawjs` (and vice versa)
+  // while preserving ambiguity reporting if both spellings are live.
+  const hyphenInsensitive = resolveHyphenInsensitiveSession(oracle, scopedSessions, [oracle]);
+  if (hyphenInsensitive) return hyphenInsensitive.name;
 
   const numeric = numericSessions.filter(s => s.name.endsWith(`-${oracle}`));
   if (numeric.length === 1) return numeric[0]!.name;
