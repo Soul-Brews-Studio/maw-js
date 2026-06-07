@@ -99,4 +99,23 @@ describe("AgentStatusStore", () => {
     store.handleFeedEvent(makeFeedEvent({ event: "SessionEnd" }));
     expect(store.get("neo")!.status).toBe("idle");
   });
+
+  test("prune() evicts busy/ready entries after active max age", () => {
+    const now = Date.now();
+    store.report("old-busy", "busy");
+    store.report("old-ready", "ready");
+    store.report("fresh-busy", "busy");
+    store.report("old-idle", "idle");
+
+    store.get("old-busy")!.updatedAt = now - (49 * 60 * 60_000);
+    store.get("old-ready")!.updatedAt = now - (49 * 60 * 60_000);
+    store.get("fresh-busy")!.updatedAt = now - (47 * 60 * 60_000);
+    store.get("old-idle")!.updatedAt = now - (25 * 60 * 60_000);
+
+    expect(store.prune()).toBe(3);
+    expect(store.get("old-busy")).toBeUndefined();
+    expect(store.get("old-ready")).toBeUndefined();
+    expect(store.get("old-idle")).toBeUndefined();
+    expect(store.get("fresh-busy")!.status).toBe("busy");
+  });
 });
