@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/pulse");
@@ -41,8 +43,8 @@ const sdkMock = {
   },
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 function walkSources(dir: string): string[] {
   const out: string[] = [];

@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 let config: Record<string, any> = {};
 let savedConfigs: Record<string, any>[] = [];
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   loadConfig: () => config,
   saveConfig: (next: Record<string, any>) => {
     savedConfigs.push(next);
@@ -81,6 +84,7 @@ describe("on plugin standalone boundary (#2113)", () => {
     savedConfigs = [];
     config = { triggers: [] };
     mock.module("maw-js/sdk", () => ({
+  ...realSdk,
       loadConfig: () => config,
       saveConfig: () => {
         throw new Error("disk full");

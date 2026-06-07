@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 type ConsentAction = "hey" | "team-invite" | "plugin-install";
 type Pending = { id: string; from: string; to: string; action: ConsentAction; summary: string; status: string };
@@ -32,8 +34,8 @@ const sdkMock = {
   loadConfig: () => config,
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 const { default: consentHandler, command } = await import("../../src/vendor/mpr-plugins/consent/index.ts");
 

@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const talkToDir = join(root, "src/vendor/mpr-plugins/talk-to");
@@ -36,8 +38,8 @@ const sdkMock = {
   mawMessageLogPath: () => "/tmp/maw-talk-to-log/maw-log.jsonl",
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 mock.module("fs/promises", () => ({
   mkdir: async (path: string, opts?: unknown) => { mkdirCalls.push({ path, opts }); },
   appendFile: async (path: string, data: string) => { appendFileCalls.push({ path, data }); },

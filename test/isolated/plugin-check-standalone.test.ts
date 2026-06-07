@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 type SpawnResult = { stdout?: string; stderr?: string; status?: number; error?: Error };
 
@@ -23,6 +25,7 @@ mock.module("child_process", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   tlink: (url: string) => `<${url}>`,
 }));
 

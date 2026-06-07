@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 let repoPath = "";
@@ -13,6 +15,7 @@ let manifest: any[] = [];
 let federationHits: any[] = [];
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   ghqFind: async (pattern: string) => {
     if (pattern.includes("mawjs-oracle") || pattern.includes("mawjs")) return repoPath;
     return null;

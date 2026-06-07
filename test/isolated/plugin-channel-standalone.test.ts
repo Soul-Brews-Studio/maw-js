@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 type ChannelConfig = { plugins: Array<{ id: string; env?: Record<string, string> }>; token_source?: string; permissionMode?: string };
@@ -27,9 +29,9 @@ const sdkMock = {
   ghqFind: async (suffix: string) => ghqHits[suffix] ?? null,
 };
 
-mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
-mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => ({ ...realSdk, ...sdkMock }));
 
 const { default: channelHandler } = await import("../../src/commands/plugins/channel/index.ts?plugin-channel-standalone");
 

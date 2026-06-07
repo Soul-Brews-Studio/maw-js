@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 const resetConfig = () => {};
 
 const ROOT = new URL("../..", import.meta.url).pathname;
@@ -24,11 +26,11 @@ const sdkMock = {
     return out;
   },
 };
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 
 function walkSources(dir: string): string[] {

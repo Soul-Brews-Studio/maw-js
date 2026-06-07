@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const pluginDir = join(root, "src/vendor/mpr-plugins/send-text");
@@ -24,10 +26,10 @@ const sdkMock = {
     return { ok: true, data: { ok: true, target: "peer:pane" } };
   },
 };
-mock.module("maw-js/sdk", () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
 
-const { command, default: handler } = await import("../../src/vendor/mpr-plugins/send-text/index.ts");
-const { parseSendTextArgs } = await import("../../src/vendor/mpr-plugins/send-text/impl.ts");
+const { command, default: handler } = await import("../../src/vendor/mpr-plugins/send-text/index.ts?plugin-send-text-standalone");
+const { parseSendTextArgs } = await import("../../src/vendor/mpr-plugins/send-text/impl.ts?plugin-send-text-standalone");
 
 function importsOf(dir: string): string[] {
   const out: string[] = [];

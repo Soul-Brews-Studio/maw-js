@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -13,6 +15,7 @@ function record(name: string, ...args: unknown[]) {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   parseFlags: (args: string[], spec: Record<string, unknown>) => {
     const out: Record<string, any> = { _: [] };
     for (let i = 0; i < args.length; i += 1) {

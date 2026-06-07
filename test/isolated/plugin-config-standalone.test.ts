@@ -7,10 +7,11 @@
  * the symbol is exported in `packages/sdk`.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { beforeEach } from "bun:test";
 import type { InvokeContext, InvokeResult } from "../../src/plugin/types";
 import { mockConfigModule } from "../helpers/mock-config";
+afterAll(() => { mock.restore(); });
 
 const loadedConfig = {
   config: {

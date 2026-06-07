@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const peekCalls: Array<string | undefined> = [];
 let shouldThrow: Error | null = null;
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   cmdPeek: async (query?: string) => {
     peekCalls.push(query);
     if (shouldThrow) throw shouldThrow;

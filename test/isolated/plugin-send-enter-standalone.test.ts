@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const pluginDir = join(root, "src/vendor/mpr-plugins/send-enter");
@@ -16,7 +18,7 @@ const sdkMock = {
   Tmux: class {},
   curlFetch: async () => ({ ok: true, data: { ok: true } }),
 };
-mock.module("maw-js/sdk", () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
 
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/send-enter/index.ts");
 const { parseSendEnterArgs } = await import("../../src/vendor/mpr-plugins/send-enter/impl.ts");

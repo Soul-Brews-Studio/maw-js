@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const pluginDir = join(root, "src/vendor/mpr-plugins/inbox");
@@ -49,7 +51,7 @@ const sdkMock = {
   },
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
 
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/inbox/index.ts");
 const {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -6,6 +6,8 @@ import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/absorb");
@@ -29,6 +31,7 @@ let ghqRoot: string;
 let syncResult: { total: number; synced: Record<string, number> };
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
   },
@@ -39,6 +42,33 @@ mock.module("maw-js/sdk", () => ({
 mock.module(archiveImplPath, () => ({
   cmdArchive: async (name: string, opts: Record<string, unknown>) => {
     archiveCalls.push({ name, opts });
+    if (!(globalThis as any).__archiveStandaloneActive) return;
+
+    const { existsSync, renameSync } = await import("node:fs");
+    const { basename, join } = await import("node:path");
+    const sdk = await import("maw-js/sdk");
+    const entries = sdk.loadFleetEntries();
+    const entry = entries.find((row: FleetEntry) =>
+      row.groupName === name
+      || row.session?.name === name
+      || row.session?.windows?.some((window) => window.name === name || window.name === `${name}-oracle`),
+    );
+    if (!entry) throw new Error(`oracle '${name}' not found in fleet config`);
+
+    const repo = entry.session.windows.find((window: { repo?: string }) => window.repo)?.repo;
+    console.log(`Archiving ${name}`);
+    const dryRun = Boolean(opts?.dryRun);
+    for (const peer of entry.session.sync_peers ?? []) {
+      console.log(`[dry-run] would soul-sync to ${peer}`);
+    }
+    const disabled = `${entry.path}.disabled`;
+    console.log(`${dryRun ? "[dry-run] would disable" : "fleet config disabled"}: ${basename(entry.path)}${dryRun ? ` → ${basename(disabled)}` : ".disabled"}`);
+    if (repo) {
+      const command = `gh repo archive ${repo}${dryRun ? "" : " --yes"}`;
+      console.log(`${dryRun ? "[dry-run] would archive" : "GitHub repo archived"}: ${dryRun ? command : repo}`);
+      if (!dryRun) await sdk.hostExec(command);
+    }
+    if (!dryRun && existsSync(entry.path)) renameSync(entry.path, disabled);
   },
   fleetConfigFilePath: (entry: FleetEntry) => entry.path,
 }));

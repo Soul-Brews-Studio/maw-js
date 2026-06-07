@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -24,6 +26,7 @@ const tmux = {
 };
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   listSessions: async () => sessions,
   hostExec: async () => "",
   tmux,

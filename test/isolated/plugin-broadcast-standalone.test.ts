@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -11,6 +13,7 @@ let fleetEntries: Array<{ groupName: string; file: string; session: { name: stri
 let sendCalls: Array<{ target: string; text: string }>;
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   loadConfig: () => ({ namedPeers: [], peers: [] }),
   cfgTimeout: () => 1000,
   curlFetch: async () => ({ ok: true, data: { enabled: false } }),

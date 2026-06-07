@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const pluginRoot = join(root, "src/vendor/mpr-plugins/bg");

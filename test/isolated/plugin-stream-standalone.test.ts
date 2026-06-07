@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const writes: string[] = [];
@@ -61,6 +63,7 @@ class MockTmux {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   Tmux: MockTmux,
   parseFlags: (args: string[], spec: Record<string, unknown>) => {
     const out: Record<string, unknown> & { _: string[] } = { _: [] };

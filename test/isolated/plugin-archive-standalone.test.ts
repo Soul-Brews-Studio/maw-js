@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 let tempDir = "";
@@ -30,11 +32,12 @@ const sdkMock = {
   ghqFind: async () => ghqFindResult,
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
-const { default: archiveHandler, command } = await import("../../src/vendor/mpr-plugins/archive/index.ts");
-const { resolveOraclePath, resolveProjectSlug } = await import("../../src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts");
+const { default: archiveHandler, command } = await import("../../src/vendor/mpr-plugins/archive/index.ts?plugin-archive-standalone");
+const { cmdArchive } = await import("../../src/vendor/mpr-plugins/archive/impl.ts?plugin-archive-standalone");
+const { resolveOraclePath, resolveProjectSlug } = await import("../../src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts?plugin-archive-standalone");
 
 function walkSources(dir: string): string[] {
   const out: string[] = [];
@@ -47,6 +50,7 @@ function walkSources(dir: string): string[] {
 }
 
 beforeEach(() => {
+  (globalThis as any).__archiveStandaloneActive = true;
   tempDir = mkdtempSync(join(tmpdir(), "maw-archive-standalone-"));
   fleetDir = join(tempDir, "fleet");
   ghqRoot = join(tempDir, "ghq");
@@ -71,6 +75,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete (globalThis as any).__archiveStandaloneActive;
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -86,28 +91,41 @@ describe("archive plugin standalone boundary", () => {
   });
 
   test("dry-run archives by reading fleet entries through SDK without side effects", async () => {
-    const result = await archiveHandler({ source: "cli", args: ["neo", "--dry-run"] } as any);
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    try {
+      await cmdArchive("neo", { dryRun: true });
+    } finally {
+      console.log = origLog;
+    }
 
-    expect(result.ok).toBe(true);
-    expect(result.output).toContain("Archiving");
-    expect(result.output).toContain("[dry-run] would soul-sync to m5");
-    expect(result.output).toContain("[dry-run] would disable: 01-neo.json → 01-neo.json.disabled");
-    expect(result.output).toContain("[dry-run] would archive: gh repo archive Soul-Brews-Studio/neo-oracle");
+    const output = logs.join("\n");
+    expect(output).toContain("Archiving");
+    expect(output).toContain("[dry-run] would soul-sync to m5");
+    expect(output).toContain("[dry-run] would disable: 01-neo.json → 01-neo.json.disabled");
+    expect(output).toContain("[dry-run] would archive: gh repo archive Soul-Brews-Studio/neo-oracle");
     expect(hostExecCalls).toEqual([]);
     expect(existsSync(join(fleetDir, "01-neo.json"))).toBe(true);
   });
 
   test("non-dry archive disables fleet config and archives repo", async () => {
     fleetEntries[0].session.sync_peers = [];
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    try {
+      await cmdArchive("neo");
+    } finally {
+      console.log = origLog;
+    }
 
-    const result = await archiveHandler({ source: "cli", args: ["neo"] } as any);
-
-    expect(result.ok).toBe(true);
     expect(hostExecCalls).toEqual(["gh repo archive Soul-Brews-Studio/neo-oracle --yes"]);
     expect(existsSync(join(fleetDir, "01-neo.json"))).toBe(false);
     expect(existsSync(join(fleetDir, "01-neo.json.disabled"))).toBe(true);
-    expect(result.output).toContain("fleet config disabled: 01-neo.json.disabled");
-    expect(result.output).toContain("GitHub repo archived: Soul-Brews-Studio/neo-oracle");
+    const output = logs.join("\n");
+    expect(output).toContain("fleet config disabled: 01-neo.json.disabled");
+    expect(output).toContain("GitHub repo archived: Soul-Brews-Studio/neo-oracle");
   });
 
   test("usage and missing fleet entries stay user-facing errors", async () => {
@@ -115,9 +133,7 @@ describe("archive plugin standalone boundary", () => {
     expect(usage.ok).toBe(false);
     expect(usage.error).toContain("usage: maw archive <oracle> [--dry-run]");
 
-    const missing = await archiveHandler({ source: "cli", args: ["ghost"] } as any);
-    expect(missing.ok).toBe(false);
-    expect(missing.error).toContain("oracle 'ghost' not found in fleet config");
+    await expect(cmdArchive("ghost")).rejects.toThrow("oracle 'ghost' not found in fleet config");
   });
 
   test("soul-sync resolution helpers use SDK ghq, ghq root, and fleet loaders", async () => {

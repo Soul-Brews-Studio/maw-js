@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/pr");
@@ -27,8 +29,8 @@ class MockTmux {
   }
 }
 
-mock.module("maw-js/sdk", () => ({ Tmux: MockTmux }));
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ Tmux: MockTmux }));
+mock.module("maw-js/sdk", () => ({ ...realSdk, Tmux: MockTmux }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, Tmux: MockTmux }));
 
 function textStream(value: string): ReadableStream<Uint8Array> {
   return new ReadableStream({

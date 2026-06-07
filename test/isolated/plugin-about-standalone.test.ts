@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -14,6 +16,7 @@ let detectedSession: string | null = null;
 class UserError extends Error {}
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   ghqFind: async (pattern: string) => repos.find((repo) => new RegExp(pattern).test(repo)) ?? null,
   ghqList: async () => repos,
   listSessions: async () => sessions,

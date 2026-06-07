@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const attachCalls: unknown[] = [];
@@ -15,6 +17,7 @@ class MockSshAttachError extends Error {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   SshAttachError: MockSshAttachError,
   attachRemoteSession: (opts: unknown) => {
     attachCalls.push(opts);

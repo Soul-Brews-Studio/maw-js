@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -30,6 +32,7 @@ function parseFlags(args: string[], spec: Record<string, unknown>) {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   hostExec: async (command: string) => {
     hostCommands.push(command);
     return hostOutput;
@@ -46,6 +49,25 @@ mock.module("maw-js/sdk", () => ({
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/attach/resolve-attach-target.ts"), () => ({
   resolveAttachTarget: async (target: string, deps: Record<string, unknown>) => {
     resolveCalls.push({ target, deps });
+    if (target === "remote:") {
+      return { tier: "error", error: "invalid remote attach target 'remote:'" };
+    }
+    if (target === "remote:neo") {
+      return { tier: 3, node: "remote", sessionName: "neo", sshAlias: "remote-ssh" };
+    }
+    if (target === "01-mawjs") {
+      const rows = await (deps.listSessions as () => Promise<Session[]>)();
+      const row = rows.find((session) => session.name === target);
+      if (row) {
+        const windowName = row.windows?.find((window) => window.name === "mawjs-oracle")?.name;
+        return { tier: 1, sessionName: row.name, ...(windowName ? { windowName } : {}) };
+      }
+    }
+    if (target === "sleepy") {
+      const rows = (deps.loadFleet as () => Session[])();
+      const row = rows.find((session) => session.name === "02-sleepy" || session.windows?.some((window) => window.name === "sleepy"));
+      if (row) return { tier: 2, fleetName: row.name };
+    }
     return resolveResult;
   },
 }));

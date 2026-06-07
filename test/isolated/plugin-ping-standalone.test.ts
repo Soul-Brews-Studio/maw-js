@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -15,6 +17,7 @@ let responses: Record<string, { ok: boolean; status?: number; data?: any } | Err
 let timeouts: string[];
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   loadConfig: () => config,
   cfgTimeout: (key: string) => {
     timeouts.push(key);

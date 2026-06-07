@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const tmpRoot = mkdtempSync(join(tmpdir(), "maw-artifact-manager-standalone-"));

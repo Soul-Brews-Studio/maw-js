@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/completions");

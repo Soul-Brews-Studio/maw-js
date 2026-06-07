@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,15 +6,19 @@ import { join } from "node:path";
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/scope");
 let configDir = "";
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   mawConfigDir: () => configDir,
 }));
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({
+  ...realSdk,
   mawConfigDir: () => configDir,
 }));
 

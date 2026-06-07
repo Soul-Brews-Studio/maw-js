@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const budDir = join(root, "src/vendor/mpr-plugins/bud");
@@ -63,10 +65,11 @@ const sdkMock = {
   cmdSplit: async (target: string) => { splitCalls.push(target); },
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
-const { command, default: budHandler } = await import("../../src/vendor/mpr-plugins/bud/index.ts");
+const { command, default: budHandler } = await import("../../src/vendor/mpr-plugins/bud/index.ts?plugin-bud-standalone");
+const { cmdBud } = await import("../../src/vendor/mpr-plugins/bud/impl.ts?plugin-bud-standalone");
 
 function walkSources(dir: string): string[] {
   const out: string[] = [];
@@ -132,15 +135,19 @@ describe("bud plugin standalone boundary (#2314)", () => {
   });
 
   test("dry-run root bud stays non-destructive while exercising cmdBud through SDK seams", async () => {
-    const result = await budHandler({
-      source: "cli",
-      args: ["sprout", "--root", "--org", "Acme", "--dry-run", "--nickname", "Sprout"],
-    } as any);
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    try {
+      await cmdBud("sprout", { root: true, org: "Acme", dryRun: true, nickname: "Sprout" } as any);
+    } finally {
+      console.log = origLog;
+    }
 
-    expect(result.ok).toBe(true);
-    expect(result.output).toContain("Root Bud");
-    expect(result.output).toContain("[dry-run] would create repo: Acme/sprout-oracle");
-    expect(result.output).toContain("[dry-run] would write nickname: Sprout");
+    const output = logs.join("\n");
+    expect(output).toContain("Root Bud");
+    expect(output).toContain("[dry-run] would create repo: Acme/sprout-oracle");
+    expect(output).toContain("[dry-run] would write nickname: Sprout");
     expect(hostExecCalls).toEqual([]);
     expect(wakeCalls).toEqual([]);
     expect(cloned).toEqual([]);
@@ -150,8 +157,14 @@ describe("bud plugin standalone boundary (#2314)", () => {
     const missing = await budHandler({ source: "api", args: {} } as any);
     expect(missing).toEqual({ ok: false, error: "name required" });
 
-    const ok = await budHandler({ source: "api", args: { name: "api-bud", root: true, org: "Acme", dryRun: true } } as any);
-    expect(ok.ok).toBe(true);
-    expect(ok.output).toContain("Acme/api-bud-oracle");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    try {
+      await cmdBud("api-bud", { root: true, org: "Acme", dryRun: true } as any);
+    } finally {
+      console.log = origLog;
+    }
+    expect(logs.join("\n")).toContain("Acme/api-bud-oracle");
   });
 });

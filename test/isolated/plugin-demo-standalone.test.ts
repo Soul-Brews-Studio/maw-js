@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 
@@ -18,6 +20,7 @@ function parseFlags(args: string[], spec: Record<string, unknown>) {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   hostExec: async () => "",
   parseFlags,
 }));

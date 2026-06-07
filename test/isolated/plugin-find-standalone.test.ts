@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const sandbox = join(import.meta.dir, ".tmp-find-standalone");
@@ -16,6 +18,7 @@ let fleet: Array<{
 let hostResponses: Record<string, string> = {};
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   getGhqRoot: () => ghqRoot,
   loadFleetCore: () => fleet,
   hostExec: async (cmd: string) => {

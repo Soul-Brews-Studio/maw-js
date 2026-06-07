@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/dream");
@@ -20,6 +22,7 @@ const originalCwd = process.cwd();
 const originalFetch = globalThis.fetch;
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
     if (command === "ghq list -p 2>/dev/null") return "";

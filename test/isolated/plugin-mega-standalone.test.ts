@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/mega");
@@ -20,6 +22,7 @@ mock.module("os", () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   tmux: {
     listPaneIds: async () => paneIds,
     killPane: async (paneId: string) => {

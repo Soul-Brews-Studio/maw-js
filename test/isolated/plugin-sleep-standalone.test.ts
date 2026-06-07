@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const sleepDir = join(root, "src/vendor/mpr-plugins/sleep");
@@ -29,8 +31,8 @@ const sdkMock = {
   },
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 const { command, default: sleepHandler } = await import("../../src/vendor/mpr-plugins/sleep/index.ts");
 const { cmdSleepOne } = await import("../../src/vendor/mpr-plugins/sleep/impl.ts");

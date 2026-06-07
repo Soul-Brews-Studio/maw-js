@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const restartDir = join(root, "src/vendor/mpr-plugins/restart");
@@ -29,8 +31,8 @@ const sdkMock = {
   mawDataPath: (...parts: string[]) => join("/tmp/maw-data", ...parts),
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 const { command, default: restartHandler } = await import("../../src/vendor/mpr-plugins/restart/index.ts");
 const { cmdRestart } = await import("../../src/vendor/mpr-plugins/restart/impl.ts");

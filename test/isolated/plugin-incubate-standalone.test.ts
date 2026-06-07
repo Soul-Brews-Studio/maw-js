@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/incubate");
@@ -20,16 +22,45 @@ let resolveResult: unknown;
 mock.module(budImplPath, () => ({
   cmdBud: async (name: string, opts: Record<string, unknown>) => {
     budCalls.push({ name, opts });
+    if (opts.root && opts.dryRun) {
+      const org = String(opts.org ?? "Soul-Brews-Studio");
+      console.log(`🌱 Root Bud: ${name} → ${org}/${name}-oracle`);
+      console.log(`[dry-run] would create repo: ${org}/${name}-oracle`);
+      if (opts.nickname) console.log(`[dry-run] would write nickname: ${opts.nickname}`);
+    }
   },
 }));
 
 mock.module(sendTextImplPath, () => ({
+  parseSendTextArgs: (args: string[]) => {
+    const target = args[0];
+    const text = args.slice(1).join(" ");
+    if (!target) throw new Error("target is required");
+    if (!text) throw new Error("text is required");
+    return { target, text };
+  },
   cmdSendText: async (opts: { target: string; text: string }) => {
     sendTextCalls.push(opts);
+    const sdk = await import("maw-js/sdk");
+    const resolved = sdk.resolveTarget?.(opts.target);
+    if (resolved?.type === "peer") {
+      await sdk.curlFetch?.(`${resolved.peerUrl}/api/pane-keys`, {
+        method: "POST",
+        body: JSON.stringify({ target: resolved.target, text: opts.text, enter: true }),
+      });
+      return;
+    }
+    if (sdk.Tmux && sdk.resolveOraclePane) {
+      const pane = await sdk.resolveOraclePane(resolved?.target ?? opts.target);
+      const tmux = new sdk.Tmux();
+      if (typeof tmux.sendText === "function") await tmux.sendText(pane, opts.text);
+      console.log(`sent → ${pane}: ${opts.text}`);
+    }
   },
 }));
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   loadConfig: () => config,
   listSessions: async () => sessions,
   resolveTarget: () => resolveResult,

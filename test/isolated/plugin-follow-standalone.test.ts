@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 const root = join(import.meta.dir, "../..");
 const parseCalls: string[][] = [];
@@ -35,9 +37,9 @@ const sdkMock = {
   loadFleetCore: () => [],
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 const impl = await import("../../src/vendor/mpr-plugins/follow/impl.ts?plugin-follow-standalone");
 const { default: followHandler } = await import("../../src/vendor/mpr-plugins/follow/index.ts?plugin-follow-standalone");
@@ -129,7 +131,7 @@ describe("follow plugin standalone boundary (#2192)", () => {
 
   test("cmdFollow attaches, filters chunks, and emits JSON", async () => {
     const d = deps();
-    const promise = impl.cmdFollow("neo", { since: "2s", json: true, grep: "keep" }, d.deps as any);
+    const promise = impl.cmdFollow("neo:main", { since: "2s", json: true, grep: "keep" }, d.deps as any);
     const ws = await waitForSocket();
 
     ws.onopen?.({});
@@ -140,17 +142,17 @@ describe("follow plugin standalone boundary (#2192)", () => {
 
     const result = await promise;
 
-    expect(result).toEqual({ pane: "neo", reason: "detached", chunks: 1 });
+    expect(result).toEqual({ pane: "neo:main", reason: "detached", chunks: 1 });
     expect(ws.url).toBe("ws://127.0.0.1:3456/ws/pty");
-    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "attach", target: "neo", cols: 120, rows: 40, replayLines: 2 });
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "attach", target: "neo:main", cols: 120, rows: 40, replayLines: 2 });
     expect(d.values.stdout.map((line) => JSON.parse(line))).toEqual([
-      { ts: "2026-06-07T00:00:00Z", pane: "neo", chunk: "keep this\n" },
+      { ts: "2026-06-07T00:00:00Z", pane: "neo:main", chunk: "keep this\n" },
     ]);
   });
 
   test("cmdFollow reports websocket control errors", async () => {
     const d = deps();
-    const promise = impl.cmdFollow("neo", {}, d.deps as any);
+    const promise = impl.cmdFollow("neo:main", {}, d.deps as any);
     const ws = await waitForSocket();
 
     ws.onopen?.({});

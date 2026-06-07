@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+const realSdk = await import("../../src/sdk/index.ts");
+afterAll(() => { mock.restore(); });
 
 let config: Record<string, unknown> = { host: "local", port: 4242 };
 let fetchCalls: string[] = [];
@@ -44,9 +46,9 @@ const sdkMock = {
     values.map((value, index) => hadActivity?.[index] === false ? "░" : value > 0 ? "█" : "▁").join(""),
 };
 
-mock.module("maw-js/sdk", () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
-mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk"), () => ({ ...realSdk, ...sdkMock }));
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
 const { default: costsHandler, command } = await import("../../src/vendor/mpr-plugins/costs/index.ts");
 
