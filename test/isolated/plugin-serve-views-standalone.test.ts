@@ -19,6 +19,7 @@ describe("serve-views plugin", () => {
     const registry = new ServeRouteRegistry();
 
     await serve({ http: registry, plugin: { name: "serve-views" } });
+    await serve({ http: registry, plugin: { name: "serve-views" } });
 
     expect(registry.listFallbacks()).toEqual(["serve-views"]);
     const response = await registry.handleFallback(new Request("http://local/"));

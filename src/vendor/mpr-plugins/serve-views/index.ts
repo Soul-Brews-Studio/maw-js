@@ -47,12 +47,26 @@ export function createViews(
 
 export const views = createViews();
 
+function hasServeViewsFallback(http: ServeHookContext["http"]): boolean {
+  const listFallbacks = (http as { listFallbacks?: () => string[] } | undefined)?.listFallbacks;
+  if (typeof listFallbacks !== "function") return false;
+  return listFallbacks.call(http).includes("serve-views");
+}
+
 export async function serve(
   ctx: ServeHookContext,
   options: { views?: Hono } = {},
 ): Promise<{ ok: true }> {
   if (!ctx.http?.fallback) return { ok: true };
+  if (hasServeViewsFallback(ctx.http)) return { ok: true };
   const honoViews = options.views ?? createViews();
-  ctx.http.fallback("serve-views", (req, env) => honoViews.fetch(req, env));
+  try {
+    ctx.http.fallback("serve-views", (req, env) => honoViews.fetch(req, env));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("serve fallback already registered: serve-views")) {
+      return { ok: true };
+    }
+    throw error;
+  }
   return { ok: true };
 }
