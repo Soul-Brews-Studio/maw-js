@@ -241,7 +241,7 @@ export function buildCommandFromConfig(
   const sessionIds: Record<string, string> = config.sessionIds || {};
   const sessionId = commandMatchNames(agentName).map((name) => sessionIds[name]).find(Boolean)
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchesAgentPattern(p, agentName))?.[1];
-  if (sessionId) {
+  if (sessionId && !opts.fresh) {
     cmd = applyResumeFlag(cmd, engine, sessionId, genericRenderer);
   }
 

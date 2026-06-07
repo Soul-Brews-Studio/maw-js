@@ -54,6 +54,7 @@ let lineageWrites: any[] = [];
 let birthSignalWrites: any[] = [];
 let parseWakeTargetReturn: null | { slug: string; oracle: string } = null;
 let ghqFindReturn: string | null = null;
+let commandTemplateContinues = false;
 
 function resetState(): void {
   logs = [];
@@ -103,6 +104,7 @@ function resetState(): void {
   birthSignalWrites = [];
   parseWakeTargetReturn = null;
   ghqFindReturn = null;
+  commandTemplateContinues = false;
 }
 
 async function captureLogs<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -180,8 +182,12 @@ mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
 }));
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
-  buildCommandInDir: (windowName: string, cwd: string, engine?: string) =>
-    `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
+  buildCommandInDir: (windowName: string, cwd: string, optsOrEngine?: string | { engine?: string; fresh?: boolean }) => {
+    const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
+    const fresh = typeof optsOrEngine === "object" && Boolean(optsOrEngine.fresh);
+    const resume = commandTemplateContinues && !fresh ? " --continue" : "";
+    return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}${resume}`;
+  },
   cfgTimeout: () => 0,
   loadConfig: () => ({ node: "m5", agents: configAgents }),
   saveConfig: (patch: any) => {
@@ -676,6 +682,30 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot window: neo-restored");
     expect(plain()).toContain("1 window(s) reordered");
+  });
+
+  test("dead rehydrated worktree panes launch fresh without engine continue placeholders", async () => {
+    detectSessionReturn = null;
+    shouldWake = true;
+    listSessionsReturn = [{ name: "03-old" }];
+    listWindowsReturn = [];
+    findWorktreesReturn = [{ name: "2-beta", path: "/tmp/neo-oracle.wt-2-beta" }];
+    plannedRehydrateWindows = [{ windowName: "neo-beta", path: "/tmp/neo-oracle.wt-2-beta" }];
+    paneCommand = "zsh";
+    commandTemplateContinues = true;
+
+    const result = await captureLogs(() => cmdWake("neo", { repoPath, engine: "claude" }));
+
+    expect(result).toBe("04-neo:neo-oracle");
+    expect(sentText).toContainEqual({
+      target: "04-neo:neo-oracle",
+      text: `cd ${repoPath} && claude --agent neo-oracle --continue`,
+    });
+    expect(sentText).toContainEqual({
+      target: "04-neo:neo-beta",
+      text: "cd /tmp/neo-oracle.wt-2-beta && claude --agent neo-beta",
+    });
+    expect(sentText.find((call) => call.target === "04-neo:neo-beta")?.text).not.toContain("--continue");
   });
 
   test("existing live windows can switch engine through tmux respawn-pane", async () => {

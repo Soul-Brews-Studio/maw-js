@@ -402,11 +402,28 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
     && !opts.snapshotId;
 }
 
-function buildWakeCommand(windowName: string, cwd: string, opts: Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels">): string {
+type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels"> & {
+  /** Strip engine resume/continue placeholders for reboot-rehydrated dead panes (#2391). */
+  freshLaunch?: boolean;
+};
+
+function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
+  const commandOpts = opts.channels
+    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh: opts.freshLaunch }
+    : opts.freshLaunch
+      ? { engine: opts.engine, fresh: true }
+      : opts.engine;
   return prefixCommandWithSpawnSessionEnv(
-    buildCommandInDir(windowName, cwd, opts.channels ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"] } : opts.engine),
+    buildCommandInDir(windowName, cwd, commandOpts),
     { explicit: opts.parentSessionId, sessionId: opts.sessionId, cwd },
   );
+}
+
+async function buildWakeCommandForPane(windowName: string, cwd: string, opts: WakeCommandOptions, target: string): Promise<string> {
+  const infos = await getPaneInfos([target]).catch(() => ({} as Awaited<ReturnType<typeof getPaneInfos>>));
+  const command = infos[target]?.command;
+  const freshLaunch = !isAgentCommand(command);
+  return buildWakeCommand(windowName, cwd, freshLaunch ? { ...opts, freshLaunch: true } : opts);
 }
 
 function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
@@ -1167,8 +1184,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       for (const wt of plan) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wt.windowName}`, buildWakeCommand(wt.windowName, wt.path, opts));
-        await wakeSession.waitForEngine(`${session}:${wt.windowName}`, getPaneInfos, isAgentCommand);
+        const target = `${session}:${wt.windowName}`;
+        await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, opts, target));
+        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
       }
@@ -1216,7 +1234,8 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         for (const wt of plan) {
           await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wt.windowName}`, buildWakeCommand(wt.windowName, wt.path, opts));
+          const target = `${session}:${wt.windowName}`;
+          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, opts, target));
           preExistingWindows.add(wt.windowName);
           preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
@@ -1380,8 +1399,8 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const agentAlive = info && isAgentCommand(info.command);
 
       if (!agentAlive) {
-        console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-        await tmux.sendText(target, buildWakeCommand(existingWindow, targetPath, opts));
+        console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching fresh...`);
+        await tmux.sendText(target, buildWakeCommand(existingWindow, targetPath, { ...opts, freshLaunch: true }));
         await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         if (opts.attach) {
           await tmux.selectWindow(target);

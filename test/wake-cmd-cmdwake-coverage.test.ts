@@ -328,9 +328,10 @@ mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
 
 mock.module(join(import.meta.dir, "../src/config"), () => ({
   ..._rConfig,
-  buildCommandInDir: (windowName: string, cwd: string, engine?: string) => {
+  buildCommandInDir: (windowName: string, cwd: string, optsOrEngine?: string | { engine?: string }) => {
     if (!mockActive)
-      return realConfig.buildCommandInDir(windowName, cwd, engine);
+      return realConfig.buildCommandInDir(windowName, cwd, optsOrEngine);
+    const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
     return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`;
   },
   cfgTimeout: (key: Parameters<typeof _rConfig.cfgTimeout>[0]) =>

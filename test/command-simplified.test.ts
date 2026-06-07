@@ -33,6 +33,10 @@ function buildCommandInDir(agentName: string, cwd: string, engine?: string): str
   return buildCommandInDirFromConfig(testConfig(), agentName, cwd, engine);
 }
 
+function buildFreshCommand(agentName: string): string {
+  return buildCommandFromConfig(testConfig(), agentName, { fresh: true });
+}
+
 // buildCommand strips --dangerously-skip-permissions when process.getuid() === 0
 // (root-stripping from #181). Pin the uid to a non-root value regardless of the
 // host user so command-string assertions stay stable.
@@ -122,6 +126,17 @@ describe("buildCommand — post-#541 contract", () => {
     expect(out).toBe('claude --resume "uuid-2"');
     expect(out).not.toContain("||");
     expect(out).not.toContain("--session-id");
+  });
+
+  test("fresh launch strips continue placeholders and suppresses sessionId resume injection", () => {
+    fakeConfig.commands = { default: "claude --continue" };
+    fakeSessionIds = { foo: "uuid-fresh" };
+
+    const out = buildFreshCommand("foo");
+
+    expect(out).toBe("claude");
+    expect(out).not.toContain("--continue");
+    expect(out).not.toContain("--resume");
   });
 
   test("sessionId supports glob fallback when there is no exact agent key", () => {
