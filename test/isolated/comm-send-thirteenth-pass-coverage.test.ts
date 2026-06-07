@@ -62,7 +62,20 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
 });
 
 mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
+  // Keep broad: Bun evaluates isolated test modules in one process, so this
+  // mock can be visible to later files before their file-level cleanup runs.
+  hostExec: async () => "",
+  parseFlags: () => ({}),
+  getGhqRoot: () => "",
+  loadFleetCore: () => [],
   listSessions: async () => listSessionsReturn,
+  resolveTarget: () => resolveTargetReturn,
+  curlFetch: async (url: string, options: any) => {
+    curlFetchCalls.push({ url, options });
+    return curlFetchHandler(url, options);
+  },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
   capture: async () => {
     const next = captureResponses.shift();
     if (next instanceof Error) throw next;
@@ -72,16 +85,53 @@ mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
     sendKeysCalls.push({ target, text });
   },
   getPaneCommand: async () => getPaneCommandReturn,
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
   isAgentCommand: (cmd: string | null | undefined) => ["claude", "codex", "node"].includes((cmd ?? "").trim()),
   findPeerForTarget: async () => findPeerUrl,
-  resolveTarget: () => resolveTargetReturn,
-  curlFetch: async (url: string, options: any) => {
-    curlFetchCalls.push({ url, options });
-    return curlFetchHandler(url, options);
-  },
   runHook: async (name: string, payload: any) => {
     runHookCalls.push({ name, payload });
   },
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmux: { listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawCacheDir: () => "/tmp/.maw/cache",
+  mawConfigDir: () => "/tmp/.maw/config",
+  mawDataDir: () => "/tmp/.maw",
+  mawDataPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawStateDir: () => "/tmp/.maw/state",
+  mawStatePath: (...parts: string[]) => ["/tmp", ".maw", "state", ...parts].join("/"),
+  loadConfig: () => ({}),
+  ghqFindSync: () => "",
+  cmdWorkspaceCreate: async () => undefined,
+  cmdWorkspaceJoin: async () => undefined,
+  cmdWorkspaceShare: async () => undefined,
+  cmdWorkspaceUnshare: async () => undefined,
+  cmdWorkspaceLs: async () => undefined,
+  cmdWorkspaceAgents: async () => undefined,
+  cmdWorkspaceInvite: async () => undefined,
+  cmdWorkspaceLeave: async () => undefined,
+  cmdWorkspaceTeam: async () => undefined,
+  cmdWorkspaceStop: async () => undefined,
+  cmdWorkspaceSessions: async () => undefined,
+  cmdWorkspaceWhere: async () => undefined,
+  cmdWorkspaceStatus: async () => undefined,
+  cmdWorkspaceSend: async () => undefined,
+  cmdWorkspaceInspect: async () => undefined,
+  cmdWorkspaceSnapshot: async () => undefined,
+  cmdWorkspaceRestore: async () => undefined,
+  cmdWorkspaceClean: async () => undefined,
 }));
 
 mock.module(join(srcRoot, "src/config"), () => ({
@@ -211,6 +261,10 @@ beforeEach(() => {
   process.env.CLAUDE_AGENT_NAME = "sender";
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 afterEach(() => {

@@ -4,6 +4,10 @@ import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
 
+// This file imports tile impl at module scope; reset mocks first so earlier
+// isolated files cannot leak a partial src/sdk/index.ts shim into that import.
+mock.restore();
+
 let commands: string[] = [];
 let tilePaneList = "%lead|||leader|||\n";
 let plainPaneList = "%lead\n";
@@ -19,7 +23,7 @@ let layoutCalls: string[] = [];
 let borderCalls: Array<{ paneId: string; label: string; color: string }> = [];
 const originalTileCmdSettle = process.env.MAW_TILE_CMD_SETTLE_MS;
 
-mock.module(join(root, "src/sdk"), () => ({
+const sdkMock = () => ({
   hostExec: async (cmd: string) => {
     commands.push(cmd);
 
@@ -52,7 +56,12 @@ mock.module(join(root, "src/sdk"), () => ({
     }
     return "";
   },
-}));
+});
+
+// Mock both ids: tile imports ../../../sdk, which resolves to src/sdk/index.ts.
+// Earlier isolated tests can leak an index.ts mock that otherwise shadows this.
+mock.module(join(root, "src/sdk"), sdkMock);
+mock.module(join(root, "src/sdk/index.ts"), sdkMock);
 
 mock.module(join(root, "src/commands/plugins/tmux/layout-manager"), () => ({
   nextAgentColor: (idx: number) => `color-${idx}`,
