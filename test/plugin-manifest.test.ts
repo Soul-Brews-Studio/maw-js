@@ -106,6 +106,7 @@ describe("parseManifest happy path", () => {
             wake: { script: "setup.ts", handler: "onWake", ensures: ["storage:sqlite"], policy: "best-effort" },
             sleep: { handler: "onSleep" },
             serve: { script: "serve.ts", policy: "fail-fast" },
+            transport: { handler: "onTransport", policy: "best-effort" },
           },
         }),
         dir,
@@ -120,6 +121,7 @@ describe("parseManifest happy path", () => {
       });
       expect(manifest.hooks?.sleep).toEqual({ handler: "onSleep" });
       expect(manifest.hooks?.serve).toEqual({ script: "serve.ts", policy: "fail-fast" });
+      expect(manifest.hooks?.transport).toEqual({ handler: "onTransport", policy: "best-effort" });
     } finally {
       rmSync(dir, { recursive: true });
     }

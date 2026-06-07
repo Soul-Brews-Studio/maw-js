@@ -116,12 +116,14 @@ describe("manifest optional-field validators — default coverage", () => {
   });
 
   test("parseHooks preserves default array fields including late hooks", () => {
-    expect(parseHooks({ hooks: { gate: [], filter: ["Clean"], on: ["MessageSend"], late: ["After"] } })).toEqual({
+    expect(parseHooks({ hooks: { gate: [], filter: ["Clean"], on: ["MessageSend"], late: ["After"], transport: { handler: "onTransport", policy: "best-effort" } } })).toEqual({
       gate: [],
       filter: ["Clean"],
       on: ["MessageSend"],
       late: ["After"],
+      transport: { handler: "onTransport", policy: "best-effort" },
     });
     expectError(() => parseHooks({ hooks: { late: [1] } }), "plugin.json: hooks.late must be an array of strings");
+    expectError(() => parseHooks({ hooks: { transport: { policy: "sometimes" } } }), "plugin.json: hooks.transport.policy must be");
   });
 });

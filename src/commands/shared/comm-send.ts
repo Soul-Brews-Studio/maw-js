@@ -12,6 +12,7 @@ import { detectWindowMismatch } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
+import { runPluginEventHooks } from "../../plugin/event-hooks";
 import {
   defaultReceiverInboxWriter,
   type ReceiverInboxResult,
@@ -219,6 +220,35 @@ export function formatSignedMessage(
 function emitMessageFeed(input: MessageLifecycleInput, port: number) {
   const event = buildMessageLifecycleFeedEvent(input);
   emitFeed(event.event, event.oracle, event.host, event.message, port, event.data);
+}
+
+function transportTargetFromResult(result: ReturnType<typeof resolveTarget> | null, query: string, configNode?: string, fallbackQuery = true) {
+  if (!result) {
+    return {
+      oracle: fallbackQuery ? query.split(":").at(-1) || query : query,
+    };
+  }
+  if (result.type === "peer") {
+    return { oracle: result.target, host: result.node, tmuxTarget: undefined };
+  }
+  if (result.type === "local" || result.type === "self-node") {
+    const oracle = result.target.split(":").at(-1) || query;
+    return { oracle, host: configNode ?? "local", tmuxTarget: result.target };
+  }
+  if (result.type === "error") {
+    return { oracle: query.split(":").at(-1) || query };
+  }
+  return { oracle: query.split(":").at(-1) || query };
+}
+
+function transportPayload<T>(event: "transport:after_send", target: { oracle: string; host?: string; tmuxTarget?: string }, from: string, message: string, result: T) {
+  return {
+    target,
+    message,
+    from,
+    result,
+    via: (result as { via?: string }).via ?? "unknown",
+  } as const;
 }
 
 /**
@@ -902,6 +932,13 @@ export async function cmdSend(
       }
     }
     await runHook("after_send", { to: query, message: outboundMessage });
+    await runPluginEventHooks("transport:after_send", transportPayload(
+      "transport:after_send",
+      transportTargetFromResult(result, query, config.node),
+      senderIdentity.display,
+      outboundMessage,
+      { ok: true, via: "tmux", retryable: false },
+    ));
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
     logMessage(senderName, query, outboundMessage, "local");
     await Bun.sleep(150);
@@ -955,6 +992,20 @@ export async function cmdSend(
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       // #1980: surface the receiving node's misdelivery warning, if any.
       if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
+      await runPluginEventHooks("transport:after_send", transportPayload(
+        "transport:after_send",
+        transportTargetFromResult(result, query),
+        senderIdentity.display,
+        outboundMessage,
+        {
+          ok: true,
+          via: "http",
+          retryable: false,
+          state: res.data.state,
+          target: res.data.target || result.target,
+          lastLine: res.data.lastLine,
+        },
+      ));
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
@@ -1006,6 +1057,20 @@ export async function cmdSend(
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
       console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      await runPluginEventHooks("transport:after_send", transportPayload(
+        "transport:after_send",
+        { oracle: query.split(":").at(-1) || query, host: peerUrl, tmuxTarget: undefined },
+        senderIdentity.display,
+        outboundMessage,
+        {
+          ok: true,
+          via: "http",
+          retryable: false,
+          state: res.data.state,
+          target: res.data.target || query,
+          lastLine: res.data.lastLine,
+        },
+      ));
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }

@@ -14,7 +14,7 @@ import type { MawEngine } from "../engine";
 import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
 import type { LoadedPlugin, PluginLifecycleHook, ServeRouteRegistrar } from "./types";
 
-export type LifecyclePhase = "wake" | "sleep" | "serve";
+export type LifecyclePhase = "wake" | "sleep" | "serve" | "transport";
 
 export interface PluginLifecycleContext {
   phase: LifecyclePhase;
@@ -74,6 +74,12 @@ export interface ServeLifecycleContextInput {
   plugins?: unknown;
   /** Reload user plugins and return the current plugin stats/debug payload. */
   reloadPlugins?: () => unknown | Promise<unknown>;
+}
+
+export interface TransportLifecycleContextInput {
+  engine?: MawEngine;
+  /** Transport router created and connected before serve bootstrap. */
+  router?: unknown;
 }
 
 export interface LifecycleRunSummary {
@@ -221,4 +227,11 @@ export function runServeLifecycleHooks(
   logger?: LifecycleLogger,
 ): Promise<LifecycleRunSummary> {
   return runLifecycleHooks("serve", context, discover, logger);
+}
+
+export function runTransportLifecycleHooks(
+  context: TransportLifecycleContextInput,
+  discover?: LifecycleDiscover,
+): Promise<LifecycleRunSummary> {
+  return runLifecycleHooks("transport", context, discover);
 }

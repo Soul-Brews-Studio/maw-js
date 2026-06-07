@@ -6,7 +6,7 @@ import { feedBuffer, feedListeners } from "../api/feed";
 import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createTransportRouter } from "../transports";
 import { isProtected, setBunServer } from "../lib/elysia-auth";
-import { runServeLifecycleHooks } from "../plugin/lifecycle";
+import { runServeLifecycleHooks, runTransportLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
 import {
   dispatchEnginePluginEvent,
@@ -100,14 +100,24 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
+  let transportRouter: ReturnType<typeof createTransportRouter> | undefined;
 
   // Connect transport router (non-blocking — server starts even if transports fail)
   try {
-    const router = createTransportRouter();
-    router.connectAll().catch(err => log.error("[transport] connect failed:", err));
-    engine.setTransportRouter(router);
+    transportRouter = createTransportRouter();
+    transportRouter.connectAll().catch(err => log.error("[transport] connect failed:", err));
+    engine.setTransportRouter(transportRouter);
   } catch (err) {
     log.error("[transport] router init failed:", err);
+  }
+  log.debug("[serve:debug] running transport lifecycle hooks");
+  try {
+    await runTransportLifecycleHooks({
+      router: transportRouter,
+      engine,
+    });
+  } catch (err) {
+    throw err;
   }
 
   // Start dispatch engine — auto-delivers queued messages when agents become idle
