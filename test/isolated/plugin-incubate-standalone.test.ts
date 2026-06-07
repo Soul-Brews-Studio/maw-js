@@ -10,8 +10,8 @@ afterAll(() => { mock.restore(); });
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const pluginDir = join(ROOT, "src/vendor/mpr-plugins/incubate");
-const budImplPath = join(ROOT, "src/vendor/mpr-plugins/bud/impl.ts");
-const sendTextImplPath = join(ROOT, "src/vendor/mpr-plugins/send-text/impl.ts");
+const budImplPath = "../../src/vendor/mpr-plugins/bud/impl";
+const sendTextImplPath = "../../src/vendor/mpr-plugins/send-text/impl";
 
 let budCalls: Array<{ name: string; opts: Record<string, unknown> }>;
 let sendTextCalls: Array<{ target: string; text: string }>;
@@ -19,7 +19,12 @@ let sessions: unknown[];
 let config: Record<string, unknown>;
 let resolveResult: unknown;
 
-mock.module(budImplPath, () => ({
+function mockBoth(spec: string, factory: () => Record<string, unknown>) {
+  mock.module(import.meta.resolve(spec), factory);
+  mock.module(import.meta.resolve(`${spec}.ts`), factory);
+}
+
+mockBoth(budImplPath, () => ({
   cmdBud: async (name: string, opts: Record<string, unknown>) => {
     budCalls.push({ name, opts });
     if (opts.root && opts.dryRun) {
@@ -31,7 +36,7 @@ mock.module(budImplPath, () => ({
   },
 }));
 
-mock.module(sendTextImplPath, () => ({
+mockBoth(sendTextImplPath, () => ({
   parseSendTextArgs: (args: string[]) => {
     const target = args[0];
     const text = args.slice(1).join(" ");
@@ -41,21 +46,6 @@ mock.module(sendTextImplPath, () => ({
   },
   cmdSendText: async (opts: { target: string; text: string }) => {
     sendTextCalls.push(opts);
-    const sdk = await import("maw-js/sdk");
-    const resolved = sdk.resolveTarget?.(opts.target);
-    if (resolved?.type === "peer") {
-      await sdk.curlFetch?.(`${resolved.peerUrl}/api/pane-keys`, {
-        method: "POST",
-        body: JSON.stringify({ target: resolved.target, text: opts.text, enter: true }),
-      });
-      return;
-    }
-    if (sdk.Tmux && sdk.resolveOraclePane) {
-      const pane = await sdk.resolveOraclePane(resolved?.target ?? opts.target);
-      const tmux = new sdk.Tmux();
-      if (typeof tmux.sendText === "function") await tmux.sendText(pane, opts.text);
-      console.log(`sent → ${pane}: ${opts.text}`);
-    }
   },
 }));
 
