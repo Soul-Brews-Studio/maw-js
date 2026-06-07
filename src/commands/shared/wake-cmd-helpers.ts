@@ -239,18 +239,21 @@ export function planRehydrateWorktreeWindows(
 ): RehydrateWorktreePlan[] {
   const usedNames = new Set(existingWindows);
   const planned: RehydrateWorktreePlan[] = [];
-  const oracleBase = oracle.replace(/^\d+-/, "").toLowerCase();
+  const oracleBase = oracle.replace(/^\d+-/, "");
+  const oracleBaseLower = oracleBase.toLowerCase();
   for (const wt of worktrees) {
     const taskPart = wt.name.replace(/^\d+-/, "");
-    const cleanTask = taskPart.toLowerCase().startsWith(`${oracleBase}-`)
+    if (taskPart.toLowerCase() === oracleBaseLower) continue;
+    const cleanTask = taskPart.toLowerCase().startsWith(`${oracleBaseLower}-`)
       ? taskPart.slice(oracleBase.length + 1)
       : taskPart;
-    if (cleanTask.toLowerCase() === oracleBase) continue;
+    if (!cleanTask) continue;
     if (liveTileRoles.has(taskPart) || liveTileRoles.has(cleanTask)) continue;
     let wtWindowName = `${oracle}-${cleanTask}`;
     if (usedNames.has(wtWindowName)) {
       if (existingWindows.includes(wtWindowName)) continue;
-      wtWindowName = `${oracle}-${wt.name}`;
+      const numberPrefix = wt.name.match(/^(\d+)-/)?.[1];
+      wtWindowName = `${oracle}-${numberPrefix ? `${numberPrefix}-` : ""}${cleanTask}`;
     }
     const altName = `${oracle}-${wt.name}`;
     if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
