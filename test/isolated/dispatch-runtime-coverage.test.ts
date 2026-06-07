@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { createHash } from "crypto";
+import { readFileSync } from "fs";
 
 // Reset leaked mocks before registering dispatch-specific shims.
 mock.restore();
@@ -100,6 +102,13 @@ mock.module(at("../../src/plugin/registry"), () => ({
     invokeCalls.push({ plugin, ctx });
     return invokeResult;
   },
+  runtimeSdkVersion: () => "1.0.0",
+  satisfies: () => true,
+  formatSdkMismatchError: () => "sdk mismatch",
+  hashFile: (path: string) => `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`,
+  importPluginSymbol: async () => undefined,
+  resetDiscoverCache: () => undefined,
+  __resetDiscoverStateForTests: () => undefined,
 }));
 
 mock.module(at("../../src/cli/dispatch-match"), () => ({
@@ -116,9 +125,39 @@ mock.module(at("../../src/plugin/dependencies"), () => ({
   enablePlanFor: () => enablePlanReturn,
 }));
 
-mock.module(at("../../src/sdk"), () => ({
+const sdkMock = () => ({
+  hostExec: async () => "",
+  parseFlags: () => ({}),
+  getGhqRoot: () => process.cwd(),
+  loadFleetCore: () => [],
   listSessions: async () => sessionsReturn,
-}));
+  findPeerForTarget: async () => null,
+  resolveTarget: () => null,
+  curlFetch: async () => ({ ok: false }),
+  capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  loadConfig: () => ({}),
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
+  tmux: { run: async () => "", listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  UserError: class UserError extends Error {},
+});
+mock.module(at("../../src/sdk"), sdkMock);
+mock.module(at("../../src/sdk/index.ts"), sdkMock);
 
 const { dispatchCommand } = await import("../../src/cli/dispatch.ts?dispatch-runtime-coverage");
 const { UserError } = await import("../../src/core/util/user-error");
@@ -191,6 +230,7 @@ afterAll(() => {
   console.log = originalLog;
   console.error = originalError;
   (process as any).exit = originalExit;
+  mock.restore();
 });
 
 describe("dispatchCommand runtime coverage", () => {

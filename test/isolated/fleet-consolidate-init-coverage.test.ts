@@ -19,6 +19,9 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
+
 const SANDBOX = mkdtempSync(join(tmpdir(), "maw-fleet-init-consolidate-"));
 const FLEET_DIR = join(SANDBOX, "config", "fleet");
 const WRITE_FLEET_DIR = join(SANDBOX, "home", "fleet");
@@ -37,16 +40,66 @@ let hostExecCalls: string[] = [];
 let hostExecHandler: HostExecHandler = () => "";
 let ghqListReturn: string[] = [];
 
-mock.module(sdkPath, () => ({
+const sdkMock = () => ({
   FLEET_DIR,
+  loadFleetCore: () => [],
+  listSessions: async () => [],
+  findPeerForTarget: async () => null,
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
   tmux: {
     run: async () => "",
+    listPaneIds: async () => new Set<string>(),
+    listSessions: async () => [],
   },
+  capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  resolveTarget: () => null,
+  curlFetch: async () => ({ ok: false }),
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
     return await hostExecHandler(command);
   },
-}));
+});
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
+
+
+const fleetLoadMock = () => ({
+  loadDisabledFleetEntries: () => {
+    const { readdirSync, readFileSync } = require("fs");
+    return readdirSync(FLEET_DIR)
+      .filter((file: string) => file.endsWith(".disabled"))
+      .sort()
+      .map((file: string) => {
+        const activeName = file.replace(/\.disabled$/i, "");
+        const match = activeName.match(/^(\d+)-(.+)\.json$/);
+        const base = { file, path: join(FLEET_DIR, file), num: match ? parseInt(match[1], 10) : 0, groupName: match ? match[2] : activeName.replace(/\.json$/i, "") };
+        try { return { ...base, session: JSON.parse(readFileSync(join(FLEET_DIR, file), "utf8")) }; }
+        catch (error) { return { ...base, error }; }
+      });
+  },
+  fleetDirForWrite: () => WRITE_FLEET_DIR,
+  loadFleet: () => [],
+  loadFleetCore: () => [],
+  loadFleetEntries: () => [],
+  resolveFleetSession: () => null,
+});
+mock.module("maw-js/commands/shared/fleet-load", fleetLoadMock);
+mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), fleetLoadMock);
+mock.module(new URL("../../src/commands/shared/fleet-load.ts", import.meta.url).pathname, fleetLoadMock);
 
 mock.module(ghqRootPath, () => ({
   getGhqRoot: () => GHQ_ROOT,
@@ -54,6 +107,9 @@ mock.module(ghqRootPath, () => ({
 
 mock.module(ghqPath, () => ({
   ghqList: async () => ghqListReturn,
+  ghqListSync: () => ghqListReturn,
+  ghqFind: async () => "",
+  ghqFindSync: () => "",
 }));
 
 const { cmdFleetConsolidate } = await import(
@@ -108,6 +164,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  mock.restore();
   rmSync(SANDBOX, { recursive: true, force: true });
 });
 

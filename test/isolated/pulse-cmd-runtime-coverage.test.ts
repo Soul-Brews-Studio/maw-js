@@ -5,6 +5,10 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
+
 let hostExecCalls: string[] = [];
 let hostExecImpl: (cmd: string) => Promise<string> | string = () => "";
 let wakeCalls: unknown[][] = [];
@@ -17,12 +21,71 @@ let logs: string[] = [];
 
 const originalLog = console.log;
 
-mock.module(import.meta.resolve("../../src/sdk"), () => ({
+const sdkMock = () => ({
+  parseFlags: () => ({}),
+  getGhqRoot: () => process.cwd(),
+  loadFleetCore: () => [],
+  listSessions: async () => [],
+  findPeerForTarget: async () => null,
+  resolveTarget: () => null,
+  curlFetch: async () => ({ ok: false }),
+  capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  loadConfig: () => ({}),
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
+  tmux: { run: async () => "", listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawCacheDir: () => "/tmp/.maw/cache",
+  mawConfigDir: () => "/tmp/.maw/config",
+  mawDataDir: () => "/tmp/.maw",
+  mawDataPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawStateDir: () => "/tmp/.maw/state",
+  mawStatePath: (...parts: string[]) => ["/tmp", ".maw", "state", ...parts].join("/"),
+  cmdWorkspaceCreate: async () => undefined,
+  cmdWorkspaceJoin: async () => undefined,
+  cmdWorkspaceShare: async () => undefined,
+  cmdWorkspaceUnshare: async () => undefined,
+  cmdWorkspaceLs: async () => undefined,
+  cmdWorkspaceAgents: async () => undefined,
+  cmdWorkspaceInvite: async () => undefined,
+  cmdWorkspaceLeave: async () => undefined,
+  cmdWorkspaceTeam: async () => undefined,
+  cmdWorkspaceStop: async () => undefined,
+  cmdWorkspaceSessions: async () => undefined,
+  cmdWorkspaceWhere: async () => undefined,
+  cmdWorkspaceStatus: async () => undefined,
+  cmdWorkspaceSend: async () => undefined,
+  cmdWorkspaceInspect: async () => undefined,
+  cmdWorkspaceSnapshot: async () => undefined,
+  cmdWorkspaceRestore: async () => undefined,
+  cmdWorkspaceClean: async () => undefined,
+  UserError: class UserError extends Error {},
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     return await hostExecImpl(cmd);
   },
-}));
+});
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake"), () => ({
   cmdWake: async (...args: unknown[]) => {

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
+
 const pairImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/pair/impl.ts");
 const trustImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/trust/impl.ts");
 const scopeImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/scope/impl.ts");
@@ -7,14 +11,11 @@ const teamImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/team/impl
 
 const calls: string[] = [];
 
-const parseFlagsMock = (args: string[], spec: Record<string, unknown> = {}) => {
+const parseFlagsMock = (args: string[], spec: Record<string, unknown> = {}, skip = 0) => {
   const out: Record<string, any> = { _: [] };
-  const resolveAlias = (key: string): string => {
-    const parser = spec[key];
-    return typeof parser === "string" ? parser : key;
-  };
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]!;
+  const argv = args.slice(skip);
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
     const parser = spec[arg];
     if (!parser) {
       out._.push(arg);
@@ -25,11 +26,11 @@ const parseFlagsMock = (args: string[], spec: Record<string, unknown> = {}) => {
       const targetParser = spec[target];
       if (targetParser === Boolean) out[target] = true;
       else {
-        const value = args[++i];
+        const value = argv[++i];
         if (value !== undefined) out[target] = value;
       }
     } else {
-      const value = args[++i];
+      const value = argv[++i];
       if (value !== undefined) out[arg] = value;
     }
   }
@@ -150,6 +151,7 @@ const sdkMock = () => ({
 mock.module("maw-js/sdk", sdkMock);
 mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
 
 const { default: pairHandler } = await import("../../src/vendor/mpr-plugins/pair/index.ts?coverage-next-vendor-b-dispatchers");
 const { default: trustHandler } = await import("../../src/vendor/mpr-plugins/trust/index.ts?coverage-next-vendor-b-dispatchers");

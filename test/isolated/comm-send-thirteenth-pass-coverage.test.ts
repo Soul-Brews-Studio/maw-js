@@ -7,6 +7,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
+
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
+
 const srcRoot = join(import.meta.dir, "../..");
 
 type ResolvedTarget =
@@ -61,7 +65,7 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
+const sdkMock = () => ({
   // Keep broad: Bun evaluates isolated test modules in one process, so this
   // mock can be visible to later files before their file-level cleanup runs.
   hostExec: async () => "",
@@ -132,12 +136,21 @@ mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   cmdWorkspaceSnapshot: async () => undefined,
   cmdWorkspaceRestore: async () => undefined,
   cmdWorkspaceClean: async () => undefined,
-}));
+});
+mock.module(join(srcRoot, "src/sdk"), sdkMock);
+mock.module(join(srcRoot, "src/sdk/index.ts"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
 
-mock.module(join(srcRoot, "src/config"), () => ({
+const configMock = () => ({
   loadConfig: () => config,
   cfgLimit: () => 24,
-}));
+});
+mock.module(join(srcRoot, "src/config"), configMock);
+mock.module(join(srcRoot, "src/config/index.ts"), configMock);
+mock.module(import.meta.resolve("../../src/config"), configMock);
+mock.module(import.meta.resolve("../../src/config/index.ts"), configMock);
 
 mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   logMessage: (from: string, to: string, message: string, route: string) => {

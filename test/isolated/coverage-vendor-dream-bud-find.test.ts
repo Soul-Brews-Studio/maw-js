@@ -33,11 +33,17 @@ mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,
 }));
 
-mock.module("maw-js/commands/shared/fleet-load", () => ({
+const fleetLoadMock = () => ({
   loadFleet: () => mockedFleet,
-}));
+  loadFleetCore: () => mockedFleet,
+  loadFleetEntries: () => mockedFleet,
+  loadDisabledFleetEntries: () => [],
+  fleetDirForWrite: () => join(tempRoot, "fleet"),
+  resolveFleetSession: () => null,
+});
+mock.module("maw-js/commands/shared/fleet-load", fleetLoadMock);
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   ...realSdk,
   loadFleetCore: () => mockedFleet,
   getGhqRoot: () => ghqRoot,
@@ -60,7 +66,8 @@ mock.module("maw-js/sdk", () => ({
 
     throw new Error(`unexpected hostExec command: ${command}`);
   },
-}));
+});
+mock.module("maw-js/sdk", sdkMock);
 
 const { cmdFind } = await import("../../src/vendor/mpr-plugins/find/impl.ts?coverage-vendor-dream-bud-find");
 
