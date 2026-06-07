@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "stream",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Mirror a tmux window into another session with link-window.",
+  "cli": {
+    "command": "stream",
+    "help": "maw stream <session>:<win> [--into <session>] [--name <alias>] | maw stream --unlink <session>:<alias> - mirror a tmux window with link-window",
+    "flags": {
+      "--into": "string",
+      "--name": "string",
+      "--unlink": "boolean"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "avengers",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Manage the Avengers multi-agent team.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "avengers",
+    "aliases": [
+      "avg"
+    ],
+    "help": "maw avengers [status|assemble|disband] — Manage the Avengers multi-agent team"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

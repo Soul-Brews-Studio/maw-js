@@ -1,0 +1,40 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "serve-session-reaper",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "core",
+  "description": "Reaps stale maw PTY and view tmux sessions during maw serve startup.",
+  "author": "Soul-Brews-Studio",
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "ensures": [
+        "serve:startup:stale-session-reap"
+      ],
+      "policy": "best-effort"
+    }
+  },
+  "module": {
+    "path": "./index.ts",
+    "exports": [
+      "serve",
+      "reapStaleServeSessions",
+      "isStaleServeSession"
+    ]
+  },
+  "capabilities": [
+    "serve:startup",
+    "tmux:session-kill"
+  ],
+  "capabilityNamespaces": [
+    "serve",
+    "tmux"
+  ],
+  "weight": 1,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

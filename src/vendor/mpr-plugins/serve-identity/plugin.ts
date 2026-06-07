@@ -1,0 +1,39 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "serve-identity",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "core",
+  "description": "Registers the public /api/identity route during maw serve startup.",
+  "author": "Soul-Brews-Studio",
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "ensures": [
+        "http:route:/api/identity"
+      ],
+      "policy": "fail-fast"
+    }
+  },
+  "module": {
+    "path": "./index.ts",
+    "exports": [
+      "createIdentityApi",
+      "ADVERTISED_ENDPOINTS"
+    ]
+  },
+  "capabilities": [
+    "serve:http-route",
+    "identity:read"
+  ],
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "capabilityNamespaces": [
+    "serve",
+    "identity"
+  ]
+} as const);

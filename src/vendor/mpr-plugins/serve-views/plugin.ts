@@ -1,0 +1,19 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "serve-views",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Register maw serve static and bundled view routes.",
+  "hooks": {
+    "serve": {
+      "script": "index.ts",
+      "handler": "serve",
+      "policy": "fail-fast"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

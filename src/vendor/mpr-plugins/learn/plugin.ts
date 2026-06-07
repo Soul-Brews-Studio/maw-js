@@ -1,0 +1,22 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "learn",
+  "version": "0.1.0-alpha.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Expose the maw learn verb for codebase exploration and route users to the Oracle /learn workflow while native execution lands.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "learn",
+    "help": "maw learn <repo> [--fast|--deep] — explore a codebase via the Oracle /learn workflow",
+    "flags": {
+      "--fast": "boolean",
+      "--deep": "boolean"
+    }
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "tier": "standard"
+} as const);

@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "pr",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "View or manage pull requests.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "pr",
+    "help": "maw pr [number]"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

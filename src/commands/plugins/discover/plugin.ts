@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "discover",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List configured/discovered federation peers, inventory sources, and live tmux state.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "discover",
+    "help": "maw discover [--peers config|scout|both] [--json] [--tree] [--awake]",
+    "flags": {
+      "--peers": "string",
+      "--json": "boolean",
+      "--tree": "boolean",
+      "--awake": "boolean"
+    }
+  },
+  "weight": 10
+} as const);

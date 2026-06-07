@@ -1,0 +1,18 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "completions",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Generate shell completions for maw CLI.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "completions",
+    "help": "maw completions [shell] — Generate shell completions for maw CLI"
+  },
+  "weight": 10,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

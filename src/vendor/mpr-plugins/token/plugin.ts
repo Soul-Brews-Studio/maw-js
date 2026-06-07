@@ -1,0 +1,22 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "token",
+  "version": "0.1.0",
+  "description": "Store and restore .envrc files via pass, and manage active Claude OAuth tokens.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "sdk": "^1.0.0",
+  "schemaVersion": 1,
+  "entry": "./index.ts",
+  "cli": {
+    "command": "token",
+    "help": "maw token <list|use|current|save|load|scan> [args] — manage .envrc and Claude OAuth tokens securely",
+    "flags": {
+      "--no-team": "boolean",
+      "--force": "boolean"
+    }
+  }
+} as const);

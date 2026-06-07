@@ -1,0 +1,14 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "swarm",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Spawn multi-AI agent panes — claude, codex, opencode side by side.",
+  "cli": {
+    "command": "swarm",
+    "help": "maw swarm [agents...] [--tiled] [--count N]"
+  },
+  "weight": 5
+} as const);

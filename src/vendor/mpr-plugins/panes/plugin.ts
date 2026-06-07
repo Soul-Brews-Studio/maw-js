@@ -1,0 +1,27 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "panes",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List pane metadata; use pane swap to move panes or tile to arrange/spawn grids.",
+  "cli": {
+    "command": "panes",
+    "help": "maw panes [target] [--pid] [--all|-a] — list pane metadata; see maw pane swap to move panes and maw tile for grids",
+    "flags": {
+      "--pid": "boolean",
+      "--all": "boolean"
+    }
+  },
+  "api": {
+    "path": "/api/panes",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 10,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

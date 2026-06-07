@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "setup",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Host setup helpers for reboot-safe maw operation",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "setup",
+    "help": "maw setup auto-wake [--dry-run] [--user <name>] [--repo <path>] — register maw-boot with pm2 for reboot fleet restore"
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

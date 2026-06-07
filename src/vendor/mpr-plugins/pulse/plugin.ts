@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "pulse",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Task pulse — add, list, and clean up work items.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "pulse",
+    "help": "maw pulse <add|ls|cleanup> [opts]"
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

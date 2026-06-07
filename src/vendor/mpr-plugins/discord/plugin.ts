@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "discord",
+  "version": "0.4.2",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Discord fleet ops — tokens, bind, status, route, pair. Hybrid pattern (token in pass, config in repo).",
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read",
+    "net"
+  ],
+  "cli": {
+    "command": "discord",
+    "help": "maw discord <tokens|status|bind|access|...> — fleet ops"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

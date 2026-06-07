@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "triggers",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List configured event triggers.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "triggers",
+    "aliases": [
+      "trigger"
+    ],
+    "help": "maw triggers — List configured event triggers"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

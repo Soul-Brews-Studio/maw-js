@@ -1,0 +1,25 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "talk-to",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Send signed messages to another Oracle or agent through maw federation.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "talk-to",
+    "aliases": [
+      "talkto",
+      "talk"
+    ],
+    "help": "maw talk-to <agent> <message> [--force] — talk to a remote agent on another node",
+    "flags": {
+      "--force": "boolean"
+    }
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "tier": "standard"
+} as const);

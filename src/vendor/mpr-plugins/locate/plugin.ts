@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "locate",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Locate an oracle — repo path, session, fleet config, federation node. Diagnostic, no side effects.",
+  "cli": {
+    "command": "locate",
+    "help": "maw locate <oracle> [--path | --json]",
+    "flags": {
+      "--path": "boolean",
+      "--json": "boolean"
+    }
+  },
+  "weight": 15,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

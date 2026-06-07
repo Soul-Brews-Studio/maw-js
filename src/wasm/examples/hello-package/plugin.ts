@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "hello-package",
+  "version": "1.0.0",
+  "wasm": "./build/release.wasm",
+  "sdk": "^1.0.0",
+  "description": "Reference plugin demonstrating CLI, API, and peer surfaces",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "hello-pkg",
+    "help": "Say hello from WASM via any surface"
+  },
+  "api": {
+    "path": "/api/plugins/hello-package",
+    "methods": [
+      "GET",
+      "POST"
+    ]
+  }
+} as const);

@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "peek",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Peek at the latest output from an agent without attaching; use capture for scrollback or view to attach.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "peek",
+    "aliases": [
+      "see"
+    ],
+    "help": "maw peek <agent> — read latest output without attaching; see maw capture for scrollback and maw view to attach"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

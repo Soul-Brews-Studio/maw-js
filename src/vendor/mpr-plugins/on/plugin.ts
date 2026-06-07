@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "on",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Create event triggers for oracle lifecycle events.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "on",
+    "help": "maw on <oracle> <event> [--once] [--timeout N] \"<action>\" — Create event triggers for oracle lifecycle events",
+    "flags": {
+      "--once": "boolean",
+      "--timeout": "string"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

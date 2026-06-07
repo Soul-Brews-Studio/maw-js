@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "health",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "System health check — tmux, maw server, disk, memory, pm2, peers.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "health",
+    "help": "maw health — check system health (tmux, server, disk, memory, pm2, peers)"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

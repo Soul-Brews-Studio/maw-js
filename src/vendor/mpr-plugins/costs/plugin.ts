@@ -1,0 +1,22 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "costs",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Show token usage and estimated cost breakdown per agent.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "costs",
+    "help": "maw costs [--daily] [--days N] [--json] — show token usage and cost breakdown per agent",
+    "flags": {
+      "--daily": "boolean",
+      "--days": "number",
+      "--json": "boolean"
+    }
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

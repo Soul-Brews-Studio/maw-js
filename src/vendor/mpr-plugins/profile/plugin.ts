@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "profile",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Profile primitive — named plugin bundles (Phase 1 of #640 / #888).",
+  "author": "Soul-Brews-Studio",
+  "tier": "core",
+  "cli": {
+    "command": "profile",
+    "aliases": [
+      "profiles"
+    ],
+    "help": "maw profile <list|use|show|current> [...] — manage plugin profiles (Phase 1 of #640)"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

@@ -1,0 +1,14 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "tile",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Arrange the current window into a grid or spawn tile panes; use panes to inspect and pane swap to move panes.",
+  "cli": {
+    "command": "tile",
+    "help": "maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>] — arrange current window or spawn N panes; see maw panes to inspect and maw pane swap to move"
+  },
+  "weight": 5
+} as const);

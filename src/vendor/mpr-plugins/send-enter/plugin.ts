@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "send-enter",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Send Enter key to a maw target — manually submit pending input on stuck panes (#728).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "send-enter",
+    "help": "maw send-enter <target> [--N <count>] — send Enter key to a tmux pane"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

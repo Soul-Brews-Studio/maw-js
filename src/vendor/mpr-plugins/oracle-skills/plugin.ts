@@ -1,0 +1,18 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "oracle-skills",
+  "version": "0.1.0",
+  "description": "Pass through to arra-oracle-skills to manage Oracle skills across AI coding agents.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "sdk": "^1.0.0",
+  "schemaVersion": 1,
+  "entry": "./index.ts",
+  "cli": {
+    "command": "oracle-skills",
+    "help": "maw oracle-skills [args...] — pass through to arra-oracle-skills for skill management"
+  }
+} as const);

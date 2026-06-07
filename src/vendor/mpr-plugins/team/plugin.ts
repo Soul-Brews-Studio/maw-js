@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "team",
+  "version": "2.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Agent reincarnation engine — create, up, down, bring, send, shutdown, resume, lives.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "team",
+    "aliases": [
+      "t"
+    ],
+    "help": "maw team <create|plan|preflight|load|up|down|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>"
+  },
+  "weight": 30,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);
