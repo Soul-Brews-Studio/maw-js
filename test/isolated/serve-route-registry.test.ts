@@ -32,4 +32,29 @@ describe("ServeRouteRegistry", () => {
     registry.route("GET", "/api/triggers", () => new Response());
     expect(() => registry.route("GET", "/api/triggers", () => new Response())).toThrow("serve route already registered: GET /api/triggers");
   });
+
+  test("dispatches the registered fallback in registration order", async () => {
+    const registry = new ServeRouteRegistry();
+    registry.fallback("first", () => new Response("first"));
+    registry.fallback("second", () => new Response("second"));
+
+    expect(registry.listFallbacks()).toEqual(["first", "second"]);
+    expect(await (await registry.handleFallback(new Request("http://local/path"))).text()).toBe("first");
+  });
+
+  test("rejects invalid or duplicate fallback registrations", () => {
+    const registry = new ServeRouteRegistry();
+    expect(() => registry.fallback("", () => new Response())).toThrow("serve fallback id is required");
+    registry.fallback("views", () => new Response("ok"));
+    expect(() => registry.fallback("views", () => new Response("again"))).toThrow("serve fallback already registered: views");
+    expect(() => registry.fallback("bad", undefined as never)).toThrow("serve fallback bad handler must be a function");
+  });
+
+  test("returns a core 404 when no fallback is registered", async () => {
+    const registry = new ServeRouteRegistry();
+    const response = await registry.handleFallback(new Request("http://local/missing"));
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not Found");
+  });
 });

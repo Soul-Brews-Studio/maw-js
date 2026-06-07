@@ -1,13 +1,9 @@
-import { Hono } from "hono";
 import { MawEngine } from "../engine";
 import type { WSData } from "./types";
 import { loadConfig, cfgInterval, cfgTimeout } from "../config";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { serveStatic } from "hono/bun";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
-import { mountViews } from "../views/index";
 import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createTransportRouter } from "../transports";
 import { listSessions } from "./transport/ssh";
@@ -63,49 +59,10 @@ export function servePortInUseInstructions(port: number, hostname: string): stri
 // pulling in server.ts's module-level auto-start side effects.
 import { resolveBindHost } from "./bind-host";
 
-// --- Views + static (Hono keeps these) ---
-
-export function createViews(
-  mawUiDir = process.env.MAW_UI_DIR || mawDataPath("ui", "dist"),
-  doorHtmlPath = join(import.meta.dir, "static", "door.html"),
-) {
-  const views = new Hono();
-
-  // Fleet topology visualization
-  views.get("/topology", async (c) => {
-    const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
-    try {
-      const html = require("fs").readFileSync(path, "utf-8");
-      return c.html(html);
-    } catch { return c.text("fleet-topology.html not found", 404); }
-  });
-
-  mountViews(views);
-
-  // Serve packed maw-ui dist (Shape A — single port, single process)
-  if (existsSync(mawUiDir)) {
-    views.use("/*", serveStatic({ root: mawUiDir }));
-  } else {
-    // The Door — minimal landing page when no packed maw-ui is installed.
-    // Lets users connect to any federation by pasting an address.
-    let doorHtml: string;
-    try {
-      doorHtml = readFileSync(doorHtmlPath, "utf-8");
-    } catch {
-      // door.html missing (e.g. fresh clone without assets) — serve inline stub
-      process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
-      doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
-    }
-    views.get("/", (c) => c.html(doorHtml));
-  }
-
-  views.onError((err, c) => c.json({ error: err.message }, 500));
-
-  return views;
-}
-
-const views = createViews();
-export { views };
+const serveViewsPlugin = await import(`../vendor/mpr-plugins/serve-views/index.ts?server=${encodeURIComponent(import.meta.url)}`);
+const registerServeViews = serveViewsPlugin.serve;
+export const createViews = serveViewsPlugin.createViews;
+export const views = serveViewsPlugin.createViews();
 
 const startupPeerWarningsLogged = new Set<string>();
 
@@ -123,6 +80,11 @@ function warnMissingFederationTokenOnce(port: number): void {
 export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
   const engine = new MawEngine({ feedBuffer, feedListeners });
   const serveRoutes = new ServeRouteRegistry();
+  const serveViews = createViews();
+  await registerServeViews({
+    http: serveRoutes,
+    plugin: { name: "serve-views" },
+  }, { views: serveViews });
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
@@ -213,13 +175,13 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     feedListeners.add((event) => plugins.emit(event));
 
     // Plugin debug API + page (still on Hono views — will move to Elysia in #312)
-    views.get("/api/plugins", (c) => c.json(plugins.stats()));
-    views.post("/api/plugins/reload", async (c) => {
+    serveViews.get("/api/plugins", (c) => c.json(plugins.stats()));
+    serveViews.post("/api/plugins/reload", async (c) => {
       await reloadUserPlugins(plugins, userPluginsDir);
       return c.json({ ok: true, ...plugins.stats() });
     });
     const { pluginsView } = require("../views/plugins");
-    views.route("/plugins", pluginsView(plugins));
+    serveViews.route("/plugins", pluginsView(plugins));
   } catch (err) {
     console.error("[plugins] failed to init:", err);
   }
@@ -280,7 +242,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       if (servedByPlugin) return servedByPlugin;
       return api.handle(req);
     }
-    // Hono handles views + static — clone response with CORS headers
+    // Plugin-registered fallbacks handle views + static — clone response with CORS headers
     const addCors = (r: Response) => {
       const h = corsHeaders(req);
       return new Response(r.body, {
@@ -289,7 +251,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
         headers: { ...Object.fromEntries(r.headers.entries()), ...h },
       });
     };
-    const res = views.fetch(req, { server });
+    const res = serveRoutes.handleFallback(req, { server });
     if (res instanceof Promise) return res.then(addCors);
     return addCors(res as Response);
   };
