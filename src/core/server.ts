@@ -13,7 +13,6 @@ import {
   findEnginePluginRegistration,
   hasEnginePluginEventSink,
   proxyEnginePluginRequest,
-  startEnginePluginHealthPolling,
 } from "./engine-plugin-registry";
 import { mawDataPath } from "./xdg";
 import { UserError } from "./util/user-error";
@@ -273,7 +272,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     throw err;
   }
   setBunServer(server);
-  startEnginePluginHealthPolling();
 
   const bindNote = reason ? ` (${reason})` : "";
   log.info(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);

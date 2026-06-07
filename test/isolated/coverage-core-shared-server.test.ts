@@ -245,7 +245,10 @@ describe("coverage core shared server", () => {
       reloadPlugins: expect.any(Function),
     });
     expect((lifecyclePayloads[0] as any).http).toEqual(expect.objectContaining({ route: expect.any(Function) }));
-    expect(healthPolls).toBe(1);
+    // Engine plugin health polling moved to serve-engine-health-polling; this
+    // isolated server.ts test mocks lifecycle hooks and therefore does not run
+    // plugin-owned startup work directly.
+    expect(healthPolls).toBe(0);
 
     const ws = serveCalls[0].websocket;
     const normal = { data: {} };
