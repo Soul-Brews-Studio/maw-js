@@ -45,13 +45,13 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
     };
 
     if (typeof (system as any).withPluginContext === "function") {
-      (system as any).withPluginContext(plugin.manifest.name, "user", registerHookEntries);
+      (system as any).withPluginContext(plugin.manifest.name, "manifest", registerHookEntries);
     } else {
       registerHookEntries();
     }
 
     if (registeredForPlugin > 0) {
-      system.register(plugin.manifest.name, "ts", "user");
+      system.register(plugin.manifest.name, "ts", "manifest");
     }
   }
 

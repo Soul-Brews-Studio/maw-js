@@ -164,12 +164,19 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   // Plugin system — built-in + user plugins
   try {
     const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
+    const { resetDiscoverCache } = require("../plugin/registry");
     const { resolve, dirname } = require("path");
     const plugins = new PluginSystem({
       shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
         hasEnginePluginEventSink(pluginName, eventName),
     });
     serveLifecyclePlugins = plugins;
+
+    const refreshManifestHooks = async () => {
+      resetDiscoverCache();
+      plugins.unloadScope("manifest");
+      await registerManifestHooks(plugins);
+    };
 
     // Built-in plugins (ship with maw-js)
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
@@ -179,6 +186,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const userPluginsDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
     serveLifecycleReloadPlugins = async () => {
       await reloadUserPlugins(plugins, userPluginsDir);
+      await refreshManifestHooks();
       return { ok: true, ...plugins.stats() };
     };
     await loadPlugins(plugins, userPluginsDir, "user");
@@ -193,7 +201,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
     // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins
     // subscribe to feed events without direct core imports (#1566).
-    await registerManifestHooks(plugins);
+    await refreshManifestHooks();
 
     // Hot-reload: watch user and project-local plugin dirs and re-import on
     // .ts/.js/.wasm change. Builtin plugins are not touched. Opt out with
@@ -201,6 +209,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     watchUserPlugins(userPluginsDir, async (changedFile: string) => {
       log.info(`[plugin] reloading user plugins (${changedFile} changed)`);
       await reloadUserPlugins(plugins, userPluginsDir);
+      await refreshManifestHooks();
     });
     for (const dir of projectPluginDirs) {
       watchUserPlugins(dir, async (changedFile: string) => {
@@ -210,6 +219,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
           await loadPlugins(plugins, projectDir, "project", true);
         }
         plugins._markReloaded?.();
+        await refreshManifestHooks();
       });
     }
 
