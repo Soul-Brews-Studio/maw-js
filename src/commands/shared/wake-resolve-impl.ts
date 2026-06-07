@@ -354,14 +354,16 @@ export async function findWorktrees(
   const safe = (s: string) => s.replace(/'/g, "'\\''");
   const repoPath = `${parentDir}/${repoName}`;
   const outs: string[] = [];
-  const legacyOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
+  const gitLinkedFind = (root: string, predicates: string) =>
+    `find ${root} ${predicates} -exec sh -c 'for dir do [ -e "$dir/.git" ] && printf "%s\n" "$dir"; done' sh {} + 2>/dev/null || true`;
+  const legacyOut = await hostExec(gitLinkedFind(`'${safe(parentDir)}'`, `-maxdepth 1 -type d -name '${safe(repoName)}.wt-*'`));
   outs.push(legacyOut);
-  const nestedOut = await hostExec(`find '${safe(repoPath)}/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`);
+  const nestedOut = await hostExec(gitLinkedFind(`'${safe(repoPath)}/agents'`, "-mindepth 1 -maxdepth 1 -type d"));
   outs.push(nestedOut);
 
   if (!outs.join("\n").trim() && taskSlug && scopeStem) {
     outs.push(await hostExec(
-      `find '${safe(parentDir)}' -maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}' 2>/dev/null || true`,
+      gitLinkedFind(`'${safe(parentDir)}'`, `-maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}'`),
     ));
   }
 

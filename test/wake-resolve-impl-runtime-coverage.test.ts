@@ -421,10 +421,10 @@ describe("findWorktrees and detectSession runtime paths", () => {
     const calls: string[] = [];
     hostExecImpl = async (cmd) => {
       calls.push(cmd);
-      if (cmd === "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true") {
+      if (cmd.includes("-name 'mawjs-oracle.wt-*'") && cmd.includes('[ -e "$dir/.git" ]')) {
         return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
       }
-      if (cmd === "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true") {
+      if (cmd.includes("find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d") && cmd.includes('[ -e "$dir/.git" ]')) {
         return "/repos/mawjs-oracle/agents/3-nested\n";
       }
       throw new Error(`unexpected command: ${cmd}`);
@@ -435,10 +435,10 @@ describe("findWorktrees and detectSession runtime paths", () => {
       { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
       { path: "/repos/mawjs-oracle/agents/3-nested", name: "3-nested" },
     ]);
-    expect(calls).toEqual([
-      "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true",
-      "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true",
-    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("-name 'mawjs-oracle.wt-*'");
+    expect(calls[1]).toContain("find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d");
+    expect(calls.every(cmd => cmd.includes('[ -e "$dir/.git" ]'))).toBe(true);
   });
 
   test("findReusableWorktreeBySlug finds matching slug only within the requested oracle scope", () => {

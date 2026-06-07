@@ -22,4 +22,14 @@ describe("planRehydrateWorktreeWindows (#1563)", () => {
     );
     expect(planned.map(p => p.windowName)).toEqual([]);
   });
+
+  test("skips same-name orphan-style worktree names instead of planning oracle-oracle ghosts (#2375)", () => {
+    const planned = planRehydrateWorktreeWindows("athena", [
+      { name: "athena", path: "/repo/agents/athena" },
+      { name: "1-athena", path: "/repo/agents/1-athena" },
+      { name: "2-fix", path: "/repo/agents/2-fix" },
+    ]);
+
+    expect(planned.map(p => p.windowName)).toEqual(["athena-fix"]);
+  });
 });
