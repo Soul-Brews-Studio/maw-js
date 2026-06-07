@@ -72,11 +72,59 @@ async function fetchGuilds(token: string): Promise<Guild[]> {
   return await res.json() as Guild[];
 }
 
-// Per-process user-name cache so repeated id→name lookups don't refetch
+// Per-process user-name cache so repeated id→name lookups don't refetch.
+// Bounded by LRU order to avoid long-lived Discord inventory processes growing
+// without limit when resolving many allow-listed users.
+export const DISCORD_USER_CACHE_DEFAULT_MAX = 1000;
+export const DISCORD_USER_CACHE_MAX_ENV = "MAW_DISCORD_USER_CACHE_MAX";
+
 const _userCache: Map<string, string> = new Map();
 
+function parseNonNegativeInt(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
+export function getDiscordUserCacheMaxSize(): number {
+  return parseNonNegativeInt(process.env[DISCORD_USER_CACHE_MAX_ENV]) ?? DISCORD_USER_CACHE_DEFAULT_MAX;
+}
+
+function evictDiscordUserCacheOverflow(maxSize = getDiscordUserCacheMaxSize()): void {
+  while (_userCache.size > maxSize) {
+    const oldest = _userCache.keys().next().value;
+    if (oldest === undefined) break;
+    _userCache.delete(oldest);
+  }
+}
+
+export function getCachedDiscordUserName(userId: string): string | undefined {
+  const value = _userCache.get(userId);
+  if (value === undefined) return undefined;
+  // Refresh recency on reads: Map iteration order is insertion order.
+  _userCache.delete(userId);
+  _userCache.set(userId, value);
+  return value;
+}
+
+export function cacheDiscordUserName(userId: string, name: string): void {
+  _userCache.delete(userId);
+  _userCache.set(userId, name);
+  evictDiscordUserCacheOverflow();
+}
+
+export function clearDiscordUserCacheForTests(): void {
+  _userCache.clear();
+}
+
+export function snapshotDiscordUserCacheForTests(): Array<[string, string]> {
+  return Array.from(_userCache.entries());
+}
+
 async function resolveUserName(token: string, userId: string): Promise<string> {
-  if (_userCache.has(userId)) return _userCache.get(userId)!;
+  const cached = getCachedDiscordUserName(userId);
+  if (cached !== undefined) return cached;
   try {
     const res = await fetch(`https://discord.com/api/v10/users/${userId}`, {
       headers: { Authorization: `Bot ${token}` },
@@ -86,13 +134,13 @@ async function resolveUserName(token: string, userId: string): Promise<string> {
       await new Promise(r => setTimeout(r, (retry + 0.2) * 1000));
       return resolveUserName(token, userId);
     }
-    if (!res.ok) { _userCache.set(userId, userId); return userId; }
+    if (!res.ok) { cacheDiscordUserName(userId, userId); return userId; }
     const u: any = await res.json();
     const name = u.global_name || u.username || userId;
-    _userCache.set(userId, name);
+    cacheDiscordUserName(userId, name);
     return name;
   } catch {
-    _userCache.set(userId, userId);
+    cacheDiscordUserName(userId, userId);
     return userId;
   }
 }
