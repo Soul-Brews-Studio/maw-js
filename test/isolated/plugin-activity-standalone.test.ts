@@ -38,6 +38,7 @@ describe("activity plugin standalone boundary (#2190)", () => {
     const imports = [index, impl].flatMap(parseImportSpecs);
 
     expect(imports).toContain("maw-js/sdk");
+    expect(impl).toContain("matchesEngineIdlePrompt");
     expect(imports).toContain("maw-js/cli/parse-args");
     expect(imports).toContain("maw-js/plugin/types");
     expect(imports).not.toContain("maw-js/commands/shared/fleet-load");

@@ -27,6 +27,11 @@ let fileContents: Map<string, string> = new Map();
 mock.module("os", () => ({ homedir: () => mockHome }));
 
 mock.module("fs", () => ({
+  statSync: (path: string) => ({ isFile: () => existingPaths.has(path) && path.endsWith(".json"), isDirectory: () => existingPaths.has(path) && !path.endsWith(".json") }),
+  mkdirSync: () => undefined,
+  renameSync: () => undefined,
+  rmSync: () => undefined,
+  writeFileSync: () => undefined,
   existsSync: (path: string) => existingPaths.has(path),
   readdirSync: (path: string) => dirEntries.get(path) ?? [],
   readFileSync: (path: string) => {

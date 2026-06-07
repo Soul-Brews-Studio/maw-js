@@ -1,4 +1,4 @@
-import { capture, findWindow, listSessions, loadConfig, loadFleetCore as loadFleet, loadFleetEntries, type FleetEntry } from "maw-js/sdk";
+import { capture, findWindow, listSessions, loadConfig, loadFleetCore as loadFleet, loadFleetEntries, matchesEngineIdlePrompt, type FleetEntry } from "maw-js/sdk";
 import {
   followUrlFromConfig,
   parseDurationMs,
@@ -257,7 +257,8 @@ export function isStuckSnapshot(input: string): boolean {
   const normalized = normalizeSnapshot(input);
   const lines = normalized.split("\n").map(line => line.trim()).filter(Boolean).slice(-10);
   if (lines.some(line => /^(?:[>$#]|[❯›λ])\s*(?:[▌█_])?$/.test(line))) return true;
-  return /(type a message|send a message|ask codex|ask claude|what can i help with)\??\s*$/i.test(normalized);
+  if (/(type a message|send a message|what can i help with)\??\s*$/i.test(normalized)) return true;
+  return matchesEngineIdlePrompt(normalized);
 }
 
 function confidenceFor(samples: number): ActivityConfidence {

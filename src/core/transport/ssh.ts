@@ -1,5 +1,6 @@
 import { loadConfig } from "../../config";
 import { tmuxCmd, Tmux } from "./tmux";
+import { isAgentCommandForConfig } from "../agent-detect";
 
 export type HostExecTransport = "local" | "ssh";
 
@@ -163,30 +164,13 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
  *  WHOLE command name — not loose substrings — so non-agent node processes
  *  don't pass. */
   function isAgentCommand(cmd: string | null | undefined): boolean {
-    const c = (cmd ?? "").trim();
-    if (!c) return false;
-    // #1906 — non-claude/codex agents (thclaws, thclaude, …) need the same
-    // detection path so wake doesn't re-send the launch command into their
-    // chat input. Config-driven match below covers exotics; this hardcoded
-    // list covers the common-case fleet engines that ship without explicit
-    // config.commands entries.
-    if (/claude|codex|thclaws|thclaude/i.test(c)) return true;
-    if (/^node$/i.test(c)) return true;
-    if (/^\d+\.\d+\.\d+$/.test(c)) return true;
     try {
       const { loadConfig } = io.requireConfig();
-      const commands: Record<string, string> = loadConfig().commands || {};
-      const lc = c.toLowerCase();
-      for (const v of Object.values(commands)) {
-        const bin = v.split(/\s/)[0];
-        // Exact name match, not substring — a configured `node`-launched agent
-        // must not make every `nodemon`/`node-*` pane look like an agent.
-        if (bin && bin !== "default" && lc === bin.toLowerCase()) return true;
-      }
-    } catch {}
-    return false;
+      return isAgentCommandForConfig(cmd, loadConfig());
+    } catch {
+      return isAgentCommandForConfig(cmd, null);
+    }
   }
-
 /** Batch-check which panes are running what command. */
   async function getPaneCommands(targets: string[], host?: string): Promise<Record<string, string>> {
     const t = io.createTmux(host);

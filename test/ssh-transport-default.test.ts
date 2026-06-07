@@ -215,7 +215,7 @@ describe("createSshTransport", () => {
     expect(h.transport.isAgentCommand("2.1.121")).toBe(true);
     expect(h.transport.isAgentCommand("  ")).toBe(false);
 
-    expect(makeHarness({ requireThrows: true }).transport.isAgentCommand("opencode")).toBe(false);
+    expect(makeHarness({ requireThrows: true }).transport.isAgentCommand("opus-only")).toBe(false);
   });
 
   test("sendKeys maps special keys, handles enter-only input, slash commands, and smart text", async () => {

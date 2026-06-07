@@ -91,6 +91,10 @@ export function validateBasicFields(
           warn(`engines.${name}.cmd`, "must be a non-empty string");
           continue;
         }
+        if (def.processNames !== undefined && (!Array.isArray(def.processNames) || def.processNames.some((v) => typeof v !== "string"))) {
+          warn(`engines.${name}.processNames`, "must be a string[]");
+          continue;
+        }
         engines[name] = { ...def, name: typeof def.name === "string" && def.name ? def.name : name };
       }
       if (Object.keys(engines).length > 0) result.engines = engines;
@@ -169,6 +173,9 @@ export function validateConfigShape(config: unknown): string[] {
         const def = v as Record<string, unknown>;
         if (def.name !== undefined && typeof def.name !== "string") errors.push(`engines.${k}.name must be a string`);
         if (typeof def.cmd !== "string" || def.cmd.length === 0) errors.push(`engines.${k}.cmd must be a non-empty string`);
+        if (def.processNames !== undefined && (!Array.isArray(def.processNames) || def.processNames.some((item) => typeof item !== "string"))) {
+          errors.push(`engines.${k}.processNames must be a string[]`);
+        }
       }
     }
   }

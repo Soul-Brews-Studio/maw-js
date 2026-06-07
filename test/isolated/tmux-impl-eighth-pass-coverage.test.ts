@@ -23,6 +23,11 @@ mock.module("os", () => ({
 }));
 
 mock.module("fs", () => ({
+  statSync: () => ({ isFile: () => false, isDirectory: () => false }),
+  mkdirSync: () => undefined,
+  renameSync: () => undefined,
+  rmSync: () => undefined,
+  writeFileSync: () => undefined,
   existsSync: () => false,
   readdirSync: () => [],
   readFileSync: () => { throw new Error("unexpected readFileSync"); },
