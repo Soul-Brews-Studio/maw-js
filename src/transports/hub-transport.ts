@@ -8,7 +8,8 @@ import type { FeedEvent } from "../lib/feed";
 import { loadConfig } from "../config";
 import { trySilent } from "../core/util/try-silent";
 import type { HubConnection } from "./hub-connection";
-import { openWebSocket, cleanupConnection } from "./hub-connection";
+import { cleanupConnection, openWebSocket } from "./hub-connection";
+import { REMOTE_AGENT_STALE_MS, pruneStaleRemoteAgents } from "./hub-agent-registry";
 import { loadWorkspaceConfigs } from "./hub-config";
 import type { WorkspaceConfig } from "./hub-config";
 
@@ -19,6 +20,10 @@ interface HubTransportDeps {
   cleanup?: typeof cleanupConnection;
   setConnectTimeout?: typeof setTimeout;
   clearConnectTimeout?: typeof clearTimeout;
+  setReconcileInterval?: typeof setInterval;
+  clearReconcileInterval?: typeof clearInterval;
+  now?: () => number;
+  remoteAgentStaleMs?: number;
 }
 
 export class HubTransport implements Transport {
@@ -31,6 +36,7 @@ export class HubTransport implements Transport {
   private msgHandlers = new Set<(msg: TransportMessage) => void>();
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     nodeId?: string,
@@ -61,9 +67,11 @@ export class HubTransport implements Transport {
       (r) => r.status === "fulfilled" && r.value === true,
     );
     this._connected = anyConnected;
+    if (anyConnected) this.startRemoteAgentReconciliation();
   }
 
   async disconnect(): Promise<void> {
+    this.stopRemoteAgentReconciliation();
     for (const conn of this.connections.values()) {
       (this.deps.cleanup ?? cleanupConnection)(conn);
     }
@@ -192,7 +200,10 @@ export class HubTransport implements Transport {
         this.msgHandlers,
         this.presenceHandlers,
         this.feedHandlers,
-        () => { this._connected = true; },
+        () => {
+          this._connected = true;
+          this.startRemoteAgentReconciliation();
+        },
         () => this.updateConnectedState(),
         () => { (this.deps.clearConnectTimeout ?? clearTimeout)(timeout); resolve(true); },
       );
@@ -201,5 +212,31 @@ export class HubTransport implements Transport {
 
   private updateConnectedState() {
     this._connected = Array.from(this.connections.values()).some((c) => c.connected);
+    if (this._connected) this.startRemoteAgentReconciliation();
+    else this.stopRemoteAgentReconciliation();
+  }
+
+  private startRemoteAgentReconciliation() {
+    if (this.reconcileTimer) return;
+    const setTimer = this.deps.setReconcileInterval ?? setInterval;
+    this.reconcileTimer = setTimer(() => this.pruneStaleRemoteAgents(), 5 * 60 * 1000);
+    (this.reconcileTimer as any)?.unref?.();
+  }
+
+  private stopRemoteAgentReconciliation() {
+    if (!this.reconcileTimer) return;
+    (this.deps.clearReconcileInterval ?? clearInterval)(this.reconcileTimer);
+    this.reconcileTimer = null;
+  }
+
+  private pruneStaleRemoteAgents() {
+    const now = (this.deps.now ?? Date.now)();
+    const staleMs = this.deps.remoteAgentStaleMs ?? REMOTE_AGENT_STALE_MS;
+    for (const conn of this.connections.values()) {
+      const removed = pruneStaleRemoteAgents(conn, now, staleMs);
+      if (removed.length > 0) {
+        console.log(`[hub] workspace ${conn.config.id}: pruned stale remote agent(s): ${removed.join(", ")}`);
+      }
+    }
   }
 }

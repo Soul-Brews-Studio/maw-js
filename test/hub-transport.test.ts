@@ -112,6 +112,53 @@ describe("HubTransport", () => {
     }
   });
 
+  test("periodic reconciliation prunes stale remote agents from connected workspaces", async () => {
+    const ws = workspace("ws-prune");
+    const intervals: Array<() => void> = [];
+    const cleared: unknown[] = [];
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    try {
+      const transport = new HubTransport("m5", {
+        loadConfig: () => ({} as any),
+        loadWorkspaces: () => [ws],
+        now: () => 10_000,
+        remoteAgentStaleMs: 5_000,
+        setConnectTimeout: (() => ({ kind: "connect-timeout" })) as typeof setTimeout,
+        clearConnectTimeout: (() => {}) as typeof clearTimeout,
+        setReconcileInterval: ((cb: () => void) => {
+          intervals.push(cb);
+          return { kind: "reconcile-timer" } as any;
+        }) as typeof setInterval,
+        clearReconcileInterval: ((timer: unknown) => { cleared.push(timer); }) as typeof clearInterval,
+        openSocket: (connection, _nodeId, _token, _msg, _presence, _feed, onSetConnected, _onUpdateState, onFirstConnect) => {
+          connection.connected = true;
+          connection.remoteAgents = new Set(["fresh", "stale"]);
+          connection.remoteAgentLastSeen = new Map([
+            ["fresh", 8_000],
+            ["stale", 1_000],
+          ]);
+          onSetConnected();
+          onFirstConnect?.();
+        },
+      });
+
+      await transport.connect();
+      expect(intervals).toHaveLength(1);
+      expect(transport.workspaceStatus()[0]?.remoteAgents).toEqual(["fresh", "stale"]);
+
+      intervals[0]!();
+      expect(transport.workspaceStatus()[0]?.remoteAgents).toEqual(["fresh"]);
+      expect(logs.join("\n")).toContain("pruned stale remote agent(s): stale");
+
+      await transport.disconnect();
+      expect(cleared).toHaveLength(1);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
   test("routes sends, publishes best-effort events, reports status, and disconnects", async () => {
     const cleanups: string[] = [];
     const warnLogs: string[] = [];

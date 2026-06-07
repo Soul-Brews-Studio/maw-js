@@ -10,6 +10,12 @@ import { trySilent } from "../core/util/try-silent";
 import { sanitizeLogField } from "../core/util/sanitize-log";
 import { HEARTBEAT_MS, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "./hub-config";
 import type { WorkspaceConfig } from "./hub-config";
+import {
+  clearRemoteAgents,
+  forgetRemoteAgent,
+  forgetRemoteAgentsForNode,
+  rememberRemoteAgent,
+} from "./hub-agent-registry";
 
 /** Live connection to a single workspace hub */
 export interface HubConnection {
@@ -21,6 +27,10 @@ export interface HubConnection {
   reconnectAttempt: number;
   /** Remote agents visible through this workspace (from auth-ok + presence) */
   remoteAgents: Set<string>;
+  /** Last time each remote agent was observed in auth/presence traffic. */
+  remoteAgentLastSeen?: Map<string, number>;
+  /** Best-effort owner node for each remote agent, learned from presence. */
+  remoteAgentOwners?: Map<string, string>;
 }
 
 export function sendAuth(conn: HubConnection, nodeId: string, federationToken: string | undefined): void {
@@ -56,7 +66,10 @@ export function handleMessage(
         // Sanitize before logging to close CodeQL js/log-injection (#474, #486).
         // lgtm[js/log-injection] — sanitizeLogField strips control chars + ANSI, see docs/security/codeql-sanitizer-model.md
         console.log(`[hub] workspace ${conn.config.id}: authenticated (workspace=${sanitizeLogField(msg.workspaceId)})`);
-        if (Array.isArray(msg.agents)) conn.remoteAgents = new Set(msg.agents);
+        if (Array.isArray(msg.agents)) {
+          clearRemoteAgents(conn);
+          for (const agent of msg.agents) rememberRemoteAgent(conn, agent);
+        }
         break;
       case "message": {
         const transportMsg: TransportMessage = {
@@ -72,7 +85,10 @@ export function handleMessage(
       case "presence":
         if (Array.isArray(msg.agents)) {
           for (const agent of msg.agents) {
-            if (agent.name) conn.remoteAgents.add(agent.name);
+            const name = agent.name || "";
+            const owner = agent.host || agent.nodeId;
+            if (name && agent.status === "offline") forgetRemoteAgent(conn, name);
+            else rememberRemoteAgent(conn, name, msg.timestamp || Date.now(), owner);
             const presence: TransportPresence = {
               oracle: agent.name || "unknown",
               host: agent.host || agent.nodeId || "remote",
@@ -93,7 +109,9 @@ export function handleMessage(
         // lgtm[js/log-injection] — sanitizeLogField, see docs/security/codeql-sanitizer-model.md
         console.log(`[hub] workspace ${conn.config.id}: node left — ${sanitizeLogField(msg.nodeId)}`);
         if (msg.agents && Array.isArray(msg.agents)) {
-          for (const agent of msg.agents) conn.remoteAgents.delete(agent);
+          for (const agent of msg.agents) forgetRemoteAgent(conn, agent);
+        } else if (msg.nodeId) {
+          forgetRemoteAgentsForNode(conn, msg.nodeId);
         }
         break;
       case "feed":
@@ -157,6 +175,7 @@ export function cleanupConnection(conn: HubConnection): void {
     conn.ws = null;
   }
   conn.connected = false;
+  clearRemoteAgents(conn);
 }
 
 export function openWebSocket(
@@ -193,6 +212,7 @@ export function openWebSocket(
     ws.addEventListener("close", (event) => {
       console.log(`[hub] workspace ${conn.config.id}: disconnected (code=${event.code}, reason=${event.reason})`);
       conn.connected = false;
+      clearRemoteAgents(conn);
       stopHeartbeat(conn);
       onUpdateState();
       scheduleReconnect(conn, reopen);
@@ -204,6 +224,7 @@ export function openWebSocket(
     });
   } catch (err) {
     console.error(`[hub] workspace ${conn.config.id}: failed to create WebSocket:`, err);
+    clearRemoteAgents(conn);
     scheduleReconnect(conn, reopen);
   }
 }
