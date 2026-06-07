@@ -115,7 +115,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const serveWs = new ServeWsRegistry();
   const serveViews = createViews();
   await registerServeViews({
-    http: serveRoutes,
+    http: serveRoutes.forPlugin({ name: "serve-views" }),
     plugin: { name: "serve-views" },
   }, { views: serveViews });
   registerServeWs({
@@ -245,13 +245,18 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     }
     const wsUpgrade = serveWs.handleUpgrade(req, server);
     if (wsUpgrade.matched) return wsUpgrade.response;
-    // Elysia handles all /api/* routes (has its own CORS)
+    // Elysia handles legacy /api/* routes (has its own CORS). Engine plugin
+    // proxy stays first. For protected routes extracted into serve plugins,
+    // preserve Elysia auth hooks by running legacy api.handle(req.clone())
+    // before the registry and falling through only when legacy returns 404.
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
       if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
       if (isProtected(apiPath, req.method)) {
         const authOrLegacyRoute = await api.handle(req.clone());
         if (authOrLegacyRoute.status !== 404) return authOrLegacyRoute;
+        const servedByPlugin = await serveRoutes.handle(req);
+        return servedByPlugin ?? authOrLegacyRoute;
       }
       const servedByPlugin = await serveRoutes.handle(req);
       if (servedByPlugin) return servedByPlugin;

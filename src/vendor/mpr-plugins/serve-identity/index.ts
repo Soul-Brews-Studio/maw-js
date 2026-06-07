@@ -1,16 +1,24 @@
-import { api } from "../../../api";
-import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import { createIdentityApi } from "./impl";
+import type { InvokeContext, InvokeResult, ServeHttpRouteRegistrar } from "../../../plugin/types";
+import { createIdentityApi, type IdentityApiDeps } from "./impl";
 
-let registered = false;
+type ServeIdentityContext = {
+  http?: ServeHttpRouteRegistrar;
+};
+
+export function createIdentityRouteHandler(deps?: IdentityApiDeps) {
+  const identityApi = createIdentityApi(deps);
+  return (request: Request) => {
+    const url = new URL(request.url);
+    url.pathname = "/identity";
+    return identityApi.handle(new Request(url.toString(), request));
+  };
+}
 
 /** Register GET /api/identity during maw serve startup. */
-export async function serve(): Promise<{ ok: true; registered: boolean }> {
-  if (!registered) {
-    api.use(createIdentityApi());
-    registered = true;
-  }
-  return { ok: true, registered };
+export async function serve(ctx: ServeIdentityContext): Promise<{ ok: true; registered: boolean }> {
+  if (!ctx.http) throw new Error("serve-identity requires serve http route registration");
+  ctx.http.route("GET", "/api/identity", createIdentityRouteHandler());
+  return { ok: true, registered: true };
 }
 
 export async function registerIdentityRouteForTests(targetApi: { use: (plugin: ReturnType<typeof createIdentityApi>) => unknown }): Promise<void> {

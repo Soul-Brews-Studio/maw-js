@@ -32,9 +32,11 @@ mock.module(import.meta.resolve("../../src/engine"), () => ({ MawEngine: FakeEng
 mock.module(import.meta.resolve("../../src/config"), () => mockConfigModule(() => config));
 mock.module(import.meta.resolve("../../src/api"), () => ({
   api: { handle: (req: Request) => {
-    const pathname = new URL(req.url).pathname;
-    apiPaths.push(pathname);
-    if (pathname === "/api/triggers/fire") return new Response("not found", { status: 404 });
+    const url = new URL(req.url);
+    apiPaths.push(url.pathname);
+    if (url.pathname === "/api/triggers/fire") return new Response("not found", { status: 404 });
+    if (url.pathname === "/api/worktrees/cleanup") return new Response("legacy missing", { status: 404 });
+    if (url.pathname === "/api/protected-auth-fail") return new Response("auth failed", { status: 401 });
     return new Response("api");
   } },
 }));
@@ -85,14 +87,18 @@ mock.module(import.meta.resolve("../../src/api/tmux-stream"), () => ({
   handleTmuxStreamClose: () => { tmuxStreamEvents.push("close"); },
 }));
 mock.module(import.meta.resolve("../../src/lib/elysia-auth"), () => ({
-  isProtected: (path: string, method: string) => method === "POST" && path === "/triggers/fire",
   setBunServer: () => {},
+  isProtected: (path: string, method: string) => method === "POST" && (
+    path === "/triggers/fire" || path === "/worktrees/cleanup" || path === "/protected-auth-fail"
+  ),
 }));
 mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
   runServeLifecycleHooks: async (payload: any) => {
     lifecyclePayloads.push(payload);
     payload.http?.route("GET", "/api/triggers", () => new Response("plugin triggers"));
     payload.http?.route("POST", "/api/triggers/fire", () => new Response("plugin trigger fire"));
+    payload.http?.route("POST", "/api/worktrees/cleanup", () => new Response("plugin cleanup"));
+    payload.http?.route("POST", "/api/protected-auth-fail", () => new Response("should not bypass auth"));
   },
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({
@@ -258,8 +264,12 @@ describe("coverage core shared server", () => {
     expect(proxiedPaths).toEqual(["/api/engine"]);
     expect(await (await fetch(new Request("http://local/api/triggers"), upgradeServer(true))).text()).toBe("plugin triggers");
     expect(await (await fetch(new Request("http://local/api/triggers/fire", { method: "POST" }), upgradeServer(true))).text()).toBe("plugin trigger fire");
+    expect(await (await fetch(new Request("http://local/api/worktrees/cleanup", { method: "POST", body: JSON.stringify({ path: "/tmp/wt" }) }), upgradeServer(true))).text()).toBe("plugin cleanup");
+    const authFailed = await fetch(new Request("http://local/api/protected-auth-fail", { method: "POST" }), upgradeServer(true));
+    expect(authFailed.status).toBe(401);
+    expect(await authFailed.text()).toBe("auth failed");
     expect(await (await fetch(new Request("http://local/api/ordinary"), upgradeServer(true))).text()).toBe("api");
-    expect(apiPaths).toEqual(["/api/triggers/fire", "/api/ordinary"]);
+    expect(apiPaths).toEqual(["/api/triggers/fire", "/api/worktrees/cleanup", "/api/protected-auth-fail", "/api/ordinary"]);
 
     const ptyUpgrade = upgradeServer(true);
     expect(await fetch(new Request("http://local/ws/pty"), ptyUpgrade)).toBeUndefined();

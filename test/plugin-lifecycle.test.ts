@@ -135,6 +135,41 @@ describe("plugin lifecycle hooks (#1576)", () => {
     expect(readFileSync(log, "utf8")).toBe("serve|server|4567|http://localhost:4567|ws://localhost:4567/ws|127.0.0.1\n");
   });
 
+
+  test("serve hooks receive plugin-scoped route registrars", async () => {
+    const plugin = makePlugin("route-owner", {
+      hook: { serve: { script: "serve.ts", handler: "onServe" } },
+      files: {
+        "index.ts": "",
+        "serve.ts": `export function onServe(ctx) { ctx.http.route("GET", "/api/owned", () => new Response(ctx.plugin.name)); ctx.http.fallback("owned-fallback", () => new Response(ctx.plugin.name)); }\n`,
+      },
+    });
+    const scoped: Array<{ name: string; dir?: string }> = [];
+    const routes: string[] = [];
+    const fallbacks: string[] = [];
+    const http = {
+      route: () => { throw new Error("unscoped route should not be used"); },
+      fallback: () => { throw new Error("unscoped fallback should not be used"); },
+      forPlugin(owner: { name: string; dir?: string }) {
+        scoped.push(owner);
+        return {
+          route: (method: string, path: string) => routes.push(`${owner.name}:${method} ${path}`),
+          fallback: (id: string) => fallbacks.push(`${owner.name}:${id}`),
+        };
+      },
+    };
+
+    const summary = await runServeLifecycleHooks(
+      { port: 4567, httpUrl: "http://localhost:4567", wsUrl: "ws://localhost:4567/ws", hostname: "127.0.0.1", http: http as any },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "serve", ran: 1, skipped: 0, failed: 0 });
+    expect(scoped).toEqual([{ name: "route-owner", dir: plugin.dir }]);
+    expect(routes).toEqual(["route-owner:GET /api/owned"]);
+    expect(fallbacks).toEqual(["route-owner:owned-fallback"]);
+  });
+
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {
     const log = makeLog();
     const ok = makePlugin("ok", { weight: 2 });

@@ -43,6 +43,8 @@ describe("serve-debug plugin standalone boundary (#2436)", () => {
 
     const imports = expectStandalonePluginBoundary({ plugin: "serve-debug", requireSdk: false });
     expect(imports.map((record) => record.spec).filter((spec) => spec.startsWith("../"))).toEqual([]);
+    const source = readFileSync(join(pluginDir, "index.ts"), "utf8");
+    expect(source).toContain("ServeHttpRouteRegistrar");
   });
 
   test("registers plugin debug API and page routes through the serve hook", async () => {

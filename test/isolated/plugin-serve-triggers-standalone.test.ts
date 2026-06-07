@@ -20,6 +20,7 @@ describe("serve-triggers plugin standalone boundary", () => {
     const source = readFileSync(join(root, "src/vendor/mpr-plugins/serve-triggers/index.ts"), "utf8");
     expect(source).toContain('from "maw-js/sdk"');
     expect(source).toContain('from "maw-js/plugin/types"');
+    expect(source).toContain("ServeHttpRouteRegistrar");
     expectStandalonePluginBoundary({ plugin: "serve-triggers" });
   });
 

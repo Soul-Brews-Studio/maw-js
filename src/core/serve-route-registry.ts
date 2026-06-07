@@ -1,28 +1,41 @@
-import type { ServeHttpRouteRegistrar, ServeRouteHandler, ServeRouteMethod } from "../plugin/types";
+import type {
+  ServeFallbackHandler,
+  ServeHttpRouteRegistrar,
+  ServeRouteHandler,
+  ServeRouteMethod,
+  ServeRouteRegistrar,
+} from "../plugin/types";
 
-export type { ServeHttpRouteRegistrar, ServeRouteHandler, ServeRouteMethod } from "../plugin/types";
+export type { ServeFallbackHandler, ServeHttpRouteRegistrar, ServeRouteHandler, ServeRouteMethod, ServeRouteRegistrar } from "../plugin/types";
 
 export type ServeRouteEnv = Record<string, unknown>;
 
-export type ServeFallbackHandler = (
-  req: Request,
-  env?: ServeRouteEnv,
-) => Response | Promise<Response>;
+export type ServeRouteOwner = {
+  name: string;
+  dir?: string;
+};
 
-export interface ServeFallbackRegistrar {
-  /** Register the public fallback surface used after core /ws and /api routing. */
-  fallback(id: string, handler: ServeFallbackHandler): void;
+export interface ServeRouteRegistryContext extends ServeRouteRegistrar {
+  /** Return a plugin-scoped registrar so route ownership is captured centrally. */
+  forPlugin(plugin: ServeRouteOwner): ServeRouteRegistrar;
 }
 
 export interface ServeHookContext {
-  http: ServeHttpRouteRegistrar & ServeFallbackRegistrar;
-  plugin?: { name: string; dir?: string };
+  http: ServeRouteRegistrar;
+  plugin?: ServeRouteOwner;
 }
 
 type RegisteredServeRoute = {
   method: ServeRouteMethod;
   path: string;
   handler: ServeRouteHandler;
+  plugin?: ServeRouteOwner;
+};
+
+type RegisteredServeFallback = {
+  id: string;
+  handler: ServeFallbackHandler;
+  plugin?: ServeRouteOwner;
 };
 
 function normalizeMethod(method: ServeRouteMethod): ServeRouteMethod {
@@ -42,25 +55,56 @@ function routePathMatches(pattern: string, pathname: string): boolean {
   return patternParts.every((part, index) => part.startsWith(":") || part === pathParts[index]);
 }
 
-export class ServeRouteRegistry implements ServeHttpRouteRegistrar, ServeFallbackRegistrar {
+function pluginLabel(plugin?: ServeRouteOwner): string {
+  return plugin?.name ? ` (${plugin.name})` : "";
+}
+
+export class ServeRouteRegistry implements ServeRouteRegistryContext {
   private readonly routes = new Map<string, RegisteredServeRoute>();
-  private readonly fallbackHandlers: Array<{ id: string; handler: ServeFallbackHandler }> = [];
+  private readonly fallbackHandlers: RegisteredServeFallback[] = [];
+
+  forPlugin(plugin: ServeRouteOwner): ServeRouteRegistrar {
+    if (!plugin.name.trim()) throw new Error("serve route plugin name is required");
+    const owner = { name: plugin.name, ...(plugin.dir ? { dir: plugin.dir } : {}) };
+    return {
+      route: (method, path, handler) => this.registerRoute(owner, method, path, handler),
+      fallback: (id, handler) => this.registerFallback(owner, id, handler),
+    };
+  }
 
   route(method: ServeRouteMethod, path: string, handler: ServeRouteHandler): void {
-    assertAbsolutePath(path);
-    const normalizedMethod = normalizeMethod(method);
-    const key = `${normalizedMethod} ${path}`;
-    if (this.routes.has(key)) throw new Error(`serve route already registered: ${key}`);
-    this.routes.set(key, { method: normalizedMethod, path, handler });
+    this.registerRoute(undefined, method, path, handler);
   }
 
   fallback(id: string, handler: ServeFallbackHandler): void {
+    this.registerFallback(undefined, id, handler);
+  }
+
+  private registerRoute(
+    plugin: ServeRouteOwner | undefined,
+    method: ServeRouteMethod,
+    path: string,
+    handler: ServeRouteHandler,
+  ): void {
+    assertAbsolutePath(path);
+    if (typeof handler !== "function") throw new Error(`serve route ${method} ${path} handler must be a function`);
+    const normalizedMethod = normalizeMethod(method);
+    const key = `${normalizedMethod} ${path}`;
+    const existing = this.routes.get(key);
+    if (existing) {
+      throw new Error(`serve route already registered: ${key}${pluginLabel(existing.plugin)}`);
+    }
+    this.routes.set(key, { method: normalizedMethod, path, handler, plugin });
+  }
+
+  private registerFallback(plugin: ServeRouteOwner | undefined, id: string, handler: ServeFallbackHandler): void {
     if (!id.trim()) throw new Error("serve fallback id is required");
     if (typeof handler !== "function") throw new Error(`serve fallback ${id} handler must be a function`);
-    if (this.fallbackHandlers.some((entry) => entry.id === id)) {
-      throw new Error(`serve fallback already registered: ${id}`);
+    const existing = this.fallbackHandlers.find((entry) => entry.id === id);
+    if (existing) {
+      throw new Error(`serve fallback already registered: ${id}${pluginLabel(existing.plugin)}`);
     }
-    this.fallbackHandlers.push({ id, handler });
+    this.fallbackHandlers.push({ id, handler, plugin });
   }
 
   async handle(request: Request): Promise<Response | undefined> {
@@ -81,11 +125,22 @@ export class ServeRouteRegistry implements ServeHttpRouteRegistrar, ServeFallbac
     return entry.handler(req, env);
   }
 
-  snapshot(): Array<{ method: ServeRouteMethod; path: string }> {
-    return [...this.routes.values()].map(({ method, path }) => ({ method, path }));
+  snapshot(): Array<{ method: ServeRouteMethod; path: string; plugin?: string }> {
+    return [...this.routes.values()].map(({ method, path, plugin }) => ({
+      method,
+      path,
+      ...(plugin?.name ? { plugin: plugin.name } : {}),
+    }));
   }
 
   listFallbacks(): string[] {
     return this.fallbackHandlers.map((entry) => entry.id);
+  }
+
+  fallbackSnapshot(): Array<{ id: string; plugin?: string }> {
+    return this.fallbackHandlers.map(({ id, plugin }) => ({
+      id,
+      ...(plugin?.name ? { plugin: plugin.name } : {}),
+    }));
   }
 }

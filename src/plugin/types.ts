@@ -34,9 +34,21 @@ export type ServeRouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OP
 
 export type ServeRouteHandler = (request: Request) => Response | Promise<Response>;
 
+export type ServeFallbackHandler = (
+  request: Request,
+  env?: Record<string, unknown>,
+) => Response | Promise<Response>;
+
 export interface ServeHttpRouteRegistrar {
   route(method: ServeRouteMethod, path: string, handler: ServeRouteHandler): void;
 }
+
+export interface ServeFallbackRegistrar {
+  /** Register the public fallback surface used after core /ws and /api routing. */
+  fallback(id: string, handler: ServeFallbackHandler): void;
+}
+
+export interface ServeRouteRegistrar extends ServeHttpRouteRegistrar, ServeFallbackRegistrar {}
 
 export interface PluginLifecycleHook {
   /** Relative script/module path reserved for lifecycle runners (#1576). */

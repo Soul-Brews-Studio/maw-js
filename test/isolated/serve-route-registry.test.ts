@@ -47,13 +47,34 @@ describe("ServeRouteRegistry", () => {
     expect(await registry.handle(new Request("http://local/api/status/neo/extra"))).toBeUndefined();
   });
 
-  test("rejects non-absolute paths and duplicate routes", () => {
+  test("rejects non-absolute paths, invalid handlers, and duplicate routes", () => {
     const registry = new ServeRouteRegistry();
     expect(() => registry.route("GET", "api/worktrees", () => new Response())).toThrow("serve route path must start");
+    expect(() => registry.route("GET", "/api/bad", undefined as never)).toThrow("serve route GET /api/bad handler must be a function");
     registry.route("GET", "/api/worktrees", () => new Response());
     expect(() => registry.route("get" as any, "/api/worktrees", () => new Response())).toThrow("serve route already registered");
     registry.route("GET", "/api/triggers", () => new Response());
     expect(() => registry.route("GET", "/api/triggers", () => new Response())).toThrow("serve route already registered: GET /api/triggers");
+  });
+
+  test("scopes route and fallback ownership to the registering plugin", async () => {
+    const registry = new ServeRouteRegistry();
+    const identity = registry.forPlugin({ name: "serve-identity", dir: "/plugins/identity" });
+    const views = registry.forPlugin({ name: "serve-views" });
+
+    identity.route("GET", "/api/identity", () => Response.json({ node: "m5" }));
+    views.fallback("serve-views", () => new Response("view"));
+
+    expect(registry.snapshot()).toEqual([{ method: "GET", path: "/api/identity", plugin: "serve-identity" }]);
+    expect(registry.fallbackSnapshot()).toEqual([{ id: "serve-views", plugin: "serve-views" }]);
+    expect(await (await registry.handle(new Request("http://local/api/identity")))!.json()).toEqual({ node: "m5" });
+    expect(await (await registry.handleFallback(new Request("http://local/"))).text()).toBe("view");
+
+    expect(() => registry.forPlugin({ name: "" })).toThrow("serve route plugin name is required");
+    expect(() => registry.forPlugin({ name: "serve-debug" }).route("GET", "/api/identity", () => new Response()))
+      .toThrow("serve route already registered: GET /api/identity (serve-identity)");
+    expect(() => registry.forPlugin({ name: "other-views" }).fallback("serve-views", () => new Response()))
+      .toThrow("serve fallback already registered: serve-views (serve-views)");
   });
 
   test("dispatches the registered fallback in registration order", async () => {

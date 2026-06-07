@@ -12,7 +12,7 @@ import { pathToFileURL } from "url";
 import { discoverPackages } from "./registry";
 import type { MawEngine } from "../engine";
 import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
-import type { LoadedPlugin, PluginLifecycleHook, ServeHttpRouteRegistrar } from "./types";
+import type { LoadedPlugin, PluginLifecycleHook, ServeRouteRegistrar } from "./types";
 
 export type LifecyclePhase = "wake" | "sleep" | "serve";
 
@@ -29,7 +29,7 @@ export interface PluginLifecycleContext {
   httpUrl?: string;
   wsUrl?: string;
   hostname?: string;
-  http?: ServeHttpRouteRegistrar;
+  http?: ServeRouteRegistrar;
   ws?: ServeWsRouteRegistrar;
   engine?: MawEngine;
   ensures?: string[];
@@ -54,7 +54,7 @@ export interface ServeLifecycleContextInput {
   httpUrl: string;
   wsUrl: string;
   hostname: string;
-  http?: ServeHttpRouteRegistrar;
+  http?: ServeRouteRegistrar;
   ws?: ServeWsRouteRegistrar;
   engine?: MawEngine;
   /** In-memory feed plugin system, exposed for serve diagnostics/debug plugins. */
@@ -86,6 +86,23 @@ function sortByLifecycleOrder(plugins: LoadedPlugin[]): LoadedPlugin[] {
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+
+type PluginScopedServeRoutes = ServeRouteRegistrar & {
+  forPlugin?: (plugin: { name: string; dir?: string }) => ServeRouteRegistrar;
+};
+
+function scopedServeContext(
+  baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures">,
+  plugin: LoadedPlugin,
+): Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures"> {
+  const http = baseContext.http as PluginScopedServeRoutes | undefined;
+  if (!http?.forPlugin) return baseContext;
+  return {
+    ...baseContext,
+    http: http.forPlugin({ name: plugin.manifest.name, dir: plugin.dir }),
+  };
 }
 
 function resolveHookModulePath(plugin: LoadedPlugin, hook: PluginLifecycleHook): string {
@@ -124,7 +141,7 @@ async function runOneLifecycleHook(
   }
 
   const result = await handler({
-    ...baseContext,
+    ...scopedServeContext(baseContext, plugin),
     phase,
     plugin: { name: plugin.manifest.name, dir: plugin.dir },
     ensures: hook.ensures ?? [],

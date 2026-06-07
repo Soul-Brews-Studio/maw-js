@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import { ServeRouteRegistry } from "../../src/core/serve-route-registry";
 import { createIdentityApi } from "../../src/vendor/mpr-plugins/serve-identity/impl";
 
 const root = join(import.meta.dir, "../..");
@@ -20,7 +21,6 @@ describe("serve-identity plugin standalone boundary", () => {
       plugin: "serve-identity",
       requireSdk: false,
       allowRelative: [
-        /^\.\.\/\.\.\/\.\.\/api$/,
         /^\.\.\/\.\.\/\.\.\/config$/,
         /^\.\.\/\.\.\/\.\.\/commands\/shared\/federation-sync$/,
         /^\.\.\/\.\.\/\.\.\/lib\/peer-key$/,
@@ -30,17 +30,18 @@ describe("serve-identity plugin standalone boundary", () => {
     });
   });
 
-  test("serve hook mounts /api/identity on the shared API app", async () => {
+  test("serve hook registers /api/identity on the shared serve route registry", async () => {
     const savedPeerKey = process.env.MAW_PEER_KEY;
     process.env.MAW_PEER_KEY = "hook-peer-key";
     try {
-      const { api } = await import("../../src/api");
       const { serve } = await import("../../src/vendor/mpr-plugins/serve-identity/index.ts?serve-hook-test");
-      await serve();
+      const registry = new ServeRouteRegistry();
+      await serve({ http: registry.forPlugin({ name: "serve-identity" }) });
 
-      const after = await api.handle(new Request("http://localhost/api/identity"));
-      expect(after.status).toBe(200);
-      const body = await after.json() as Record<string, unknown>;
+      expect(registry.snapshot()).toEqual([{ method: "GET", path: "/api/identity", plugin: "serve-identity" }]);
+      const after = await registry.handle(new Request("http://localhost/api/identity"));
+      expect(after?.status).toBe(200);
+      const body = await after!.json() as Record<string, unknown>;
       expect(body.pubkey).toBe("hook-peer-key");
       expect(body.endpoints).toEqual(expect.arrayContaining(["/api/identity", "/api/send"]));
     } finally {

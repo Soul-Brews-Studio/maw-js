@@ -35,6 +35,7 @@ describe("serve-worktrees plugin standalone boundary (#2434)", () => {
     const source = readFileSync(join(root, "src/vendor/mpr-plugins/serve-worktrees/index.ts"), "utf8");
     expect(source).toContain('from "maw-js/sdk"');
     expect(source).toContain('from "maw-js/plugin/types"');
+    expect(source).toContain("ServeHttpRouteRegistrar");
   });
 
   test("registers identical worktrees list and cleanup routes", async () => {
