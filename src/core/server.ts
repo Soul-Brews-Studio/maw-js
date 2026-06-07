@@ -155,6 +155,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     });
   });
 
+  let serveLifecyclePlugins: unknown;
+  let serveLifecycleReloadPlugins: (() => Promise<unknown>) | undefined;
+
   // Plugin system — built-in + user plugins
   try {
     const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
@@ -163,6 +166,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
         hasEnginePluginEventSink(pluginName, eventName),
     });
+    serveLifecyclePlugins = plugins;
 
     // Built-in plugins (ship with maw-js)
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
@@ -170,6 +174,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
     // User plugins (file-drop: XDG data plugin dir; overridable for tests/dev)
     const userPluginsDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
+    serveLifecycleReloadPlugins = async () => {
+      await reloadUserPlugins(plugins, userPluginsDir);
+      return { ok: true, ...plugins.stats() };
+    };
     await loadPlugins(plugins, userPluginsDir, "user");
 
     // Project-local plugins (.maw/plugins in cwd ancestors) are loaded after
@@ -205,14 +213,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     // Single feedListener wires everything through the plugin pipeline
     feedListeners.add((event) => plugins.emit(event));
 
-    // Plugin debug API + page (still on Hono views — will move to Elysia in #312)
-    serveViews.get("/api/plugins", (c) => c.json(plugins.stats()));
-    serveViews.post("/api/plugins/reload", async (c) => {
-      await reloadUserPlugins(plugins, userPluginsDir);
-      return c.json({ ok: true, ...plugins.stats() });
-    });
-    const { pluginsView } = require("../views/plugins");
-    serveViews.route("/plugins", pluginsView(plugins));
   } catch (err) {
     log.error("[plugins] failed to init:", err);
   }
@@ -252,7 +252,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     if (req.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(req) });
     }
-
     if (url.pathname === "/ws/pty") {
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -273,6 +272,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       if (servedByPlugin) return servedByPlugin;
       return api.handle(req);
     }
+    const servedByPlugin = await serveRoutes.handle(req);
+    if (servedByPlugin) return servedByPlugin;
+
     // Plugin-registered fallbacks handle views + static — clone response with CORS headers
     const addCors = (r: Response) => {
       const h = corsHeaders(req);
@@ -377,6 +379,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       wsUrl: WS_URL,
       hostname,
       http: serveRoutes,
+      plugins: serveLifecyclePlugins,
+      reloadPlugins: serveLifecycleReloadPlugins,
     }, undefined, {
       info: (message) => log.info(message),
       warn: (message) => log.warn(message),

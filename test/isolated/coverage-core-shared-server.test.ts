@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -101,7 +100,6 @@ mock.module(import.meta.resolve("../../src/plugins/index"), () => ({
   watchUserPlugins: () => {},
   registerManifestHooks: async () => {},
 }));
-mock.module(import.meta.resolve("../../src/views/plugins"), () => ({ pluginsView: () => new Hono() }));
 mock.module(import.meta.resolve("../../src/lib/peers/store"), () => ({ loadPeers: () => ({ peers: {} }) }));
 mock.module(import.meta.resolve("../../src/lib/peers/duplicate-detect"), () => ({ warnDuplicatesAtBoot: () => {} }));
 
@@ -214,7 +212,14 @@ describe("coverage core shared server", () => {
     expect(killed).toEqual(["maw-pty-stale", "sender-view"]);
     expect(engineCalls).toContain("router");
     expect(lifecyclePayloads).toHaveLength(1);
-    expect(lifecyclePayloads[0]).toMatchObject({ port: 4910, httpUrl: "http://localhost:4910", wsUrl: "ws://localhost:4910/ws", hostname: "127.0.0.1" });
+    expect(lifecyclePayloads[0]).toMatchObject({
+      port: 4910,
+      httpUrl: "http://localhost:4910",
+      wsUrl: "ws://localhost:4910/ws",
+      hostname: "127.0.0.1",
+      plugins: expect.any(Object),
+      reloadPlugins: expect.any(Function),
+    });
     expect((lifecyclePayloads[0] as any).http).toEqual(expect.objectContaining({ route: expect.any(Function) }));
     expect(healthPolls).toBe(1);
 

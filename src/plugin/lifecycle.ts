@@ -51,6 +51,10 @@ export interface ServeLifecycleContextInput {
   wsUrl: string;
   hostname: string;
   http?: ServeHttpRouteRegistrar;
+  /** In-memory feed plugin system, exposed for serve diagnostics/debug plugins. */
+  plugins?: unknown;
+  /** Reload user plugins and return the current plugin stats/debug payload. */
+  reloadPlugins?: () => unknown | Promise<unknown>;
 }
 
 export interface LifecycleRunSummary {

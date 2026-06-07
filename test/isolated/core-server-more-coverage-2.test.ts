@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -128,9 +127,6 @@ mock.module(import.meta.resolve("../../src/plugins/index"), () => ({
   reloadUserPlugins: async (...args: unknown[]) => { pluginReloads.push(args); },
   watchUserPlugins: (_dir: string, cb: (changedFile: string) => unknown) => { watchCallbacks.push(cb); },
   registerManifestHooks: async () => {},
-}));
-mock.module(import.meta.resolve("../../src/views/plugins"), () => ({
-  pluginsView: () => new Hono().get("/", c => c.text("plugins")),
 }));
 mock.module(import.meta.resolve("../../src/lib/peers/store"), () => ({
   loadPeers: () => {
