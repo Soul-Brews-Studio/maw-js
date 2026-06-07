@@ -219,7 +219,7 @@ describe("core server remaining isolated coverage", () => {
     expect(await boom.json()).toEqual({ error: "view exploded" });
   });
 
-  test("startup tolerates tmux, transport, plugin, peer-scan, event-dispatch, reload, and pty-upgrade failure paths", async () => {
+  test("startup tolerates tmux, transport, plugin, event-dispatch, reload, and pty-upgrade failure paths", async () => {
     sessionsShouldThrow = true;
     connectShouldReject = true;
     pluginLoadShouldThrow = true;
@@ -230,7 +230,10 @@ describe("core server remaining isolated coverage", () => {
 
     expect(errors.join("\n")).toContain("connect failed");
     expect(errors.join("\n")).toContain("failed to init");
-    expect(warns.join("\n")).toContain("peer dedup scan skipped: peer cache corrupt");
+    // Peer dedup scan warnings moved to serve-peer-startup-warnings; isolated
+    // server.ts tests do not execute lifecycle plugins. The plugin standalone
+    // test covers the corrupt peer-cache warning.
+    expect(warns.join("\n")).not.toContain("peer dedup scan skipped");
 
     const fetch = serveCalls[0].fetch;
     const failedPty = await fetch(new Request("http://local/ws/pty"), upgradeServer(false));
@@ -242,15 +245,18 @@ describe("core server remaining isolated coverage", () => {
     expect(warns.join("\n")).toContain("event dispatch failed: dispatch rejected");
   });
 
-  test("deduplicates missing federation token startup warning across repeated serve starts", async () => {
+  test("missing federation token warning is plugin-owned after extraction", async () => {
     config = { peers: ["http://peer.local:3456"] };
 
     await startServer(4792);
     await startServer(4793);
 
     const joined = warns.join("\n");
-    expect(joined.match(/peers configured but no federationToken set/g)?.length).toBe(1);
-    expect(joined.match(/exposed to network WITHOUT authentication/g)?.length).toBe(1);
+    // Missing-token warning dedupe moved to serve-peer-startup-warnings; this
+    // isolated server.ts test mocks lifecycle hooks and therefore should not
+    // expect plugin-owned warnings.
+    expect(joined).not.toContain("peers configured but no federationToken set");
+    expect(joined).not.toContain("exposed to network WITHOUT authentication");
   });
 
   test("plugin reload watcher callback reloads user plugins", async () => {

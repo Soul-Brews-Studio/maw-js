@@ -88,17 +88,6 @@ export const views = serveViewsPlugin.createViews();
 const serveWsPlugin = await import(`../vendor/mpr-plugins/serve-ws/index.ts?server=${encodeURIComponent(import.meta.url)}`);
 const registerServeWs = serveWsPlugin.serve;
 
-const startupPeerWarningsLogged = new Set<string>();
-
-function warnMissingFederationTokenOnce(port: number, log = createServeLogger(1)): void {
-  const key = "missing-federation-token";
-  if (startupPeerWarningsLogged.has(key)) return;
-  startupPeerWarningsLogged.add(key);
-  log.warn(`\x1b[31m⚠ WARNING: peers configured but no federationToken set!\x1b[0m`);
-  log.warn(`\x1b[31m  Port ${port} is exposed to network WITHOUT authentication.\x1b[0m`);
-  log.warn(`\x1b[31m  Add "federationToken" (min 16 chars) to maw.config.json\x1b[0m`);
-}
-
 // --- Server ---
 
 export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
@@ -265,25 +254,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const hasPeers = heuristic.reason !== null;
   log.debug(`[serve:debug] verbosity=${verbosity} port=${port} hostname=${hostname} reason=${reason ?? "explicit-local"}`);
   log.debug(`[serve:debug] peers=${hasPeers ? "configured" : "none"} tls=${config.tls?.cert && config.tls?.key ? "configured" : "off"}`);
-
-  if (hasPeers && !config.federationToken) {
-    warnMissingFederationTokenOnce(port, log);
-  }
-
-  // Duplicate <oracle>:<node> warn (#804 Step 3, ADR docs/federation/0001-peer-identity.md).
-  // Boot-time scan of the peer cache + the local identity. Non-blocking — per
-  // the ADR, "Crypto solves can't-fake; doctor + boot-time check solves
-  // operator confusion" — so we just warn loudly and let serve continue.
-  try {
-    const { loadPeers } = require("../lib/peers/store");
-    const { warnDuplicatesAtBoot } = require("../lib/peers/duplicate-detect");
-    const peers = loadPeers().peers;
-    const local = config.node ? { oracle: config.oracle ?? "mawjs", node: config.node } : undefined;
-    warnDuplicatesAtBoot({ peers, local, log: (message: string) => log.warn(message) });
-  } catch (e: any) {
-    // Never fail boot on a dedup-scan glitch — log and move on.
-    log.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
-  }
 
   // P1 heartbeat-reaper: Bun-managed ws ping/pong + idle close. Dead clients
   // (ungraceful disconnect, no TCP FIN) close after wsIdleSec → close handler
