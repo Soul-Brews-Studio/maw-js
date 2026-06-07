@@ -2,10 +2,27 @@ import { tmux, tmuxCmd } from "./tmux";
 import { loadConfig, cfgTimeout, cfgLimit } from "../../config";
 import type { MawWS } from "../types";
 
+// Pinned Oracle canvas — mirror of CLAUDE_COLS/CLAUDE_ROWS in
+// commands/shared/wake-pane-size.ts (pinSessionWide). Kept local to avoid
+// pulling the sdk graph into the transport layer; the values are stable.
+//
+// The web client may drive the shared window's ROW count (so the latest output
+// + input prompt land on-screen in a short xterm viewport) but the WIDTH must
+// stay pinned: narrow scrollback bakes permanently into pane history (the
+// 2026-04-29 "mobile-width after cron-wake" regression that pinSessionWide
+// fixes). Rows do not bake, so a temporary row shrink is safe and is restored
+// to the pinned canvas when the last viewer detaches.
+const PINNED_COLS = 200;
+const PINNED_ROWS = 50;
+
 type PtyProc = ReturnType<typeof Bun.spawn>;
 type PtySpawn = typeof Bun.spawn;
 type PtySpawnSync = typeof Bun.spawnSync;
-type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">;
+// resizeWindow is optional: production always has it (real `tmux` is spread
+// into ptyDeps), but injected test mocks may omit it — in which case the
+// row-reflow (fitWindowRows) no-ops rather than throw.
+type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">
+  & Partial<Pick<typeof tmux, "resizeWindow">>;
 
 export interface PtyDeps {
   tmux: PtyTmux;
@@ -89,6 +106,22 @@ function findSession(ws: MawWS): PtySession | undefined {
   }
 }
 
+// Drive the (shared) window's ROW count to the web client's viewport while
+// pinning width. tmux gives a window exactly one size shared by the grouped web
+// session AND the real Oracle session — there is no per-client window size — so
+// without this the window stays at the manual-pinned 200x50 (pinSessionWide) and
+// a short xterm shows only the top ~26 rows, hiding the latest output + the
+// input prompt. resize-window reflows the live TUI repaint to the visible rows.
+// Width is deliberately NOT taken from the client (bake guard, see PINNED_COLS).
+// This also reflows the Oracle's own view; acceptable because rows don't bake and
+// detach() restores the pinned canvas once the last viewer leaves. No-op when
+// the injected tmux mock omits the optional resizeWindow dep.
+async function fitWindowRows(target: string, rows: number): Promise<void> {
+  if (!io.tmux.resizeWindow) return;
+  const r = Math.max(1, Math.min(io.cfgLimit("ptyRows"), Math.floor(rows)));
+  await io.tmux.resizeWindow(target, PINNED_COLS, r).catch(() => { /* expected: target may be gone */ });
+}
+
 function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
   if (typeof msg !== "string") {
     // Binary → keystroke to PTY stdin
@@ -155,6 +188,10 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     });
     // Hide status bar in PTY sessions so it doesn't appear in terminal output
     await io.tmux.setOption(ptySessionName, "status", "off").catch(() => { /* expected: option may not apply */ });
+    // Reflow the shared window to the client's rows so the prompt/latest output
+    // are on-screen from the first paint; the manual-pinned parent window would
+    // otherwise keep the web view at 200x50. Width stays pinned (bake guard).
+    await fitWindowRows(ptySessionName, r);
   } catch {
     attaching.delete(safe);
     ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
@@ -235,16 +272,23 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     // PTY process ended — clean up grouped session
     sessions.delete(safe);
     io.tmux.killSession(s.ptySessionName);
+    // Restore the shared window's rows in case the wrapper died while shrunk
+    // (symmetry with detach()'s grace-timer restore).
+    void io.tmux.resizeWindow?.(safe.split(":")[0], PINNED_COLS, PINNED_ROWS).catch(() => { /* expected: parent may be gone */ });
     for (const v of s.viewers) {
       try { v.send(JSON.stringify({ type: "detached", target: safe })); } catch { /* expected: viewer may have disconnected */ }
     }
   })();
 }
 
-function resize(_ws: MawWS, _cols: number, _rows: number) {
-  // No-op: with grouped sessions, resize-pane would affect the shared pane
-  // (shrinking the real terminal). The web terminal works at its initial size.
-  // TODO: proper PTY resize via node-pty or ioctl
+function resize(ws: MawWS, _cols: number, rows: number) {
+  // Honor row changes from the client (xterm FitAddon / ResizeObserver) so the
+  // prompt stays on-screen as the viewport changes (rotation, soft keyboard,
+  // window resize). Width is intentionally ignored — it stays pinned to avoid
+  // permanent narrow-scrollback bake. Fire-and-forget; the WS handler is sync.
+  const session = findSession(ws);
+  if (!session) return;
+  void fitWindowRows(session.ptySessionName, rows);
 }
 
 function detach(ws: MawWS) {
@@ -256,6 +300,12 @@ function detach(ws: MawWS) {
       session.cleanupTimer = io.setTimeout(() => {
         try { session.proc.kill(); } catch { /* expected: process may already be dead */ }
         io.tmux.killSession(session.ptySessionName);
+        // Restore the shared Oracle window to its pinned canvas — fitWindowRows
+        // may have shrunk its rows to the web viewport; with no viewer left the
+        // headless Oracle should regain its full working area (re-asserts the
+        // pinSessionWide pin; rows don't bake so this is purely cosmetic restore).
+        const parent = target.split(":")[0];
+        void io.tmux.resizeWindow?.(parent, PINNED_COLS, PINNED_ROWS).catch(() => { /* expected: parent may be gone */ });
         sessions.delete(target);
       }, io.cfgTimeout("pty"));
     }
