@@ -60,6 +60,16 @@ describe("serve-ws plugin", () => {
     ]);
   });
 
+  test("is idempotent when direct server registration already installed routes", () => {
+    const registry = new ServeWsRegistry();
+    const engine = { handleOpen() {}, handleMessage() {}, handleClose() {} };
+    const deps = { handlePtyMessage() {}, handlePtyClose() {} } as any;
+
+    serve({ ws: registry, engine: engine as any }, deps);
+    expect(() => serve({ ws: registry, engine: engine as any }, deps)).not.toThrow();
+    expect(registry.snapshot()).toEqual(["/ws/pty", "/ws"]);
+  });
+
   test("upgrades matching paths with preserved WSData modes", () => {
     const registry = new ServeWsRegistry();
     serve({

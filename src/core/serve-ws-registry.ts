@@ -15,6 +15,7 @@ export interface ServeWsRouteHandlers {
 
 export interface ServeWsRouteRegistrar {
   route(path: string, data: ServeWsDataFactory, handlers: ServeWsRouteHandlers): void;
+  snapshot(): string[];
 }
 
 export type ServeWsUpgradeResult = {

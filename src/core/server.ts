@@ -88,7 +88,6 @@ export function servePortInUseInstructions(port: number, hostname: string): stri
 import { resolveBindHost } from "./bind-host";
 
 const serveViewsPlugin = await import(`../vendor/mpr-plugins/serve-views/index.ts?server=${encodeURIComponent(import.meta.url)}`);
-const registerServeViews = serveViewsPlugin.serve;
 export const createViews = serveViewsPlugin.createViews;
 export const views = serveViewsPlugin.createViews();
 
@@ -114,11 +113,6 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   const engine = new MawEngine({ feedBuffer, feedListeners });
   const serveRoutes = new ServeRouteRegistry();
   const serveWs = new ServeWsRegistry();
-  const serveViews = createViews();
-  await registerServeViews({
-    http: serveRoutes.forPlugin({ name: "serve-views" }),
-    plugin: { name: "serve-views" },
-  }, { views: serveViews });
   registerServeWs({
     ws: serveWs,
     engine,

@@ -29,16 +29,22 @@ export function registerServeWsRoutes(ctx: ServeWsContext, deps: WsDeps = defaul
   if (!ctx.ws) throw new Error("serve-ws requires serve ws route registration");
   if (!ctx.engine) throw new Error("serve-ws requires MawEngine in serve context");
 
-  ctx.ws.route("/ws/pty", () => defaultWsData("pty"), {
-    message: (ws, msg) => deps.handlePtyMessage(ws, msg as string | Buffer),
-    close: (ws) => deps.handlePtyClose(ws),
-  });
+  const registered = ctx.ws.snapshot();
 
-  ctx.ws.route("/ws", () => defaultWsData(), {
-    open: (ws: ServeWsSocket) => ctx.engine!.handleOpen(ws as never),
-    message: (ws: ServeWsSocket, msg: unknown) => ctx.engine!.handleMessage(ws as never, msg as never),
-    close: (ws: ServeWsSocket) => ctx.engine!.handleClose(ws as never),
-  });
+  if (!registered.includes("/ws/pty")) {
+    ctx.ws.route("/ws/pty", () => defaultWsData("pty"), {
+      message: (ws, msg) => deps.handlePtyMessage(ws, msg as string | Buffer),
+      close: (ws) => deps.handlePtyClose(ws),
+    });
+  }
+
+  if (!registered.includes("/ws")) {
+    ctx.ws.route("/ws", () => defaultWsData(), {
+      open: (ws: ServeWsSocket) => ctx.engine!.handleOpen(ws as never),
+      message: (ws: ServeWsSocket, msg: unknown) => ctx.engine!.handleMessage(ws as never, msg as never),
+      close: (ws: ServeWsSocket) => ctx.engine!.handleClose(ws as never),
+    });
+  }
 }
 
 export function serve(ctx: ServeWsContext, deps?: WsDeps): { ok: true; routes: string[] } {

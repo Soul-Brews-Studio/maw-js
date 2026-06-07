@@ -63,6 +63,7 @@ describe("serve-config-health plugin standalone boundary", () => {
       "GET /api/health",
       "GET /api/status",
       "GET /api/status/:oracle",
+      "GET /health",
       "POST /api/config",
       "POST /api/config/reload",
       "POST /api/status",
@@ -128,7 +129,7 @@ describe("serve-config-health plugin standalone boundary", () => {
     expect(reloaded).toBe(1);
   });
 
-  test("preserves /api/health invoke-result shape and auto-mounted status semantics", async () => {
+  test("preserves /api/health and /health invoke-result shape and auto-mounted status semantics", async () => {
     const handlers = createServeHealthRouteHandlers({
       healthHandler: (async (ctx: any) => ({ ok: false, error: `source=${ctx.source} args=${JSON.stringify(ctx.args)}` })) as any,
     });
@@ -136,6 +137,14 @@ describe("serve-config-health plugin standalone boundary", () => {
     const response = await handlers.health(new Request("http://localhost/api/health?verbose=1"));
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual({ ok: false, error: 'source=api args={"verbose":"1"}' });
+
+    const registry = new ServeRouteRegistry();
+    registerServeHealthRoutes(registry, {
+      healthHandler: (async (ctx: any) => ({ ok: true, source: ctx.source, args: ctx.args })) as any,
+    });
+    const alias = await registry.handle(new Request("http://localhost/health?short=1"));
+    expect(alias?.status).toBe(200);
+    expect(await alias!.json()).toEqual({ ok: true, source: "api", args: { short: "1" } });
   });
 
   test("registered param route works through ServeRouteRegistry", async () => {

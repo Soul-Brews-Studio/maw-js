@@ -135,6 +135,7 @@ export function registerServeHealthRoutes(http: ServeHttpRouteRegistrar, deps?: 
   http.route("POST", "/api/config", handlers.postConfig);
   http.route("POST", "/api/config/reload", handlers.reloadConfig);
   http.route("GET", "/api/health", handlers.health);
+  http.route("GET", "/health", handlers.health);
   http.route("GET", "/api/status", handlers.getStatus);
   http.route("POST", "/api/status", handlers.postStatus);
   http.route("GET", "/api/status/:oracle", (request) => {
