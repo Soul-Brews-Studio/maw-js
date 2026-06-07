@@ -107,6 +107,7 @@ describe("serve-identity plugin API", () => {
       uptime: 42,
       clockUtc: "2026-05-17T00:00:00.000Z",
       endpoints: [
+        "/api/agents",
         "/api/identity",
         "/api/messages",
         "/api/pane-keys",
