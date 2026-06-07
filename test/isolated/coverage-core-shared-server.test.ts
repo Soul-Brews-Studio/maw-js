@@ -167,7 +167,9 @@ describe("coverage core shared server", () => {
 
     expect(killed).toEqual(["maw-pty-stale", "sender-view"]);
     expect(engineCalls).toContain("router");
-    expect(lifecyclePayloads).toEqual([{ port: 4910, httpUrl: "http://localhost:4910", wsUrl: "ws://localhost:4910/ws", hostname: "127.0.0.1" }]);
+    expect(lifecyclePayloads).toHaveLength(1);
+    expect(lifecyclePayloads[0]).toMatchObject({ port: 4910, httpUrl: "http://localhost:4910", wsUrl: "ws://localhost:4910/ws", hostname: "127.0.0.1" });
+    expect((lifecyclePayloads[0] as any).http).toBeDefined();
     expect(healthPolls).toBe(1);
 
     const ws = serveCalls[0].websocket;

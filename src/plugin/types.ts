@@ -30,6 +30,14 @@ export interface PluginArtifact {
   sha256: string | null;    // sha256 of the bundle, or null if unbuilt
 }
 
+export type ServeRouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
+
+export type ServeRouteHandler = (request: Request) => Response | Promise<Response>;
+
+export interface ServeHttpRouteRegistrar {
+  route(method: ServeRouteMethod, path: string, handler: ServeRouteHandler): void;
+}
+
 export interface PluginLifecycleHook {
   /** Relative script/module path reserved for lifecycle runners (#1576). */
   script?: string;

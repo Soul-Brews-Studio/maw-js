@@ -32,6 +32,7 @@ import { messageQueue } from "./message-queue";
 import { requestReplyStore } from "./request-reply";
 import { agentStatusStore } from "./agent-status";
 import { getRuntimeVersionLabel } from "./runtime/build-info";
+import { ServeRouteRegistry } from "./serve-route-registry";
 
 // --- Version info (computed once at startup) ---
 
@@ -121,6 +122,7 @@ function warnMissingFederationTokenOnce(port: number): void {
 
 export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
   const engine = new MawEngine({ feedBuffer, feedListeners });
+  const serveRoutes = new ServeRouteRegistry();
 
   const HTTP_URL = `http://localhost:${port}`;
   const WS_URL = `ws://localhost:${port}/ws`;
@@ -250,7 +252,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     };
   };
 
-  const fetchHandler = (req: Request, server: any) => {
+  const fetchHandler = async (req: Request, server: any) => {
     const url = new URL(req.url);
 
     // CORS preflight for all routes
@@ -274,6 +276,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
       if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
+      const servedByPlugin = await serveRoutes.handle(req);
+      if (servedByPlugin) return servedByPlugin;
       return api.handle(req);
     }
     // Hono handles views + static — clone response with CORS headers
@@ -376,6 +380,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       httpUrl: HTTP_URL,
       wsUrl: WS_URL,
       hostname,
+      http: serveRoutes,
     });
   } catch (err) {
     try { server.stop(true); } catch { /* best effort */ }

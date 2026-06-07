@@ -10,7 +10,7 @@ import { existsSync, realpathSync } from "fs";
 import { resolve, sep } from "path";
 import { pathToFileURL } from "url";
 import { discoverPackages } from "./registry";
-import type { LoadedPlugin, PluginLifecycleHook } from "./types";
+import type { LoadedPlugin, PluginLifecycleHook, ServeHttpRouteRegistrar } from "./types";
 
 export type LifecyclePhase = "wake" | "sleep" | "serve";
 
@@ -27,6 +27,7 @@ export interface PluginLifecycleContext {
   httpUrl?: string;
   wsUrl?: string;
   hostname?: string;
+  http?: ServeHttpRouteRegistrar;
   ensures?: string[];
 }
 
@@ -49,6 +50,7 @@ export interface ServeLifecycleContextInput {
   httpUrl: string;
   wsUrl: string;
   hostname: string;
+  http?: ServeHttpRouteRegistrar;
 }
 
 export interface LifecycleRunSummary {
