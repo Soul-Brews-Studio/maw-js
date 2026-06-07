@@ -1,5 +1,6 @@
 import { sendKeys, selectWindow, hostExec, getPaneCommand, isAgentCommand } from "../transport/ssh";
 import { tmux } from "../transport/tmux";
+import { dropImageNotifyStub } from "./image-notify-stub";
 import { buildCommand } from "../../config";
 import { extractOracleName, resolveTargetCwd, shellQuote } from "../../commands/shared/target-cwd";
 import type { MawWS, Handler, MawEngine } from "../types";
@@ -52,6 +53,12 @@ const send: Handler = async (ws, data, engine) => {
       }
     } catch { /* pane check failed, proceed anyway */ }
   }
+  // #image-stall (2026-06-07): when this `send` carries a dashboard image
+  // attachment, also drop a top-level ψ/inbox stub so oracle-inbox-sweep-all
+  // wakes an *idle* target within ≤20 min (the injected prompt below fires no
+  // turn on its own). Fire-and-forget + fully fail-safe inside the helper — it
+  // must never block or break the send-keys delivery on the next line.
+  void dropImageNotifyStub(data.target, data.text);
   sendKeys(data.target, data.text)
     .then(() => {
       ws.send(JSON.stringify({ type: "sent", ok: true, target: data.target, text: data.text }));
