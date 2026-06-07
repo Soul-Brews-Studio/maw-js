@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+
 const root = join(import.meta.dir, "../..");
 
 let calls: Array<{ name: string; args: unknown[] }> = [];
@@ -85,6 +87,25 @@ beforeEach(() => {
 });
 
 describe("team command plugin standalone boundary (#2336)", () => {
+  test("team-up vendor boundary explicitly tracks prompt priming seams", () => {
+    const imports = expectStandalonePluginBoundary({
+      plugin: "team",
+      files: ["team-up.ts"],
+      requireSdk: false,
+      allowRelative: [
+        "../../../commands/shared/comm-send",
+        "../../../commands/shared/wake-cmd",
+        "../../../config/load",
+        "../../../config/types",
+        "../../../core/transport/tmux",
+      ],
+    }).map((record) => record.spec);
+
+    expect(imports).toContain("./team-charter");
+    expect(imports).toContain("./team-liveness");
+    expect(imports).toContain("../../../commands/shared/comm-send");
+  });
+
   test("entrypoint uses SDK rather than direct plugin/cli/core imports", () => {
     const source = readFileSync(join(root, "src/vendor/mpr-plugins/team/index.ts"), "utf8");
     const specs = [...source.matchAll(/\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g)].map((m) => m[1]);
