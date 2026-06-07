@@ -66,31 +66,10 @@ function markFrontmatterRead(raw: string, timestamp: string): string {
   return fm + raw.slice(end + "\n---".length);
 }
 
-function formatWakeInboxOmittedNotice(omittedCount: number): string {
-  if (omittedCount <= 0) return "";
-  return [
-    "## Unread ψ/inbox messages omitted",
-    `${omittedCount} unread ψ/inbox message${omittedCount === 1 ? "" : "s"} exceeded the wake prompt byte budget and remain unread.`,
-    "Run `maw inbox --unread` after wake to review the remaining messages.",
-  ].join("\n");
-}
-
 export function formatWakeInboxPrompt(messages: WakeInboxMessage[], omittedCount = 0): string {
-  if (!messages.length) return formatWakeInboxOmittedNotice(omittedCount);
-  const sections = messages.map((msg, index) => [
-    `### ${index + 1}. ${msg.filename}`,
-    `from: ${msg.from || "unknown"}`,
-    msg.timestamp ? `timestamp: ${msg.timestamp}` : "",
-    "",
-    msg.body,
-  ].filter(Boolean).join("\n"));
-  return [
-    "## Unread ψ/inbox messages",
-    "These messages were mechanically drained by `maw wake`; acknowledge or act on them before continuing.",
-    "",
-    ...sections,
-    formatWakeInboxOmittedNotice(omittedCount),
-  ].filter(Boolean).join("\n\n");
+  const unreadCount = messages.length + omittedCount;
+  if (unreadCount <= 0) return "";
+  return `You have ${unreadCount} unread messages in inbox. Run maw inbox --unread to review.`;
 }
 
 export function mergeWakeInboxPrompt(existingPrompt: string | undefined, inboxPrompt: string): string | undefined {
@@ -104,7 +83,7 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
   const fsReadDir = deps.readdirSync ?? readdirSync;
   const fsReadFile = deps.readFileSync ?? readFileSync;
   const fsWriteFile = deps.writeFileSync ?? writeFileSync;
-  const markRead = deps.markRead ?? true;
+  const markRead = deps.markRead ?? false;
   const byteBudget = Math.max(0, Math.floor(deps.byteBudget ?? DEFAULT_WAKE_INBOX_BYTE_BUDGET));
   const engine = deps.engine;
   if (engine !== undefined && !isClaudeLikeEngine(engine, deps.config ?? {})) {
@@ -133,11 +112,6 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
       timestamp: parsed.meta.timestamp ?? "",
       body: parsed.body,
     };
-    const nextPrompt = formatWakeInboxPrompt([...messages, message], omittedCount);
-    if (utf8Bytes(nextPrompt) > byteBudget) {
-      omittedCount++;
-      continue;
-    }
     messages.push(message);
     if (markRead) {
       try {
@@ -149,7 +123,6 @@ export function drainWakeInbox(repoPath: string, deps: WakeInboxDrainDeps = {}):
   }
 
   let prompt = formatWakeInboxPrompt(messages, omittedCount);
-  if (utf8Bytes(prompt) > byteBudget) prompt = formatWakeInboxPrompt(messages, 0);
   if (utf8Bytes(prompt) > byteBudget) prompt = "";
   return { count: messages.length, messages, omittedCount, byteBudget, prompt };
 }
