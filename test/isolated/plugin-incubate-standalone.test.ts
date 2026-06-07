@@ -69,6 +69,10 @@ mock.module("maw-js/sdk", () => ({
   loadConfig: () => config,
   listSessions: async () => sessions,
   resolveTarget: () => resolveResult,
+  resolveOraclePane: async (target: string) => target,
+  Tmux: class {
+    async sendText(_pane: string, _text: string) {}
+  },
   parseFlags: (args: string[], spec: Record<string, unknown> = {}) => {
     const out: Record<string, any> = { _: [] };
     for (let i = 0; i < args.length; i++) {

@@ -69,6 +69,10 @@ mock.module("maw-js/sdk", () => ({
   ...realSdk,
   listSessions: async () => sessions,
   resolveTarget: () => resolveResult,
+  resolveOraclePane: async (target: string) => target,
+  Tmux: class {
+    async sendText(_pane: string, _text: string) {}
+  },
   getPaneCommand: async () => paneCommands.shift() ?? "codex",
   isAgentCommand: (command: string | null | undefined) => ["codex", "claude"].includes(String(command ?? "")),
 }));
