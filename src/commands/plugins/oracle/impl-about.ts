@@ -1,7 +1,6 @@
-import { listSessions, capture, FLEET_DIR } from "../../../sdk";
+import { listSessions, capture } from "../../../sdk";
+import { loadFleetEntries, type FleetEntry } from "../../shared/fleet-load";
 import { findWorktrees, detectSession } from "../../shared/wake";
-import { readdirSync, readFileSync } from "fs";
-import { join } from "path";
 import { resolveOracleSafe } from "./impl-helpers";
 import { UserError } from "../../../core/util/user-error";
 
@@ -15,22 +14,23 @@ export async function cmdOracleAbout(oracle: string) {
   const { repoPath, repoName, parentDir } = await resolveOracleSafe(name);
   const session = await detectSession(name);
 
-  const fleetDir = FLEET_DIR;
+  let fleetEntry: FleetEntry | null = null;
   let fleetFile: string | null = null;
   let fleetWindowCount = 0;
   try {
-    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
-      const hasOracle = (config.windows || []).some(
-        (w: any) => w.name.toLowerCase() === `${name}-oracle` || w.name.toLowerCase() === name
+    for (const entry of loadFleetEntries()) {
+      const windows = entry.session?.windows ?? [];
+      const hasOracle = windows.some(
+        (w: any) => w.name?.toLowerCase() === `${name}-oracle` || w.name?.toLowerCase() === name
       );
       if (hasOracle) {
-        fleetFile = file;
-        fleetWindowCount = config.windows.length;
+        fleetEntry = entry;
+        fleetFile = entry.file;
+        fleetWindowCount = windows.length;
         break;
       }
     }
-  } catch { /* expected: fleet dir may not exist */ }
+  } catch { /* expected: fleet dirs may not exist or may contain bad JSON */ }
 
   if (!repoPath && !session && !fleetFile) {
     throw new UserError(`no oracle named '${oracle}' — try: maw oracle ls`);
@@ -77,8 +77,7 @@ export async function cmdOracleAbout(oracle: string) {
     console.log(`  Fleet:     ${fleetFile} (${fleetWindowCount} registered, ${actualWindows} running)`);
     if (actualWindows > fleetWindowCount) {
       // Find which windows are unregistered
-      const fleetConfig = JSON.parse(readFileSync(join(fleetDir, fleetFile), "utf-8"));
-      const registeredNames = new Set((fleetConfig.windows || []).map((w: any) => w.name));
+      const registeredNames = new Set((fleetEntry?.session?.windows || []).map((w: any) => w.name));
       const runningWindows = sessions.find(s => s.name === session)?.windows || [];
       const unregistered = runningWindows.filter(w => !registeredNames.has(w.name));
 

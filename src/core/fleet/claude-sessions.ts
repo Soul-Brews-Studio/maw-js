@@ -12,6 +12,11 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { execSync } from "child_process";
 
+type ExecSyncString = (
+  command: string,
+  options?: { encoding: BufferEncoding; timeout?: number; maxBuffer?: number },
+) => string;
+
 export interface ClaudeSession {
   sessionId: string;
   projectPath: string;
@@ -26,10 +31,17 @@ export interface ClaudeSession {
   lastActivityAt: string;
   lastUserMessage: string | null;
   lastAssistantMessage: string | null;
+  messageCount: number;
   sizeBytes: number;
 }
 
 interface PidInfo { pid: number; ppid: number; cwd: string; command: string }
+
+export interface ClaudeSessionDeps {
+  execSync?: ExecSyncString;
+}
+
+const defaultExecSync = execSync as ExecSyncString;
 
 // ── Path encoding ────────────────────────────────────────────────
 
@@ -43,12 +55,13 @@ export function decodeProjectDir(encoded: string): string {
 
 let pidCache: { data: PidInfo[]; ts: number } | null = null;
 
-function listClaudePids(): PidInfo[] {
+function listClaudePids(exec: ExecSyncString): PidInfo[] {
+  if (process.env.MAW_CLAUDE_SKIP_PID_SCAN === "1") return [];
   const now = Date.now();
   if (pidCache && now - pidCache.ts < 5_000) return pidCache.data;
   const results: PidInfo[] = [];
   try {
-    const raw = execSync(`ps -eo pid,ppid,command 2>/dev/null | grep '[c]laude'`, {
+    const raw = exec(`ps -eo pid,ppid,command 2>/dev/null | grep '[c]laude'`, {
       encoding: "utf-8", timeout: 3000,
     });
     for (const line of raw.split("\n").filter(Boolean)) {
@@ -58,8 +71,8 @@ function listClaudePids(): PidInfo[] {
       let cwd = "";
       try {
         cwd = process.platform === "linux"
-          ? execSync(`readlink /proc/${pidStr}/cwd 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim()
-          : execSync(`lsof -p ${pidStr} -Fn 2>/dev/null | grep '^n/' | head -1`, { encoding: "utf-8", timeout: 2000 }).replace(/^n/, "").trim();
+          ? exec(`readlink /proc/${pidStr}/cwd 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim()
+          : exec(`lsof -p ${pidStr} -Fn 2>/dev/null | grep '^n/' | head -1`, { encoding: "utf-8", timeout: 2000 }).replace(/^n/, "").trim();
       } catch { /* cwd not resolvable */ }
       if (cwd) results.push({ pid: +pidStr, ppid: +ppidStr, cwd, command });
     }
@@ -70,14 +83,17 @@ function listClaudePids(): PidInfo[] {
 
 // ── Parent chain + trigger classification ────────────────────────
 
-function classifyTrigger(ppid: number): { chain: string[]; trigger: ClaudeSession["triggeredFrom"] } {
+function classifyTrigger(
+  ppid: number,
+  exec: ExecSyncString,
+): { chain: string[]; trigger: ClaudeSession["triggeredFrom"] } {
   const chain: string[] = [];
   let cur = ppid;
   const seen = new Set<number>();
   for (let i = 0; i < 10 && cur > 1 && !seen.has(cur); i++) {
     seen.add(cur);
     try {
-      const info = execSync(`ps -o comm=,ppid= -p ${cur} 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim();
+      const info = exec(`ps -o comm=,ppid= -p ${cur} 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim();
       const parts = info.split(/\s+/);
       const comm = parts.slice(0, -1).join(" ");
       cur = +(parts.at(-1) || "0");
@@ -94,16 +110,16 @@ function classifyTrigger(ppid: number): { chain: string[]; trigger: ClaudeSessio
 
 // ── Git helpers ──────────────────────────────────────────────────
 
-function resolveRepo(cwd: string): string | null {
+function resolveRepo(cwd: string, exec: ExecSyncString): string | null {
   try {
-    return execSync(`git -C '${cwd}' remote get-url origin 2>/dev/null`, { encoding: "utf-8", timeout: 2000 })
+    return exec(`git -C '${cwd}' remote get-url origin 2>/dev/null`, { encoding: "utf-8", timeout: 2000 })
       .trim().replace(/^(ssh:\/\/)?git@/, "").replace(/^https?:\/\//, "").replace(/:/, "/").replace(/\.git$/, "");
   } catch { return null; }
 }
 
-function resolveWorktree(cwd: string): ClaudeSession["worktree"] {
+function resolveWorktree(cwd: string, exec: ExecSyncString): ClaudeSession["worktree"] {
   try {
-    const raw = execSync(`git -C '${cwd}' worktree list --porcelain 2>/dev/null`, { encoding: "utf-8", timeout: 2000 });
+    const raw = exec(`git -C '${cwd}' worktree list --porcelain 2>/dev/null`, { encoding: "utf-8", timeout: 2000 });
     for (const block of raw.split("\n\n").filter(Boolean)) {
       const lines = block.split("\n");
       const wt = lines.find(l => l.startsWith("worktree "))?.slice(9);
@@ -116,11 +132,14 @@ function resolveWorktree(cwd: string): ClaudeSession["worktree"] {
 
 // ── Last-message extraction (tail-based, avoids full read) ───────
 
-function extractLastMessages(filePath: string): { lastUser: string | null; lastAssistant: string | null } {
+function extractLastMessages(
+  filePath: string,
+  exec: ExecSyncString,
+): { lastUser: string | null; lastAssistant: string | null } {
   let lastUser: string | null = null;
   let lastAssistant: string | null = null;
   try {
-    const tail = execSync(`tail -100 '${filePath}' 2>/dev/null`, {
+    const tail = exec(`tail -100 '${filePath}' 2>/dev/null`, {
       encoding: "utf-8", timeout: 2000, maxBuffer: 512 * 1024,
     });
     for (const line of tail.split("\n").filter(Boolean).reverse()) {
@@ -144,16 +163,38 @@ function extractLastMessages(filePath: string): { lastUser: string | null; lastA
   return { lastUser, lastAssistant };
 }
 
+function countSessionMessages(filePath: string, exec: ExecSyncString): number {
+  try {
+    const raw = exec(`awk 'END { print NR }' '${filePath}' 2>/dev/null`, {
+      encoding: "utf-8", timeout: 2000, maxBuffer: 64 * 1024,
+    });
+    const count = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Main discovery ───────────────────────────────────────────────
 
 let sessionCache: { data: ClaudeSession[]; ts: number } | null = null;
 
-export async function listClaudeSessions(): Promise<ClaudeSession[]> {
+export function __resetClaudeSessionCachesForTests(): void {
+  pidCache = null;
+  sessionCache = null;
+}
+
+function claudeProjectsDir(): string {
+  return process.env.MAW_CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects");
+}
+
+export async function listClaudeSessions(deps: ClaudeSessionDeps = {}): Promise<ClaudeSession[]> {
+  const exec = deps.execSync ?? defaultExecSync;
   const now = Date.now();
   if (sessionCache && now - sessionCache.ts < 5_000) return sessionCache.data;
 
-  const claudeDir = join(homedir(), ".claude", "projects");
-  const pids = listClaudePids();
+  const claudeDir = claudeProjectsDir();
+  const pids = listClaudePids(exec);
   const pidByCwd = new Map(pids.map(p => [p.cwd, p]));
   const results: ClaudeSession[] = [];
 
@@ -184,21 +225,26 @@ export async function listClaudeSessions(): Promise<ClaudeSession[]> {
         : "ended";
 
       const { chain, trigger } = pidInfo
-        ? classifyTrigger(pidInfo.ppid)
+        ? classifyTrigger(pidInfo.ppid, exec)
         : { chain: [] as string[], trigger: "unknown" as const };
 
       const tmuxTarget = chain.some(c => c.toLowerCase().includes("tmux"))
         ? `(tmux: ${projectPath.split("/").pop()})` : null;
 
+      const { lastUser, lastAssistant } = extractLastMessages(filePath, exec);
+      const messageCount = countSessionMessages(filePath, exec);
+
       results.push({
         sessionId, projectPath,
-        repo: resolveRepo(projectPath),
-        worktree: resolveWorktree(projectPath),
+        repo: resolveRepo(projectPath, exec),
+        worktree: resolveWorktree(projectPath, exec),
         pid: pidInfo?.pid ?? null,
         ppid: pidInfo?.ppid ?? null,
         parentChain: chain, tmuxTarget, triggeredFrom: trigger, status,
         lastActivityAt: new Date(mtimeMs).toISOString(),
-        ...extractLastMessages(filePath),
+        lastUserMessage: lastUser,
+        lastAssistantMessage: lastAssistant,
+        messageCount,
         sizeBytes: st.size,
       });
     }

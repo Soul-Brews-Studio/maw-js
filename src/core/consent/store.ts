@@ -6,20 +6,51 @@
  *
  * Paths are functions (not consts) so tests can override via env vars
  * (CONSENT_TRUST_FILE, CONSENT_PENDING_DIR) and get a fresh value each
- * call — same pattern as peers/store.ts.
+ * call — same pattern as peers/store.ts. Production paths are state-primary
+ * with legacy config-path read fallback so existing approvals survive XDG
+ * migration and the next write lands in state.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
-import { homedir } from "os";
+import { mawConfigPath, mawStatePath } from "../xdg";
 
 // --- Paths ---
 
 export function trustPath(): string {
-  return process.env.CONSENT_TRUST_FILE || join(homedir(), ".maw", "trust.json");
+  return process.env.CONSENT_TRUST_FILE || mawStatePath("trust.json");
+}
+
+function legacyTrustPath(): string | null {
+  if (process.env.CONSENT_TRUST_FILE) return null;
+  const legacy = mawConfigPath("trust.json");
+  const primary = trustPath();
+  return legacy === primary ? null : legacy;
+}
+
+function readableTrustPath(): string | null {
+  const primary = trustPath();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyTrustPath();
+  if (legacy && existsSync(legacy)) return legacy;
+  return null;
 }
 
 export function pendingDir(): string {
-  return process.env.CONSENT_PENDING_DIR || join(homedir(), ".maw", "consent-pending");
+  return process.env.CONSENT_PENDING_DIR || mawStatePath("consent-pending");
+}
+
+function legacyPendingDir(): string | null {
+  if (process.env.CONSENT_PENDING_DIR) return null;
+  const legacy = mawConfigPath("consent-pending");
+  const primary = pendingDir();
+  return legacy === primary ? null : legacy;
+}
+
+function candidatePendingDirs(): string[] {
+  const dirs = [pendingDir()];
+  const legacy = legacyPendingDir();
+  if (legacy) dirs.push(legacy);
+  return dirs;
 }
 
 // --- Types ---
@@ -58,8 +89,8 @@ export interface PendingRequest {
 function emptyTrust(): TrustFile { return { version: 1, trust: {} }; }
 
 export function loadTrust(): TrustFile {
-  const path = trustPath();
-  if (!existsSync(path)) return emptyTrust();
+  const path = readableTrustPath();
+  if (!path) return emptyTrust();
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<TrustFile>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyTrust();
@@ -110,8 +141,8 @@ export function listTrust(): TrustEntry[] {
 
 // --- Pending requests ---
 
-function pendingFile(id: string): string {
-  return join(pendingDir(), `${id}.json`);
+function pendingFile(id: string, dir = pendingDir()): string {
+  return join(dir, `${id}.json`);
 }
 
 export function writePending(req: PendingRequest): void {
@@ -123,26 +154,33 @@ export function writePending(req: PendingRequest): void {
 }
 
 export function readPending(id: string): PendingRequest | null {
-  const path = pendingFile(id);
-  if (!existsSync(path)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as PendingRequest;
-    return applyExpiry(parsed);
-  } catch {
-    return null;
+  for (const dir of candidatePendingDirs()) {
+    const path = pendingFile(id, dir);
+    if (!existsSync(path)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf-8")) as PendingRequest;
+      return applyExpiry(parsed);
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 export function listPending(): PendingRequest[] {
-  const dir = pendingDir();
-  if (!existsSync(dir)) return [];
   const out: PendingRequest[] = [];
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
-    try {
-      const parsed = JSON.parse(readFileSync(join(dir, file), "utf-8")) as PendingRequest;
-      out.push(applyExpiry(parsed));
-    } catch { /* skip junk */ }
+  const seen = new Set<string>();
+  for (const dir of candidatePendingDirs()) {
+    if (!existsSync(dir)) continue;
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(join(dir, file), "utf-8")) as PendingRequest;
+        if (seen.has(parsed.id)) continue;
+        seen.add(parsed.id);
+        out.push(applyExpiry(parsed));
+      } catch { /* skip junk */ }
+    }
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -156,9 +194,16 @@ export function updateStatus(id: string, status: ConsentStatus): boolean {
 }
 
 export function deletePending(id: string): boolean {
-  const path = pendingFile(id);
-  if (!existsSync(path)) return false;
-  try { unlinkSync(path); return true; } catch { return false; }
+  let deleted = false;
+  for (const dir of candidatePendingDirs()) {
+    const path = pendingFile(id, dir);
+    if (!existsSync(path)) continue;
+    try {
+      unlinkSync(path);
+      deleted = true;
+    } catch { /* keep trying alternate state/legacy copies */ }
+  }
+  return deleted;
 }
 
 /** Pure helper — flips status to "expired" if past expiresAt and still pending. */

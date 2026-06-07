@@ -64,6 +64,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveFleetSession: () => null,
+  findReusableWorktreeBySlug: () => null,
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => ({
@@ -72,6 +73,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => (
 
 const origSleep = Bun.sleep.bind(Bun);
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async () => {};
+const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 
 const { cmdSend } = await import("../../src/commands/shared/comm-send");
 
@@ -105,12 +107,20 @@ beforeEach(() => {
   mockNamedPeers = [];
   curlFetchHandler = () => ({ ok: false, status: 500, data: {} });
   resolveTargetReturn = { type: "peer", target: "hojo", node: "phaith", peerUrl: "http://phaith:3456" };
+  process.env.CLAUDE_AGENT_NAME = "test-sender";
   process.env.MAW_QUIET = "1";
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+});
 afterAll(() => {
   mockActive = false;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
 });
 
@@ -145,6 +155,23 @@ describe("cmdSend — cross-node auto-wake (#791)", () => {
     const sendCalls = curlFetchCalls.filter(c => c.url.includes("/api/send"));
     expect(wakeCalls.length).toBe(0);
     expect(sendCalls.length).toBe(1);
+  });
+
+  test("documented two-part cross-node session target skips /api/wake (#1812)", async () => {
+    mockNamedPeers = [{ name: "phaith", url: "http://phaith:3456" }];
+    resolveTargetReturn = { type: "peer", target: "01-hojo", node: "phaith", peerUrl: "http://phaith:3456" };
+    curlFetchHandler = (url: string) => {
+      if (url.includes("/api/send")) return { ok: true, status: 200, data: { ok: true, target: "01-hojo:2" } };
+      return { ok: false, status: 500, data: {} };
+    };
+
+    await run(() => cmdSend("phaith:01-hojo", "ping"));
+
+    const wakeCalls = curlFetchCalls.filter(c => c.url.includes("/api/wake"));
+    const sendCalls = curlFetchCalls.filter(c => c.url.includes("/api/send"));
+    expect(wakeCalls.length).toBe(0);
+    expect(sendCalls.length).toBe(1);
+    expect(exitCode).toBeUndefined();
   });
 
   test("peer not in namedPeers → no wake call, fall through to resolveTarget error path", async () => {

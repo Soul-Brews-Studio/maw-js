@@ -1,9 +1,9 @@
 /**
- * send-idle-guard.test.ts — checkPaneIdle heuristic + cmdSend idle-guard flow (#405).
+ * send-idle-guard.test.ts — checkPaneIdle heuristic + cmdSend always-deliver flow (#405/#1860).
  *
  * Tests:
  *   checkPaneIdle — prompt-marker heuristics (idle/not-idle/no-prompt cases)
- *   cmdSend idle guard — block on not-idle, retry once, pass on force=true
+ *   cmdSend delivery — always inject by default, --inbox queues only, force remains compatible
  *
  * Mocked seams: src/sdk, src/config, src/core/routing, src/core/runtime/hooks,
  *   src/commands/shared/comm-log-feed
@@ -78,6 +78,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 // Bun.sleep intercept — replace globally so checkPaneIdle retry doesn't stall
 const origSleep = Bun.sleep.bind(Bun);
+const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
 };
@@ -120,12 +121,15 @@ beforeEach(() => {
   resolveTargetReturn = { type: "local", target: "test-session:oracle.0" };
   delete process.env.MAW_QUIET;
   process.env.MAW_QUIET = "1"; // suppress tip output
+  process.env.CLAUDE_AGENT_NAME = "test-node";
 });
 
 afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
 });
 
 // ─── checkPaneIdle tests ─────────────────────────────────────────────────────
@@ -192,53 +196,67 @@ describe("checkPaneIdle — heuristic", () => {
   });
 });
 
-// ─── cmdSend idle-guard flow ─────────────────────────────────────────────────
+// ─── cmdSend delivery flow ───────────────────────────────────────────────────
 
-describe("cmdSend — idle guard integration (#405)", () => {
-  test("sends when pane is idle (prompt at end)", async () => {
+describe("cmdSend — default delivery integration (#1860)", () => {
+  test("sends by default without idle-guarding the pane", async () => {
     captureResponses = [
-      "❯ ", // checkPaneIdle call (idle check)
-      "",   // post-send capture for lastLine
+      "❯ git push", // post-send capture only; no pre-send idle check
     ];
     await run(() => cmdSend("test-node:oracle", "hello world"));
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("hello world");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello world");
+    expect(sleepCalls.filter(ms => ms === 500).length).toBe(0);
     expect(exitCode).toBeUndefined();
   });
 
-  test("retries once and sends when second idle check passes", async () => {
-    captureResponses = [
-      "❯ git status",  // first checkPaneIdle → not idle
-      "❯ ",            // second checkPaneIdle after 500ms sleep → idle
-      "",              // post-send capture
-    ];
-    await run(() => cmdSend("test-node:oracle", "hello after retry"));
-    expect(sleepCalls).toContain(500);
-    expect(sendKeysCalls.length).toBe(1);
+  test("--inbox writes receiver inbox without pane injection", async () => {
+    const inboxCalls: any[] = [];
+    await run(() => cmdSend("test-node:oracle", "queue only", false, {
+      inboxOnly: true,
+      receiverInbox: async (input) => {
+        inboxCalls.push(input);
+        return {
+          ok: true,
+          oracle: "oracle",
+          inboxDir: "/repo/ψ/inbox",
+          path: "/repo/ψ/inbox/msg.md",
+          filename: "msg.md",
+        };
+      },
+    }));
+    expect(sendKeysCalls.length).toBe(0);
+    expect(inboxCalls).toHaveLength(1);
+    expect(inboxCalls[0]).toMatchObject({
+      query: "test-node:oracle",
+      target: "test-session:oracle.0",
+      to: "test-node:oracle",
+      from: "test-node:test-node",
+      message: "[test-node:test-node] queue only",
+    });
     expect(exitCode).toBeUndefined();
   });
 
-  test("exits with code 1 when both idle checks fail", async () => {
-    captureResponses = [
-      "❯ git push",   // first checkPaneIdle → not idle
-      "❯ git push",   // second checkPaneIdle → still not idle
-    ];
-    await run(() => cmdSend("test-node:oracle", "injected message"));
+  test("--inbox exits when receiver inbox is unavailable", async () => {
+    await run(() => cmdSend("test-node:oracle", "queue only", false, {
+      inboxOnly: true,
+      receiverInbox: false,
+    }));
     expect(exitCode).toBe(1);
     expect(sendKeysCalls.length).toBe(0);
     const errText = errs.join("\n");
-    expect(errText).toContain("not idle");
-    expect(errText).toContain("--force");
+    expect(errText).toContain("--inbox");
+    expect(errText).toContain("unavailable");
   });
 
-  test("bypasses idle check entirely with force=true", async () => {
+  test("keeps force=true as a compatible no-op", async () => {
     captureResponses = [
-      // No idle-check capture should be called; only post-send capture
+      // No idle-check capture should be called; only post-send capture.
       "",
     ];
     await run(() => cmdSend("test-node:oracle", "forced message", /* force */ true));
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("forced message");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] forced message");
     expect(exitCode).toBeUndefined();
     // No 500ms sleep should have been triggered by idle check
     expect(sleepCalls.filter(ms => ms === 500).length).toBe(0);

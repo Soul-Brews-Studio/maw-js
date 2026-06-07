@@ -10,24 +10,21 @@
  * plugins-install path via doInstall().
  */
 import { describe, it, expect } from "bun:test";
-import { join } from "path";
+import { runBunChild } from "./isolated/helpers/run-bun-child";
 
-const cliPath = join(import.meta.dir, "../src/cli.ts");
+const installImplUrl = new URL("../src/commands/plugins/plugin/install-impl.ts", import.meta.url).href;
 
 async function runCli(
   args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["bun", cliPath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, MAW_CLI: "1" },
+  return runBunChild({
+    cwd: process.cwd(),
+    env: { MAW_CLI: "1", MAW_TEST_MODE: "1" },
+    script: `
+      const { cmdPluginInstall } = await import(${JSON.stringify(installImplUrl)});
+      await cmdPluginInstall(${JSON.stringify(args.slice(2))});
+    `,
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
 }
 
 // ─── Allowlist regex unit tests ───────────────────────────────────────────────

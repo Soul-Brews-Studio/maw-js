@@ -92,9 +92,10 @@ export function startIntervals(
   state.feedUnsub = () => state.feedListeners.delete(listener);
 }
 
-/** Stop all polling intervals when last WS client disconnects. No-op if clients remain. */
+/** Stop all polling intervals when last WS client disconnects. No-op if clients remain or triggers are configured. */
 export function stopIntervals(state: EngineIntervalState): void {
   if (state.clients.size > 0) return;
+  if (loadConfig().triggers?.length > 0) return;
   if (state.captureInterval) { clearInterval(state.captureInterval); state.captureInterval = null; }
   if (state.sessionInterval) { clearInterval(state.sessionInterval); state.sessionInterval = null; }
   if (state.previewInterval) { clearInterval(state.previewInterval); state.previewInterval = null; }

@@ -10,8 +10,8 @@
  *   - loadPendingById vs prefix resolution semantics in queue-store
  *
  * Isolation pattern mirrors trust-list.test.ts / scope-acl.test.ts —
- * MAW_CONFIG_DIR is pointed at a per-test temp dir so the on-disk
- * `<CONFIG_DIR>/pending/` resolves cleanly.
+ * MAW_STATE_DIR is pointed at a per-test temp dir so the on-disk
+ * `<STATE_DIR>/pending/` resolves cleanly.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
@@ -20,19 +20,24 @@ import { join } from "path";
 
 let testDir: string;
 let originalConfigDir: string | undefined;
+let originalStateDir: string | undefined;
 let originalHome: string | undefined;
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), "maw-inbox-queue-"));
   originalConfigDir = process.env.MAW_CONFIG_DIR;
+  originalStateDir = process.env.MAW_STATE_DIR;
   originalHome = process.env.MAW_HOME;
-  process.env.MAW_CONFIG_DIR = testDir;
+  process.env.MAW_STATE_DIR = testDir;
+  delete process.env.MAW_CONFIG_DIR;
   delete process.env.MAW_HOME;
 });
 
 afterEach(() => {
   if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalStateDir;
   if (originalHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = originalHome;
   try { rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }

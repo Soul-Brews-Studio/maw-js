@@ -64,7 +64,10 @@ export function findWindow(sessions: Session[], query: string): string | null {
   // session:window syntax — strict session match to prevent node:agent collision (#186)
   // "white:mawjs" must NOT match "105-whitekeeper" via substring
   if (query.includes(":")) {
-    const [sessPart, winPart] = q.split(":", 2);
+    const [sessPart, rawWinPart = ""] = q.split(":", 2);
+    const paneMatch = rawWinPart.match(/^(.+)\.(\d+)$/);
+    const winPart = paneMatch ? paneMatch[1] : rawWinPart;
+    const paneSuffix = paneMatch ? `.${paneMatch[2]}` : "";
     const sess = matchSession(sessions, sessPart, true);
     if (sess) {
       // Empty window part → return session's first window
@@ -72,7 +75,7 @@ export function findWindow(sessions: Session[], query: string): string | null {
         if (sess.windows.length > 0) return `${sess.name}:${sess.windows[0].index}`;
       } else {
         for (const w of sess.windows) {
-          if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}`;
+          if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}${paneSuffix}`;
         }
       }
     }
@@ -80,19 +83,28 @@ export function findWindow(sessions: Session[], query: string): string | null {
   }
 
   // Two-pass bare-name resolution (#414):
-  //   Pass 1 collects exact matches (window name, session name, stripped
-  //   oracle-name). Pass 2 collects substring matches only if Pass 1 was
-  //   empty. Multi-candidate in either pass → AmbiguousMatchError.
+  //   Pass 1a collects exact session/oracle-name matches. These beat exact
+  //   window-name matches because a stale session may still have a window named
+  //   `<name>-oracle` while the live session itself is named `NN-<name>-oracle`
+  //   (#1752). Pass 1b collects exact window matches only when no exact session
+  //   match exists. Pass 2 collects substring matches only if Pass 1 was empty.
+  //   Multi-candidate inside any pass → AmbiguousMatchError.
+  const exactSessions = new Set<string>();
+  for (const s of sessions) {
+    if (s.windows.length > 0) {
+      const sn = s.name.toLowerCase();
+      if (sn === q || sn.replace(/^\d+-/, "") === q) {
+        exactSessions.add(`${s.name}:${s.windows[0].index}`);
+      }
+    }
+  }
+  if (exactSessions.size === 1) return [...exactSessions][0];
+  if (exactSessions.size > 1) throw new AmbiguousMatchError(query, [...exactSessions]);
+
   const exact = new Set<string>();
   for (const s of sessions) {
     for (const w of s.windows) {
       if (w.name.toLowerCase() === q) exact.add(`${s.name}:${w.index}`);
-    }
-    if (s.windows.length > 0) {
-      const sn = s.name.toLowerCase();
-      if (sn === q || sn.replace(/^\d+-/, "") === q) {
-        exact.add(`${s.name}:${s.windows[0].index}`);
-      }
     }
   }
   if (exact.size === 1) return [...exact][0];
@@ -110,13 +122,18 @@ export function findWindow(sessions: Session[], query: string): string | null {
   if (sub.size === 1) return [...sub][0];
   if (sub.size > 1) throw new AmbiguousMatchError(query, [...sub]);
   // If query has ":" and the SESSION part matched a real session but the
-  // WINDOW part didn't → return raw query (user may mean index, e.g. "08-mawjs:1").
-  // If the SESSION part didn't match anything local → return null so cmdSend
-  // falls through to federation routing (node:agent like "oracle-world:mawjs").
+  // WINDOW part didn't → only return raw query when winPart is empty
+  // (first window), numeric (literal tmux window index like "08-mawjs:1"),
+  // or pane-specific (literal tmux pane address like "47-mawjs:1.0").
+  // Otherwise return null so resolveTarget Step 2 can try peer routing
+  // (e.g. "oracle-world:100-pulse" → peer namedPeer, not local tmux).
   if (query.includes(":")) {
-    const [sessPart] = query.toLowerCase().split(":", 2);
+    const [sessPart, winPart] = query.toLowerCase().split(":", 2);
     const sessExists = matchSession(sessions, sessPart, true);
-    return sessExists ? query : null;
+    if (!sessExists) return null;
+    if (!winPart) return query;
+    if (/^\d+(?:\.\d+)?$/.test(winPart)) return query;
+    return null;
   }
   return null;
 }

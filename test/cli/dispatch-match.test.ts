@@ -9,17 +9,22 @@
  *  - prefix match with word boundary (e.g. `restart` != `rest`)
  */
 import { describe, test, expect } from "bun:test";
-import { resolvePluginMatch } from "../../src/cli/dispatch-match";
-import { resolveTopAlias } from "../../src/cli/top-aliases";
+import { resolvePluginMatch, validatePluginCliFlags } from "../../src/cli/dispatch-match";
+import { ALIAS_DESCRIPTIONS, parseBringArgs, parseLsAliasOpts, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
-function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
+function plugin(
+  name: string,
+  command: string,
+  aliases: string[] = [],
+  flags?: Record<string, string>,
+): LoadedPlugin {
   return {
     manifest: {
       name,
       version: "1.0.0",
       sdk: "^1.0.0",
-      cli: { command, aliases, help: "" },
+      cli: { command, aliases, help: "", ...(flags ? { flags } : {}) },
     } as LoadedPlugin["manifest"],
     dir: `/tmp/${name}`,
     wasmPath: "",
@@ -85,6 +90,21 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(out.kind).toBe("none");
   });
 
+  test("#1500: disabled plugins are skipped by default but detectable for UX hints", () => {
+    const team = plugin("team", "team");
+    team.disabled = true;
+
+    const skipped = resolvePluginMatch([team], "team status");
+    expect(skipped.kind).toBe("none");
+
+    const detected = resolvePluginMatch([team], "team status", { includeDisabled: true });
+    expect(detected.kind).toBe("match");
+    if (detected.kind === "match") {
+      expect(detected.plugin.manifest.name).toBe("team");
+      expect(detected.matchedName).toBe("team");
+    }
+  });
+
   test("non-dispatchable plugins (no cli, no entry, no wasm) are skipped", () => {
     // #899 — pure-hooks/api/cron plugins still get filtered out: no `cli`
     // field AND no entry/wasm to default to. The default-name fallback
@@ -105,6 +125,36 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(miss.kind).toBe("none");
   });
 
+  test("entry-backed API or capability plugins without cli are skipped as headless", () => {
+    const apiOnly: LoadedPlugin = {
+      manifest: {
+        name: "cross-team-queue",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        api: { path: "/cross-team-queue", methods: ["GET"] },
+      } as LoadedPlugin["manifest"],
+      dir: "/tmp/cross-team-queue",
+      wasmPath: "",
+      entryPath: "/tmp/cross-team-queue/src/index.ts",
+      kind: "ts",
+    };
+    const strategy: LoadedPlugin = {
+      manifest: {
+        name: "attach-ssh",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        capabilities: ["attach:strategy"],
+      } as LoadedPlugin["manifest"],
+      dir: "/tmp/attach-ssh",
+      wasmPath: "",
+      entryPath: "/tmp/attach-ssh/index.ts",
+      kind: "ts",
+    };
+
+    expect(resolvePluginMatch([apiOnly], "cross-team-queue").kind).toBe("none");
+    expect(resolvePluginMatch([strategy], "attach-ssh").kind).toBe("none");
+  });
+
   test("two plugins sharing same exact command → ambiguous", () => {
     const a = plugin("first", "share");
     const b = plugin("second", "share");
@@ -115,6 +165,33 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     expect(out.kind).toBe("ambiguous");
     if (out.kind === "ambiguous") {
       expect(out.candidates.map(c => c.plugin).sort()).toEqual(["first", "second"]);
+    }
+  });
+
+  test("canonical exact command beats another plugin's exact alias", () => {
+    // #1339 vendored mpr plugins include both:
+    // - attach: canonical command "attach"
+    // - view: alias "attach"
+    // The canonical command must win so bundling both does not make
+    // `maw attach ...` ambiguous.
+    const view = plugin("view", "view", ["attach", "a"]);
+    const attach = plugin("attach", "attach");
+    const out = resolvePluginMatch([view, attach], "attach");
+    expect(out.kind).toBe("match");
+    if (out.kind === "match") {
+      expect(out.plugin.manifest.name).toBe("attach");
+      expect(out.matchedName).toBe("attach");
+    }
+  });
+
+  test("canonical prefix command beats another plugin's prefix alias", () => {
+    const view = plugin("view", "view", ["attach", "a"]);
+    const attach = plugin("attach", "attach");
+    const out = resolvePluginMatch([view, attach], "attach homekeeper");
+    expect(out.kind).toBe("match");
+    if (out.kind === "match") {
+      expect(out.plugin.manifest.name).toBe("attach");
+      expect(out.matchedName).toBe("attach");
     }
   });
 
@@ -156,8 +233,59 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
   });
 });
 
+describe("validatePluginCliFlags — manifest-declared flags", () => {
+  test("#1629 rejects unknown long flags before handler execution", () => {
+    const bud = plugin("bud", "bud", [], {
+      "--org": "string",
+      "--from": "string",
+      "--dry-run": "boolean",
+    });
+
+    const out = validatePluginCliFlags(bud, ["digger", "--orgs", "laris-co", "--dry-run"]);
+
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.flag).toBe("--orgs");
+      expect(out.suggestion).toBe("--org");
+    }
+  });
+
+  test("allows declared string/number flags and skips their value token", () => {
+    const bud = plugin("bud", "bud", [], {
+      "--org": "string",
+      "--issue": "number",
+      "--dry-run": "boolean",
+    });
+
+    const out = validatePluginCliFlags(bud, ["digger", "--org", "--dashy-org", "--issue=1629", "--dry-run"]);
+
+    expect(out).toEqual({ ok: true });
+  });
+
+  test("keeps legacy permissive behavior until cli.flags is declared", () => {
+    const legacy = plugin("legacy", "legacy");
+
+    const out = validatePluginCliFlags(legacy, ["--whatever"]);
+
+    expect(out).toEqual({ ok: true });
+  });
+
+  test("allows universal plugin help/version flags", () => {
+    const p = plugin("hello", "hello", [], { "--name": "string" });
+
+    expect(validatePluginCliFlags(p, ["--help"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--version"])).toEqual({ ok: true });
+  });
+
+  test("stops validation after -- terminator", () => {
+    const p = plugin("hello", "hello", [], { "--name": "string" });
+
+    expect(validatePluginCliFlags(p, ["--name", "world", "--", "--not-a-flag"])).toEqual({ ok: true });
+  });
+});
+
 describe("resolveTopAlias — RFC #954 verb aliases", () => {
-  test("`ls` → direct-handler cmdLs (compact, no roster)", () => {
+  test("`ls` → direct-handler cmdLs (compact default)", () => {
     const out = resolveTopAlias(["ls"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -167,7 +295,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`ls -a` → direct-handler cmdLs with -a (roster)", () => {
+  test("`ls -a` → direct-handler cmdLs with -a (compact roster)", () => {
     const out = resolveTopAlias(["ls", "-a"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -177,7 +305,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`ls -v` → direct-handler cmdLs with -v (verbose)", () => {
+  test("`ls -v` → direct-handler cmdLs with -v (detail alias)", () => {
     const out = resolveTopAlias(["ls", "-v"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
@@ -187,11 +315,107 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+  test("#1613 parse ls opts: default and -c render compact summary", () => {
+    expect(parseLsAliasOpts([])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      oracleOnly: true,
+    });
+    expect(parseLsAliasOpts(["-c"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      oracleOnly: true,
+    });
+  });
+
+  test("#1613 parse ls opts: -v/--verbose opt into per-pane detail", () => {
+    expect(parseLsAliasOpts(["-v"])).toEqual({
+      all: true,
+      compact: false,
+      verbose: true,
+      roster: false,
+      json: false,
+    });
+    expect(parseLsAliasOpts(["--verbose"])).toEqual({
+      all: true,
+      compact: false,
+      verbose: true,
+      roster: false,
+      json: false,
+    });
+  });
+
+  test("#1613 parse ls opts: --compact is explicit condensed summary", () => {
+    expect(parseLsAliasOpts(["--compact"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      oracleOnly: true,
+    });
+  });
+
+  test("#1613 parse ls opts: -a keeps legacy compact roster behavior", () => {
+    expect(parseLsAliasOpts(["-a"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: true,
+      json: false,
+      channels: true,
+    });
+  });
+
+  test("#1628 parse ls opts: -r/--recent sorts by creation time with optional limit", () => {
+    expect(parseLsAliasOpts(["-r"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      oracleOnly: true,
+      recent: true,
+    });
+    expect(parseLsAliasOpts(["--recent", "5", "-v"])).toEqual({
+      all: true,
+      compact: false,
+      verbose: true,
+      roster: false,
+      json: false,
+      recent: true,
+      recentLimit: 5,
+    });
+    expect(parseLsAliasOpts(["--recent", "5", "--active", "1h"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      oracleOnly: true,
+      recent: true,
+      recentLimit: 5,
+      active: true,
+      activeThresholdSec: 3600,
+    });
+  });
+
+  test("`a neo` → argv rewrite to ['attach', 'neo']", () => {
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["attach", "neo"]);
+  });
+
+  test("`peek` is not a tmux top-alias; top-level peek is handled by routeComm", () => {
+    const out = resolveTopAlias(["peek", "m5:mawjs"]);
+    expect(out).toBeNull();
   });
 
   test("`attach` is not a registered alias (removed — use `a`)", () => {
@@ -199,16 +423,87 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(out).toBeNull();
   });
 
-  test("`wake neo --task X` → direct-handler form with cmdWake handler", () => {
-    const out = resolveTopAlias(["wake", "neo", "--task", "X"]);
+  test("`wake neo --session project --task X` → direct-handler form with cmdWake handler", () => {
+    const out = resolveTopAlias(["wake", "neo", "--session", "project", "--task", "X"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
     if (out!.kind === "direct") {
       expect(out!.handler).toContain("wake-cmd");
       expect(out!.handler).toContain("cmdWake");
       // argv passed to handler is everything AFTER the verb
-      expect(out!.argv).toEqual(["neo", "--task", "X"]);
+      expect(out!.argv).toEqual(["neo", "--session", "project", "--task", "X"]);
     }
+  });
+
+  test("`awake neo -e codex` → direct launch handler, not awaken prefix", () => {
+    const out = resolveTopAlias(["awake", "neo", "-e", "codex"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdAwake");
+      expect(out!.argv).toEqual(["neo", "-e", "codex"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.awake).toContain("Launch");
+    expect(ALIAS_DESCRIPTIONS.awake).toContain("does not trigger /awaken");
+  });
+
+  test("`new workspace --no-attach` → direct-handler cmdNew workspace session factory", () => {
+    const out = resolveTopAlias(["new", "workspace", "--no-attach"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("cmdNew");
+      expect(out!.argv).toEqual(["workspace", "--no-attach"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.new).toContain("workspace session");
+  });
+
+  test("`scaffold neo` → bud --scaffold-only argv rewrite", () => {
+    const out = resolveTopAlias(["scaffold", "neo", "--root"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") {
+      expect(out!.argv).toEqual(["bud", "--scaffold-only", "neo", "--root"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.scaffold).toContain("skeleton");
+  });
+
+  test("`snapshots list --json` → fleet snapshots top-level alias", () => {
+    const out = resolveTopAlias(["snapshots", "list", "--json"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") {
+      expect(out!.argv).toEqual(["fleet", "snapshots", "list", "--json"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.snapshots).toContain("recovery snapshots");
+  });
+
+  test("`bring neo` defaults to wake --split mode", () => {
+    const parsed = parseBringArgs(["neo"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
+  });
+
+  test("`b neo` is a direct shorthand for bring", () => {
+    const out = resolveTopAlias(["b", "neo"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdBring");
+      expect(out!.argv).toEqual(["neo"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.b).toContain("short form of `bring`");
+  });
+
+  test("`bring neo --split` remains split mode", () => {
+    const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
+  });
+
+  test("`bring neo --tab` still stays equivalent to wake --split", () => {
+    const parsed = parseBringArgs(["neo", "--tab"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

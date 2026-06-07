@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/soul-sync@v0.1.0-soul-sync",
+  "sha256": "2ab1d2b9ea6efa3205a232d831b5fdd7777b6bfb2b0191eba15262477b0eb0bd",
+  "summary": "Synchronize oracle soul across nodes.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:04Z",
+  "tier": "extra"
+}

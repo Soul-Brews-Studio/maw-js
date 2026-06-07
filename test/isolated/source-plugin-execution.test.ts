@@ -22,7 +22,12 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { resolvePluginMatch, pluginCliNames } from "../../src/cli/dispatch-match";
+import {
+  pluginNonCliSurfaces,
+  resolvePluginMatch,
+  pluginCliNames,
+  validatePluginCliFlags,
+} from "../../src/cli/dispatch-match";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 // ─── Fixture builders ────────────────────────────────────────────────────────
@@ -31,6 +36,8 @@ function tsPlugin(opts: {
   name: string;
   cli?: { command: string; aliases?: string[] };
   entry?: boolean;
+  api?: boolean;
+  capabilities?: string[];
 }): LoadedPlugin {
   return {
     manifest: {
@@ -38,6 +45,8 @@ function tsPlugin(opts: {
       version: "1.0.0",
       sdk: "^1.0.0",
       ...(opts.cli ? { cli: { command: opts.cli.command, aliases: opts.cli.aliases ?? [], help: "" } } : {}),
+      ...(opts.api ? { api: { path: `/${opts.name}`, methods: ["GET"] } } : {}),
+      ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
     } as LoadedPlugin["manifest"],
     dir: `/tmp/${opts.name}`,
     wasmPath: "",
@@ -95,6 +104,14 @@ describe("#899 — pluginCliNames default-name derivation", () => {
       // no entryPath
     };
     expect(pluginCliNames(p)).toBeNull();
+  });
+
+  test("strategy/API plugins with entry but no cli are headless, not implicit commands", () => {
+    const strategy = tsPlugin({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const api = tsPlugin({ name: "cross-team-queue", api: true });
+
+    expect(pluginCliNames(strategy)).toBeNull();
+    expect(pluginCliNames(api)).toBeNull();
   });
 
   test("aliases default to empty array when cli omits them", () => {
@@ -164,6 +181,14 @@ describe("#899 — resolvePluginMatch routes default-name plugins", () => {
     expect(out.kind).toBe("none");
   });
 
+  test("entry-backed strategy/API plugins without cli do not default-name dispatch", () => {
+    const attachSsh = tsPlugin({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const queue = tsPlugin({ name: "cross-team-queue", api: true });
+
+    expect(resolvePluginMatch([attachSsh], "attach-ssh")).toEqual({ kind: "none" });
+    expect(resolvePluginMatch([queue], "cross-team-queue")).toEqual({ kind: "none" });
+  });
+
   test("unknown command still returns kind:none with a default-name registry", () => {
     const shellenv = tsPlugin({ name: "shellenv" });
     const rename = tsPlugin({ name: "rename" });
@@ -229,5 +254,53 @@ describe("#899 — resolvePluginMatch routes default-name plugins", () => {
       expect(out.plugin.manifest.name).toBe("done");
       expect(out.matchedName).toBe("finish");
     }
+  });
+});
+
+describe("dispatch-match coverage for non-CLI surfaces and flag validation", () => {
+  test("pluginNonCliSurfaces formats every headless manifest surface", () => {
+    const p = {
+      manifest: {
+        name: "multi",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        api: { path: "/multi", methods: ["GET", "POST"] },
+        capabilities: ["attach:strategy", "queue"],
+        hooks: { install: "scripts/install.ts", remove: "scripts/remove.ts" },
+        cron: { schedule: "* * * * *", command: "tick" },
+        module: { exports: ["run", "stop"] },
+        transport: { peer: true },
+      },
+      dir: "/tmp/multi",
+      entryPath: "/tmp/multi/src/index.ts",
+      wasmPath: "",
+      kind: "ts",
+    } as LoadedPlugin;
+
+    expect(pluginNonCliSurfaces(p)).toEqual([
+      "api:GET/POST /multi",
+      "capability:attach:strategy,queue",
+      "hooks:install,remove",
+      "cron:* * * * *",
+      "module:run,stop",
+      "peer",
+    ]);
+  });
+
+  test("validatePluginCliFlags keeps permissive legacy mode and honors flag parsing edges", () => {
+    const legacy = tsPlugin({ name: "legacy" });
+    expect(validatePluginCliFlags(legacy, ["--anything"])).toEqual({ ok: true });
+
+    const p = tsPlugin({ name: "flags", cli: { command: "flags" } });
+    p.manifest.cli!.flags = { "--name": "string", "--dry-run": "boolean" } as any;
+
+    expect(validatePluginCliFlags(p, ["--name", "neo", "-1", "--", "--bad"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--name=neo", "--dry-run", "--help"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--nmae"])).toEqual({
+      ok: false,
+      flag: "--nmae",
+      suggestion: "--name",
+      allowedFlags: ["--dry-run", "--name"],
+    });
   });
 });

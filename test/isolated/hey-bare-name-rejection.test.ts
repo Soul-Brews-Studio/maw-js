@@ -1,10 +1,9 @@
 /**
- * hey-bare-name-rejection.test.ts — #759 Phase 2.
+ * hey-bare-name-rejection.test.ts — #1572.
  *
- * Verifies that `maw hey <bare-name> "..."` is now a hard error: cmdSend
- * MUST print the Phase 2 error shape on stderr and exit non-zero BEFORE
- * any tmux / sdk / network resolution work happens. No fallthrough, no
- * MAW_QUIET escape hatch.
+ * Verifies that `maw hey <bare-name> "..."` is local-first: cmdSend accepts a
+ * bare name only when the shared resolver finds a local tmux target. Misses do
+ * not fall through to peer routing; cross-node delivery still needs `<node>:`.
  *
  * Mocked seams: src/sdk, src/config, src/core/routing,
  *   src/core/runtime/hooks, src/commands/shared/comm-log-feed,
@@ -30,6 +29,9 @@ let sendKeysCalls: Array<{ target: string; text: string }> = [];
 let resolveTargetCalls = 0;
 let listSessionsCalls = 0;
 let cmdWakeCalls = 0;
+let resolveTargetReturn: unknown = { type: "error", reason: "not_found", detail: "…" };
+let listSessionsReturn: Array<{ name: string; windows: Array<{ index: number; name: string; active: boolean }> }> = [];
+let origClaudeAgentName: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -44,9 +46,13 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   listSessions: async () => {
     if (!mockActive) return [];
     listSessionsCalls++;
-    return [];
+    return listSessionsReturn;
   },
   findPeerForTarget: async () => null,
+  resolveTarget: () => {
+    resolveTargetCalls++;
+    return resolveTargetReturn;
+  },
   curlFetch: async () => ({ ok: false, status: 500, data: {} }),
   runHook: async () => {},
   hostExec: async () => "",
@@ -57,15 +63,16 @@ mock.module(join(import.meta.dir, "../../src/config"), () => {
   return mockConfigModule(() => ({ node: "test-node", port: 3456 }));
 });
 
-mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
-  resolveTarget: () => {
-    resolveTargetCalls++;
-    return { type: "local", target: "x:y.0" };
-  },
-}));
-
 mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({
   runHook: async () => {},
+}));
+
+mock.module(join(import.meta.dir, "../../src/core/transport/tmux"), () => ({
+  Tmux: class {
+    async run() {
+      return "0 claude";
+    }
+  },
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), () => ({
@@ -75,6 +82,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveFleetSession: () => null,
+  findReusableWorktreeBySlug: () => null,
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => ({
@@ -120,83 +128,106 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 }
 
 beforeEach(() => {
+  origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+  process.env.CLAUDE_AGENT_NAME = "test-sender";
   mockActive = true;
   sendKeysCalls = [];
   resolveTargetCalls = 0;
   listSessionsCalls = 0;
   cmdWakeCalls = 0;
+  resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
+  listSessionsReturn = [];
   delete process.env.MAW_QUIET;
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+});
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("cmdSend — bare-name hard rejection (#759 Phase 2)", () => {
-  test("bare name 'mawjs-oracle' → exits 1, prints Phase 2 error, no resolution work", async () => {
+describe("cmdSend — bare-name local-first (#1572)", () => {
+  test("bare name 'mawjs-oracle' → local resolver hit sends to same-node target", async () => {
+    listSessionsReturn = [
+      { name: "47-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] },
+    ];
+    resolveTargetReturn = { type: "local", target: "47-mawjs:0" };
+
+    await run(() => cmdSend("mawjs-oracle", "test"));
+
+    expect(exitCode).toBeUndefined();
+    expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
+    expect(listSessionsCalls).toBeGreaterThanOrEqual(1);
+    expect(sendKeysCalls.length).toBe(1);
+    expect(sendKeysCalls[0].target).toBe("47-mawjs:0");
+  });
+
+  test("bare name 'mawjs-oracle' with no local hit → exits 1, prints local-only error, no send", async () => {
+    resolveTargetReturn = { type: "peer", peerUrl: "http://remote", target: "mawjs-oracle", node: "mba" };
     await run(() => cmdSend("mawjs-oracle", "test"));
 
     expect(exitCode).toBe(1);
     const allErr = errs.join("\n");
-    // Error header
     expect(allErr).toContain("error");
-    expect(allErr).toContain("bare-name target removed");
-    expect(allErr).toContain("node prefix required");
-    // this-node form with substituted agent
-    expect(allErr).toContain("this node:");
+    expect(allErr).toContain("not found locally");
+    expect(allErr).toContain("bare names are local-only");
+    expect(allErr).toContain("same-node targets:");
     expect(allErr).toContain("maw hey local:mawjs-oracle");
-    // cross-node placeholder form
-    expect(allErr).toContain("cross-node candidates:");
-    expect(allErr).toContain("maw hey <node>:<session>:mawjs-oracle");
-    // locate hint
+    expect(allErr).toContain("cross-node targets:");
+    expect(allErr).toContain("maw hey <node>:mawjs-oracle");
     expect(allErr).toContain("maw locate mawjs-oracle");
-    // No downstream work happened
-    expect(resolveTargetCalls).toBe(0);
-    expect(listSessionsCalls).toBe(0);
+    // Local resolution happened, but remote/fallback delivery did not.
+    expect(resolveTargetCalls).toBe(1);
+    expect(listSessionsCalls).toBe(1);
     expect(cmdWakeCalls).toBe(0);
     expect(sendKeysCalls.length).toBe(0);
   });
 
-  test("MAW_QUIET=1 does NOT bypass the rejection — Phase 1 escape hatch is gone", async () => {
+  test("MAW_QUIET=1 does NOT bypass the local-only miss", async () => {
     process.env.MAW_QUIET = "1";
     await run(() => cmdSend("mawjs-oracle", "test"));
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("bare-name target removed");
+    expect(errs.join("\n")).toContain("not found locally");
     expect(sendKeysCalls.length).toBe(0);
   });
 
   test("node-prefixed target 'test-node:foo' passes — no rejection", async () => {
     await run(() => cmdSend("test-node:foo", "hi"));
     // Either resolved as local/self-node and sent, or hit a downstream branch —
-    // the key invariant is we did NOT exit on the bare-name guard.
+    // the key invariant is we did NOT exit on the bare-name local-only guard.
     const allErr = errs.join("\n");
-    expect(allErr).not.toContain("bare-name target removed");
+    expect(allErr).not.toContain("not found locally");
     // Resolution was attempted
     expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
   });
 
   test("team:<name> prefix passes the bare-name guard", async () => {
     // team: routing has its own validation downstream; we only assert the
-    // bare-name guard didn't fire.
+    // bare-name local-only guard didn't fire.
     await run(() => cmdSend("team:nonexistent-team", "hi"));
     const allErr = errs.join("\n");
-    expect(allErr).not.toContain("bare-name target removed");
+    expect(allErr).not.toContain("not found locally");
   });
 
   test("plugin:<name> prefix passes the bare-name guard", async () => {
     await run(() => cmdSend("plugin:nonexistent-plugin", "hi"));
     const allErr = errs.join("\n");
-    expect(allErr).not.toContain("bare-name target removed");
+    expect(allErr).not.toContain("not found locally");
   });
 
   test("path-style target with '/' passes the bare-name guard", async () => {
     await run(() => cmdSend("some/path", "hi"));
     const allErr = errs.join("\n");
-    expect(allErr).not.toContain("bare-name target removed");
+    expect(allErr).not.toContain("not found locally");
     expect(resolveTargetCalls).toBeGreaterThanOrEqual(1);
   });
 });

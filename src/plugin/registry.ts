@@ -19,11 +19,13 @@
  *  4. Legacy manifests (no artifact field) still load — warn once, allow.
  */
 
-import { existsSync, readFileSync, readdirSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
+import { join, resolve, sep } from "path";
+import { pathToFileURL } from "url";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
 import { verbose, info } from "../cli/verbosity";
+import type { MawConfig } from "../config/types";
 import type { LoadedPlugin } from "./types";
 import { satisfies, formatSdkMismatchError } from "./registry-semver";
 import {
@@ -59,13 +61,72 @@ export { invokePlugin } from "./registry-invoke";
  * bun invocation is a new process, cache starts empty).
  */
 let _discoverCache: LoadedPlugin[] | null = null;
+const _moduleSymbolCache = new Map<string, unknown>();
 
 /** Clear the discovery cache. For install-flow + tests. Also flushes the
  *  profile-resolver cache so a re-scan picks up new plugins under the
  *  active profile filter (#890). */
 export function resetDiscoverCache(): void {
   _discoverCache = null;
+  _moduleSymbolCache.clear();
   resetProfileFilterCache();
+}
+
+export interface ImportPluginSymbolDeps {
+  discoverPackages?: () => LoadedPlugin[];
+}
+
+function resolvePluginModulePath(plugin: LoadedPlugin): string {
+  const modulePath = plugin.manifest.module?.path;
+  if (!modulePath) throw new Error(`plugin '${plugin.manifest.name}' does not declare module.path`);
+  const resolved = resolve(plugin.dir, modulePath);
+  const pluginRoot = realpathSync(plugin.dir);
+  const realPath = realpathSync(resolved);
+  if (realPath !== pluginRoot && !realPath.startsWith(pluginRoot + sep)) {
+    throw new Error(`plugin '${plugin.manifest.name}' module.path escapes plugin dir: ${modulePath}`);
+  }
+  return realPath;
+}
+
+/**
+ * Import a whitelisted named symbol from another plugin's module surface.
+ *
+ * Plugins opt in via plugin.json:
+ *   { "module": { "path": "./lib.ts", "exports": ["helper"] } }
+ *
+ * This keeps cross-plugin reuse out of the core SDK while preserving an
+ * explicit manifest allowlist. Disabled plugins are not importable, so the
+ * module surface cannot bypass operator policy.
+ */
+export async function importPluginSymbol<T = unknown>(
+  pluginName: string,
+  symbolName: string,
+  deps: ImportPluginSymbolDeps = {},
+): Promise<T> {
+  if (!pluginName) throw new Error("importPluginSymbol: pluginName is required");
+  if (!symbolName) throw new Error("importPluginSymbol: symbolName is required");
+
+  const plugins = (deps.discoverPackages ?? discoverPackages)();
+  const plugin = plugins.find(p => p.manifest.name === pluginName);
+  if (!plugin) throw new Error(`plugin '${pluginName}' not found`);
+  if (plugin.disabled) throw new Error(`plugin '${pluginName}' is disabled`);
+  const moduleSurface = plugin.manifest.module;
+  if (!moduleSurface) throw new Error(`plugin '${pluginName}' does not declare a module surface`);
+  if (!moduleSurface.exports.includes(symbolName)) {
+    throw new Error(`plugin '${pluginName}' does not export '${symbolName}'`);
+  }
+
+  const cacheKey = `${plugin.dir}\0${plugin.manifest.name}\0${symbolName}`;
+  if (_moduleSymbolCache.has(cacheKey)) return _moduleSymbolCache.get(cacheKey) as T;
+
+  const modulePath = resolvePluginModulePath(plugin);
+  const mod = await import(pathToFileURL(modulePath).href);
+  if (!(symbolName in mod)) {
+    throw new Error(`plugin '${pluginName}' module did not provide export '${symbolName}'`);
+  }
+  const value = mod[symbolName] as T;
+  _moduleSymbolCache.set(cacheKey, value);
+  return value;
 }
 
 /**
@@ -77,10 +138,19 @@ export function resetDiscoverCache(): void {
  * Result is memoized within the current process. Call `resetDiscoverCache()`
  * after mutating plugin state (install, build) to force a fresh scan.
  */
-export function discoverPackages(): LoadedPlugin[] {
-  if (_discoverCache !== null) return _discoverCache;
+export interface DiscoverPackagesDeps {
+  loadConfig?: () => Pick<MawConfig, "disabledPlugins">;
+  resolveActiveProfileFilter?: typeof resolveActiveProfileFilter;
+  scanDirs?: typeof scanDirs;
+  useCache?: boolean;
+}
+
+export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[] {
+  const useCache = deps.useCache ?? (!deps.loadConfig && !deps.resolveActiveProfileFilter && !deps.scanDirs);
+  if (useCache && _discoverCache !== null) return _discoverCache;
+  const pluginDirs = (deps.scanDirs ?? scanDirs)();
   const plugins: LoadedPlugin[] = [];
-  const disabled = loadConfig().disabledPlugins ?? [];
+  const disabled = (deps.loadConfig ?? loadConfig)().disabledPlugins ?? [];
   const runtimeVer = runtimeSdkVersion();
   let legacyCount = 0;
   // #355 — aggregate mode counts for a single compact summary line instead
@@ -89,7 +159,7 @@ export function discoverPackages(): LoadedPlugin[] {
   // invariant (#343), but the right grain is SUMMARY, not per-entry.
   const modeCounts = { symlink: 0, artifact: 0, unbuilt: 0, legacy: 0 };
 
-  for (const baseDir of scanDirs()) {
+  for (const baseDir of pluginDirs) {
     if (!existsSync(baseDir)) continue;
     let entries: string[];
     try {
@@ -186,14 +256,17 @@ export function discoverPackages(): LoadedPlugin[] {
 
   // #404 — apply weight overrides so category survives `install --link` replaces
   // where the new plugin.json omitted `weight`.
-  const overridesPath = join(scanDirs()[0]!, ".overrides.json");
-  try {
-    const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
-    for (const p of plugins) {
-      const w = overrides[p.manifest.name];
-      if (typeof w === "number") p.manifest.weight = w;
-    }
-  } catch { /* absent or unreadable */ }
+  const primaryPluginDir = pluginDirs[0];
+  if (primaryPluginDir) {
+    const overridesPath = join(primaryPluginDir, ".overrides.json");
+    try {
+      const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
+      for (const p of plugins) {
+        const w = overrides[p.manifest.name];
+        if (typeof w === "number") p.manifest.weight = w;
+      }
+    } catch { /* absent or unreadable */ }
+  }
 
   // Sort by weight (lower = first, default 50) — like Drupal module weight
   plugins.sort((a, b) => (a.manifest.weight ?? 50) - (b.manifest.weight ?? 50));
@@ -211,7 +284,7 @@ export function discoverPackages(): LoadedPlugin[] {
   // The pure resolver in profile-loader.ts keeps its Phase-1 contract
   // (untiered = excluded); the default lives here in the wiring layer where
   // the audit doc's "missing → core" convention applies.
-  const filter = resolveActiveProfileFilter(
+  const filter = (deps.resolveActiveProfileFilter ?? resolveActiveProfileFilter)(
     plugins.map((p) => ({
       name: p.manifest.name,
       tier: p.manifest.tier ?? "core",
@@ -221,6 +294,6 @@ export function discoverPackages(): LoadedPlugin[] {
     ? plugins
     : plugins.filter((p) => filter.has(p.manifest.name));
 
-  _discoverCache = filtered;
+  if (useCache) _discoverCache = filtered;
   return filtered;
 }

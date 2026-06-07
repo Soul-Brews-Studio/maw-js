@@ -7,10 +7,14 @@ let commands: Array<{ cmd: string; time: number }> = [];
 let execDelay = 0;
 let execResponder: (cmd: string) => string = () => "";
 
+const normalizeTmuxCmd = (cmd: string) =>
+  cmd.replace(/^(TERM=xterm tmux) -S '[^']+' /, "$1 ");
+
 const mockExec = async (cmd: string, _host?: string) => {
-  commands.push({ cmd, time: Date.now() });
+  const normalized = normalizeTmuxCmd(cmd);
+  commands.push({ cmd: normalized, time: Date.now() });
   if (execDelay > 0) await new Promise((r) => setTimeout(r, execDelay));
-  return execResponder(cmd);
+  return execResponder(normalized);
 };
 
 mock.module("../../src/config", () =>
@@ -32,6 +36,7 @@ const {
 } = await import("../../src/core/transport/tmux");
 
 beforeEach(() => {
+  delete process.env.MAW_TMUX_SOCKET;
   commands = [];
   execDelay = 0;
   execResponder = () => "";
@@ -80,7 +85,7 @@ describe("splitWindowLocked", () => {
     const elapsed = Date.now() - start;
 
     expect(commands).toHaveLength(1);
-    expect(commands[0].cmd).toBe("tmux split-window -t mawjs:0");
+    expect(commands[0].cmd).toBe("TERM=xterm tmux split-window -t mawjs:0");
     // Allow 5ms jitter on either side of 40ms.
     expect(elapsed).toBeGreaterThanOrEqual(35);
   });
@@ -91,8 +96,8 @@ describe("splitWindowLocked", () => {
     await Promise.all([p1, p2]);
 
     expect(commands).toHaveLength(2);
-    expect(commands[0].cmd).toBe("tmux split-window -t s:0");
-    expect(commands[1].cmd).toBe("tmux split-window -t s:1");
+    expect(commands[0].cmd).toBe("TERM=xterm tmux split-window -t s:0");
+    expect(commands[1].cmd).toBe("TERM=xterm tmux split-window -t s:1");
     // Second split must start after first's settle window.
     const gap = commands[1].time - commands[0].time;
     expect(gap).toBeGreaterThanOrEqual(45);
@@ -106,7 +111,7 @@ describe("splitWindowLocked", () => {
       settleMs: 0,
     });
     // q() single-quotes `%` since it's outside the safe-char regex.
-    expect(commands[0].cmd).toBe("tmux split-window -t s:0 -v -l '30%' bash");
+    expect(commands[0].cmd).toBe("TERM=xterm tmux split-window -t s:0 -v -l '30%' bash");
   });
 });
 
@@ -114,7 +119,7 @@ describe("tagPane", () => {
   test("sets title via select-pane -T", async () => {
     await tagPane("s:0.1", { title: "oracle" });
     expect(commands).toEqual([
-      { cmd: "tmux select-pane -t s:0.1 -T oracle", time: expect.any(Number) },
+      { cmd: "TERM=xterm tmux select-pane -t s:0.1 -T oracle", time: expect.any(Number) },
     ]);
   });
 
@@ -124,14 +129,14 @@ describe("tagPane", () => {
     });
     // q() single-quotes `@` since it's outside the safe-char regex.
     expect(commands.map((c) => c.cmd)).toEqual([
-      "tmux set-option -p -t s:0.1 '@agent-name' scout",
-      "tmux set-option -p -t s:0.1 '@role' teammate",
+      "TERM=xterm tmux set-option -p -t s:0.1 '@agent-name' scout",
+      "TERM=xterm tmux set-option -p -t s:0.1 '@role' teammate",
     ]);
   });
 
   test("quotes values containing spaces", async () => {
     await tagPane("s:0.1", { title: "oracle main" });
-    expect(commands[0].cmd).toBe("tmux select-pane -t s:0.1 -T 'oracle main'");
+    expect(commands[0].cmd).toBe("TERM=xterm tmux select-pane -t s:0.1 -T 'oracle main'");
   });
 });
 
@@ -144,7 +149,7 @@ describe("readPaneTags (round-trip)", () => {
 
     execResponder = (cmd: string) => {
       // select-pane -T <title>
-      let m = cmd.match(/^tmux select-pane -t (\S+) -T (?:'((?:[^']|'\\'')*)'|(\S+))$/);
+      let m = cmd.match(/^(?:TERM=xterm )?tmux select-pane -t (\S+) -T (?:'((?:[^']|'\\'')*)'|(\S+))$/);
       if (m) {
         const t = m[1];
         const title = m[2] !== undefined ? m[2].replace(/'\\''/g, "'") : m[3]!;
@@ -153,7 +158,7 @@ describe("readPaneTags (round-trip)", () => {
         return "";
       }
       // set-option -p -t <target> <@key|'@key'> <val>
-      m = cmd.match(/^tmux set-option -p -t (\S+) (?:'(@[^']+)'|(@\S+)) (?:'((?:[^']|'\\'')*)'|(\S+))$/);
+      m = cmd.match(/^(?:TERM=xterm )?tmux set-option -p -t (\S+) (?:'(@[^']+)'|(@\S+)) (?:'((?:[^']|'\\'')*)'|(\S+))$/);
       if (m) {
         const t = m[1];
         const key = m[2] ?? m[3]!;
@@ -163,10 +168,10 @@ describe("readPaneTags (round-trip)", () => {
         return "";
       }
       // display-message -p -t <target> '#{pane_title}'
-      m = cmd.match(/^tmux display-message -p -t (\S+) '#\{pane_title\}'$/);
+      m = cmd.match(/^(?:TERM=xterm )?tmux display-message -p -t (\S+) '#\{pane_title\}'$/);
       if (m) return `${store[m[1]]?.title ?? ""}\n`;
       // show-options -p -t <target>
-      m = cmd.match(/^tmux show-options -p -t (\S+)$/);
+      m = cmd.match(/^(?:TERM=xterm )?tmux show-options -p -t (\S+)$/);
       if (m) {
         const entries = store[m[1]]?.meta ?? {};
         return Object.entries(entries)

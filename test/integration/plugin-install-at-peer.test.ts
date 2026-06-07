@@ -61,7 +61,7 @@ function sha256File(path: string): string {
 }
 
 /** Build a tiny but complete plugin source dir + built artifact. */
-function buildFakePlugin(root: string, name: string, version: string): { sha256: string } {
+function buildFakePlugin(root: string, name: string, version: string): { sha256: string; tarball: Buffer<ArrayBufferLike> } {
   mkdirSync(root, { recursive: true });
   // Source file — the built artifact that gets hashed.
   const artifactRel = "dist/index.js";
@@ -80,13 +80,24 @@ function buildFakePlugin(root: string, name: string, version: string): { sha256:
     artifact: { path: artifactRel, sha256 },
   };
   writeFileSync(join(root, "plugin.json"), JSON.stringify(manifest, null, 2) + "\n");
-  return { sha256 };
+  const tarRoot = mkdtempSync(join(tmpdir(), "maw-peer-fixture-"));
+  const tarPath = join(tarRoot, `${name}-${version}.tgz`);
+  const tar = spawnSync("tar", ["-czf", tarPath, "-C", root, "."], { encoding: "utf8" });
+  if (tar.status !== 0) {
+    rmSync(tarRoot, { recursive: true, force: true });
+    throw new Error(`tar failed: ${tar.stderr || tar.stdout || tar.error?.message || tar.status || "unknown error"}`);
+  }
+  try {
+    return { sha256, tarball: Buffer.from(readFileSync(tarPath)) };
+  } finally {
+    rmSync(tarRoot, { recursive: true, force: true });
+  }
 }
 
 /** Peer server that implements the two endpoints @peer install depends on. */
 function startPeerServer(opts: {
   node: string;
-  plugins: Array<{ name: string; version: string; sha256: string; dir: string }>;
+  plugins: Array<{ name: string; version: string; sha256: string; tarball: Buffer<ArrayBufferLike> }>;
 }) {
   const byName = new Map(opts.plugins.map(p => [p.name, p]));
   const server = Bun.serve({
@@ -113,9 +124,7 @@ function startPeerServer(opts: {
         const name = decodeURIComponent(dlMatch[1]!);
         const p = byName.get(name);
         if (!p) return new Response(JSON.stringify({ error: "not installed" }), { status: 404 });
-        const tar = spawnSync("tar", ["-czf", "-", "-C", p.dir, "."], { encoding: "buffer" });
-        if (tar.status !== 0) return new Response("tar failed", { status: 500 });
-        return new Response(tar.stdout, {
+        return new Response(p.tarball, {
           status: 200,
           headers: {
             "Content-Type": "application/gzip",
@@ -150,12 +159,12 @@ describe.skipIf(SKIP)("plugin install — @peer 2-port demo", () => {
     lockFile = join(workRoot, "plugins.lock");
     mkdirSync(pluginsDir, { recursive: true });
 
-    const { sha256 } = buildFakePlugin(pluginSrc, pluginName, pluginVersion);
+    const { sha256, tarball } = buildFakePlugin(pluginSrc, pluginName, pluginVersion);
     pluginSha = sha256;
 
     peerA = startPeerServer({
       node: "peer-alpha",
-      plugins: [{ name: pluginName, version: pluginVersion, sha256: pluginSha, dir: pluginSrc }],
+      plugins: [{ name: pluginName, version: pluginVersion, sha256: pluginSha, tarball }],
     });
     peerB = startPeerServer({ node: "peer-beta", plugins: [] });
 

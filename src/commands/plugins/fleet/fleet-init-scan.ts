@@ -1,8 +1,9 @@
 import { join } from "path";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { hostExec } from "../../../sdk";
-import { FLEET_DIR } from "../../../sdk";
 import { ghqList } from "../../../core/ghq";
+import { fleetDirForWrite } from "../../shared/fleet-load";
+import { parseWorktreePath, worktreeNameFromPath } from "../../../core/fleet/worktree-layout";
 
 interface FleetWindow {
   name: string;
@@ -51,7 +52,7 @@ const GROUPS: Record<string, { session: string; order: number }> = {
 };
 
 export async function cmdFleetInit() {
-  const fleetDir = FLEET_DIR;
+  const fleetDir = fleetDirForWrite();
   // Clean old configs to prevent duplicate numbering (#82)
   if (existsSync(fleetDir)) rmSync(fleetDir, { recursive: true });
   mkdirSync(fleetDir, { recursive: true });
@@ -69,6 +70,7 @@ export async function cmdFleetInit() {
     const repoName = parts.pop()!;
     const org = parts.pop()!;
     const parentDir = parts.join("/") + "/" + org;
+    const reposRoot = parts.join("/");
 
     // Match *-oracle repos or known names
     let oracleName: string | null = null;
@@ -79,17 +81,21 @@ export async function cmdFleetInit() {
     }
 
     if (!oracleName) continue;
-    // Skip worktree dirs (they have .wt- in the name)
-    if (repoName.includes(".wt-")) continue;
+    // Skip worktree dirs (legacy .wt-* siblings or nested repo/agents/*)
+    if (repoName.includes(".wt-") || org === "agents") continue;
 
     // Find worktrees (strip number prefix from window name)
     const worktrees: { name: string; path: string; repo: string }[] = [];
     try {
-      const wtOut = await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
+      const wtOuts: string[] = [];
+      try { wtOuts.push(await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`)); } catch { /* legacy scan failed */ }
+      try { wtOuts.push(await hostExec(`find ${repoPath}/agents -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`)); } catch { /* nested scan failed */ }
+      const wtOut = wtOuts.join("\n");
       const usedNames = new Set<string>();
       for (const wtPath of wtOut.split("\n").filter(Boolean)) {
-        const wtBase = wtPath.split("/").pop()!;
-        const suffix = wtBase.replace(`${repoName}.wt-`, "");
+        const parsed = parseWorktreePath(wtPath, reposRoot);
+        if (!parsed) continue;
+        const suffix = worktreeNameFromPath(wtPath) ?? parsed.wtName;
         const taskPart = suffix.replace(/^\d+-/, "");
         let windowName = `${oracleName}-${taskPart}`;
         if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
@@ -97,7 +103,7 @@ export async function cmdFleetInit() {
         worktrees.push({
           name: windowName,
           path: wtPath,
-          repo: `${org}/${wtBase}`,
+          repo: parsed.repo,
         });
       }
     } catch { /* no worktrees */ }
@@ -158,6 +164,7 @@ export async function cmdFleetInit() {
     console.log(`  \x1b[32m✓\x1b[0m 99-overview.json — 1 window`);
   }
 
-  console.log(`\n  \x1b[32m${sorted.length + 1} fleet configs written to fleet/\x1b[0m`);
+  const written = sorted.length + (oracleRepos.length > 0 ? 1 : 0);
+  console.log(`\n  \x1b[32m${written} fleet configs written to ${fleetDir}/\x1b[0m`);
   console.log(`  Run \x1b[36mmaw wake all\x1b[0m to start the fleet.\n`);
 }

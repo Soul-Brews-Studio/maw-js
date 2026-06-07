@@ -30,6 +30,8 @@ const PROTECTED = new Set([
   "/transport/send",
   "/triggers/fire",
   "/worktrees/cleanup",
+  "/_engine/register",
+  "/_engine/unregister",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
@@ -65,6 +67,63 @@ let _bunServer: Server | null = null;
  *  Called once from server.ts after Bun.serve(). */
 export function setBunServer(server: Server): void {
   _bunServer = server;
+}
+
+const rawBodyBytes = new WeakMap<Request, Uint8Array>();
+const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const textDecoder = new TextDecoder();
+
+function jsonLike(contentType: string): boolean {
+  return contentType === "application/json" || contentType.endsWith("+json");
+}
+
+function parseCapturedBody(bytes: Uint8Array, contentType: string): unknown {
+  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  if (jsonLike(normalized)) {
+    const text = textDecoder.decode(bytes);
+    return text.trim() ? JSON.parse(text) : null;
+  }
+  if (normalized === "text/plain") {
+    return textDecoder.decode(bytes);
+  }
+  if (normalized === "application/x-www-form-urlencoded") {
+    return Object.fromEntries(new URLSearchParams(textDecoder.decode(bytes)));
+  }
+  if (normalized === "application/octet-stream") {
+    return bytes;
+  }
+  return undefined;
+}
+
+async function captureBodyForAuth(request: Request, contentType: string): Promise<unknown> {
+  const config = loadConfig();
+  if (!config.federationToken) return undefined;
+  if (!BODY_METHODS.has(request.method.toUpperCase())) return undefined;
+  if (!request.headers.get("x-maw-from")) return undefined;
+
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/^\/api/, "");
+  if (!isProtected(path, request.method)) return undefined;
+
+  const parsed = parseCapturedBody(new Uint8Array(), contentType);
+  if (parsed === undefined) return undefined;
+
+  const clientIp = _bunServer?.requestIP?.(request)?.address;
+  if (isLoopback(clientIp)) return undefined;
+
+  const body = new Uint8Array(await request.arrayBuffer());
+  rawBodyBytes.set(request, body);
+  return parseCapturedBody(body, contentType);
+}
+
+async function readBodyBytesForAuth(request: Request): Promise<Uint8Array> {
+  const cached = rawBodyBytes.get(request);
+  if (cached) {
+    rawBodyBytes.delete(request);
+    return cached;
+  }
+  const clone = request.clone();
+  return new Uint8Array(await clone.arrayBuffer());
 }
 
 // --- #804 Step 4 — per-peer "from:" verification (O6 enforcement) ---
@@ -107,6 +166,7 @@ export function lookupCachedPubkey(from: string): string | undefined {
 
 /** Federation auth — from: + signature plugin (#804 Step 4). */
 export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
+  .onParse({ as: "global" }, ({ request }, contentType) => captureBodyForAuth(request, contentType))
   .onBeforeHandle(async ({ request, set }) => {
     const config = loadConfig();
     // Backwards compat: no fleet token configured → single-node, no peer
@@ -121,11 +181,15 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
     const clientIp = _bunServer?.requestIP?.(request)?.address;
     if (isLoopback(clientIp)) return;
 
+    // No claimed sender means the HMAC layer already handled the request; do
+    // not clone/read the body again. This keeps unsigned legacy HMAC writes
+    // from tripping the from-signing body reader (#1859).
+    if (request.headers.get("x-maw-from") === null) return;
+
     // Read body once (clone). We need the bytes for the body-hash binding.
     let body: Uint8Array | undefined;
     try {
-      const clone = request.clone();
-      body = new Uint8Array(await clone.arrayBuffer());
+      body = await readBodyBytesForAuth(request);
     } catch (err) {
       console.warn(`[from-auth] body read failed for ${request.method} ${path}: ${err instanceof Error ? err.message : String(err)}`);
       set.status = 401;
@@ -161,7 +225,13 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
       console.warn(`[from-auth] accepted signed request from unknown peer ${decision.from} (no cached pubkey to verify against — alpha behavior; will harden at v27)`);
     }
     // accept-verified is the steady-state happy path; no log spam.
-  });
+  })
+  // SECURITY (#1): `.as('global')` propagates this onBeforeHandle to every
+  // sibling route module mounted alongside this plugin in src/api/index.ts.
+  // Without it, a named Elysia plugin's lifecycle hook is `local`-scoped — it
+  // guards only routes defined on THIS instance (which defines zero), so the
+  // hook would run for nothing and every protected route would be unguarded.
+  .as("global");
 
 /** Federation auth — Elysia plugin with onBeforeHandle HMAC verification */
 export const federationAuth = new Elysia({ name: "federation-auth" })
@@ -169,8 +239,13 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     const config = loadConfig();
     const token = config.federationToken;
 
-    // No token configured → auth disabled (backwards compat)
-    if (!token) return;
+    // Peers-require-token invariant (#3) — mirrors the Hono federation-auth.ts.
+    // A node with peers configured binds 0.0.0.0 (see core/server.ts) and is
+    // network-reachable, so "no token" in that posture is default-insecure-open,
+    // NOT single-node mode. We must reach the fail-closed check below before
+    // returning on `!token`, so the token short-circuit no longer happens here.
+    const hasPeers = (config.peers?.length ?? 0) > 0 || (config.namedPeers?.length ?? 0) > 0;
+    const allowPeersWithoutToken = config.allowPeersWithoutToken === true;
 
     const url = new URL(request.url);
     // Strip /api prefix to match against PROTECTED set
@@ -195,6 +270,22 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     const clientIp = _bunServer?.requestIP?.(request)?.address;
 
     if (isLoopback(clientIp)) return;
+
+    // Fail-closed (#3): peers configured but no federationToken → the node is
+    // network-reachable with auth fully off. Refuse protected writes from
+    // non-loopback callers unless the operator explicitly opted into the
+    // legacy posture with `allowPeersWithoutToken: true`. Restores the
+    // invariant the Hono federation-auth.ts has always enforced.
+    if (!token && hasPeers && !allowPeersWithoutToken) {
+      console.warn(`[auth] rejected ${request.method} ${url.pathname} from ${clientIp ?? "?"}: federation_token_required (peers configured, no federationToken)`);
+      set.status = 401;
+      return { error: "federation auth required", reason: "federation_token_required" };
+    }
+
+    // No token configured AND no peers → local-only single-node mode.
+    // The server binds to 127.0.0.1 in this posture; preserve legacy
+    // pass-through so fresh single-node installs work unchanged.
+    if (!token) return;
 
     // #804 Step 4: when the request carries `x-maw-from`, the from-signing
     // layer owns the `x-maw-signature` slot and is verified by
@@ -229,4 +320,11 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     }
 
     // Auth passed — continue to handler
-  });
+  })
+  // SECURITY (#1): `.as('global')` propagates this onBeforeHandle to every
+  // sibling route module mounted alongside this plugin in src/api/index.ts
+  // (.use(sessionsApi), .use(feedApi), .use(transportApi), …). Without it the
+  // hook is `local`-scoped to this instance — which defines zero routes — so
+  // it guards NOTHING and every protected write endpoint accepts unsigned
+  // non-loopback requests. Empirically confirmed in maw-stress revalidation.
+  .as("global");

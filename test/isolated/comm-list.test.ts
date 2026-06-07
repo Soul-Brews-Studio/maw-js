@@ -76,6 +76,9 @@ const _rPluginRegistry = await import("../../src/plugin/registry");
 const realDiscoverPackages = _rPluginRegistry.discoverPackages;
 const realInvokePlugin = _rPluginRegistry.invokePlugin;
 
+const childProcess = require("child_process") as typeof import("child_process");
+const realExecSync = childProcess.execSync;
+
 // ─── Mutable state (reset per-test) ─────────────────────────────────────────
 
 interface PaneWindow { index: number; name: string; active: boolean; }
@@ -107,6 +110,7 @@ let emitFeedCalls: Array<{ event: string; oracle: string; node: string; message:
 let discoverPackagesReturn: Array<{ manifest: { name: string } }> = [];
 let invokePluginReturn: { ok: boolean; output?: string; error?: string } = { ok: true, output: "plugin ran" };
 let invokePluginCalls: Array<{ plugin: unknown; ctx: unknown }> = [];
+let execSyncResponses: Array<{ match: RegExp; result?: string | Buffer; error?: string }> = [];
 
 let osHomedirOverride: string | null = null;
 
@@ -325,10 +329,20 @@ beforeEach(() => {
   discoverPackagesReturn = [];
   invokePluginReturn = { ok: true, output: "plugin ran" };
   invokePluginCalls = [];
+  execSyncResponses = [];
   osHomedirOverride = null;
   delete process.env.MAW_QUIET;
   delete process.env.MAW_DEBUG;
   process.env.CLAUDE_AGENT_NAME = "test-oracle";
+  childProcess.execSync = ((command: string, ...rest: unknown[]) => {
+    if (!mockActive) return realExecSync(command, ...(rest as [unknown]));
+    for (const response of execSyncResponses) {
+      if (!response.match.test(command)) continue;
+      if (response.error) throw new Error(response.error);
+      return response.result ?? "";
+    }
+    throw new Error(`unexpected execSync: ${command}`);
+  }) as typeof childProcess.execSync;
 });
 
 afterEach(() => {
@@ -337,6 +351,7 @@ afterEach(() => {
   if (origDebug === undefined) delete process.env.MAW_DEBUG; else process.env.MAW_DEBUG = origDebug;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  childProcess.execSync = realExecSync;
 });
 
 afterAll(() => {
@@ -344,6 +359,7 @@ afterAll(() => {
   console.log = origLog;
   console.error = origErr;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
+  childProcess.execSync = realExecSync;
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -504,7 +520,7 @@ describe("cmdList — session rendering", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("cmdList — orphan detection", () => {
-  test("stale + orphan worktrees → warnings + fix hint printed", async () => {
+  test("--verify stale + orphan worktrees → warnings + fix hint printed", async () => {
     listSessionsReturn = [
       { name: "08-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] },
     ];
@@ -515,7 +531,7 @@ describe("cmdList — orphan detection", () => {
       { path: "/ghq/org/repo",                status: "active", name: "main" }, // filtered out
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     const joined = outs.join("\n");
     expect(joined).toContain("⚠ orphaned:");
@@ -534,7 +550,7 @@ describe("cmdList — orphan detection", () => {
       { path: "noslash", status: "stale", name: "fallback-name" },
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     // pop() on "noslash".split("/") returns "noslash" → truthy, uses that.
     // To actually exercise the `|| wt.name` branch we need an empty string
@@ -548,7 +564,7 @@ describe("cmdList — orphan detection", () => {
       { path: "", status: "stale", name: "fallback-name" },
     ];
 
-    await run(() => cmdList());
+    await run(() => cmdList({ verify: true }));
 
     // split("/").pop() on "" returns "" (falsy) → falls through to wt.name.
     expect(outs.join("\n")).toContain("fallback-name");
@@ -637,7 +653,7 @@ describe("cmdList — --fix prune (FIX-A)", () => {
     expect(outs.join("\n")).toContain("nothing to prune");
   });
 
-  test("opts.fix=false (default) preserves read-only behavior — no prune, hint shown", async () => {
+  test("opts.fix=false (default) preserves read-only behavior and suppresses orphan noise", async () => {
     listSessionsReturn = [];
     scanWorktreesReturn = [
       { path: "/ghq/org/repo.wt-1-stale", status: "stale", name: "1-stale" },
@@ -647,8 +663,8 @@ describe("cmdList — --fix prune (FIX-A)", () => {
 
     expect(cleanupWorktreeCalls).toHaveLength(0);
     const joined = outs.join("\n");
-    expect(joined).toContain("⚠ orphaned:");
-    expect(joined).toContain("→ maw ls --fix");
+    expect(joined).not.toContain("⚠ orphaned:");
+    expect(joined).not.toContain("→ maw ls --fix");
   });
 
   test("opts.fix=true: cleanupWorktree throws on one orphan → keeps going + reports failure", async () => {
@@ -682,7 +698,7 @@ describe("cmdList — empty state", () => {
     expect(joined).toContain("maw wake <name>");
   });
 
-  test("no sessions but orphans present → NO 'No active sessions' hint", async () => {
+  test("no sessions but orphans present by default → still emits onboarding hints", async () => {
     listSessionsReturn = [];
     scanWorktreesReturn = [
       { path: "/wt1", status: "stale", name: "wt1" },
@@ -690,8 +706,8 @@ describe("cmdList — empty state", () => {
 
     await run(() => cmdList());
 
-    expect(outs.some((o) => o.includes("No active sessions."))).toBe(false);
-    expect(outs.some((o) => o.includes("⚠ orphaned:"))).toBe(true);
+    expect(outs.some((o) => o.includes("No active sessions."))).toBe(true);
+    expect(outs.some((o) => o.includes("⚠ orphaned:"))).toBe(false);
   });
 
   test("no sessions + scanWorktrees throws → still emits onboarding hints", async () => {
@@ -715,29 +731,25 @@ describe("resolveMyName", () => {
     expect(out).toBe("override-name");
   });
 
-  test("no CLAUDE_AGENT_NAME, no TMUX → config.node fallback", () => {
-    // execSync throws because we're not attached to tmux in this test path
-    // (TMUX env var intentionally cleared). The catch swallows, we land on
-    // `config.node || "cli"`.
+  test("tmux session name is stripped to the bare oracle name", () => {
     delete process.env.CLAUDE_AGENT_NAME;
-    const prevTmux = process.env.TMUX;
-    delete process.env.TMUX;
-    try {
-      const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
-      // Either tmux happens to be running and returns a stripped session, OR
-      // the fallback kicks in. Both are acceptable; we only assert truthy.
-      expect(typeof out).toBe("string");
-      expect(out.length).toBeGreaterThan(0);
-    } finally {
-      if (prevTmux !== undefined) process.env.TMUX = prevTmux;
-    }
+    execSyncResponses = [{ match: /tmux display-message/, result: "08-mawjs\n" }];
+    const out = resolveMyName({ node: "ignored" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("mawjs");
+  });
+
+  test("no CLAUDE_AGENT_NAME, no tmux session → config.node fallback", () => {
+    delete process.env.CLAUDE_AGENT_NAME;
+    execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
+    const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("white");
   });
 
   test("no CLAUDE_AGENT_NAME and no config.node → 'cli' fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({} as unknown as Parameters<typeof resolveMyName>[0]);
-    expect(typeof out).toBe("string");
-    expect(out.length).toBeGreaterThan(0);
+    expect(out).toBe("cli");
   });
 });
 
@@ -797,14 +809,11 @@ describe("resolveOraclePane", () => {
 // comm-send.ts — cmdSend (bare-name tip, local, peer, plugin, error paths)
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
-  // History: Phase 1 emitted a deprecation warning on bare-name targets but
-  // still resolved them. Phase 2 (#759) removes the bare-name path entirely
-  // — cmdSend now exits non-zero with a hard error before any resolution.
-  // The Phase 1 warning + MAW_QUIET escape hatch are gone. Coverage of the
-  // new error-shape lives in test/isolated/hey-bare-name-rejection.test.ts.
+describe("cmdSend — bare-name local-only routing (#1572)", () => {
+  // Bare names are a same-node convenience only. A local resolver hit is
+  // allowed, but a miss must not fall through to implicit peer routing.
 
-  test("bare name → hard error + exit 1, no deprecation phrasing", async () => {
+  test("bare name miss → local-only error + exit 1, no deprecation phrasing", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
 
@@ -812,9 +821,8 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
-    // New Phase 2 shape — no longer the yellow ⚠ deprecation
-    expect(joined).toContain("bare-name target removed");
-    expect(joined).toContain("node prefix required");
+    expect(joined).toContain("not found locally");
+    expect(joined).toContain("bare names are local-only");
     expect(joined).not.toContain("deprecation");
   });
 
@@ -824,11 +832,11 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
 
     await run(() => cmdSend("white:mawjs", "hi"));
 
-    // Bare-name guard does not fire on prefixed queries
-    expect(errs.some((e) => e.includes("bare-name target removed"))).toBe(false);
+    // Bare-name local-only guard does not fire on prefixed queries
+    expect(errs.some((e) => e.includes("not found locally"))).toBe(false);
   });
 
-  test("MAW_QUIET=1 does NOT bypass the rejection — Phase 1 escape hatch is gone", async () => {
+  test("MAW_QUIET=1 does NOT bypass local-only miss — Phase 1 escape hatch is gone", async () => {
     process.env.MAW_QUIET = "1";
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "not_found", detail: "…" };
@@ -836,7 +844,7 @@ describe("cmdSend — bare-name rejection (#362b → #759 Phase 2)", () => {
     await run(() => cmdSend("mawjs", "hi"));
 
     expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("bare-name target removed");
+    expect(errs.join("\n")).toContain("not found locally");
   });
 });
 
@@ -849,33 +857,31 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls).toHaveLength(1);
     expect(logMessageCalls[0]).toMatchObject({
-      from: "test-oracle", to: "white:mawjs", msg: "ping", route: "local",
+      from: "test-oracle", to: "white:mawjs", msg: "[white:test-oracle] ping", route: "local",
     });
     expect(emitFeedCalls).toHaveLength(1);
     expect(emitFeedCalls[0]).toMatchObject({
       event: "MessageSend", oracle: "test-oracle", node: "white", port: 4000,
     });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("08-mawjs:0: ping"))).toBe(true);
+    expect(outs.some((o) => o.includes("delivered") && o.includes("08-mawjs:0: [white:test-oracle] ping"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷ hello back"))).toBe(true);
   });
 
-  test("local target + non-agent pane without --force → exit 1 + hint, no sendKeys", async () => {
+  test("local target + non-agent pane sends by default", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
+    captureResponses = [{ match: /08-mawjs:0/, result: "shell\n" }];
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
-    expect(exitCode).toBe(1);
-    expect(sendKeysCalls).toEqual([]);
-    const joined = errs.join("\n");
-    expect(joined).toContain("no active Claude session in 08-mawjs:0");
-    expect(joined).toContain("running: zsh");
-    expect(joined).toContain("maw wake white:mawjs");
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
+    expect(errs.join("\n")).not.toContain("no active Claude session");
   });
 
   test("local target + non-agent pane WITH --force → sends anyway", async () => {
@@ -886,7 +892,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping", true));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(exitCode).toBeUndefined();
   });
 
@@ -921,7 +927,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
     expect(logMessageCalls[0].route).toBe("local");
   });
 
@@ -951,7 +957,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0.1", text: "ping" }]);
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0.1", text: "[white:test-oracle] ping" }]);
   });
 });
 
@@ -963,7 +969,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example\/api\/send/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it", state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -974,7 +980,7 @@ describe("cmdSend — peer target (federation)", () => {
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls[0]).toMatchObject({ from: "test-oracle", to: "mba:mawjs", route: "peer:mba" });
     expect(emitFeedCalls[0]).toMatchObject({ event: "MessageSend", node: "white", port: 5000 });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("mba") && o.includes("mawjs: ping"))).toBe(true);
+    expect(outs.some((o) => o.includes("delivered") && o.includes("mba") && o.includes("mawjs: [white:test-oracle] ping"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷ peer saw it"))).toBe(true);
   });
 
@@ -1022,7 +1028,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example/,
-      response: { ok: true, status: 200, data: { ok: true } },
+      response: { ok: true, status: 200, data: { ok: true, state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -1039,7 +1045,7 @@ describe("cmdSend — async peer discovery fallback", () => {
     findPeerForTargetReturn = "https://discovered.example";
     curlFetchResponses = [{
       match: /discovered\.example/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo", state: "delivered" } },
     }];
 
     await run(() => cmdSend("white:mawjs", "ping"));
@@ -1078,7 +1084,7 @@ describe("cmdSend — error paths (no match)", () => {
       hint: "maw wake mawjs",
     };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1090,7 +1096,7 @@ describe("cmdSend — error paths (no match)", () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "x", detail: "just a detail" };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("just a detail");
@@ -1101,7 +1107,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1116,7 +1122,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("window not found: white:ghost");
@@ -1202,7 +1208,7 @@ describe("logMessage — real fs under tempdir HOME", () => {
 
     await realLogMessage("test-oracle", "mawjs", "hello world", "local");
 
-    const logPath = join(tmpHome, ".oracle", "maw-log.jsonl");
+    const logPath = join(tmpHome, ".maw", "maw-log.jsonl");
     expect(existsSync(logPath)).toBe(true);
     const body = readFileSync(logPath, "utf-8").trim();
     const parsed = JSON.parse(body.split("\n").pop()!);
@@ -1220,7 +1226,7 @@ describe("logMessage — real fs under tempdir HOME", () => {
 
     await realLogMessage("mba:neo", "mawjs", "cross", "peer:mba");
 
-    const logPath = join(tmpHome, ".oracle", "maw-log.jsonl");
+    const logPath = join(tmpHome, ".maw", "maw-log.jsonl");
     const lines = readFileSync(logPath, "utf-8").trim().split("\n");
     const parsed = JSON.parse(lines[lines.length - 1]);
     expect(parsed.from).toBe("mba:neo");
@@ -1234,7 +1240,7 @@ describe("logMessage — real fs under tempdir HOME", () => {
 
     await realLogMessage("oracle", "target", long, "local");
 
-    const logPath = join(tmpHome, ".oracle", "maw-log.jsonl");
+    const logPath = join(tmpHome, ".maw", "maw-log.jsonl");
     const lines = readFileSync(logPath, "utf-8").trim().split("\n");
     const parsed = JSON.parse(lines[lines.length - 1]);
     expect(parsed.msg.length).toBe(500);

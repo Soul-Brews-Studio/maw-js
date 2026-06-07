@@ -42,6 +42,8 @@ export type TPeer = Static<typeof Peer>;
 
 export const FederationStatus = Type.Object({
   localUrl: Type.String(),
+  localReachable: Type.Optional(Type.Boolean()),
+  localLatency: Type.Optional(Type.Number()),
   peers: Type.Array(Peer),
   totalPeers: Type.Number(),
   reachablePeers: Type.Number(),
@@ -76,6 +78,7 @@ export const FeedEvent = Type.Object({
   project: Type.String(),
   sessionId: Type.String(),
   message: Type.String(),
+  data: Type.Optional(Type.Unknown()),
 });
 export type TFeedEvent = Static<typeof FeedEvent>;
 
@@ -202,6 +205,7 @@ export const SendBody = Type.Object({
   target: Type.String(),
   text: Type.String(),
   force: Type.Optional(Type.Boolean()),
+  inbox: Type.Optional(Type.Boolean()),
   attachments: Type.Optional(Type.Array(Type.String())),
 });
 export type TSendBody = Static<typeof SendBody>;

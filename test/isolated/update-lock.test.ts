@@ -2,15 +2,15 @@
  * #551 — withUpdateLock acquisition + release semantics.
  *
  * Contract under test (src/cli/update-lock.ts):
- *   - Acquires ~/.maw/update.lock via openSync(..., "wx") (O_EXCL).
+ *   - Acquires the active XDG state update.lock via openSync(..., "wx") (O_EXCL).
  *   - On EEXIST, polls every 500ms up to 60s.
  *   - After 60s, unlinks stale lock + takes over with a warning.
  *   - Non-EEXIST errors propagate.
- *   - finally: closeSync(fd) + unlinkSync(LOCK_PATH) even when fn throws.
+ *   - finally: closeSync(fd) + unlinkSync(lockPath) even when fn throws.
  *
  * Isolation: mock.module("fs", ...) so every fs op inside update-lock.ts
  * hits our stubs. We capture calls to assert order. Pass-through for dirs
- * (existsSync/mkdirSync) since update-lock creates ~/.maw if missing.
+ * (existsSync/mkdirSync) since update-lock creates the state dir if missing.
  *
  * mock.module is process-global — keep all state inside this file and
  * reset between tests via beforeEach.
@@ -32,6 +32,7 @@ const READ_FD = 7777; // arbitrary fd handed back for stale-read opens
 let nowPlan: number[] = [];
 let nowCursor = 0;
 let realNow: () => number;
+let existsResult = true;
 // readSyncImpl returns the bytes that the production code's readSync sees.
 // It used to be readSyncImpl returning a string; under the fd-based read
 // the impl writes into the caller-supplied buffer, so we model it that way.
@@ -61,7 +62,7 @@ await mock.module("fs", () => ({
   },
   existsSync: (path: string) => {
     calls.push({ fn: "existsSync", args: [path] });
-    return true; // ~/.maw already exists in mock-world
+    return existsResult;
   },
   mkdirSync: (path: string, opts: unknown) => {
     calls.push({ fn: "mkdirSync", args: [path, opts] });
@@ -91,6 +92,7 @@ beforeEach(() => {
   nowPlan = [];
   nowCursor = 0;
   realNow = Date.now;
+  existsResult = true;
 });
 
 afterEach(() => {
@@ -214,19 +216,16 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
     stubDateNow([0, 500, 500]);
     const { withUpdateLock } = await import("../../src/cli/update-lock");
 
-    const origWarn = console.warn;
     const origLog = console.log;
-    const warns: string[] = [];
-    console.warn = (...a: unknown[]) => warns.push(a.map(String).join(" "));
-    console.log = () => {};
+    const logs: string[] = [];
+    console.log = (...a: unknown[]) => logs.push(a.map(String).join(" "));
     try {
       await withUpdateLock(async () => {});
     } finally {
-      console.warn = origWarn;
       console.log = origLog;
     }
 
-    expect(warns.some((w) => w.includes("stale update lock") && w.includes("taking over"))).toBe(true);
+    expect(logs.some((w) => w.includes("stale update lock") && w.includes("taking over"))).toBe(true);
     // Successful-open fd (5) eventually closed in finally.
     expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 5)).toBe(true);
   });
@@ -256,5 +255,130 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
       console.log = origLog;
     }
     expect(caught?.message).toContain("update lock timeout");
+  });
+
+  test("case 7 — creates the lock directory when missing", async () => {
+    existsResult = false;
+    openPlan = [123];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+
+    await withUpdateLock(async () => "created");
+
+    expect(calls.some((c) => c.fn === "mkdirSync" && (c.args[1] as { recursive?: boolean }).recursive === true)).toBe(true);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 123)).toBe(true);
+  });
+
+  test("case 8 — SIGINT handler releases the lock and exits with shell interrupt code", async () => {
+    openPlan = [1301];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+    const originalOnce = process.once;
+    const originalRemoveListener = process.removeListener;
+    const originalExit = process.exit;
+    const callbacks: Record<string, () => void> = {};
+    const removed: string[] = [];
+    const exits: number[] = [];
+    let releaseFn!: () => void;
+    const held = new Promise<void>((resolve) => { releaseFn = resolve; });
+
+    process.once = ((event: string, callback: () => void) => {
+      callbacks[event] = callback;
+      return process;
+    }) as typeof process.once;
+    process.removeListener = ((event: string) => {
+      removed.push(event);
+      return process;
+    }) as typeof process.removeListener;
+    process.exit = ((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      const pending = withUpdateLock(async () => {
+        await held;
+        return "done";
+      });
+      await Promise.resolve();
+
+      callbacks.SIGINT();
+      releaseFn();
+      await expect(pending).resolves.toBe("done");
+    } finally {
+      process.once = originalOnce;
+      process.removeListener = originalRemoveListener;
+      process.exit = originalExit;
+    }
+
+    expect(exits).toEqual([130]);
+    expect(removed).toEqual(["SIGINT", "SIGTERM"]);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 1301)).toBe(true);
+    expect(calls.some((c) => c.fn === "unlinkSync")).toBe(true);
+  });
+
+  test("case 9 — SIGTERM handler releases the lock and exits with terminate code", async () => {
+    openPlan = [1431];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+    const originalOnce = process.once;
+    const originalRemoveListener = process.removeListener;
+    const originalExit = process.exit;
+    const callbacks: Record<string, () => void> = {};
+    const exits: number[] = [];
+    let releaseFn!: () => void;
+    const held = new Promise<void>((resolve) => { releaseFn = resolve; });
+
+    process.once = ((event: string, callback: () => void) => {
+      callbacks[event] = callback;
+      return process;
+    }) as typeof process.once;
+    process.removeListener = (() => process) as typeof process.removeListener;
+    process.exit = ((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      const pending = withUpdateLock(async () => {
+        await held;
+        return "done";
+      });
+      await Promise.resolve();
+
+      callbacks.SIGTERM();
+      releaseFn();
+      await expect(pending).resolves.toBe("done");
+    } finally {
+      process.once = originalOnce;
+      process.removeListener = originalRemoveListener;
+      process.exit = originalExit;
+    }
+
+    expect(exits).toEqual([143]);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 1431)).toBe(true);
+  });
+
+  test("case 10 — resolves MAW_STATE_DIR at lock acquisition time", async () => {
+    openPlan = [2024];
+    const mod = await import("../../src/cli/update-lock");
+    const originalHome = process.env.MAW_HOME;
+    const originalStateDir = process.env.MAW_STATE_DIR;
+    const stateDir = `/tmp/maw-update-lock-xdg-test-${process.pid}`;
+    const expectedLock = `${stateDir}/update.lock`;
+
+    delete process.env.MAW_HOME;
+    process.env.MAW_STATE_DIR = stateDir;
+    try {
+      expect(mod.updateLockPath()).toBe(expectedLock);
+
+      await mod.withUpdateLock(async () => "xdg-state");
+    } finally {
+      if (originalHome === undefined) delete process.env.MAW_HOME;
+      else process.env.MAW_HOME = originalHome;
+      if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+      else process.env.MAW_STATE_DIR = originalStateDir;
+    }
+
+    expect(calls.some((c) => c.fn === "existsSync" && c.args[0] === stateDir)).toBe(true);
+    expect(calls.some((c) => c.fn === "openSync" && c.args[0] === expectedLock && c.args[1] === "wx")).toBe(true);
+    expect(calls.some((c) => c.fn === "unlinkSync" && c.args[0] === expectedLock)).toBe(true);
   });
 });

@@ -1,0 +1,45 @@
+[
+  {
+    "name": "session only",
+    "input": "50-mawjs",
+    "expectedSession": "50-mawjs"
+  },
+  {
+    "name": "session:window",
+    "input": "50-mawjs:maw-js-1816",
+    "expectedSession": "50-mawjs",
+    "expectedWindow": "maw-js-1816"
+  },
+  {
+    "name": "session with dashes only",
+    "input": "50-maw-plugin-registry",
+    "expectedSession": "50-maw-plugin-registry"
+  },
+  {
+    "name": "session:window with dashes in window",
+    "input": "50-mawjs:maw-plugin-registry-buddy-ship",
+    "expectedSession": "50-mawjs",
+    "expectedWindow": "maw-plugin-registry-buddy-ship"
+  },
+  {
+    "name": "trailing colon means no window",
+    "input": "50-mawjs:",
+    "expectedSession": "50-mawjs"
+  },
+  {
+    "name": "empty string",
+    "input": "",
+    "expectedSession": ""
+  },
+  {
+    "name": "colon at start keeps empty session plus window",
+    "input": ":window-name",
+    "expectedSession": "",
+    "expectedWindow": "window-name"
+  },
+  {
+    "name": "bare name without prefix",
+    "input": "mawjs",
+    "expectedSession": "mawjs"
+  }
+]

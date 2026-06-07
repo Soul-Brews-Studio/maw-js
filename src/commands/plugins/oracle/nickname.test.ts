@@ -18,6 +18,8 @@ import {
 // ─── Sandbox ──────────────────────────────────────────────────────────────────
 
 let prevMawHome: string | undefined;
+let prevMawCacheDir: string | undefined;
+let prevHome: string | undefined;
 let sandbox: string;
 let home: string;      // $MAW_HOME — holds the cache
 let repo: string;      // fake oracle repo with ψ/
@@ -29,12 +31,18 @@ beforeEach(() => {
   mkdirSync(home, { recursive: true });
   mkdirSync(join(repo, "ψ"), { recursive: true });
   prevMawHome = process.env.MAW_HOME;
+  prevMawCacheDir = process.env.MAW_CACHE_DIR;
+  prevHome = process.env.HOME;
   process.env.MAW_HOME = home;
 });
 
 afterEach(() => {
   if (prevMawHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = prevMawHome;
+  if (prevMawCacheDir === undefined) delete process.env.MAW_CACHE_DIR;
+  else process.env.MAW_CACHE_DIR = prevMawCacheDir;
+  if (prevHome === undefined) delete process.env.HOME;
+  else process.env.HOME = prevHome;
   rmSync(sandbox, { recursive: true, force: true });
 });
 
@@ -131,6 +139,29 @@ describe("nicknames cache", () => {
     expect(c.nicknames.foo).toBe("Mo");
     // cache file lives under MAW_HOME
     expect(cacheFile().startsWith(home)).toBe(true);
+  });
+
+
+  it("uses XDG cache with legacy .maw read fallback when MAW_HOME is absent", () => {
+    delete process.env.MAW_HOME;
+    const cacheDir = join(sandbox, "cache");
+    const legacyHome = join(sandbox, "legacy-home");
+    process.env.MAW_CACHE_DIR = cacheDir;
+    process.env.HOME = legacyHome;
+
+    const legacyDir = join(legacyHome, ".maw");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "nicknames.json"), JSON.stringify({
+      schema: 1,
+      nicknames: { foo: "LegacyFoo" },
+    }));
+
+    expect(cacheFile()).toBe(join(cacheDir, "nicknames.json"));
+    expect(readCache().nicknames.foo).toBe("LegacyFoo");
+
+    setCachedNickname("foo", "CacheFoo");
+    expect(readCache().nicknames.foo).toBe("CacheFoo");
+    expect(JSON.parse(readFileSync(join(cacheDir, "nicknames.json"), "utf-8")).nicknames.foo).toBe("CacheFoo");
   });
 
   it("setCachedNickname with empty string removes entry", () => {

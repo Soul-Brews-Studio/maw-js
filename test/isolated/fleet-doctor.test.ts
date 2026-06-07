@@ -71,6 +71,7 @@ let listSessionsThrows = false;
 let configOverride: Record<string, unknown> = {};
 let loadFleetEntriesReturn: Array<{ session: { name: string; windows: Array<{ repo?: string }> } }> = [];
 let loadFleetEntriesThrows = false;
+let rebootChecksReturn: Array<{ name: string; level: "pass" | "warn" | "fail"; message: string; fix?: string }> = [];
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -128,9 +129,17 @@ mock.module(
   }),
 );
 
+mock.module(
+  join(import.meta.dir, "../../src/commands/shared/fleet-doctor-reboot"),
+  () => ({
+    checkRebootReadiness: () => rebootChecksReturn,
+  }),
+);
+
 // NB: import targets AFTER mocks so their import graph resolves through our stubs.
 const { checkStalePeers } = await import("../../src/commands/shared/fleet-doctor-stale-peers");
 const { cmdFleetDoctor } = await import("../../src/commands/shared/fleet-doctor");
+const { checkPeerVersionSkew } = await import("../../src/commands/shared/fleet-doctor-checks");
 
 // ─── Harness for cmdFleetDoctor (stdout + process.exit capture) ─────────────
 
@@ -164,6 +173,7 @@ beforeEach(() => {
   configOverride = {};
   loadFleetEntriesReturn = [];
   loadFleetEntriesThrows = false;
+  rebootChecksReturn = [];
   saveConfigCalls = [];
 });
 
@@ -182,14 +192,14 @@ describe("checkStalePeers — reachable happy path", () => {
   test("valid identity → no finding, identities map populated", async () => {
     curlFetchResponses = [{
       match: /white\.example\/api\/identity$/,
-      response: { ok: true, status: 200, data: { node: "white", agents: ["neo", "mawjs"] } },
+      response: { ok: true, status: 200, data: { node: "white", version: "26.5.19-alpha.739", agents: ["neo", "mawjs"] } },
     }];
 
     const out = await checkStalePeers([{ name: "white", url: "https://white.example" }]);
 
     expect(out.findings).toEqual([]);
     expect(out.identities).toEqual({
-      white: { node: "white", agents: ["neo", "mawjs"] },
+      white: { node: "white", version: "26.5.19-alpha.739", agents: ["neo", "mawjs"] },
     });
   });
 
@@ -688,5 +698,106 @@ describe("cmdFleetDoctor — stale peer + missing-agent integration", () => {
 
     expect(exitCode).toBe(1);
     expect(outs.join("\n")).toContain("missing-agent");
+  });
+
+  test("peer identity version mismatch surfaces version-skew warning", async () => {
+    configOverride = {
+      node: "m5",
+      namedPeers: [{ name: "white", url: "https://white.example" }],
+      agents: {},
+      port: 3456,
+      ghqRoot: "/tmp/nope",
+    };
+    curlFetchResponses = [{
+      match: /white\.example/,
+      response: { ok: true, status: 200, data: { node: "white", version: "26.5.16-alpha.2126", agents: [] } },
+    }];
+
+    await run(() => cmdFleetDoctor());
+
+    expect(exitCode).toBe(1);
+    const joined = outs.join("\n");
+    expect(joined).toContain("version-skew");
+    expect(joined).toContain("26.5.16-alpha.2126");
+    expect(joined).toContain("wake Discord --channels auto-detect");
+  });
+});
+
+describe("cmdFleetDoctor — reboot doctor mode", () => {
+  test("json reboot mode returns fail/warn/pass checks with exit codes", async () => {
+    rebootChecksReturn = [
+      { name: "linger", level: "warn", message: "linger unknown", fix: "maw setup auto-wake" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(outs.join("\n"))).toEqual({ reboot: rebootChecksReturn });
+
+    rebootChecksReturn = [
+      { name: "linger", level: "fail", message: "linger disabled", fix: "maw setup auto-wake" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(outs.join("\n")).reboot[0]).toMatchObject({ name: "linger", level: "fail" });
+
+    rebootChecksReturn = [
+      { name: "linger", level: "pass", message: "linger enabled" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(0);
+  });
+
+  test("text reboot mode renders checks, fixes, and summary", async () => {
+    rebootChecksReturn = [
+      { name: "linger", level: "pass", message: "linger enabled" },
+      { name: "pm2-service", level: "warn", message: "could not inspect", fix: "pm2 startup systemd" },
+      { name: "pm2-dump", level: "fail", message: "dump missing", fix: "pm2 save" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true }));
+
+    expect(exitCode).toBe(2);
+    const joined = outs.join("\n");
+    expect(joined).toContain("Fleet Reboot Doctor");
+    expect(joined).toContain("linger enabled");
+    expect(joined).toContain("fix: pm2 startup systemd");
+    expect(joined).toContain("fix: pm2 save");
+    expect(joined).toContain("1 fail · 1 warning");
+  });
+});
+
+describe("checkPeerVersionSkew", () => {
+  test("warns on differing peer versions", () => {
+    const findings = checkPeerVersionSkew("26.5.19-alpha.739", {
+      white: { node: "white", version: "26.5.16-alpha.2126", agents: [] },
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      level: "warn",
+      check: "version-skew",
+      fixable: false,
+      detail: {
+        peer: "white",
+        node: "white",
+        peerVersion: "26.5.16-alpha.2126",
+        localVersion: "26.5.19-alpha.739",
+      },
+    });
+  });
+
+  test("ignores aligned, missing, and unknown local versions", () => {
+    expect(checkPeerVersionSkew("26.5.19-alpha.739", {
+      aligned: { node: "aligned", version: "26.5.19-alpha.739", agents: [] },
+      legacy: { node: "legacy", agents: [] },
+    })).toEqual([]);
+    expect(checkPeerVersionSkew(undefined, {
+      white: { node: "white", version: "26.5.16-alpha.2126", agents: [] },
+    })).toEqual([]);
   });
 });

@@ -4,10 +4,16 @@ import { loadConfig } from "../config";
 import { signHeaders } from "../lib/federation-auth";
 import { READONLY_METHODS } from "./proxy-trust";
 
+export interface ProxyRelayDeps {
+  loadConfig?: typeof loadConfig;
+  signHeaders?: typeof signHeaders;
+  fetch?: typeof fetch;
+  now?: () => number;
+}
+
 // --- Peer URL resolution (same as wormhole — acceptable duplication) ----
 
-export function resolveProxyPeerUrl(peer: string): string | null {
-  const config = loadConfig() as any;
+export function resolveProxyPeerUrl(peer: string, config: any = loadConfig()): string | null {
   const namedPeers: Array<{ name: string; url: string }> = config?.namedPeers ?? [];
   const match = namedPeers.find((p) => p.name === peer);
   if (match) return match.url;
@@ -30,16 +36,17 @@ export async function relayHttpToPeer(
   method: string,
   path: string,
   body: string | undefined,
+  deps: ProxyRelayDeps = {},
 ): Promise<RelayResult> {
-  const start = Date.now();
+  const start = deps.now ? deps.now() : Date.now();
   const upper = method.toUpperCase();
   const outHeaders: Record<string, string> = {};
 
   // Sign outbound with existing HMAC mechanism
-  const config = loadConfig() as any;
+  const config = (deps.loadConfig ?? loadConfig)() as any;
   const token = config?.federationToken;
   if (token) {
-    Object.assign(outHeaders, signHeaders(token, upper, path));
+    Object.assign(outHeaders, (deps.signHeaders ?? signHeaders)(token, upper, path));
   }
 
   // Only set Content-Type for methods that can carry a body
@@ -47,7 +54,7 @@ export async function relayHttpToPeer(
     outHeaders["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${peerUrl}${path}`, {
+  const response = await (deps.fetch ?? fetch)(`${peerUrl}${path}`, {
     method: upper,
     headers: outHeaders,
     body: READONLY_METHODS.has(upper) ? undefined : body,
@@ -65,6 +72,6 @@ export async function relayHttpToPeer(
     status: response.status,
     headers: safeHeaders,
     body: await response.text(),
-    elapsedMs: Date.now() - start,
+    elapsedMs: (deps.now ? deps.now() : Date.now()) - start,
   };
 }

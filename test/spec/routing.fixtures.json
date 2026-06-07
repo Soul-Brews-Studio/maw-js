@@ -1,0 +1,168 @@
+{
+  "baseConfig": {
+    "host": "local",
+    "port": 3456,
+    "ghqRoot": "/tmp/ghq",
+    "oracleUrl": "http://localhost:47779",
+    "env": {},
+    "commands": { "default": "claude" },
+    "sessions": {},
+    "node": "selfnode",
+    "namedPeers": [
+      { "name": "peerbox", "url": "http://peerbox.local:3457" },
+      { "name": "farbox", "url": "http://farbox.local:3458" }
+    ],
+    "agents": {
+      "remoteagent": "peerbox",
+      "selfagent": "selfnode",
+      "nopurlagent": "ghostnode"
+    },
+    "peers": []
+  },
+  "cases": [
+    {
+      "name": "empty query fails with usage hint",
+      "query": "",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "empty_query", "detail": "no target specified", "hint": "usage: maw hey <agent> <message>" }
+    },
+    {
+      "name": "bare window name resolves locally",
+      "query": "local-oracle",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }] }
+      ],
+      "expected": { "type": "local", "target": "01-local:1" }
+    },
+    {
+      "name": "session window name resolves locally before peer routing",
+      "query": "01-local:local-oracle",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }] }
+      ],
+      "expected": { "type": "local", "target": "01-local:1" }
+    },
+    {
+      "name": "session window pane address stays local",
+      "query": "01-local:local-oracle.0",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }] }
+      ],
+      "expected": { "type": "local", "target": "01-local:1.0" }
+    },
+    {
+      "name": "node agent resolves to named peer",
+      "query": "peerbox:remoteagent",
+      "sessions": [],
+      "expected": { "type": "peer", "peerUrl": "http://peerbox.local:3457", "target": "remoteagent", "node": "peerbox" }
+    },
+    {
+      "name": "self-node prefix resolves locally",
+      "query": "selfnode:local-oracle",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }] }
+      ],
+      "expected": { "type": "self-node", "target": "01-local:1" }
+    },
+    {
+      "name": "local prefix miss is a self-node miss",
+      "query": "local:ghost",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "self_not_running", "detail": "'ghost' not found in local sessions on selfnode", "hint": "maw wake ghost" }
+    },
+    {
+      "name": "unknown node fails loudly",
+      "query": "unknown:remoteagent",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "unknown_node", "detail": "node 'unknown' not in namedPeers or peers", "hint": "add to maw.config.json namedPeers" }
+    },
+    {
+      "name": "bare agent map routes to peer",
+      "query": "remoteagent",
+      "sessions": [],
+      "expected": { "type": "peer", "peerUrl": "http://peerbox.local:3457", "target": "remoteagent", "node": "peerbox" }
+    },
+    {
+      "name": "bare agent mapped to self reports local miss",
+      "query": "selfagent",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "self_not_running", "detail": "'selfagent' mapped to selfnode (local) but not found in sessions", "hint": "maw wake selfagent" }
+    },
+    {
+      "name": "agent mapped to node without peer url fails loudly",
+      "query": "nopurlagent",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "no_peer_url", "detail": "'nopurlagent' mapped to node 'ghostnode' but no URL found", "hint": "add ghostnode to maw.config.json namedPeers" }
+    },
+    {
+      "name": "query with slash is not node routing",
+      "query": "01-local/worktree",
+      "sessions": [],
+      "expected": { "type": "error", "reason": "not_found", "detail": "'01-local/worktree' not in local sessions or agents map", "hint": "check: maw ls" }
+    },
+    {
+      "name": "legacy peers array can provide node url",
+      "query": "peerbox:remoteagent",
+      "config": { "namedPeers": [], "peers": ["http://peerbox.wg:3457"] },
+      "sessions": [],
+      "expected": { "type": "peer", "peerUrl": "http://peerbox.wg:3457", "target": "remoteagent", "node": "peerbox" }
+    },
+    {
+      "name": "multiple colons keep agent suffix intact",
+      "query": "peerbox:remote:agent",
+      "sessions": [],
+      "expected": { "type": "peer", "peerUrl": "http://peerbox.local:3457", "target": "remote:agent", "node": "peerbox" }
+    },
+    {
+      "name": "view mirrors are ignored before local ambiguity",
+      "query": "local-oracle",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }], "source": "local" },
+        { "name": "local-view", "windows": [{ "index": 1, "name": "local-oracle", "active": false }], "source": "local" }
+      ],
+      "expected": { "type": "local", "target": "01-local:1" }
+    },
+    {
+      "name": "federated sessions are ignored as local send targets",
+      "query": "local-oracle",
+      "sessions": [
+        { "name": "01-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }], "source": "local" },
+        { "name": "99-local", "windows": [{ "index": 1, "name": "local-oracle", "active": true }], "source": "http://peerbox.local:3457" }
+      ],
+      "expected": { "type": "local", "target": "01-local:1" }
+    },
+    {
+      "name": "bare oracle alias prefers oracle-named window",
+      "query": "specbot",
+      "sessions": [
+        { "name": "54-specbot", "windows": [{ "index": 1, "name": "specbot-issuer", "active": true }, { "index": 2, "name": "specbot-oracle", "active": true }] }
+      ],
+      "expected": { "type": "local", "target": "54-specbot:2" }
+    },
+    {
+      "name": "bare oracle alias strips numeric session prefix for single-window session",
+      "query": "specbot-codex",
+      "sessions": [
+        { "name": "48-specbot-codex", "windows": [{ "index": 7, "name": "codex-main", "active": true }] }
+      ],
+      "expected": { "type": "local", "target": "48-specbot-codex:7" }
+    },
+    {
+      "name": "ambiguous session aliases fail loudly",
+      "query": "specbot",
+      "sessions": [
+        { "name": "54-specbot", "windows": [{ "index": 1, "name": "specbot-oracle", "active": true }] },
+        { "name": "99-specbot", "windows": [{ "index": 1, "name": "specbot-oracle", "active": true }] }
+      ],
+      "expected": { "type": "error", "reason": "session_alias_ambiguous", "detail": "'specbot' matches multiple local sessions; refusing to guess a window", "hint": "candidates: 54-specbot, 99-specbot" }
+    },
+    {
+      "name": "multi-window alias without oracle window refuses first-window fallback",
+      "query": "specbot",
+      "sessions": [
+        { "name": "54-specbot", "windows": [{ "index": 1, "name": "helper", "active": true }, { "index": 2, "name": "notes", "active": true }] }
+      ],
+      "expected": { "type": "error", "reason": "session_window_not_found", "detail": "'specbot' matched local session '54-specbot', but no window named 'specbot' or 'specbot-oracle' was found; refusing to default to the first window", "hint": "candidates: 54-specbot:1 (helper), 54-specbot:2 (notes)" }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "attach",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Smart attach: live tmux session, or wake from fleet and attach (#25 Phase 1).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "attach",
+    "help": "maw attach <name> [--dry-run] [-y] — attach to a live session, or wake from fleet and attach"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

@@ -13,13 +13,14 @@
  *   1. Send /exit to the Claude session
  *   2. Wait 3 seconds
  *   3. If window still exists, kill it
- *   4. Append a `sleep` event to ~/.oracle/maw-log.jsonl
+ *   4. Append a `sleep` event to the XDG data-primary maw-log.jsonl
  */
 import { tmux, saveTabOrder, takeSnapshot } from "../sdk";
 import { detectSession } from "../commands/shared/wake";
 import { appendFile, mkdir } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
+import { dirname } from "path";
+import { runSleepLifecycleHooks } from "../plugin/lifecycle";
+import { mawMessageLogPath } from "../core/xdg";
 
 export async function cmdSleepOne(oracle: string, window?: string) {
   const session = await detectSession(oracle);
@@ -31,6 +32,12 @@ export async function cmdSleepOne(oracle: string, window?: string) {
 
   // Save tab order before sleeping (so wake can restore positions)
   await saveTabOrder(session);
+  await runSleepLifecycleHooks({
+    oracle,
+    target: oracle,
+    session,
+    window: windowName,
+  });
 
   let windows;
   try {
@@ -89,8 +96,7 @@ async function doSleep(session: string, windowName: string, oracle: string) {
     console.log(`  \x1b[32m✓\x1b[0m ${windowName} stopped`);
   }
 
-  const logDir = join(homedir(), ".oracle");
-  const logFile = join(logDir, "maw-log.jsonl");
+  const logFile = mawMessageLogPath();
   const line = JSON.stringify({
     ts: new Date().toISOString(),
     type: "sleep",
@@ -98,7 +104,7 @@ async function doSleep(session: string, windowName: string, oracle: string) {
     window: windowName,
   }) + "\n";
   try {
-    await mkdir(logDir, { recursive: true });
+    await mkdir(dirname(logFile), { recursive: true });
     await appendFile(logFile, line);
   } catch (e) { console.error(`\x1b[33m⚠\x1b[0m sleep log write failed: ${e}`); }
 

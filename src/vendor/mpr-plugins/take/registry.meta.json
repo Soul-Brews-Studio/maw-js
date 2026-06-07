@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/take@v0.1.0-take",
+  "sha256": "937d3050ef22c67b7885e73dada20282471671442b70fcc0913a0e696bee2ab2",
+  "summary": "Move a tmux window from one oracle session to another (vesicle transport).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:10Z",
+  "tier": "extra"
+}

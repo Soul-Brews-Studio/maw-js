@@ -1,8 +1,119 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync, realpathSync } from "fs";
 import { join } from "path";
+import { info, warn } from "./verbosity";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
+
+function isPluginDir(dir: string): boolean {
+  return existsSync(join(dir, "plugin.json"));
+}
+
+function linkBundledPlugins(pluginDir: string, bundled: string): number {
+  if (!existsSync(bundled)) return 0;
+  let linked = 0;
+  for (const d of readdirSync(bundled)) {
+    const src = join(bundled, d);
+    const dest = join(pluginDir, d);
+    if (!isPluginDir(src)) continue;
+    if (existsSync(dest)) continue; // already linked / user dir / valid symlink
+    symlinkSync(src, dest);
+    linked++;
+  }
+  return linked;
+}
+
+function replacementForPlugin(entry: string, bundledRoots: string[]): string | undefined {
+  return bundledRoots
+    .map((root) => join(root, entry))
+    .find((candidate) => existsSync(candidate) && isPluginDir(candidate));
+}
+
+function bundledMawJsRoot(target: string, entry: string): string | undefined {
+  const normalized = target.replace(/\\/g, "/");
+  const suffixes = [
+    `/src/commands/plugins/${entry}`,
+    `/src/vendor/mpr-plugins/${entry}`,
+  ];
+  for (const suffix of suffixes) {
+    if (!normalized.endsWith(suffix)) continue;
+    return target.slice(0, target.length - suffix.length);
+  }
+}
+
+function isMawJsPackageRoot(root: string | undefined): boolean {
+  if (!root) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
+    return pkg?.name === "maw-js";
+  } catch {
+    return false;
+  }
+}
+
+function mawPluginRegistryRoot(target: string, entry: string): string | undefined {
+  const normalized = target.replace(/\\/g, "/");
+  const suffix = `/plugins/${entry}`;
+  if (!normalized.endsWith(suffix)) return undefined;
+  return target.slice(0, target.length - suffix.length);
+}
+
+function isMawPluginRegistryRoot(root: string | undefined): boolean {
+  if (!root) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
+    if (pkg?.name === "maw-plugin-registry") return true;
+  } catch {}
+  return root.replace(/\\/g, "/").endsWith("/maw-plugin-registry");
+}
+
+function pointsAtStaleMawJsBundledPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
+  try {
+    const currentTarget = realpathSync(replacement);
+    const existingTarget = realpathSync(symlinkPath);
+    if (existingTarget === currentTarget) return false;
+    return isMawJsPackageRoot(bundledMawJsRoot(existingTarget, entry));
+  } catch {
+    return false;
+  }
+}
+
+function pointsAtLegacyMawPluginRegistryPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
+  try {
+    const currentTarget = realpathSync(replacement);
+    const existingTarget = realpathSync(symlinkPath);
+    if (existingTarget === currentTarget) return false;
+    return isMawPluginRegistryRoot(mawPluginRegistryRoot(existingTarget, entry));
+  } catch {
+    return false;
+  }
+}
+
+function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): { healed: number; pruned: number } {
+  let healed = 0;
+  let pruned = 0;
+  for (const entry of readdirSync(pluginDir)) {
+    const p = join(pluginDir, entry);
+    try {
+      if (!lstatSync(p).isSymbolicLink()) continue;
+      const replacement = replacementForPlugin(entry, bundledRoots);
+      const targetIsValidPlugin = existsSync(p) && isPluginDir(p);
+      const shouldHealValidTarget = replacement && (
+        pointsAtStaleMawJsBundledPlugin(p, entry, replacement) ||
+        pointsAtLegacyMawPluginRegistryPlugin(p, entry, replacement)
+      );
+      if (targetIsValidPlugin && !shouldHealValidTarget) continue;
+      unlinkSync(p);
+      if (replacement) {
+        symlinkSync(replacement, p);
+        healed++;
+      } else {
+        pruned++;
+      }
+    } catch {}
+  }
+  return { healed, pruned };
+}
 
 /**
  * Auto-bootstrap plugins into pluginDir.
@@ -30,16 +141,11 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   //    in ~/.maw/plugins/ become dangling. readdirSync still lists them, but
   //    existsSync returns false (target gone). The plugin loader silently
   //    skips them, so the user sees "unknown command" with no explanation.
-  let pruned = 0;
-  for (const entry of readdirSync(pluginDir)) {
-    const p = join(pluginDir, entry);
-    try {
-      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) {
-        unlinkSync(p);
-        pruned++;
-      }
-    } catch {}
-  }
+  const bundledRoots = [
+    join(srcDir, "commands", "plugins"),
+    join(srcDir, "vendor", "mpr-plugins"),
+  ];
+  const { pruned } = healOrPruneBrokenSymlinks(pluginDir, bundledRoots);
   if (pruned > 0) {
     console.warn(`[maw] removed ${pruned} broken plugin symlink${pruned === 1 ? "" : "s"} from ${pluginDir}`);
   }
@@ -48,18 +154,13 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
   //    runs every boot. Cheap (fs stat + symlink), no network.
-  const bundled = join(srcDir, "commands", "plugins");
-  if (existsSync(bundled)) {
-    for (const d of readdirSync(bundled)) {
-      const src = join(bundled, d);
-      const dest = join(pluginDir, d);
-      const isPlugin =
-        existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
-      if (!isPlugin) continue;
-      if (existsSync(dest)) continue; // already linked / user dir / valid symlink
-      symlinkSync(src, dest);
-    }
-  }
+  linkBundledPlugins(pluginDir, bundledRoots[0]);
+
+  // #1339 — fresh installs must also get the maw-plugin-registry command
+  // surface (`wake`, `attach`, `done`, `send-enter`, ...). The vendored copy is
+  // source-only and intentionally uses the same pluginDir symlink mechanism as
+  // in-tree plugins so user-installed plugins keep precedence.
+  linkBundledPlugins(pluginDir, bundledRoots[1]);
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
   //    should not retry every boot).
@@ -71,7 +172,7 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
       for (const url of sources) {
         try {
           if (!URL_SCHEME_RE.test(url)) {
-            console.warn(`[maw] skipping pluginSource with invalid scheme: ${url}`);
+            warn(`[maw] skipping pluginSource with invalid scheme: ${url}`);
             continue;
           }
           const ghqProc = Bun.spawn(["ghq", "get", "-u", url], { stdout: "pipe", stderr: "pipe" });
@@ -100,6 +201,6 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
       }
     } catch {}
 
-    console.log(`[maw] bootstrapped ${readdirSync(pluginDir).length} plugins → ${pluginDir}`);
+    info(`[maw] bootstrapped ${readdirSync(pluginDir).length} plugins → ${pluginDir}`);
   }
 }

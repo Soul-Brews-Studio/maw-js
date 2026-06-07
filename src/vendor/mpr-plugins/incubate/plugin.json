@@ -1,0 +1,44 @@
+{
+  "name": "incubate",
+  "version": "2.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Bud + wake + fire /incubate <source> — yeast-budding plus wrapping a source repo in a dedicated oracle.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "incubate",
+    "help": "maw incubate <source-repo> [--stem <name>] [--from <oracle>] [--root] [--seed] [--org <org>] [--note <text>] [--nickname <pretty>] [--fast] [--split] [--dry-run] [--flash | --contribute] [--no-trigger] [--trigger <text>]\n       Mirrors `maw bud` flags + 4 incubate-specific.\n       Creates a NEW dedicated <stem>-oracle wrapping <source-repo>, then fires /incubate <source> in the new oracle's TUI.\n       Use --stem to override the auto-derived stem (default: source basename).\n       Mode flags pass through to the /incubate skill (--flash, --contribute).\n       Use --no-trigger for bud + wake without firing /incubate (debug).",
+    "flags": {
+      "--stem": "string",
+      "--trigger": "string",
+      "--no-trigger": "boolean",
+      "--flash": "boolean",
+      "--contribute": "boolean",
+      "--from": "string",
+      "--from-repo": "string",
+      "--org": "string",
+      "--issue": "number",
+      "--note": "string",
+      "--nickname": "string",
+      "--fast": "boolean",
+      "--root": "boolean",
+      "--blank": "boolean",
+      "--seed": "boolean",
+      "--split": "boolean",
+      "--dry-run": "boolean",
+      "--signal-on-birth": "boolean",
+      "--force": "boolean",
+      "--track-vault": "boolean",
+      "--sync-peers": "boolean"
+    }
+  },
+  "api": {
+    "path": "/api/incubate",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

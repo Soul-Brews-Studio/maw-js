@@ -1,0 +1,100 @@
+[
+  {
+    "name": "parent-scoped matching avoids global generic ambiguity",
+    "input": {
+      "mainRepoName": "pulse-oracle",
+      "wtName": "1--no-attach",
+      "sessions": [
+        { "name": "pulse", "windows": [{ "index": 1, "name": "pulse--no-attach", "active": false }] },
+        { "name": "timekeeper", "windows": [{ "index": 1, "name": "timekeeper--no-attach", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "pulse--no-attach" }
+  },
+  {
+    "name": "fleet numeric parent session matches by suffix",
+    "input": {
+      "mainRepoName": "mawjs-oracle",
+      "wtName": "1--no-attach",
+      "sessions": [
+        { "name": "114-mawjs", "windows": [{ "index": 1, "name": "mawjs--no-attach", "active": false }] },
+        { "name": "200-another", "windows": [{ "index": 1, "name": "another--no-attach", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "mawjs--no-attach" }
+  },
+  {
+    "name": "missing parent session falls back to global single match",
+    "input": {
+      "mainRepoName": "lone-oracle",
+      "wtName": "1-feature",
+      "sessions": [
+        { "name": "other", "windows": [{ "index": 1, "name": "feature", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "feature" }
+  },
+  {
+    "name": "parent session without match falls back to global single match",
+    "input": {
+      "mainRepoName": "mawjs-oracle",
+      "wtName": "1-feature",
+      "sessions": [
+        { "name": "54-mawjs", "windows": [{ "index": 1, "name": "notes", "active": false }] },
+        { "name": "other", "windows": [{ "index": 1, "name": "feature", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "feature" }
+  },
+  {
+    "name": "same-named windows across sessions dedupe before ambiguity",
+    "input": {
+      "mainRepoName": "foo-oracle",
+      "wtName": "1-neo",
+      "sessions": [
+        { "name": "session-a", "windows": [{ "index": 1, "name": "neo", "active": false }] },
+        { "name": "session-b", "windows": [{ "index": 1, "name": "neo", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "neo" }
+  },
+  {
+    "name": "full worktree name wins before stripped tile suffix fallback",
+    "input": {
+      "mainRepoName": "mawjs-oracle",
+      "wtName": "6-tile-1",
+      "sessions": [
+        { "name": "54-mawjs", "windows": [
+          { "index": 1, "name": "mawjs-tile-1", "active": false },
+          { "index": 2, "name": "mawjs-6-tile-1", "active": false }
+        ] }
+      ]
+    },
+    "expected": { "kind": "bound", "window": "mawjs-6-tile-1" }
+  },
+  {
+    "name": "stripped tile suffix ambiguity fails loud",
+    "input": {
+      "mainRepoName": "mawjs-oracle",
+      "wtName": "1-tile-1",
+      "sessions": [
+        { "name": "other", "windows": [
+          { "index": 1, "name": "mawjs-tile-1", "active": false },
+          { "index": 2, "name": "mawjs-6-tile-1", "active": false }
+        ] }
+      ]
+    },
+    "expected": { "kind": "ambiguous", "query": "tile-1", "candidates": ["mawjs-tile-1", "mawjs-6-tile-1"] }
+  },
+  {
+    "name": "unmatched worktree is none",
+    "input": {
+      "mainRepoName": "ghost-oracle",
+      "wtName": "1-missing",
+      "sessions": [
+        { "name": "other", "windows": [{ "index": 1, "name": "notes", "active": false }] }
+      ]
+    },
+    "expected": { "kind": "none" }
+  }
+]

@@ -1,0 +1,81 @@
+{
+  "dateBase": [
+    { "name": "standard release day", "now": { "year": 2026, "month": 4, "day": 18, "hour": 9, "minute": 37 }, "expected": "26.4.18" },
+    { "name": "no zero padding in month/day", "now": { "year": 2026, "month": 2, "day": 5, "hour": 9, "minute": 5 }, "expected": "26.2.5" },
+    { "name": "year rolls to yy", "now": { "year": 2027, "month": 1, "day": 1, "hour": 0, "minute": 5 }, "expected": "27.1.1" }
+  ],
+  "hhmmStamp": [
+    { "name": "midnight is zero", "now": { "year": 2026, "month": 4, "day": 18, "hour": 0, "minute": 0 }, "expected": "0" },
+    { "name": "midnight minute drops leading zero", "now": { "year": 2026, "month": 4, "day": 18, "hour": 0, "minute": 5 }, "expected": "5" },
+    { "name": "single digit hour uses HMM integer", "now": { "year": 2026, "month": 4, "day": 18, "hour": 9, "minute": 29 }, "expected": "929" },
+    { "name": "double digit hour uses HMM integer", "now": { "year": 2026, "month": 4, "day": 18, "hour": 10, "minute": 1 }, "expected": "1001" },
+    { "name": "latest valid wall clock stamp", "now": { "year": 2026, "month": 4, "day": 18, "hour": 23, "minute": 59 }, "expected": "2359" }
+  ],
+  "extractBaseFromVersion": [
+    { "name": "alpha suffix stripped", "version": "26.4.29-alpha.5", "expected": "26.4.29" },
+    { "name": "beta suffix stripped", "version": "26.4.29-beta.0", "expected": "26.4.29" },
+    { "name": "leading v accepted", "version": "v26.4.29-alpha.5", "expected": "26.4.29" },
+    { "name": "bare stable accepted", "version": "26.4.29", "expected": "26.4.29" },
+    { "name": "empty version rejected", "version": "", "expected": null },
+    { "name": "malformed version rejected", "version": "not-a-version", "expected": null },
+    { "name": "four-segment shape rejected", "version": "26.4.29.1", "expected": null }
+  ],
+  "compareBases": [
+    { "name": "day compares numerically", "a": "26.4.30", "b": "26.4.4", "expectedSign": "positive" },
+    { "name": "reverse day comparison", "a": "26.4.4", "b": "26.4.30", "expectedSign": "negative" },
+    { "name": "same base", "a": "26.4.28", "b": "26.4.28", "expectedSign": "zero" },
+    { "name": "year dominates", "a": "27.1.1", "b": "26.12.31", "expectedSign": "positive" },
+    { "name": "month dominates", "a": "26.5.1", "b": "26.4.99", "expectedSign": "positive" }
+  ],
+  "isValidCalendarDate": [
+    { "name": "valid first day", "base": "26.1.1", "expected": true },
+    { "name": "valid leap-day permissive February", "base": "26.2.29", "expected": true },
+    { "name": "valid month end", "base": "26.12.31", "expected": true },
+    { "name": "ghost April day rejected", "base": "26.4.31", "expected": false },
+    { "name": "February day beyond permissive max rejected", "base": "26.2.30", "expected": false },
+    { "name": "month zero rejected", "base": "26.0.1", "expected": false },
+    { "name": "day zero rejected", "base": "26.1.0", "expected": false },
+    { "name": "malformed base rejected", "base": "26.4", "expected": false }
+  ],
+  "nextCalendarBase": [
+    { "name": "advances within month", "base": "26.5.16", "expected": "26.5.17" },
+    { "name": "advances across month", "base": "26.5.31", "expected": "26.6.1" },
+    { "name": "advances across year", "base": "26.12.31", "expected": "27.1.1" }
+  ],
+  "maxNFromTags": [
+    { "name": "no matching tags", "base": "26.4.18", "channel": "alpha", "tags": ["v26.4.17-alpha.5", "v26.4.19-alpha.0"], "expected": -1 },
+    { "name": "max alpha across matching tags", "base": "26.4.27", "channel": "alpha", "tags": ["v26.4.27-alpha.11", "v26.4.27-alpha.12", "v26.4.27-alpha.13"], "expected": 13 },
+    { "name": "non-monotonic tag order", "base": "26.4.27", "channel": "alpha", "tags": ["v26.4.27-alpha.13", "v26.4.27-alpha.0", "v26.4.27-alpha.7"], "expected": 13 },
+    { "name": "channel isolation", "base": "26.4.28", "channel": "beta", "tags": ["v26.4.28-alpha.99", "v26.4.28-beta.5", "v26.4.28-beta.12.0"], "expected": 5 },
+    { "name": "non-integer suffix rejected", "base": "26.4.27", "channel": "alpha", "tags": ["v26.4.27-alpha.5", "v26.4.27-alpha.12.0"], "expected": 5 }
+  ],
+  "maxNFromPackageJson": [
+    { "name": "matching alpha with v prefix", "base": "26.4.28", "channel": "alpha", "packageVersion": "v26.4.28-alpha.7", "expected": 7 },
+    { "name": "matching beta", "base": "26.4.28", "channel": "beta", "packageVersion": "26.4.28-beta.3", "expected": 3 },
+    { "name": "date mismatch", "base": "26.4.28", "channel": "alpha", "packageVersion": "26.4.27-alpha.99", "expected": -1 },
+    { "name": "channel mismatch", "base": "26.4.28", "channel": "alpha", "packageVersion": "26.4.28-beta.5", "expected": -1 },
+    { "name": "non-integer suffix rejected", "base": "26.4.28", "channel": "alpha", "packageVersion": "26.4.28-alpha.12.0", "expected": -1 },
+    { "name": "substring trap rejected", "base": "26.4.2", "channel": "alpha", "packageVersion": "26.4.28-alpha.5", "expected": -1 },
+    { "name": "zero-padded suffix parses as decimal", "base": "26.4.28", "channel": "alpha", "packageVersion": "26.4.28-alpha.05", "expected": 5 }
+  ],
+  "effectiveBase": [
+    { "name": "future package base wins", "todayBase": "26.4.28", "packageVersion": "26.4.29-alpha.5", "expected": "26.4.29" },
+    { "name": "today wins over old package base", "todayBase": "26.4.28", "packageVersion": "26.4.27-alpha.99", "expected": "26.4.28" },
+    { "name": "equal base keeps today", "todayBase": "26.4.28", "packageVersion": "26.4.28-alpha.18", "expected": "26.4.28" },
+    { "name": "empty package version keeps today", "todayBase": "26.4.28", "packageVersion": "", "expected": "26.4.28" },
+    { "name": "bare future stable wins", "todayBase": "26.4.28", "packageVersion": "26.4.30", "expected": "26.4.30" },
+    { "name": "ghost package date throws", "todayBase": "26.4.30", "packageVersion": "26.4.53", "errorIncludes": "ghost date" }
+  ],
+  "computeVersion": [
+    { "name": "stable uses today's base", "args": { "stable": true, "now": { "year": 2026, "month": 4, "day": 18, "hour": 9, "minute": 37 } }, "tags": [], "packageVersion": "", "expected": "26.4.18" },
+    { "name": "alpha emits HHMM when no existing suffix is higher", "args": { "stable": false, "now": { "year": 2026, "month": 4, "day": 18, "hour": 9, "minute": 37 } }, "tags": [], "packageVersion": "", "expected": "26.4.18-alpha.937" },
+    { "name": "midnight alpha drops leading zero", "args": { "stable": false, "now": { "year": 2027, "month": 1, "day": 1, "hour": 0, "minute": 5 } }, "tags": [], "packageVersion": "", "expected": "27.1.1-alpha.5" },
+    { "name": "lower existing tags do not change HHMM", "args": { "stable": false, "now": { "year": 2026, "month": 4, "day": 27, "hour": 12, "minute": 0 } }, "tags": ["v26.4.27-alpha.11", "v26.4.27-alpha.12"], "packageVersion": "", "expected": "26.4.27-alpha.1200" },
+    { "name": "post-midnight package downgrade rolls base forward", "args": { "stable": false, "now": { "year": 2026, "month": 5, "day": 16, "hour": 0, "minute": 27 } }, "tags": [], "packageVersion": "26.5.16-alpha.2356", "expected": "26.5.17-alpha.27" },
+    { "name": "post-midnight tag downgrade rolls base forward", "args": { "stable": false, "now": { "year": 2026, "month": 5, "day": 16, "hour": 0, "minute": 27 } }, "tags": ["v26.5.16-alpha.2358"], "packageVersion": "", "expected": "26.5.17-alpha.27" },
+    { "name": "impossible monotonic suffix never emitted", "args": { "stable": false, "now": { "year": 2026, "month": 5, "day": 16, "hour": 6, "minute": 29 } }, "tags": ["v26.5.16-alpha.2364"], "packageVersion": "26.5.16-alpha.2364", "expected": "26.5.17-alpha.629", "maxSuffix": 2359 },
+    { "name": "beta shares HHMM but differs by channel", "args": { "stable": false, "channel": "beta", "now": { "year": 2026, "month": 4, "day": 27, "hour": 12, "minute": 0 } }, "tags": [], "packageVersion": "", "expected": "26.4.27-beta.1200" },
+    { "name": "future package base is preserved", "args": { "stable": false, "now": { "year": 2026, "month": 4, "day": 28, "hour": 12, "minute": 0 } }, "tags": [], "packageVersion": "26.4.29-alpha.5", "expected": "26.4.29-alpha.1200" },
+    { "name": "stable ignores future package base", "args": { "stable": true, "now": { "year": 2026, "month": 4, "day": 28, "hour": 12, "minute": 0 } }, "tags": [], "packageVersion": "26.4.29-alpha.5", "expected": "26.4.28" }
+  ]
+}

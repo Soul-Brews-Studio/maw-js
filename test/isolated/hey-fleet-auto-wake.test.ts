@@ -31,6 +31,7 @@ let fleetKnown: Set<string> = new Set();
 let cmdWakeCalls: Array<{ oracle: string; opts: unknown }> = [];
 let listSessionsCallCount = 0;
 let listSessionsAfterWake: Array<{ name: string; windows: { index: number; name: string; active: boolean }[] }> | null = null;
+let previousAgentName: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   resolveFleetSession: (oracle: string) => fleetKnown.has(oracle) ? `${oracle}-session` : null,
+  findReusableWorktreeBySlug: () => null,
 }));
 
 // Sub-PR 4 of #841: comm-send now consults OracleManifest's `findOracle()`
@@ -136,6 +138,8 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 }
 
 beforeEach(() => {
+  previousAgentName = process.env.CLAUDE_AGENT_NAME;
+  process.env.CLAUDE_AGENT_NAME = "test-node";
   mockActive = true;
   sendKeysCalls = [];
   cmdWakeCalls = [];
@@ -147,7 +151,12 @@ beforeEach(() => {
   process.env.MAW_QUIET = "1";
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (previousAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = previousAgentName;
+});
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
@@ -171,7 +180,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     // Auto-wake message printed (no y/N prompt path)
     expect(logs.some(l => l.includes("fleet-known") && l.includes("auto-wake"))).toBe(true);
     expect(sendKeysCalls.length).toBe(1);
-    expect(sendKeysCalls[0].text).toBe("hello");
+    expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello");
     expect(exitCode).toBeUndefined();
   });
 
@@ -219,6 +228,19 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     resolveTargetReturn = { type: "self-node", target: "volt-session:volt-oracle.0" };
 
     await run(() => cmdSend("test-node:volt", "yo"));
+
+    expect(cmdWakeCalls.length).toBe(1);
+    expect(cmdWakeCalls[0].oracle).toBe("volt");
+    expect(sendKeysCalls.length).toBe(1);
+  });
+
+  test("auto-wakes on local: prefixed target", async () => {
+    fleetKnown.add("volt");
+    listSessionsReturn = [];
+    listSessionsAfterWake = [{ name: "volt-session", windows: [{ index: 0, name: "volt-oracle", active: true }] }];
+    resolveTargetReturn = { type: "self-node", target: "volt-session:volt-oracle.0" };
+
+    await run(() => cmdSend("local:volt", "yo"));
 
     expect(cmdWakeCalls.length).toBe(1);
     expect(cmdWakeCalls[0].oracle).toBe("volt");

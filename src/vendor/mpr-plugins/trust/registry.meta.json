@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/trust@v0.1.0-trust",
+  "sha256": "2a1a953149bb73d923121d86e68c1a4a4d523f8f57ad4ac1735f3ba28615cdf3",
+  "summary": "Pairwise trust list \u2014 sender\u2194target whitelist consulted by scope-acl (#842 Sub-B).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:03Z",
+  "tier": "extra"
+}

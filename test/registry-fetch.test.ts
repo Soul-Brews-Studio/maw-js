@@ -117,6 +117,14 @@ describe("getRegistry", () => {
     expect(reg.plugins.cached).toBeDefined();
   });
 
+  it("ignores malformed cache JSON and refreshes from the registry", async () => {
+    writeFileSync(cachePathFile, "{ not json");
+
+    const reg = await getRegistry();
+
+    expect(reg.plugins["hello-maw"]?.summary).toBe("hello plugin");
+  });
+
   it("falls back to stale cache on network failure (warns)", async () => {
     const pinned: RegistryManifest = {
       ...SAMPLE,

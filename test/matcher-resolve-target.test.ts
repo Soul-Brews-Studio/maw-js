@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   resolveByName,
+  resolveFleetWindowSessionTarget,
+  resolveNumericFleetStemPrefix,
   resolveSessionTarget,
   resolveWorktreeTarget,
 } from "../src/core/matcher/resolve-target";
@@ -211,6 +213,45 @@ describe("resolveSessionTarget — #535 regression (numeric-prefix fleet collisi
     const r = resolveByName("mawjs", items);
     expect(r.kind).toBe("fuzzy");
     if (r.kind === "fuzzy") expect(r.match.name).toBe("114-mawjs-no2");
+  });
+
+  test("numeric fleet stem prefix helper resolves only same-word shorthand (#1794)", () => {
+    const home = resolveNumericFleetStemPrefix("homeke", [sess("20-homekeeper")]);
+    expect(home.kind).toBe("fuzzy");
+    if (home.kind === "fuzzy") expect(home.match.name).toBe("20-homekeeper");
+
+    const dashed = resolveNumericFleetStemPrefix("mawjs", [sess("114-mawjs-no2")]);
+    expect(dashed.kind).toBe("none");
+
+    const ambiguous = resolveNumericFleetStemPrefix("homeke", [
+      sess("20-homekeeper"),
+      sess("21-homekey"),
+    ]);
+    expect(ambiguous.kind).toBe("ambiguous");
+  });
+
+  test("fleet window helper resolves role-suffixed fleet sessions by oracle window", () => {
+    const items = [
+      { name: "23-discord-admin", windows: [{ name: "discord-oracle", repo: "Soul-Brews-Studio/discord-oracle" }] },
+      { name: "114-mawjs-no2", windows: [{ name: "mawjs-no2", repo: "Soul-Brews-Studio/mawjs-no2" }] },
+    ];
+
+    const full = resolveFleetWindowSessionTarget("discord-oracle", items);
+    expect(full.kind).toBe("fuzzy");
+    if (full.kind === "fuzzy") expect(full.match.name).toBe("23-discord-admin");
+
+    const bare = resolveFleetWindowSessionTarget("discord", items);
+    expect(bare.kind).toBe("fuzzy");
+    if (bare.kind === "fuzzy") expect(bare.match.name).toBe("23-discord-admin");
+
+    const no2 = resolveFleetWindowSessionTarget("mawjs", items);
+    expect(no2.kind).toBe("none");
+
+    const ambiguous = resolveFleetWindowSessionTarget("discord", [
+      { name: "23-discord-admin", windows: [{ name: "discord-oracle" }] },
+      { name: "24-discord-ops", windows: [{ name: "discord-oracle" }] },
+    ]);
+    expect(ambiguous.kind).toBe("ambiguous");
   });
 });
 

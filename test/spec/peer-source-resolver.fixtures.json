@@ -1,0 +1,155 @@
+[
+  {
+    "name": "config mode returns configured flat and named peers without scouting",
+    "mode": "config",
+    "config": {
+      "peers": ["http://flat:3456"],
+      "namedPeers": [{ "name": "named", "url": "http://named:3456" }]
+    },
+    "discoveries": { "ok": false, "error": "should_not_call" },
+    "expected": {
+      "urls": ["http://flat:3456", "http://named:3456"],
+      "names": [null, "named"],
+      "sources": ["config", "config"],
+      "warnings": [],
+      "fetchCalls": 0
+    }
+  },
+  {
+    "name": "scout mode returns daemon discoveries as ephemeral peer targets",
+    "mode": "scout",
+    "config": {
+      "peers": ["http://flat:3456"],
+      "namedPeers": [{ "name": "named", "url": "http://named:3456" }]
+    },
+    "discoveries": {
+      "ok": true,
+      "total": 1,
+      "shown": 1,
+      "filtered": false,
+      "peers": [
+        {
+          "zid": "z1",
+          "node": "scout-node",
+          "oracle": "mawjs",
+          "host": "scout-host",
+          "locators": ["tcp/opaque", "http://scout:3456"],
+          "capabilities": ["send"],
+          "oracles": ["mawjs"],
+          "firstSeen": "2026-05-20T00:00:00.000Z",
+          "lastSeen": "2026-05-20T00:00:01.000Z",
+          "seenRel": "now",
+          "paired": false
+        }
+      ]
+    },
+    "expected": {
+      "urls": ["http://scout:3456"],
+      "names": ["scout-node"],
+      "sources": ["scout"],
+      "warnings": [],
+      "fetchCalls": 1
+    }
+  },
+  {
+    "name": "both mode keeps config first and dedupes scout duplicates by URL",
+    "mode": "both",
+    "config": {
+      "peers": ["http://dupe:3456/"],
+      "namedPeers": [{ "name": "named", "url": "http://named:3456" }]
+    },
+    "discoveries": {
+      "ok": true,
+      "total": 2,
+      "shown": 2,
+      "filtered": false,
+      "peers": [
+        {
+          "zid": "z-dupe",
+          "node": "dupe-node",
+          "oracle": "mawjs",
+          "host": "dupe-host",
+          "locators": ["http://dupe:3456"],
+          "capabilities": [],
+          "oracles": [],
+          "firstSeen": "2026-05-20T00:00:00.000Z",
+          "lastSeen": "2026-05-20T00:00:01.000Z",
+          "seenRel": "now",
+          "paired": false
+        },
+        {
+          "zid": "z-new",
+          "node": "new-node",
+          "oracle": "pulse",
+          "host": "new-host",
+          "locators": ["http://new:3456"],
+          "capabilities": [],
+          "oracles": [],
+          "firstSeen": "2026-05-20T00:00:00.000Z",
+          "lastSeen": "2026-05-20T00:00:01.000Z",
+          "seenRel": "now",
+          "paired": false
+        }
+      ]
+    },
+    "expected": {
+      "urls": ["http://dupe:3456/", "http://named:3456", "http://new:3456"],
+      "names": [null, "named", "new-node"],
+      "sources": ["config", "config", "scout"],
+      "warnings": [],
+      "fetchCalls": 1
+    }
+  },
+  {
+    "name": "both mode warns and falls back to config when scout fails",
+    "mode": "both",
+    "config": {
+      "namedPeers": [{ "name": "named", "url": "http://named:3456" }]
+    },
+    "discoveries": {
+      "ok": false,
+      "error": "daemon_unreachable",
+      "hint": "is maw serve running?"
+    },
+    "expected": {
+      "urls": ["http://named:3456"],
+      "names": ["named"],
+      "sources": ["config"],
+      "warnings": ["scout unavailable"],
+      "fetchCalls": 1
+    }
+  },
+  {
+    "name": "scout mode drops discoveries without HTTP locators",
+    "mode": "scout",
+    "config": {},
+    "discoveries": {
+      "ok": true,
+      "total": 1,
+      "shown": 1,
+      "filtered": false,
+      "peers": [
+        {
+          "zid": "z-opaque",
+          "node": "opaque",
+          "oracle": "mawjs",
+          "host": "opaque-host",
+          "locators": ["tcp/opaque"],
+          "capabilities": [],
+          "oracles": [],
+          "firstSeen": "2026-05-20T00:00:00.000Z",
+          "lastSeen": "2026-05-20T00:00:01.000Z",
+          "seenRel": "now",
+          "paired": false
+        }
+      ]
+    },
+    "expected": {
+      "urls": [],
+      "names": [],
+      "sources": [],
+      "warnings": [],
+      "fetchCalls": 1
+    }
+  }
+]

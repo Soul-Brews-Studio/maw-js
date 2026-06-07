@@ -10,7 +10,27 @@ import { HubTransport, loadWorkspaceConfigs } from "./hub";
 import { LoRaTransport } from "./lora";
 import { NanoclawTransport } from "./nanoclaw";
 import { MdnsTransport } from "./mdns";
+import { ScoutTransport } from "./scout";
+import { ZenohScoutTransport } from "./zenoh-scout";
+import { readZenohScoutConfig } from "../vendor/mpr-plugins/zenoh-scout/impl";
 // ZenohTransport loaded dynamically — zenoh-ts bundles WASM that conflicts with single-file build
+
+type DiscoveryTransport = "scout" | "zenoh" | "both" | "off";
+
+const ZENOH_SCOUT_PLUGIN = "zenoh-scout";
+
+export function discoveryTransport(config: ReturnType<typeof loadConfig>): DiscoveryTransport {
+  const zenohPluginEnabled = !(config.disabledPlugins ?? []).includes(ZENOH_SCOUT_PLUGIN);
+  const configured = config.discovery?.transport;
+  if (configured === "scout" || configured === "zenoh" || configured === "both" || configured === "off") {
+    if (zenohPluginEnabled) return configured;
+    if (configured === "zenoh") return "off";
+    if (configured === "both") return "scout";
+    return configured;
+  }
+  if (!zenohPluginEnabled) return "scout";
+  return config.zenoh?.scout?.enabled === true ? "both" : "scout";
+}
 
 /** Singleton router instance */
 let router: TransportRouter | null = null;
@@ -33,15 +53,32 @@ export function createTransportRouter(): TransportRouter {
     router.register(new HubTransport(config.node));
   }
 
-  // 2.5. mDNS P2P — auto-discovery + direct messaging (no config needed)
-  const oracles = Object.keys(config.agents || {}).filter(k => k.endsWith("-oracle"));
-  const mdns = new MdnsTransport({
-    node: config.node ?? "local",
-    port: config.port ?? 3456,
-    oracles,
-  });
-  mdns.connect().catch(() => {});
-  router.register(mdns);
+  const discovery = discoveryTransport(config);
+
+  // 2.5. Scout P2P — zero-config LAN discovery + auto-pairing.
+  if (discovery === "scout" || discovery === "both") {
+    const oracles = Object.keys(config.agents || {}).filter(k => k.endsWith("-oracle"));
+    const scout = new ScoutTransport({
+      node: config.node ?? "local",
+      oracle: config.oracle ?? "mawjs",
+      port: config.port ?? 3456,
+      oracles,
+      autoPair: true,
+    });
+    scout.connect().catch(() => {});
+    router.register(scout);
+  }
+
+  // 2.5b. Zenoh Scout — opt-in discovery/presence provider only.
+  // Pairing/trust remains in MAW's HTTP pair/peers flow.
+  if (discovery === "zenoh" || discovery === "both") {
+    const zenohScout = new ZenohScoutTransport({
+      ...readZenohScoutConfig(config),
+      enabled: true,
+    });
+    zenohScout.connect().catch(() => {});
+    router.register(zenohScout);
+  }
 
   // 2.6. Zenoh transport — pub/sub + auto-discovery (dynamic import — WASM)
   if (config.zenoh?.locator) {
@@ -93,4 +130,6 @@ export { HttpTransport } from "./http";
 export { NanoclawTransport } from "./nanoclaw";
 export { LoRaTransport } from "./lora";
 export { MdnsTransport } from "./mdns";
+export { ScoutTransport } from "./scout";
+export { ZenohScoutTransport } from "./zenoh-scout";
 // ZenohTransport exported via dynamic import only (WASM dependency)

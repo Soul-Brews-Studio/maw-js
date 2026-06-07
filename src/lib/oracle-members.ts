@@ -9,13 +9,14 @@
  * After the follow-up "prune" PR removes the team plugin's source, this
  * vendored copy is the canonical location for the registry-read logic.
  *
- * Stores team membership at `<CONFIG_DIR>/teams/<team-name>/oracle-members.json`.
+ * Stores team membership at `<state>/teams/<team-name>/oracle-members.json`
+ * with legacy config-tree fallback for older installs.
  * Forgiving load semantics — missing file or corrupt JSON returns `null`,
  * never throws. The ACL and routing layers treat "no registry" as "no members".
  */
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { CONFIG_DIR } from "../core/paths";
+import { mawConfigPath, mawStatePath } from "../core/xdg";
 
 export interface OracleMember {
   /** Oracle name (e.g. "mawjs-plugin-oracle", "security-oracle") */
@@ -38,21 +39,34 @@ export interface OracleTeamRegistry {
 }
 
 function teamRegistryDir(teamName: string): string {
-  return join(CONFIG_DIR, "teams", teamName);
+  return mawStatePath("teams", teamName);
 }
 
 function teamRegistryPath(teamName: string): string {
   return join(teamRegistryDir(teamName), "oracle-members.json");
 }
 
+function legacyTeamRegistryPath(teamName: string): string {
+  return mawConfigPath("teams", teamName, "oracle-members.json");
+}
+
+function candidateTeamRegistryPaths(teamName: string): string[] {
+  const primary = teamRegistryPath(teamName);
+  const legacy = legacyTeamRegistryPath(teamName);
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 export function loadOracleRegistry(teamName: string): OracleTeamRegistry | null {
-  const path = teamRegistryPath(teamName);
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return null;
+  for (const path of candidateTeamRegistryPaths(teamName)) {
+    if (!existsSync(path)) continue;
+    try {
+      return JSON.parse(readFileSync(path, "utf-8"));
+    } catch {
+      // Try the next candidate so legacy readable registries survive a bad
+      // primary during migration.
+    }
   }
+  return null;
 }
 
 /**

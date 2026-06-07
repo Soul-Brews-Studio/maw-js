@@ -8,6 +8,35 @@ import {
   type TmuxWindow,
 } from "./tmux-types";
 
+// --- sendText submit-confirmation tuning (#6) ---
+// The old sendText fired 3 blind `Enter` keys on a fixed ~1.9s schedule with
+// zero feedback. If the pane wasn't ready when they landed (agent still
+// rendering the paste, brief stall), every Enter missed and the command sat
+// in the input box unexecuted — this forced manual re-launch of dispatches
+// on 2026-05-14. We now send Enter, re-check the pane, and retry only while
+// input is still pending.
+/** Wait after paste/literal-send before the first Enter — lets the input settle. */
+const SEND_SETTLE_MS = 1500;
+/** Wait after each Enter before re-checking whether the input line cleared. */
+const SUBMIT_CONFIRM_MS = 700;
+/** Max Enter attempts before giving up and warning (was 3 blind, unconditional sends). */
+const MAX_SUBMIT_ATTEMPTS = 4;
+/** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
+
+function isTmuxNoServerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /no server/i.test(message) || /failed to connect to server/i.test(message);
+}
+
+function isTmuxBinaryMissingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const exitCode = typeof error === "object" && error !== null && "exitCode" in error
+    ? (error as { exitCode?: unknown }).exitCode
+    : undefined;
+  return exitCode === 127 || /tmux: command not found/i.test(message) || /command not found: tmux/i.test(message);
+}
+
 /**
  * Typed wrapper around tmux CLI.
  * All methods build arg arrays and delegate to `run()`.
@@ -21,7 +50,8 @@ export class Tmux {
   /** Base runner — executes `tmux [-S socket] <subcommand> [args...]` via hostExec. */
   async run(subcommand: string, ...args: (string | number)[]): Promise<string> {
     const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
-    const cmd = `tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")}`;
+    const termPrefix = process.env.TERM ? "" : "TERM=xterm ";
+    const cmd = `${termPrefix}tmux ${socketFlag}${subcommand} ${args.map(q).join(" ")}`;
     return hostExec(cmd, this.host);
   }
 
@@ -41,7 +71,11 @@ export class Tmux {
         sessions.push({ name: s, windows });
       }
       return sessions;
-    } catch { return []; } // no tmux server running
+    } catch (error) {
+      if (isTmuxBinaryMissingError(error)) throw error;
+      if (isTmuxNoServerError(error)) return [];
+      return [];
+    }
   }
 
   /** List all windows across all sessions in a single tmux call. */
@@ -55,7 +89,11 @@ export class Tmux {
         map.get(session)!.push({ index: +idx, name, active: active === "1", cwd: cwd || undefined });
       }
       return [...map.entries()].map(([name, windows]) => ({ name, windows }));
-    } catch { return []; } // no tmux server running
+    } catch (error) {
+      if (isTmuxBinaryMissingError(error)) throw error;
+      if (isTmuxNoServerError(error)) return [];
+      return [];
+    }
   }
 
   async hasSession(name: string): Promise<boolean> {
@@ -71,14 +109,28 @@ export class Tmux {
     window?: string;
     cwd?: string;
     detached?: boolean;
-  } = {}): Promise<void> {
+    command?: string;
+    printFormat?: string;
+  } = {}): Promise<string> {
     const args: (string | number)[] = [];
     if (opts.detached !== false) args.push("-d");
+    if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
     args.push("-s", name);
     if (opts.window) args.push("-n", opts.window);
     if (opts.cwd) args.push("-c", opts.cwd);
-    await this.run("new-session", ...args);
+    if (opts.command) args.push(opts.command);
+    const out = await this.run("new-session", ...args);
     await this.setOption(name, "renumber-windows", "on");
+    return out;
+  }
+
+  async firstPaneId(target: string): Promise<string | undefined> {
+    try {
+      const raw = await this.run("list-panes", "-t", target, "-F", "#{pane_id}");
+      return raw.split("\n").map(line => line.trim()).find(Boolean);
+    } catch {
+      return undefined;
+    }
   }
 
   /** Create a grouped session — shares windows with parent, independent sizing.
@@ -127,12 +179,43 @@ export class Tmux {
   }
 
   /** Switch the current tmux client to a different session. Only works when inside tmux. */
-  async switchClient(session: string): Promise<void> {
-    await this.tryRun("switch-client", "-t", session);
+  async switchClient(session: string, opts: { readonly?: boolean } = {}): Promise<void> {
+    if (!opts.readonly) {
+      await this.tryRun("switch-client", "-t", session);
+      return;
+    }
+
+    const readonly = await this.tryRun("display-message", "-p", "#{client_readonly}");
+    const args: (string | number)[] = readonly.trim() === "1"
+      ? ["-t", session]
+      : ["-r", "-t", session];
+    await this.tryRun("switch-client", ...args);
   }
 
   async killWindow(target: string): Promise<void> {
     await this.tryRun("kill-window", "-t", target);
+  }
+
+  async linkWindow(source: string, target: string, opts: { detached?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.detached !== false) args.push("-d");
+    args.push("-s", source, "-t", target);
+    await this.run("link-window", ...args);
+  }
+
+  async unlinkWindow(target: string, opts: { killLastLink?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.killLastLink) args.push("-k");
+    args.push("-t", target);
+    await this.run("unlink-window", ...args);
+  }
+
+  async renameWindow(target: string, name: string): Promise<void> {
+    await this.run("rename-window", "-t", target, name);
+  }
+
+  async setWindowOption(target: string, option: string, value: string): Promise<void> {
+    await this.run("set-window-option", "-t", target, option, value);
   }
 
   // --- Panes ---
@@ -149,7 +232,7 @@ export class Tmux {
   async listPanes(): Promise<TmuxPane[]> {
     try {
       const raw = await this.run("list-panes", "-a", "-F",
-        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}");
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}");
       return raw.split("\n").filter(Boolean).map(line => {
         const [id, command, target, title, pid, cwd, winAct] = line.split("|||");
         return { id, command, target, title, pid: pid ? Number(pid) : undefined, cwd: cwd || undefined, lastActivity: winAct ? Number(winAct) : undefined };
@@ -221,8 +304,17 @@ export class Tmux {
     await this.tryRun("resize-window", "-t", target, "-x", c, "-y", r);
   }
 
-  async splitWindow(target: string): Promise<void> {
-    await this.run("split-window", "-t", target);
+  async splitWindow(target?: string, opts: {
+    cwd?: string;
+    command?: string;
+    printFormat?: string;
+  } = {}): Promise<string> {
+    const args: (string | number)[] = [];
+    if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
+    if (target) args.push("-t", target);
+    if (opts.cwd) args.push("-c", opts.cwd);
+    if (opts.command) args.push(opts.command);
+    return this.run("split-window", ...args);
   }
 
   async selectPane(target: string, opts: { title?: string } = {}): Promise<void> {
@@ -235,6 +327,42 @@ export class Tmux {
     await this.run("select-layout", "-t", target, layout);
   }
 
+  /** Attach a client in tmux read-only mode (`attach-session -r`). */
+  async attachReadonly(session: string): Promise<void> {
+    await this.run("attach-session", "-r", "-t", session);
+  }
+
+  /**
+   * Pipe pane output and/or shell-command output through tmux `pipe-pane`.
+   *
+   * tmux defaults to output mode (`-O`) when neither `input` nor `output` is
+   * set; this wrapper makes the default explicit for callers and tests. Omit
+   * `command` to close the current pipe for the target pane.
+   */
+  async pipePane(target: string, command?: string, opts: {
+    /** Connect shell-command stdout to the pane as typed input (`-I`). */
+    input?: boolean;
+    /** Connect pane output to shell-command stdin (`-O`). Default true. */
+    output?: boolean;
+    /** Only open a new pipe if none exists (`-o`). */
+    onlyIfClosed?: boolean;
+  } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    const input = opts.input === true;
+    const output = opts.output !== false || !input;
+    if (input) args.push("-I");
+    if (output) args.push("-O");
+    if (opts.onlyIfClosed) args.push("-o");
+    args.push("-t", target);
+    if (command !== undefined) args.push(command);
+    await this.run("pipe-pane", ...args);
+  }
+
+  /** Toggle tmux synchronize-panes for a target window. */
+  async synchronizePanes(target: string, on: boolean): Promise<void> {
+    await this.run("set-window-option", "-t", target, "synchronize-panes", on ? "on" : "off");
+  }
+
   // --- Keys ---
 
   async sendKeys(target: string, ...keys: string[]): Promise<void> {
@@ -243,6 +371,38 @@ export class Tmux {
 
   async sendKeysLiteral(target: string, text: string): Promise<void> {
     await this.run("send-keys", "-t", target, "-l", text);
+  }
+
+  /**
+   * Leave copy-mode / transient tmux modes before delivering text.
+   *
+   * tmux `send-keys -l` is not mode-safe: in copy-mode literal text is still
+   * interpreted by the mode key table, so uppercase/status text can exit the
+   * mode mid-string and make tmux print repeated "not in a mode" errors for
+   * the remaining characters. `maw hey` wants message delivery, not copy-mode
+   * navigation, so high-level text sends normalize the pane first while raw
+   * `Tmux.sendKeys()` remains available for callers that intentionally drive
+   * tmux modes.
+   */
+  async exitModeIfNeeded(target: string): Promise<boolean> {
+    let inMode = false;
+    try {
+      inMode = (await this.run("display-message", "-t", target, "-p", "#{pane_in_mode}")).trim() === "1";
+    } catch {
+      // If the probe fails, let the subsequent send surface the real target
+      // error (for example "can't find pane") instead of hiding it here.
+      return false;
+    }
+    if (!inMode) return false;
+    try {
+      await this.run("send-keys", "-t", target, "-X", "cancel");
+      return true;
+    } catch (e: any) {
+      // The pane can leave copy-mode between probe and cancel; that race is
+      // harmless and should not block delivery.
+      if (String(e?.message ?? e).includes("not in a mode")) return false;
+      throw e;
+    }
   }
 
   // --- Buffers ---
@@ -260,31 +420,66 @@ export class Tmux {
 
   /**
    * Smart text sending — uses load-buffer for multiline/long messages,
-   * send-keys for short single-line. Always appends Enter.
+   * send-keys for short single-line. Always submits with Enter.
    * Ported from old bash maw hey (Dec 2025).
+   *
+   * #6 — submit is now confirmed, not fire-and-forget. After placing the
+   * text we send Enter, re-inspect the pane, and retry the Enter only while
+   * the input line still holds un-submitted content (up to
+   * MAX_SUBMIT_ATTEMPTS). This closes the trailing-Enter race where blind
+   * staggered Enter keys landed before the pane was ready and the command
+   * was silently left unexecuted.
    */
   async sendText(target: string, text: string): Promise<void> {
+    await this.exitModeIfNeeded(target);
     if (text.includes("\n") || text.length > 500) {
       // Buffer method — reliable for multiline/long content
       await this.loadBuffer(text);
       await this.pasteBuffer(target);
-      await new Promise(r => setTimeout(r, 1500));
-      // Staggered Enter — submit + 2 fallbacks
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 700));
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1200));
-      await this.sendKeys(target, "Enter");
     } else {
       // Literal send — -l prevents tmux from interpreting special chars like |
       await this.sendKeysLiteral(target, text);
-      await new Promise(r => setTimeout(r, 1500));
-      // Staggered Enter — submit + 2 fallbacks
+    }
+    await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
+    await this.submitWithConfirm(target);
+  }
+
+  /**
+   * Send Enter, then confirm the input line cleared before returning. Retries
+   * the Enter while input is still pending — see sendText for the #6 race.
+   * @internal — exported behavior is exercised via sendText in tests.
+   */
+  private async submitWithConfirm(target: string): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
       await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 700));
-      await this.sendKeys(target, "Enter");
-      await new Promise(r => setTimeout(r, 1200));
-      await this.sendKeys(target, "Enter");
+      await new Promise(r => setTimeout(r, SUBMIT_CONFIRM_MS));
+      if (!(await this.paneInputPending(target))) return; // submitted — done
+    }
+    // Exhausted every retry and the input line still looks non-empty. The
+    // caller has no visibility into tmux pane state, so warn loudly — a
+    // silently-dropped dispatch is the exact failure mode #6 is about.
+    console.warn(
+      `[tmux] sendText: ${target} still shows pending input after ${MAX_SUBMIT_ATTEMPTS} Enter attempts — command may not have submitted`,
+    );
+  }
+
+  /**
+   * True when the pane's prompt line still holds un-submitted input.
+   * Mirrors checkPaneIdle (comm-send.ts #405) but inlined here to avoid a
+   * circular import — comm-send.ts already imports Tmux. A read failure
+   * returns false (assume submitted) so a flaky capture can't spin the retry
+   * loop.
+   */
+  private async paneInputPending(target: string): Promise<boolean> {
+    try {
+      const content = await this.capture(target, 5);
+      const lines = content.split("\n").filter(l => l.trim());
+      const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
+      // Prompt marker followed by non-whitespace → user/command text still
+      // sitting on the input line, i.e. Enter has not submitted it yet.
+      return /[#$%>❯»]\s+\S/.test(last);
+    } catch {
+      return false;
     }
   }
 

@@ -1,5 +1,60 @@
 import { describe, test, expect } from "bun:test";
+import { join } from "path";
 import { HostExecError } from "../../src/core/transport/ssh";
+import { runBunChild } from "./helpers/run-bun-child";
+
+const repoRoot = join(import.meta.dir, "../..");
+const sshModulePath = import.meta.resolve("../../src/core/transport/ssh");
+
+function runHostExecFailure(command: string): {
+  target: string;
+  transport: string;
+  exitCode: number;
+  message: string;
+  underlying: string;
+} {
+  const result = runBunChild({
+    cwd: repoRoot,
+    script: `
+      import { hostExec, HostExecError } from ${JSON.stringify(sshModulePath)};
+      try {
+        await hostExec(${JSON.stringify(command)}, "local");
+        process.exit(91);
+      } catch (error) {
+        const err = error;
+        console.log(JSON.stringify({
+          isHostExecError: err instanceof HostExecError,
+          target: err?.target,
+          transport: err?.transport,
+          exitCode: err?.exitCode,
+          message: err?.message,
+          underlying: err?.underlying?.message,
+        }));
+      }
+    `,
+  });
+
+  expect(result.code).toBe(0);
+
+  const jsonLine = result.stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .at(-1);
+
+  expect(jsonLine).toBeTruthy();
+  const payload = JSON.parse(jsonLine!) as {
+    isHostExecError: boolean;
+    target: string;
+    transport: string;
+    exitCode: number;
+    message: string;
+    underlying: string;
+  };
+
+  expect(payload.isHostExecError).toBe(true);
+  return payload;
+}
 
 describe("HostExecError", () => {
   test("carries target + transport + underlying as structured fields", () => {
@@ -56,33 +111,17 @@ describe("HostExecError", () => {
 });
 
 describe("hostExec throw integration", () => {
-  test("failing bash -c throws HostExecError with local transport + host", async () => {
-    // MAW_HOST is read at module-load time; we exercise hostExec against
-    // a guaranteed-fail shell command and inspect the error shape.
-    const { hostExec } = await import("../../src/core/transport/ssh");
-    try {
-      await hostExec("exit 7", "local");
-      throw new Error("should have thrown");
-    } catch (e) {
-      expect(e).toBeInstanceOf(HostExecError);
-      const err = e as HostExecError;
-      expect(err.target).toBe("local");
-      expect(err.transport).toBe("local");
-      expect(err.exitCode).toBe(7);
-      expect(err.message).toMatch(/^\[local:local\] /);
-    }
+  test("failing bash -c throws HostExecError with local transport + host", () => {
+    const err = runHostExecFailure("exit 7");
+    expect(err.target).toBe("local");
+    expect(err.transport).toBe("local");
+    expect(err.exitCode).toBe(7);
+    expect(err.message).toMatch(/^\[local:local\] /);
   });
 
-  test("failing bash -c propagates stderr into underlying.message", async () => {
-    const { hostExec } = await import("../../src/core/transport/ssh");
-    try {
-      await hostExec("echo oh-no >&2; exit 1", "local");
-      throw new Error("should have thrown");
-    } catch (e) {
-      expect(e).toBeInstanceOf(HostExecError);
-      const err = e as HostExecError;
-      expect(err.underlying.message).toBe("oh-no");
-      expect(err.message).toBe("[local:local] oh-no");
-    }
+  test("failing bash -c propagates stderr into underlying.message", () => {
+    const err = runHostExecFailure("echo oh-no >&2; exit 1");
+    expect(err.underlying).toBe("oh-no");
+    expect(err.message).toBe("[local:local] oh-no");
   });
 });

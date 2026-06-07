@@ -1,8 +1,8 @@
+import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
-import { readdirSync, readFileSync, unlinkSync } from "fs";
 import { hostExec } from "../../../sdk";
 import { getGhqRoot } from "../../../config/ghq-root";
-import { FLEET_DIR } from "../../../sdk";
+import { loadDisabledFleetEntries } from "../../shared/fleet-load";
 
 /**
  * maw fleet consolidate [--dry-run] [--remove]
@@ -29,26 +29,24 @@ interface ConsolidateResult {
 
 export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boolean } = {}) {
   const reposRoot = join(getGhqRoot(), "github.com");
-  const disabledFiles = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).sort();
+  const disabledEntries = loadDisabledFleetEntries();
 
-  if (disabledFiles.length === 0) {
+  if (disabledEntries.length === 0) {
     console.log("\n  \x1b[32m✓\x1b[0m No disabled oracles to consolidate.\n");
     return;
   }
 
   console.log(`\n  \x1b[36m🧹 Fleet Consolidate\x1b[0m${opts.dryRun ? " \x1b[33m(dry run)\x1b[0m" : ""}\n`);
-  console.log(`  ${disabledFiles.length} disabled oracles to process\n`);
+  console.log(`  ${disabledEntries.length} disabled oracles to process\n`);
 
   const results: ConsolidateResult[] = [];
 
-  for (const f of disabledFiles) {
-    const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");
-    const num = f.match(/^(\d+)/)?.[1] || "?";
+  for (const entry of disabledEntries) {
+    const dName = entry.groupName;
+    const num = entry.num ? String(entry.num) : "?";
+    const cfg = entry.session as any;
 
-    let cfg: any;
-    try {
-      cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
-    } catch {
+    if (!cfg) {
       console.log(`  \x1b[31m✗\x1b[0m ${num.padStart(2)}  ${dName} — can't read config`);
       results.push({ name: dName, num, repo: "?", repoExists: false, branches: [], merged: [], pushOk: false, removed: false, error: "bad config" });
       continue;
@@ -56,7 +54,7 @@ export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boo
 
     const repo = cfg.windows?.[0]?.repo || "";
     const repoPath = repo ? join(reposRoot, repo) : "";
-    const repoExists = repoPath ? require("fs").existsSync(repoPath) : false;
+    const repoExists = repoPath ? existsSync(repoPath) : false;
 
     const result: ConsolidateResult = { name: dName, num, repo, repoExists, branches: [], merged: [], pushOk: false, removed: false };
 
@@ -129,7 +127,7 @@ export async function cmdFleetConsolidate(opts: { dryRun?: boolean; remove?: boo
     // Remove disabled config if requested
     if (opts.remove && result.pushOk) {
       try {
-        unlinkSync(join(FLEET_DIR, f));
+        unlinkSync(entry.path);
         result.removed = true;
       } catch {}
     }

@@ -19,27 +19,38 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
 
   let registered = 0;
   for (const plugin of plugins) {
+    if (plugin.disabled) continue;
     if (!plugin.manifest.hooks || plugin.kind !== "ts" || !plugin.entryPath) continue;
 
     let mod: any;
     try { mod = await import(plugin.entryPath); } catch { continue; }
 
     const hooks = plugin.manifest.hooks;
+    let registeredForPlugin = 0;
 
-    for (const [phase, exportNames] of Object.entries(PHASE_EXPORTS)) {
-      const events = hooks[phase as keyof typeof hooks];
-      if (!events) continue;
+    const registerHookEntries = () => {
+      for (const [phase, exportNames] of Object.entries(PHASE_EXPORTS)) {
+        const events = hooks[phase as keyof typeof hooks];
+        if (!events) continue;
 
-      const fn = exportNames.reduce((f: any, name: string) => f ?? mod[name], null);
-      if (typeof fn !== "function") continue;
+        const fn = exportNames.reduce((f: any, name: string) => f ?? mod[name], null);
+        if (typeof fn !== "function") continue;
 
-      for (const event of events) {
-        (system.hooks as any)[phase](event, fn);
-        registered++;
+        for (const event of events) {
+          (system.hooks as any)[phase](event, fn);
+          registered++;
+          registeredForPlugin++;
+        }
       }
+    };
+
+    if (typeof (system as any).withPluginContext === "function") {
+      (system as any).withPluginContext(plugin.manifest.name, "user", registerHookEntries);
+    } else {
+      registerHookEntries();
     }
 
-    if (registered > 0) {
+    if (registeredForPlugin > 0) {
       system.register(plugin.manifest.name, "ts", "user");
     }
   }

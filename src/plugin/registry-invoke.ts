@@ -4,7 +4,8 @@
  * WASM plugins with a hard 5-second timeout.
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
+import { pathToFileURL } from "url";
 import {
   buildImportObject,
   preCacheBridge,
@@ -16,6 +17,19 @@ import type { LoadedPlugin, InvokeContext, InvokeResult } from "./types";
 const PLUGIN_INVOKE_TIMEOUT_MS = 5_000;
 const WASM_MEMORY_MAX_PAGES = 256; // 16MB
 
+export interface InvokePluginDeps {
+  preCacheBridge: typeof preCacheBridge;
+  setTimeout: typeof setTimeout;
+}
+
+export function invokePluginDeps(overrides: Partial<InvokePluginDeps> = {}): InvokePluginDeps {
+  return {
+    preCacheBridge,
+    setTimeout,
+    ...overrides,
+  };
+}
+
 /**
  * Instantiate a plugin's WASM module and call handle(ptr, len) with the context.
  * Context is JSON-encoded and written to shared memory; result is read back.
@@ -24,7 +38,10 @@ const WASM_MEMORY_MAX_PAGES = 256; // 16MB
 export async function invokePlugin(
   plugin: LoadedPlugin,
   ctx: InvokeContext,
+  deps: Partial<InvokePluginDeps> = {},
 ): Promise<InvokeResult> {
+  const io = invokePluginDeps(deps);
+
   // Universal flags — every plugin gets these for free
   if (ctx.source === "cli") {
     const args = ctx.args as string[];
@@ -93,7 +110,10 @@ export async function invokePlugin(
   // honest behavior for Phase A (no sandbox).
   if (plugin.kind === "ts" && plugin.entryPath) {
     try {
-      const mod = await import(plugin.entryPath);
+      // Bun canary on macOS can lose later dynamic imports that pass through
+      // the /var → /private/var symlink. Canonicalize to a file URL so
+      // temporary TS plugin modules load deterministically across runners.
+      const mod = await import(pathToFileURL(realpathSync(plugin.entryPath)).href);
       const handler = mod.default || mod.handler;
       if (!handler) return { ok: false, error: "TS plugin has no default export or handler" };
 
@@ -171,7 +191,7 @@ export async function invokePlugin(
 
   const exec = (async (): Promise<InvokeResult> => {
     // Pre-warm identity + federation caches (best-effort, won't throw)
-    await preCacheBridge(bridge);
+    await io.preCacheBridge(bridge);
 
     // Write JSON-encoded context into shared memory
     const json = JSON.stringify(ctx);
@@ -204,7 +224,7 @@ export async function invokePlugin(
 
   // 5-second hard deadline — matches command-registry.ts:193
   const timeoutGuard = new Promise<InvokeResult>((_, reject) =>
-    setTimeout(
+    io.setTimeout(
       () =>
         reject(
           new Error(

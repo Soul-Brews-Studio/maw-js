@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -18,13 +18,27 @@ import {
   artifactDir,
 } from "../src/lib/artifacts";
 
-// Override ARTIFACTS_ROOT for tests by setting HOME
-const origHome = process.env.HOME;
+// Override artifact roots for tests by setting HOME / XDG env before each call.
+const originalEnv = {
+  HOME: process.env.HOME,
+  MAW_HOME: process.env.MAW_HOME,
+  MAW_CACHE_DIR: process.env.MAW_CACHE_DIR,
+  MAW_XDG: process.env.MAW_XDG,
+  XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+};
+
 beforeEach(() => {
   process.env.HOME = testRoot;
+  delete process.env.MAW_HOME;
+  delete process.env.MAW_XDG;
+  delete process.env.XDG_CACHE_HOME;
+  process.env.MAW_CACHE_DIR = join(testRoot, "cache");
 });
 afterAll(() => {
-  process.env.HOME = origHome;
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   rmSync(testRoot, { recursive: true });
 });
 
@@ -112,5 +126,43 @@ describe("getArtifact", () => {
 
   test("returns null for missing artifact", () => {
     expect(getArtifact("nope", "999")).toBeNull();
+  });
+});
+
+describe("XDG cache paths", () => {
+  test("writes new artifacts under XDG cache when enabled", () => {
+    const cacheHome = join(testRoot, "xdg-cache");
+    delete process.env.MAW_CACHE_DIR;
+    process.env.MAW_XDG = "1";
+    process.env.XDG_CACHE_HOME = cacheHome;
+
+    const dir = createArtifact("xdg-team", "1", "XDG artifact", "desc");
+
+    expect(dir).toBe(join(cacheHome, "maw", "artifacts", "xdg-team", "1"));
+    expect(existsSync(join(dir, "meta.json"))).toBe(true);
+  });
+
+  test("reads legacy ~/.maw artifacts after XDG is enabled", () => {
+    const cacheHome = join(testRoot, "xdg-cache");
+    const legacyDir = join(testRoot, ".maw", "artifacts", "legacy-team", "9");
+    mkdirSync(join(legacyDir, "attachments"), { recursive: true });
+    writeFileSync(join(legacyDir, "spec.md"), "# Legacy\n\nold task\n");
+    writeFileSync(join(legacyDir, "meta.json"), JSON.stringify({
+      team: "legacy-team",
+      taskId: "9",
+      subject: "Legacy artifact",
+      status: "pending",
+      createdAt: "2026-05-21T00:00:00.000Z",
+      updatedAt: "2026-05-21T00:00:00.000Z",
+    }, null, 2));
+
+    delete process.env.MAW_CACHE_DIR;
+    process.env.MAW_XDG = "1";
+    process.env.XDG_CACHE_HOME = cacheHome;
+
+    const art = getArtifact("legacy-team", "9");
+    expect(art?.dir).toBe(legacyDir);
+    expect(art?.spec).toContain("old task");
+    expect(listArtifacts("legacy-team").map((a) => a.taskId)).toContain("9");
   });
 });

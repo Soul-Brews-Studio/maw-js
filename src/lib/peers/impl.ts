@@ -47,6 +47,14 @@ export interface AddOptions {
   alias: string;
   url: string;
   node?: string;
+  /** Peer pubkey supplied by an authenticated higher-level handshake. */
+  pubkey?: string;
+  /** Peer identity supplied by an authenticated higher-level handshake. */
+  identity?: { oracle: string; node: string };
+  /** Stamp pair-symmetry fields while adding/updating the peer (#1494). */
+  markSymmetricCheck?: boolean;
+  /** Explicit symmetry result from the responder; defaults to probe failure. */
+  oneWay?: boolean;
 }
 
 export interface AddResult {
@@ -69,6 +77,7 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   // we still probe to surface errors, but the user-supplied node wins.
   const probe = await probePeer(opts.url);
   const resolvedNode = opts.node ?? probe.node ?? null;
+  const observedPubkey = opts.pubkey ?? probe.pubkey;
 
   // TOFU evaluation against any pre-existing cache entry for this alias.
   // Decided BEFORE we overwrite so a re-`add` of the same alias against a
@@ -76,7 +85,25 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   // `maw peers forget` first). Bootstrap path stamps the pubkey on the
   // freshly-written entry, so we evaluate now but apply after the write.
   const existingForTofu = loadPeers().peers[opts.alias];
-  const tofuDecision = evaluatePeerIdentity(opts.alias, existingForTofu, probe.pubkey);
+  if (opts.pubkey && probe.pubkey && opts.pubkey !== probe.pubkey) {
+    return {
+      alias: opts.alias,
+      overwrote: Boolean(existingForTofu),
+      peer: existingForTofu ?? {
+        url: opts.url,
+        node: resolvedNode,
+        addedAt: new Date().toISOString(),
+        lastSeen: null,
+      },
+      probeError: probe.error,
+      pubkeyMismatch: new PeerPubkeyMismatchError(
+        opts.alias,
+        opts.pubkey,
+        probe.pubkey,
+      ),
+    };
+  }
+  const tofuDecision = evaluatePeerIdentity(opts.alias, existingForTofu, observedPubkey);
   if (tofuDecision.kind === "mismatch") {
     return {
       alias: opts.alias,
@@ -91,11 +118,12 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
     };
   }
 
+  const now = new Date().toISOString();
   const peer: Peer = {
     url: opts.url,
     node: resolvedNode,
-    addedAt: new Date().toISOString(),
-    lastSeen: probe.error ? null : new Date().toISOString(),
+    addedAt: now,
+    lastSeen: probe.error ? null : now,
   };
   if (probe.error) peer.lastError = probe.error;
   if (probe.nickname) peer.nickname = probe.nickname;
@@ -114,8 +142,17 @@ export async function cmdAdd(opts: AddOptions): Promise<AddResult> {
   // re-add doesn't lose what we already know about this peer.
   if (probe.identity) {
     peer.identity = probe.identity;
+  } else if (opts.identity) {
+    peer.identity = opts.identity;
   } else if (existingForTofu?.identity) {
     peer.identity = existingForTofu.identity;
+  }
+  if (opts.markSymmetricCheck) {
+    peer.lastSymmetricCheck = now;
+    peer.oneWay = opts.oneWay ?? Boolean(probe.error);
+  } else if (existingForTofu?.lastSymmetricCheck) {
+    peer.lastSymmetricCheck = existingForTofu.lastSymmetricCheck;
+    if (existingForTofu.oneWay !== undefined) peer.oneWay = existingForTofu.oneWay;
   }
 
   let existed = false;

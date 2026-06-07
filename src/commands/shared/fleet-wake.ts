@@ -1,10 +1,10 @@
-import { existsSync, readdirSync } from "fs";
+import { existsSync } from "fs";
 import { join } from "path";
-import { tmux, FLEET_DIR, saveTabOrder, restoreTabOrder } from "../../sdk";
+import { tmux, saveTabOrder, restoreTabOrder } from "../../sdk";
 import { buildCommand, getEnvVars } from "../../config";
 import { getGhqRoot } from "../../config/ghq-root";
 import { ensureSessionRunning } from "./wake";
-import { loadFleet } from "./fleet-load";
+import { countDisabledFleetFiles, loadFleet } from "./fleet-load";
 import { respawnMissingWorktrees, resumeActiveItems } from "./fleet-resume";
 import { pinSessionWide, pinWindowWide } from "./wake-pane-size";
 import {
@@ -52,7 +52,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
     await cmdSleep();
   }
 
-  const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
+  const disabled = countDisabledFleetFiles();
   const skipMsg = skipped > 0 ? `, ${skipped} dormant skipped` : "";
   console.log(`\n  \x1b[36mWaking fleet...\x1b[0m  (${sessions.length} sessions${disabled ? `, ${disabled} disabled` : ""}${skipMsg})\n`);
 

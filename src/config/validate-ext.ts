@@ -70,12 +70,37 @@ function validateExtFields(
     }
   }
 
-  // zenoh: { locator: string }
+  // zenoh: { locator?: string, scout?: { enabled?: boolean, locator?: string, timeoutMs?: number, keyPrefix?: string } }
   if ("zenoh" in raw && raw.zenoh && typeof raw.zenoh === "object") {
     const z = raw.zenoh as Record<string, unknown>;
+    const zenoh: NonNullable<MawConfig["zenoh"]> = {};
     if (typeof z.locator === "string") {
-      result.zenoh = { locator: z.locator };
+      zenoh.locator = z.locator;
     }
+    if (z.scout && typeof z.scout === "object" && !Array.isArray(z.scout)) {
+      const s = z.scout as Record<string, unknown>;
+      const scout: NonNullable<NonNullable<MawConfig["zenoh"]>["scout"]> = {};
+      if (typeof s.enabled === "boolean") scout.enabled = s.enabled;
+      if (typeof s.locator === "string") scout.locator = s.locator;
+      if (typeof s.timeoutMs === "number" && Number.isFinite(s.timeoutMs) && s.timeoutMs > 0) scout.timeoutMs = s.timeoutMs;
+      if (typeof s.keyPrefix === "string" && s.keyPrefix) scout.keyPrefix = s.keyPrefix;
+      if (Object.keys(scout).length > 0) zenoh.scout = scout;
+    }
+    if (Object.keys(zenoh).length > 0) result.zenoh = zenoh;
+  }
+
+  // discovery: { transport?: "scout" | "zenoh" | "both" | "off" }
+  if ("discovery" in raw && raw.discovery && typeof raw.discovery === "object" && !Array.isArray(raw.discovery)) {
+    const d = raw.discovery as Record<string, unknown>;
+    const discovery: NonNullable<MawConfig["discovery"]> = {};
+    if ("transport" in d) {
+      if (d.transport === "scout" || d.transport === "zenoh" || d.transport === "both" || d.transport === "off") {
+        discovery.transport = d.transport;
+      } else {
+        warn("discovery.transport", "must be one of: scout, zenoh, both, off");
+      }
+    }
+    if (Object.keys(discovery).length > 0) result.discovery = discovery;
   }
 
   // pluginSources: string[] of URLs
@@ -96,12 +121,41 @@ function validateExtFields(
     }
   }
 
+  // migrations: one-shot migration markers
+  if ("migrations" in raw) {
+    if (raw.migrations && typeof raw.migrations === "object" && !Array.isArray(raw.migrations)) {
+      const migrations: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(raw.migrations as Record<string, unknown>)) {
+        if (typeof v === "boolean") migrations[k] = v;
+      }
+      result.migrations = migrations;
+    } else {
+      warn("migrations", "must be an object of boolean markers");
+    }
+  }
+
   // node: string if present
   if ("node" in raw) {
     if (typeof raw.node === "string" && raw.node.trim().length > 0) {
       result.node = raw.node.trim();
     } else {
       warn("node", "must be a non-empty string");
+    }
+  }
+
+  // nodeUser/serviceUser: optional service user for multi-user host identity (#1814)
+  if ("nodeUser" in raw) {
+    if (typeof raw.nodeUser === "string" && raw.nodeUser.trim().length > 0) {
+      result.nodeUser = raw.nodeUser.trim();
+    } else {
+      warn("nodeUser", "must be a non-empty string");
+    }
+  }
+  if ("serviceUser" in raw) {
+    if (typeof raw.serviceUser === "string" && raw.serviceUser.trim().length > 0) {
+      result.serviceUser = raw.serviceUser.trim();
+    } else {
+      warn("serviceUser", "must be a non-empty string");
     }
   }
 

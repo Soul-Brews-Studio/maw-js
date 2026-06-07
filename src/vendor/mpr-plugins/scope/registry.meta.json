@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/scope@v0.1.0-scope",
+  "sha256": "a40e8685f3798c9b804a7f6590078f9aeade1ba3135f4c8095e1b030da9c37c8",
+  "summary": "Scope primitive \u2014 named routing namespaces (#642 Phase 1).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:03Z",
+  "tier": "extra"
+}

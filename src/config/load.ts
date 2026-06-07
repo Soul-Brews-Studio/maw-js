@@ -8,6 +8,20 @@ import type { MawConfig } from "./types";
 import { D } from "./types";
 import { validateConfig } from "./validate-ext";
 import { loadFleetAgents } from "./fleet-merge";
+import {
+  DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION,
+  isDefaultActive1514Plugin,
+  isDefaultActive1523Plugin,
+  isDefaultActive1524Plugin,
+  isDefaultActive1531Plugin,
+  isDefaultActive1854Plugin,
+  isDefaultActivePlugin,
+} from "../plugin/default-active";
 
 // #680 — ghqRoot is no longer resolved at config-load time. Callers that need
 // a filesystem path go through `getGhqRoot()` (src/config/ghq-root.ts), which
@@ -37,6 +51,164 @@ const BIND_ADDRESSES = new Set(["0.0.0.0", "::", "", "127.0.0.1", "localhost"]);
  * harness forgot to set MAW_HOME / MAW_CONFIG_DIR.
  */
 const REAL_HOME_CONFIG = join(homedir(), ".config", "maw", "maw.config.json");
+
+function canPersistConfigMigration(): boolean {
+  return !(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG);
+}
+
+function persistLoadedConfig(label: string): void {
+  if (!cached) return;
+  if (!canPersistConfigMigration()) return;
+  try {
+    writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
+  } catch (e) {
+    process.stderr.write(
+      `[maw] ${label}: in-memory heal applied but disk persist failed: ` +
+      `${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+}
+
+function maybeMigrateDefaultActivePlugins(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  if (disabled.length < 20) return;
+
+  const promoted = disabled.filter(isDefaultActivePlugin);
+  // Guard against overriding a small manual disable list. The old profile bug
+  // produced a large list containing most default-active names.
+  if (promoted.length < 5) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActivePlugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1500): re-enabled default-active plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1500)");
+}
+
+function maybeMigrateSplitTopAliasPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1514Plugin);
+  if (promoted.length === 0) return;
+
+  // Same safety posture as #1500: avoid overriding a tiny, clearly manual
+  // disable list. If #1500 already ran, this is a continuation of that stale
+  // profile-generated list heal; otherwise require the legacy large-list shape.
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1514Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1514): re-enabled help-prominent plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1514)");
+}
+
+function maybeMigrateShellenvStandardPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1523Plugin);
+  if (promoted.length === 0) return;
+
+  // Preserve manual tiny disables. If #1500/#1514 already ran, this is a
+  // continuation of the stale profile-generated disabled-list repair; otherwise
+  // require the old large-list profile shape.
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1523Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1523): re-enabled shell integration plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1523)");
+}
+
+function maybeMigrateCompletionsStandardPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1524Plugin);
+  if (promoted.length === 0) return;
+
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1524Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1524): re-enabled completion plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1524)");
+}
+
+function maybeMigrateOracleWorkflowStandardPlugins(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1531Plugin);
+  if (promoted.length === 0) return;
+
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1531Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1531): re-enabled Oracle workflow plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1531)");
+}
+
+function maybeMigrateViewStandardPlugin(config: MawConfig): void {
+  const marker = DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION;
+  if (config.migrations?.[marker]) return;
+  const disabled = config.disabledPlugins ?? [];
+  const promoted = disabled.filter(isDefaultActive1854Plugin);
+  if (promoted.length === 0) return;
+
+  const staleProfileShape =
+    disabled.length >= 20 ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION] === true ||
+    config.migrations?.[DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION] === true;
+  if (!staleProfileShape) return;
+
+  config.disabledPlugins = disabled.filter((name) => !isDefaultActive1854Plugin(name));
+  config.migrations = { ...(config.migrations ?? {}), [marker]: true };
+  process.stderr.write(
+    `[maw] config.disabledPlugins migration (#1854): re-enabled view plugins ` +
+    `${promoted.join(", ")}. Disable them again with \`maw plugin disable <name>\` if intentional.\n`,
+  );
+  persistLoadedConfig("config.disabledPlugins migration (#1854)");
+}
 
 export function loadConfig(): MawConfig {
   if (cached) return cached;
@@ -107,20 +279,14 @@ export function loadConfig(): MawConfig {
     // forgot to sandbox MAW_HOME (mirrors the #820 saveConfig guard).
     // Tests that DO sandbox via MAW_HOME=<tmpdir> still get the persist
     // (which is exactly what we want — they verify the disk write).
-    if (!(process.env.MAW_TEST_MODE === "1" && CONFIG_FILE === REAL_HOME_CONFIG)) {
-      try {
-        writeFileSync(CONFIG_FILE, JSON.stringify(cached, null, 2) + "\n", "utf-8");
-      } catch (e) {
-        // Defensive — a persist failure (read-only FS, perms) must NOT
-        // break loadConfig. The in-memory heal still applies for this
-        // process; the warning will fire again next boot.
-        process.stderr.write(
-          `[maw] config.host migration: in-memory heal applied but disk persist failed: ` +
-          `${e instanceof Error ? e.message : String(e)}\n`,
-        );
-      }
-    }
+    persistLoadedConfig("config.host migration");
   }
+  maybeMigrateDefaultActivePlugins(cached);
+  maybeMigrateSplitTopAliasPlugin(cached);
+  maybeMigrateShellenvStandardPlugin(cached);
+  maybeMigrateCompletionsStandardPlugin(cached);
+  maybeMigrateOracleWorkflowStandardPlugins(cached);
+  maybeMigrateViewStandardPlugin(cached);
   // #736 Phase 1.1 — pre-populate config.agents from fleet at loadConfig time
   // so federation routing (`maw hey <oracle>`) sees fleet-known targets even
   // before their first wake. Additive only: hand-tuned config.agents entries

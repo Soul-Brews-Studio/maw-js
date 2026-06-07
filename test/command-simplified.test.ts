@@ -1,8 +1,11 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
-// Drives loadConfig() via a per-test mutable fixture so we can exercise the
-// post-#541 buildCommand branches (bare cmd, --continue fallback, pattern
-// match, --resume injection, no-cd/no-direnv invariant).
+// Drives the pure command builder with a per-test mutable fixture so we can
+// exercise the post-#541 branches without being affected by Bun's process-global
+// module mocks from other test files.
 let fakeConfig: any = {
   host: "local",
   port: 3456,
@@ -16,22 +19,23 @@ let fakeConfig: any = {
 };
 let fakeSessionIds: Record<string, string> = {};
 
-mock.module("../src/config/load", () => ({
-  loadConfig: () => ({ ...fakeConfig, sessionIds: fakeSessionIds }),
-  resetConfig: () => {},
-  saveConfig: () => fakeConfig,
-  configForDisplay: () => ({ ...fakeConfig, envMasked: {} }),
-  cfgInterval: () => 1000,
-  cfgTimeout: () => 1000,
-  cfgLimit: () => 100,
-  cfg: (k: string) => (fakeConfig as any)[k],
-}));
+const { buildCommandFromConfig, buildCommandInDirFromConfig } = await import("../src/config/command-logic");
 
-const { buildCommand, buildCommandInDir } = await import("../src/config/command");
+function testConfig() {
+  return { ...fakeConfig, sessionIds: fakeSessionIds };
+}
+
+function buildCommand(agentName: string, engine?: string): string {
+  return buildCommandFromConfig(testConfig(), agentName, engine);
+}
+
+function buildCommandInDir(agentName: string, cwd: string, engine?: string): string {
+  return buildCommandInDirFromConfig(testConfig(), agentName, cwd, engine);
+}
 
 // buildCommand strips --dangerously-skip-permissions when process.getuid() === 0
-// (root-stripping from #181). Tests below assert the flag is preserved in the
-// fallback, so pin the uid to a non-root value regardless of the host user.
+// (root-stripping from #181). Pin the uid to a non-root value regardless of the
+// host user so command-string assertions stay stable.
 // Fixes #685.
 const origGetuid = process.getuid;
 beforeEach(() => {
@@ -59,11 +63,25 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent")).toBe("claude");
   });
 
-  test("emits || fallback when default has --continue", () => {
+  test("keeps --continue commands clean and leaves fallback to shellenv wrappers", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     expect(buildCommand("any-agent")).toBe(
-      "claude --continue --dangerously-skip-permissions || claude --dangerously-skip-permissions",
+      "claude --continue --dangerously-skip-permissions",
     );
+  });
+
+  test("keeps Claude alias commands clean without duplicating fallback chains", () => {
+    fakeConfig.commands = { default: "claude47 --dangerously-skip-permissions --continue" };
+    expect(buildCommand("any-agent")).toBe(
+      "claude47 --dangerously-skip-permissions --continue",
+    );
+  });
+
+  test("strips --dangerously-skip-permissions when running as root", () => {
+    (process as any).getuid = () => 0;
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions" };
+
+    expect(buildCommand("root-agent")).toBe("claude");
   });
 
   test("pattern-match wins over default", () => {
@@ -76,31 +94,38 @@ describe("buildCommand — post-#541 contract", () => {
     // match the "default" key as a pattern.
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     const out = buildCommand("default");
-    expect(out).toContain("claude --continue --dangerously-skip-permissions");
-    expect(out).toContain("||");
-    expect(out).toContain("claude --dangerously-skip-permissions");
+    expect(out).toBe("claude --continue --dangerously-skip-permissions");
+    expect(out).not.toContain("||");
   });
 
-  test("sessionId replaces --continue with --resume and fallback carries --session-id", () => {
+  test("sessionId replaces --continue with --resume without adding a shell fallback", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     fakeSessionIds = { foo: "uuid-1" };
     const out = buildCommand("foo");
-    const [primary, fallback] = out.split(" || ");
-    expect(primary).toContain('--resume "uuid-1"');
-    expect(primary).not.toContain("--continue");
-    expect(fallback).toContain('--session-id "uuid-1"');
-    expect(fallback).not.toContain("--continue");
-    expect(fallback).not.toContain("--resume");
+    expect(out).toContain('--resume "uuid-1"');
+    expect(out).not.toContain("--continue");
+    expect(out).not.toContain("||");
+    expect(out).not.toContain("--session-id");
   });
 
   test("sessionId appends --resume when cmd has no --continue", () => {
     fakeConfig.commands = { default: "claude" };
     fakeSessionIds = { foo: "uuid-2" };
     const out = buildCommand("foo");
-    const [primary, fallback] = out.split(" || ");
-    expect(primary).toContain('--resume "uuid-2"');
-    expect(fallback).toContain('--session-id "uuid-2"');
-    expect(fallback).not.toContain("--resume");
+    expect(out).toBe('claude --resume "uuid-2"');
+    expect(out).not.toContain("||");
+    expect(out).not.toContain("--session-id");
+  });
+
+  test("sessionId supports glob fallback when there is no exact agent key", () => {
+    fakeConfig.commands = { default: "claude" };
+    fakeSessionIds = { "*-oracle": "uuid-glob" };
+
+    const out = buildCommand("mawjs-oracle");
+
+    expect(out).toContain('--resume "uuid-glob"');
+    expect(out).not.toContain("||");
+    expect(out).not.toContain("--session-id");
   });
 
   test("buildCommandInDir returns buildCommand verbatim (no cd, no wrapper)", () => {
@@ -152,5 +177,37 @@ describe("buildCommand — post-#541 contract", () => {
         expect(inDir.startsWith("cd ")).toBe(false);
       }
     }
+  });
+});
+
+
+describe("buildCommand — Discord channel auto-detect", () => {
+  test("buildCommandInDir adds Discord channels for .discord Claude repos without adding fallback", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-discord-"));
+    mkdirSync(join(tmp, ".discord"));
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions --continue" };
+
+    const out = buildCommandInDir("xiaoer-oracle", tmp);
+
+    expect(out).toContain("--channels plugin:discord@claude-plugins-official");
+    expect(out).not.toContain("||");
+  });
+
+  test("buildCommandInDir leaves non-Discord repos and non-Claude engines unchanged", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-normal-"));
+    fakeConfig.commands = { default: "claude --continue", codex: "codex --search" };
+
+    expect(buildCommandInDir("plain-oracle", tmp)).not.toContain("--channels");
+
+    mkdirSync(join(tmp, ".discord"));
+    expect(buildCommandInDir("plain-oracle", tmp, "codex")).toBe("codex --search");
+  });
+
+  test("buildCommandInDir does not duplicate existing channels", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-channel-"));
+    mkdirSync(join(tmp, ".discord"));
+    fakeConfig.commands = { default: "claude --channels plugin:custom" };
+
+    expect(buildCommandInDir("bot-oracle", tmp)).toBe("claude --channels plugin:custom");
   });
 });

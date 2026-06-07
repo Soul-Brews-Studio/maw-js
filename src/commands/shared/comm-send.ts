@@ -3,12 +3,19 @@
  */
 
 import {
-  listSessions, capture, sendKeys, getPaneCommand, isAgentCommand, findPeerForTarget, resolveTarget,
+  listSessions, capture, sendKeys, isAgentCommand, findPeerForTarget, resolveTarget,
   curlFetch, runHook,
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
+import { AmbiguousMatchError } from "../../core/runtime/find-window";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
+import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
+import {
+  defaultReceiverInboxWriter,
+  type ReceiverInboxResult,
+  type ReceiverInboxWriter,
+} from "./receiver-inbox";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -28,13 +35,20 @@ import { logMessage, emitFeed } from "./comm-log-feed";
  * error path surfaces correctly.
  */
 /** @internal */
-export async function resolveOraclePane(target: string): Promise<string> {
+export async function resolveOraclePane(
+  target: string,
+  deps: {
+    tmuxRun?: (...args: string[]) => Promise<string>;
+    isAgentCommandFn?: typeof isAgentCommand;
+  } = {},
+): Promise<string> {
   // Already pane-specific — honor caller's choice.
   if (/\.[0-9]+$/.test(target)) return target;
 
   try {
-    const t = new Tmux();
-    const raw = await t.run("list-panes", "-t", target, "-F", "#{pane_index} #{pane_current_command}");
+    const run = deps.tmuxRun ?? ((...args: string[]) => new Tmux().run(...args));
+    const isAgent = deps.isAgentCommandFn ?? isAgentCommand;
+    const raw = await run("list-panes", "-t", target, "-F", "#{pane_index} #{pane_current_command}");
     const lines = raw.split("\n").map((l: string) => l.trim()).filter(Boolean);
     if (lines.length <= 1) return target; // single-pane window: active pane is the only pane
 
@@ -44,7 +58,7 @@ export async function resolveOraclePane(target: string): Promise<string> {
       if (spaceIdx < 0) continue;
       const idx = parseInt(line.slice(0, spaceIdx), 10);
       const cmd = line.slice(spaceIdx + 1);
-      if (Number.isFinite(idx) && isAgentCommand(cmd)) {
+      if (Number.isFinite(idx) && isAgent(cmd)) {
         agentIndexes.push(idx);
       }
     }
@@ -68,15 +82,52 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
 }
 
 /**
+ * Visible internal federation attribution.
+ *
+ * Transport-level signing (`curlFetch(..., { from: "auto" })`) authenticates
+ * cross-node HTTP calls, but same-node tmux delivery has no protocol envelope.
+ * Internal Oracle convention is a body-level `[node:oracle]` prefix for human
+ * chat. Preserve executable slash/$ commands and already-signed messages so
+ * `maw hey target /skill` keeps invoking the command instead of turning into
+ * prose.
+ *
+ * @internal exported for regression tests.
+ */
+export function formatSignedMessage(
+  message: string,
+  config: Pick<ReturnType<typeof loadConfig>, "node">,
+  senderName: string,
+): string {
+  const leading = message.match(/^\s*/)?.[0] ?? "";
+  const body = message.slice(leading.length);
+  if (!body) return message;
+  if (body.startsWith("/") || body.startsWith("$")) return message;
+  if (/^\[[^\]\s:]+:[^\]]+\](?:\s|$)/.test(body)) return message;
+
+  const node = config.node || "local";
+  return `${leading}[${node}:${senderName}] ${body}`;
+}
+
+function emitMessageFeed(input: MessageLifecycleInput, port: number) {
+  const event = buildMessageLifecycleFeedEvent(input);
+  emitFeed(event.event, event.oracle, event.host, event.message, port, event.data);
+}
+
+/**
  * Check if a pane is idle — i.e., no user input is in progress on the prompt line.
  * Uses capture-pane to inspect the last visible line. If a shell prompt marker
  * ($, %, >, ❯, #) is followed by non-whitespace text, the user is mid-input.
  * Errors and non-shell panes (running agent) conservatively return idle=true.
  * (#405 — idle guard before send-keys)
  */
-export async function checkPaneIdle(target: string, host?: string): Promise<{ idle: boolean; lastInput: string }> {
+export async function checkPaneIdle(
+  target: string,
+  host?: string,
+  deps: { captureFn?: typeof capture } = {},
+): Promise<{ idle: boolean; lastInput: string }> {
+  const capturePane = deps.captureFn ?? capture;
   try {
-    const content = await capture(target, 5, host);
+    const content = await capturePane(target, 5, host);
     const lines = content.split("\n").filter(l => l.trim());
     const lastLine = lines.at(-1) ?? "";
     // Strip ANSI escape codes
@@ -94,16 +145,11 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
 }
 
 /**
- * Phase 2 of #759 — bare-name hard rejection. The bare-name path is removed
- * outright: cmdSend prints this error to stderr and exits non-zero before
- * any resolution attempt. Replaces the Phase 1 `formatBareNameDeprecation`
- * warning. Shape is fixed per the issue and exercised by
- * test/isolated/hey-bare-name-rejection.test.ts.
+ * #1572 — bare oracle names are allowed only as a same-node convenience.
  *
- * The triple `<node>:<session>:<agent>` form keeps `<node>` and `<session>`
- * as literal placeholders — the user is meant to run `maw locate <agent>`
- * to enumerate concrete candidates across the federation. Only `<agent>`
- * is substituted with the bare query the user actually typed.
+ * `maw hey <oracle-window> "..."` now resolves locally first. If there is no
+ * local window match, we still refuse to fall through to peer discovery or the
+ * agents map: cross-node delivery must keep an explicit `<node>:` prefix.
  *
  * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts).
  *   The production caller is `cmdSend` in this same file. No other module
@@ -115,16 +161,124 @@ export function formatBareNameError(query: string): string {
   const D = "\x1b[90m";   // dim — for explanatory tail
   const R = "\x1b[0m";
   return [
-    `${RED}error${R}: bare-name target removed — node prefix required`,
+    `${RED}error${R}: bare target '${query}' not found locally`,
     ``,
-    `  this node:`,
+    `  same-node targets:`,
     `    ${C}maw hey local:${query} "..."${R}`,
+    `    ${D}or copy a TARGET from \`maw ls -v\`${R}`,
     ``,
-    `  cross-node candidates:`,
-    `    ${C}maw hey <node>:<session>:${query} "..."${R}`,
+    `  cross-node targets:`,
+    `    ${C}maw hey <node>:${query} "..."${R}`,
+    `    ${C}maw hey <node>:<session>:<window> "..."${R}`,
     ``,
-    `  ${D}run \`maw locate ${query}\` to enumerate across federation${R}`,
+    `  ${D}bare names are local-only; run \`maw locate ${query}\` to enumerate federation candidates${R}`,
   ].join("\n");
+}
+
+/** @internal exported for tests only. */
+export function formatBareNameAmbiguousError(query: string, candidates: string[]): string {
+  const RED = "\x1b[31m";
+  const C = "\x1b[36m";
+  const R = "\x1b[0m";
+  return [
+    `${RED}error${R}: bare target '${query}' is ambiguous — matches ${candidates.length} local windows:`,
+    ...candidates.map((candidate) => `  ${C}${candidate}${R}`),
+    ``,
+    `Use one full TARGET from \`maw ls -v\`, for example:`,
+    `  ${C}maw hey ${candidates[0] ?? `local:${query}`} "..."${R}`,
+  ].join("\n");
+}
+
+function isBareLocalHeyTarget(query: string): boolean {
+  return query.length > 0 && !query.includes(":") && !query.includes("/");
+}
+
+function isTmuxSessionIdTarget(target: string): boolean {
+  return /^\d+-[A-Za-z0-9_.-]+$/.test(target.trim());
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function teamWorkspaceWindowCandidates(member: string): string[] {
+  const raw = member.trim();
+  const stripped = raw.replace(/-oracle$/i, "");
+  return uniqueStrings([
+    raw,
+    stripped,
+    stripped ? `${stripped}-oracle` : "",
+  ]);
+}
+
+/**
+ * Resolve a persistent team member to its workspace window when
+ * `maw team bring <team>` already opened that oracle inside the team session.
+ *
+ * This is intentionally scoped to team fan-out only: ordinary `maw hey
+ * <oracle>` keeps its local/home-session behavior, while `maw hey team:<team>`
+ * now targets the workspace windows that `maw team bring` created (#1742).
+ *
+ * @internal exported for regression tests.
+ */
+export function resolveTeamWorkspaceMemberTarget(
+  teamName: string,
+  member: string,
+  sessions: Awaited<ReturnType<typeof listSessions>>,
+): string | null {
+  const workspace = sessions.find((s) => s.name === teamName);
+  if (!workspace) return null;
+
+  const wanted = new Set(teamWorkspaceWindowCandidates(member).map((name) => name.toLowerCase()));
+  const win = workspace.windows.find((w) => wanted.has(w.name.toLowerCase()));
+  return win ? `${workspace.name}:${win.name}` : null;
+}
+
+function formatAmbiguousCandidates(query: string, candidates: string[]): string[] {
+  if (candidates.length) return candidates;
+  return [query];
+}
+
+function rejectBareMiss(query: string): never {
+  console.error(formatBareNameError(query));
+  process.exit(1);
+}
+
+function rejectBareAmbiguous(query: string, candidates: string[]): never {
+  console.error(formatBareNameAmbiguousError(query, formatAmbiguousCandidates(query, candidates)));
+  process.exit(1);
+}
+
+function normalizeBareLocalResult(
+  query: string,
+  result: ReturnType<typeof resolveTarget>,
+): ReturnType<typeof resolveTarget> | null {
+  if (!result) return null;
+  if (result.type === "local" || result.type === "self-node") return result;
+  // A bare query may discover a remote peer via config.agents/manifest. Do not
+  // use that implicit remote route: #1572 makes bare names local-only so
+  // operators must spell cross-node delivery with `<node>:`.
+  return null;
+}
+
+function assertBareLocalTarget(
+  query: string,
+  config: ReturnType<typeof loadConfig>,
+  sessions: Awaited<ReturnType<typeof listSessions>>,
+): ReturnType<typeof resolveTarget> | null {
+  if (!isBareLocalHeyTarget(query)) return null;
+
+  try {
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions));
+    if (localResult) return localResult;
+  } catch (e) {
+    if (e instanceof AmbiguousMatchError) {
+      rejectBareAmbiguous(query, e.candidates);
+    }
+    throw e;
+  }
+
+  rejectBareMiss(query);
 }
 
 /**
@@ -138,10 +292,14 @@ export function formatBareNameError(query: string): string {
  * - `trust` (#842 Sub-C): paired with `approve` — also append the
  *   sender↔target pair to the on-disk trust list so subsequent sends in
  *   either direction skip the gate without operator intervention.
+ * - `inboxOnly` (#1860): persist to the receiver inbox without injecting
+ *   into the live pane. Normal sends now always inject by default.
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
+  inboxOnly?: boolean;
+  receiverInbox?: ReceiverInboxWriter | false;
 }
 
 export async function cmdSend(
@@ -151,17 +309,6 @@ export async function cmdSend(
   opts: CmdSendOptions = {},
 ) {
   const config = loadConfig();
-
-  // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
-  // resolution work so users get a fast, deterministic failure pushing them
-  // onto the canonical `<node>:<agent>` form. `team:` and `plugin:` prefixes
-  // are special-cased downstream and have their own colon, so they pass.
-  // `/` is reserved for path-style targets. MAW_QUIET no longer suppresses —
-  // Phase 1's quiet-opt-out was a deprecation-window concession only.
-  if (!query.includes(":") && !query.includes("/")) {
-    console.error(formatBareNameError(query));
-    process.exit(1);
-  }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
   if (query.startsWith("team:")) {
@@ -192,22 +339,24 @@ export async function cmdSend(
     }
     let delivered = 0;
     let failed = 0;
+    const sessions = await listSessions();
 
     // Fan-out sends individually. cmdSend calls process.exit on failure,
     // so we override it temporarily to keep iterating (#627 resilient fan-out).
     const origExit = process.exit;
     for (const member of members) {
+      const routedMember = resolveTeamWorkspaceMemberTarget(teamName, member, sessions) ?? member;
       let memberFailed = false;
       process.exit = ((code?: number) => {
         memberFailed = true;
       }) as never;
       try {
-        await cmdSend(member, message, force);
+        await cmdSend(routedMember, message, force, opts);
         if (!memberFailed) delivered++;
         else failed++;
       } catch (e: any) {
         failed++;
-        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${e?.message || "failed"}`);
+        console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
       }
     }
     process.exit = origExit;
@@ -229,6 +378,7 @@ export async function cmdSend(
   }
 
   let sessions = await listSessions();
+  const bareLocalResult = assertBareLocalTarget(query, config, sessions);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -247,8 +397,8 @@ export async function cmdSend(
     const parts = query.split(":");
     const targetNode = parts.length >= 2 ? parts[0] : null;
     const bareAgent = parts.length >= 2 ? parts[1] : query;
-    const isCanonical = parts.length >= 3;
-    const isLocalScope = !targetNode || targetNode === config.node;
+    const isCanonical = parts.length >= 3 || (parts.length === 2 && isTmuxSessionIdTarget(bareAgent));
+    const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
     if (isLocalScope && bareAgent && !isCanonical) {
       const hasLocalSession = sessions.some(s =>
         s.name === bareAgent ||
@@ -323,7 +473,7 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const result = resolveTarget(query, config, sessions);
+  const result = bareLocalResult ?? resolveTarget(query, config, sessions);
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //
@@ -423,6 +573,46 @@ export async function cmdSend(
     }
   }
 
+  const senderName = resolveMyName(config);
+  const outboundMessage = formatSignedMessage(message, config, senderName);
+  const receiverInboxWriter = opts.receiverInbox === false
+    ? null
+    : opts.receiverInbox ?? defaultReceiverInboxWriter();
+  const writeReceiverInbox = async (target?: string): Promise<ReceiverInboxResult | null> => {
+    if (!receiverInboxWriter) return null;
+    try {
+      return await receiverInboxWriter({
+        query,
+        target,
+        to: query,
+        from: `${config.node ?? "local"}:${senderName}`,
+        message: outboundMessage,
+        config,
+      });
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  };
+  const logQueuedInbox = (inbox: ReceiverInboxResult | null, target: string, reason: string): boolean => {
+    if (!inbox?.ok) return false;
+    logMessage(senderName, query, outboundMessage, "inbox");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "queued",
+      channel: "hey",
+      route: "inbox",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: query,
+      target,
+      text: outboundMessage,
+      lastLine: reason,
+      signed: true,
+    }, config.port || 3456);
+    console.log(`\x1b[33mqueued\x1b[0m → ${inbox.oracle} ψ/inbox/${inbox.filename}: ${outboundMessage}`);
+    console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
+    return true;
+  };
+
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
   // panes (team-agents spawned beside it), `send-keys -t session:window`
@@ -430,36 +620,34 @@ export async function cmdSend(
   // oracle's claude pane. See resolveOraclePane.
   if (result?.type === "local" || result?.type === "self-node") {
     const target = await resolveOraclePane(result.target);
-    if (!force) {
-      const cmd = await getPaneCommand(target);
-      const isAgent = isAgentCommand(cmd);
-      if (!isAgent) {
-        console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
-        console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
-        process.exit(1);
-      }
-      // #405: idle guard — abort if user has in-progress input on the prompt line
-      let idleCheck = await checkPaneIdle(target);
-      if (!idleCheck.idle) {
-        await Bun.sleep(500);
-        idleCheck = await checkPaneIdle(target);
-        if (!idleCheck.idle) {
-          console.error(`\x1b[31merror\x1b[0m: pane ${target} is not idle — user appears to be typing: "${idleCheck.lastInput.slice(0, 60)}"`);
-          console.error(`\x1b[33mhint\x1b[0m:  use \x1b[36m--force\x1b[0m to send anyway`);
-          process.exit(1);
-        }
-      }
+    if (opts.inboxOnly) {
+      const inbox = await writeReceiverInbox(target);
+      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) return;
+      const reason = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
+      console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
+      process.exit(1);
     }
-    await sendKeys(target, message);
-    await runHook("after_send", { to: query, message });
+    await sendKeys(target, outboundMessage);
+    await writeReceiverInbox(target);
+    await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
-    const senderName = resolveMyName(config);
-    logMessage(senderName, query, message, "local");
-    emitFeed("MessageSend", senderName, config.node, `${query}: ${message.slice(0, 200)}`, config.port || 3456);
+    logMessage(senderName, query, outboundMessage, "local");
     await Bun.sleep(150);
     let lastLine = "";
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
-    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
+    emitMessageFeed({
+      direction: "outbound",
+      state: "delivered",
+      channel: "hey",
+      route: "local",
+      from: `${config.node}:${senderName}`,
+      to: query,
+      target,
+      text: outboundMessage,
+      lastLine,
+      signed: true,
+    }, config.port || 3456);
+    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
   }
@@ -468,19 +656,45 @@ export async function cmdSend(
   if (result?.type === "peer") {
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: result.target, text: message }),
+      body: JSON.stringify({ target: result.target, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
-      const agentName = resolveMyName(config);
-      logMessage(agentName, query, message, `peer:${result.node}`);
-      emitFeed("MessageSend", agentName, config.node!, `${result.node}:${query}: ${message.slice(0, 200)}`, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
+      logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
+      emitMessageFeed({
+        direction: "outbound",
+        state,
+        channel: "hey",
+        route: "peer",
+        from: `${config.node!}:${senderName}`,
+        to: `${result.node}:${result.target}`,
+        target: res.data.target || result.target,
+        peerUrl: result.peerUrl,
+        text: outboundMessage,
+        lastLine: res.data.lastLine || "",
+        signed: true,
+      }, config.port || 3456);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "failed",
+      channel: "hey",
+      route: "peer",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: `${result.node}:${result.target}`,
+      target: result.target,
+      peerUrl: result.peerUrl,
+      text: outboundMessage,
+      error: underlying,
+      signed: true,
+    }, config.port || 3456);
     console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${result.peerUrl} (${result.node}): ${underlying}`);
     console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);
@@ -493,22 +707,54 @@ export async function cmdSend(
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: query, text: message }),
+      body: JSON.stringify({ target: query, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
+      logMessage(senderName, query, outboundMessage, "discovery");
+      emitMessageFeed({
+        direction: "outbound",
+        state,
+        channel: "hey",
+        route: "discovery",
+        from: `${config.node ?? "local"}:${senderName}`,
+        to: query,
+        target: res.data.target || query,
+        peerUrl,
+        text: outboundMessage,
+        lastLine: res.data.lastLine || "",
+        signed: true,
+      }, config.port || 3456);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     // Remote fetch was attempted but failed — surface the remote failure explicitly (#411).
     // Never fall through to "not found in local sessions" when the real problem is network.
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "failed",
+      channel: "hey",
+      route: "discovery",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: query,
+      target: query,
+      peerUrl,
+      text: outboundMessage,
+      error: underlying,
+      signed: true,
+    }, config.port || 3456);
     console.error(`\x1b[31merror\x1b[0m: Remote fetch failed for peer ${peerUrl}: ${underlying}`);
     console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);
   }
+
+  // Try receiver inbox queue before surfacing a local-only resolver miss.
+  if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {

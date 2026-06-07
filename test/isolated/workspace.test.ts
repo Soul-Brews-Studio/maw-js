@@ -10,9 +10,9 @@
  * mock.module is process-global → capture REAL fn refs BEFORE install so the
  * passthrough branch doesn't point at our wrapper (see #375 pollution catalog).
  * Every passthrough wrapper forwards via (...args).
- * os.homedir() caching is avoided by setting process.env.MAW_CONFIG_DIR to a
- * mkdtempSync path BEFORE any workspace-* module is imported — workspace-store
- * reads that env var at module load (src/commands/shared/workspace-store.ts:7).
+ * os.homedir() caching is avoided by setting process.env.MAW_DATA_DIR to a
+ * mkdtempSync path before each workspace-store operation; workspace-store
+ * resolves paths through the shared XDG helper at call time.
  *
  * process.exit is stubbed into a throw so we can observe exit branches without
  * tearing the runner down.
@@ -32,6 +32,7 @@ let mockActive = false;
 
 const tmpConfigDir = mkdtempSync(join(tmpdir(), "maw-workspace-test-"));
 process.env.MAW_CONFIG_DIR = tmpConfigDir;
+process.env.MAW_DATA_DIR = tmpConfigDir;
 const WS_DIR = join(tmpConfigDir, "workspaces");
 
 function clearWorkspacesDir(): void {
@@ -400,6 +401,30 @@ describe("cmdWorkspaceLeave", () => {
     expect(outs.join("\n")).toContain("removing local config anyway");
     expect(existsSync(join(WS_DIR, "w-stuck.json"))).toBe(false);
     expect(existsSync(join(WS_DIR, "w-stuck.left.json"))).toBe(true);
+  });
+
+  test("rename failure falls back to deleting the local workspace config", async () => {
+    writeWsFile("w-unlink", { id: "w-unlink", name: "unlinkme", hubUrl: "https://h.example", sharedAgents: [], joinedAt: "t" });
+    curlStubs = [{ match: /leave/, response: { ok: true, data: null } }];
+
+    const fs = require("fs");
+    const realRenameSync = fs.renameSync;
+    const realUnlinkSync = fs.unlinkSync;
+    const unlinked: string[] = [];
+    fs.renameSync = () => { throw new Error("rename denied"); };
+    fs.unlinkSync = (path: string) => { unlinked.push(path); return realUnlinkSync(path); };
+    try {
+      await run(() => cmdWorkspaceLeave("w-unlink"));
+    } finally {
+      fs.renameSync = realRenameSync;
+      fs.unlinkSync = realUnlinkSync;
+    }
+
+    expect(exitCode).toBeUndefined();
+    expect(unlinked).toEqual([join(WS_DIR, "w-unlink.json")]);
+    expect(existsSync(join(WS_DIR, "w-unlink.json"))).toBe(false);
+    expect(existsSync(join(WS_DIR, "w-unlink.left.json"))).toBe(false);
+    expect(outs.join("\n")).toContain("left workspace");
   });
 });
 

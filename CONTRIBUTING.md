@@ -83,6 +83,9 @@ Exempt: type-definition files, specs/docs, generated/scaffolded boilerplate.
 
 ## Opening issues
 
+- Don't commit root-level issue drafts (`ISSUE-*.md`, `TODO-*.md`, etc.).
+  Open a GitHub Issue with `gh issue create` instead so triage, lifecycle,
+  links, and assignments stay in one place.
 - **Bugs**: include the command you ran, the output you got, and what you expected. A minimal repro beats a long narrative.
 - **Features**: open a short issue describing the problem first. If we align on the shape, a PR is welcome.
 - **Proposals / design docs**: use GitHub Discussions, not issues. Issues are for work; discussions are for thought.

@@ -23,9 +23,10 @@ name: Federation (self-hosted) integration
 # pull request can run arbitrary code on the runner host
 # (https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners#self-hosted-runner-security).
 #
-# This workflow MUST therefore only fire on `push` to protected branches
-# we control — never on `pull_request`. Forked PRs continue to run via
-# `ci.yml` on GH-hosted runners (sandboxed, ephemeral, safe by default).
+# This workflow MUST therefore only fire by explicit manual dispatch from a
+# trusted maintainer — never on `push` or `pull_request`. Forked PRs and
+# normal branch pushes continue to run via `ci.yml` on GH-hosted runners
+# (sandboxed, ephemeral, safe by default).
 #
 # If you ever add a `pull_request:` trigger here, add an explicit
 # `if: github.event.pull_request.head.repo.full_name == github.repository`
@@ -34,17 +35,12 @@ name: Federation (self-hosted) integration
 # OPERATOR PREREQUISITES
 # ----------------------
 # A runner host with the labels `self-hosted` AND `federation` must be
-# registered against the repo before this workflow can fire. Until then
-# pushes to `main` will queue and time out. See `docs/ci/self-hosted-runner.md`
-# for setup steps.
+# registered against the repo before this workflow is manually dispatched.
+# Do not add automatic push triggers until that runner is available and
+# maintained. See `docs/ci/self-hosted-runner.md` for setup steps.
 
 on:
-  push:
-    branches:
-      # Protected branches only. Adding `alpha` here would expose the
-      # runner to anything merged to alpha; keep alpha on GH-hosted CI
-      # until we have approval gates wired.
-      - main
+  workflow_dispatch:
 
 # Run one job at a time on the self-hosted runner. Federation tests
 # bind ports and stand up peers; concurrent runs would race each other.

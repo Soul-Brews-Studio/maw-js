@@ -1,0 +1,106 @@
+[
+  {
+    "name": "non-Claude source keeps split behavior",
+    "input": {
+      "paneCurrentCommand": "zsh"
+    },
+    "expected": {
+      "action": "split",
+      "reason": "not-claude"
+    }
+  },
+  {
+    "name": "empty source command keeps split behavior",
+    "input": {
+      "paneCurrentCommand": ""
+    },
+    "expected": {
+      "action": "split",
+      "reason": "not-claude"
+    }
+  },
+  {
+    "name": "no-attach bypasses Claude fallback",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "noAttach": true
+    },
+    "expected": {
+      "action": "split",
+      "reason": "not-attaching"
+    }
+  },
+  {
+    "name": "force split bypasses Claude fallback",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "requestedPolicy": "background-tab",
+      "forceSplit": true
+    },
+    "expected": {
+      "action": "split",
+      "reason": "force-split"
+    }
+  },
+  {
+    "name": "Claude source defaults to background tab",
+    "input": {
+      "paneCurrentCommand": "claude"
+    },
+    "expected": {
+      "action": "background-tab",
+      "reason": "claude-policy"
+    }
+  },
+  {
+    "name": "version-like Claude source defaults to background tab",
+    "input": {
+      "paneCurrentCommand": "2.1.139"
+    },
+    "expected": {
+      "action": "background-tab",
+      "reason": "claude-policy"
+    }
+  },
+  {
+    "name": "explicit split policy keeps pane split",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "requestedPolicy": "split"
+    },
+    "expected": {
+      "action": "split",
+      "reason": "claude-policy"
+    }
+  },
+  {
+    "name": "explicit link-window policy links a background tab",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "requestedPolicy": "link-window"
+    },
+    "expected": {
+      "action": "link-window",
+      "reason": "claude-policy"
+    }
+  },
+  {
+    "name": "explicit refuse policy rejects Claude split",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "requestedPolicy": "refuse"
+    },
+    "expected": {
+      "action": "refuse",
+      "reason": "claude-policy"
+    }
+  },
+  {
+    "name": "invalid policy is rejected",
+    "input": {
+      "paneCurrentCommand": "claude",
+      "requestedPolicy": "mirror"
+    },
+    "error": "--claude-pane-policy must be one of:"
+  }
+]

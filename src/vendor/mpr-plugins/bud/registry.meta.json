@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/bud@v0.1.0-bud",
+  "sha256": "ab3dd96d44aced6968445ed9d7831ec9a92bc95c3c1ebb73627d1f24e7217fc9",
+  "summary": "Create a new oracle (bud from parent)",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:19:51Z",
+  "tier": "extra"
+}

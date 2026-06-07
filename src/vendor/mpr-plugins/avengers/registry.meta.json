@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/avengers@v0.1.0-avengers",
+  "sha256": "3068b86454fad08e547464a93b7259d3b7e8d23b1c3709a9147c6da74251972b",
+  "summary": "Manage the Avengers multi-agent team.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:10Z",
+  "tier": "extra"
+}

@@ -337,6 +337,22 @@ describe("cmdPeek — federation (node:agent)", () => {
     expect(outs.some((o) => o.includes("local pane body"))).toBe(true);
   });
 
+  test("local: prefix is treated as an alias for this node", async () => {
+    configOverride = { node: "white", sessions: {} };
+    listSessionsReturn = [
+      { name: "08-mawjs", windows: [{ index: 0, name: "mawjs-oracle", active: true }] },
+    ];
+    findWindowReturn = "08-mawjs:0";
+    captureResponses = [{ match: /08-mawjs:0/, result: "local alias body" }];
+
+    await run(() => cmdPeek("local:mawjs"));
+
+    expect(curlFetchCalls).toHaveLength(0);
+    expect(findWindowCalls).toHaveLength(1);
+    expect(findWindowCalls[0].query).toBe("mawjs");
+    expect(outs.some((o) => o.includes("local alias body"))).toBe(true);
+  });
+
   test("namedPeers hit → curlFetch(peerUrl + /api/capture?target=) + prints content", async () => {
     configOverride = {
       node: "mba",

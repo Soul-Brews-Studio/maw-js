@@ -10,16 +10,29 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         suite:
-          - name: unit
-            script: test
-          - name: isolated
-            script: test:isolated
+          - name: unit-1of4
+            run: bun run test -- --shard 1/4
+          - name: unit-2of4
+            run: bun run test -- --shard 2/4
+          - name: unit-3of4
+            run: bun run test -- --shard 3/4
+          - name: unit-4of4
+            run: bun run test -- --shard 4/4
+          - name: isolated-1of4
+            run: bun run test:isolated -- --shard 1/4
+          - name: isolated-2of4
+            run: bun run test:isolated -- --shard 2/4
+          - name: isolated-3of4
+            run: bun run test:isolated -- --shard 3/4
+          - name: isolated-4of4
+            run: bun run test:isolated -- --shard 4/4
           - name: plugin
-            script: test:plugin
+            run: bun run test:plugin
           - name: mock-smoke
-            script: test:mock-smoke
+            run: bun run test:mock-smoke
     name: test-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@v6
@@ -59,7 +72,7 @@ jobs:
         # is a belt-and-braces measure to keep CI green while we monitor.
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bun run ${{ matrix.suite.script }}
+        run: ${{ matrix.suite.run }}
 
   build:
     runs-on: ubuntu-latest
@@ -82,7 +95,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build CLI
-        run: bun build --target=bun src/cli.ts
+        run: bun build src/cli.ts --outfile dist/maw --target=bun --minify --external @eclipse-zenoh/zenoh-ts
 
       - name: Validate plugin manifests
         run: |

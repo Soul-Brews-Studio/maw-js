@@ -16,13 +16,13 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 
 import { loadConfig } from "../../../config";
 import { curlFetch, type CurlResponse } from "../../../core/transport/curl-fetch";
 import { getPeers } from "../../../core/transport/peers";
 import type { PeerPluginEntry, PeerManifestResponse } from "../../../api/plugin-list-manifest";
+import { mawCachePath } from "../../../core/xdg";
 
 export const DEFAULT_PER_PEER_MS = 2000;
 export const DEFAULT_TOTAL_MS = 4000;
@@ -86,7 +86,7 @@ interface CacheFile {
 
 export function peerCacheDir(override?: string): string {
   if (override) return override;
-  return process.env.MAW_PEER_CACHE_DIR ?? join(homedir(), ".maw", "peer-manifest-cache");
+  return process.env.MAW_PEER_CACHE_DIR ?? mawCachePath("peer-manifest-cache");
 }
 
 function urlSafeKey(url: string): string {

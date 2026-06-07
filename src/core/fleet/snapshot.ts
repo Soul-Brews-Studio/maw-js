@@ -7,7 +7,8 @@
  *   maw done  → snapshot after done
  *
  * Stored as timestamped JSON files:
- *   ~/.config/maw/snapshots/2026-03-30T11-19.json
+ *   ~/.maw/snapshots/2026-03-30T11-19.json
+ *   or, with MAW_XDG=1, ~/.local/state/maw/snapshots/...
  *
  * CLI:
  *   maw fleet snapshots          — list all snapshots
@@ -19,11 +20,25 @@
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
-import { CONFIG_DIR } from "../paths";
+import { mawConfigPath, mawStatePath } from "../xdg";
 import { listSessions } from "../transport/ssh";
 import { loadConfig } from "../../config";
 
-export const SNAPSHOT_DIR = join(CONFIG_DIR, "snapshots");
+export function snapshotDir(): string {
+  return mawStatePath("snapshots");
+}
+
+function legacySnapshotDir(): string {
+  return mawConfigPath("snapshots");
+}
+
+function candidateSnapshotDirs(): string[] {
+  const primary = snapshotDir();
+  const legacy = legacySnapshotDir();
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
+export const SNAPSHOT_DIR = snapshotDir();
 mkdirSync(SNAPSHOT_DIR, { recursive: true });
 
 const MAX_SNAPSHOTS = 720; // ~1 month at 1 snapshot/hour
@@ -77,26 +92,37 @@ export async function takeSnapshot(trigger: string): Promise<string> {
   return filepath;
 }
 
+function snapshotFiles(): Array<{ dir: string; file: string }> {
+  const byFile = new Map<string, { dir: string; file: string }>();
+  for (const dir of candidateSnapshotDirs()) {
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter(f => f.endsWith(".json"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!byFile.has(file)) byFile.set(file, { dir, file });
+    }
+  }
+  return [...byFile.values()].sort((a, b) => b.file.localeCompare(a.file));
+}
+
 /** List all snapshots, newest first */
 export function listSnapshots(): { file: string; timestamp: string; trigger: string; sessionCount: number; windowCount: number }[] {
-  const files = readdirSync(SNAPSHOT_DIR)
-    .filter(f => f.endsWith(".json"))
-    .sort()
-    .reverse();
-
-  return files.map(f => {
+  return snapshotFiles().map(({ dir, file }) => {
     try {
-      const data: Snapshot = JSON.parse(readFileSync(join(SNAPSHOT_DIR, f), "utf-8"));
+      const data: Snapshot = JSON.parse(readFileSync(join(dir, file), "utf-8"));
       const windowCount = data.sessions.reduce((sum, s) => sum + s.windows.length, 0);
       return {
-        file: f,
+        file,
         timestamp: data.timestamp,
         trigger: data.trigger,
         sessionCount: data.sessions.length,
         windowCount,
       };
     } catch {
-      return { file: f, timestamp: "?", trigger: "?", sessionCount: 0, windowCount: 0 };
+      return { file, timestamp: "?", trigger: "?", sessionCount: 0, windowCount: 0 };
     }
   });
 }
@@ -104,18 +130,16 @@ export function listSnapshots(): { file: string; timestamp: string; trigger: str
 /** Load a specific snapshot */
 export function loadSnapshot(fileOrTimestamp: string): Snapshot | null {
   // Accept full filename or partial timestamp
-  const files = readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith(".json")).sort().reverse();
-
-  const match = files.find(f =>
-    f === fileOrTimestamp ||
-    f === `${fileOrTimestamp}.json` ||
-    f.startsWith(fileOrTimestamp)
+  const match = snapshotFiles().find(({ file }) =>
+    file === fileOrTimestamp ||
+    file === `${fileOrTimestamp}.json` ||
+    file.startsWith(fileOrTimestamp)
   );
 
   if (!match) return null;
 
   try {
-    return JSON.parse(readFileSync(join(SNAPSHOT_DIR, match), "utf-8"));
+    return JSON.parse(readFileSync(join(match.dir, match.file), "utf-8"));
   } catch {
     return null;
   }
@@ -123,10 +147,10 @@ export function loadSnapshot(fileOrTimestamp: string): Snapshot | null {
 
 /** Get the latest snapshot */
 export function latestSnapshot(): Snapshot | null {
-  const files = readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith(".json")).sort().reverse();
-  if (files.length === 0) return null;
+  const latest = snapshotFiles()[0];
+  if (!latest) return null;
   try {
-    return JSON.parse(readFileSync(join(SNAPSHOT_DIR, files[0]), "utf-8"));
+    return JSON.parse(readFileSync(join(latest.dir, latest.file), "utf-8"));
   } catch {
     return null;
   }

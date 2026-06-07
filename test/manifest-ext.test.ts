@@ -184,6 +184,82 @@ describe("new manifest fields accepted", () => {
     }
   });
 
+  test("accepts plugin dependencies", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "dep-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          dependencies: { plugins: ["trace", "dig"] },
+        }),
+        dir,
+      );
+      expect(m.dependencies?.plugins).toEqual(["trace", "dig"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("accepts plugin-owned capability namespaces", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "message-ledger-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          capabilityNamespaces: ["messages", "storage", "events"],
+          capabilities: ["messages:ledger", "storage:sqlite", "events:message-lifecycle"],
+        }),
+        dir,
+      );
+      expect(m.capabilityNamespaces).toEqual(["messages", "storage", "events"]);
+      expect(m.capabilities).toEqual(["messages:ledger", "storage:sqlite", "events:message-lifecycle"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("accepts engine.serve persistent process metadata", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      const m = parseManifest(
+        JSON.stringify({
+          name: "engine-plugin",
+          version: "1.0.0",
+          wasm: "plugin.wasm",
+          sdk: "*",
+          engine: {
+            serve: {
+              command: "bun run serve",
+              prefix: "/api/hey-ledger",
+              health: "/health",
+              eventPath: "/events",
+              events: ["MessageSend", "MessageDeliver"],
+            },
+          },
+        }),
+        dir,
+      );
+      expect(m.engine?.serve).toEqual({
+        command: "bun run serve",
+        prefix: "/api/hey-ledger",
+        health: "/health",
+        eventPath: "/events",
+        events: ["MessageSend", "MessageDeliver"],
+      });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("TS plugin with all new fields validates cleanly", () => {
     const dir = makeTempDir();
     try {
@@ -202,6 +278,7 @@ describe("new manifest fields accepted", () => {
           cron: { schedule: "*/5 * * * *" },
           module: { exports: ["doStuff"], path: "./lib.ts" },
           transport: { peer: true },
+          engine: { serve: { prefix: "/api/full", health: "/health", eventPath: "/events" } },
         }),
         dir,
       );
@@ -211,6 +288,8 @@ describe("new manifest fields accepted", () => {
       expect(m.cron?.schedule).toBe("*/5 * * * *");
       expect(m.module?.exports).toEqual(["doStuff"]);
       expect(m.transport?.peer).toBe(true);
+      expect(m.engine?.serve?.prefix).toBe("/api/full");
+      expect(m.engine?.serve?.eventPath).toBe("/events");
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -298,6 +377,69 @@ describe("new field validation failures", () => {
           dir,
         ),
       ).toThrow(/cli\.flags/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("dependencies.plugins with invalid names is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            dependencies: { plugins: ["Trace"] },
+          }),
+          dir,
+        ),
+      ).toThrow(/dependencies\.plugins/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("capabilityNamespaces with invalid slug is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad-capns",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            capabilityNamespaces: ["Bad Namespace"],
+          }),
+          dir,
+        ),
+      ).toThrow(/capabilityNamespaces/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("engine.serve with non-api prefix is rejected", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({
+            name: "bad-engine",
+            version: "1.0.0",
+            wasm: "plugin.wasm",
+            sdk: "*",
+            engine: { serve: { prefix: "/hey-ledger" } },
+          }),
+          dir,
+        ),
+      ).toThrow(/engine\.serve\.prefix/);
     } finally {
       rmSync(dir, { recursive: true });
     }

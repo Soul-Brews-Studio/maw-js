@@ -1,0 +1,40 @@
+{
+  "name": "zenoh-scout",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "standard",
+  "description": "Opt-in Zenoh liveliness discovery provider for maw peers (#1455).",
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "peer:scout",
+    "net:websocket",
+    "sdk:config"
+  ],
+  "api": {
+    "path": "/api/peers/discovered",
+    "methods": [
+      "GET"
+    ]
+  },
+  "cli": {
+    "command": "scout",
+    "aliases": [
+      "discover",
+      "zenoh-scout"
+    ],
+    "help": "maw scout [--transport zenoh|scout|both] [--force] [--json] [--locator ws://127.0.0.1:10000] [--timeout <ms>] — query peer discovery",
+    "flags": {
+      "--transport": "string",
+      "--force": "boolean",
+      "--all": "boolean",
+      "--json": "boolean",
+      "--limit": "number",
+      "--locator": "string",
+      "--timeout": "number"
+    }
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1
+}

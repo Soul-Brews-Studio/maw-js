@@ -61,17 +61,23 @@ export function isReadOnlyCmd(cmd: string): boolean {
   );
 }
 
-export function isShellPeerAllowed(originHost: string): boolean {
+export interface PeerConfigDeps {
+  loadConfig?: typeof loadConfig;
+}
+
+export function isShellPeerAllowed(originHost: string, deps: PeerConfigDeps = {}): boolean {
   if (originHost.startsWith("anon-")) return false;
-  const config = loadConfig() as any;
+  const readConfig = deps.loadConfig ?? loadConfig;
+  const config = readConfig() as any;
   const allowed: string[] = config?.wormhole?.shellPeers ?? [];
   return allowed.includes(originHost);
 }
 
 // --- Peer URL resolution --------------------------------------------------
 
-export function resolvePeerUrl(peer: string): string | null {
-  const config = loadConfig() as any;
+export function resolvePeerUrl(peer: string, deps: PeerConfigDeps = {}): string | null {
+  const readConfig = deps.loadConfig ?? loadConfig;
+  const config = readConfig() as any;
   const namedPeers: Array<{ name: string; url: string }> = config?.namedPeers ?? [];
   const match = namedPeers.find((p) => p.name === peer);
   if (match) return match.url;

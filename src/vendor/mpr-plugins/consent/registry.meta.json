@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/consent@v0.1.0-consent",
+  "sha256": "f9b68b6bb52b74bf508ce036fcf7d87e8a9abd6eb76654f44b68d589438bd2c5",
+  "summary": "PIN-consent for cross-oracle actions (#644 Phase 1 \u2014 gates `maw hey` when MAW_CONSENT=1).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:08Z",
+  "tier": "extra"
+}

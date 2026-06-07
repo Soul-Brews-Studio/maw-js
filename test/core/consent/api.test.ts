@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-import { consentApi } from "../../../src/api/consent";
+import { consentApi, isLoopbackAddress } from "../../../src/api/consent";
 import { hashPin, isTrusted, listPending } from "../../../src/core/consent";
 
 let workdir: string;
@@ -160,5 +160,18 @@ describe("GET /consent/list", () => {
     const body = await res.json() as any;
     expect(body.ok).toBe(true);
     expect(body.pending.length).toBe(2);
+  });
+});
+
+describe("loopback address helper", () => {
+  it("accepts local addresses and rejects remote addresses", () => {
+    expect(isLoopbackAddress(undefined)).toBe(true);
+    expect(isLoopbackAddress(null)).toBe(true);
+    expect(isLoopbackAddress("127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("127.0.0.2")).toBe(true);
+    expect(isLoopbackAddress("::1")).toBe(true);
+    expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("localhost")).toBe(true);
+    expect(isLoopbackAddress("10.0.0.2")).toBe(false);
   });
 });

@@ -52,12 +52,7 @@ function refuseExistingInstall(dest: string, incoming: string, name: string): ne
     if (st.isSymbolicLink()) existingNote = `${dest} → ${readlinkSync(dest)}`;
     else if (st.isDirectory()) existingNote = `${dest} (real directory)`;
   } catch { /* fall through with bare path */ }
-  throw new Error(
-    `refusing to overwrite plugin '${name}':\n` +
-    `  existing: ${existingNote}\n` +
-    `  incoming: ${incoming}\n` +
-    `  pass --force to overwrite (will replace the existing install silently)`
-  );
+  throw new Error(`refusing to overwrite plugin '${name}':\n  existing: ${existingNote}\n  incoming: ${incoming}\n  pass --force to overwrite (will replace the existing install silently)`);
 }
 
 /**
@@ -250,12 +245,7 @@ export async function installFromTarball(
       if (!opts.force && !opts.pin) {
         rmSync(staging, { recursive: true, force: true });
         const observed = manifest!.artifact?.sha256 ?? "(unknown)";
-        throw new Error(
-          `plugin '${manifest!.name}' sha256 mismatch — refusing to install.\n` +
-          `  plugins.lock: ${pinned.sha256}\n` +
-          `  tarball:      ${observed}\n` +
-          `  --force to override (updates lock), --pin to re-pin`,
-        );
+        throw new Error(`plugin '${manifest!.name}' sha256 mismatch — refusing to install.\n  plugins.lock: ${pinned.sha256}\n  tarball:      ${observed}\n  --force to override (updates lock), --pin to re-pin`);
       }
       // --force / --pin: operator re-trusted; recordInstall() below overwrites.
     }

@@ -1,5 +1,6 @@
 /**
  * preflight.test.ts — tests for scripts/preflight.sh (#911)
+ * @maw-test-isolate @maw-test-isolate-cwd-neutral
  *
  * Covers:
  *   1. Script exists at the documented path

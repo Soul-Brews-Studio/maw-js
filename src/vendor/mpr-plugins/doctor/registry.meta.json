@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/doctor@v0.1.0-doctor",
+  "sha256": "553360a12eb9f03c1479df5084b0ec1ce8f14078888319008fd5b8a717109d56",
+  "summary": "Diagnostic checks \u2014 verifies maw install health and auto-heals when possible (#531).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:19:32Z",
+  "tier": "extra"
+}

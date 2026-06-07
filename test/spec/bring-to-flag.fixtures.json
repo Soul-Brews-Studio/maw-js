@@ -1,0 +1,57 @@
+[
+  {
+    "name": "translates --to <session> to --session <session>",
+    "input": ["mawjs-codex-oracle", "--to", "50-mawjs"],
+    "expected": ["mawjs-codex-oracle", "--session", "50-mawjs"]
+  },
+  {
+    "name": "translates --to <session:window> to session plus split target",
+    "input": ["mawjs-features", "--to", "50-mawjs:maw-js-1816"],
+    "expected": ["mawjs-features", "--session", "50-mawjs", "--split-target", "50-mawjs:maw-js-1816"]
+  },
+  {
+    "name": "leaves --session untouched",
+    "input": ["mawjs-codex-oracle", "--session", "50-mawjs"],
+    "expected": ["mawjs-codex-oracle", "--session", "50-mawjs"]
+  },
+  {
+    "name": "preserves other wake flags around --to",
+    "input": ["foo", "--task", "bar", "--to", "50-mawjs", "-e", "claude"],
+    "expected": ["foo", "--task", "bar", "--session", "50-mawjs", "-e", "claude"]
+  },
+  {
+    "name": "translates multiple --to (last wins via wake parser)",
+    "input": ["foo", "--to", "50-mawjs", "--to", "51-other"],
+    "expected": ["foo", "--session", "50-mawjs", "--session", "51-other"]
+  },
+  {
+    "name": "leaves --to without an argument intact (downstream parser will error)",
+    "input": ["foo", "--to"],
+    "expected": ["foo", "--to"]
+  },
+  {
+    "name": "empty argv passes through",
+    "input": [],
+    "expected": []
+  },
+  {
+    "name": "single positional argv passes through",
+    "input": ["just-the-oracle"],
+    "expected": ["just-the-oracle"]
+  },
+  {
+    "name": "preserves --dry-run + --to together",
+    "input": ["foo", "--to", "50-mawjs", "--dry-run"],
+    "expected": ["foo", "--session", "50-mawjs", "--dry-run"]
+  },
+  {
+    "name": "does NOT translate value 'to' (only the flag form)",
+    "input": ["foo", "to", "bar"],
+    "expected": ["foo", "to", "bar"]
+  },
+  {
+    "name": "preserves order of --to mid-argv",
+    "input": ["--engine", "codex", "--to", "50-mawjs", "foo"],
+    "expected": ["--engine", "codex", "--session", "50-mawjs", "foo"]
+  }
+]

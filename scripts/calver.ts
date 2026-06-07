@@ -20,11 +20,9 @@
 // cadence.
 //
 // Cutover note: the legacy monotonic counter produced low integers
-// (alpha.0 through alpha.~50). Today's wall-clock HMM at any post-midnight
-// time is strictly greater (`30` > legacy `48` is false, but `100` > `48`
-// is true; in practice merge-time HMM values are always large enough that
-// no downgrade occurs). The `--check` path can be used to verify before
-// merge.
+// (alpha.0 through alpha.~50). HHMM is the invariant for alpha/beta suffixes:
+// if same-base HHMM would be a semver downgrade after midnight, roll the
+// CalVer base forward instead of emitting an impossible suffix like 2360.
 //
 // Usage:
 //   bun scripts/calver.ts                  → 26.4.18-alpha.{HMM}
@@ -47,7 +45,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--beta") args.channel = "beta";
     else if (a === "--check" || a === "--dry-run") args.check = true;
     else if (a === "--hour") {
-      console.error("--hour deprecated as of #766; CalVer now uses tag-walk monotonic counter");
+      console.error("--hour deprecated as of #766; CalVer now uses wall-clock HMM suffixes");
       process.exit(2);
     }
     else if (a === "-h" || a === "--help") {
@@ -190,11 +188,10 @@ export function maxAlphaFromTags(base: string, tags: string[]): number {
 }
 
 /**
- * #784: walk package.json.version as an additional source-of-truth for the
- * monotonic counter. Post-#767, alpha releases merge to the `alpha` branch,
- * but `calver-release.yml` only fires on push to `main` — so no git tags get
- * created for in-flight alphas. Without this, tag-walk returns -1 and we
- * regress to alpha.0 on every alpha-branch run.
+ * #784: walk package.json.version as an additional source-of-truth for
+ * anti-downgrade checks. Post-#767, alpha releases merge to the `alpha`
+ * branch, but `calver-release.yml` only fires on push to `main` — so no git
+ * tags get created for in-flight alphas.
  *
  * Parses `vYY.M.D-{channel}.{N}` (with or without leading "v") and returns N
  * only if base+channel match today's. Rejects non-integer suffixes and
@@ -233,6 +230,15 @@ export function hhmmStamp(now: Date): string {
   return String(now.getHours() * 100 + now.getMinutes());
 }
 
+export function nextCalendarBase(base: string): string {
+  if (!isValidCalendarDate(base)) {
+    throw new Error(`nextCalendarBase expects a real YY.M.D date, got "${base}"`);
+  }
+  const [yy, m, d] = base.split(".").map((x) => parseInt(x, 10));
+  const next = new Date(2000 + yy, m - 1, d + 1);
+  return `${next.getFullYear() % 100}.${next.getMonth() + 1}.${next.getDate()}`;
+}
+
 export function computeVersion(args: Args, tags: string[] = [], packageVersion: string = ""): string {
   const now = args.now ?? new Date();
   const todayBase = dateBase(now);
@@ -241,12 +247,16 @@ export function computeVersion(args: Args, tags: string[] = [], packageVersion: 
   const base = args.stable ? todayBase : effectiveBase(todayBase, packageVersion);
   if (args.stable) return base;
   const channel = args.channel ?? "alpha";
-  // HHMM scheme: pre-release ID is the local-time hour+minute. Naturally
-  // unique-per-minute, no tag-walk + package-walk reconciliation needed.
-  // tags + packageVersion params kept for back-compat with callers/tests.
-  void tags; void packageVersion;
-  const stamp = hhmmStamp(now);
-  return `${base}-${channel}.${stamp}`;
+  const stamp = parseInt(hhmmStamp(now), 10);
+  const maxExisting = Math.max(
+    maxNFromTags(base, channel, tags),
+    maxNFromPackageJson(base, channel, packageVersion),
+  );
+  // HHMM suffixes must remain valid wall-clock stamps (max 2359). If the
+  // current HHMM would be a same-base semver downgrade after midnight, roll
+  // the CalVer base forward instead of reviving a monotonic counter.
+  const versionBase = stamp > maxExisting ? base : nextCalendarBase(base);
+  return `${versionBase}-${channel}.${stamp}`;
 }
 
 async function tagExists(version: string): Promise<boolean> {
@@ -259,8 +269,8 @@ async function main() {
   const now = args.now ?? new Date();
   const todayBase = dateBase(now);
 
-  // #784: read package.json once up front so its version participates in the
-  // source-of-truth set for the monotonic counter (see computeVersion).
+  // #784: read package.json once up front so its version participates in
+  // anti-downgrade checks (see computeVersion).
   const pkgPath = join(process.cwd(), "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
@@ -300,7 +310,7 @@ async function main() {
   }
 
   if (await tagExists(version)) {
-    // Should never happen for alpha (we picked max+1) but stable can collide.
+    // Stable can collide; alpha/beta same-minute reruns can also collide.
     console.error(`\n❌ tag v${version} already exists`);
     if (args.stable) {
       console.error(`   → stable for today already cut; nothing to do`);

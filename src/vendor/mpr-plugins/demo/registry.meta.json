@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/demo@v0.1.0-demo",
+  "sha256": "186e061cdd960730ca434e7d2ba9566a815eb3aeafbce1f2c861d800ea364a86",
+  "summary": "Simulated multi-agent session \u2014 the gateway drug. No API key required.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:03Z",
+  "tier": "extra"
+}

@@ -109,17 +109,23 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     );
   });
 
-  // ── Case 5: retry success → stash cleaned up ──────────────────────────
-  it("case 5 — retry success (installCode === 0) unlinks STASH", () => {
+  // ── Case 5: retry success → stash cleaned up only AFTER verify ────────
+  it("case 5 — retry success unlinks STASH only after the fresh binary verifies", () => {
+    // Restructured (crash-loop fix): the success branch is now `else { ... }`,
+    // and the stash is discarded only inside the `freshOk` (verified-working)
+    // sub-branch — never rotate away the old binary until the new one runs.
     expect(cmdUpdateSrc).toMatch(
-      /else if\s*\(\s*installCode\s*===\s*0\s*&&\s*stashed\s*&&\s*existsSync\(STASH\)\s*\)\s*\{[\s\S]*?unlinkSync\(STASH\)/,
+      /const\s+freshOk\s*=\s*\(await\s+verify\.exited\)\s*===\s*0\s*;[\s\S]*?else\s*\{[\s\S]*?unlinkSync\(STASH\)/,
     );
   });
 
-  // ── Case 6: retry fails → restore + warn ──────────────────────────────
-  it("case 6 — retry failure restores STASH → BIN and warns", () => {
+  // ── Case 6: retry fails → restore pkg dir + bin, warn ─────────────────
+  it("case 6 — retry failure restores the package dir then STASH → BIN and warns", () => {
+    // Restructured (crash-loop fix): guard is now plain `if (installCode !== 0)`;
+    // restorePkgStash() runs FIRST so the stashed bin symlink resolves again,
+    // THEN the bin is moved back.
     expect(cmdUpdateSrc).toMatch(
-      /if\s*\(\s*installCode\s*!==\s*0\s*&&\s*stashed\s*&&\s*existsSync\(STASH\)\s*\)\s*\{[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
+      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?restorePkgStash\(\)\s*;[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
     );
     expect(cmdUpdateSrc).toContain("restored previous maw binary from stash");
   });
@@ -128,6 +134,29 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     // If the restore rename itself throws, we still surface the error so the user
     // knows manual recovery is needed.
     expect(cmdUpdateSrc).toMatch(/failed to restore stash/);
+  });
+
+  // ── Case 8: maw-js package dir is stashed by RENAME, not rm ───────────
+  it("case 8 — maw-js node_modules dir is stashed by rename (recoverable), not rm'd", () => {
+    // The crash-loop root cause: rm'ing node_modules/maw-js orphaned the
+    // stashed bin symlink, so existsSync(STASH) reported false and the
+    // restore silently no-op'd — leaving NO working maw. Now the dir is
+    // moved aside by rename so the restore path can put a *working* install
+    // back (bin symlink + the package it resolves through).
+    expect(cmdUpdateSrc).toMatch(
+      /renameSync\(join\(NM,\s*"maw-js"\),\s*PKG_STASH\)\s*;\s*pkgStashed\s*=\s*true/,
+    );
+    // maw-js must NOT be in the outright-rm loop anymore
+    expect(cmdUpdateSrc).not.toMatch(/for \(const name of \["maw-js",/);
+  });
+
+  // ── Case 9: verify-before-discard — rollback on broken "success" ──────
+  it("case 9 — a 'successful' install whose binary does not run is rolled back", () => {
+    // installCode === 0 is necessary but not sufficient: if `maw --version`
+    // does not exit 0, restore the stash and fall into the error path.
+    expect(cmdUpdateSrc).toMatch(
+      /if\s*\(\s*!freshOk\s*\)\s*\{[\s\S]*?restorePkgStash\(\)[\s\S]*?installCode\s*=\s*1\s*;/,
+    );
   });
 
   // ── Case 7: rename throws → best-effort, doesn't block retry ──────────

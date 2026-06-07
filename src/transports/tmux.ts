@@ -7,6 +7,7 @@
 
 import { sendKeys, listSessions } from "../core/transport/ssh";
 import { findWindow } from "../core/runtime/find-window";
+import type { Session } from "../core/runtime/find-window";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
@@ -16,6 +17,12 @@ export class TmuxTransport implements Transport {
   private msgHandlers = new Set<(msg: TransportMessage) => void>();
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
+
+  constructor(
+    private readonly sendToTmux: typeof sendKeys = sendKeys,
+    private readonly listTmuxSessions: typeof listSessions = listSessions,
+    private readonly findTmuxWindow: (sessions: Session[], query: string) => string | null = findWindow,
+  ) {}
 
   get connected() { return this._connected; }
 
@@ -38,12 +45,12 @@ export class TmuxTransport implements Transport {
       // Resolve tmux target if not provided
       let tmuxTarget = target.tmuxTarget;
       if (!tmuxTarget) {
-        const sessions = await listSessions();
-        tmuxTarget = findWindow(sessions, target.oracle);
+        const sessions = await this.listTmuxSessions();
+        tmuxTarget = this.findTmuxWindow(sessions, target.oracle);
         if (!tmuxTarget) return false;
       }
 
-      await sendKeys(tmuxTarget, message);
+      await this.sendToTmux(tmuxTarget, message);
       return true;
     } catch {
       return false;

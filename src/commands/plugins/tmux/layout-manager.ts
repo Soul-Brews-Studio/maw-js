@@ -65,8 +65,30 @@ export async function stylePaneBorder(
   );
 }
 
-export async function enableBorderStatus(windowTarget: string): Promise<void> {
+export const MIN_BORDER_STATUS_PANE_HEIGHT = 4;
+
+export async function canEnableBorderStatus(
+  windowTarget: string,
+  minHeight = MIN_BORDER_STATUS_PANE_HEIGHT,
+): Promise<boolean> {
+  try {
+    const raw = await hostExec(`tmux list-panes -t '${windowTarget}' -F '#{pane_height}'`);
+    const heights = raw
+      .split("\n")
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter(Number.isFinite);
+    return heights.length > 0 && heights.every((height) => height >= minHeight);
+  } catch {
+    // Border status is cosmetic; when geometry cannot be trusted, prefer
+    // stable layout over crashing a team/tile/swarm spawn.
+    return false;
+  }
+}
+
+export async function enableBorderStatus(windowTarget: string): Promise<boolean> {
+  if (!(await canEnableBorderStatus(windowTarget))) return false;
   await hostExec(`tmux set-option -w -t '${windowTarget}' pane-border-status bottom`);
+  return true;
 }
 
 // ─── Hide / Show (CC-style break-pane / join-pane) ───────
@@ -125,8 +147,8 @@ export async function spawnTeammatePane(
   const targetFlag = anchor ? `-t '${anchor}' ` : "";
   const color = nextAgentColor(opts.colorIndex);
 
-  // Wrap in zsh so the pane stays alive after the command exits
-  const wrapped = `${command.replace(/'/g, "'\\''")}; exec zsh`;
+  // Wrap: reset terminal after agent TUI exits, then login shell with full profile
+  const wrapped = `${command.replace(/'/g, "'\\''")}; printf "\\e[?1049l"; clear; exec zsh -li`;
 
   let paneId = "";
   await withPaneLock(async () => {

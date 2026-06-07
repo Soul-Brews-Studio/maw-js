@@ -1,6 +1,6 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.4.18--alpha.19-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Amain) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/github/v/release/Soul-Brews-Studio/maw-js?label=calver)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Test files](https://img.shields.io/badge/test_files-750%2B-brightgreen)](./test)
 
 > Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
 
@@ -9,8 +9,6 @@ an agent in a tmux window, send it tasks, watch its screen, and see what
 it cost — all from one terminal. One node or twenty; same commands. Built
 on [Bun](https://bun.sh) and [Claude Code](https://claude.com/claude-code).
 
-<!-- TODO: record via scripts/record-demo.sh after this lands (see #453) -->
-![maw demo](docs/demo.svg)
 
 ## Install
 
@@ -25,7 +23,7 @@ bun add -g github:Soul-Brews-Studio/maw-js
 ghq get Soul-Brews-Studio/maw-js && cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-js" && bun install && bun link
 ```
 
-> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{hour}]` (e.g. `v26.4.18-alpha.19`). Migrated from SemVer alpha on 2026-04-18. Cutting a release? See [CONTRIBUTING.md → Versioning](./CONTRIBUTING.md#versioning). Background: [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) · umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
+> **Versioning**: `maw-js` uses [CalVer](https://calver.org) — `v{yy}.{m}.{d}[-alpha.{HHMM}]` (e.g. `v26.5.17-alpha.752`). Migrated from SemVer alpha on 2026-04-18. Cutting a release? See [CONTRIBUTING.md → Versioning](./CONTRIBUTING.md#versioning). Background: [CHANGELOG](./CHANGELOG.md#versioning--calver-since-2026-04-18) · umbrella [#526](https://github.com/Soul-Brews-Studio/maw-js/issues/526).
 
 ## Recovering from `maw: command not found`
 
@@ -45,9 +43,10 @@ Full runbook: [`docs/install-recovery.md`](docs/install-recovery.md).
 maw serve                                # start API + UI on :3456
 maw ui install                           # download the federation lens
 maw ui                                   # → http://localhost:3456/federation_2d.html
-maw ls                                   # list sessions + windows
-maw wake neo                             # wake an oracle
-maw hey neo "what are you working on?"   # talk to it
+maw ls --recent 5                        # find recent sessions
+maw wake neo --split                     # wake side-by-side with an oracle
+maw bring neo --to work:review --pick    # bring to an explicit session:window when fuzzy
+maw hey neo "what are you working on?"   # bare-name addressing works
 ```
 
 ## Installing the UI
@@ -63,15 +62,18 @@ maw ui install --version v1.15.0     # specific version
 maw ui status                        # verify installation
 ```
 
-Downloads `dist.tar.gz` from the maw-ui GitHub Release and extracts to
-`~/.maw/ui/dist/`. Restart the maw server to serve the new UI.
+Downloads `dist.tar.gz` from the maw-ui GitHub Release and extracts to the
+active maw data dir (`~/.maw/ui/dist/` by default today, or
+`$XDG_DATA_HOME/maw/ui/dist/` when `MAW_XDG=1`). Restart the maw server to
+serve the new UI.
 
 ### Manual install (no `gh`)
 
 ```bash
 # Download dist.tar.gz from a release page, then:
-mkdir -p ~/.maw/ui/dist
-tar -xzf dist.tar.gz -C ~/.maw/ui/dist --strip-components=1
+MAW_UI_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/maw/ui/dist"
+mkdir -p "$MAW_UI_DIR"
+tar -xzf dist.tar.gz -C "$MAW_UI_DIR" --strip-components=1
 ```
 
 ### Build from source
@@ -80,8 +82,25 @@ tar -xzf dist.tar.gz -C ~/.maw/ui/dist --strip-components=1
 ghq get -u github.com/Soul-Brews-Studio/maw-ui
 cd "$(ghq root)/github.com/Soul-Brews-Studio/maw-ui"
 bun install && bun run build
-ln -sf "$(pwd)/dist" ~/.maw/ui/dist
+ln -sf "$(pwd)/dist" "${XDG_DATA_HOME:-$HOME/.local/share}/maw/ui/dist"
 ```
+
+## Runtime paths and XDG migration
+
+`maw` now has a central path resolver for config, state, data, and cache.
+Legacy installs remain readable, but new runtime writers are moving away from
+`~/.config/maw/` and direct `~/.maw/` roots.
+
+```bash
+maw doctor xdg                         # show active config/state/data/cache roots
+maw doctor xdg --json                  # machine-readable migration inventory
+maw doctor xdg --migrate --dry-run     # preview safe copy-forward moves
+maw doctor xdg --migrate               # copy legacy artifacts into XDG targets
+MAW_XDG=1 maw doctor xdg               # opt into spec-correct runtime paths
+```
+
+The migration command is intentionally non-destructive: it copies missing
+artifacts forward and preserves existing destinations plus legacy sources.
 
 ## Wake from anywhere
 
@@ -102,7 +121,8 @@ maw bud myname --from neo                # bud from an existing oracle
 Talk across machines with HMAC-SHA256 signing.
 
 ```bash
-maw hey neo "hello"                      # bare name — exact local match (errors on ambiguity)
+maw hey neo "hello"                      # default: inbox + immediate pane delivery
+maw hey neo "later" --inbox              # queue-only: write receiver inbox, skip pane injection
 maw hey white:neo "hello"                # canonical form — remote node, window 1
 maw hey white:neo:3 "hello hermes"       # pick a specific tmux window (#410)
 maw peek white:neo                       # see their screen
@@ -133,25 +153,77 @@ Frontend repo: [Soul-Brews-Studio/maw-ui](https://github.com/Soul-Brews-Studio/m
 ## CLI
 
 ```bash
-maw ls                           # list sessions + windows
+maw ls                           # compact session summary
+maw ls -v / -c                   # detailed / compact views
+maw ls --recent [n]              # sort by creation time
 maw peek [agent]                 # see agent screen
-maw hey <agent> <msg>            # send message
+maw hey <agent> <msg> [--inbox]  # send now by default; --inbox queues only
 maw wake <oracle> [task]         # wake oracle in tmux
+maw wake --dry-run/--list        # preview without side effects
+maw wake --from-snapshot         # restore from a wake snapshot
 maw sleep <oracle>               # gracefully stop
-maw done <window>                # auto-save + clean up
+maw done <window>                # auto-save + clean up worktree/branch
+maw new <name>                   # create a workspace session
+maw team bring <team>            # bring oracles into a workspace
+maw team create/oracle-invite    # team management
+maw scaffold <name>              # structure-only project creation
+maw snapshots list/show          # browse wake snapshots
 maw bud <name> [--from parent]   # spawn new oracle
-maw fleet ls                     # list fleet configs
-maw fleet health                 # fleet health report
-maw fleet doctor                 # config doctor
+maw fleet ls/health/doctor       # fleet config + health tools
 maw oracle scan                  # discover oracles across nodes
-maw contacts                     # list oracle contacts
-maw soul-sync                    # sync memory across peers
-maw find <keyword>               # search memory across oracles
+maw plugin install <name>        # install a registry or peer plugin
+maw <plugin> serve               # run plugin-owned browser/process UIs
+maw fck                          # command correction plugin
+maw fleet-ui serve               # fleet dashboard plugin
+maw messages serve               # message ledger browser plugin
 maw ui                           # open federation lens
 maw serve [port]                 # start API server (default: 3456)
 ```
 
 Full command reference: `maw --help`
+
+## Plugin Ecosystem
+
+`maw` is now a plugin OS as much as a CLI. Core commands stay small,
+while registry plugins add focused tools that can be enabled, served,
+or removed without changing the engine.
+
+```bash
+maw plugin ls                    # installed + tiered plugins
+maw plugin install <name>        # install from maw-plugin-registry or peers
+maw plugin enable <name>         # opt into disabled-but-installed tools
+maw <plugin> serve               # run a plugin-owned browser/process UI
+```
+
+The plugin manifest supports CLI commands, capabilities, APIs, lifecycle
+hooks, and engine-backed `serve` processes. Registry plugins such as
+`fleet-ui`, `messages`, and `fck` can extend the operator surface without
+promoting every experiment into core.
+
+## Team Workspaces
+
+Use `maw new` to create a shared tmux workspace, then bring a team of
+oracles into it. This is the dynamic version of a static MAWK profile:
+one lead shell plus one window per specialist.
+
+```bash
+maw new project-room --no-attach
+maw team create project-room
+maw team oracle-invite mawjs-issuer --team project-room
+maw team bring project-room
+```
+
+## Wake Lifecycle
+
+Wake is now a lifecycle, not just a launch command. Plugins can declare
+`hooks.wake`, `hooks.serve`, and `hooks.sleep` in `plugin.json`; maw can
+preview wake plans, record snapshots, and restore from a previous launch.
+
+```bash
+maw wake neo --dry-run           # inspect target/session/plugin effects
+maw snapshots list               # list captured wake state
+maw wake neo --from-snapshot <id>
+```
 
 ## Federation API
 
@@ -170,11 +242,12 @@ Full reference: [`docs/federation.md`](docs/federation.md)
 
 ```
 maw-js (backend + CLI)              maw-ui (frontend)
-├── src/commands/  (57 commands)    ├── src/components/
-├── src/api/       (19 endpoints)   ├── src/hooks/
-├── src/engine/    (WebSocket)      ├── src/lib/
-├── src/transports/ (HTTP/tmux/hub) └── 16 HTML entry points
-├── test/          (94 test files)
+├── src/commands/  (CLI + plugin dispatch) ├── src/components/
+├── src/api/       (engine + plugin APIs)   ├── src/hooks/
+├── src/engine/    (WebSocket + serve proxy)├── src/lib/
+├── src/transports/ (HTTP/tmux/hub)         └── 16 HTML entry points
+├── plugins        (89 installed plugin surfaces)
+├── test/          (750+ test files)
 └── install.sh
 ```
 
@@ -184,8 +257,12 @@ maw-js (backend + CLI)              maw-ui (frontend)
 Oct 2025   maw.env.sh            30+ shell commands
 Mar 2026   maw.js                 Bun/TS rewrite, tmux orchestration
 Mar 2026   maw-js + maw-ui        Backend/frontend split
-Apr 2026   v2.0.0-alpha.66        Plugin OS, 896 commits, 57 commands,
-                                   19 API endpoints, 1043 tests
+Apr 2026   v2.0.0-alpha.66        Plugin OS foundation, Bun runtime,
+                                   federation API + maw-ui split
+May 2026   v26.5.20-alpha.2203    Plugin engine, lifecycle hooks,
+                                   team workspaces, 89 plugins,
+                                   750+ test files, 100% line/function coverage,
+                                   portable Rust spec fixtures
 ```
 
 ## Federation testing
@@ -207,9 +284,19 @@ Onboarding a new node? Use `maw pair generate` / `maw pair <url> <code>`
 for a 6-char ephemeral handshake — see
 [`docs/federation/pair-code.md`](docs/federation/pair-code.md).
 
+## maw-rs port
+
+The Rust port is tracked through portable JSON fixtures instead of prose-only
+specs. See [`docs/maw-rs-port-status.md`](docs/maw-rs-port-status.md) for the
+current fixture inventory, crate lanes, and contributor entry points.
+
 ## Marketplace
 
 Plugins can be discovered and installed peer-to-peer (Shape A, no central
 registry required). See
 [`docs/plugins/shape-a-demo.md`](docs/plugins/shape-a-demo.md) for a
 7-step walkthrough — peers, federated search, `@peer` install, consent.
+
+For fresh-install bootstrap, plugin source tiers, vendored registry plugins,
+and `maw plugin install` trust/lock behavior, see
+[`docs/plugins/install-architecture.md`](docs/plugins/install-architecture.md).

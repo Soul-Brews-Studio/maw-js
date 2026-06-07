@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/signals@v0.1.0-signals",
+  "sha256": "081531bc13afcd51b8ada7105d5db7be157e57137737ff7a9571231477dcd4a6",
+  "summary": "List bud signals written to \u03c8/memory/signals/",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:08Z",
+  "tier": "extra"
+}

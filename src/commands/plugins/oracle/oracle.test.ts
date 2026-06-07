@@ -1,45 +1,55 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import type { InvokeContext } from "../../../plugin/types";
-
-mock.module("./impl", () => ({
-  cmdOracleList: async () => {
-    console.log("Oracle Fleet  (1/2 awake)");
-  },
-  cmdOracleScan: async (_opts: any) => {
-    console.log("Scanned 5 oracles locally");
-  },
-  cmdOracleScanStale: async (_opts: any) => {
-    console.log("Stale oracle scan  (DEAD 1  STALE 2)");
-  },
-  cmdOracleFleet: async (_opts: any) => {
-    console.log("Oracle Fleet  (5 oracles)");
-  },
-  cmdOracleAbout: async (name: string) => {
-    console.log(`Oracle — ${name}`);
-  },
-}));
-
-mock.module("./impl-nickname", () => ({
-  cmdOracleSetNickname: (name: string, nickname: string) => {
-    console.log(`set-nickname ${name}=${nickname}`);
-  },
-  cmdOracleGetNickname: (name: string) => {
-    console.log(`get-nickname ${name}`);
-  },
-}));
+import { createOracleHandler } from "./index";
 
 describe("oracle plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
+  let listOpts: any[] = [];
 
-  beforeEach(async () => {
-    const mod = await import("./index");
-    handler = mod.default;
+  beforeEach(() => {
+    listOpts = [];
+    handler = createOracleHandler({
+      cmdOracleList: async (opts: any) => {
+        listOpts.push(opts);
+        console.log("Oracle Fleet  (1/2 awake)");
+      },
+      cmdOracleScan: async (_opts: any) => {
+        console.log("Scanned 5 oracles locally");
+      },
+      cmdOracleScanStale: async (_opts: any) => {
+        console.log("Stale oracle scan  (DEAD 1  STALE 2)");
+      },
+      cmdOracleFleet: async (_opts: any) => {
+        console.log("Oracle Fleet  (5 oracles)");
+      },
+      cmdOracleAbout: async (name: string) => {
+        console.log(`Oracle — ${name}`);
+      },
+      cmdOraclePrune: async () => {
+        console.log("pruned");
+      },
+      cmdOracleRegister: async (name: string) => {
+        console.log(`registered ${name}`);
+      },
+      cmdOracleSetNickname: (name: string, nickname: string) => {
+        console.log(`set-nickname ${name}=${nickname}`);
+      },
+      cmdOracleGetNickname: (name: string) => {
+        console.log(`get-nickname ${name}`);
+      },
+    });
   });
 
   it("cli: ls lists oracles", async () => {
     const result = await handler({ source: "cli", args: ["ls"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Oracle Fleet");
+  });
+
+  it("cli: ls accepts --sort-by born", async () => {
+    const result = await handler({ source: "cli", args: ["ls", "--sort-by", "born"] });
+    expect(result.ok).toBe(true);
+    expect(listOpts[0].sortBy).toBe("born");
   });
 
   it("cli: scan runs oracle scan", async () => {

@@ -93,7 +93,24 @@ describe("cmd-update source-order invariants", () => {
     expect(src).toMatch(/for \(const key of \["maw-js", "maw"\]\)/);
   });
 
-  it("#950: direct-rm covers maw-js, maw, and @maw-js node_modules", () => {
-    expect(src).toMatch(/for \(const name of \["maw-js", "maw", "@maw-js"\]\)/);
+  it("#1449: resolver metadata is cleared before the first `bun add`", () => {
+    const clearIdx = src.indexOf("const restoreResolverState = clearBunGlobalResolverState()");
+    const firstAddIdx = src.indexOf("let installCode = await spawnInstall().exited");
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(firstAddIdx).toBeGreaterThan(-1);
+    expect(clearIdx).toBeLessThan(firstAddIdx);
+  });
+
+  it("#1449: total install failure restores preflight resolver metadata", () => {
+    expect(src).toMatch(/if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{\s*restoreResolverState\(\)/);
+  });
+
+  it("#950: node_modules eviction covers maw-js, maw, and @maw-js", () => {
+    // maw-js is the package the `~/.bun/bin/maw` symlink resolves through, so
+    // it is moved aside by RENAME (recoverable for the restore path) rather
+    // than rm'd — see the stash-restore invariant test. `maw` and `@maw-js`
+    // carry nothing the bin symlink needs, so they are still rm'd outright.
+    expect(src).toMatch(/renameSync\(join\(NM, "maw-js"\), PKG_STASH\)/);
+    expect(src).toMatch(/for \(const name of \["maw", "@maw-js"\]\)/);
   });
 });

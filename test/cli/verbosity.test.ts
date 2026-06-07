@@ -66,11 +66,12 @@ describe("verbosity", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // FIX-A — top-alias verbs (ls / a / attach / wake) suppress bootstrap chatter.
-  // These verbs are read-only and don't need plugin-loading narration.
+  // FIX-A — selected verbs suppress bootstrap chatter.
+  // Their output is user-facing or machine-readable and doesn't need
+  // plugin-loading narration.
   // ---------------------------------------------------------------------------
 
-  describe("top-alias verb suppression (FIX-A)", () => {
+  describe("bootstrap suppression (FIX-A)", () => {
     test("`maw ls` → quiet (suppress 'loaded config:' / 'loaded N plugins')", () => {
       process.argv = ["bun", "/path/to/cli.ts", "ls"];
       expect(isQuiet()).toBe(true);
@@ -93,6 +94,24 @@ describe("verbosity", () => {
 
     test("`maw wake <name>` → quiet (cmdWake is direct-handler, no plugin shell-out)", () => {
       process.argv = ["bun", "/path/to/cli.ts", "wake", "neo"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test("`maw activity --all --json` → quiet (JSON must stay parseable)", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "activity", "--all", "--json"];
+      expect(isQuiet()).toBe(true);
+    });
+
+    test.each(["capture", "locate", "messages", "oracle", "peek"])(
+      "`maw %s` diagnostic command -> quiet",
+      (verb) => {
+        process.argv = ["bun", "/path/to/cli.ts", verb];
+        expect(isQuiet()).toBe(true);
+      },
+    );
+
+    test("`maw locate mira --json` -> quiet for parseable JSON output", () => {
+      process.argv = ["bun", "/path/to/cli.ts", "locate", "mira", "--json"];
       expect(isQuiet()).toBe(true);
     });
 

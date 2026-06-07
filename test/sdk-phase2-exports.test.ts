@@ -57,6 +57,10 @@ describe("@maw-js/sdk Phase 2 widening", () => {
     expect(typeof sdk.setActiveProfile).toBe("function");
   });
 
+  test("re-exports plugin module import bridge", () => {
+    expect(typeof sdk.importPluginSymbol).toBe("function");
+  });
+
   test("re-exports artifact helpers", () => {
     expect(typeof sdk.createArtifact).toBe("function");
     expect(typeof sdk.updateArtifact).toBe("function");

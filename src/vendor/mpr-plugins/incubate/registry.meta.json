@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/incubate@v0.1.0-incubate",
+  "sha256": "37851e32b530c8ed2cdb3860541b9bd339654e0e5df68620fee7ddce6668d5b9",
+  "summary": "Scaffold (stub): clone or create repos for active development \u2014 the right hand of /learn. Full impl lives in the Oracle /incubate skill \u2014 core plugin is a dispatcher shape only.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:37Z",
+  "tier": "extra"
+}

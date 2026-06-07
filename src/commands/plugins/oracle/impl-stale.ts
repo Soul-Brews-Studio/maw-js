@@ -122,18 +122,20 @@ export interface StaleScanOpts {
   all?: boolean;   // include ACTIVE+SLOW in output; default shows STALE+DEAD
 }
 
+export interface StaleScanDeps {
+  readEntries?: () => OracleEntry[];
+  listAwake?: () => Promise<Set<string>>;
+  getLastCommit?: (localPath: string) => string | null;
+  now?: () => Date;
+}
+
 /**
  * Drive the scan: entries come from registry cache, tmux liveness from tmux.
  * Injectable deps keep the driver testable without touching disk or tmux.
  */
 export async function runStaleScan(
   opts: StaleScanOpts = {},
-  deps: {
-    readEntries?: () => OracleEntry[];
-    listAwake?: () => Promise<Set<string>>;
-    getLastCommit?: (localPath: string) => string | null;
-    now?: () => Date;
-  } = {},
+  deps: StaleScanDeps = {},
 ): Promise<StaleEntry[]> {
   const readEntries = deps.readEntries ?? (() => {
     const cache = readCache() ?? scanAndCache("local");

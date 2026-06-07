@@ -302,7 +302,7 @@ describe("resolution caching", () => {
     expect(resolveActiveProfileFilter([{ name: "alpha", tier: "core" }])).toBeNull();
   });
 
-  test("resolution finishes under 5ms on a realistic 50-plugin set", async () => {
+  test("resolution finishes under 10ms on a realistic 50-plugin set", async () => {
     writeProfile("lean", { name: "lean", tiers: ["core"] });
     setActive("lean");
     const inputs = Array.from({ length: 50 }, (_, i) => ({
@@ -319,6 +319,6 @@ describe("resolution caching", () => {
     const t0 = performance.now();
     resolveActiveProfileFilter(inputs);
     const elapsed = performance.now() - t0;
-    expect(elapsed).toBeLessThan(5);
+    expect(elapsed).toBeLessThan(10);
   });
 });

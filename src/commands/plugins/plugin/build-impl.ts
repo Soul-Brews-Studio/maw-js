@@ -97,7 +97,7 @@ export async function cmdPluginBuild(args: string[]): Promise<void> {
 
   if (flags["--watch"]) {
     // `--watch` flag: watch mode, threads emitTypes through.
-    await runWatch(dir, emitTypes);
+    await runWatch(dir, emitTypes, watchOptionsForTest);
     return;
   }
 
@@ -117,11 +117,22 @@ export async function cmdPluginDev(args: string[]): Promise<void> {
   const emitTypes = flags["--types"] === true;
   console.log(`\x1b[36mmaw plugin dev\x1b[0m — watch mode (Ctrl-C to stop)`);
   console.log(`  dir: ${dir}`);
-  await runWatch(dir, emitTypes);
+  await runWatch(dir, emitTypes, watchOptionsForTest);
+}
+
+interface WatchOptions {
+  keepAlive?: Promise<unknown>;
+  watchImpl?: typeof watch;
+}
+
+let watchOptionsForTest: WatchOptions | undefined;
+
+export function setPluginBuildWatchOptionsForTest(options?: WatchOptions): void {
+  watchOptionsForTest = options;
 }
 
 /** Shared watch-mode loop used by both `build --watch` and `dev`. */
-async function runWatch(dir: string, emitTypes = false): Promise<void> {
+async function runWatch(dir: string, emitTypes = false, options: WatchOptions = {}): Promise<void> {
   // One initial build, then rebuild on src change. Tolerate failures.
   await runBuild(dir, emitTypes).catch(() => {});
   console.log(`\n\x1b[36m⧖\x1b[0m watching ${dir}/src for changes (Ctrl-C to stop)...`);
@@ -139,11 +150,20 @@ async function runWatch(dir: string, emitTypes = false): Promise<void> {
   };
   const srcDir = join(dir, "src");
   if (existsSync(srcDir)) {
-    watch(srcDir, { recursive: true }, () => {
+    const watchImpl = options.watchImpl ?? watch;
+    watchImpl(srcDir, { recursive: true }, () => {
       void trigger();
     });
   }
-  await new Promise(() => { /* keep alive */ });
+  await (options.keepAlive ?? new Promise(() => { /* keep alive */ }));
+}
+
+export async function runPluginBuildWatchForTest(
+  dir: string,
+  emitTypes = false,
+  options: WatchOptions = {},
+): Promise<void> {
+  await runWatch(dir, emitTypes, options);
 }
 
 async function runBuild(dir: string, emitTypes = false): Promise<BuildSummary> {

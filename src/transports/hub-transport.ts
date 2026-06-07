@@ -12,6 +12,15 @@ import { openWebSocket, cleanupConnection } from "./hub-connection";
 import { loadWorkspaceConfigs } from "./hub-config";
 import type { WorkspaceConfig } from "./hub-config";
 
+interface HubTransportDeps {
+  loadConfig?: typeof loadConfig;
+  loadWorkspaces?: typeof loadWorkspaceConfigs;
+  openSocket?: typeof openWebSocket;
+  cleanup?: typeof cleanupConnection;
+  setConnectTimeout?: typeof setTimeout;
+  clearConnectTimeout?: typeof clearTimeout;
+}
+
 export class HubTransport implements Transport {
   readonly name = "workspace-hub";
   readonly priority = 30;  // between MQTT (20) and HTTP (40)
@@ -23,8 +32,11 @@ export class HubTransport implements Transport {
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
 
-  constructor(nodeId?: string) {
-    const config = loadConfig();
+  constructor(
+    nodeId?: string,
+    private readonly deps: HubTransportDeps = {},
+  ) {
+    const config = (this.deps.loadConfig ?? loadConfig)();
     this.nodeId = nodeId ?? config.node ?? "local";
     this.federationToken = config.federationToken;
   }
@@ -32,7 +44,7 @@ export class HubTransport implements Transport {
   get connected() { return this._connected; }
 
   async connect(): Promise<void> {
-    const workspaces = loadWorkspaceConfigs();
+    const workspaces = (this.deps.loadWorkspaces ?? loadWorkspaceConfigs)();
     if (workspaces.length === 0) {
       console.log("[hub] no workspace configs found");
       return;
@@ -53,7 +65,7 @@ export class HubTransport implements Transport {
 
   async disconnect(): Promise<void> {
     for (const conn of this.connections.values()) {
-      cleanupConnection(conn);
+      (this.deps.cleanup ?? cleanupConnection)(conn);
     }
     this.connections.clear();
     this._connected = false;
@@ -166,14 +178,14 @@ export class HubTransport implements Transport {
       };
 
       this.connections.set(config.id, conn);
-      const timeout = setTimeout(() => {
+      const timeout = (this.deps.setConnectTimeout ?? setTimeout)(() => {
         if (!conn.connected) {
           console.warn(`[hub] workspace ${config.id}: connection timeout`);
           resolve(false);
         }
       }, 10_000);
 
-      openWebSocket(
+      (this.deps.openSocket ?? openWebSocket)(
         conn,
         this.nodeId,
         this.federationToken,
@@ -182,7 +194,7 @@ export class HubTransport implements Transport {
         this.feedHandlers,
         () => { this._connected = true; },
         () => this.updateConnectedState(),
-        () => { clearTimeout(timeout); resolve(true); },
+        () => { (this.deps.clearConnectTimeout ?? clearTimeout)(timeout); resolve(true); },
       );
     });
   }

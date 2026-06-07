@@ -13,7 +13,7 @@
  *
  * Isolated because:
  *   - `loadConfig` is mock.module-stubbed (a process-global mutation).
- *   - getPeerKey() reads <CONFIG_DIR>/peer-key on first call; we pin
+ *   - getPeerKey() reads the state-path peer-key on first call; we pin
  *     MAW_PEER_KEY before any import to avoid filesystem dependencies.
  *
  * Crypto (createHmac) is NEVER mocked — sign here, recompute the expected
@@ -29,6 +29,7 @@ import type { MawConfig } from "../../src/config";
 const PEER_KEY = "deadbeef".repeat(8); // 64-char hex
 process.env.MAW_PEER_KEY = PEER_KEY;
 delete process.env.CLAUDE_AGENT_NAME;
+const origCurlFetchTransport = process.env.MAW_CURL_FETCH_TRANSPORT;
 
 // ─── Capture real config module BEFORE installing mock ──────────────────────
 const _rConfig = await import("../../src/config");
@@ -64,15 +65,20 @@ const { curlFetch } = await import("../../src/core/transport/curl-fetch");
 beforeEach(() => {
   mockActive = true;
   configStore = {};
+  process.env.MAW_CURL_FETCH_TRANSPORT = "native";
 });
 
 afterEach(() => {
   mockActive = false;
+  if (origCurlFetchTransport === undefined) delete process.env.MAW_CURL_FETCH_TRANSPORT;
+  else process.env.MAW_CURL_FETCH_TRANSPORT = origCurlFetchTransport;
 });
 
 afterAll(() => {
   mockActive = false;
   delete process.env.MAW_PEER_KEY;
+  if (origCurlFetchTransport === undefined) delete process.env.MAW_CURL_FETCH_TRANSPORT;
+  else process.env.MAW_CURL_FETCH_TRANSPORT = origCurlFetchTransport;
 });
 
 const FROM = "neo:white";

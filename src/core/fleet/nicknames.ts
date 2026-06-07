@@ -2,7 +2,7 @@
  * Oracle nickname storage — Phase 1 of #643.
  *
  * Authoritative: `<oracle-repo>/ψ/nickname` (plain UTF-8, trimmed on read).
- * Cache:        `<resolveHome()>/nicknames.json` — read-through, non-authoritative.
+ * Cache:        `<cache>/nicknames.json` — read-through, non-authoritative.
  *
  * See docs/fleet/nickname-design.md for the full spec (precedence, edge cases).
  */
@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "fs";
 import { dirname, join } from "path";
-import { resolveHome } from "../paths";
+import { legacyMawPath, mawCachePath } from "../xdg";
 
 export const NICKNAME_MAX_LEN = 64;
 
@@ -25,7 +25,19 @@ export interface NicknameCache {
 }
 
 export function cacheFile(): string {
-  return join(resolveHome(), "nicknames.json");
+  return mawCachePath("nicknames.json");
+}
+
+function legacyCacheFile(): string {
+  return legacyMawPath("nicknames.json");
+}
+
+function cacheReadFile(): string | null {
+  const primary = cacheFile();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyCacheFile();
+  if (legacy !== primary && existsSync(legacy)) return legacy;
+  return null;
 }
 
 export function psiNicknameFile(repoPath: string): string {
@@ -86,8 +98,8 @@ export function writeNickname(repoPath: string, nickname: string): void {
 // ─── Cache (read-through, non-authoritative) ──────────────────────────────────
 
 export function readCache(): NicknameCache {
-  const file = cacheFile();
-  if (!existsSync(file)) return { schema: 1, nicknames: {} };
+  const file = cacheReadFile();
+  if (!file) return { schema: 1, nicknames: {} };
   try {
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     if (parsed && typeof parsed === "object" && parsed.nicknames) {

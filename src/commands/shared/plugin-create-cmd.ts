@@ -1,6 +1,6 @@
 import { existsSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { mawDataPath } from "../../core/xdg";
 import { validatePluginName } from "./plugin-create-scaffold";
 import { scaffoldRust } from "./plugin-create-rust";
 import { scaffoldAs } from "./plugin-create-as";
@@ -44,7 +44,7 @@ export async function cmdPluginCreate(
   const dest = flags["--dest"]
     ?? (flags["--here"]
       ? join(process.cwd(), name)
-      : join(homedir(), ".oracle", "plugins", name));
+      : join(process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins"), name));
 
   if (existsSync(dest)) {
     console.error(`\x1b[31m✗\x1b[0m Destination already exists: ${dest}`);

@@ -3,8 +3,9 @@
  * Each function validates and shapes one optional manifest section.
  */
 
-import type { PluginManifest, PluginTier } from "./types";
-import { KNOWN_CAPABILITY_NAMESPACES } from "./manifest-constants";
+import type { PluginLifecycleHook, PluginManifest, PluginTier } from "./types";
+import { KNOWN_CAPABILITY_NAMESPACES, NAME_RE } from "./manifest-constants";
+import { getRuntimeVersionString } from "../core/runtime/build-info";
 
 const VALID_TIERS = new Set<PluginTier>(["core", "standard", "extra"]);
 
@@ -59,6 +60,35 @@ export function parseApi(r: Record<string, unknown>): PluginManifest["api"] {
   return { path: a.path, methods: a.methods as ("GET" | "POST")[] };
 }
 
+function parseLifecycleHook(hooks: Record<string, unknown>, key: "wake" | "sleep" | "serve"): PluginLifecycleHook | undefined {
+  const raw = hooks[key];
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`plugin.json: hooks.${key} must be an object`);
+  }
+  const h = raw as Record<string, unknown>;
+  if (h.script !== undefined && (typeof h.script !== "string" || !h.script)) {
+    throw new Error(`plugin.json: hooks.${key}.script must be a non-empty string`);
+  }
+  if (h.handler !== undefined && (typeof h.handler !== "string" || !h.handler)) {
+    throw new Error(`plugin.json: hooks.${key}.handler must be a non-empty string`);
+  }
+  if (h.ensures !== undefined) {
+    if (!Array.isArray(h.ensures) || (h.ensures as unknown[]).some((e: unknown) => typeof e !== "string" || !e)) {
+      throw new Error(`plugin.json: hooks.${key}.ensures must be an array of non-empty strings`);
+    }
+  }
+  if (h.policy !== undefined && h.policy !== "best-effort" && h.policy !== "fail-fast") {
+    throw new Error(`plugin.json: hooks.${key}.policy must be "best-effort" or "fail-fast"`);
+  }
+  return {
+    ...(typeof h.script === "string" ? { script: h.script } : {}),
+    ...(typeof h.handler === "string" ? { handler: h.handler } : {}),
+    ...(Array.isArray(h.ensures) ? { ensures: h.ensures as string[] } : {}),
+    ...(typeof h.policy === "string" ? { policy: h.policy as PluginLifecycleHook["policy"] } : {}),
+  };
+}
+
 export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] {
   if (r.hooks === undefined) return undefined;
   if (!r.hooks || typeof r.hooks !== "object" || Array.isArray(r.hooks)) {
@@ -66,17 +96,22 @@ export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] 
   }
   const h = r.hooks as Record<string, unknown>;
   for (const key of ["gate", "filter", "on", "late"] as const) {
-    if (h[key] !== undefined) {
-      if (!Array.isArray(h[key]) || (h[key] as unknown[]).some((e: unknown) => typeof e !== "string")) {
-        throw new Error(`plugin.json: hooks.${key} must be an array of strings`);
-      }
+    const value = h[key];
+    if (value !== undefined && (!Array.isArray(value) || value.some((e: unknown) => typeof e !== "string"))) {
+      throw new Error(`plugin.json: hooks.${key} must be an array of strings`);
     }
   }
+  const wake = parseLifecycleHook(h, "wake");
+  const sleep = parseLifecycleHook(h, "sleep");
+  const serve = parseLifecycleHook(h, "serve");
   return {
     ...(Array.isArray(h.gate) ? { gate: h.gate as string[] } : {}),
     ...(Array.isArray(h.filter) ? { filter: h.filter as string[] } : {}),
     ...(Array.isArray(h.on) ? { on: h.on as string[] } : {}),
     ...(Array.isArray(h.late) ? { late: h.late as string[] } : {}),
+    ...(wake ? { wake } : {}),
+    ...(sleep ? { sleep } : {}),
+    ...(serve ? { serve } : {}),
   };
 }
 
@@ -127,6 +162,51 @@ export function parseTransport(r: Record<string, unknown>): PluginManifest["tran
   };
 }
 
+export function parseEngine(r: Record<string, unknown>): PluginManifest["engine"] {
+  if (r.engine === undefined) return undefined;
+  if (!r.engine || typeof r.engine !== "object" || Array.isArray(r.engine)) {
+    throw new Error("plugin.json: engine must be an object");
+  }
+  const e = r.engine as Record<string, unknown>;
+  if (e.serve === undefined) return {};
+  if (!e.serve || typeof e.serve !== "object" || Array.isArray(e.serve)) {
+    throw new Error("plugin.json: engine.serve must be an object");
+  }
+  const serve = e.serve as Record<string, unknown>;
+  if (serve.command !== undefined && (typeof serve.command !== "string" || !serve.command)) {
+    throw new Error("plugin.json: engine.serve.command must be a non-empty string");
+  }
+  if (serve.prefix !== undefined) {
+    if (typeof serve.prefix !== "string" || !serve.prefix.startsWith("/api/")) {
+      throw new Error("plugin.json: engine.serve.prefix must start with /api/");
+    }
+  }
+  if (serve.health !== undefined) {
+    if (typeof serve.health !== "string" || !serve.health.startsWith("/")) {
+      throw new Error("plugin.json: engine.serve.health must be an absolute path");
+    }
+  }
+  if (serve.eventPath !== undefined) {
+    if (typeof serve.eventPath !== "string" || !serve.eventPath.startsWith("/")) {
+      throw new Error("plugin.json: engine.serve.eventPath must be an absolute path");
+    }
+  }
+  if (serve.events !== undefined) {
+    if (!Array.isArray(serve.events) || serve.events.some((event: unknown) => typeof event !== "string" || !event)) {
+      throw new Error("plugin.json: engine.serve.events must be an array of non-empty strings");
+    }
+  }
+  return {
+    serve: {
+      ...(typeof serve.command === "string" ? { command: serve.command } : {}),
+      ...(typeof serve.prefix === "string" ? { prefix: serve.prefix } : {}),
+      ...(typeof serve.health === "string" ? { health: serve.health } : {}),
+      ...(Array.isArray(serve.events) ? { events: serve.events as string[] } : {}),
+      ...(typeof serve.eventPath === "string" ? { eventPath: serve.eventPath } : {}),
+    },
+  };
+}
+
 export function parseTarget(r: Record<string, unknown>): PluginManifest["target"] {
   if (r.target === undefined) return undefined;
   if (typeof r.target !== "string") {
@@ -154,7 +234,21 @@ export function parseTarget(r: Record<string, unknown>): PluginManifest["target"
  * Both paths must use the same canonical set — never hardcode the list
  * anywhere else. See #902 / test/isolated/plugin-load-capability-902.test.ts.
  */
-export function parseCapabilities(r: Record<string, unknown>): PluginManifest["capabilities"] {
+export function parseCapabilityNamespaces(r: Record<string, unknown>): PluginManifest["capabilityNamespaces"] {
+  if (r.capabilityNamespaces === undefined) return undefined;
+  if (
+    !Array.isArray(r.capabilityNamespaces) ||
+    r.capabilityNamespaces.some((ns: unknown) => typeof ns !== "string" || !NAME_RE.test(ns))
+  ) {
+    throw new Error("plugin.json: capabilityNamespaces must be an array of slug strings");
+  }
+  return [...new Set(r.capabilityNamespaces as string[])];
+}
+
+export function parseCapabilities(
+  r: Record<string, unknown>,
+  extraNamespaces: Iterable<string> = [],
+): PluginManifest["capabilities"] {
   if (r.capabilities === undefined) return undefined;
   if (
     !Array.isArray(r.capabilities) ||
@@ -166,14 +260,38 @@ export function parseCapabilities(r: Record<string, unknown>): PluginManifest["c
   for (const cap of capabilities) {
     const idx = cap.indexOf(":");
     const ns = idx === -1 ? cap : cap.slice(0, idx);
-    if (!KNOWN_CAPABILITY_NAMESPACES.has(ns)) {
+    const allowedNamespaces = new Set([...KNOWN_CAPABILITY_NAMESPACES, ...extraNamespaces]);
+    if (!allowedNamespaces.has(ns)) {
       console.warn(
         `plugin.json: unknown capability namespace "${ns}" in "${cap}" ` +
-          `(known: ${[...KNOWN_CAPABILITY_NAMESPACES].join(", ")})`,
+          `(known: ${[...allowedNamespaces].join(", ")})\n` +
+          `  ↳ runtime: ${getRuntimeVersionString()} — if this namespace is expected, update maw: ` +
+          `bun add -g github:Soul-Brews-Studio/maw-js#alpha`,
       );
     }
   }
   return capabilities;
+}
+
+export function parseDependencies(r: Record<string, unknown>): PluginManifest["dependencies"] {
+  if (r.dependencies === undefined) return undefined;
+
+  const raw = r.dependencies;
+  let plugins: unknown;
+  if (Array.isArray(raw)) {
+    // Compact legacy-friendly shape: "dependencies": ["trace", "dig"]
+    plugins = raw;
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    plugins = (raw as Record<string, unknown>).plugins;
+  } else {
+    throw new Error("plugin.json: dependencies must be an object or array of plugin names");
+  }
+
+  if (plugins === undefined) return {};
+  if (!Array.isArray(plugins) || plugins.some((p: unknown) => typeof p !== "string" || !NAME_RE.test(p))) {
+    throw new Error("plugin.json: dependencies.plugins must be an array of plugin names");
+  }
+  return { plugins: plugins as string[] };
 }
 
 export function parseArtifact(r: Record<string, unknown>): PluginManifest["artifact"] {

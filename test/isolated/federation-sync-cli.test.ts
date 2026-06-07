@@ -37,6 +37,7 @@ let mockActive = false;
 
 const _rConfig = await import("../../src/config");
 const realLoadConfig = _rConfig.loadConfig;
+const realSaveConfig = _rConfig.saveConfig;
 
 const _rFetch = await import("../../src/commands/shared/federation-fetch");
 const realFetchPeerIdentities = _rFetch.fetchPeerIdentities;
@@ -56,6 +57,14 @@ mock.module(
     ..._rConfig,
     loadConfig: (...args: unknown[]) =>
       mockActive ? (configStore as MawConfig) : (realLoadConfig as (...a: unknown[]) => MawConfig)(...args),
+    saveConfig: (...args: unknown[]) => {
+      if (mockActive) {
+        const [update] = args as [Partial<MawConfig>];
+        saveCalls.push(update);
+        return;
+      }
+      return (realSaveConfig as (...a: unknown[]) => unknown)(...args);
+    },
   }),
 );
 
@@ -688,6 +697,22 @@ describe("cmdFederationSync — apply path", () => {
     expect(joined).toContain("(from peer 'white')");
   });
 
+  test("default save shim lazily calls config.saveConfig when no save callback is injected", async () => {
+    configStore = {
+      node: "oracle-world",
+      namedPeers: [{ name: "white", url: "https://white.example" }],
+      agents: {},
+    };
+    fetchReturn = [peer("white", "white", ["pulse"])];
+
+    await run(() => cmdFederationSync({}));
+
+    expect(exitCode).toBe(0);
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0].agents).toEqual({ pulse: "white" });
+    expect(outs.join("\n")).toContain("applied 1 change");
+  });
+
   test("multiple adds → 'applied N changes' (plural) + each msg printed", async () => {
     configStore = {
       node: "oracle-world",
@@ -816,5 +841,41 @@ describe("cmdFederationSync — fetch wiring", () => {
     await run(() => cmdFederationSync({}, captureSave));
 
     expect(outs.join("\n")).toContain("0 agents");
+  });
+
+  test("--peers both can feed ephemeral scout peers and preserve scout warnings in JSON", async () => {
+    configStore = { node: "white", namedPeers: [], agents: {} };
+    fetchReturn = [peer("scout-node", "scout-node", [])];
+
+    await run(() => cmdFederationSync({ json: true, peers: "both" }, captureSave, {
+      resolvePeerSources: async () => ({
+        mode: "both",
+        warnings: ["scout unavailable (daemon_unreachable)"],
+        peers: [{ name: "scout-node", url: "https://scout.example", source: "scout" }],
+      }),
+    }));
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].peers).toEqual([{ name: "scout-node", url: "https://scout.example" }]);
+    const parsed = JSON.parse(outs[0]);
+    expect(parsed.peerWarnings).toEqual(["scout unavailable (daemon_unreachable)"]);
+  });
+
+  test("--peers both text mode warns and exits cleanly when no config or scout peers exist", async () => {
+    configStore = { node: "white", namedPeers: [], agents: {} };
+
+    await run(() => cmdFederationSync({ peers: "both" }, captureSave, {
+      resolvePeerSources: async () => ({
+        mode: "both",
+        warnings: ["scout unavailable (daemon_unreachable)"],
+        peers: [],
+      }),
+    }));
+
+    const joined = outs.join("\n");
+    expect(exitCode).toBe(0);
+    expect(joined).toContain("scout unavailable");
+    expect(joined).toContain("no peers configured or discovered — nothing to sync");
+    expect(fetchCalls).toEqual([]);
   });
 });

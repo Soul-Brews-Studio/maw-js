@@ -10,22 +10,19 @@
  * in stdout/stderr would indicate a regression.
  */
 import { describe, it, expect } from "bun:test";
-import { join } from "path";
+import { runBunChild } from "./isolated/helpers/run-bun-child";
 
-const cliPath = join(import.meta.dir, "../src/cli.ts");
+const cmdUpdateUrl = new URL("../src/cli/cmd-update.ts", import.meta.url).href;
 
 async function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["bun", cliPath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, MAW_CLI: "1" },
+  return runBunChild({
+    cwd: process.cwd(),
+    env: { MAW_CLI: "1", MAW_TEST_MODE: "1" },
+    script: `
+      const { runUpdate } = await import(${JSON.stringify(cmdUpdateUrl)});
+      await runUpdate(${JSON.stringify(args)});
+    `,
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
 }
 
 describe("#356 — maw update --help short-circuits before uninstalling maw", () => {

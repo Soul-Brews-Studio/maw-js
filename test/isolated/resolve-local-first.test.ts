@@ -12,21 +12,25 @@
  */
 
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { join } from "path";
 
 // ─── Mutable stubs — each test sets these ────────────────────────────────────
 
 let fakeSessions: Array<{ name: string; windows: Array<{ index: number; name: string; active: boolean }> }> = [];
 let fakeCurlResponse: { ok: boolean; status: number; data: unknown } = { ok: false, status: 0, data: null };
-let fakePeerForTarget: string | null = null;
 let sendKeysCalled = false;
 let curlFetchCalled = false;
 let curlFetchUrl = "";
+const _rSdk = await import("../../src/sdk");
+const { resolveTarget } = await import("../../src/core/routing");
+const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 
 // ─── Module mocks (must be before any imports of the modules under test) ─────
 
 import { mockConfigModule } from "../helpers/mock-config";
+import { mockSshModule } from "../helpers/mock-ssh";
 
-mock.module("../../src/config", () => mockConfigModule(() => ({
+mock.module(join(import.meta.dir, "../../src/config"), () => mockConfigModule(() => ({
   node: "white",
   port: 3456,
   namedPeers: [{ name: "mba", url: "http://mba.wg:3457" }],
@@ -34,7 +38,7 @@ mock.module("../../src/config", () => mockConfigModule(() => ({
   sessions: {},
 })));
 
-mock.module("../../src/core/transport/ssh", () => ({
+mock.module(join(import.meta.dir, "../../src/core/transport/ssh"), () => mockSshModule({
   listSessions: async () => fakeSessions,
   sendKeys: async () => { sendKeysCalled = true; },
   capture: async () => "",
@@ -42,10 +46,9 @@ mock.module("../../src/core/transport/ssh", () => ({
   getPaneCommands: async () => [],
   getPaneInfos: async () => ({}),
   hostExec: async () => { throw new Error("tmux unavailable in test"); },
-  HostExecError: class HostExecError extends Error {},
 }));
 
-mock.module("../../src/core/transport/curl-fetch", () => ({
+mock.module(join(import.meta.dir, "../../src/core/transport/curl-fetch"), () => ({
   curlFetch: async (url: string) => {
     curlFetchCalled = true;
     curlFetchUrl = url;
@@ -53,30 +56,47 @@ mock.module("../../src/core/transport/curl-fetch", () => ({
   },
 }));
 
-mock.module("../../src/core/transport/peers", () => ({
-  findPeerForTarget: async () => fakePeerForTarget,
+mock.module(join(import.meta.dir, "../../src/core/transport/peers"), () => ({
+  findPeerForTarget: async () => null,
   getPeers: () => [],
   getFederationStatus: async () => ({ peers: [], totalPeers: 0, reachablePeers: 0 }),
 }));
 
-mock.module("../../src/core/runtime/hooks", () => ({ runHook: async () => {} }));
+mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({ runHook: async () => {} }));
 
-mock.module("../../src/core/fleet/worktrees", () => ({
+mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+  ..._rSdk,
+  listSessions: async () => fakeSessions,
+  capture: async () => "",
+  sendKeys: async () => { sendKeysCalled = true; },
+  getPaneCommand: async () => "claude",
+  isAgentCommand: (cmd: string | null | undefined) => /claude|codex|node/i.test(cmd ?? ""),
+  findPeerForTarget: async () => null,
+  resolveTarget,
+  curlFetch: async (url: string) => {
+    curlFetchCalled = true;
+    curlFetchUrl = url;
+    return fakeCurlResponse;
+  },
+  runHook: async () => {},
+}));
+
+mock.module(join(import.meta.dir, "../../src/core/fleet/worktrees"), () => ({
   scanWorktrees: async () => [],
   cleanupWorktree: async () => {},
 }));
 
-mock.module("../../src/commands/shared/wake", () => ({
+mock.module(join(import.meta.dir, "../../src/commands/shared/wake"), () => ({
   resolveFleetSession: () => null,
 }));
 
-mock.module("../../src/commands/shared/comm-log-feed", () => ({
+mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), () => ({
   logMessage: () => {},
   emitFeed: () => {},
 }));
 
 // tmux module — stub so sdk can import without a real tmux socket
-mock.module("../../src/core/transport/tmux", () => ({
+mock.module(join(import.meta.dir, "../../src/core/transport/tmux"), () => ({
   tmux: {},
   Tmux: class {},
   tmuxCmd: () => "tmux",
@@ -88,12 +108,12 @@ mock.module("../../src/core/transport/tmux", () => ({
 }));
 
 // Suppress plugin registry (not used in these tests)
-mock.module("../../src/plugin/registry", () => ({
+mock.module(join(import.meta.dir, "../../src/plugin/registry"), () => ({
   discoverPackages: () => [],
   invokePlugin: async () => ({ ok: false }),
 }));
 
-import { cmdSend } from "../../src/commands/shared/comm";
+const { cmdSend } = await import("../../src/commands/shared/comm-send");
 
 // ─── Test harness ─────────────────────────────────────────────────────────────
 
@@ -114,8 +134,6 @@ describe("local-first routing (#411)", () => {
     curlFetchUrl = "";
     fakeSessions = [];
     fakeCurlResponse = { ok: false, status: 0, data: null };
-    fakePeerForTarget = null;
-
     originalExit = process.exit;
     originalLog = console.log;
     originalError = console.error;
@@ -128,6 +146,7 @@ describe("local-first routing (#411)", () => {
     console.error = (...args: unknown[]) => { consoleErr.push(args.map(String).join(" ")); };
 
     process.env.MAW_QUIET = "1";
+    process.env.CLAUDE_AGENT_NAME = "test-sender";
   });
 
   afterEach(() => {
@@ -135,6 +154,8 @@ describe("local-first routing (#411)", () => {
     console.log = originalLog;
     console.error = originalError;
     delete process.env.MAW_QUIET;
+    if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+    else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
   });
 
   // ── Case 1: local hit ──────────────────────────────────────────────────────
@@ -159,7 +180,7 @@ describe("local-first routing (#411)", () => {
     fakeCurlResponse = {
       ok: true,
       status: 200,
-      data: { ok: true, target: "homekeeper", lastLine: "" },
+      data: { ok: true, target: "homekeeper", lastLine: "", state: "delivered" },
     };
 
     await cmdSend("mba:homekeeper", "hello remote");

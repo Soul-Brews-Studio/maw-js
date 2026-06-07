@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { Tmux } from "../../src/core/transport/tmux";
 
 // Capture all commands sent to ssh()
@@ -30,6 +30,7 @@ installDefaultSshMock();
 
 // Ensure no socket env var leaks into tests
 delete process.env.MAW_TMUX_SOCKET;
+const originalTerm = process.env.TERM;
 
 describe("Tmux", () => {
   let t: Tmux;
@@ -37,8 +38,14 @@ describe("Tmux", () => {
   beforeEach(() => {
     commands = [];
     sshResult = "";
+    process.env.TERM = "xterm";
     installDefaultSshMock();
     t = new Tmux();
+  });
+
+  afterEach(() => {
+    if (originalTerm === undefined) delete process.env.TERM;
+    else process.env.TERM = originalTerm;
   });
 
   // --- q() quoting (tested indirectly through commands) ---
@@ -62,6 +69,12 @@ describe("Tmux", () => {
     test("numbers are converted to strings", async () => {
       await t.tryRun("resize-pane", "-t", "s:0", "-x", 80, "-y", 24);
       expect(commands[0]).toBe("tmux resize-pane -t s:0 -x 80 -y 24");
+    });
+
+    test("injects TERM for tmux when running from non-tty automation", async () => {
+      delete process.env.TERM;
+      await t.tryRun("has-session", "-t", "oracles");
+      expect(commands[0]).toBe("TERM=xterm tmux has-session -t oracles");
     });
   });
 
@@ -90,6 +103,23 @@ describe("Tmux", () => {
     test("with window and cwd", async () => {
       await t.newSession("s1", { window: "main", cwd: "/home/nat" });
       expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat");
+    });
+
+    test("with a startup command", async () => {
+      await t.newSession("s1", { window: "main", cwd: "/home/nat", command: "bun dev; exec zsh" });
+      expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat 'bun dev; exec zsh'");
+    });
+
+    test("prints a requested format", async () => {
+      sshResult = "%99\n";
+      await expect(t.newSession("s1", { printFormat: "#{pane_id}" })).resolves.toBe("%99\n");
+      expect(commands[0]).toBe("tmux new-session -d -P -F '#{pane_id}' -s s1");
+    });
+
+    test("looks up the first pane id for an existing target", async () => {
+      sshResult = "%42\n%43\n";
+      await expect(t.firstPaneId("s1:lead")).resolves.toBe("%42");
+      expect(commands[0]).toBe("tmux list-panes -t s1:lead -F '#{pane_id}'");
     });
 
     test("non-detached", async () => {
@@ -167,6 +197,28 @@ describe("Tmux", () => {
 
   // --- Panes ---
 
+  describe("listPanes", () => {
+    test("uses stable window-name targets, not window indexes (#1567)", async () => {
+      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000";
+
+      const panes = await t.listPanes();
+
+      expect(commands[0]).toContain("#{session_name}:#{window_name}.#{pane_index}");
+      expect(commands[0]).not.toContain("#{session_name}:#{window_index}.#{pane_index}");
+      expect(panes).toEqual([
+        {
+          id: "%42",
+          command: "claude",
+          target: "54-mawjs:mawjs-oracle.0",
+          title: "oracle title",
+          pid: 1234,
+          cwd: "/tmp/maw",
+          lastActivity: 1715840000,
+        },
+      ]);
+    });
+  });
+
   describe("resizePane", () => {
     test("clamps values", async () => {
       await t.resizePane("s:0", 9999, -5);
@@ -198,6 +250,16 @@ describe("Tmux", () => {
       await t.splitWindow("oracles:page-1");
       expect(commands[0]).toBe("tmux split-window -t oracles:page-1");
     });
+
+    test("can print the new pane id while starting in a cwd with a command", async () => {
+      sshResult = "%77\n";
+      await expect(t.splitWindow(undefined, {
+        cwd: "/tmp/work",
+        command: "bun dev; exec zsh",
+        printFormat: "#{pane_id}",
+      })).resolves.toBe("%77\n");
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -c /tmp/work 'bun dev; exec zsh'");
+    });
   });
 
   describe("selectPane", () => {
@@ -216,6 +278,51 @@ describe("Tmux", () => {
     test("generates select-layout command", async () => {
       await t.selectLayout("oracles:page-1", "tiled");
       expect(commands[0]).toBe("tmux select-layout -t oracles:page-1 tiled");
+    });
+  });
+
+  describe("missing primitive wrappers (#1856)", () => {
+    test("generates read-only attach command", async () => {
+      await t.attachReadonly("oracles");
+      expect(commands[0]).toBe("tmux attach-session -r -t oracles");
+    });
+
+    test("switches clients read-only without toggling an already read-only client off", async () => {
+      sshResult = "0";
+      await t.switchClient("oracles-view", { readonly: true });
+      expect(commands).toEqual([
+        "tmux display-message -p '#{client_readonly}'",
+        "tmux switch-client -r -t oracles-view",
+      ]);
+
+      commands = [];
+      sshResult = "1";
+      await t.switchClient("oracles-view", { readonly: true });
+      expect(commands).toEqual([
+        "tmux display-message -p '#{client_readonly}'",
+        "tmux switch-client -t oracles-view",
+      ]);
+    });
+
+    test("generates pipe-pane output, input, close, and only-if-closed variants", async () => {
+      await t.pipePane("oracles:0.1", "cat > /tmp/out file", { onlyIfClosed: true });
+      await t.pipePane("oracles:0.1", "cat", { input: true, output: false });
+      await t.pipePane("oracles:0.1");
+
+      expect(commands).toEqual([
+        "tmux pipe-pane -O -o -t oracles:0.1 'cat > /tmp/out file'",
+        "tmux pipe-pane -I -t oracles:0.1 cat",
+        "tmux pipe-pane -O -t oracles:0.1",
+      ]);
+    });
+
+    test("generates synchronize-panes window option", async () => {
+      await t.synchronizePanes("oracles:0", true);
+      await t.synchronizePanes("oracles:0", false);
+      expect(commands).toEqual([
+        "tmux set-window-option -t oracles:0 synchronize-panes on",
+        "tmux set-window-option -t oracles:0 synchronize-panes off",
+      ]);
     });
   });
 
@@ -242,6 +349,25 @@ describe("Tmux", () => {
     test("escapes single quotes in text", async () => {
       await t.sendKeysLiteral("s:0", "it's a test");
       expect(commands[0]).toBe("tmux send-keys -t s:0 -l 'it'\\''s a test'");
+    });
+  });
+
+  describe("exitModeIfNeeded", () => {
+    test("cancels copy-mode before high-level text delivery", async () => {
+      sshResult = "1";
+      expect(await t.exitModeIfNeeded("s:0")).toBe(true);
+      expect(commands).toEqual([
+        "tmux display-message -t s:0 -p '#{pane_in_mode}'",
+        "tmux send-keys -t s:0 -X cancel",
+      ]);
+    });
+
+    test("does not cancel panes already in normal mode", async () => {
+      sshResult = "0";
+      expect(await t.exitModeIfNeeded("s:0")).toBe(false);
+      expect(commands).toEqual([
+        "tmux display-message -t s:0 -p '#{pane_in_mode}'",
+      ]);
     });
   });
 

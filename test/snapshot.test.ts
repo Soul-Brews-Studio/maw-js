@@ -6,6 +6,8 @@ import type { Snapshot, SnapshotSession, SnapshotWindow } from "../src/core/flee
 
 // Use temp dir for tests
 const TEST_DIR = join(tmpdir(), `maw-snapshot-test-${Date.now()}`);
+process.env.MAW_STATE_DIR = TEST_DIR;
+process.env.MAW_CONFIG_DIR = join(TEST_DIR, "config");
 
 interface MockWindow { name: string; index: number; }
 interface MockSession { name: string; windows: MockWindow[]; }
@@ -23,6 +25,7 @@ mock.module("../src/core/paths", () => ({
 }));
 
 import { mockConfigModule } from "./helpers/mock-config";
+import { mockSshModule } from "./helpers/mock-ssh";
 mock.module("../src/config", () => mockConfigModule(() => ({ node: "test-node" })));
 
 // Mock listSessions to return predictable data
@@ -31,7 +34,7 @@ let mockSessions: MockSession[] = [
   { name: "04-homekeeper", windows: [{ name: "homekeeper-oracle", index: 1 }] },
 ];
 
-mock.module("../src/core/transport/ssh", () => ({
+mock.module("../src/core/transport/ssh", () => mockSshModule({
   listSessions: async (): Promise<MockSession[]> => mockSessions,
   hostExec: async (): Promise<string> => "",
   ssh: async (): Promise<string> => "",
@@ -112,6 +115,27 @@ describe("snapshot", () => {
     expect(ours[0].trigger).toBe("done");
     expect(ours[0].windowCount).toBe(1);
     expect(ours[2].file).toBe("20260328-100000.json"); // oldest last
+  });
+
+
+  test("list and load read legacy config snapshots with state entries winning duplicate filenames", () => {
+    const legacyDir = join(TEST_DIR, "config", "snapshots");
+    mkdirSync(legacyDir, { recursive: true });
+    const filename = "20260331-100000.json";
+    writeFileSync(join(legacyDir, filename),
+      JSON.stringify({ timestamp: "2026-03-31T10:00:00Z", trigger: "legacy", sessions: [] }));
+
+    expect(listSnapshots().find(s => s.file === filename)?.trigger).toBe("legacy");
+    expect(loadSnapshot("20260331-100000")?.trigger).toBe("legacy");
+
+    writeFileSync(join(SNAPSHOT_DIR, filename),
+      JSON.stringify({ timestamp: "2026-03-31T10:00:00Z", trigger: "state", sessions: [{ name: "s", windows: [] }] }));
+
+    expect(listSnapshots().find(s => s.file === filename)).toMatchObject({
+      trigger: "state",
+      sessionCount: 1,
+    });
+    expect(loadSnapshot(filename)?.trigger).toBe("state");
   });
 
   test("loadSnapshot by filename", async () => {

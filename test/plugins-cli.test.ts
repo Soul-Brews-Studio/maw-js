@@ -86,14 +86,21 @@ describe("maw plugins CLI", () => {
     }
   });
 
-  test("ls grouped output shows plugin name and version", async () => {
+  test("ls compact output summarizes by default and -v shows plugin rows", async () => {
     const pluginDir = mkdtempSync(join(tmpdir(), "maw-p-"));
     const p = makePlugin(pluginDir, "my-tool");
     try {
       await cmdPlugins("ls", [], { _: [] }, () => [p]);
-      const all = logs.join("\n");
-      expect(all).toContain("my-tool");
-      expect(all).toContain("1.0.0");
+      const compact = logs.join("\n");
+      expect(compact).toContain("1 plugin (1 active, 0 disabled)");
+      expect(compact).toContain("health: ok");
+      expect(compact).not.toContain("my-tool");
+
+      logs = [];
+      await cmdPlugins("ls", [], { _: [], "--verbose": true }, () => [p]);
+      const verbose = logs.join("\n");
+      expect(verbose).toContain("my-tool");
+      expect(verbose).toContain("1.0.0");
     } finally {
       rmSync(pluginDir, { recursive: true, force: true });
     }

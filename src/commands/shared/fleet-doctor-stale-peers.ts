@@ -9,6 +9,12 @@ import { curlFetch } from "../../sdk";
 import type { PeerConfig } from "../../config";
 import type { DoctorFinding } from "./fleet-doctor-checks";
 
+export interface FleetPeerIdentity {
+  node: string;
+  agents: string[];
+  version?: string;
+}
+
 /**
  * Check 7 — Peer URLs that don't respond to /api/identity.
  * Also gathers identities for the missing-agent check.
@@ -16,9 +22,9 @@ import type { DoctorFinding } from "./fleet-doctor-checks";
 export async function checkStalePeers(
   peers: PeerConfig[],
   timeout = 3000,
-): Promise<{ findings: DoctorFinding[]; identities: Record<string, { node: string; agents: string[] }> }> {
+): Promise<{ findings: DoctorFinding[]; identities: Record<string, FleetPeerIdentity> }> {
   const findings: DoctorFinding[] = [];
-  const identities: Record<string, { node: string; agents: string[] }> = {};
+  const identities: Record<string, FleetPeerIdentity> = {};
   await Promise.all(
     peers.map(async (p) => {
       try {
@@ -33,9 +39,14 @@ export async function checkStalePeers(
           });
           return;
         }
-        const { node, agents } = res.data as { node?: string; agents?: unknown };
+        const { node, agents, version } = res.data as { node?: string; agents?: unknown; version?: unknown };
         if (typeof node === "string" && Array.isArray(agents)) {
-          identities[p.name] = { node, agents: agents.filter((a): a is string => typeof a === "string") };
+          const identity: FleetPeerIdentity = {
+            node,
+            agents: agents.filter((a): a is string => typeof a === "string"),
+          };
+          if (typeof version === "string" && version.length > 0) identity.version = version;
+          identities[p.name] = identity;
         }
       } catch {
         findings.push({

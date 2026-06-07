@@ -30,6 +30,30 @@ export interface PluginArtifact {
   sha256: string | null;    // sha256 of the bundle, or null if unbuilt
 }
 
+export interface PluginLifecycleHook {
+  /** Relative script/module path reserved for lifecycle runners (#1576). */
+  script?: string;
+  /** Exported handler name; defaults to the lifecycle name when omitted. */
+  handler?: string;
+  /** Advisory resources/capabilities this hook ensures before the lifecycle continues. */
+  ensures?: string[];
+  /** Failure policy for future runners; manifest parsing only in this slice. */
+  policy?: "best-effort" | "fail-fast";
+}
+
+export interface PluginEngineServe {
+  /** Command a future runner may use to start the persistent plugin process. */
+  command?: string;
+  /** Gateway prefix the process will register, e.g. /api/hey-ledger. */
+  prefix?: string;
+  /** Health endpoint on the plugin process, e.g. /health. */
+  health?: string;
+  /** Feed events the process wants to subscribe to through the engine. */
+  events?: string[];
+  /** HTTP path on the plugin process that receives subscribed feed events. */
+  eventPath?: string;
+}
+
 export interface PluginManifest {
   name: string;           // unique id, slug-safe /^[a-z0-9-]+$/
   version: string;        // semver e.g. "1.0.0"
@@ -40,6 +64,10 @@ export interface PluginManifest {
   sdk: string;            // semver range e.g. "^1.0.0"
   target?: PluginTarget;  // compile target (Phase A: "js" only)
   capabilities?: string[];// declared capability strings "namespace:verb" (advisory in Phase A)
+  capabilityNamespaces?: string[]; // plugin-owned capability namespaces accepted for this manifest (#1566)
+  dependencies?: {        // other maw plugins this plugin needs before dispatch
+    plugins?: string[];
+  };
   artifact?: PluginArtifact; // built-plugin artifact descriptor
   cli?: {
     command: string;
@@ -55,6 +83,9 @@ export interface PluginManifest {
     filter?: string[];  // event names to filter
     on?: string[];      // event names to handle
     late?: string[];    // event names for cleanup
+    wake?: PluginLifecycleHook;  // lifecycle: oracle/session wake (#1576)
+    sleep?: PluginLifecycleHook; // lifecycle: oracle/session sleep (#1576)
+    serve?: PluginLifecycleHook; // lifecycle: plugin persistent serve (#1576)
   };
   cron?: {
     schedule: string;   // cron expression
@@ -66,6 +97,9 @@ export interface PluginManifest {
   };
   transport?: {
     peer?: boolean;     // enable maw hey plugin:<name>
+  };
+  engine?: {
+    serve?: PluginEngineServe; // persistent process + reverse-proxy metadata (#1566)
   };
 }
 
@@ -81,6 +115,11 @@ export interface LoadedPlugin {
 export interface InvokeContext {
   source: "cli" | "api" | "peer";
   args: string[] | Record<string, unknown>;
+  /**
+   * CLI surface that matched this invocation. Alias-aware plugins can use it
+   * for deprecation warnings while keeping canonical behavior unchanged.
+   */
+  matchedName?: string;
   /**
    * Optional output writer injected by the invoker based on ctx.source.
    * CLI source → streams to process.stdout (real-time terminal output).

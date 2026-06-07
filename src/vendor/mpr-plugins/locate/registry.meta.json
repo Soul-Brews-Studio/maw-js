@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/locate@v0.1.0-locate",
+  "sha256": "e7744467dbb6e32a45a0a1bc968caaa3bd0452f4022862df4872a1ee85aebde0",
+  "summary": "Locate an oracle \u2014 repo path, session, fleet config, federation node. Diagnostic, no side effects.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:11Z",
+  "tier": "extra"
+}

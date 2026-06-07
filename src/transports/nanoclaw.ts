@@ -19,15 +19,20 @@ export class NanoclawTransport implements Transport {
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
 
+  constructor(
+    private readonly resolveTarget: typeof resolveNanoclawJid = resolveNanoclawJid,
+    private readonly sendMessage: typeof sendViaNanoclaw = sendViaNanoclaw,
+  ) {}
+
   get connected() { return this._connected; }
 
   async connect(): Promise<void> { this._connected = true; }
   async disconnect(): Promise<void> { this._connected = false; }
 
   async send(target: TransportTarget, message: string): Promise<boolean> {
-    const resolved = resolveNanoclawJid(target.oracle);
+    const resolved = this.resolveTarget(target.oracle);
     if (!resolved) return false;
-    return sendViaNanoclaw(resolved.jid, message, resolved.url);
+    return this.sendMessage(resolved.jid, message, resolved.url);
   }
 
   async publishPresence(_presence: TransportPresence): Promise<void> {}
@@ -39,6 +44,6 @@ export class NanoclawTransport implements Transport {
 
   /** Can reach targets that resolve to a nanoclaw channel JID */
   canReach(target: TransportTarget): boolean {
-    return resolveNanoclawJid(target.oracle) !== null;
+    return this.resolveTarget(target.oracle) !== null;
   }
 }

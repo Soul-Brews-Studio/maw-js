@@ -1,0 +1,17 @@
+{
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "oracle-workon",
+  "version": "0.1.0-alpha",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Alpha: Spawn a worktree team for oracle work — composes maw wake --task --split + maw swarm.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "oracle-workon",
+    "aliases": [],
+    "help": "maw oracle-workon --task <slug> [--with codex,thclaws] [--engine claude46] [--tiled] [--dry-run] — spawn a worktree team"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+}

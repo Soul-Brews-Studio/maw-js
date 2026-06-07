@@ -5,13 +5,15 @@ name: CalVer Release
 # Ported from: Soul-Brews-Studio/arra-oracle-skills-cli (PR #264)
 # Umbrella: #526 · Design review: mother-roots (white)
 #
-# Triggered when package.json is modified on main or alpha. All steps run
+# Triggered when package.json is modified on main, beta, or alpha. All steps run
 # in ONE job so there is no workflow-cascade gap (GITHUB_TOKEN-created
 # tags/releases deliberately don't trigger downstream workflows; doing it
 # inline sidesteps that rule entirely).
 #
 # Branch ↔ channel mapping (#818):
 #   - main  → stable cut       → tag vX.Y.Z          (marked latest)
+#   - beta  → beta cut         → tag vX.Y.Z-beta.N   (prerelease=true,
+#                                                     NOT marked latest)
 #   - alpha → pre-release cut  → tag vX.Y.Z-alpha.N  (prerelease=true,
 #                                                     NOT marked latest)
 # The prerelease flag is derived from the version string (-alpha./-beta.
@@ -28,7 +30,7 @@ name: CalVer Release
 
 on:
   push:
-    branches: [main, alpha]
+    branches: [main, beta, alpha]
     paths:
       - package.json
 
@@ -48,6 +50,10 @@ jobs:
           fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          # Keep release-gate behavior aligned with CI. The default-suite test
+          # harness still depends on 1.3.13-era Bun mock/export semantics.
+          bun-version: 1.3.13
 
       - name: Fetch tags
         run: git fetch --tags --force
@@ -101,18 +107,33 @@ jobs:
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "✅ valid CalVer: $TAG (channel=$CHANNEL prerelease=$PRERELEASE)"
 
-      - name: Fail loud on tag collision
+      - name: Check tag collision or unchanged-version no-op
+        id: tagcheck
         if: steps.ver.outputs.skip != 'true'
         run: |
+          set -e
+          VERSION="${{ steps.ver.outputs.version }}"
           TAG="${{ steps.ver.outputs.tag }}"
+          BEFORE="${{ github.event.before }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            BEFORE="HEAD^"
+          fi
+          PREVIOUS_VERSION="$(git show "$BEFORE:package.json" 2>/dev/null | jq -r '.version // empty' || true)"
+
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error title=Tag collision::$TAG already exists. Two cuts in one hour? Use the 'alpha.Nb' collision suffix, or wait for the next hour."
+            if [[ "$PREVIOUS_VERSION" == "$VERSION" ]]; then
+              echo "::notice title=Skipped::Tag $TAG already exists and package version did not change ($VERSION); no release cut for this package.json feature merge."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error title=Tag collision::$TAG already exists, but package version changed from '$PREVIOUS_VERSION' to '$VERSION'. Use the same-minute collision suffix (alpha.Nb) or wait for the next minute."
             exit 1
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "✓ $TAG is free"
 
       - name: Install + test + build
-        if: steps.ver.outputs.skip != 'true'
+        if: steps.ver.outputs.skip != 'true' && steps.tagcheck.outputs.skip != 'true'
         # #830 — skip the federation 2-port localhost integration test on this
         # runner. It hits a kernel port-race between getEphemeralPort()→close
         # and Bun.spawn()→listen that's been flaking nightly on alpha cuts:
@@ -124,11 +145,11 @@ jobs:
           MAW_SKIP_FLAKY: "1"
         run: |
           bun install --frozen-lockfile
-          bun run test
+          bun run test:all
           bun run build
 
       - name: Tag + GitHub release
-        if: steps.ver.outputs.skip != 'true'
+        if: steps.ver.outputs.skip != 'true' && steps.tagcheck.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -145,7 +166,7 @@ jobs:
           gh release create "$TAG" $FLAGS dist/maw
 
       - name: Summary
-        if: steps.ver.outputs.skip != 'true'
+        if: steps.ver.outputs.skip != 'true' && steps.tagcheck.outputs.skip != 'true'
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
           echo "### 🎉 Released $TAG" >> "$GITHUB_STEP_SUMMARY"

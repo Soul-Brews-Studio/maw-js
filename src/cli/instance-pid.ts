@@ -9,15 +9,12 @@
  * file, so stale absence is the default state; nothing to reconcile.
  */
 import { openSync, readSync, writeSync, closeSync, unlinkSync, mkdirSync } from "fs";
+import { execFileSync } from "child_process";
 import { join } from "path";
-import { homedir } from "os";
+import { mawRuntimeHomeDir } from "../core/xdg";
 
-function resolveHome(): string {
-  return process.env.MAW_HOME || join(homedir(), ".maw");
-}
-
-function pidFile(): string {
-  return join(resolveHome(), "maw.pid");
+export function pidFile(): string {
+  return join(mawRuntimeHomeDir(), "maw.pid");
 }
 
 /** Check if a process with `pid` is alive. Uses signal 0 (no-op probe). */
@@ -31,12 +28,158 @@ function isAlive(pid: number): boolean {
   }
 }
 
+function readPid(file = pidFile()): number {
+  let fd: number | null = null;
+  try {
+    fd = openSync(file, "r");
+    const buf = Buffer.alloc(64);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
+  } catch {
+    return NaN;
+  } finally {
+    if (fd !== null) { try { closeSync(fd); } catch {} }
+  }
+}
+
+function unlinkPid(file = pidFile()): void {
+  try { unlinkSync(file); } catch { /* already gone */ }
+}
+
+function processSummary(pid: number): string {
+  try {
+    const raw = execFileSync("ps", ["-p", String(pid), "-o", "pid=,etime=,command="], {
+      encoding: "utf-8",
+      timeout: 1000,
+    }).trim();
+    const line = raw.split("\n").at(-1)?.trim();
+    if (!line) return "";
+    const match = line.match(/^\s*\d+\s+(\S+)\s+(.+)$/);
+    if (!match) return "";
+    return `, uptime ${match[1]}, cmd: ${match[2].slice(0, 80)}`;
+  } catch {
+    return "";
+  }
+}
+
+export function serveStatus(): { pid: number | null; alive: boolean; file: string } {
+  const file = pidFile();
+  const pid = readPid(file);
+  if (!Number.isFinite(pid)) return { pid: null, alive: false, file };
+  const alive = isAlive(pid);
+  if (!alive) unlinkPid(file);
+  return { pid, alive, file };
+}
+
+function printServeStatusFrom(status: { pid: number | null; alive: boolean; file: string }): void {
+  if (!status.pid) {
+    console.log(`maw serve: stopped (${status.file})`);
+    return;
+  }
+  if (status.alive) {
+    console.log(`maw serve: running (PID ${status.pid}${processSummary(status.pid)})`);
+  } else {
+    console.log(`maw serve: stopped — removed stale PID ${status.pid} (${status.file})`);
+  }
+}
+
+export function printServeStatus(): void {
+  printServeStatusFrom(serveStatus());
+}
+
+function defaultEngineUrl(): string {
+  return (process.env.MAW_ENGINE_URL || `http://127.0.0.1:${process.env.MAW_PORT || "3456"}`).replace(/\/+$/, "");
+}
+
+function portFromEngineUrl(engineUrl: string): string {
+  try {
+    const url = new URL(engineUrl);
+    return url.port || (url.protocol === "https:" ? "443" : "80");
+  } catch {
+    return process.env.MAW_PORT || "3456";
+  }
+}
+
+function formatEngineRegistration(registration: Record<string, unknown>): string {
+  const plugin = typeof registration.plugin === "string" ? registration.plugin : "unknown";
+  const prefix = typeof registration.prefix === "string" ? registration.prefix : "unknown-prefix";
+  const upstream = typeof registration.upstream === "string" ? registration.upstream : "unknown-upstream";
+  const health = typeof registration.health === "string" ? ` health=${registration.health}` : "";
+  const events = Array.isArray(registration.events) && registration.events.length > 0
+    ? ` events=${registration.events.join(",")}`
+    : "";
+  return `  - ${plugin}: ${prefix} → ${upstream}${health}${events}`;
+}
+
+async function fetchEngineRegistrations(engineUrl = defaultEngineUrl()): Promise<
+  | { ok: true; engineUrl: string; registrations: Array<Record<string, unknown>> }
+  | { ok: false; engineUrl: string; reachable: boolean; error: string }
+> {
+  try {
+    const response = await fetch(`${engineUrl}/api/_engine/registrations`, { signal: AbortSignal.timeout(1_000) });
+    if (!response.ok) return { ok: false, engineUrl, reachable: true, error: `HTTP ${response.status}` };
+    const body = await response.json() as { registrations?: Array<Record<string, unknown>> };
+    return { ok: true, engineUrl, registrations: Array.isArray(body.registrations) ? body.registrations : [] };
+  } catch (err) {
+    return { ok: false, engineUrl, reachable: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function printServeStatusWithPlugins(engineUrl = defaultEngineUrl()): Promise<void> {
+  const status = serveStatus();
+  const result = await fetchEngineRegistrations(engineUrl);
+  if (!status.alive && !result.ok && !result.reachable) {
+    printServeStatusFrom(status);
+    return;
+  }
+
+  if (!status.alive && (result.ok || result.reachable)) {
+    const port = portFromEngineUrl(engineUrl);
+    console.log(`maw serve: listener reachable without PID file (${engineUrl})`);
+    console.log(`  pid file: ${status.file}`);
+    console.log("  likely: pm2 or another MAW_HOME/XDG state root owns the process");
+    console.log("  check: pm2 status maw");
+    console.log(`  find:  lsof -nP -iTCP:${port} -sTCP:LISTEN`);
+  } else {
+    printServeStatusFrom(status);
+  }
+
+  if (!result.ok) {
+    console.log(`engine plugins: unavailable (${result.engineUrl}: ${result.error})`);
+    return;
+  }
+  if (result.registrations.length === 0) {
+    console.log(`engine plugins: none (${result.engineUrl})`);
+    return;
+  }
+  console.log(`engine plugins (${result.engineUrl}):`);
+  for (const registration of result.registrations) console.log(formatEngineRegistration(registration));
+}
+
+export function stopServe(): void {
+  const status = serveStatus();
+  if (!status.pid) {
+    console.log("maw serve: already stopped");
+    return;
+  }
+  if (!status.alive) {
+    console.log(`maw serve: removed stale PID ${status.pid}`);
+    return;
+  }
+  process.kill(status.pid, "SIGTERM");
+  unlinkPid(status.file);
+  console.log(`maw serve: stopped PID ${status.pid}`);
+}
+
 /**
  * Acquire the PID lock, or exit(1) with a clear error if another maw serve
  * is already running in this home.
  */
-export function acquirePidLock(instanceName: string | null): void {
-  const home = resolveHome();
+export function acquirePidLock(
+  instanceName: string | null,
+  opts: { forceTakeover?: boolean } = {},
+): void {
+  const home = mawRuntimeHomeDir();
   mkdirSync(home, { recursive: true });
   const file = pidFile();
 
@@ -55,28 +198,28 @@ export function acquirePidLock(instanceName: string | null): void {
       // fd-based read prevents path-TOCTOU (symlink swap between wx open and
       // the probe read). Mirrors the #562 / #581 fix in src/cli/update-lock.ts.
       // Fixed 64-byte buffer — PIDs are ≤20 digits, no fstatSync needed.
-      let prior = NaN;
-      let readFd: number | null = null;
-      try {
-        readFd = openSync(file, "r");
-        const buf = Buffer.alloc(64);
-        const n = readSync(readFd, buf, 0, buf.length, 0);
-        prior = parseInt(buf.subarray(0, n).toString("utf-8").trim(), 10);
-      } catch { /* malformed — treat as stale */ }
-      finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
+      const prior = readPid(file);
       if (Number.isFinite(prior) && isAlive(prior)) {
+        if (opts.forceTakeover) {
+          process.kill(prior, "SIGTERM");
+          unlinkPid(file);
+          continue;
+        }
         const label = instanceName ? ` as ${instanceName}` : "";
-        console.error(`\x1b[31m✗\x1b[0m another maw serve is already running${label} (PID ${prior}). Stop it first.`);
+        console.error(`\x1b[31m✗\x1b[0m maw serve already running${label} (PID ${prior}${processSummary(prior)})`);
+        console.error(`  stop:  \x1b[36mmaw serve stop\x1b[0m`);
+        console.error(`  check: \x1b[36mmaw serve status\x1b[0m`);
+        console.error(`  force: \x1b[36mmaw serve --force-takeover\x1b[0m`);
         process.exit(1);
       }
       // Stale PID — remove and retry the atomic create once.
-      try { unlinkSync(file); } catch { /* already gone */ }
+      unlinkPid(file);
     }
   }
 
   // Clean up on clean shutdown. Best-effort — never crash if unlink fails.
   const cleanup = () => {
-    try { unlinkSync(file); } catch { /* already gone or disk full */ }
+    unlinkPid(file);
   };
   process.on("SIGTERM", () => { cleanup(); process.exit(0); });
   process.on("SIGINT", () => { cleanup(); process.exit(0); });

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/zoom@v0.1.0-zoom",
+  "sha256": "2f09671b78a674083887b36bf3cddcc29a0d7bd01d7b21fff7880aece5852c50",
+  "summary": "Toggle tmux pane zoom (full-screen) \u2014 wraps resize-pane -Z.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:08Z",
+  "tier": "extra"
+}

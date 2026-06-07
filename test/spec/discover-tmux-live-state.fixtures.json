@@ -1,0 +1,71 @@
+[
+  {
+    "name": "live panes expose session window pane cwd and peer matches",
+    "peers": [
+      { "name": "mawjs", "url": "http://mawjs:3456", "source": "config" },
+      { "name": "other", "url": "http://other:3456", "source": "scout", "node": "other" }
+    ],
+    "panes": [
+      {
+        "id": "%1",
+        "command": "claude",
+        "target": "101-mawjs:agent.0",
+        "title": "mawjs",
+        "pid": 111,
+        "cwd": "/repo/mawjs-oracle",
+        "lastActivity": 1800000000
+      },
+      {
+        "id": "%2",
+        "command": "zsh",
+        "target": "scratch:shell.1",
+        "title": "scratch",
+        "pid": 222,
+        "cwd": "/tmp/scratch",
+        "lastActivity": 1800000001
+      }
+    ],
+    "expected": {
+      "liveTargets": ["101-mawjs:agent.0", "scratch:shell.1"],
+      "sessions": ["101-mawjs", "scratch"],
+      "windows": ["agent", "shell"],
+      "panes": ["0", "1"],
+      "matches": [["mawjs"], []],
+      "awakePeers": ["mawjs"]
+    }
+  },
+  {
+    "name": "no tmux panes returns empty live state without warnings",
+    "peers": [{ "name": "mawjs", "url": "http://mawjs:3456", "source": "config" }],
+    "panes": [],
+    "expected": {
+      "liveTargets": [],
+      "sessions": [],
+      "windows": [],
+      "panes": [],
+      "matches": [],
+      "awakePeers": []
+    }
+  },
+  {
+    "name": "unmatched live session stays visible but does not mark peers awake",
+    "peers": [{ "name": "mawjs", "url": "http://mawjs:3456", "source": "config" }],
+    "panes": [
+      {
+        "id": "%9",
+        "command": "vim",
+        "target": "unregistered:notes.0",
+        "title": "notes",
+        "cwd": "/tmp/not-an-oracle"
+      }
+    ],
+    "expected": {
+      "liveTargets": ["unregistered:notes.0"],
+      "sessions": ["unregistered"],
+      "windows": ["notes"],
+      "panes": ["0"],
+      "matches": [[]],
+      "awakePeers": []
+    }
+  }
+]

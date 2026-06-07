@@ -1,0 +1,59 @@
+{
+  "constants": {
+    "knownTiers": ["core", "standard", "extra"],
+    "defaultTier": "core"
+  },
+  "weightToTier": [
+    { "name": "negative weights stay core", "weight": -1, "expected": "core" },
+    { "name": "zero weight is core", "weight": 0, "expected": "core" },
+    { "name": "weight just below standard threshold is core", "weight": 9, "expected": "core" },
+    { "name": "standard threshold starts at ten", "weight": 10, "expected": "standard" },
+    { "name": "weight just below extra threshold is standard", "weight": 49, "expected": "standard" },
+    { "name": "extra threshold starts at fifty", "weight": 50, "expected": "extra" },
+    { "name": "large weights stay extra", "weight": 100, "expected": "extra" }
+  ],
+  "defaultActiveGroups": [
+    {
+      "name": "#1500 standard operator primitives stay active",
+      "key": "1500",
+      "migration": "defaultActivePlugins1500",
+      "expectedPlugins": ["team", "fleet", "panes", "peers", "pair", "tmux", "kill", "plugin", "doctor", "inbox"],
+      "excludedPlugins": ["split", "shellenv", "completions", "learn", "dream"]
+    },
+    {
+      "name": "#1514 split remains active after stale profile migration",
+      "key": "1514",
+      "migration": "defaultActivePlugins1514",
+      "expectedPlugins": ["split"],
+      "excludedPlugins": ["team", "shellenv", "completions", "learn", "dream"]
+    },
+    {
+      "name": "#1523 shellenv remains active for direnv shell integration",
+      "key": "1523",
+      "migration": "defaultActivePlugins1523",
+      "expectedPlugins": ["shellenv"],
+      "excludedPlugins": ["team", "split", "completions", "learn", "dream"]
+    },
+    {
+      "name": "#1524 completions remain active for CLI ergonomics",
+      "key": "1524",
+      "migration": "defaultActivePlugins1524",
+      "expectedPlugins": ["completions"],
+      "excludedPlugins": ["team", "split", "shellenv", "learn", "dream"]
+    },
+    {
+      "name": "#1531 Oracle workflow verbs stay active",
+      "key": "1531",
+      "migration": "defaultActivePlugins1531",
+      "expectedPlugins": ["learn", "find", "talk-to", "project", "workon", "cleanup"],
+      "excludedPlugins": ["team", "split", "shellenv", "completions", "dream"]
+    },
+    {
+      "name": "#1854 view stays active for observer attach",
+      "key": "1854",
+      "migration": "defaultActivePlugins1854",
+      "expectedPlugins": ["view"],
+      "excludedPlugins": ["team", "split", "shellenv", "completions", "dream"]
+    }
+  ]
+}

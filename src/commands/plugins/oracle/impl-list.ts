@@ -21,6 +21,7 @@
  *   --scan    refresh cache before listing
  *   --stale   skip auto-refresh on stale cache
  *   --path    show local filesystem paths
+ *   --sort-by born  sort newest-known births first (#1806)
  */
 
 import {
@@ -46,6 +47,7 @@ export interface OracleListOpts {
   scan?: boolean;
   stale?: boolean;
   path?: boolean;
+  sortBy?: "born" | string;
 }
 
 export interface EnrichedEntry {
@@ -55,6 +57,8 @@ export interface EnrichedEntry {
   lineage: OracleLineage;
   /** Manifest-source labels — useful for future debugging / future flag. */
   sources: string[];
+  /** Skill-side birth cache metadata, when known (#1806). */
+  born?: OracleManifestEntry["born"];
 }
 
 /**
@@ -144,9 +148,11 @@ export async function buildEnrichedEntries(opts: { scan?: boolean; stale?: boole
   const manifestNames = new Set<string>();
   const entries: OracleEntry[] = [];
   const sourcesByName = new Map<string, string[]>();
+  const bornByName = new Map<string, OracleManifestEntry["born"]>();
   for (const m of manifest) {
     manifestNames.add(m.name);
     sourcesByName.set(m.name, [...m.sources]);
+    if (m.born) bornByName.set(m.name, m.born);
     entries.push(
       buildEntryFromManifest(m, cacheByName, config.node || null, now),
     );
@@ -183,8 +189,14 @@ export async function buildEnrichedEntries(opts: { scan?: boolean; stale?: boole
       session,
       lineage: lineageOf(entry, awake, agents),
       sources: sourcesByName.get(entry.name) ?? [],
+      born: bornByName.get(entry.name),
     };
   });
+}
+
+function bornSortValue(x: EnrichedEntry): number {
+  const value = x.born?.iso ? Date.parse(x.born.iso) : Number.NaN;
+  return Number.isFinite(value) ? value : -Infinity;
 }
 
 export async function cmdOracleList(opts: OracleListOpts = {}) {
@@ -195,13 +207,22 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   if (opts.awake) filtered = filtered.filter((x) => x.awake);
   if (opts.org) filtered = filtered.filter((x) => x.entry.org === opts.org);
 
-  // 6. Sort — awake first within each org; orgs alphabetical; names alphabetical
-  filtered.sort((a, b) => {
-    if (a.entry.org !== b.entry.org)
-      return a.entry.org.localeCompare(b.entry.org);
-    if (a.awake !== b.awake) return a.awake ? -1 : 1;
-    return a.entry.name.localeCompare(b.entry.name);
-  });
+  // 6. Sort — default keeps org grouping; `--sort-by born` answers "newest
+  // known oracle births first" and leaves entries without birth metadata last.
+  if (opts.sortBy === "born") {
+    filtered.sort((a, b) => {
+      const byBorn = bornSortValue(b) - bornSortValue(a);
+      if (byBorn !== 0) return byBorn;
+      return a.entry.name.localeCompare(b.entry.name);
+    });
+  } else {
+    filtered.sort((a, b) => {
+      if (a.entry.org !== b.entry.org)
+        return a.entry.org.localeCompare(b.entry.org);
+      if (a.awake !== b.awake) return a.awake ? -1 : 1;
+      return a.entry.name.localeCompare(b.entry.name);
+    });
+  }
 
   // 7. JSON output — preserve schema for machine consumers
   const cache = readCache();
@@ -216,6 +237,7 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
         session: x.session,
         lineage: x.lineage,
         sources: x.sources,
+        born: x.born ?? null,
       })),
     };
     console.log(JSON.stringify(out, null, 2));

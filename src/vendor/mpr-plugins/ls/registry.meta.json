@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/ls@v0.1.0-ls",
+  "sha256": "1b1fb2a893430d0dd50e70211c3dcad49bb4f8801f1d10afb7b6a2ec7480f517",
+  "summary": "List live sessions locally by default; use --federation for peers.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:02Z",
+  "tier": "extra"
+}

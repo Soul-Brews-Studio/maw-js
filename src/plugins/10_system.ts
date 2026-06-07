@@ -6,6 +6,10 @@
 import type { FeedEvent } from "../lib/feed";
 import type { Gate, Filter, Handler, Late, MawPlugin, MawHooks, PluginScope, PluginInfo, Scoped } from "./00_types";
 
+export interface PluginSystemOptions {
+  shouldSkipHandler?: (eventName: string, pluginName: string | undefined) => boolean;
+}
+
 export class PluginSystem {
   private gates = new Map<string, Scoped<Gate>[]>();
   private filters = new Map<string, Scoped<Filter>[]>();
@@ -21,6 +25,21 @@ export class PluginSystem {
   private _currentPluginName?: string;
   private _reloads = 0;
   private _lastReloadAt?: string;
+
+  constructor(private readonly opts: PluginSystemOptions = {}) {}
+
+  withPluginContext<T>(name: string | undefined, scope: PluginScope, fn: () => T): T {
+    const prevScope = this._currentScope;
+    const prevName = this._currentPluginName;
+    this._currentScope = scope;
+    this._currentPluginName = name;
+    try {
+      return fn();
+    } finally {
+      this._currentScope = prevScope;
+      this._currentPluginName = prevName;
+    }
+  }
 
   private _addTo<T>(map: Map<string, Scoped<T>[]>, event: string, fn: T) {
     const entry: Scoped<T> = { fn, scope: this._currentScope, name: this._currentPluginName };
@@ -67,6 +86,7 @@ export class PluginSystem {
     // Phase 2: HANDLE
     const readOnly = Object.freeze({ ...event });
     for (const { fn, name } of [...(this.handlers.get(event.event) ?? []), ...(this.handlers.get("*") ?? [])]) {
+      if (this.opts.shouldSkipHandler?.(event.event, name)) continue;
       try { await fn(readOnly); }
       catch (err) { console.error(`[plugin] ${event.event}:`, (err as Error).message); this._recordError(name, err as Error); }
     }
@@ -82,14 +102,10 @@ export class PluginSystem {
   }
 
   load(plugin: MawPlugin, scope: PluginScope = "user", name?: string) {
-    const prevScope = this._currentScope;
-    const prevName = this._currentPluginName;
-    this._currentScope = scope;
-    this._currentPluginName = name;
-    try {
+    return this.withPluginContext(name, scope, () => {
       const teardown = plugin(this.hooks);
       if (typeof teardown === "function") this.teardowns.push({ fn: teardown, scope });
-    } finally { this._currentScope = prevScope; this._currentPluginName = prevName; }
+    });
   }
 
   register(name: string, type: PluginInfo["type"], source: PluginScope = "user") {

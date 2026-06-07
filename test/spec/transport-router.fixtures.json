@@ -1,0 +1,107 @@
+[
+  {
+    "kind": "classifyError",
+    "name": "timeout errors are retryable",
+    "error": "ETIMEDOUT while dialing",
+    "expected": { "reason": "timeout", "retryable": true }
+  },
+  {
+    "kind": "classifyError",
+    "name": "connection refused is retryable unreachable",
+    "error": "ECONNREFUSED",
+    "expected": { "reason": "unreachable", "retryable": true }
+  },
+  {
+    "kind": "classifyError",
+    "name": "auth failures are fatal",
+    "error": "403 forbidden",
+    "expected": { "reason": "auth", "retryable": false }
+  },
+  {
+    "kind": "classifyError",
+    "name": "rate limits are retryable",
+    "error": "429 too many requests",
+    "expected": { "reason": "rate_limit", "retryable": true }
+  },
+  {
+    "kind": "classifyError",
+    "name": "peer rejection is fatal",
+    "error": "peer rejected message",
+    "expected": { "reason": "rejected", "retryable": false }
+  },
+  {
+    "kind": "classifyError",
+    "name": "parse errors are fatal",
+    "error": "JSON parse failed",
+    "expected": { "reason": "parse_error", "retryable": false }
+  },
+  {
+    "kind": "classifyError",
+    "name": "empty error is fatal unknown",
+    "error": null,
+    "expected": { "reason": "unknown", "retryable": false }
+  },
+  {
+    "kind": "send",
+    "name": "first connected reachable transport wins",
+    "transports": [
+      { "name": "tmux" },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": true, "via": "tmux", "retryable": false }, "sent": ["tmux"] }
+  },
+  {
+    "kind": "send",
+    "name": "disconnected transports are skipped",
+    "transports": [
+      { "name": "offline", "connected": false },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": true, "via": "http", "retryable": false }, "sent": ["http"] }
+  },
+  {
+    "kind": "send",
+    "name": "unreachable transports are skipped",
+    "transports": [
+      { "name": "tmux", "canReach": false },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": true, "via": "http", "retryable": false }, "sent": ["http"] }
+  },
+  {
+    "kind": "send",
+    "name": "false send result falls through",
+    "transports": [
+      { "name": "mqtt", "send": { "type": "false" } },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": true, "via": "http", "retryable": false }, "sent": ["mqtt", "http"] }
+  },
+  {
+    "kind": "send",
+    "name": "retryable throw falls through",
+    "transports": [
+      { "name": "mqtt", "send": { "type": "throw", "error": "timeout" } },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": true, "via": "http", "retryable": false }, "sent": ["mqtt", "http"] }
+  },
+  {
+    "kind": "send",
+    "name": "fatal throw stops failover",
+    "transports": [
+      { "name": "peer", "send": { "type": "throw", "error": "401 unauthorized" } },
+      { "name": "http" }
+    ],
+    "expected": { "result": { "ok": false, "via": "peer", "reason": "auth", "retryable": false }, "sent": ["peer"] }
+  },
+  {
+    "kind": "send",
+    "name": "no reachable transport is explicit unreachable",
+    "transports": [
+      { "name": "tmux", "canReach": false },
+      { "name": "mqtt", "connected": false }
+    ],
+    "expected": { "result": { "ok": false, "via": "none", "reason": "unreachable", "retryable": false }, "sent": [] }
+  }
+]

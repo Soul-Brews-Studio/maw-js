@@ -6,8 +6,9 @@
  *   1. fleet windows         (FLEET_DIR/*.json)
  *   2. config.sessions       (Record<oracle, sessionId>)
  *   3. config.agents         (Record<oracle, node>)
- *   4. oracles-json cache    (CONFIG_DIR/oracles.json)
- *   5. worktree scan         (deferred — covered by mergeOraclesJsonEntry shape)
+ *   4. oracles-json cache    (MAW_CACHE_DIR/oracles.json)
+ *   5. oracle-births cache  (MAW_CACHE_DIR/oracle-births.json)
+ *   6. worktree scan         (deferred — covered by mergeOraclesJsonEntry shape)
  *
  * Isolated (per-file subprocess) because we mutate process.env.MAW_CONFIG_DIR
  * BEFORE importing the target module. `src/core/paths.ts` captures CONFIG_DIR
@@ -21,10 +22,13 @@ import { tmpdir } from "os";
 
 // ─── Pin CONFIG_DIR + FLEET_DIR to a sandboxed tmp dir BEFORE imports ───────
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-manifest-836-"));
+const TEST_CACHE_DIR = mkdtempSync(join(tmpdir(), "maw-manifest-cache-"));
 const TEST_FLEET_DIR = join(TEST_CONFIG_DIR, "fleet");
 mkdirSync(TEST_FLEET_DIR, { recursive: true });
+mkdirSync(TEST_CACHE_DIR, { recursive: true });
 
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_CACHE_DIR = TEST_CACHE_DIR;
 delete process.env.MAW_HOME;
 // MAW_TEST_MODE prevents accidental writes to the real homedir if a test
 // strays. Mirrors test/isolated/auth-secret-persist.test.ts hardening (#820).
@@ -37,22 +41,27 @@ const {
   loadManifest,
   findOracle,
   loadManifestCached,
+  loadOracleBirths,
   invalidateManifest,
   mergeOraclesJsonEntry,
   DEFAULT_TTL_MS,
 } = manifest;
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
-const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
+const ORACLES_JSON = join(TEST_CACHE_DIR, "oracles.json");
+const ORACLE_BIRTHS_JSON = join(TEST_CACHE_DIR, "oracle-births.json");
+const LEGACY_ORACLE_BIRTHS_JSON = join(TEST_CONFIG_DIR, "oracle-births.json");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {
-  // Wipe all 4 file-backed registries between tests (the 5th — config.agents
-  // pre-population — is recomputed on every loadConfig() call).
-  for (const f of [CONFIG_FILE, ORACLES_JSON]) {
+  // Wipe all 5 file-backed registries between tests (config.agents
+  // pre-population is recomputed on every loadConfig() call).
+  mkdirSync(TEST_CACHE_DIR, { recursive: true });
+  for (const f of [CONFIG_FILE, ORACLES_JSON, ORACLE_BIRTHS_JSON, LEGACY_ORACLE_BIRTHS_JSON]) {
     try { rmSync(f, { force: true }); } catch { /* missing is fine */ }
   }
   // Wipe fleet dir.
@@ -95,6 +104,14 @@ function writeOraclesJson(oracles: any[]) {
     ) + "\n",
     "utf-8",
   );
+}
+
+function writeOracleBirths(body: Record<string, unknown>) {
+  writeFileSync(ORACLE_BIRTHS_JSON, JSON.stringify(body, null, 2) + "\n", "utf-8");
+}
+
+function writeLegacyOracleBirths(body: Record<string, unknown>) {
+  writeFileSync(LEGACY_ORACLE_BIRTHS_JSON, JSON.stringify(body, null, 2) + "\n", "utf-8");
 }
 
 function makeOraclesEntry(o: Partial<any> & { name: string }) {
@@ -179,6 +196,119 @@ describe("loadManifest — aggregates from all sources", () => {
     expect(e.hasPsi).toBe(true);
     expect(e.node).toBe("white");
     expect(e.sources).toContain("oracles-json");
+  });
+
+  test("oracle-births cache enriches existing manifest rows without creating birth-only rows", () => {
+    writeOraclesJson([
+      makeOraclesEntry({ name: "freshbud" }),
+    ]);
+    writeOracleBirths({
+      version: 1,
+      entries: {
+        freshbud: {
+          iso: "2026-05-09T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+        "birth-only": {
+          iso: "2026-05-10T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+
+    const m = loadManifest();
+
+    expect(m.map((e) => e.name)).toEqual(["freshbud"]);
+    expect(m[0].born).toEqual({
+      iso: "2026-05-09T10:17:24+07:00",
+      source: "git-claudemd",
+      cached_at: "2026-05-12T21:56:03.246Z",
+    });
+  });
+
+  test("loadOracleBirths accepts legacy top-level maps and current entries maps", () => {
+    writeOracleBirths({
+      version: 1,
+      entries: {
+        current: {
+          iso: "2026-05-09T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+    expect(loadOracleBirths()).toEqual({
+      current: {
+        iso: "2026-05-09T10:17:24+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+
+    writeOracleBirths({
+      version: 1,
+      legacy: {
+        iso: "2026-04-17T16:45:01+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.873Z",
+      },
+      malformed: { iso: "missing-fields" },
+    });
+    expect(loadOracleBirths()).toEqual({
+      legacy: {
+        iso: "2026-04-17T16:45:01+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.873Z",
+      },
+    });
+  });
+
+  test("loadOracleBirths falls back to config-path birth caches when cache path is empty", () => {
+    writeLegacyOracleBirths({
+      version: 1,
+      entries: {
+        oldbud: {
+          iso: "2026-05-01T00:00:00+07:00",
+          source: "legacy-config-cache",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+
+    expect(loadOracleBirths()).toEqual({
+      oldbud: {
+        iso: "2026-05-01T00:00:00+07:00",
+        source: "legacy-config-cache",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+
+    writeOracleBirths({
+      version: 1,
+      entries: {
+        newbud: {
+          iso: "2026-05-02T00:00:00+07:00",
+          source: "xdg-cache",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+
+    expect(loadOracleBirths()).toEqual({
+      newbud: {
+        iso: "2026-05-02T00:00:00+07:00",
+        source: "xdg-cache",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+  });
+
+  test("loadOracleBirths ignores unreadable cache JSON", () => {
+    writeFileSync(ORACLE_BIRTHS_JSON, "{not-json", "utf-8");
+
+    expect(loadOracleBirths()).toEqual({});
   });
 
   test("all 4 file-backed sources for the same oracle merge into one entry", () => {

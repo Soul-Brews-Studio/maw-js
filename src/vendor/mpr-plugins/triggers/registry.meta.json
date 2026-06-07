@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/triggers@v0.1.0-triggers",
+  "sha256": "2d857951503dae0980da9a939823a8103a39bfccd27ac0255c4665ce28e85cb7",
+  "summary": "List configured event triggers.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:06Z",
+  "tier": "extra"
+}

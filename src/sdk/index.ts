@@ -49,6 +49,13 @@ export {
 } from "../core/transport/peers";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
+export { resolveOracle, pickOracle } from "../core/resolve";
+export type {
+  OracleRef,
+  ResolveOracleOptions,
+  ResolveResult as OracleResolveResult,
+  PickOracleOptions,
+} from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
 export type { Session, Window } from "../core/runtime/find-window";
 
@@ -93,7 +100,7 @@ export type { ArtifactMeta, ArtifactSummary } from "../lib/artifacts";
 
 // ─── Plugin System ───────────────────────────────────────────────────────────
 
-export { discoverPackages, invokePlugin } from "../plugin/registry";
+export { discoverPackages, importPluginSymbol, invokePlugin } from "../plugin/registry";
 export { parseManifest, loadManifestFromDir } from "../plugin/manifest";
 export { registerCommand, matchCommand, listCommands } from "../cli/command-registry";
 

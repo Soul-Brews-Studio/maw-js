@@ -19,7 +19,18 @@ import { signHeaders, signHeadersV3, resolveFromAddress } from "../../lib/federa
 import { getPeerKey } from "../../lib/peer-key";
 import { loadConfig } from "../../config";
 
-const IS_MACOS = process.platform === "darwin";
+type CurlFetchTransport = "native" | "curl";
+
+function selectTransport(): CurlFetchTransport {
+  // Test/dev escape hatch: the macOS default intentionally shells out to curl
+  // to avoid Apple's Local Network Privacy prompt path, but unit tests need a
+  // deterministic way to exercise the native-fetch branch with mocked
+  // `globalThis.fetch` on Nat's m5. Production behavior is unchanged when the
+  // env var is absent.
+  const forced = process.env.MAW_CURL_FETCH_TRANSPORT;
+  if (forced === "native" || forced === "curl") return forced;
+  return process.platform === "darwin" ? "curl" : "native";
+}
 
 // #653: cap response body to defend against a hostile peer returning an
 // unbounded stream. 10 MB matches the project convention for untrusted
@@ -103,9 +114,9 @@ export async function curlFetch(url: string, opts?: {
     return { ok: false, status: 0, data: null };
   }
 
-  // Prefer native fetch (Linux, remote hosts)
-  // Fall back to curl on macOS (Local Network Privacy blocks fetch for LAN/WG)
-  if (!IS_MACOS) {
+  // Prefer native fetch (Linux, remote hosts).
+  // Fall back to curl on macOS (Local Network Privacy blocks fetch for LAN/WG).
+  if (selectTransport() === "native") {
     return nativeFetch(url, opts, headers);
   }
   return curlSpawn(url, opts, headers);

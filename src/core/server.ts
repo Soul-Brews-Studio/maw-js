@@ -4,7 +4,6 @@ import type { WSData } from "./types";
 import { loadConfig } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { serveStatic } from "hono/bun";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
@@ -15,16 +14,27 @@ import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
+import { runServeLifecycleHooks } from "../plugin/lifecycle";
+import {
+  dispatchEnginePluginEvent,
+  findEnginePluginRegistration,
+  hasEnginePluginEventSink,
+  proxyEnginePluginRequest,
+  startEnginePluginHealthPolling,
+} from "./engine-plugin-registry";
+import { mawDataPath } from "./xdg";
+import { UserError } from "./util/user-error";
 
 // --- Version info (computed once at startup) ---
 
 function getVersionString(): string {
   try {
-    const pkg = require("../package.json");
-    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
+    const rootDir = join(import.meta.dir, "..", "..");
+    const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf-8"));
+    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: rootDir }).toString().trim(); } catch {}
     let buildDate = "";
     try {
-      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir }).toString().trim();
+      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: rootDir }).toString().trim();
       const d = new Date(raw);
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
@@ -35,45 +45,73 @@ function getVersionString(): string {
 
 export const VERSION = getVersionString();
 
+export function isAddressInUseError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; errno?: unknown; syscall?: unknown; message?: unknown };
+  return e.code === "EADDRINUSE"
+    || (e.syscall === "listen" && typeof e.message === "string" && /port .*in use|address.*in use|EADDRINUSE/i.test(e.message));
+}
+
+export function servePortInUseInstructions(port: number, hostname: string): string[] {
+  const bind = hostname === "0.0.0.0" ? `port ${port}` : `${hostname}:${port}`;
+  return [
+    `\x1b[31m✗\x1b[0m maw serve cannot start: ${bind} is already in use.`,
+    "  likely: another maw server, pm2 process, or dev server is already listening.",
+    "  check:  \x1b[36mmaw serve status\x1b[0m",
+    "  stop:   \x1b[36mmaw serve stop\x1b[0m",
+    `  find:   \x1b[36mlsof -nP -iTCP:${port} -sTCP:LISTEN\x1b[0m`,
+    "  pm2:    \x1b[36mpm2 status maw\x1b[0m",
+    "  force:  \x1b[36mmaw serve --force-takeover\x1b[0m  \x1b[90m(kills only the recorded maw PID)\x1b[0m",
+    `  alt:    \x1b[36mmaw serve ${port + 1}\x1b[0m`,
+  ];
+}
+
 // Bind heuristic lives in ./bind-host.ts so tests can import it without
 // pulling in server.ts's module-level auto-start side effects.
 import { resolveBindHost } from "./bind-host";
 
 // --- Views + static (Hono keeps these) ---
 
-const views = new Hono();
+export function createViews(
+  mawUiDir = process.env.MAW_UI_DIR || mawDataPath("ui", "dist"),
+  doorHtmlPath = join(import.meta.dir, "static", "door.html"),
+) {
+  const views = new Hono();
 
-// Fleet topology visualization
-views.get("/topology", async (c) => {
-  const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
-  try {
-    const html = require("fs").readFileSync(path, "utf-8");
-    return c.html(html);
-  } catch { return c.text("fleet-topology.html not found", 404); }
-});
+  // Fleet topology visualization
+  views.get("/topology", async (c) => {
+    const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
+    try {
+      const html = require("fs").readFileSync(path, "utf-8");
+      return c.html(html);
+    } catch { return c.text("fleet-topology.html not found", 404); }
+  });
 
-mountViews(views);
+  mountViews(views);
 
-// Serve packed maw-ui dist (Shape A — single port, single process)
-const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
-if (existsSync(MAW_UI_DIR)) {
-  views.use("/*", serveStatic({ root: MAW_UI_DIR }));
-} else {
-  // The Door — minimal landing page when no packed maw-ui is installed.
-  // Lets users connect to any federation by pasting an address.
-  let doorHtml: string;
-  try {
-    doorHtml = readFileSync(join(import.meta.dir, "static", "door.html"), "utf-8");
-  } catch {
-    // door.html missing (e.g. fresh clone without assets) — serve inline stub
-    process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
-    doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+  // Serve packed maw-ui dist (Shape A — single port, single process)
+  if (existsSync(mawUiDir)) {
+    views.use("/*", serveStatic({ root: mawUiDir }));
+  } else {
+    // The Door — minimal landing page when no packed maw-ui is installed.
+    // Lets users connect to any federation by pasting an address.
+    let doorHtml: string;
+    try {
+      doorHtml = readFileSync(doorHtmlPath, "utf-8");
+    } catch {
+      // door.html missing (e.g. fresh clone without assets) — serve inline stub
+      process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
+      doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+    }
+    views.get("/", (c) => c.html(doorHtml));
   }
-  views.get("/", (c) => c.html(doorHtml));
+
+  views.onError((err, c) => c.json({ error: err.message }, 500));
+
+  return views;
 }
 
-views.onError((err, c) => c.json({ error: err.message }, 500));
-
+const views = createViews();
 export { views };
 
 // --- Server ---
@@ -111,21 +149,32 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
+  feedListeners.add((event) => {
+    dispatchEnginePluginEvent(event).catch((err) => {
+      console.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  });
 
   // Plugin system — built-in + user plugins
   try {
-    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("../plugins/index");
-    const { homedir } = require("os");
-    const { join, resolve, dirname } = require("path");
-    const plugins = new PluginSystem();
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
+    const { resolve, dirname } = require("path");
+    const plugins = new PluginSystem({
+      shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
+        hasEnginePluginEventSink(pluginName, eventName),
+    });
 
     // Built-in plugins (ship with maw-js)
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
     await loadPlugins(plugins, builtinDir, "builtin");
 
-    // User plugins (file-drop: ~/.oracle/plugins/)
-    const userPluginsDir = join(homedir(), ".oracle", "plugins");
+    // User plugins (file-drop: XDG data plugin dir; overridable for tests/dev)
+    const userPluginsDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
     await loadPlugins(plugins, userPluginsDir, "user");
+
+    // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins
+    // subscribe to feed events without direct core imports (#1566).
+    await registerManifestHooks(plugins);
 
     // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
     // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.
@@ -164,8 +213,24 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     },
   };
 
+  const corsHeaders = (req: Request) => {
+    const origin = req.headers.get("origin") ?? "*";
+    return {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Federation-Token, X-From-Signature",
+      "Access-Control-Allow-Private-Network": "true",
+    };
+  };
+
   const fetchHandler = (req: Request, server: any) => {
     const url = new URL(req.url);
+
+    // CORS preflight for all routes
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(req) });
+    }
+
     if (url.pathname === "/ws/pty") {
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set(), mode: "pty" } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -174,12 +239,24 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
       if (server.upgrade(req, { data: { target: null, previewTargets: new Set() } as WSData })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
-    // Elysia handles all /api/* routes
+    // Elysia handles all /api/* routes (has its own CORS)
     if (url.pathname.startsWith("/api")) {
+      const enginePlugin = findEnginePluginRegistration(url.pathname);
+      if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
       return api.handle(req);
     }
-    // Hono handles views + static
-    return views.fetch(req, { server });
+    // Hono handles views + static — clone response with CORS headers
+    const addCors = (r: Response) => {
+      const h = corsHeaders(req);
+      return new Response(r.body, {
+        status: r.status,
+        statusText: r.statusText,
+        headers: { ...Object.fromEntries(r.headers.entries()), ...h },
+      });
+    };
+    const res = views.fetch(req, { server });
+    if (res instanceof Promise) return res.then(addCors);
+    return addCors(res as Response);
   };
 
   // HTTP server (always)
@@ -214,10 +291,32 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
   }
 
-  const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+  } catch (err) {
+    if (isAddressInUseError(err)) {
+      for (const line of servePortInUseInstructions(port, hostname)) console.error(line);
+      throw new UserError(`maw serve port ${port} is already in use`);
+    }
+    throw err;
+  }
   setBunServer(server);
+  startEnginePluginHealthPolling();
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
+
+  try {
+    await runServeLifecycleHooks({
+      port,
+      httpUrl: HTTP_URL,
+      wsUrl: WS_URL,
+      hostname,
+    });
+  } catch (err) {
+    try { server.stop(true); } catch { /* best effort */ }
+    throw err;
+  }
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;

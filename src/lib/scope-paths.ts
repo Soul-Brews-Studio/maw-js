@@ -9,17 +9,15 @@
  * After the follow-up "prune" PR removes the scope plugin's source, this
  * vendored copy is the canonical location for the path resolution logic.
  *
- * Path resolution mirrors `scope/impl.ts::activeConfigDir` exactly — same
- * precedence: MAW_HOME → MAW_CONFIG_DIR → ~/.config/maw. Function (not const)
- * so tests overriding env per-test see fresh values each call.
+ * Path resolution mirrors `scope/impl.ts::activeConfigDir` exactly by
+ * delegating to the shared XDG config resolver. Function (not const) so tests
+ * overriding env per-test see fresh values each call.
  */
 import { join } from "path";
-import { homedir } from "os";
+import { mawConfigDir } from "../core/xdg";
 
 function activeConfigDir(): string {
-  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
-  if (process.env.MAW_CONFIG_DIR) return process.env.MAW_CONFIG_DIR;
-  return join(homedir(), ".config", "maw");
+  return mawConfigDir();
 }
 
 export function scopesDir(): string {

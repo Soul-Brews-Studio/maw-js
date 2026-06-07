@@ -70,20 +70,31 @@ export function resolveTarget(
 
   const selfNode = config.node ?? "local";
 
-  // --- Step 1: Local findWindow + fleet config ---
+  // Fleet config: oracle name → session name → findWindow (#281)
+  //
+  // #1565: fleet-known oracle names must not silently inherit findWindow's
+  // "session exact → first window" behavior. Multi-window oracle sessions often
+  // have helper/issuer windows before the actual `<oracle>-oracle` window, so
+  // route fleet aliases through the explicit fleet-window resolver first.
+  const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
+  if (fleetSession) {
+    const fleetResult = resolveFleetWindowTarget(fleetSession, query, writable, "local");
+    if (fleetResult) return fleetResult;
+  }
+
+  // #1565 also applies when the fleet config does not know the session yet:
+  // a bare `mawjs` query can exact-match session `54-mawjs`, and findWindow()
+  // would return that session's first window. Prefer the stable
+  // `<oracle>-oracle` window convention before allowing that fallback.
+  if (!query.includes(":")) {
+    const sessionAliasResult = resolveSessionAliasWindowTarget(query, writable, "local");
+    if (sessionAliasResult) return sessionAliasResult;
+  }
+
+  // --- Step 1: Local findWindow ---
   const localTarget = findWindow(writable, query);
   if (localTarget) {
     return { type: "local", target: localTarget };
-  }
-  // Fleet config: oracle name → session name → findWindow (#281)
-  const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
-  if (fleetSession) {
-    const fleetTarget = findWindow(writable.filter(s => s.name === fleetSession), query)
-      || findWindow(writable.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
-    if (fleetTarget) return { type: "local", target: fleetTarget };
-    // Fleet config matched but session not running — try first window of fleet session
-    const fleetSess = writable.find(s => s.name === fleetSession);
-    if (fleetSess?.windows.length) return { type: "local", target: `${fleetSession}:${fleetSess.windows[0].index}` };
   }
 
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---
@@ -93,16 +104,20 @@ export function resolveTarget(
     const agentName = query.slice(colonIdx + 1);
     if (!nodeName || !agentName) return { type: "error", reason: "empty_node_or_agent", detail: `invalid format: '${query}'`, hint: "use node:agent format (e.g. mba:homekeeper)" };
 
-    // Self-node check: "white:mawjs" from white → resolve locally
-    if (nodeName === selfNode) {
-      const selfTarget = findWindow(writable, agentName);
-      if (selfTarget) return { type: "self-node", target: selfTarget };
-      // Try fleet config resolution (#281)
+    // Self-node check: "m5:discord" from m5 → resolve locally.
+    // "local:" is an advertised same-host alias and must not fall through
+    // to peer lookup (e.g. #1450: host config uses "local" but node is "m5").
+    // #1107: fleet config first to prevent substring collision
+    if (nodeName === selfNode || nodeName === "local") {
       const selfFleet = resolveFleetSession(agentName) || resolveFleetSession(agentName.replace(/-oracle$/, ""));
       if (selfFleet) {
-        const fleetSess = writable.find(s => s.name === selfFleet);
-        if (fleetSess?.windows.length) return { type: "self-node", target: `${selfFleet}:${fleetSess.windows[0].index}` };
+        const fleetResult = resolveFleetWindowTarget(selfFleet, agentName, writable, "self-node");
+        if (fleetResult) return fleetResult;
       }
+      const sessionAliasResult = resolveSessionAliasWindowTarget(agentName, writable, "self-node");
+      if (sessionAliasResult) return sessionAliasResult;
+      const selfTarget = findWindow(writable, agentName);
+      if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }
 
@@ -158,6 +173,140 @@ function findPeerUrl(nodeName: string, config: MawConfig): string | undefined {
   const peer = config.namedPeers?.find((p) => p.name === nodeName);
   if (peer) return peer.url;
   return config.peers?.find((p) => p.includes(nodeName));
+}
+
+type FleetRouteType = "local" | "self-node";
+type FleetWindowResult =
+  | { type: "local"; target: string }
+  | { type: "self-node"; target: string }
+  | { type: "error"; reason: string; detail: string; hint?: string };
+
+function resolveFleetWindowTarget(
+  fleetSession: string,
+  query: string,
+  writable: Session[],
+  routeType: FleetRouteType,
+): FleetWindowResult | null {
+  const fleetSess = writable.find((s) => s.name === fleetSession);
+  if (!fleetSess?.windows.length) return null;
+
+  const namedTarget = findNamedFleetWindow(fleetSess, query);
+  if (namedTarget) return { type: routeType, target: namedTarget };
+
+  // Preserve the old first-window behavior only when it is truly unambiguous.
+  if (fleetSess.windows.length === 1) {
+    return { type: routeType, target: `${fleetSession}:${fleetSess.windows[0].index}` };
+  }
+
+  const candidateNames = fleetWindowCandidateNames(query);
+  const candidates = fleetSess.windows
+    .map((w) => `${fleetSession}:${w.index} (${w.name})`)
+    .join(", ");
+  return {
+    type: "error",
+    reason: "fleet_window_not_found",
+    detail: `'${query}' matched fleet session '${fleetSession}', but no window named ${candidateNames.map((n) => `'${n}'`).join(" or ")} was found; refusing to default to the first window`,
+    hint: `candidates: ${candidates}`,
+  };
+}
+
+function resolveSessionAliasWindowTarget(
+  query: string,
+  writable: Session[],
+  routeType: FleetRouteType,
+): FleetWindowResult | null {
+  // A full window name like `mawjs-oracle` should keep using findWindow's
+  // ambiguity guard. This helper is only for session/oracle aliases such as
+  // `mawjs` where findWindow would otherwise exact-match the session name and
+  // hand back windows[0].
+  if (/-oracle$/i.test(query.trim())) return null;
+
+  const wanted = new Set(sessionAliasNames(query).map((name) => name.toLowerCase()));
+  if (!wanted.size) return null;
+  let matches = writable.filter((s) =>
+    sessionAliasNames(s.name).some((name) => wanted.has(name.toLowerCase())),
+  );
+  if (!matches.length) return null;
+
+  // When both numbered forms exist for the same oracle, prefer the session
+  // whose unnumbered name exactly matches the user's alias. Example:
+  // `maw run thclaws-thclaws` must choose `69-thclaws-thclaws` over
+  // `70-thclaws-thclaws-oracle`; the latter only matches after stripping
+  // `-oracle` and is a weaker alias.
+  if (matches.length > 1) {
+    const normalizedQuery = query.trim().toLowerCase();
+    const exactUnnumbered = matches.filter((s) =>
+      s.name.trim().replace(/^\d+-/, "").toLowerCase() === normalizedQuery,
+    );
+    if (exactUnnumbered.length === 1) matches = exactUnnumbered;
+  }
+
+  if (matches.length > 1) {
+    return {
+      type: "error",
+      reason: "session_alias_ambiguous",
+      detail: `'${query}' matches multiple local sessions; refusing to guess a window`,
+      hint: `candidates: ${matches.map((s) => s.name).join(", ")}`,
+    };
+  }
+
+  const session = matches[0];
+  const namedTarget = findNamedFleetWindow(session, query);
+  if (namedTarget) return { type: routeType, target: namedTarget };
+
+  if (session.windows.length === 1) {
+    return { type: routeType, target: `${session.name}:${session.windows[0].index}` };
+  }
+
+  const candidateNames = fleetWindowCandidateNames(query);
+  const candidates = session.windows
+    .map((w) => `${session.name}:${w.index} (${w.name})`)
+    .join(", ");
+  return {
+    type: "error",
+    reason: "session_window_not_found",
+    detail: `'${query}' matched local session '${session.name}', but no window named ${candidateNames.map((n) => `'${n}'`).join(" or ")} was found; refusing to default to the first window`,
+    hint: `candidates: ${candidates}`,
+  };
+}
+
+function findNamedFleetWindow(session: Session, query: string): string | null {
+  for (const name of fleetWindowCandidateNames(query)) {
+    const win = session.windows.find((w) => w.name.toLowerCase() === name.toLowerCase());
+    if (win) return `${session.name}:${win.index}`;
+  }
+  return null;
+}
+
+function fleetWindowCandidateNames(query: string): string[] {
+  const raw = query.trim();
+  const stripped = raw.replace(/-oracle$/i, "");
+  const unnumbered = raw.replace(/^\d+-/, "");
+  const strippedUnnumbered = unnumbered.replace(/-oracle$/i, "");
+  return uniqueStrings([
+    raw,
+    stripped !== raw ? stripped : "",
+    unnumbered !== raw ? unnumbered : "",
+    strippedUnnumbered !== unnumbered ? strippedUnnumbered : "",
+    stripped ? `${stripped}-oracle` : "",
+    raw && !/-oracle$/i.test(raw) ? `${raw}-oracle` : "",
+    strippedUnnumbered ? `${strippedUnnumbered}-oracle` : "",
+  ].filter(Boolean));
+}
+
+function sessionAliasNames(name: string): string[] {
+  const raw = name.trim();
+  const unnumbered = raw.replace(/^\d+-/, "");
+  return uniqueStrings([
+    raw,
+    raw.replace(/-oracle$/i, ""),
+    unnumbered,
+    unnumbered.replace(/-oracle$/i, ""),
+  ].filter(Boolean));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 /**

@@ -4,16 +4,21 @@ import {
   buildStaleCandidates,
   runPrune,
   cmdOraclePrune,
+  listAwakeOracles,
+  readRawRegistry as readPruneRawRegistry,
+  writeRawRegistry as writePruneRawRegistry,
 } from "./impl-prune";
 import {
   findInFleet,
   findInFilesystem,
   findInTmux,
   cmdOracleRegister,
+  readRawRegistry as readRegisterRawRegistry,
+  writeRawRegistry as writeRegisterRawRegistry,
 } from "./impl-register";
 import type { OracleEntry } from "../../../sdk";
 import type { StaleEntry } from "./impl-stale";
-import { mkdirSync, writeFileSync, mkdtempSync } from "fs";
+import { mkdirSync, writeFileSync, mkdtempSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -61,6 +66,57 @@ function staleEntry(name: string, tier: "STALE" | "DEAD"): StaleEntry {
     recommendation: tier === "DEAD" ? "prune candidate (no ψ/)" : "investigate",
   };
 }
+
+
+// ─── Raw registry helpers ───────────────────────────────────────────────────
+
+describe("oracle raw registry helpers", () => {
+  it("reads existing JSON and falls back to empty object for missing or invalid files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oracle-raw-"));
+    const valid = join(dir, "valid.json");
+    const invalid = join(dir, "invalid.json");
+    writeFileSync(valid, JSON.stringify({ oracles: [orphan("ghost")] }));
+    writeFileSync(invalid, "{ nope");
+
+    expect(readPruneRawRegistry(valid)).toEqual({ oracles: [orphan("ghost")] });
+    expect(readPruneRawRegistry(join(dir, "missing.json"))).toEqual({});
+    expect(readPruneRawRegistry(invalid)).toEqual({});
+    expect(readRegisterRawRegistry(valid)).toEqual({ oracles: [orphan("ghost")] });
+    expect(readRegisterRawRegistry(invalid)).toEqual({});
+  });
+
+  it("writes pretty newline-terminated registry JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oracle-write-"));
+    const pruneFile = join(dir, "prune.json");
+    const registerFile = join(dir, "register.json");
+
+    writePruneRawRegistry(pruneFile, { oracles: [orphan("prune")] });
+    writeRegisterRawRegistry(registerFile, { oracles: [orphan("register")] });
+
+    expect(readFileSync(pruneFile, "utf-8").endsWith("\n")).toBe(true);
+    expect(JSON.parse(readFileSync(pruneFile, "utf-8")).oracles[0].name).toBe("prune");
+    expect(readFileSync(registerFile, "utf-8").endsWith("\n")).toBe(true);
+    expect(JSON.parse(readFileSync(registerFile, "utf-8")).oracles[0].name).toBe("register");
+  });
+});
+
+// ─── listAwakeOracles ───────────────────────────────────────────────────────
+
+describe("listAwakeOracles", () => {
+  it("extracts oracle window names and ignores non-oracle windows", async () => {
+    const awake = await listAwakeOracles(async () => [
+      { name: "main", windows: [{ name: "neo-oracle" }, { name: "notes" }] },
+      { name: "other", windows: [{ name: "mawjs-oracle" }] },
+    ] as any);
+
+    expect([...awake].sort()).toEqual(["mawjs", "neo"]);
+  });
+
+  it("returns an empty set when tmux listing fails", async () => {
+    const awake = await listAwakeOracles(async () => { throw new Error("tmux unavailable"); });
+    expect([...awake]).toEqual([]);
+  });
+});
 
 // ─── buildPruneCandidates ─────────────────────────────────────────────────────
 
@@ -219,6 +275,54 @@ describe("runPrune --stale", () => {
       },
     );
     expect(candidates.map((c) => c.entry.name)).toEqual(["dead-one"]);
+  });
+});
+
+
+// ─── cmdOraclePrune output modes ────────────────────────────────────────────
+
+describe("cmdOraclePrune output modes", () => {
+  it("prints JSON candidates without retiring", async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg)); };
+    try {
+      await cmdOraclePrune(
+        { json: true },
+        {
+          listAwake: async () => new Set(),
+          readRawCache: () => ({ oracles: [orphan("ghost")] }),
+          writeRawCache: () => { throw new Error("should not write JSON dry-run"); },
+        },
+      );
+    } finally {
+      console.log = originalLog;
+    }
+
+    const payload = JSON.parse(logs[0]);
+    expect(payload).toMatchObject({ schema: 1, count: 1, dry_run: true });
+    expect(payload.candidates[0].entry.name).toBe("ghost");
+  });
+
+  it("prints dry-run guidance and does not prompt", async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg)); };
+    try {
+      await cmdOraclePrune(
+        {},
+        {
+          listAwake: async () => new Set(),
+          readRawCache: () => ({ oracles: [orphan("ghost")] }),
+          writeRawCache: () => { throw new Error("dry-run should not write"); },
+          promptConfirm: async () => { throw new Error("dry-run should not prompt"); },
+        },
+      );
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(logs.join("\n")).toContain("--force");
   });
 });
 
@@ -413,6 +517,43 @@ describe("cmdOracleRegister — success", () => {
     const oracles = written!.oracles as OracleEntry[];
     expect(oracles).toHaveLength(1);
     expect(oracles[0].name).toBe("newbie");
+  });
+
+  it("prints JSON registration payload", async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg)); };
+    try {
+      await cmdOracleRegister(
+        "jsonbie",
+        { json: true },
+        {
+          readRawCache: () => ({ oracles: [] }),
+          writeRawCache: () => {},
+          findInFleetFn: () => null,
+          findInTmuxFn: async () => ({
+            source: "tmux",
+            entry: entry({
+              name: "jsonbie",
+              repo: "jsonbie-oracle",
+              local_path: "",
+              has_psi: false,
+              has_fleet_config: false,
+              budded_from: null,
+              budded_at: null,
+              federation_node: null,
+            }),
+          }),
+          findInFilesystemFn: () => { throw new Error("tmux result should win"); },
+        },
+      );
+    } finally {
+      console.log = originalLog;
+    }
+
+    const payload = JSON.parse(logs[0]);
+    expect(payload.source).toBe("tmux");
+    expect(payload.registered.name).toBe("jsonbie");
   });
 
   it("uses fleet source when available (priority)", async () => {

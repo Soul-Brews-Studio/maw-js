@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { parseManifest, loadManifestFromDir } from "../src/plugin/manifest";
 import { discoverPackages, invokePlugin } from "../src/plugin/registry";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import type { LoadedPlugin, InvokeContext } from "../src/plugin/types";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -27,6 +28,13 @@ const MINIMAL_WASM = new Uint8Array([
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "maw-manifest-test-"));
+}
+
+function invokeManifestPlugin(plugin: LoadedPlugin, ctx: InvokeContext) {
+  return invokePlugin(plugin, ctx, {
+    preCacheBridge: async () => {},
+    setTimeout,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +70,7 @@ describe("parseManifest happy path", () => {
           version: "2.3.4",
           wasm: "plugin.wasm",
           sdk: "~1.2.0",
+          weight: 25,
           cli: { command: "greet", help: "Say hello" },
           api: { path: "/greet", methods: ["GET", "POST"] },
           description: "A greeting plugin",
@@ -69,6 +78,7 @@ describe("parseManifest happy path", () => {
         }),
         dir,
       );
+      expect(manifest.weight).toBe(25);
       expect(manifest.cli?.command).toBe("greet");
       expect(manifest.cli?.help).toBe("Say hello");
       expect(manifest.api?.path).toBe("/greet");
@@ -80,6 +90,40 @@ describe("parseManifest happy path", () => {
     }
   });
 
+
+  test("preserves feed hooks and lifecycle hook declarations", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "index.ts"), "export default () => ({ ok: true })\n");
+      const manifest = parseManifest(
+        JSON.stringify({
+          name: "life-plugin",
+          version: "1.0.0",
+          entry: "index.ts",
+          sdk: "*",
+          hooks: {
+            on: ["MessageSend"],
+            wake: { script: "setup.ts", handler: "onWake", ensures: ["storage:sqlite"], policy: "best-effort" },
+            sleep: { handler: "onSleep" },
+            serve: { script: "serve.ts", policy: "fail-fast" },
+          },
+        }),
+        dir,
+      );
+
+      expect(manifest.hooks?.on).toEqual(["MessageSend"]);
+      expect(manifest.hooks?.wake).toEqual({
+        script: "setup.ts",
+        handler: "onWake",
+        ensures: ["storage:sqlite"],
+        policy: "best-effort",
+      });
+      expect(manifest.hooks?.sleep).toEqual({ handler: "onSleep" });
+      expect(manifest.hooks?.serve).toEqual({ script: "serve.ts", policy: "fail-fast" });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
   test("accepts * as sdk range", () => {
     const dir = makeTempDir();
     try {
@@ -104,6 +148,46 @@ describe("parseManifest validation failures", () => {
     expect(() => parseManifest("not json!", "/tmp")).toThrow(/JSON/);
   });
 
+  test("throws when plugin.json is not an object", () => {
+    expect(() => parseManifest("null", "/tmp")).toThrow(/must be a JSON object/);
+    expect(() => parseManifest("[]", "/tmp")).toThrow(/must be a JSON object/);
+  });
+
+  test("throws on invalid weight", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-weight", version: "1.0.0", wasm: "plugin.wasm", sdk: "*", weight: 100 }),
+          dir,
+        ),
+      ).toThrow(/weight/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("throws on invalid lifecycle hook declarations", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "index.ts"), "export default () => ({ ok: true })\n");
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-life", version: "1.0.0", entry: "index.ts", sdk: "*", hooks: { wake: [] } }),
+          dir,
+        ),
+      ).toThrow(/hooks\.wake must be an object/);
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "bad-policy", version: "1.0.0", entry: "index.ts", sdk: "*", hooks: { serve: { policy: "always" } } }),
+          dir,
+        ),
+      ).toThrow(/hooks\.serve\.policy/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
   test("throws on invalid name (uppercase, special chars)", () => {
     const dir = makeTempDir();
     try {
@@ -143,6 +227,20 @@ describe("parseManifest validation failures", () => {
           dir,
         ),
       ).toThrow(/wasm/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("throws when entry file does not exist on disk", () => {
+    const dir = makeTempDir();
+    try {
+      expect(() =>
+        parseManifest(
+          JSON.stringify({ name: "my-plugin", version: "1.0.0", entry: "missing.ts", sdk: "*" }),
+          dir,
+        ),
+      ).toThrow(/entry file not found/);
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -208,6 +306,37 @@ describe("discoverPackages", () => {
   });
 });
 
+describe("bundled plugin source tree", () => {
+  test("#1531 — in-tree and vendored bundled plugin names do not overlap", () => {
+    const roots = [
+      "src/commands/plugins",
+      "src/vendor/mpr-plugins",
+    ];
+    const byName = new Map<string, string[]>();
+
+    for (const root of roots) {
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const dir = join(root, entry.name);
+        let manifest: { name?: string };
+        try {
+          manifest = JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8"));
+        } catch {
+          continue;
+        }
+        const name = manifest.name ?? entry.name;
+        byName.set(name, [...(byName.get(name) ?? []), dir]);
+      }
+    }
+
+    const duplicates = [...byName.entries()]
+      .filter(([, dirs]) => dirs.length > 1)
+      .map(([name, dirs]) => `${name}: ${dirs.join(", ")}`);
+
+    expect(duplicates).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // invokePlugin
 // ---------------------------------------------------------------------------
@@ -217,7 +346,7 @@ describe("invokePlugin", () => {
     const dir = makeTempDir();
     try {
       writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
-      const result = await invokePlugin(
+      const result = await invokeManifestPlugin(
         {
           manifest: { name: "test-invoke", version: "1.0.0", wasm: "plugin.wasm", sdk: "*" },
           dir,
@@ -239,7 +368,7 @@ describe("invokePlugin", () => {
       wasmPath: uniquePath,
       kind: "wasm" as const,
     };
-    const result = await invokePlugin(plugin, { source: "api", args: {} });
+    const result = await invokeManifestPlugin(plugin, { source: "api", args: {} });
     // In combined suite, bun may resolve a stale invokePlugin without kind support.
     // Guard: if kind wasn't respected and it somehow returned ok:true, skip gracefully.
     if (result.ok) return;
@@ -251,7 +380,7 @@ describe("invokePlugin", () => {
     const dir = makeTempDir();
     try {
       writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
-      const result = await invokePlugin(
+      const result = await invokeManifestPlugin(
         {
           manifest: { name: "api-invoke", version: "1.0.0", wasm: "plugin.wasm", sdk: "*" },
           dir,

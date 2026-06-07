@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/hey-test@v0.1.0-hey-test",
+  "sha256": "0b325122fe0d08778dbf3fb20860ec48ad94f518b6249b25faf7e05f5e0ff960",
+  "summary": "Internal test plugin for install pipeline (no end-user functionality).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:09Z",
+  "tier": "extra"
+}

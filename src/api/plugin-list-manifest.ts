@@ -17,6 +17,7 @@ import type { PluginTier } from "../plugin/types";
 import { weightToTier } from "../plugin/tier";
 import { discoverPackages } from "../plugin/registry";
 import { loadConfig } from "../config";
+import type { LoadedPlugin } from "../plugin/types";
 
 export interface PeerPluginEntry {
   name: string;
@@ -42,27 +43,41 @@ export interface PeerManifestResponse {
   plugins: PeerPluginEntry[];
 }
 
-export const pluginListManifestApi = new Elysia().get(
-  "/plugin/list-manifest",
-  (): PeerManifestResponse => {
-    const plugins: PeerPluginEntry[] = discoverPackages().map(p => {
-      const m = p.manifest;
-      const entry: PeerPluginEntry = {
-        name: m.name,
-        version: m.version,
-        tier: m.tier ?? weightToTier(m.weight ?? 50),
-        downloadUrl: `/api/plugin/download/${encodeURIComponent(m.name)}`,
+export interface PluginListManifestApiDeps {
+  discoverPackages: typeof discoverPackages;
+  loadConfig: typeof loadConfig;
+}
+
+export function toPeerPluginEntry(p: LoadedPlugin): PeerPluginEntry {
+  const m = p.manifest;
+  const entry: PeerPluginEntry = {
+    name: m.name,
+    version: m.version,
+    tier: m.tier ?? weightToTier(m.weight ?? 50),
+    downloadUrl: `/api/plugin/download/${encodeURIComponent(m.name)}`,
+  };
+  if (m.description) entry.summary = m.description;
+  if (m.author) entry.author = m.author;
+  if (m.artifact) entry.sha256 = m.artifact.sha256;
+  return entry;
+}
+
+export function createPluginListManifestApi(deps: PluginListManifestApiDeps = {
+  discoverPackages,
+  loadConfig,
+}) {
+  return new Elysia().get(
+    "/plugin/list-manifest",
+    (): PeerManifestResponse => {
+      const plugins: PeerPluginEntry[] = deps.discoverPackages().map(toPeerPluginEntry);
+      return {
+        schemaVersion: 1,
+        node: deps.loadConfig().node ?? "unknown",
+        pluginCount: plugins.length,
+        plugins,
       };
-      if (m.description) entry.summary = m.description;
-      if (m.author) entry.author = m.author;
-      if (m.artifact) entry.sha256 = m.artifact.sha256;
-      return entry;
-    });
-    return {
-      schemaVersion: 1,
-      node: loadConfig().node ?? "unknown",
-      pluginCount: plugins.length,
-      plugins,
-    };
-  },
-);
+    },
+  );
+}
+
+export const pluginListManifestApi = createPluginListManifestApi();

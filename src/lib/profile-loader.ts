@@ -52,7 +52,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { mawConfigDir } from "../core/xdg";
 import type { TProfile } from "./schemas";
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -69,9 +69,7 @@ export function validateProfileName(name: string): string | null {
 // ─── Paths (live-resolved, like the scope primitive) ─────────────────────────
 
 function activeConfigDir(): string {
-  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
-  if (process.env.MAW_CONFIG_DIR) return process.env.MAW_CONFIG_DIR;
-  return join(homedir(), ".config", "maw");
+  return mawConfigDir();
 }
 
 export function profilesDir(): string {

@@ -4,9 +4,9 @@
  * Validates the receive-side O6 enforcement for the per-peer "from:" +
  * signature layer added in src/lib/federation-auth.ts (verifyRequest).
  *
- * Wire format mirrored exactly from signRequest() (Step 4 SIGN):
- *   headers: x-maw-from / x-maw-signed-at (ISO 8601) / x-maw-signature
- *   payload: `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+ * Wire format mirrored exactly from signRequestV3() (Step 4 SIGN):
+ *   headers: x-maw-from / x-maw-timestamp (unix seconds) / x-maw-signature-v3
+ *   payload: `METHOD:PATH:TIMESTAMP:BODY_SHA256:FROM`
  *   crypto:  HMAC-SHA256(peerKey, payload), lowercase hex
  *
  * O6 truth table (docs/federation/0001-peer-identity.md):
@@ -18,7 +18,7 @@
  *   | yes            | yes valid      | accept
  *   | yes            | yes mismatch   | REFUSE + alert
  *
- * Plus clock-skew rejection: |signed_at - now| > 300s ⇒ refuse.
+ * Plus clock-skew rejection: |timestamp - now| > 300s ⇒ refuse.
  *
  * Isolated because we exercise the verify primitive end-to-end. No filesystem
  * state is needed — `lookupPubkey` is injected by the test, not loaded from
@@ -28,6 +28,7 @@ import { describe, test, expect } from "bun:test";
 import { createHmac } from "crypto";
 import {
   buildFromSignPayload,
+  signHeadersV3,
   hashBody,
   verifyHmacSig,
   verifyRequest,
@@ -37,8 +38,7 @@ import {
 
 // --- Test helpers ----------------------------------------------------------
 
-/** Sign a payload exactly as signRequest does (mirror, not import — keep
- *  the verifier independently exercised even if SIGN ever drifts). */
+/** Sign a payload exactly as the verifier sees it. */
 function hmacHex(secret: string, payload: string): string {
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
@@ -54,6 +54,16 @@ function nowIso(): string {
 /** Random 64-char hex secret — what getPeerKey() produces. */
 function randomKey(seed: string): string {
   return createHmac("sha256", seed).update("seed").digest("hex");
+}
+
+function legacyFromSignPayload(
+  from: string,
+  signedAt: string,
+  method: string,
+  path: string,
+  bodyHash: string,
+): string {
+  return `${from}\n${signedAt}\n${method.toUpperCase()}\n${path}\n${bodyHash}`;
 }
 
 // --- Tests -----------------------------------------------------------------
@@ -80,7 +90,7 @@ describe("verifyRequest — O6 truth table (#804 Step 4)", () => {
   test("O6 row 2: no cache + signed → accept (TOFU record-only)", () => {
     const senderKey = randomKey("sender-2");
     const ts = nowIso();
-    const payload = buildFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(senderKey, payload);
     // No cached pubkey for this peer — alpha-cycle behavior accepts.
     const lookup: FromPubkeyLookup = () => undefined;
@@ -117,12 +127,64 @@ describe("verifyRequest — O6 truth table (#804 Step 4)", () => {
     expect(isRefuseDecision(decision)).toBe(true);
   });
 
-  test("O6 row 4: cached + signed valid → accept", () => {
+  test("O6 row 4: cached + signHeadersV3 output verifies with current v3 wire shape (#1793)", () => {
+    const secret = randomKey("paired-v3");
+    const lookup: FromPubkeyLookup = (from) => (from === FROM ? secret : undefined);
+    const timestamp = nowSec();
+    const headers = signHeadersV3({
+      peerKey: secret,
+      fromAddress: FROM,
+      method: METHOD,
+      path: PATH,
+      timestamp,
+      body: BODY,
+    });
+
+    expect(headers["X-Maw-Signature-V3"]).toBe(
+      hmacHex(secret, buildFromSignPayload(FROM, timestamp, METHOD, PATH, hashBody(BODY))),
+    );
+    const decision = verifyRequest({
+      method: METHOD,
+      path: PATH,
+      headers,
+      body: BODY,
+      lookupPubkey: lookup,
+      now: timestamp,
+    });
+
+    expect(decision.kind).toBe("accept-verified");
+    if (decision.kind === "accept-verified") {
+      expect(decision.from).toBe(FROM);
+    }
+  });
+
+  test("current v3 signature slot wins over fleet-HMAC x-maw-signature noise (#1793)", () => {
+    const secret = randomKey("paired-v3-with-v2");
+    const lookup: FromPubkeyLookup = (from) => (from === FROM ? secret : undefined);
+    const timestamp = nowSec();
+    const headers = {
+      ...signHeadersV3({ peerKey: secret, fromAddress: FROM, method: METHOD, path: PATH, timestamp, body: BODY }),
+      "X-Maw-Signature": "0".repeat(64),
+    };
+
+    const decision = verifyRequest({
+      method: METHOD,
+      path: PATH,
+      headers,
+      body: BODY,
+      lookupPubkey: lookup,
+      now: timestamp,
+    });
+
+    expect(decision.kind).toBe("accept-verified");
+  });
+
+  test("O6 row 4: cached + legacy signed valid → accept", () => {
     const secret = randomKey("paired-4");
     // Both sender and receiver hold the same secret (HMAC scheme).
     const lookup: FromPubkeyLookup = (from) => (from === FROM ? secret : undefined);
     const ts = nowIso();
-    const payload = buildFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,
@@ -147,7 +209,7 @@ describe("verifyRequest — O6 truth table (#804 Step 4)", () => {
     const evil = randomKey("evil-5");
     const lookup: FromPubkeyLookup = (from) => (from === FROM ? cached : undefined);
     const ts = nowIso();
-    const payload = buildFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(evil, payload); // wrong secret
     const decision = verifyRequest({
       method: METHOD,
@@ -179,7 +241,7 @@ describe("verifyRequest — clock skew (#804 Step 4)", () => {
     const now = nowSec();
     const stale = now - 301; // just past the window
     const staleIso = new Date(stale * 1000).toISOString();
-    const payload = buildFromSignPayload(FROM, staleIso, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, staleIso, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,
@@ -205,7 +267,7 @@ describe("verifyRequest — clock skew (#804 Step 4)", () => {
     const now = nowSec();
     const futured = now + 3600; // 1 hour ahead
     const iso = new Date(futured * 1000).toISOString();
-    const payload = buildFromSignPayload(FROM, iso, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, iso, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,
@@ -228,7 +290,7 @@ describe("verifyRequest — clock skew (#804 Step 4)", () => {
     const now = nowSec();
     const ts = now - 250; // within window
     const iso = new Date(ts * 1000).toISOString();
-    const payload = buildFromSignPayload(FROM, iso, METHOD, PATH, hashBody(BODY));
+    const payload = legacyFromSignPayload(FROM, iso, METHOD, PATH, hashBody(BODY));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,
@@ -257,7 +319,7 @@ describe("verifyRequest — body binding & malformed inputs", () => {
     const ts = nowIso();
     const goodBody = JSON.stringify({ target: "x", text: "ok" });
     const evilBody = JSON.stringify({ target: "x", text: "evil-substitute" });
-    const payload = buildFromSignPayload(FROM, ts, METHOD, PATH, hashBody(goodBody));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, PATH, hashBody(goodBody));
     const sig = hmacHex(secret, payload);
     // Sender signed goodBody; attacker re-uses signature against evilBody.
     const decision = verifyRequest({
@@ -278,7 +340,7 @@ describe("verifyRequest — body binding & malformed inputs", () => {
     const secret = randomKey("malformed-ts");
     const lookup: FromPubkeyLookup = () => secret;
     const ts = nowIso();
-    const payload = buildFromSignPayload(FROM, ts, METHOD, PATH, hashBody(""));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, PATH, hashBody(""));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,
@@ -309,7 +371,7 @@ describe("verifyRequest — body binding & malformed inputs", () => {
     const secret = randomKey("path-bind");
     const lookup: FromPubkeyLookup = () => secret;
     const ts = nowIso();
-    const payload = buildFromSignPayload(FROM, ts, METHOD, "/api/send", hashBody(""));
+    const payload = legacyFromSignPayload(FROM, ts, METHOD, "/api/send", hashBody(""));
     const sig = hmacHex(secret, payload);
     const decision = verifyRequest({
       method: METHOD,

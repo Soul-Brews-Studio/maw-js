@@ -13,8 +13,11 @@ import {
   parseCron,
   parseModule,
   parseTransport,
+  parseEngine,
   parseTarget,
+  parseCapabilityNamespaces,
   parseCapabilities,
+  parseDependencies,
   parseArtifact,
   parseTier,
 } from "./manifest-validate";
@@ -89,8 +92,11 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
   const cron = parseCron(r);
   const module_ = parseModule(r);
   const transport = parseTransport(r);
+  const engine = parseEngine(r);
   const target = parseTarget(r);
-  const capabilities = parseCapabilities(r);
+  const capabilityNamespaces = parseCapabilityNamespaces(r);
+  const capabilities = parseCapabilities(r, capabilityNamespaces);
+  const dependencies = parseDependencies(r);
   const artifact = parseArtifact(r);
   const tier = parseTier(r);
 
@@ -110,8 +116,11 @@ export function parseManifest(jsonText: string, dir: string): PluginManifest {
     ...(cron ? { cron } : {}),
     ...(module_ ? { module: module_ } : {}),
     ...(transport ? { transport } : {}),
+    ...(engine ? { engine } : {}),
     ...(target ? { target } : {}),
+    ...(capabilityNamespaces ? { capabilityNamespaces } : {}),
     ...(capabilities ? { capabilities } : {}),
+    ...(dependencies ? { dependencies } : {}),
     ...(artifact ? { artifact } : {}),
   };
 }

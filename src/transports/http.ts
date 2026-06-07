@@ -9,6 +9,7 @@ import { sendKeysToPeer, getAggregatedSessions } from "../core/transport/peers";
 import { cfgTimeout } from "../config";
 import { listSessions } from "../core/transport/ssh";
 import { findWindow } from "../core/runtime/find-window";
+import type { Session } from "../core/runtime/find-window";
 import { curlFetch } from "../core/transport/curl-fetch";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
@@ -19,6 +20,15 @@ export interface HttpTransportConfig {
   selfHost: string;
 }
 
+interface HttpTransportDeps {
+  listLocalSessions?: typeof listSessions;
+  getAllSessions?: typeof getAggregatedSessions;
+  findTargetWindow?: (sessions: Session[], query: string) => string | null;
+  sendPeerKeys?: typeof sendKeysToPeer;
+  postPeerFeed?: typeof curlFetch;
+  timeoutFor?: typeof cfgTimeout;
+}
+
 export class HttpTransport implements Transport {
   readonly name = "http-federation";
   private _connected = false;
@@ -27,7 +37,10 @@ export class HttpTransport implements Transport {
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
 
-  constructor(config: HttpTransportConfig) {
+  constructor(
+    config: HttpTransportConfig,
+    private readonly deps: HttpTransportDeps = {},
+  ) {
     this.config = config;
   }
 
@@ -43,8 +56,8 @@ export class HttpTransport implements Transport {
 
   async send(target: TransportTarget, message: string): Promise<boolean> {
     // Find which peer has this target
-    const localSessions = await listSessions();
-    const allSessions = await getAggregatedSessions(localSessions);
+    const localSessions = await (this.deps.listLocalSessions ?? listSessions)();
+    const allSessions = await (this.deps.getAllSessions ?? getAggregatedSessions)(localSessions);
 
     for (const session of allSessions) {
       const source = (session as any).source;
@@ -52,9 +65,9 @@ export class HttpTransport implements Transport {
 
       const match = session.windows.some((w) => w.name.toLowerCase().includes(target.oracle.toLowerCase()));
       if (match) {
-        const tmuxTarget = findWindow([session], target.oracle);
+        const tmuxTarget = (this.deps.findTargetWindow ?? findWindow)([session], target.oracle);
         if (tmuxTarget) {
-          return sendKeysToPeer(source, tmuxTarget, message);
+          return (this.deps.sendPeerKeys ?? sendKeysToPeer)(source, tmuxTarget, message);
         }
       }
     }
@@ -72,11 +85,12 @@ export class HttpTransport implements Transport {
     // rejections so we can warn per failed peer (#385 site 4 — previously double-buried
     // by an inner trySilentAsync inside allSettled, which made cluster-wide drops silent).
     const peers = this.config.peers;
+    const postFeed = this.deps.postPeerFeed ?? curlFetch;
     const results = await Promise.allSettled(
-      peers.map((url) => curlFetch(`${url}/api/feed`, {
+      peers.map((url) => postFeed(`${url}/api/feed`, {
         method: "POST",
         body: JSON.stringify(event),
-        timeout: cfgTimeout("http"),
+        timeout: (this.deps.timeoutFor ?? cfgTimeout)("http"),
       })),
     );
     for (let i = 0; i < results.length; i++) {

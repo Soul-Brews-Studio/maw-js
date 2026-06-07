@@ -1,0 +1,12 @@
+{
+  "name": "attach-ssh",
+  "version": "0.1.0",
+  "description": "Tier 3 (remote-live) SSH+tmux attach strategy. Extracted from built-in attach (#1262).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "entry": "./index.ts",
+  "capabilities": ["attach:strategy"],
+  "strategy": { "tier": 3 },
+  "schemaVersion": 1,
+  "sdk": "^1.0.0-alpha.1"
+}

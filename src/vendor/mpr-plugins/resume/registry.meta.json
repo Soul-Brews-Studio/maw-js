@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/resume@v0.1.0-resume",
+  "sha256": "374d568997d8e08ae9479a64aea517d3a5f37bfe36866ebd02661c8f96b5b8e8",
+  "summary": "Resume a parked agent.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:39Z",
+  "tier": "extra"
+}

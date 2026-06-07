@@ -13,7 +13,8 @@
  * `comm-send.ts` — caller integration lives in Sub-B/C so that this PR can
  * focus on the ACL semantics + tests without entangling the send hot path.
  *
- * Trust list: Sub-B will introduce a `<CONFIG_DIR>/trust.json` (or similar)
+ * Trust list: Sub-B introduced a `<STATE_DIR>/trust.json` (with legacy
+ * config-path read fallback)
  * holding pairwise sender↔target whitelist entries that override scope
  * membership. The TrustList shape is declared here so the decision function
  * can already accept it; for Sub-A the caller passes `undefined` (or omits
@@ -161,7 +162,7 @@ export function loadAllScopes(): TScope[] {
 }
 
 /**
- * Read the on-disk pairwise trust list from `<CONFIG_DIR>/trust.json`.
+ * Read the on-disk pairwise trust list from `<STATE_DIR>/trust.json`.
  *
  * Thin wrapper around `loadTrust()` in `plugins/trust/store.ts` so that
  * callers wiring the ACL evaluator don't need to know which plugin owns

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/ping@v0.1.0-ping",
+  "sha256": "14c1e89c9765e00ed0eeb4e34d2a172e783b3de8de6b39cc4496fdbf582f75e0",
+  "summary": "Ping peer nodes to check connectivity and auth status.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:09Z",
+  "tier": "extra"
+}

@@ -1,0 +1,158 @@
+[
+  {
+    "name": "exact match wins before fuzzy candidates",
+    "mode": "byName",
+    "input": {
+      "target": "view",
+      "items": ["mawjs-view", "view", "mawui-view"]
+    },
+    "expected": { "kind": "exact", "match": "view" }
+  },
+  {
+    "name": "exact match is case-insensitive",
+    "mode": "byName",
+    "input": {
+      "target": "MAWJS",
+      "items": ["Mawjs"]
+    },
+    "expected": { "kind": "exact", "match": "Mawjs" }
+  },
+  {
+    "name": "single suffix segment resolves as fuzzy",
+    "mode": "byName",
+    "input": {
+      "target": "yeast",
+      "items": ["110-yeast", "120-brew"]
+    },
+    "expected": { "kind": "fuzzy", "match": "110-yeast" }
+  },
+  {
+    "name": "multiple suffix segment matches are ambiguous",
+    "mode": "byName",
+    "input": {
+      "target": "view",
+      "items": ["mawjs-view", "mawui-view", "skills-cli-view", "unrelated"]
+    },
+    "expected": {
+      "kind": "ambiguous",
+      "candidates": ["mawjs-view", "mawui-view", "skills-cli-view"]
+    }
+  },
+  {
+    "name": "suffix segment is preferred over prefix segment",
+    "mode": "byName",
+    "input": {
+      "target": "maw",
+      "items": ["maw-js", "110-maw", "other"]
+    },
+    "expected": { "kind": "fuzzy", "match": "110-maw" }
+  },
+  {
+    "name": "single prefix segment resolves only when no suffix match exists",
+    "mode": "byName",
+    "input": {
+      "target": "maw",
+      "items": ["maw-js", "other"]
+    },
+    "expected": { "kind": "fuzzy", "match": "maw-js" }
+  },
+  {
+    "name": "middle word segment can resolve a non-fleet session",
+    "mode": "session",
+    "input": {
+      "target": "cli",
+      "items": ["skills-cli-view", "114-mawjs-no2"]
+    },
+    "expected": { "kind": "fuzzy", "match": "skills-cli-view" }
+  },
+  {
+    "name": "multiple middle word segment matches are ambiguous",
+    "mode": "byName",
+    "input": {
+      "target": "cli",
+      "items": ["skills-cli-view", "maw-cli-tool", "other"]
+    },
+    "expected": {
+      "kind": "ambiguous",
+      "candidates": ["skills-cli-view", "maw-cli-tool"]
+    }
+  },
+  {
+    "name": "substring fallback returns none with hints",
+    "mode": "byName",
+    "input": {
+      "target": "maw",
+      "items": ["mawjs-view", "mawjs-view-view", "mawui-view"]
+    },
+    "expected": {
+      "kind": "none",
+      "hints": ["mawjs-view", "mawjs-view-view", "mawui-view"]
+    }
+  },
+  {
+    "name": "single substring fallback is still none, never fuzzy",
+    "mode": "byName",
+    "input": {
+      "target": "awjs",
+      "items": ["mawjs-view"]
+    },
+    "expected": { "kind": "none", "hints": ["mawjs-view"] }
+  },
+  {
+    "name": "empty target returns none without matching everything",
+    "mode": "byName",
+    "input": {
+      "target": "",
+      "items": ["a", "b-c"]
+    },
+    "expected": { "kind": "none" }
+  },
+  {
+    "name": "target is trimmed before matching",
+    "mode": "byName",
+    "input": {
+      "target": "\tyeast\n",
+      "items": ["110-yeast"]
+    },
+    "expected": { "kind": "fuzzy", "match": "110-yeast" }
+  },
+  {
+    "name": "session numeric-prefix guard blocks middle-segment false match",
+    "mode": "session",
+    "input": {
+      "target": "mawjs",
+      "items": ["114-mawjs-no2"]
+    },
+    "expected": { "kind": "none", "hints": ["114-mawjs-no2"] }
+  },
+  {
+    "name": "session numeric-prefix exact suffix still resolves",
+    "mode": "session",
+    "input": {
+      "target": "mawjs-no2",
+      "items": ["114-mawjs-no2", "101-mawjs"]
+    },
+    "expected": { "kind": "fuzzy", "match": "114-mawjs-no2" }
+  },
+  {
+    "name": "worktree numeric prefixes are sequence counters and keep middle matching",
+    "mode": "worktree",
+    "input": {
+      "target": "pay",
+      "items": ["2-pay-v1", "2-pay-v2"]
+    },
+    "expected": {
+      "kind": "ambiguous",
+      "candidates": ["2-pay-v1", "2-pay-v2"]
+    }
+  },
+  {
+    "name": "generic byName keeps legacy numeric-prefix middle matching",
+    "mode": "byName",
+    "input": {
+      "target": "mawjs",
+      "items": ["114-mawjs-no2"]
+    },
+    "expected": { "kind": "fuzzy", "match": "114-mawjs-no2" }
+  }
+]

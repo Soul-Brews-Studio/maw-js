@@ -1,8 +1,8 @@
 import { join } from "path";
 import { existsSync, unlinkSync, symlinkSync, mkdirSync, readdirSync } from "fs";
-import { tmux, FLEET_DIR } from "../../sdk";
+import { tmux } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
-import { loadFleetEntries, getSessionNames } from "./fleet-load";
+import { loadFleetEntries, getSessionNames, fleetDirForWrite } from "./fleet-load";
 
 export async function cmdFleetSync() {
   const entries = loadFleetEntries();
@@ -39,7 +39,7 @@ export async function cmdFleetSync() {
 
     // Write updated config
     if (added > 0) {
-      const filePath = join(FLEET_DIR, e.file);
+      const filePath = e.path ?? join(fleetDirForWrite(), e.file);
       await Bun.write(filePath, JSON.stringify(e.session, null, 2) + "\n");
     }
   }
@@ -52,7 +52,7 @@ export async function cmdFleetSync() {
 }
 
 /**
- * Sync repo fleet/*.json configs to FLEET_DIR (~/.config/maw/fleet/).
+ * Sync repo fleet/*.json configs to the writable fleet state directory.
  * Symlinks each config so edits in either location stay in sync.
  */
 export async function cmdFleetSyncConfigs() {
@@ -69,13 +69,13 @@ export async function cmdFleetSyncConfigs() {
     return;
   }
 
-  // Ensure FLEET_DIR exists
-  mkdirSync(FLEET_DIR, { recursive: true });
+  const fleetDir = fleetDirForWrite();
+  mkdirSync(fleetDir, { recursive: true });
 
   let synced = 0;
   for (const file of files) {
     const src = join(repoFleetDir, file);
-    const dest = join(FLEET_DIR, file);
+    const dest = join(fleetDir, file);
 
     // Remove existing file/symlink before creating new symlink
     try { unlinkSync(dest); } catch { /* expected: file may not exist */ }
@@ -83,5 +83,5 @@ export async function cmdFleetSyncConfigs() {
     synced++;
   }
 
-  console.log(`  \x1b[32m✓ ${synced} fleet config(s) synced\x1b[0m → ${FLEET_DIR}`);
+  console.log(`  \x1b[32m✓ ${synced} fleet config(s) synced\x1b[0m → ${fleetDir}`);
 }

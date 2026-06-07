@@ -1,6 +1,6 @@
 import { join, resolve, dirname } from "path";
 import { mkdirSync } from "fs";
-import { homedir } from "os";
+import { mawConfigDir, mawRuntimeHomeDir } from "./xdg";
 
 export const MAW_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 
@@ -15,7 +15,7 @@ export const MAW_ROOT = resolve(dirname(new URL(import.meta.url).pathname), ".."
  * `--instance` flag on individual plugins yet (issue #566 follow-up).
  */
 export function resolveHome(): string {
-  return process.env.MAW_HOME || join(homedir(), ".maw");
+  return mawRuntimeHomeDir();
 }
 
 /**
@@ -28,9 +28,7 @@ export function resolveHome(): string {
  * ensure `MAW_HOME` is set before any import of this module. The CLI does
  * this in src/cli.ts before any state-touching import is resolved.
  */
-export const CONFIG_DIR = process.env.MAW_HOME
-  ? join(process.env.MAW_HOME, "config")
-  : (process.env.MAW_CONFIG_DIR || join(homedir(), ".config", "maw"));
+export const CONFIG_DIR = mawConfigDir();
 export const FLEET_DIR = join(CONFIG_DIR, "fleet");
 export const CONFIG_FILE = join(CONFIG_DIR, "maw.config.json");
 

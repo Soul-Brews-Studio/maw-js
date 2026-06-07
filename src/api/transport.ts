@@ -10,33 +10,46 @@ import { Elysia } from "elysia";
 import { getTransportRouter } from "../transports";
 import { TransportSendBody, type TTransportSendBody } from "../lib/schemas";
 
-export const transportApi = new Elysia();
+export interface TransportApiDeps {
+  getTransportRouter: typeof getTransportRouter;
+  now?: () => Date;
+}
 
-// GET /api/transport/status — show all transports and their connectivity
-transportApi.get("/transport/status", () => {
-  const router = getTransportRouter();
-  return {
-    transports: router.status(),
-    timestamp: new Date().toISOString(),
-  };
-});
+export function createTransportApi(deps: TransportApiDeps = {
+  getTransportRouter,
+}) {
+  const api = new Elysia();
 
-// POST /api/transport/send — send a message through the transport router
-transportApi.post("/transport/send", async ({ body }) => {
-  const { oracle, host, message, from } = body as TTransportSendBody;
+  // GET /api/transport/status — show all transports and their connectivity
+  api.get("/transport/status", () => {
+    const router = deps.getTransportRouter();
+    return {
+      transports: router.status(),
+      timestamp: (deps.now ? deps.now() : new Date()).toISOString(),
+    };
+  });
 
-  const router = getTransportRouter();
-  const result = await router.send(
-    { oracle, host: host || undefined },
-    message,
-    from || "api",
-  );
+  // POST /api/transport/send — send a message through the transport router
+  api.post("/transport/send", async ({ body }) => {
+    const { oracle, host, message, from } = body as TTransportSendBody;
 
-  return {
-    ...result,
-    target: oracle,
-    host: host || "local",
-  };
-}, {
-  body: TransportSendBody,
-});
+    const router = deps.getTransportRouter();
+    const result = await router.send(
+      { oracle, host: host || undefined },
+      message,
+      from || "api",
+    );
+
+    return {
+      ...result,
+      target: oracle,
+      host: host || "local",
+    };
+  }, {
+    body: TransportSendBody,
+  });
+
+  return api;
+}
+
+export const transportApi = createTransportApi();

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/on@v0.1.0-on",
+  "sha256": "bab28c6b1a20b590016b7f7cf04d062111469da603d803deffde4303ee4c3e70",
+  "summary": "Create event triggers for oracle lifecycle events.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:07Z",
+  "tier": "extra"
+}

@@ -1,5 +1,6 @@
 /**
  * maw plugin init + build — Phase A compiler tests.
+ * @maw-test-isolate @maw-test-isolate-cwd-neutral
  */
 
 import { describe, test, expect, afterEach } from "bun:test";
@@ -357,12 +358,18 @@ describe("maw plugin build", () => {
     const dir = tmpDir();
     makeMinimalPlugin(dir);
     await cmdPluginBuild([dir]);
-    // Inspect tarball contents using `tar -tzf`
-    const { spawnSync } = await import("child_process");
-    const list = spawnSync("tar", ["-tzf", join(dir, "fixture-0.1.0.tgz")], { encoding: "utf8" });
-    expect(list.status).toBe(0);
-    const entries = list.stdout.trim().split("\n").sort();
-    expect(entries).toEqual(["index.js", "plugin.json"]);
+    // Inspect tarball contents by extracting into a staging dir.
+    const staging = join(dir, "staging");
+    mkdirSync(staging);
+    const extract = Bun.spawnSync(["tar", "-xzf", join(dir, "fixture-0.1.0.tgz"), "-C", staging], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(extract.exitCode).toBe(0);
+    expect(existsSync(join(staging, "plugin.json"))).toBe(true);
+    expect(existsSync(join(staging, "index.js"))).toBe(true);
+    expect(existsSync(join(staging, "dist", "plugin.json"))).toBe(false);
+    expect(existsSync(join(staging, "dist", "index.js"))).toBe(false);
   });
 
   test("errors on missing plugin.json", async () => {

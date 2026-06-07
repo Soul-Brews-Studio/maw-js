@@ -5,14 +5,14 @@
  * so the suite never touches the real ~/.maw/{trust,consent-pending}.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
 import {
   generatePin, hashPin, verifyPin,
   isTrusted, recordTrust, removeTrust, listTrust, trustKey,
-  writePending, readPending, listPending, updateStatus, applyExpiry,
+  writePending, readPending, listPending, updateStatus, deletePending, applyExpiry,
   requestConsent, approveConsent, rejectConsent, newRequestId,
 } from "../../../src/core/consent";
 
@@ -27,6 +27,8 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.CONSENT_TRUST_FILE;
   delete process.env.CONSENT_PENDING_DIR;
+  delete process.env.MAW_CONFIG_DIR;
+  delete process.env.MAW_STATE_DIR;
   rmSync(workdir, { recursive: true, force: true });
 });
 
@@ -116,7 +118,6 @@ describe("trust store", () => {
   });
 
   it("survives corrupt file (bad JSON)", async () => {
-    const { writeFileSync } = await import("fs");
     writeFileSync(process.env.CONSENT_TRUST_FILE!, "{not json");
     expect(listTrust()).toEqual([]);
     // Should still accept new writes after a corrupt read
@@ -125,9 +126,36 @@ describe("trust store", () => {
   });
 
   it("survives wrong-shape file (peers:[] instead of peers:{})", async () => {
-    const { writeFileSync } = await import("fs");
     writeFileSync(process.env.CONSENT_TRUST_FILE!, JSON.stringify({ version: 1, trust: [] }));
     expect(listTrust()).toEqual([]);
+  });
+
+  it("reads legacy config trust and migrates the next write to state", () => {
+    delete process.env.CONSENT_TRUST_FILE;
+    const configDir = join(workdir, "config");
+    const stateDir = join(workdir, "state");
+    process.env.MAW_CONFIG_DIR = configDir;
+    process.env.MAW_STATE_DIR = stateDir;
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "trust.json"), JSON.stringify({
+      version: 1,
+      trust: {
+        [trustKey("legacy", "mawjs", "hey")]: {
+          from: "legacy",
+          to: "mawjs",
+          action: "hey",
+          approvedAt: "2026-05-21T00:00:00.000Z",
+          approvedBy: "human",
+          requestId: null,
+        },
+      },
+    }));
+
+    expect(isTrusted("legacy", "mawjs", "hey")).toBe(true);
+    recordTrust({ from: "new", to: "mawjs", action: "hey", approvedAt: "2026-05-21T01:00:00.000Z", approvedBy: "human", requestId: null });
+
+    expect(existsSync(join(stateDir, "trust.json"))).toBe(true);
+    expect(isTrusted("new", "mawjs", "hey")).toBe(true);
   });
 });
 
@@ -191,6 +219,28 @@ describe("pending store", () => {
     expect(existsSync(path)).toBe(true);
     const raw = readFileSync(path, "utf-8");
     expect(raw).not.toContain(pin);
+  });
+
+  it("reads and removes legacy config pending requests after state migration", () => {
+    delete process.env.CONSENT_PENDING_DIR;
+    const configDir = join(workdir, "config");
+    const stateDir = join(workdir, "state");
+    process.env.MAW_CONFIG_DIR = configDir;
+    process.env.MAW_STATE_DIR = stateDir;
+    const legacyPending = join(configDir, "consent-pending");
+    mkdirSync(legacyPending, { recursive: true });
+    writeFileSync(join(legacyPending, "legacy-id.json"), JSON.stringify(mkPending({
+      id: "legacy-id",
+      createdAt: "2026-05-21T00:00:00.000Z",
+    })));
+
+    expect(readPending("legacy-id")?.summary).toBe("test");
+    expect(listPending().map((r) => r.id)).toContain("legacy-id");
+    updateStatus("legacy-id", "approved");
+    expect(readPending("legacy-id")?.status).toBe("approved");
+    expect(existsSync(join(stateDir, "consent-pending", "legacy-id.json"))).toBe(true);
+    expect(deletePending("legacy-id")).toBe(true);
+    expect(readPending("legacy-id")).toBeNull();
   });
 });
 

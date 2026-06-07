@@ -119,6 +119,93 @@ export const resolveSessionTarget = <T extends { name: string }>(
   items: readonly T[],
 ): ResolveResult<T> => resolveByName(target, items, { fleetSessions: true });
 
+/**
+ * Resolve a short prefix of the canonical stem in numbered fleet sessions.
+ *
+ * `resolveSessionTarget` deliberately excludes numeric sessions from
+ * prefix/middle matching so `mawjs` cannot hijack `114-mawjs-no2` (#535).
+ * Wake/attach still need a constrained operator shorthand for a unique
+ * canonical stem, e.g. `homeke` → `20-homekeeper` (#1794). This helper only
+ * accepts prefixes that continue within the same word; a dash boundary after
+ * the target stays unresolved (`mawjs` does not match `114-mawjs-no2`).
+ */
+export function resolveNumericFleetStemPrefix<T extends { name: string }>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> {
+  const lc = target.trim().toLowerCase();
+  if (!lc) return { kind: "none" };
+
+  const matches = items.filter((it) => {
+    const n = it.name.toLowerCase();
+    if (!/^\d+-/.test(n)) return false;
+    const stem = n.replace(/^\d+-/, "");
+    if (!stem.startsWith(lc) || stem.length <= lc.length) return false;
+    return stem.charAt(lc.length) !== "-";
+  });
+
+  if (matches.length === 1) return { kind: "fuzzy", match: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+  return { kind: "none" };
+}
+
+export interface FleetWindowSessionLike {
+  name: string;
+  windows?: readonly { name?: string; repo?: string }[];
+}
+
+function stripOracleSuffixLower(name: string): string {
+  return name.replace(/-oracle$/i, "");
+}
+
+function repoBasenameLower(repo: string): string {
+  return (repo.split("/").pop() || repo).toLowerCase();
+}
+
+/**
+ * Resolve an oracle/window target through fleet session window metadata.
+ *
+ * Some fleet sessions are intentionally named for an operator role rather than
+ * the oracle repo, e.g. live session `23-discord-admin` owns window
+ * `discord-oracle`. Name-only stem matching cannot infer that safely without
+ * reopening #535 (`mawjs` hijacking `114-mawjs-no2`). Fleet window metadata is
+ * authoritative, so only exact window/repo aliases and their `-oracle`-stripped
+ * forms auto-resolve.
+ */
+export function resolveFleetWindowSessionTarget<T extends FleetWindowSessionLike>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> {
+  const lc = target.trim().toLowerCase();
+  if (!lc) return { kind: "none" };
+  const lcBare = stripOracleSuffixLower(lc);
+
+  const aliasesFor = (item: T): string[] => {
+    const aliases: string[] = [];
+    for (const w of item.windows || []) {
+      const win = w.name?.trim().toLowerCase();
+      if (win) {
+        aliases.push(win, stripOracleSuffixLower(win));
+      }
+      const repo = w.repo?.trim();
+      if (repo) {
+        const base = repoBasenameLower(repo);
+        aliases.push(base, stripOracleSuffixLower(base));
+      }
+    }
+    return [...new Set(aliases.filter(Boolean))];
+  };
+
+  const matches = items.filter(item => {
+    const aliases = aliasesFor(item);
+    return aliases.includes(lc) || aliases.includes(lcBare);
+  });
+
+  if (matches.length === 1) return { kind: "fuzzy", match: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+  return { kind: "none" };
+}
+
 export const resolveWorktreeTarget = <T extends { name: string }>(
   target: string,
   items: readonly T[],

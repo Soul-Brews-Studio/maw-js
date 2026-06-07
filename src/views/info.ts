@@ -4,6 +4,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../config";
 import { resolveNickname } from "../core/fleet/nicknames";
+import { resolveNodeIdentity } from "../core/fleet/node-identity";
 
 /**
  * Self-describing maw field — schema "1" (#628).
@@ -23,6 +24,9 @@ export interface InfoMaw {
 
 export interface InfoResponse {
   node: string;
+  host?: string;
+  user?: string;
+  port?: number;
   version: string;
   ts: string;
   /** Optional human-friendly nickname for this oracle (#643 Phase 2). */
@@ -40,12 +44,15 @@ function readVersion(): string {
   }
 }
 
-function readNode(): string {
+function readIdentity(): ReturnType<typeof resolveNodeIdentity> {
   try {
     const cfg = loadConfig();
-    if (typeof cfg.node === "string" && cfg.node) return cfg.node;
+    return resolveNodeIdentity(cfg, {
+      fallbackHost: hostname(),
+      user: process.env.USER || process.env.LOGNAME,
+    });
   } catch {}
-  return hostname();
+  return resolveNodeIdentity({}, { fallbackHost: hostname(), user: process.env.USER || process.env.LOGNAME });
 }
 
 /**
@@ -66,10 +73,14 @@ function readLocalNickname(node: string): string | undefined {
 }
 
 export function buildInfo(): InfoResponse {
-  const node = readNode();
+  const identity = readIdentity();
+  const node = identity.node;
   const nickname = readLocalNickname(node);
   const resp: InfoResponse = {
     node,
+    ...(identity.host !== node ? { host: identity.host } : {}),
+    ...(identity.user ? { user: identity.user } : {}),
+    ...(identity.port !== undefined ? { port: identity.port } : {}),
     version: readVersion(),
     ts: new Date().toISOString(),
     maw: {

@@ -1,9 +1,8 @@
-import { listSessions, hostExec } from "../../../sdk";
-import { loadFleetEntries } from "../../shared/fleet-load";
+import { existsSync } from "fs";
 import { join } from "path";
+import { listSessions, hostExec } from "../../../sdk";
 import { getGhqRoot } from "../../../config/ghq-root";
-import { FLEET_DIR } from "../../../sdk";
-import { readdirSync as readDir } from "fs";
+import { loadDisabledFleetEntries, loadFleetEntries } from "../../shared/fleet-load";
 
 /**
  * maw fleet health — Cell cycle checkpoint.
@@ -83,29 +82,28 @@ export async function cmdFleetHealth() {
   const zombies = rows.filter(r => r.flag.includes("zombie")).length;
 
   // Show disabled oracles with detail
-  const disabledFiles = readDir(FLEET_DIR).filter((f: string) => f.endsWith(".disabled"));
-  if (disabledFiles.length > 0) {
+  const disabledEntries = loadDisabledFleetEntries();
+  if (disabledEntries.length > 0) {
     console.log();
-    console.log(`  \x1b[90m── Disabled (${disabledFiles.length}) ──\x1b[0m`);
-    for (const f of disabledFiles) {
-      try {
-        const cfg = JSON.parse(require("fs").readFileSync(join(FLEET_DIR, f), "utf-8"));
-        const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");
-        const num = f.match(/^(\d+)/)?.[1] || "?";
+    console.log(`  \x1b[90m── Disabled (${disabledEntries.length}) ──\x1b[0m`);
+    for (const entry of disabledEntries) {
+      const dName = entry.groupName;
+      const num = entry.num ? String(entry.num) : "?";
+      const cfg = entry.session as any;
+      if (cfg) {
         const wins = cfg.windows?.length || 0;
         const repo = cfg.windows?.[0]?.repo || "?";
         const peers = cfg.sync_peers?.length || 0;
-        const repoExists = require("fs").existsSync(join(reposRoot,repo));
+        const repoExists = existsSync(join(reposRoot, repo));
         console.log(`  \x1b[90m  ${num.padStart(2)}  ${dName.padEnd(20)} ${String(wins).padStart(2)} win  repo:${repoExists ? "yes" : "no "}  peers:${peers}\x1b[0m`);
-      } catch {
-        const dName = f.replace(/^\d+-/, "").replace(".json.disabled", "");
+      } else {
         console.log(`  \x1b[90m  ✕ ${dName}\x1b[0m`);
       }
     }
   }
 
   console.log();
-  console.log(`  \x1b[90m${rows.length} active | ${awake} awake | ${disabledFiles.length} disabled | ${dormant} dormant | ${islands} islands | ${zombies} zombies\x1b[0m`);
+  console.log(`  \x1b[90m${rows.length} active | ${awake} awake | ${disabledEntries.length} disabled | ${dormant} dormant | ${islands} islands | ${zombies} zombies\x1b[0m`);
   if (dormant > 0) console.log(`  \x1b[33m⚠\x1b[0m ${dormant} inactive >90d — consider: maw archive <name>`);
   if (islands > 0) console.log(`  \x1b[33m⚠\x1b[0m ${islands} have zero sync_peers — knowledge trapped`);
   if (zombies > 0) console.log(`  \x1b[33m⚠\x1b[0m ${zombies} awake but inactive >14d — zombie?`);

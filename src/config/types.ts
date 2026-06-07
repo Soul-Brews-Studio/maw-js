@@ -47,6 +47,12 @@ export interface MawLimits {
   messageTruncate?: number;
   ptyCols?: number;
   ptyRows?: number;
+  /**
+   * Max concurrent agent panes across the fleet before `maw wake` refuses to
+   * spawn a new one (#2). `0` (the default) disables the cap entirely —
+   * operators opt in by setting a positive number.
+   */
+  maxConcurrentAgents?: number;
 }
 
 export interface MawConfig {
@@ -111,6 +117,15 @@ export interface MawConfig {
   /** Node identity (e.g. "white", "mba") */
   node?: string;
   /**
+   * Optional service user for multi-user hosts (#1814).
+   *
+   * When set, federation-visible identity becomes `<nodeUser>@<node>` while
+   * `node` remains the host-level identity for backwards-compatible config.
+   */
+  nodeUser?: string;
+  /** @deprecated Alias for nodeUser during early #1814 rollout. */
+  serviceUser?: string;
+  /**
    * Oracle name (e.g. "mawjs", "neo", "colab") — the family identity component
    * of `<oracle>:<node>` per ADR docs/federation/0001-peer-identity.md.
    *
@@ -137,8 +152,20 @@ export interface MawConfig {
   psiPath?: string;
   /** TLS cert/key paths */
   tls?: { cert: string; key: string };
-  /** Zenoh transport — pub/sub via zenohd remote-api */
-  zenoh?: { locator: string };
+  /** Zenoh transport — pub/sub/discovery via zenohd remote-api */
+  zenoh?: {
+    locator?: string;
+    scout?: {
+      enabled?: boolean;
+      locator?: string;
+      timeoutMs?: number;
+      keyPrefix?: string;
+    };
+  };
+  /** Discovery provider selection for peer presence candidates. */
+  discovery?: {
+    transport?: "scout" | "zenoh" | "both" | "off";
+  };
   /** Polling intervals (ms) */
   intervals?: MawIntervals;
   /** HTTP/operation timeouts (ms) */
@@ -153,12 +180,14 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** One-shot config migrations already applied. */
+  migrations?: Record<string, boolean>;
 }
 
 /** Typed defaults for intervals, timeouts, limits (#172) */
 export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
-  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200, maxConcurrentAgents: 0 } as const,
   hmacWindowSeconds: 300,
 } as const;

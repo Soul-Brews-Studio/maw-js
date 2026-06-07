@@ -7,10 +7,19 @@ Use `bun run test:all`. This is the ship gate — the alpha release script
 
 `test:all` runs four disjoint invocations so mocks don't cross-pollute:
 
-1. `bun test test/` with `test/isolated/` and `zz-mock-tmux-smoke` excluded
+1. `bun run test:default:safe`
 2. `bun test test/isolated/`
 3. `bun test test/zz-mock-tmux-smoke.test.ts`
 4. `bun test src/commands/plugins/`
+
+`test:default:safe` keeps one shared Bun process for ordinary default-suite
+files, then peels each default-suite `mock.module()` file into its own Bun
+subprocess so cross-file retroactive mocks cannot leak into later tests.
+
+`bun run test:coverage` mirrors those same four lanes for coverage collection:
+default safe + isolated + mock smoke + plugin tests. It writes per-lane LCOV
+parts under `coverage/`, merges them into `coverage/lcov.info`, then refreshes
+`docs/testing/coverage-gap-analysis.md` and the public badge JSON.
 
 ## Why `bun test test/` (bare, no flags) is broken
 

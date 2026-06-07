@@ -30,6 +30,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   let srcDir: string;
   let pluginDir: string;
   let bundledDir: string;
+  let vendoredDir: string;
 
   beforeEach(() => {
     // mkdtempSync is atomic — appends 6 random chars + creates the dir in one
@@ -39,6 +40,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     srcDir = join(workDir, "src");
     pluginDir = join(workDir, "plugins");
     bundledDir = join(srcDir, "commands", "plugins");
+    vendoredDir = join(srcDir, "vendor", "mpr-plugins");
     mkdirSync(bundledDir, { recursive: true });
   });
 
@@ -46,7 +48,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     try { rmSync(workDir, { recursive: true, force: true }); } catch {}
   });
 
-  /** Helper: create a bundled plugin dir that runBootstrap will recognize. */
+  /** Helper: create a bundled plugin dir. Only manifest dirs are valid plugin packages. */
   function makeBundledPlugin(name: string, kind: "manifest" | "index" = "manifest") {
     const dir = join(bundledDir, name);
     mkdirSync(dir, { recursive: true });
@@ -58,9 +60,44 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     return dir;
   }
 
+  /** Helper: create a vendored mpr plugin dir recognized by runBootstrap. */
+  function makeVendoredPlugin(name: string) {
+    const dir = join(vendoredDir, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
+    return dir;
+  }
+
+  /** Helper: create a previous maw-js package root with a bundled plugin. */
+  function makeStaleMawJsBundledPlugin(name: string, lane: "commands" | "vendor" = "commands") {
+    const root = join(workDir, `old-maw-js-${lane}-${name}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "maw-js", version: "0.0.0-old" }));
+    const dir = lane === "commands"
+      ? join(root, "src", "commands", "plugins", name)
+      : join(root, "src", "vendor", "mpr-plugins", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ stale: true });\n`);
+    return dir;
+  }
+
+  /** Helper: create a legacy maw-plugin-registry checkout plugin. */
+  function makeLegacyMawPluginRegistryPlugin(name: string) {
+    const root = join(workDir, `maw-plugin-registry-${name}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "maw-plugin-registry", version: "0.0.0-old" }));
+    const dir = join(root, "plugins", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name, weight: 80 }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ legacyMpr: true });\n`);
+    return dir;
+  }
+
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
-    makeBundledPlugin("beta", "index");
+    makeBundledPlugin("beta");
     makeBundledPlugin("gamma");
 
     await runBootstrap(pluginDir, srcDir);
@@ -72,6 +109,128 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(lstatSync(dest).isSymbolicLink()).toBe(true);
       expect(readlinkSync(dest)).toBe(join(bundledDir, name));
     }
+  });
+
+  it("#1339 — empty pluginDir also symlinks vendored maw-plugin-registry plugins", async () => {
+    makeBundledPlugin("tile");
+    makeVendoredPlugin("wake");
+    makeVendoredPlugin("attach");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["attach", "tile", "wake"]);
+    expect(readlinkSync(join(pluginDir, "tile"))).toBe(join(bundledDir, "tile"));
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+    expect(readlinkSync(join(pluginDir, "attach"))).toBe(join(vendoredDir, "attach"));
+  });
+
+  it("#1484 — incomplete in-tree plugin dir does not block vendored manifest plugin", async () => {
+    makeBundledPlugin("team", "index"); // legacy/incomplete in-tree team surface
+    const vendoredTeam = makeVendoredPlugin("team");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["team"]);
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+  });
+
+  it("#1484 — existing symlink to non-manifest plugin dir is healed to vendored plugin", async () => {
+    const incompleteTeam = makeBundledPlugin("team", "index");
+    const vendoredTeam = makeVendoredPlugin("team");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(incompleteTeam, join(pluginDir, "team"));
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "team"))).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(incompleteTeam);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+  });
+
+  it("#1491 — stale symlink to an older maw-js bundled plugin is healed to current package", async () => {
+    const currentFleet = makeBundledPlugin("fleet");
+    const staleFleet = makeStaleMawJsBundledPlugin("fleet");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(staleFleet, join(pluginDir, "fleet"));
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(staleFleet);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(currentFleet);
+  });
+
+  it("#1491 — stale symlink to an older vendored maw-js plugin is healed to current vendor", async () => {
+    const currentWake = makeVendoredPlugin("wake");
+    const staleWake = makeStaleMawJsBundledPlugin("wake", "vendor");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(staleWake, join(pluginDir, "wake"));
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(staleWake);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(currentWake);
+  });
+
+  it("#1507 — legacy maw-plugin-registry symlink is healed to current vendored plugin", async () => {
+    const currentInbox = makeVendoredPlugin("inbox");
+    const legacyInbox = makeLegacyMawPluginRegistryPlugin("inbox");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(legacyInbox, join(pluginDir, "inbox"));
+    expect(readlinkSync(join(pluginDir, "inbox"))).toBe(legacyInbox);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "inbox")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "inbox"))).toBe(currentInbox);
+  });
+
+  it("#1491 — symlinked user plugin override is not treated as stale maw-js bundle", async () => {
+    makeBundledPlugin("fleet");
+    const userFleet = join(workDir, "user-plugins", "fleet");
+    mkdirSync(userFleet, { recursive: true });
+    writeFileSync(join(userFleet, "plugin.json"), JSON.stringify({ name: "fleet" }));
+    writeFileSync(join(userFleet, "index.ts"), `export default async () => ({ user: true });\n`);
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(userFleet, join(pluginDir, "fleet"));
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(userFleet);
+  });
+
+  it("#1339 — user plugin dirs override vendored plugin names", async () => {
+    makeVendoredPlugin("wake");
+    mkdirSync(pluginDir, { recursive: true });
+    const userWake = join(pluginDir, "wake");
+    mkdirSync(userWake, { recursive: true });
+    writeFileSync(join(userWake, "plugin.json"), JSON.stringify({ name: "wake" }));
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(userWake).isDirectory()).toBe(true);
+    expect(lstatSync(userWake).isSymbolicLink()).toBe(false);
+  });
+
+  it("#1531 — valid in-tree plugin wins when a vendored plugin has the same name", async () => {
+    const builtinSwarm = makeBundledPlugin("swarm");
+    makeVendoredPlugin("swarm");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["swarm"]);
+    expect(lstatSync(join(pluginDir, "swarm")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "swarm"))).toBe(builtinSwarm);
   });
 
   it("non-empty pluginDir with N-1 of N plugins → 1 new symlink, others untouched", async () => {
@@ -129,11 +288,12 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(existsSync(join(userDir, "marker.txt"))).toBe(true);
   });
 
-  it("non-plugin dirs (no plugin.json, no index.ts) are skipped", async () => {
+  it("non-plugin dirs (no plugin.json) are skipped even when they have index.ts", async () => {
     makeBundledPlugin("alpha");
     // garbage dir under bundled — not a plugin
     mkdirSync(join(bundledDir, "_shared"), { recursive: true });
     writeFileSync(join(bundledDir, "_shared", "util.ts"), "// helper\n");
+    makeBundledPlugin("index-only", "index");
 
     await runBootstrap(pluginDir, srcDir);
 
@@ -184,15 +344,41 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     }
   });
 
+  it("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
+    makeVendoredPlugin("wake");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync("/nonexistent/old-maw-js/packages/wake", join(pluginDir, "wake"));
+    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "wake"))).toBe(false);
+
+    const originalWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+
+    try {
+      await runBootstrap(pluginDir, srcDir);
+
+      expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+      expect(warns.some(w => w.includes("broken plugin symlink"))).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it("pluginSources URL-fetch path is gated behind wasEmpty (only logs on first install)", async () => {
-    // The `[maw] bootstrapped N plugins` console.log is inside the `wasEmpty`
+    // The `[maw] bootstrapped N plugins` info log is inside the `wasEmpty`
     // branch alongside the URL-fetch logic — its presence/absence is a
     // proxy for whether the URL-fetch path executed.
     makeBundledPlugin("alpha");
 
-    const originalLog = console.log;
+    const originalWrite = process.stderr.write;
     const logs: string[] = [];
-    console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+    process.stderr.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+      logs.push(String(chunk));
+      return originalWrite.call(process.stderr, chunk as string, ...(args as []));
+    }) as typeof process.stderr.write;
 
     try {
       // First install: pluginDir empty → wasEmpty branch should run.
@@ -212,7 +398,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(existsSync(join(pluginDir, "shellenv"))).toBe(true);
       expect(lstatSync(join(pluginDir, "shellenv")).isSymbolicLink()).toBe(true);
     } finally {
-      console.log = originalLog;
+      process.stderr.write = originalWrite;
     }
   });
 });

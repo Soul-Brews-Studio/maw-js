@@ -339,21 +339,19 @@ export function federationAuth(): MiddlewareHandler {
 // #804 Step 4 VERIFY — Per-peer "from:" signature verification + O6 enforcement
 // ===========================================================================
 //
-// Companion to signRequest() above (Step 4 SIGN). Layer 2 on top of the
+// Companion to signRequestV3() above (Step 4 SIGN). Layer 2 on top of the
 // fleet HMAC: HMAC gates *fleet membership*; from-signing gates *per-peer
 // continuity* — "are you the peer I last spoke with?". Both layers can ride
-// the same request; the wire-shared `x-maw-signature` slot is interpreted as
-// from-sig when `x-maw-from` is present and as fleet-HMAC otherwise. The
-// elysia plugins are arranged so each layer skips itself when the other owns
-// the request — see src/lib/elysia-auth.ts.
+// the same request; v3 keeps its per-peer signature in `x-maw-signature-v3`
+// so the fleet-HMAC `x-maw-signature` slot stays unambiguous.
 //
 // Wire format (matches signRequest above exactly):
 //   x-maw-from        : "<oracle>:<node>" — sender's canonical identity
-//   x-maw-signed-at   : ISO 8601 UTC timestamp (e.g. 2026-04-28T17:42:00.000Z)
-//   x-maw-signature   : HMAC-SHA256(peerKey, payload), lowercase hex
+//   x-maw-timestamp   : numeric unix seconds, reused from v2
+//   x-maw-signature-v3: HMAC-SHA256(peerKey, payload), lowercase hex
 //
 // Canonical signed payload (matches signRequest):
-//   `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+//   `METHOD:PATH:TIMESTAMP:BODY_SHA256:FROM`
 //
 // `bodyHashHex` = hashBody(body) — empty string for empty body.
 //
@@ -404,11 +402,21 @@ export function asVerifyHeaders(h: Record<string, string | undefined> | VerifyHe
 }
 
 /**
- * Build the canonical signed payload. MUST match signRequest's layout:
- *   `<from>\n<signedAt>\n<METHOD>\n<path>\n<bodyHashHex>`
+ * Build the canonical v3 signed payload. MUST match signRequestV3's layout:
+ *   `METHOD:PATH:TIMESTAMP:BODY_SHA256:FROM`
  * (Field order is load-bearing — drift here = silent verification failure.)
  */
 export function buildFromSignPayload(
+  from: string,
+  timestamp: string | number,
+  method: string,
+  path: string,
+  bodyHash: string,
+): string {
+  return `${method.toUpperCase()}:${path}:${timestamp}:${bodyHash}:${from}`;
+}
+
+function buildLegacyFromSignPayload(
   from: string,
   signedAt: string,
   method: string,
@@ -447,6 +455,12 @@ function parseIsoSeconds(iso: string): number | null {
   return Math.floor(ms / 1000);
 }
 
+function parseUnixSeconds(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 /**
  * Verify the per-peer `from:` signing layer on an incoming request.
  *
@@ -475,14 +489,19 @@ export function verifyRequest(args: {
 }): FromVerifyDecision {
   const headers = asVerifyHeaders(args.headers);
   const from = (headers.get("x-maw-from") ?? "").trim();
-  const sig = (headers.get("x-maw-signature") ?? "").trim();
-  const signedAtIso = (headers.get("x-maw-signed-at") ?? "").trim();
+  const v3Sig = (headers.get("x-maw-signature-v3") ?? "").trim();
+  const v3Timestamp = (headers.get("x-maw-timestamp") ?? "").trim();
+  const legacySig = (headers.get("x-maw-signature") ?? "").trim();
+  const legacySignedAtIso = (headers.get("x-maw-signed-at") ?? "").trim();
+  const hasV3Sig = !!from && !!v3Sig && !!v3Timestamp;
+  const hasLegacySig = !!from && !!legacySig && !!legacySignedAtIso;
 
   const cached = from ? (args.lookupPubkey(from) ?? undefined) : undefined;
-  // "Signed" means the from-signing trio is present. The fleet-HMAC layer
-  // also produces an x-maw-signature, but it's accompanied by x-maw-timestamp,
-  // not x-maw-from. We key on x-maw-from to disambiguate the two layers.
-  const signed = !!from && !!sig && !!signedAtIso;
+  // "Signed" means the v3 from-signing trio is present. During alpha, accept
+  // the older ISO/newline trio as a backwards-compatible fallback, but always
+  // prefer the current v3 slot when it exists so fleet-HMAC x-maw-signature is
+  // never mistaken for from-signing.
+  const signed = hasV3Sig || hasLegacySig;
 
   // --- O6 row 1: no cache + unsigned → accept (legacy bootstrap) ---
   if (!cached && !signed) {
@@ -503,19 +522,20 @@ export function verifyRequest(args: {
   // Defensive: cached + signed should mean the trio is present, but malformed
   // headers can land us here with a partial trio — bail on missing pieces.
   if (!from) return { kind: "refuse-malformed", reason: "missing-from" };
-  if (!sig) return { kind: "refuse-malformed", reason: "missing-signature" };
+  if (!v3Sig && !legacySig) return { kind: "refuse-malformed", reason: "missing-signature" };
 
-  const signedAtSec = parseIsoSeconds(signedAtIso);
-  if (signedAtSec === null) {
-    return { kind: "refuse-malformed", reason: "invalid-signed-at" };
-  }
+  const signedAtSec = hasV3Sig ? parseUnixSeconds(v3Timestamp) : parseIsoSeconds(legacySignedAtIso);
+  if (signedAtSec === null) return { kind: "refuse-malformed", reason: hasV3Sig ? "invalid-timestamp" : "invalid-signed-at" };
   const now = args.now ?? Math.floor(Date.now() / 1000);
   const delta = Math.abs(now - signedAtSec);
   if (delta > FROM_SIG_WINDOW_SEC) {
     return { kind: "refuse-skew", reason: "timestamp-out-of-window", from, delta };
   }
   const bodyHash = hashBody(args.body);
-  const payload = buildFromSignPayload(from, signedAtIso, args.method, args.path, bodyHash);
+  const payload = hasV3Sig
+    ? buildFromSignPayload(from, v3Timestamp, args.method, args.path, bodyHash)
+    : buildLegacyFromSignPayload(from, legacySignedAtIso, args.method, args.path, bodyHash);
+  const sig = hasV3Sig ? v3Sig : legacySig;
   if (!verifyHmacSig(cached!, payload, sig)) {
     return { kind: "refuse-mismatch", reason: "signature-invalid", from };
   }

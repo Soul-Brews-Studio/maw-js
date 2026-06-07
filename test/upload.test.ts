@@ -1,29 +1,27 @@
 /**
  * Tests for src/api/upload.ts — POST/GET/DELETE inbox endpoints.
  *
- * INBOX_DIR is hardcoded from homedir() at module load time.
- * We mock "os" before importing upload.ts so the const captures our temp dir.
+ * The upload API mirrors files to maw's XDG data inbox. Set MAW_DATA_DIR
+ * before importing upload.ts so the test stays isolated from the real inbox.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mock } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Elysia } from "elysia";
 
 
-// --- Temp home dir (evaluated before the mock factory, captured by closure) ---
-const TEST_HOME = mkdtempSync(join(tmpdir(), "maw-upload-test-"));
-const INBOX = join(TEST_HOME, ".maw", "inbox");
+// --- Temp XDG dirs (set before upload.ts is imported) ---
+const ORIGINAL_MAW_HOME = process.env.MAW_HOME;
+const ORIGINAL_MAW_DATA_DIR = process.env.MAW_DATA_DIR;
+const ORIGINAL_MAW_UPLOAD_WEB_DIR = process.env.MAW_UPLOAD_WEB_DIR;
+const TEST_DATA = mkdtempSync(join(tmpdir(), "maw-upload-data-"));
+const INBOX = join(TEST_DATA, "inbox");
 const WEB = mkdtempSync(join(tmpdir(), "maw-upload-web-"));
+delete process.env.MAW_HOME;
+process.env.MAW_DATA_DIR = TEST_DATA;
 process.env.MAW_UPLOAD_WEB_DIR = WEB;
-
-// Override os.homedir so INBOX_DIR in upload.ts resolves to our temp dir.
-// mock.module is hoisted by Bun, so it runs before any dynamic imports below.
-mock.module("os", () => ({
-  homedir: () => TEST_HOME,
-}));
 
 // --- Build test app ---
 
@@ -35,7 +33,14 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  rmSync(TEST_HOME, { recursive: true, force: true });
+  if (ORIGINAL_MAW_HOME === undefined) delete process.env.MAW_HOME;
+  else process.env.MAW_HOME = ORIGINAL_MAW_HOME;
+  if (ORIGINAL_MAW_DATA_DIR === undefined) delete process.env.MAW_DATA_DIR;
+  else process.env.MAW_DATA_DIR = ORIGINAL_MAW_DATA_DIR;
+  if (ORIGINAL_MAW_UPLOAD_WEB_DIR === undefined) delete process.env.MAW_UPLOAD_WEB_DIR;
+  else process.env.MAW_UPLOAD_WEB_DIR = ORIGINAL_MAW_UPLOAD_WEB_DIR;
+
+  rmSync(TEST_DATA, { recursive: true, force: true });
   rmSync(WEB, { recursive: true, force: true });
 });
 
@@ -60,6 +65,7 @@ describe("POST /upload", () => {
     expect(body.name).toBe("shot.png");
     expect(body.mime).toBe("image/png");
     expect(body.size).toBeDefined();
+    expect(existsSync(join(INBOX, `${body.id}.png`))).toBe(true);
   });
 
   test("disallowed mime → 415", async () => {
@@ -100,6 +106,29 @@ describe("POST /upload", () => {
     const body = await res.json();
     expect(body.error).toBeDefined();
   });
+
+  test("write failure → 500", async () => {
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["fake png bytes"], "broken.png", { type: "image/png" }),
+    );
+
+    const origWrite = Bun.write;
+    (Bun as any).write = async () => {
+      throw new Error("disk full");
+    };
+    try {
+      const res = await app.handle(
+        new Request("http://localhost/upload", { method: "POST", body: form }),
+      );
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe("disk full");
+    } finally {
+      (Bun as any).write = origWrite;
+    }
+  });
 });
 
 // --- GET /files ---
@@ -111,6 +140,18 @@ describe("GET /files", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
+  });
+
+  test("returns empty array when inbox listing fails", async () => {
+    rmSync(INBOX, { recursive: true, force: true });
+    mkdirSync(join(INBOX, ".."), { recursive: true });
+    writeFileSync(INBOX, "not a directory");
+
+    const res = await app.handle(new Request("http://localhost/files"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+
+    rmSync(INBOX, { force: true });
   });
 });
 

@@ -11,8 +11,9 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../paths";
+import { fleetDirsForRead } from "./paths";
 import { loadConfig } from "../../config";
+import type { MawConfig } from "../../config/types";
 import { getGhqRoot } from "../../config/ghq-root";
 import type { OracleEntry } from "./registry-oracle-types";
 
@@ -24,34 +25,44 @@ interface FleetLineage {
   budded_at: string | null;
 }
 
-/** @internal */
-export function readFleetLineage(): Map<string, FleetLineage> {
-  const map = new Map<string, FleetLineage>();
-  try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      try {
-        const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
-        const repos: string[] = config.project_repos || [];
-        for (const r of repos) {
-          map.set(r, {
-            repo: r,
-            budded_from: config.budded_from || null,
-            budded_at: config.budded_at || null,
-          });
-        }
-        // Also check windows for repo references
-        for (const w of config.windows || []) {
-          if (w.repo && !map.has(w.repo)) {
-            map.set(w.repo, {
-              repo: w.repo,
-              budded_from: config.budded_from || null,
-              budded_at: config.budded_at || null,
-            });
-          }
-        }
-      } catch { /* invalid fleet file, skip */ }
+
+function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): void {
+  const repos: string[] = config.project_repos || [];
+  for (const r of repos) {
+    map.set(r, {
+      repo: r,
+      budded_from: config.budded_from || null,
+      budded_at: config.budded_at || null,
+    });
+  }
+  // Also check windows for repo references
+  for (const w of config.windows || []) {
+    if (w.repo && !map.has(w.repo)) {
+      map.set(w.repo, {
+        repo: w.repo,
+        budded_from: config.budded_from || null,
+        budded_at: config.budded_at || null,
+      });
     }
-  } catch { /* fleet dir may not exist */ }
+  }
+}
+
+/** @internal */
+export function readFleetLineage(fleetDir?: string | string[]): Map<string, FleetLineage> {
+  const map = new Map<string, FleetLineage>();
+  const seenFiles = new Set<string>();
+  const dirs = Array.isArray(fleetDir) ? fleetDir : fleetDir ? [fleetDir] : fleetDirsForRead();
+  for (const dir of dirs) {
+    try {
+      for (const file of readdirSync(dir).filter(f => f.endsWith(".json")).sort()) {
+        if (seenFiles.has(file)) continue;
+        seenFiles.add(file);
+        try {
+          addFleetLineageConfig(map, JSON.parse(readFileSync(join(dir, file), "utf-8")));
+        } catch { /* invalid fleet file, skip */ }
+      }
+    } catch { /* fleet dir may not exist */ }
+  }
   return map;
 }
 
@@ -62,22 +73,33 @@ export function deriveName(repo: string): string {
 
 // ---------- Local scan ----------
 
+interface ScanLocalDeps {
+  config?: Pick<MawConfig, "node" | "agents">;
+  fleetDir?: string;
+  fleetDirs?: string[];
+  ghqRoot?: string;
+  now?: string;
+  fleetLineage?: Map<string, FleetLineage>;
+}
+
 /**
  * Scan local ghq for oracles. Verbose-by-default per user direction
  * (alpha.74, 2026-04-16) — pass verbose=false for the terse summary.
  * See `feedback_verbose_by_default`.
  */
-export function scanLocal(verbose = true): OracleEntry[] {
-  const config = loadConfig();
-  const reposRoot = join(getGhqRoot(), "github.com");
-  const now = new Date().toISOString();
-  const fleetLineage = readFleetLineage();
+export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry[] {
+  const config = deps.config ?? loadConfig();
+  const fleetDirs = deps.fleetDirs ?? (deps.fleetDir ? [deps.fleetDir] : fleetDirsForRead());
+  const fleetSource = fleetDirs.join(", ");
+  const reposRoot = join(deps.ghqRoot ?? getGhqRoot(), "github.com");
+  const now = deps.now ?? new Date().toISOString();
+  const fleetLineage = deps.fleetLineage ?? readFleetLineage(fleetDirs);
   const entries: OracleEntry[] = [];
   const seen = new Set<string>();
 
   if (verbose) {
     console.log(`  \x1b[90m⏳ scanning repos root: ${reposRoot}\x1b[0m`);
-    console.log(`  \x1b[90m  fleet lineage: ${fleetLineage.size} entries from ${FLEET_DIR}\x1b[0m`);
+    console.log(`  \x1b[90m  fleet lineage: ${fleetLineage.size} entries from ${fleetSource}\x1b[0m`);
   }
 
   // Walk reposRoot: <reposRoot>/<org>/<repo>/

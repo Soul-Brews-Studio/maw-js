@@ -55,6 +55,7 @@ afterEach(() => {
 function makePluginDir(opts: {
   name: string;
   capabilities?: string[];
+  capabilityNamespaces?: string[];
   extra?: Record<string, unknown>;
 }): string {
   const dir = tmpDir();
@@ -65,6 +66,7 @@ function makePluginDir(opts: {
     sdk: "^1.0.0",
     entry: "./index.ts",
     ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
+    ...(opts.capabilityNamespaces ? { capabilityNamespaces: opts.capabilityNamespaces } : {}),
     ...(opts.extra ?? {}),
   };
   writeFileSync(join(dir, "plugin.json"), JSON.stringify(manifest));
@@ -74,9 +76,9 @@ function makePluginDir(opts: {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("#902 — load-time capability validator (single source of truth)", () => {
-  test("KNOWN_CAPABILITY_NAMESPACES is the canonical set (#874 baseline)", () => {
+  test("KNOWN_CAPABILITY_NAMESPACES is the canonical set (#874/#1418 baseline)", () => {
     expect([...KNOWN_CAPABILITY_NAMESPACES].sort()).toEqual(
-      ["ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
+      ["attach", "ffi", "fs", "net", "peer", "proc", "sdk", "shell", "tmux"],
     );
   });
 
@@ -102,6 +104,17 @@ describe("#902 — load-time capability validator (single source of truth)", () 
     expect(shellWarns).toEqual([]);
   });
 
+  test("load-time: plugin with `attach:strategy` capability does NOT warn", () => {
+    const dir = makePluginDir({ name: "attach-ssh", capabilities: ["attach:strategy"] });
+    const loaded = loadManifestFromDir(dir);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.manifest.capabilities).toEqual(["attach:strategy"]);
+    const attachWarns = warnings.filter((w) =>
+      w.includes('unknown capability namespace "attach"'),
+    );
+    expect(attachWarns).toEqual([]);
+  });
+
   test("load-time: plugin with bogus namespace `foo` DOES warn", () => {
     const dir = makePluginDir({ name: "bogus-cap", capabilities: ["foo:bar"] });
     const loaded = loadManifestFromDir(dir);
@@ -110,6 +123,31 @@ describe("#902 — load-time capability validator (single source of truth)", () 
       w.includes('unknown capability namespace "foo"'),
     );
     expect(fooWarns.length).toBe(1);
+  });
+
+  test("#1566 — plugin-declared capability namespaces do NOT warn", () => {
+    const dir = makePluginDir({
+      name: "messages",
+      capabilityNamespaces: ["messages", "storage", "events"],
+      capabilities: ["messages:ledger", "storage:sqlite", "events:message-lifecycle"],
+    });
+    const loaded = loadManifestFromDir(dir);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.manifest.capabilityNamespaces).toEqual(["messages", "storage", "events"]);
+    expect(loaded!.manifest.capabilities).toEqual(["messages:ledger", "storage:sqlite", "events:message-lifecycle"]);
+    const unknownWarns = warnings.filter((w) =>
+      w.includes("unknown capability namespace"),
+    );
+    expect(unknownWarns).toEqual([]);
+  });
+
+  test("#1566 — invalid plugin-declared capability namespace is rejected", () => {
+    const dir = makePluginDir({
+      name: "bad-namespace",
+      capabilityNamespaces: ["Bad Namespace"],
+      capabilities: ["Bad Namespace:thing"],
+    });
+    expect(() => loadManifestFromDir(dir)).toThrow("capabilityNamespaces must be an array of slug strings");
   });
 
   test("load-time warning text lists ALL canonical namespaces (no stale 6-name list)", () => {
@@ -125,9 +163,13 @@ describe("#902 — load-time capability validator (single source of truth)", () 
     for (const ns of KNOWN_CAPABILITY_NAMESPACES) {
       expect(fooWarn!).toContain(ns);
     }
+    expect(fooWarn!).toContain("runtime: maw v");
+    expect(fooWarn!).toContain("bun add -g github:Soul-Brews-Studio/maw-js#alpha");
     // Specifically tmux + shell — the two #874 added — must appear.
     expect(fooWarn!).toContain("tmux");
     expect(fooWarn!).toContain("shell");
+    // Specifically attach — the #1418 regression namespace — must appear.
+    expect(fooWarn!).toContain("attach");
   });
 
   test("load-time: every canonical namespace passes silently (no warning per known ns)", () => {

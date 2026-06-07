@@ -91,6 +91,21 @@ async function run(fn: () => Promise<void>): Promise<void> {
   }
 }
 
+async function runWithTimeoutFired(fn: () => Promise<void>): Promise<void> {
+  outs = []; errs = [];
+  console.log = (...a: unknown[]) => { outs.push(a.map(String).join(" ")); };
+  console.error = (...a: unknown[]) => { errs.push(a.map(String).join(" ")); };
+  (globalThis as unknown as { setTimeout: (cb: () => void) => number }).setTimeout =
+    ((cb: () => void) => { cb(); return 0; }) as unknown as typeof setTimeout;
+  try { await fn(); }
+  finally {
+    console.log = origLog;
+    console.error = origErr;
+    (globalThis as unknown as { setTimeout: typeof origSetTimeout }).setTimeout =
+      origSetTimeout;
+  }
+}
+
 // ─── tmpdir for JS handler modules ──────────────────────────────────────────
 
 let tmp: string;
@@ -334,6 +349,18 @@ describe("executeCommand — WASM handle success paths", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("executeCommand — WASM error branches", () => {
+  test("actual timeout guard callback rejects the race and evicts the instance", async () => {
+    preCacheBridgeImpl = () => new Promise<void>(() => {});
+    const path = setupWasm({ handle: () => 0 });
+
+    await runWithTimeoutFired(() => executeCommand({ name: "hung", description: "", path }, []));
+
+    const joined = errs.join("\n");
+    expect(joined).toContain(`WASM timeout in "hung"`);
+    expect(joined).toContain("5s limit");
+    expect(wasmInstances.has(path)).toBe(false);
+  });
+
   test("timeout-shaped error → 'WASM timeout in' log + evict", async () => {
     preCacheBridgeImpl = async () => {
       throw new Error("[wasm-safety] timed out after 5s");

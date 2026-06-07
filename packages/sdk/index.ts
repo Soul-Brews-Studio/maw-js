@@ -119,6 +119,11 @@ export {
 // Profile shape (TypeBox-derived). Used by `profile` plugin.
 export type { TProfile } from "../../src/lib/schemas";
 
+// ─── src/plugin/registry ─────────────────────────────────────────────────────
+// Runtime bridge for cross-plugin helper reuse. A plugin must opt in via
+// plugin.json module.path + module.exports before another plugin may import it.
+export { importPluginSymbol } from "../../src/plugin/registry";
+
 // ─── src/lib/artifacts ───────────────────────────────────────────────────────
 // Artifact dir/spec/meta/result helpers. Used by `artifact-manager` plugin.
 export {

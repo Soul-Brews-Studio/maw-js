@@ -56,7 +56,7 @@ export interface TransportMessage {
   to: string;            // recipient oracle name
   body: string;          // the actual message text
   timestamp: number;     // epoch ms
-  transport: "tmux" | "mqtt" | "http" | "hub";  // which channel carried it
+  transport: "tmux" | "mqtt" | "http" | "hub" | "scout";  // which channel carried it
 }
 
 /** Presence info broadcast by each host */
@@ -195,5 +195,20 @@ export class TransportRouter {
   /** Get status of all transports */
   status(): { name: string; connected: boolean }[] {
     return this.transports.map((t) => ({ name: t.name, connected: t.connected }));
+  }
+
+  /** Collect discovery rows exposed by transports such as Scout. */
+  listDiscoveredPeers(): unknown[] {
+    const peers: unknown[] = [];
+    for (const transport of this.transports) {
+      const listPeers = (transport as Transport & { listPeers?: () => unknown[] }).listPeers;
+      if (typeof listPeers !== "function") continue;
+      try {
+        peers.push(...listPeers.call(transport));
+      } catch {
+        // Discovery should never break the router status/API surface.
+      }
+    }
+    return peers;
   }
 }

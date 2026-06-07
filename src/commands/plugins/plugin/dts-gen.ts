@@ -19,7 +19,6 @@
 
 import { existsSync, writeFileSync, unlinkSync, renameSync } from "fs";
 import { join } from "path";
-import { spawnSync } from "child_process";
 
 export interface DtsGenOptions {
   /** Plugin source directory (contains src/, plugin.json). */
@@ -47,6 +46,7 @@ export interface DtsGenResult {
  */
 export function generatePluginDts(opts: DtsGenOptions): DtsGenResult {
   const { pluginDir, distDir, pluginName, entryPath } = opts;
+  const decoder = new TextDecoder();
 
   if (!existsSync(entryPath)) {
     throw new Error(`dts-gen: entry not found: ${entryPath}`);
@@ -76,17 +76,16 @@ export function generatePluginDts(opts: DtsGenOptions): DtsGenResult {
 
   let diagnostics = "";
   try {
-    const result = spawnSync(
-      "bun",
-      ["x", "tsc", "--project", tsconfigPath],
-      { cwd: pluginDir, encoding: "utf8" },
+    const result = Bun.spawnSync(
+      ["bun", "x", "tsc", "--project", tsconfigPath],
+      { cwd: pluginDir, stdout: "pipe", stderr: "pipe" },
     );
 
-    diagnostics = (result.stderr || result.stdout || "").trim();
+    diagnostics = (decoder.decode(result.stderr) || decoder.decode(result.stdout) || "").trim();
 
-    if (result.status !== 0) {
+    if (result.exitCode !== 0) {
       throw new Error(
-        `tsc declaration emit failed (exit ${result.status}):\n${diagnostics || "(no output)"}`,
+        `tsc declaration emit failed (exit ${result.exitCode}):\n${diagnostics || "(no output)"}`,
       );
     }
   } finally {

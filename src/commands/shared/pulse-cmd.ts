@@ -5,13 +5,45 @@ import {
   findOrCreateDailyThread, addTaskToPeriodComment,
 } from "./pulse-thread";
 
-export async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }) {
+export interface PulseIssue {
+  number: number;
+  title: string;
+  labels: { name: string }[];
+}
+
+export interface PulseDeps {
+  hostExec: typeof hostExec;
+  cmdWake: typeof cmdWake;
+  timePeriod: typeof timePeriod;
+  todayDate: typeof todayDate;
+  todayLabel: typeof todayLabel;
+  findOrCreateDailyThread: typeof findOrCreateDailyThread;
+  addTaskToPeriodComment: typeof addTaskToPeriodComment;
+  log: (...args: unknown[]) => void;
+}
+
+export function pulseDeps(overrides: Partial<PulseDeps> = {}): PulseDeps {
+  return {
+    hostExec,
+    cmdWake,
+    timePeriod,
+    todayDate,
+    todayLabel,
+    findOrCreateDailyThread,
+    addTaskToPeriodComment,
+    log: console.log.bind(console) as (...args: unknown[]) => void,
+    ...overrides,
+  };
+}
+
+export async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }, deps: Partial<PulseDeps> = {}) {
+  const io = pulseDeps(deps);
   const repo = "laris-co/pulse-oracle";
   const projectNum = 6; // Master Board
-  const period = timePeriod();
+  const period = io.timePeriod();
 
   // 0. Find or create daily thread
-  const thread = await findOrCreateDailyThread(repo);
+  const thread = await io.findOrCreateDailyThread(repo);
 
   // 1. Create task issue
   const escaped = title.replace(/'/g, "'\\''");
@@ -19,23 +51,23 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
   if (opts.oracle) labels.push(`oracle:${opts.oracle}`);
   const labelFlags = labels.length ? labels.map(l => `-l '${l}'`).join(" ") : "";
 
-  const issueUrl = (await hostExec(
+  const issueUrl = (await io.hostExec(
     `gh issue create --repo ${repo} -t '${escaped}' ${labelFlags} -b 'Parent: #${thread.num}'`
   )).trim();
   const m = issueUrl.match(/\/(\d+)$/);
   const issueNum = m ? +m[1] : 0;
-  console.log(`\x1b[32m+\x1b[0m issue #${issueNum} (${period}): ${issueUrl}`);
+  io.log(`\x1b[32m+\x1b[0m issue #${issueNum} (${period}): ${issueUrl}`);
 
   // 2. Add task to period comment in daily thread (edit triggers webhook!)
-  await addTaskToPeriodComment(repo, thread.num, period, issueNum, title, opts.oracle);
-  console.log(`\x1b[32m+\x1b[0m added to ${period} in daily thread #${thread.num}`);
+  await io.addTaskToPeriodComment(repo, thread.num, period, issueNum, title, opts.oracle);
+  io.log(`\x1b[32m+\x1b[0m added to ${period} in daily thread #${thread.num}`);
 
   // 3. Add to Master Board
   try {
-    await hostExec(`gh project item-add ${projectNum} --owner laris-co --url '${issueUrl}'`);
-    console.log(`\x1b[32m+\x1b[0m added to Master Board (#${projectNum})`);
+    await io.hostExec(`gh project item-add ${projectNum} --owner laris-co --url '${issueUrl}'`);
+    io.log(`\x1b[32m+\x1b[0m added to Master Board (#${projectNum})`);
   } catch (e) {
-    console.log(`\x1b[33mwarn:\x1b[0m could not add to project board: ${e}`);
+    io.log(`\x1b[33mwarn:\x1b[0m could not add to project board: ${e}`);
   }
 
   // 4. Wake oracle if specified
@@ -47,19 +79,20 @@ export async function cmdPulseAdd(title: string, opts: { oracle?: string; priori
     const prompt = `/recap --deep — You have been assigned issue #${issueNum}: ${title}. Issue URL: ${issueUrl}. Orient yourself, then wait for human instructions.`;
     wakeOpts.prompt = prompt;
 
-    const target = await cmdWake(opts.oracle, wakeOpts);
-    console.log(`\x1b[32m🚀\x1b[0m ${target}: waking up with /recap --deep → then --continue`);
+    const target = await io.cmdWake(opts.oracle, wakeOpts);
+    io.log(`\x1b[32m🚀\x1b[0m ${target}: waking up with /recap --deep → then --continue`);
   }
 }
 
-export async function cmdPulseLs(opts: { sync?: boolean }) {
+export async function cmdPulseLs(opts: { sync?: boolean }, deps: Partial<PulseDeps> = {}) {
+  const io = pulseDeps(deps);
   const repo = "laris-co/pulse-oracle";
 
   // Fetch all open issues
-  const issuesJson = (await hostExec(
+  const issuesJson = (await io.hostExec(
     `gh issue list --repo ${repo} --state open --json number,title,labels --limit 50`
   )).trim();
-  const issues: { number: number; title: string; labels: { name: string }[] }[] = JSON.parse(issuesJson || "[]");
+  const issues: PulseIssue[] = JSON.parse(issuesJson || "[]");
 
   // Categorize
   const projects: typeof issues = [];
@@ -88,44 +121,44 @@ export async function cmdPulseLs(opts: { sync?: boolean }) {
   };
 
   // Terminal table
-  console.log(`\n\x1b[36m📋 Pulse Board\x1b[0m\n`);
+  io.log(`\n\x1b[36m📋 Pulse Board\x1b[0m\n`);
 
   if (projects.length) {
-    console.log(`\x1b[33mProjects (${projects.length})\x1b[0m`);
-    console.log(`┌──────┬${"─".repeat(50)}┬──────────────┐`);
+    io.log(`\x1b[33mProjects (${projects.length})\x1b[0m`);
+    io.log(`┌──────┬${"─".repeat(50)}┬──────────────┐`);
     for (const p of projects.sort((a, b) => a.number - b.number)) {
       const oracle = getOracle(p);
-      console.log(`│ \x1b[32m#${String(p.number).padEnd(3)}\x1b[0m │ ${p.title.slice(0, 48).padEnd(48)} │ ${oracle.padEnd(12)} │`);
+      io.log(`│ \x1b[32m#${String(p.number).padEnd(3)}\x1b[0m │ ${p.title.slice(0, 48).padEnd(48)} │ ${oracle.padEnd(12)} │`);
     }
-    console.log(`└──────┴${"─".repeat(50)}┴──────────────┘`);
+    io.log(`└──────┴${"─".repeat(50)}┴──────────────┘`);
   }
 
   if (toolIssues.length) {
-    console.log(`\n\x1b[33mTools/Infra (${toolIssues.length})\x1b[0m`);
-    console.log(`┌──────┬${"─".repeat(50)}┬──────────────┐`);
+    io.log(`\n\x1b[33mTools/Infra (${toolIssues.length})\x1b[0m`);
+    io.log(`┌──────┬${"─".repeat(50)}┬──────────────┐`);
     for (const t of toolIssues.sort((a, b) => a.number - b.number)) {
       const oracle = getOracle(t);
-      console.log(`│ \x1b[32m#${String(t.number).padEnd(3)}\x1b[0m │ ${t.title.slice(0, 48).padEnd(48)} │ ${oracle.padEnd(12)} │`);
+      io.log(`│ \x1b[32m#${String(t.number).padEnd(3)}\x1b[0m │ ${t.title.slice(0, 48).padEnd(48)} │ ${oracle.padEnd(12)} │`);
     }
-    console.log(`└──────┴${"─".repeat(50)}┴──────────────┘`);
+    io.log(`└──────┴${"─".repeat(50)}┴──────────────┘`);
   }
 
   if (activeIssues.length) {
-    console.log(`\n\x1b[33mActive Today (${activeIssues.length})\x1b[0m`);
+    io.log(`\n\x1b[33mActive Today (${activeIssues.length})\x1b[0m`);
     for (const a of activeIssues.sort((a2, b) => a2.number - b.number)) {
       const oracle = getOracle(a);
-      console.log(`  \x1b[33m🟡\x1b[0m #${a.number} ${a.title} → ${oracle}`);
+      io.log(`  \x1b[33m🟡\x1b[0m #${a.number} ${a.title} → ${oracle}`);
     }
   }
 
-  console.log(`\n\x1b[36m${issues.length - threads.length} open\x1b[0m\n`);
+  io.log(`\n\x1b[36m${issues.length - threads.length} open\x1b[0m\n`);
 
   // --sync: update daily thread with checkboxes
   if (opts.sync) {
-    const thread = threads.find(t => t.title.includes(todayDate()));
-    if (!thread) { console.log("No daily thread found for today"); return; }
+    const thread = threads.find(t => t.title.includes(io.todayDate()));
+    if (!thread) { io.log("No daily thread found for today"); return; }
 
-    const lines: string[] = [`## 📋 Pulse Board Index (${todayLabel()})`, ""];
+    const lines: string[] = [`## 📋 Pulse Board Index (${io.todayLabel()})`, ""];
 
     if (projects.length) {
       lines.push(`### Projects (${projects.length})`, "");
@@ -153,18 +186,18 @@ export async function cmdPulseLs(opts: { sync?: boolean }) {
     const body = lines.join("\n").replace(/'/g, "'\\''");
 
     // Find or create index comment
-    const commentsJson2 = (await hostExec(
+    const commentsJson2 = (await io.hostExec(
       `gh api repos/${repo}/issues/${thread.number}/comments --jq '[.[] | {id: .id, body: .body}]'`
     )).trim();
     const comments: { id: string; body: string }[] = JSON.parse(commentsJson2 || "[]");
     const indexComment = comments.find(c => c.body.includes("Pulse Board Index"));
 
     if (indexComment) {
-      await hostExec(`gh api repos/${repo}/issues/comments/${indexComment.id} -X PATCH -f body='${body}'`);
-      console.log(`\x1b[32m✅\x1b[0m synced to daily thread #${thread.number}`);
+      await io.hostExec(`gh api repos/${repo}/issues/comments/${indexComment.id} -X PATCH -f body='${body}'`);
+      io.log(`\x1b[32m✅\x1b[0m synced to daily thread #${thread.number}`);
     } else {
-      await hostExec(`gh api repos/${repo}/issues/${thread.number}/comments -f body='${body}'`);
-      console.log(`\x1b[32m+\x1b[0m index posted to daily thread #${thread.number}`);
+      await io.hostExec(`gh api repos/${repo}/issues/${thread.number}/comments -f body='${body}'`);
+      io.log(`\x1b[32m+\x1b[0m index posted to daily thread #${thread.number}`);
     }
   }
 }

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/archive@v0.1.0-archive",
+  "sha256": "be23b49ce385a3ca87a41a7ee28c4117ba06f6770b74796b816ed65cf91210ed",
+  "summary": "Archive an oracle's tmux session and data.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:18:08Z",
+  "tier": "extra"
+}

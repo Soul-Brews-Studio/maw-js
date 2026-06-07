@@ -1,0 +1,38 @@
+[
+  {
+    "name": "preserves readable hyphenated oracle stem",
+    "input": {
+      "oracle": "mawjs-codex-oracle"
+    },
+    "expected": "mawjs-codex"
+  },
+  {
+    "name": "strips existing numeric prefix",
+    "input": {
+      "oracle": "50-mawjs-codex"
+    },
+    "expected": "mawjs-codex"
+  },
+  {
+    "name": "adds zero-padded slot",
+    "input": {
+      "oracle": "mawjs-codex-oracle",
+      "slot": 50
+    },
+    "expected": "50-mawjs-codex"
+  },
+  {
+    "name": "normalizes spaces and punctuation",
+    "input": {
+      "oracle": " MawJS Codex Oracle/.git "
+    },
+    "expected": "mawjs-codex"
+  },
+  {
+    "name": "keeps non-oracle repo names readable",
+    "input": {
+      "oracle": "homekeeper"
+    },
+    "expected": "homekeeper"
+  }
+]

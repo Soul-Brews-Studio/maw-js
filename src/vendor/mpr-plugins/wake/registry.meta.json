@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/wake@v0.1.0-wake",
+  "sha256": "e9445c6a7296cf1aef3e4d41a09341453602263f303488a7d830ddf222f314f5",
+  "summary": "Spawn or attach to an oracle session",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:55Z",
+  "tier": "extra"
+}

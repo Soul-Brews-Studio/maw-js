@@ -121,6 +121,19 @@ describe("findWindow", () => {
       // session name too (dedup keeps them consistent).
       expect(findWindow(MOTHER_SESSIONS, "view")).toBe("mother-view:1");
     });
+
+    test("bare '<name>-oracle' exact session match beats stale exact window matches (#1752)", () => {
+      const odin: Session[] = [
+        { name: "38-odin", windows: [
+          { index: 1, name: "odin-oracle", active: false },
+        ]},
+        { name: "61-odin-oracle", windows: [
+          { index: 1, name: "odin-oracle", active: true },
+        ]},
+      ];
+
+      expect(findWindow(odin, "odin-oracle")).toBe("61-odin-oracle:1");
+    });
   });
 
   describe("session:window syntax (#186)", () => {
@@ -140,6 +153,11 @@ describe("findWindow", () => {
     test("full session name + full window name", () => {
       expect(findWindow(MAW_SESSIONS, "08-mawjs:mawjs-oracle"))
         .toBe("08-mawjs:1");
+    });
+
+    test("full session name + window name + pane suffix", () => {
+      expect(findWindow(MAW_SESSIONS, "08-mawjs:mawjs-oracle.0"))
+        .toBe("08-mawjs:1.0");
     });
 
     test("oracle short name resolves to NN-prefixed session, not substring collision", () => {
@@ -181,12 +199,21 @@ describe("findWindow", () => {
         .toBeNull();
     });
 
-    test("falls through when session matches but window part doesn't", () => {
+    test("returns null when session matches but semantic window part doesn't", () => {
       // 'mawjs:nowindow' → matches 08-mawjs but no window matches.
-      // Falls through to legacy substring match (which won't find it),
-      // ending at the colon-fallback.
+      // Return null instead of raw passthrough so node:agent federation targets
+      // can continue to resolve through peer routing (#1450/#1462).
       expect(findWindow(MAW_SESSIONS, "mawjs:nowindow"))
-        .toBe("mawjs:nowindow");
+        .toBeNull();
+    });
+
+    test("keeps raw tmux numeric and pane-address targets when session matches", () => {
+      // Literal tmux targets remain valid: `session:window-index` and
+      // `session:window.pane` should still pass through for low-level tmux use.
+      expect(findWindow(MAW_SESSIONS, "mawjs:99"))
+        .toBe("mawjs:99");
+      expect(findWindow(MAW_SESSIONS, "mawjs:99.1"))
+        .toBe("mawjs:99.1");
     });
   });
 });

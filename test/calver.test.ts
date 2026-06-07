@@ -10,6 +10,7 @@ import {
   maxAlphaFromTags,
   maxNFromPackageJson,
   maxNFromTags,
+  nextCalendarBase,
 } from "../scripts/calver";
 
 describe("calver dateBase", () => {
@@ -92,20 +93,46 @@ describe("calver computeVersion (HMM scheme)", () => {
     expect(computeVersion({ stable: true, check: false, now: jan1_0005 })).toBe("27.1.1");
   });
 
-  it("alpha: yy.m.d-alpha.HMM regardless of tag state", () => {
+  it("alpha: yy.m.d-alpha.HMM when no existing suffix is higher", () => {
     expect(computeVersion({ stable: false, check: false, now: apr18_0937 }, [])).toBe("26.4.18-alpha.937");
     expect(computeVersion({ stable: false, check: false, now: jan1_0005 }, [])).toBe("27.1.1-alpha.5");
   });
 
-  it("alpha: ignores tags entirely (HMM is unique-per-minute)", () => {
+  it("alpha: keeps HMM when tags are lower than the current wall-clock stamp", () => {
     const tags = ["v26.4.27-alpha.11", "v26.4.27-alpha.12"];
     expect(computeVersion({ stable: false, check: false, now: apr27_1200 }, tags)).toBe("26.4.27-alpha.1200");
   });
 
-  it("alpha: ignores legacy monotonic package.json counter", () => {
+  it("alpha: keeps HMM when package.json suffix is lower than the current wall-clock stamp", () => {
     expect(
       computeVersion({ stable: false, check: false, now: apr27_1200 }, [], "26.4.27-alpha.48"),
     ).toBe("26.4.27-alpha.1200");
+  });
+
+  it("#1504/#1532: alpha rolls base forward when post-midnight HMM would downgrade package.json", () => {
+    const may16_0027 = new Date(2026, 4, 16, 0, 27);
+    expect(
+      computeVersion({ stable: false, check: false, now: may16_0027 }, [], "26.5.16-alpha.2356"),
+    ).toBe("26.5.17-alpha.27");
+  });
+
+  it("#1504/#1532: alpha rolls base forward when post-midnight HMM would downgrade tags", () => {
+    const may16_0027 = new Date(2026, 4, 16, 0, 27);
+    expect(
+      computeVersion({ stable: false, check: false, now: may16_0027 }, ["v26.5.16-alpha.2358"]),
+    ).toBe("26.5.17-alpha.27");
+  });
+
+  it("#1532: never emits impossible HMM suffixes above 2359", () => {
+    const may16_0629 = new Date(2026, 4, 16, 6, 29);
+    const version = computeVersion(
+      { stable: false, check: false, now: may16_0629 },
+      ["v26.5.16-alpha.2364"],
+      "26.5.16-alpha.2364",
+    );
+    expect(version).toBe("26.5.17-alpha.629");
+    const suffix = Number(version.split(".").at(-1));
+    expect(suffix).toBeLessThanOrEqual(2359);
   });
 
   it("--stable ignores tags entirely", () => {
@@ -283,6 +310,17 @@ describe("calver isValidCalendarDate (#1015)", () => {
   it("malformed input fails", () => {
     expect(isValidCalendarDate("26.4")).toBe(false);
     expect(isValidCalendarDate("26.4.5.1")).toBe(false);
+  });
+});
+
+describe("calver nextCalendarBase (#1532)", () => {
+  it("advances within a month", () => {
+    expect(nextCalendarBase("26.5.16")).toBe("26.5.17");
+  });
+
+  it("advances across month and year boundaries", () => {
+    expect(nextCalendarBase("26.5.31")).toBe("26.6.1");
+    expect(nextCalendarBase("26.12.31")).toBe("27.1.1");
   });
 });
 

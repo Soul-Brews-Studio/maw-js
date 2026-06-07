@@ -19,6 +19,8 @@ interface WakeOpts {
   fresh?: boolean;
   noAttach?: boolean;
   listWt?: boolean;
+  dryRun?: boolean;
+  noRehydrate?: boolean;
 }
 
 function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefined } {
@@ -31,9 +33,14 @@ function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefin
     "--repo": String,
     "--task": String,
     "--fresh": Boolean,
+    "--new": "--fresh",
     "--no-attach": Boolean,
     "--list": Boolean,
     "--ls": "--list",
+    "--dry-run": Boolean,
+    "--main": Boolean,
+    "--solo": "--main",
+    "--no-rehydrate": "--main",
   }, 2);
 
   const opts: WakeOpts = {};
@@ -44,6 +51,8 @@ function buildWakeOpts(args: string[]): { opts: WakeOpts; repo: string | undefin
   if (flags["--fresh"]) opts.fresh = true;
   if (flags["--no-attach"]) opts.noAttach = true;
   if (flags["--list"]) opts.listWt = true;
+  if (flags["--dry-run"]) opts.dryRun = true;
+  if (flags["--main"]) opts.noRehydrate = true;
   if (flags["--task"]) opts.noAttach = true;
 
   const positionals = flags._;
@@ -129,6 +138,25 @@ describe("--task flag (fire-and-forget)", () => {
     expect(opts.prompt).toBe("__FETCHED_ISSUE_99__");
     // --task still implies fire-and-forget
     expect(opts.noAttach).toBe(true);
+  });
+});
+
+describe("wake preview/control flags (#1563)", () => {
+  test("--dry-run is forwarded to cmdWake options", () => {
+    const { opts } = buildWakeOpts(["wake", "neo", "--dry-run"]);
+    expect(opts.dryRun).toBe(true);
+  });
+
+  test("--main / --solo / --no-rehydrate all disable worktree rehydrate", () => {
+    expect(buildWakeOpts(["wake", "neo", "--main"]).opts.noRehydrate).toBe(true);
+    expect(buildWakeOpts(["wake", "neo", "--solo"]).opts.noRehydrate).toBe(true);
+    expect(buildWakeOpts(["wake", "neo", "--no-rehydrate"]).opts.noRehydrate).toBe(true);
+  });
+
+  test("--new is an alias for --fresh, not --wt", () => {
+    const { opts } = buildWakeOpts(["wake", "neo", "--wt", "white", "--new"]);
+    expect(opts.wt).toBe("white");
+    expect(opts.fresh).toBe(true);
   });
 });
 

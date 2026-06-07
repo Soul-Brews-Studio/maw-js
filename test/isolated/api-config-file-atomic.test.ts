@@ -20,6 +20,7 @@ import { Elysia } from "elysia";
 
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-config-484-"));
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_STATE_DIR = TEST_CONFIG_DIR;
 
 let app: Elysia;
 let fleetDir: string;

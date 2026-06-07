@@ -17,7 +17,7 @@
  */
 
 import type { RegistryManifest } from "./registry-fetch";
-import { parseMonorepoRef } from "./install-source-detect";
+import { parseGithubRef as parseInstallGithubRef, parseMonorepoRef } from "./install-source-detect";
 
 export type SourceKind = "npm" | "github" | "https" | "monorepo";
 
@@ -86,6 +86,13 @@ export function resolvePluginSource(
 
   const gh = parseGithubRef(raw);
   if (gh) return { kind: "github", source: githubTarballUrl(gh), ...common };
+
+  // Current registry entries use the same Vercel-style GitHub source
+  // accepted by `maw plugin install owner/repo[/subpath][@ref]`. Pass it
+  // through so install-source-detect.ts can preserve subpath/ref semantics
+  // and resolve the actual archive/release fallback in one place.
+  const installGh = parseInstallGithubRef(raw);
+  if (installGh) return { kind: "github", source: raw, ...common };
 
   // monorepo: passthrough — the install dispatcher (detectMode →
   // installFromMonorepo) handles URL construction and subpath walk.

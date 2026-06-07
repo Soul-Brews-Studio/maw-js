@@ -125,12 +125,21 @@ function run(fn: () => void): void {
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
-function plug(name: string, weight?: number): LoadedPlugin {
+function plug(name: string, weight?: number, cli?: LoadedPlugin["manifest"]["cli"]): LoadedPlugin {
   return {
-    manifest: { name, version: "1.0.0", sdk: "^1.0.0", ...(weight !== undefined && { weight }) },
+    manifest: { name, version: "1.0.0", sdk: "^1.0.0", ...(weight !== undefined && { weight }), ...(cli && { cli }) },
     dir: `/tmp/fake/${name}`,
     wasmPath: "",
+    entryPath: `/tmp/fake/${name}/index.ts`,
     kind: "ts",
+  } as LoadedPlugin;
+}
+
+function plugWithDeps(name: string, deps: string[]): LoadedPlugin {
+  const p = plug(name);
+  return {
+    ...p,
+    manifest: { ...p.manifest, dependencies: { plugins: deps } },
   } as LoadedPlugin;
 }
 
@@ -206,6 +215,7 @@ describe("doEnable — already-enabled short-circuit", () => {
 describe("doEnable — enable branch", () => {
   test("name in disabledPlugins → saveConfig filters it, resetDiscoverCache, success log", () => {
     configStore = { disabledPlugins: ["foo", "bar"] };
+    discoverPackagesReturn = [plug("foo"), plug("bar")];
 
     run(() => doEnable("foo"));
 
@@ -219,6 +229,7 @@ describe("doEnable — enable branch", () => {
 
   test("name is the only disabled plugin → saveConfig with empty array", () => {
     configStore = { disabledPlugins: ["foo"] };
+    discoverPackagesReturn = [plug("foo")];
 
     run(() => doEnable("foo"));
 
@@ -227,10 +238,44 @@ describe("doEnable — enable branch", () => {
 
   test("resetDiscoverCache fires AFTER saveConfig (alpha.67 ordering)", () => {
     configStore = { disabledPlugins: ["foo"] };
+    discoverPackagesReturn = [plug("foo")];
 
     run(() => doEnable("foo"));
 
     expect(trace).toEqual(["saveConfig", "resetDiscoverCache"]);
+  });
+
+  test("#1541 — enable resolves CLI alias to owning plugin name", () => {
+    configStore = { disabledPlugins: ["about"] };
+    discoverPackagesReturn = [
+      plug("about", 10, { command: "about", aliases: ["info"], help: "maw about <oracle>" }),
+    ];
+
+    run(() => doEnable("info"));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: [] }]);
+    expect(resetDiscoverCacheCalls).toBe(1);
+    expect(outs.join("\n")).toContain("enabled about");
+  });
+
+  test("#1547 — enable includes disabled plugin dependencies before target", () => {
+    configStore = { disabledPlugins: ["trace", "dig", "foo"] };
+    discoverPackagesReturn = [plug("trace"), plug("dig"), plugWithDeps("foo", ["trace", "dig"])];
+
+    run(() => doEnable("foo"));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: [] }]);
+    expect(outs.join("\n")).toContain("enabled trace, dig, foo");
+  });
+
+  test("#1547 — enable accepts multiple plugin names", () => {
+    configStore = { disabledPlugins: ["trace", "dig", "other"] };
+    discoverPackagesReturn = [plug("trace"), plug("dig"), plug("other")];
+
+    run(() => doEnable(["trace", "dig"]));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: ["other"] }]);
+    expect(outs.join("\n")).toContain("enabled trace, dig");
   });
 
   test("preserves OTHER disabled plugins unchanged", () => {
@@ -318,6 +363,19 @@ describe("doDisable — disable branch", () => {
 
     expect(saveConfigCalls).toEqual([{ disabledPlugins: ["foo"] }]);
     expect(resetDiscoverCacheCalls).toBe(1);
+  });
+
+  test("#1541 — disable resolves CLI alias to owning plugin name", () => {
+    configStore = { disabledPlugins: [] };
+    discoverPackagesReturn = [
+      plug("about", 10, { command: "about", aliases: ["info"], help: "maw about <oracle>" }),
+    ];
+
+    run(() => doDisable("info"));
+
+    expect(saveConfigCalls).toEqual([{ disabledPlugins: ["about"] }]);
+    expect(resetDiscoverCacheCalls).toBe(1);
+    expect(outs.join("\n")).toContain("disabled about");
   });
 
   test("resetDiscoverCache fires AFTER saveConfig (alpha.67 ordering)", () => {

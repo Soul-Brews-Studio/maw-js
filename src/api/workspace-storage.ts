@@ -1,14 +1,28 @@
 // Workspace Hub API — disk storage and in-memory cache
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { CONFIG_DIR } from "../core/paths";
+import { mawConfigPath, mawDataPath } from "../core/xdg";
 import type { Workspace } from "./workspace-types";
 
-export const WORKSPACE_DIR = join(CONFIG_DIR, "workspaces");
+export function workspaceDir(): string {
+  return mawDataPath("workspaces");
+}
+
+export const WORKSPACE_DIR = workspaceDir();
+
+function legacyWorkspaceDir(): string {
+  return mawConfigPath("workspaces");
+}
+
+function candidateWorkspaceDirs(): string[] {
+  const primary = workspaceDir();
+  const legacy = legacyWorkspaceDir();
+  return primary === legacy ? [primary] : [primary, legacy];
+}
 
 function ensureDir(): void {
-  mkdirSync(WORKSPACE_DIR, { recursive: true });
+  mkdirSync(workspaceDir(), { recursive: true });
 }
 
 /** In-memory cache, persisted to disk on mutation */
@@ -18,20 +32,23 @@ export const workspaces = new Map<string, Workspace>();
 export function loadAll() {
   if (workspaces.size > 0) return; // already loaded
   ensureDir();
-  try {
-    for (const file of readdirSync(WORKSPACE_DIR)) {
-      if (!file.endsWith(".json")) continue;
-      try {
-        const ws = JSON.parse(readFileSync(join(WORKSPACE_DIR, file), "utf-8")) as Workspace;
-        workspaces.set(ws.id, ws);
-      } catch { /* skip corrupt files */ }
-    }
-  } catch { /* dir doesn't exist yet */ }
+  for (const dir of [...candidateWorkspaceDirs()].reverse()) {
+    if (!existsSync(dir)) continue;
+    try {
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith(".json")) continue;
+        try {
+          const ws = JSON.parse(readFileSync(join(dir, file), "utf-8")) as Workspace;
+          workspaces.set(ws.id, ws);
+        } catch { /* skip corrupt files */ }
+      }
+    } catch { /* dir doesn't exist yet */ }
+  }
 }
 
 export function persist(ws: Workspace) {
   ensureDir();
-  writeFileSync(join(WORKSPACE_DIR, `${ws.id}.json`), JSON.stringify(ws, null, 2) + "\n", "utf-8");
+  writeFileSync(join(workspaceDir(), `${ws.id}.json`), JSON.stringify(ws, null, 2) + "\n", "utf-8");
 }
 
 /** Find workspace by join code (linear scan — small N) */

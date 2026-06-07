@@ -6,6 +6,8 @@
  */
 
 import { parseFlags } from "./parse-args";
+import { realpathSync } from "fs";
+import { pathToFileURL } from "url";
 import {
   preCacheBridge, readString,
   textEncoder, textDecoder,
@@ -91,7 +93,10 @@ export async function executeCommand(desc: CommandDescriptor, remaining: string[
     }
     return;
   }
-  const mod = await import(desc.path!);
+  // Bun canary on macOS can lose later dynamic imports that come through the
+  // /var → /private/var symlink. Import the canonical file URL so temporary
+  // JS command modules load deterministically across runners.
+  const mod = await import(pathToFileURL(realpathSync(desc.path!)).href);
   const handler = mod.default || mod.handler;
   if (!handler) { console.error(`[commands] ${desc.name}: no default export or handler`); return; }
   const flags = desc.flags ? parseFlags(["_", ...remaining], desc.flags, 1) : { _: remaining };

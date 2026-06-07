@@ -1,7 +1,6 @@
-import { listSessions, FLEET_DIR, type OracleEntry } from "../../../sdk";
+import { listSessions, type OracleEntry } from "../../../sdk";
 import { ghqFind } from "../../../core/ghq";
-import { readdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { loadFleetEntries } from "../../shared/fleet-load";
 
 /** Like resolveOracle but returns null instead of throwing on miss */
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
@@ -18,15 +17,13 @@ export async function discoverOracles(): Promise<string[]> {
   const names = new Set<string>();
 
   // 1. Fleet configs (registered — includes sleeping)
-  const fleetDir = FLEET_DIR;
   try {
-    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
-      const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
-      for (const w of config.windows || []) {
+    for (const entry of loadFleetEntries()) {
+      for (const w of entry.session?.windows || []) {
         if (w.name.endsWith("-oracle")) names.add(w.name.replace(/-oracle$/, ""));
       }
     }
-  } catch { /* fleet dir may not exist */ }
+  } catch { /* fleet dirs may not exist or may contain bad JSON */ }
 
   // 2. Running tmux (actual state — catches unregistered oracles)
   try {

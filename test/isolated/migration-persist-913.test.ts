@@ -28,7 +28,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir, homedir } from "os";
 import { join } from "path";
-import { spawnSync } from "child_process";
+import { runBunChild } from "./helpers/run-bun-child";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
@@ -53,12 +53,7 @@ function runScript(
   const baseEnv = { ...process.env, ...env };
   if (opts.testMode === true) baseEnv.MAW_TEST_MODE = "1";
   if (opts.testMode === false) delete baseEnv.MAW_TEST_MODE;
-  const r = spawnSync("bun", ["-e", script], {
-    env: baseEnv,
-    encoding: "utf-8",
-    timeout: 10_000,
-  });
-  return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  return runBunChild({ env: baseEnv, script });
 }
 
 const tempHomes: string[] = [];

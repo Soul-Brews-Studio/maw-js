@@ -3,8 +3,10 @@
  *
  * Mirrors `src/commands/plugins/trust/{store,impl}.ts` so that
  * `src/commands/shared/{scope-acl,comm-send}.ts` (and any other src/core /
- * src/api / src/lib consumer) can read + append to `<CONFIG_DIR>/trust.json`
+ * src/api / src/lib consumer) can read + append to `<STATE_DIR>/trust.json`
  * without reaching across the plugin boundary into the trust plugin.
+ * Legacy `<CONFIG_DIR>/trust.json` files remain readable so existing
+ * approvals migrate forward on the next write instead of disappearing.
  *
  * After the follow-up "prune" PR removes the trust plugin's source, this
  * vendored copy is the canonical location for the helper logic; the plugin
@@ -22,8 +24,8 @@ import {
   renameSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
-import { dirname, join } from "path";
+import { dirname } from "path";
+import { mawConfigPath, mawStatePath } from "../core/xdg";
 
 export interface TrustEntryOnDisk {
   sender: string;
@@ -33,19 +35,25 @@ export interface TrustEntryOnDisk {
 
 export type TrustListOnDisk = TrustEntryOnDisk[];
 
-function activeConfigDir(): string {
-  if (process.env.MAW_HOME) return join(process.env.MAW_HOME, "config");
-  if (process.env.MAW_CONFIG_DIR) return process.env.MAW_CONFIG_DIR;
-  return join(homedir(), ".config", "maw");
+export function trustPath(): string {
+  return mawStatePath("trust.json");
 }
 
-export function trustPath(): string {
-  return join(activeConfigDir(), "trust.json");
+function legacyTrustPath(): string {
+  return mawConfigPath("trust.json");
+}
+
+function readableTrustPath(): string | null {
+  const primary = trustPath();
+  if (existsSync(primary)) return primary;
+  const legacy = legacyTrustPath();
+  if (legacy !== primary && existsSync(legacy)) return legacy;
+  return null;
 }
 
 export function loadTrust(): TrustListOnDisk {
-  const path = trustPath();
-  if (!existsSync(path)) return [];
+  const path = readableTrustPath();
+  if (!path) return [];
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");

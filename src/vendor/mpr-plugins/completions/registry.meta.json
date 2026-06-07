@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/completions@v0.1.0-completions",
+  "sha256": "702047b7e0f6d63c4d7ff7286ff2832ec3ab5a99aeb6b6771c1d2c99fe530613",
+  "summary": "Generate shell completions for maw CLI.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:35Z",
+  "tier": "standard"
+}

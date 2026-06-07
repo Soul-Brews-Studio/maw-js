@@ -1,9 +1,14 @@
 import { openSync, closeSync, unlinkSync, existsSync, mkdirSync, writeSync, readSync, fstatSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { mawStateDir } from "../core/xdg";
 
-const LOCK_DIR = join(homedir(), ".maw");
-const LOCK_PATH = join(LOCK_DIR, "update.lock");
+export function updateLockDir(): string {
+  return mawStateDir();
+}
+
+export function updateLockPath(): string {
+  return join(updateLockDir(), "update.lock");
+}
 
 /**
  * Is process `pid` currently alive?  `kill(pid, 0)` is a no-op signal that
@@ -31,15 +36,18 @@ function isAlive(pid: number): boolean {
  * SIGINT / SIGTERM so CI/test kills don't leave stale state.
  */
 export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
-  if (!existsSync(LOCK_DIR)) mkdirSync(LOCK_DIR, { recursive: true });
+  const lockDir = updateLockDir();
+  const lockPath = join(lockDir, "update.lock");
+
+  if (!existsSync(lockDir)) mkdirSync(lockDir, { recursive: true });
 
   const DEADLINE = Date.now() + 60_000;
   let fd: number | null = null;
   let announcedWait = false;
   while (true) {
     try {
-      fd = openSync(LOCK_PATH, "wx"); // O_EXCL — fails if exists
-      // fd-based write prevents path-TOCTOU (an attacker swapping LOCK_PATH for
+      fd = openSync(lockPath, "wx"); // O_EXCL — fails if exists
+      // fd-based write prevents path-TOCTOU (an attacker swapping lockPath for
       // a symlink between openSync and the write would otherwise redirect the
       // PID into an arbitrary file).  See #562 / #552.
       const pidBytes = Buffer.from(String(process.pid));
@@ -53,7 +61,7 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
       let readFd: number | null = null;
       try {
         // lgtm[js/file-system-race] — POST-FIX-STALE: fd-based read per #581, alert is pre-fix stale; see docs/security/file-system-race-stance.md
-        readFd = openSync(LOCK_PATH, "r");
+        readFd = openSync(lockPath, "r");
         const size = fstatSync(readFd).size;
         const buf = Buffer.alloc(Math.min(size, 64));
         readSync(readFd, buf, 0, buf.length, 0);
@@ -61,13 +69,13 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
       } catch { /* treat as stale — holderPid stays NaN */ }
       finally { if (readFd !== null) { try { closeSync(readFd); } catch {} } }
       if (!isAlive(holderPid)) {
-        console.warn(`\x1b[33m⚠\x1b[0m stale update lock (pid ${holderPid || "?"} gone) — taking over`);
-        try { unlinkSync(LOCK_PATH); } catch {}
+        console.log(`  \x1b[90m⋯ stale update lock (pid ${holderPid || "?"} gone) — taking over\x1b[0m`);
+        try { unlinkSync(lockPath); } catch {}
         continue;
       }
       if (Date.now() > DEADLINE) {
         console.warn(`\x1b[33m⚠\x1b[0m update lock held for >60s by live pid ${holderPid} — giving up`);
-        throw new Error(`update lock timeout: pid ${holderPid} still holds ${LOCK_PATH}`);
+        throw new Error(`update lock timeout: pid ${holderPid} still holds ${lockPath}`);
       }
       if (!announcedWait) {
         console.log(`  \x1b[90m⋯ another 'maw update' (pid ${holderPid}) is running, waiting up to 60s…\x1b[0m`);
@@ -81,7 +89,7 @@ export async function withUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
   // leak when CI or a test timeout kills the process.
   const release = () => {
     try { if (fd !== null) closeSync(fd); } catch {}
-    try { unlinkSync(LOCK_PATH); } catch {}
+    try { unlinkSync(lockPath); } catch {}
   };
   const sigInt = () => { release(); process.exit(130); };
   const sigTerm = () => { release(); process.exit(143); };

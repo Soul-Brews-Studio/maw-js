@@ -46,6 +46,10 @@ mock.module(join(root, "core/paths"), () => ({
   FLEET_DIR: "/tmp/maw-test-nonexistent-fleet-823",
 }));
 
+mock.module(join(root, "core/xdg"), () => ({
+  mawStatePath: () => "/tmp/maw-test-nonexistent-state-fleet-823",
+}));
+
 const { scanWorktrees } = await import("./worktrees-scan");
 
 describe("scanWorktrees (#823 Bug C) — dedupe windows across sessions", () => {

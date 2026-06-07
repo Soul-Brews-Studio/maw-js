@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/profile@v0.1.0-profile",
+  "sha256": "c60d51a1ece5824d506055e61de2b3302a42a2ea279dec436c5cd82d1615b283",
+  "summary": "Profile primitive \u2014 named plugin bundles (Phase 1 of #640 / #888).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:10Z",
+  "tier": "extra"
+}

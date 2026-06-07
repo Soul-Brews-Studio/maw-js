@@ -2,8 +2,7 @@ import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
-
-const CONFIG_PATH = join(homedir(), ".oracle", "maw.hooks.json");
+import { mawHookConfigCandidatePaths } from "../xdg";
 
 interface HooksConfig {
   hooks?: Record<string, string>;
@@ -13,14 +12,20 @@ let configCache: HooksConfig | null = null;
 
 async function loadConfig(): Promise<HooksConfig> {
   if (configCache) return configCache;
-  try {
-    const raw = await readFile(CONFIG_PATH, "utf-8");
-    configCache = JSON.parse(raw);
-    return configCache!;
-  } catch {
-    configCache = {};
-    return configCache;
+
+  for (const configPath of mawHookConfigCandidatePaths()) {
+    try {
+      const raw = await readFile(configPath, "utf-8");
+      configCache = JSON.parse(raw);
+      return configCache!;
+    } catch {
+      // Try the next candidate. Missing or malformed hook config should never
+      // break the primary maw command path.
+    }
   }
+
+  configCache = {};
+  return configCache;
 }
 
 function expandPath(p: string): string {

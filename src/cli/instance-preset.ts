@@ -13,8 +13,8 @@
  * behavior is byte-identical to pre-#566.
  */
 import { join } from "path";
-import { homedir } from "os";
 import { mkdirSync } from "fs";
+import { mawDataPath } from "../core/xdg";
 
 /** Same shape as node/oracle names — lowercase, digits, dashes, underscores. */
 export const INSTANCE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -51,7 +51,8 @@ export function applyInstancePreset(argv: string[] = process.argv.slice(2)): voi
     process.exit(1);
   }
 
-  const home = join(homedir(), ".maw", "inst", name);
+  const home = mawDataPath("inst", name);
+  const sharedPluginDir = mawDataPath("plugins");
   mkdirSync(home, { recursive: true });
   process.env.MAW_HOME = home;
 
@@ -61,7 +62,6 @@ export function applyInstancePreset(argv: string[] = process.argv.slice(2)): voi
   // swallow it. No TOCTOU gap. Other errors are also non-fatal (best-effort).
   try {
     const { symlinkSync } = require("fs");
-    const target = join(homedir(), ".maw", "plugins");
-    symlinkSync(target, join(home, "plugins"), "dir");
+    symlinkSync(sharedPluginDir, join(home, "plugins"), "dir");
   } catch { /* already linked, target missing, or permissions — best-effort */ }
 }

@@ -3,12 +3,12 @@
  *
  * Pinpoint test: src/lib/peer-key.ts mirrors the JWT-secret pattern (#801).
  * When MAW_PEER_KEY is unset, the module generates a 32-byte random key on
- * first call, persists it to <CONFIG_DIR>/peer-key with mode 0600, and reuses
+ * first call, persists it to the state-path peer-key with mode 0600, and reuses
  * it across calls / restarts (SSH host-key model).
  *
- * Isolated (per-file subprocess) because we mutate process.env.MAW_CONFIG_DIR
- * before the module import — and src/core/paths.ts captures CONFIG_DIR at
- * module-load time. Running this in the shared pool would either poison
+ * Isolated (per-file subprocess) because we mutate process.env.MAW_CONFIG_DIR and MAW_STATE_DIR
+ * before the module import — config is still captured for related modules,
+ * while peer-key itself resolves through the state path. Running this in the shared pool would either poison
  * sibling tests or get poisoned by them.
  */
 import { describe, test, expect, afterAll, beforeEach } from "bun:test";
@@ -16,19 +16,23 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, statSync 
 import { join } from "path";
 import { tmpdir, platform } from "os";
 
-// ─── Pin CONFIG_DIR to a tmp dir BEFORE importing the target module ─────────
+// ─── Pin CONFIG_DIR + STATE_DIR before importing the target module ─────────
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-peer-key-804-"));
+const TEST_STATE_DIR = mkdtempSync(join(tmpdir(), "maw-peer-key-state-804-"));
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_STATE_DIR = TEST_STATE_DIR;
 // Ensure no operator override leaks into the test process.
 delete process.env.MAW_PEER_KEY;
 delete process.env.MAW_HOME;
 
-// Import after env is set so CONFIG_DIR resolves to TEST_CONFIG_DIR.
-const peerKey = await import("../../src/lib/peer-key");
-const { PEER_KEY_FILE, getPeerKey, resetPeerKeyCache } = peerKey;
+// Import after env is set so compatibility PEER_KEY_FILE resolves to TEST_STATE_DIR.
+const peerKey = await import("../../src/lib/peer-key.ts?peer-key-persist");
+const { PEER_KEY_FILE, peerKeyFilePath, getPeerKey, resetPeerKeyCache } = peerKey;
+const LEGACY_PEER_KEY_FILE = join(TEST_CONFIG_DIR, "peer-key");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_STATE_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {
@@ -37,11 +41,34 @@ beforeEach(() => {
   delete process.env.MAW_PEER_KEY;
   resetPeerKeyCache();
   if (existsSync(PEER_KEY_FILE)) rmSync(PEER_KEY_FILE, { force: true });
+  if (existsSync(LEGACY_PEER_KEY_FILE)) rmSync(LEGACY_PEER_KEY_FILE, { force: true });
 });
 
 describe("getPeerKey() — #804 random + persisted peer key", () => {
-  test("PEER_KEY_FILE resolves under the test CONFIG_DIR (env wiring sanity)", () => {
-    expect(PEER_KEY_FILE).toBe(join(TEST_CONFIG_DIR, "peer-key"));
+  test("PEER_KEY_FILE resolves under the test state dir (env wiring sanity)", () => {
+    expect(PEER_KEY_FILE).toBe(join(TEST_STATE_DIR, "peer-key"));
+    expect(peerKeyFilePath()).toBe(PEER_KEY_FILE);
+  });
+
+  test("resolves MAW_STATE_DIR at peer-key access time", () => {
+    const dynamicState = mkdtempSync(join(tmpdir(), "maw-peer-key-dynamic-state-"));
+    process.env.MAW_STATE_DIR = dynamicState;
+    resetPeerKeyCache();
+    try {
+      const dynamicFile = join(dynamicState, "peer-key");
+      expect(peerKeyFilePath()).toBe(dynamicFile);
+      expect(existsSync(dynamicFile)).toBe(false);
+
+      const key = getPeerKey();
+
+      expect(key).toMatch(/^[0-9a-f]{64}$/);
+      expect(readFileSync(dynamicFile, "utf-8")).toBe(key);
+      expect(existsSync(PEER_KEY_FILE)).toBe(false);
+    } finally {
+      process.env.MAW_STATE_DIR = TEST_STATE_DIR;
+      resetPeerKeyCache();
+      rmSync(dynamicState, { recursive: true, force: true });
+    }
   });
 
   test("missing file → creates 64-char hex key and persists it", () => {
@@ -79,6 +106,18 @@ describe("getPeerKey() — #804 random + persisted peer key", () => {
     expect(key).toBe(PRE_EXISTING);
     // File contents must not have been overwritten.
     expect(readFileSync(PEER_KEY_FILE, "utf-8")).toBe(PRE_EXISTING);
+  });
+
+  test("legacy config-path key migrates into state without rotation", () => {
+    const LEGACY = "e".repeat(64);
+    writeFileSync(LEGACY_PEER_KEY_FILE, LEGACY, { mode: 0o600 });
+    resetPeerKeyCache();
+
+    const key = getPeerKey();
+
+    expect(key).toBe(LEGACY);
+    expect(readFileSync(PEER_KEY_FILE, "utf-8")).toBe(LEGACY);
+    expect(readFileSync(LEGACY_PEER_KEY_FILE, "utf-8")).toBe(LEGACY);
   });
 
   test("two calls in the same process return the same value (cache + persistence)", () => {

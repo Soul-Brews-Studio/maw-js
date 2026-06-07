@@ -10,8 +10,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
+import { mawCachePath } from "../../../core/xdg";
 
 export const DEFAULT_REGISTRY_URL = "https://maw.soulbrews.studio/registry.json";
 export const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -45,7 +45,7 @@ export function registryUrl(override?: string): string {
 }
 
 export function cachePath(): string {
-  return process.env.MAW_REGISTRY_CACHE || join(homedir(), ".maw", "registry-cache.json");
+  return process.env.MAW_REGISTRY_CACHE || mawCachePath("registry-cache.json");
 }
 
 interface CacheFile {

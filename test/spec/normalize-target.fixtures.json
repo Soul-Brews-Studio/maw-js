@@ -1,0 +1,62 @@
+[
+  {
+    "name": "plain target passes through unchanged",
+    "input": "token-oracle",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "leading and trailing whitespace is trimmed once up front",
+    "input": "  token-oracle/  ",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "single trailing slash is stripped",
+    "input": "token-oracle/",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "multiple trailing slashes are stripped",
+    "input": "token-oracle//",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "trailing slash is stripped from nested bare path",
+    "input": "org/repo/",
+    "expected": "org/repo"
+  },
+  {
+    "name": "trailing .git directory is stripped",
+    "input": "token-oracle/.git",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "trailing .git directory followed by slash is stripped",
+    "input": "token-oracle/.git/",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "stacked .git and slash suffixes collapse until stable",
+    "input": "token-oracle/.git///",
+    "expected": "token-oracle"
+  },
+  {
+    "name": "suffix text named git without slash-dot is preserved",
+    "input": "token-oracle.git",
+    "expected": "token-oracle.git"
+  },
+  {
+    "name": "interior characters and case are not normalized",
+    "input": "Soul-Brews-Studio/MAW-JS",
+    "expected": "Soul-Brews-Studio/MAW-JS"
+  },
+  {
+    "name": "empty string stays empty",
+    "input": "",
+    "expected": ""
+  },
+  {
+    "name": "whitespace-only string normalizes to empty",
+    "input": " \t\n ",
+    "expected": ""
+  }
+]

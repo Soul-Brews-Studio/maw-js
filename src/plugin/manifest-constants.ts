@@ -3,7 +3,9 @@
  */
 
 /** Capability namespaces seeded in Phase A. Unknown namespaces emit a
- * validation warning (not a hard fail). New namespaces need an ADR.
+ * validation warning (not a hard fail). Plugins can also declare
+ * manifest-local namespaces via `capabilityNamespaces` (#1566) when they own
+ * a new advisory domain that core should not hardcode.
  *
  * #874 — added `tmux` and `shell` after community plugins (bg, rename, park,
  * shellenv) declared them. `tmux` covers tmux-socket spawning via the SDK's
@@ -18,7 +20,12 @@
  * load-time path appeared to lag the install-time path — in fact both
  * paths now share this constant via parseCapabilities(). The
  * test/isolated/plugin-load-capability-902.test.ts regression suite locks
- * the load-path against this set so any future drift fails CI. */
+ * the load-path against this set so any future drift fails CI.
+ *
+ * #1418 — add `attach` to mainline too. Alpha already accepted
+ * attach:strategy via #1291, but main diverged and released alphas from main
+ * regressed to warning on every CLI load when mpr's attach-ssh plugin is
+ * installed. */
 export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "net",    // network (fetch, sockets)
   "fs",     // filesystem
@@ -28,6 +35,7 @@ export const KNOWN_CAPABILITY_NAMESPACES = new Set([
   "ffi",    // native FFI (bun:ffi)
   "tmux",   // tmux socket interaction (spawnSync("tmux", …) + SDK tmux helpers)
   "shell",  // shell-eval / stdout-writing plugins (shellenv-style)
+  "attach", // attach strategies (mpr attach-ssh declares attach:strategy)
 ]);
 
 /**

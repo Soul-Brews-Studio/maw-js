@@ -86,6 +86,12 @@ describe("resolvePluginSource", () => {
     expect(r.source).toBe("https://github.com/soulbrews/maw-foo/archive/refs/tags/v2.tar.gz");
   });
 
+  it("passes through bare owner/repo[/subpath][@ref] GitHub sources", () => {
+    const r = resolvePluginSource("foo", manifestWith("soul-brews-studio/maw-plugin-registry/session-chain@main"))!;
+    expect(r.kind).toBe("github");
+    expect(r.source).toBe("soul-brews-studio/maw-plugin-registry/session-chain@main");
+  });
+
   it("passes through https://.../.tgz", () => {
     const url = "https://cdn.example.com/foo-1.2.3.tgz";
     const r = resolvePluginSource("foo", manifestWith(url))!;

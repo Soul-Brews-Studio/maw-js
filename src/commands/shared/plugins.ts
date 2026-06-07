@@ -3,7 +3,7 @@
  * User-facing CLI for managing installed plugin packages.
  *
  * Subcommands:
- *   plugins / plugins ls      — table: name | version | surfaces | dir
+ *   plugins / plugins ls      — compact summary by default; -v table: name | version | surfaces | dir
  *   plugins info <name>       — full manifest + resolved paths, warn if wasm missing
  *   plugins install <path>    — validate via parseManifest, copy to ~/.maw/plugins/<name>/
  *   plugins remove <name>     — archive to /tmp/maw-plugin-<name>-<ts>/ (Nothing Deleted)
@@ -13,7 +13,7 @@
 
 import type { LoadedPlugin } from "../../plugin/types";
 import { discoverPackages } from "../../plugin/registry";
-import { doLs, doInfo } from "./plugins-ls-info";
+import { doLs, doInfo, type PluginLsOptions } from "./plugins-ls-info";
 import { doInstall, doRemove } from "./plugins-install";
 import { doProfile, doNuke } from "./plugins-profile";
 import { doEnable, doDisable } from "./plugins-toggle";
@@ -29,8 +29,26 @@ type Flags = {
   "--json"?: boolean;
   "--force"?: boolean;
   "--all"?: boolean;
+  "--verbose"?: boolean;
+  "-v"?: boolean;
+  "--core"?: boolean;
+  "--standard"?: boolean;
+  "--extra"?: boolean;
+  "--api"?: boolean;
   [key: string]: unknown;
 };
+
+function lsOptions(flags: Flags): PluginLsOptions {
+  const tiers: NonNullable<PluginLsOptions["tiers"]> = [];
+  if (flags["--core"]) tiers.push("core");
+  if (flags["--standard"]) tiers.push("standard");
+  if (flags["--extra"]) tiers.push("extra");
+  return {
+    verbose: !!(flags["--verbose"] || flags["-v"]),
+    tiers,
+    apiOnly: !!flags["--api"],
+  };
+}
 
 /**
  * Entry point for `maw plugins <sub> [args] [flags]`.
@@ -46,7 +64,7 @@ export async function cmdPlugins(
   switch (sub) {
     case "ls":
     case "list":
-      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover);
+      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover, undefined, lsOptions(flags));
     case "info":
       if (!name) {
         console.error("usage: maw plugins info <name>");
@@ -68,8 +86,8 @@ export async function cmdPlugins(
       }
       return doRemove(name, discover);
     case "enable": {
-      if (!name) { console.error("usage: maw plugin enable <name>"); process.exit(1); }
-      return doEnable(name);
+      if (!name) { console.error("usage: maw plugin enable <name> [more...]"); process.exit(1); }
+      return doEnable(flags._);
     }
     case "disable": {
       if (!name) { console.error("usage: maw plugin disable <name>"); process.exit(1); }
@@ -84,6 +102,6 @@ export async function cmdPlugins(
     case "nuke":
       return doNuke();
     default:
-      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover);
+      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover, undefined, lsOptions(flags));
   }
 }

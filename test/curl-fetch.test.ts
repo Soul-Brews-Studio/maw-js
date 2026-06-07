@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 
 // Mock config
 mock.module("../src/core/paths", () => ({
@@ -12,6 +12,7 @@ mock.module("../src/core/paths", () => ({
 
 let mockToken: string | undefined = "test-token-16chars!";
 let mockConfigThrows = false;
+const origCurlFetchTransport = process.env.MAW_CURL_FETCH_TRANSPORT;
 import { mockConfigModule } from "./helpers/mock-config";
 mock.module("../src/config", () => mockConfigModule(() => {
   if (mockConfigThrows) throw new Error("simulated config load failure");
@@ -32,13 +33,30 @@ try {
   hasLocalMawServer = probe.ok;
 } catch { /* unreachable — skip integration tests */ }
 
-const liveTest = hasLocalMawServer ? test : test.skip;
+const liveTest = process.env.MAW_TEST_LIVE_CURL === "1" && hasLocalMawServer ? test : test.skip;
 
 describe("curlFetch", () => {
-  test("uses native fetch on Linux", async () => {
-    // On Linux (this test runs on white.local), curlFetch should use native fetch
-    // We can verify by checking process.platform
-    expect(process.platform).toBe("linux");
+  beforeEach(() => {
+    mockToken = "test-token-16chars!";
+    mockConfigThrows = false;
+    process.env.MAW_CURL_FETCH_TRANSPORT = "native";
+  });
+
+  test("can force native fetch for deterministic unit coverage", async () => {
+    const origFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ transport: "native" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch;
+
+      const res = await curlFetch("http://example.invalid/native", { timeout: 1000 });
+      expect(res.ok).toBe(true);
+      expect(res.data).toEqual({ transport: "native" });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 
   test("returns ok:false for unreachable host", async () => {
@@ -99,6 +117,7 @@ describe("curlFetch", () => {
   });
 
   liveTest("sends HMAC headers when token configured", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     // Test against local maw server — auth/status is public so it won't reject
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
@@ -106,6 +125,7 @@ describe("curlFetch", () => {
   });
 
   liveTest("sends POST with body and auth headers", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     // POST to auth/status (public endpoint, accepts any method)
     const res = await curlFetch("http://white.local:3456/api/auth/status", {
       method: "POST",
@@ -117,6 +137,7 @@ describe("curlFetch", () => {
   });
 
   liveTest("works without federation token", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     mockToken = undefined;
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
@@ -124,6 +145,7 @@ describe("curlFetch", () => {
   });
 
   liveTest("parses JSON response", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     expect(typeof res.data).toBe("object");
@@ -134,6 +156,12 @@ describe("curlFetch", () => {
 describe("curlFetch body size cap (#653)", () => {
   // Tests snapshot global.fetch per-case so they don't leak across the file.
   // Pattern lifted from costs.test.ts fix (#649) to keep snapshot/restore safe.
+
+  beforeEach(() => {
+    mockToken = "test-token-16chars!";
+    mockConfigThrows = false;
+    process.env.MAW_CURL_FETCH_TRANSPORT = "native";
+  });
 
   test("rejects body exceeding maxBytes (streaming)", async () => {
     const origFetch = globalThis.fetch;
@@ -211,8 +239,86 @@ describe("curlFetch body size cap (#653)", () => {
   });
 });
 
+
+describe("curlFetch curl subprocess transport", () => {
+  beforeEach(() => {
+    mockToken = undefined;
+    mockConfigThrows = false;
+    process.env.MAW_CURL_FETCH_TRANSPORT = "curl";
+  });
+
+  test("parses successful curl stdout and passes method, headers, body, and limits", async () => {
+    const origSpawn = Bun.spawn;
+    const calls: unknown[][] = [];
+    try {
+      (Bun as any).spawn = (args: string[]) => {
+        calls.push(args);
+        return {
+          stdout: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(JSON.stringify({ ok: true })));
+              controller.close();
+            },
+          }),
+          stderr: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
+      };
+
+      const res = await curlFetch("http://example.invalid/api", {
+        method: "POST",
+        body: JSON.stringify({ hello: "curl" }),
+        timeout: 2500,
+        maxBytes: 2048,
+      });
+
+      expect(res).toEqual({ ok: true, status: 200, data: { ok: true } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain("--max-time");
+      expect(calls[0]).toContain("3");
+      expect(calls[0]).toContain("--max-filesize");
+      expect(calls[0]).toContain("2048");
+      expect(calls[0]).toContain("-X");
+      expect(calls[0]).toContain("POST");
+      expect(calls[0]).toContain("-d");
+      expect(calls[0]).toContain(JSON.stringify({ hello: "curl" }));
+    } finally {
+      (Bun as any).spawn = origSpawn;
+    }
+  });
+
+  test("kills curl when streamed stdout exceeds maxBytes", async () => {
+    const origSpawn = Bun.spawn;
+    let killed = false;
+    try {
+      (Bun as any).spawn = () => ({
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(8));
+            controller.enqueue(new Uint8Array(8));
+            controller.close();
+          },
+        }),
+        stderr: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+        exited: Promise.resolve(0),
+        kill: () => { killed = true; },
+      });
+
+      const res = await curlFetch("http://example.invalid/huge", { maxBytes: 10, timeout: 1000 });
+
+      expect(res.ok).toBe(false);
+      expect(res.data?.error).toMatch(/body exceeded 10 bytes/);
+      expect(killed).toBe(true);
+    } finally {
+      (Bun as any).spawn = origSpawn;
+    }
+  });
+});
+
 describe("curlFetch federation auth", () => {
   liveTest("protected endpoint with wrong token gets rejected", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     // Wrong token → signature mismatch → 401 from remote, but from white.local
     // the server sees non-loopback IP so it checks HMAC
     mockToken = "wrong-token-that-wont-match";
@@ -228,6 +334,7 @@ describe("curlFetch federation auth", () => {
   });
 
   liveTest("POST with body does not hang", async () => {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
     // This specifically tests the bug where POST + headers caused Bun.spawn curl to hang
     const start = Date.now();
     const res = await curlFetch("http://white.local:3456/api/send", {
@@ -241,4 +348,12 @@ describe("curlFetch federation auth", () => {
     // 404 is expected (target not found) — but it didn't hang
     expect(res.status).toBeDefined();
   });
+});
+
+afterAll(() => {
+  if (origCurlFetchTransport === undefined) {
+    delete process.env.MAW_CURL_FETCH_TRANSPORT;
+  } else {
+    process.env.MAW_CURL_FETCH_TRANSPORT = origCurlFetchTransport;
+  }
 });

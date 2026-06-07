@@ -17,19 +17,33 @@ export function writeUiState(data: object, filePath = DEFAULT_PATH): void {
   writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
 
-export const uiStateApi = new Elysia();
+export interface UiStateApiDeps {
+  readUiState: typeof readUiState;
+  writeUiState: typeof writeUiState;
+}
 
-uiStateApi.get("/ui-state", () => {
-  return readUiState();
-});
+export function createUiStateApi(deps: UiStateApiDeps = {
+  readUiState,
+  writeUiState,
+}) {
+  const api = new Elysia();
 
-uiStateApi.post("/ui-state", async ({ body, set}) => {
-  try {
-    writeUiState(body as object);
-    return { ok: true };
-  } catch (e: any) {
-    set.status = 400; return { error: e.message };
-  }
-}, {
-  body: t.Unknown(),
-});
+  api.get("/ui-state", () => {
+    return deps.readUiState();
+  });
+
+  api.post("/ui-state", async ({ body, set}) => {
+    try {
+      deps.writeUiState(body as object);
+      return { ok: true };
+    } catch (e: any) {
+      set.status = 400; return { error: e.message };
+    }
+  }, {
+    body: t.Unknown(),
+  });
+
+  return api;
+}
+
+export const uiStateApi = createUiStateApi();

@@ -26,7 +26,7 @@ import {
 
 export const consentApi = new Elysia();
 
-function isLoopback(remoteAddress: string | undefined | null): boolean {
+export function isLoopbackAddress(remoteAddress: string | undefined | null): boolean {
   if (!remoteAddress) return true; // local in-process call (no socket)
   return remoteAddress === "127.0.0.1"
     || remoteAddress === "::1"
@@ -66,7 +66,7 @@ consentApi.post("/consent/request", async ({ body, set }) => {
 
 // --- GET /consent/list — operator view (loopback-only) ---
 consentApi.get("/consent/list", ({ server, request, set }) => {
-  if (!isLoopback(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
+  if (!isLoopbackAddress(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
   return { ok: true, pending: listPending() };
 });
 
@@ -81,7 +81,7 @@ consentApi.get("/consent/:id", ({ params, set }) => {
 
 // --- POST /consent/:id/approve — operator approves with PIN (loopback) ---
 consentApi.post("/consent/:id/approve", async ({ params, body, server, request, set }) => {
-  if (!isLoopback(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
+  if (!isLoopbackAddress(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
   const b = (body ?? {}) as { pin?: string };
   if (typeof b.pin !== "string" || !b.pin) { set.status = 400; return { ok: false, error: "pin required" }; }
   const r = await approveConsent(params.id, b.pin);
@@ -91,7 +91,7 @@ consentApi.post("/consent/:id/approve", async ({ params, body, server, request, 
 
 // --- POST /consent/:id/reject — operator rejects (loopback) ---
 consentApi.post("/consent/:id/reject", ({ params, server, request, set }) => {
-  if (!isLoopback(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
+  if (!isLoopbackAddress(clientAddr(server, request))) { set.status = 403; return { ok: false, error: "loopback only" }; }
   const r = rejectConsent(params.id);
   if (!r.ok) { set.status = 400; return r; }
   return { ok: true };

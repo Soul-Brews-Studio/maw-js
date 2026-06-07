@@ -1,11 +1,9 @@
 import { Elysia } from "elysia";
 import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, basename, extname } from "path";
-import { homedir } from "os";
 import { randomUUID } from "crypto";
+import { mawDataPath } from "../core/xdg";
 
-const INBOX_DIR = join(homedir(), ".maw", "inbox");
-const WEB_DIR = process.env.MAW_UPLOAD_WEB_DIR || "/var/www/maw-uploads";
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME = new Set([
   "image/png",
@@ -22,16 +20,25 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/heif": "heif",
 };
 
+export function uploadInboxDir(): string {
+  return mawDataPath("inbox");
+}
+
+function uploadWebDir(): string {
+  return process.env.MAW_UPLOAD_WEB_DIR || "/var/www/maw-uploads";
+}
+
 /** Ensure inbox dir exists on first use */
 function ensureInbox() {
-  if (!existsSync(INBOX_DIR)) mkdirSync(INBOX_DIR, { recursive: true });
-  return INBOX_DIR;
+  const inboxDir = uploadInboxDir();
+  if (!existsSync(inboxDir)) mkdirSync(inboxDir, { recursive: true });
+  return inboxDir;
 }
 
 /** Ensure dated web-served dir exists; returns { dir, dateSlug } */
 function ensureWebDated() {
   const dateSlug = new Date().toISOString().slice(0, 10);
-  const dir = join(WEB_DIR, dateSlug);
+  const dir = join(uploadWebDir(), dateSlug);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return { dir, dateSlug };
 }
@@ -69,7 +76,7 @@ uploadApi.post("/upload", async ({ body, set }) => {
     const buf = Buffer.from(await file.arrayBuffer());
     await Bun.write(dest, buf);
 
-    // Mirror to ~/.maw/inbox for back-compat with /files listing
+    // Mirror to maw's XDG data inbox for back-compat with /files listing
     const mirror = join(ensureInbox(), filename);
     await Bun.write(mirror, buf);
 

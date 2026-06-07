@@ -10,17 +10,16 @@
  * fresh subprocess so paths.ts is re-evaluated under the right env.
  */
 import { describe, test, expect } from "bun:test";
-import { spawnSync } from "child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { tmpdir, homedir } from "os";
 import { join } from "path";
+import { runBunChild } from "./helpers/run-bun-child";
 
 function runScript(script: string, env: Record<string, string>): { code: number; stdout: string; stderr: string } {
-  const r = spawnSync("bun", ["-e", script], {
+  return runBunChild({
+    script,
     env: { ...process.env, ...env },
-    encoding: "utf-8",
   });
-  return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
 describe("#820 saveConfig guard — refuse to corrupt real homedir in test mode", () => {

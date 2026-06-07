@@ -14,9 +14,9 @@ import { loadConfig, type MawConfig } from "../config";
 // Lazy singleton — initialized once, reused across requests
 let _config: MawConfig | null = null;
 
-export function withContext(): MiddlewareHandler {
+export function withContext(load: () => MawConfig = loadConfig): MiddlewareHandler {
   return async (c, next) => {
-    if (!_config) _config = loadConfig();
+    if (!_config) _config = load();
     c.set("config" as never, _config as never);
     await next();
   };

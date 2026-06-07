@@ -24,9 +24,11 @@ export function watchUserPlugins(
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        Promise.resolve(onReload(lastChanged)).catch((err) => {
-          console.error(`[plugin:reload] failed for ${lastChanged}:`, (err as Error).message);
-        });
+        Promise.resolve()
+          .then(() => onReload(lastChanged))
+          .catch((err) => {
+            console.error(`[plugin:reload] failed for ${lastChanged}:`, (err as Error).message);
+          });
       }, debounceMs);
     });
   } catch (err) {

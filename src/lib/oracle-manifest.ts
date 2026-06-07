@@ -8,10 +8,10 @@
  * maw-js currently has FIVE independent registries that each describe "what
  * oracles do I know about?" — each authoritative for a different facet:
  *
- *   1. fleet windows         — `<FLEET_DIR>/*.json`               (session+window per oracle)
+ *   1. fleet windows         — state-first fleet dirs             (session+window per oracle)
  *   2. config.sessions       — `Record<oracle, sessionId>`        (claude UUID per oracle)
  *   3. config.agents         — `Record<oracle, node>`             (federation routing)
- *   4. oracle registry cache — `<CONFIG_DIR>/oracles.json`        (filesystem-discovered org/repo metadata)
+ *   4. oracle registry cache — `oracles.json` cache file        (filesystem-discovered org/repo metadata)
  *   5. worktree scan         — git worktrees on disk              (fallback discovery)
  *
  * Consumers (`maw oracle ls`, `shouldAutoWake`, `resolveTarget`, `maw doctor`)
@@ -58,7 +58,8 @@
 
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../core/paths";
+import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
+import { mawCachePath, mawConfigPath } from "../core/xdg";
 import { readCache } from "../core/fleet/oracle-registry";
 import type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
 import { loadConfig } from "../config";
@@ -68,10 +69,10 @@ import { loadConfig } from "../config";
 /** Which registry surfaced a fact. Order matches numeric source precedence
  *  for human-readable diagnostics (`maw doctor` printout). */
 export type OracleManifestSource =
-  | "fleet"          // <FLEET_DIR>/*.json — fleet config windows
+  | "fleet"          // state-first fleet dirs — fleet config windows
   | "session"        // config.sessions — Claude session UUID per oracle
   | "agent"          // config.agents   — node mapping for federation
-  | "oracles-json"   // <CONFIG_DIR>/oracles.json — filesystem-discovered cache
+  | "oracles-json"   // oracles.json cache — filesystem-discovered cache
   | "worktree";      // git worktree fallback — populated only by opt-in loader
 
 /**
@@ -112,6 +113,9 @@ export interface OracleManifestEntry {
   /** Lineage: ISO timestamp of bud — `oracles-json`. */
   buddedAt?: string | null;
 
+  /** Birth cache metadata from the cache-path `oracle-births.json` (#1806). */
+  born?: OracleBirthInfo;
+
   /** Has ψ/ directory on disk — `oracles-json`. */
   hasPsi?: boolean;
 
@@ -138,23 +142,92 @@ interface FleetSessionLite {
   windows?: FleetWindowLite[];
 }
 
-/** Read fleet windows from FLEET_DIR. Returns `[]` on any failure. */
-export function readFleetWindows(dir: string = FLEET_DIR): FleetSessionLite[] {
-  if (!existsSync(dir)) return [];
-  let files: string[];
+export interface OracleBirthInfo {
+  iso: string;
+  source: string;
+  cached_at: string;
+}
+
+export type OracleBirthsByName = Record<string, OracleBirthInfo>;
+
+const ORACLE_BIRTHS_FILE = "oracle-births.json";
+
+function oracleBirthCandidateFiles(): string[] {
+  const primary = mawCachePath(ORACLE_BIRTHS_FILE);
+  const legacy = mawConfigPath(ORACLE_BIRTHS_FILE);
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
+function isBirthInfo(value: unknown): value is OracleBirthInfo {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.iso === "string" &&
+    typeof record.source === "string" &&
+    typeof record.cached_at === "string"
+  );
+}
+
+/**
+ * Read the skill-side oracle birth cache without writing it.
+ *
+ * The live cache observed on m5 is `{ version: 1, entries: { name: info } }`,
+ * while early design notes described `{ version: 1, name: info }`. Accept both
+ * shapes so the CLI can consume existing caches without pinning the skill layer
+ * to one historical layout.
+ */
+export function loadOracleBirths(file?: string): OracleBirthsByName {
+  const candidates = file ? [file] : oracleBirthCandidateFiles();
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) return {};
   try {
-    files = readdirSync(dir).filter(
-      (f) => f.endsWith(".json") && !f.endsWith(".disabled"),
-    );
+    const raw = JSON.parse(readFileSync(found, "utf-8")) as Record<string, unknown>;
+    const source = raw.entries && typeof raw.entries === "object" && !Array.isArray(raw.entries)
+      ? raw.entries as Record<string, unknown>
+      : raw;
+    const out: OracleBirthsByName = {};
+    for (const [name, value] of Object.entries(source)) {
+      if (name === "version" || name === "entries") continue;
+      if (isBirthInfo(value)) out[name] = value;
+    }
+    return out;
   } catch {
-    return [];
+    return {};
   }
+}
+
+function birthForName(births: OracleBirthsByName, name: string): OracleBirthInfo | undefined {
+  return births[name] ?? births[`${name}-oracle`];
+}
+
+/** Read fleet windows from state-first fleet dirs. Returns `[]` on any failure. */
+export function readFleetWindows(dirOrDirs?: string | string[]): FleetSessionLite[] {
   const out: FleetSessionLite[] = [];
-  for (const f of files) {
+  const dirs = typeof dirOrDirs === "string"
+    ? [dirOrDirs]
+    : dirOrDirs?.length
+      ? uniqueDirs(dirOrDirs)
+      : fleetDirsForRead();
+  const seenFiles = new Set<string>();
+
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    let files: string[];
     try {
-      out.push(JSON.parse(readFileSync(join(dir, f), "utf-8")) as FleetSessionLite);
+      files = readdirSync(dir).filter(
+        (f) => f.endsWith(".json") && !f.endsWith(".disabled"),
+      ).sort();
     } catch {
-      // skip a single malformed fleet file — must not poison the manifest
+      continue;
+    }
+    for (const f of files) {
+      if (seenFiles.has(f)) continue;
+      seenFiles.add(f);
+      try {
+        out.push(JSON.parse(readFileSync(join(dir, f), "utf-8")) as FleetSessionLite);
+      } catch {
+        // skip a single malformed fleet file — must not poison the manifest
+      }
     }
   }
   return out;
@@ -188,6 +261,7 @@ export function loadManifest(): OracleManifestEntry[] {
   const config = loadConfig();
   const fleet = readFleetWindows();
   const cache: RegistryCache | null = readCache();
+  const births = loadOracleBirths();
   const sessionsMap = config.sessions || {};
   const agentsMap = config.agents || {};
 
@@ -270,6 +344,13 @@ export function loadManifest(): OracleManifestEntry[] {
     for (const o of cache.oracles) {
       mergeOraclesJsonEntry(ensure(o.name), o, addSource);
     }
+  }
+
+  // 5. oracle-births.json — skill-side read-only birth metadata. This enriches
+  // existing roster rows only; it does not create birth-cache-only oracle rows.
+  for (const e of byName.values()) {
+    const born = birthForName(births, e.name);
+    if (born) e.born = born;
   }
 
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));

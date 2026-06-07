@@ -3,17 +3,17 @@
  */
 
 import { existsSync, mkdirSync } from "fs";
-import { homedir } from "os";
 import { join, resolve } from "path";
 import { basename } from "path";
 import { lstatSync, rmSync, unlinkSync } from "fs";
+import { mawDataPath } from "../../../core/xdg";
 
 /**
  * ~/.maw/plugins — resolved at call time. Honors `MAW_PLUGINS_DIR` override
  * for tests (and for advanced users who want a non-default install root).
  */
 export function installRoot(): string {
-  return process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins");
+  return process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
 }
 
 export type Mode =

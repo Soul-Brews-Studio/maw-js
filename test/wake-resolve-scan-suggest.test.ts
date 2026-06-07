@@ -459,3 +459,119 @@ describe("scanSuggestOracle scope filter (#770)", () => {
     }
   });
 });
+
+describe("scanSuggestOracle final clone and abort branches", () => {
+  test("returns cloned repo info after a found repo and ghq path lookup", async () => {
+    const execCalls: string[] = [];
+    const hostCalls: string[] = [];
+    const result = await scanSuggestOracle("solo", {
+      execFn: (cmd) => {
+        execCalls.push(cmd);
+        if (cmd.includes("gh --version")) return "gh version 2.0.0";
+        if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) return "github.com/Soul-Brews-Studio/maw-js\n";
+        if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+        if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\n";
+        if (cmd.startsWith("gh repo view 'Soul-Brews-Studio/solo-oracle'")) {
+          return JSON.stringify({ url: "https://github.com/Soul-Brews-Studio/solo-oracle" });
+        }
+        throw new Error(`unexpected: ${cmd}`);
+      },
+      promptFn: () => true,
+      configFn: () => ({}),
+      hostExecFn: async (cmd) => {
+        hostCalls.push(cmd);
+        if (cmd.startsWith("ghq get")) return "";
+        if (cmd.startsWith("ghq list --full-path")) return "/opt/Code/github.com/Soul-Brews-Studio/solo-oracle\n";
+        throw new Error(`unexpected host: ${cmd}`);
+      },
+    });
+
+    expect(result).toEqual({
+      repoPath: "/opt/Code/github.com/Soul-Brews-Studio/solo-oracle",
+      repoName: "solo-oracle",
+      parentDir: "/opt/Code/github.com/Soul-Brews-Studio",
+    });
+    expect(execCalls).toContain("gh --version 2>/dev/null");
+    expect(hostCalls[0]).toContain("ghq get -u");
+  });
+
+  test("continues after clone failure but returns null when ghq path lookup is empty", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: any[]) => { errors.push(a.map(String).join(" ")); };
+    try {
+      const result = await scanSuggestOracle("solo-oracle", {
+        execFn: (cmd) => {
+          if (cmd.includes("gh --version")) return "gh version 2.0.0";
+          if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) return "github.com/Soul-Brews-Studio/maw-js\n";
+          if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+          if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\n";
+          if (cmd.startsWith("gh repo view 'Soul-Brews-Studio/solo-oracle'")) {
+            return JSON.stringify({ url: "https://github.com/Soul-Brews-Studio/solo-oracle" });
+          }
+          throw new Error(`unexpected: ${cmd}`);
+        },
+        promptFn: () => true,
+        configFn: () => ({}),
+        hostExecFn: async (cmd) => {
+          if (cmd.startsWith("ghq get")) throw new Error("network down\nwith detail");
+          if (cmd.startsWith("ghq list --full-path")) return "\n";
+          throw new Error(`unexpected host: ${cmd}`);
+        },
+      });
+      expect(result).toBeNull();
+      expect(errors.some((e) => e.includes("clone failed: network down"))).toBe(true);
+      expect(errors.some((e) => e.includes("path not found"))).toBe(true);
+    } finally {
+      console.error = origErr;
+    }
+  });
+
+  test("exits through the explicit abort path when the user declines", async () => {
+    const origExit = process.exit;
+    const exits: number[] = [];
+    process.exit = ((code?: string | number | null) => {
+      exits.push(Number(code ?? 0));
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit;
+    try {
+      await expect(scanSuggestOracle("solo", {
+        execFn: (cmd) => {
+          if (cmd.includes("gh --version")) return "gh version 2.0.0";
+          if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) return "github.com/Soul-Brews-Studio/maw-js\n";
+          if (cmd.startsWith("gh api user --jq")) return "nazt\n";
+          if (cmd.startsWith("gh api user/orgs")) return "Soul-Brews-Studio\n";
+          throw new Error(`unexpected: ${cmd}`);
+        },
+        promptFn: () => false,
+        configFn: () => ({}),
+        hostExecFn: async () => "",
+      })).rejects.toThrow("exit:0");
+      expect(exits).toEqual([0]);
+    } finally {
+      process.exit = origExit;
+    }
+  });
+
+  test("returns null when no local or configured orgs are available", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: any[]) => { errors.push(a.map(String).join(" ")); };
+    try {
+      const result = await scanSuggestOracle("solo", {
+        execFn: (cmd) => {
+          if (cmd.includes("gh --version")) return "gh version 2.0.0";
+          if (cmd.startsWith("ghq list") && !cmd.includes("--full-path")) return "\n";
+          throw new Error(`unexpected: ${cmd}`);
+        },
+        promptFn: () => true,
+        configFn: () => ({}),
+        hostExecFn: async () => "",
+      });
+      expect(result).toBeNull();
+      expect(errors.some((e) => e.includes("no orgs configured"))).toBe(true);
+    } finally {
+      console.error = origErr;
+    }
+  });
+});

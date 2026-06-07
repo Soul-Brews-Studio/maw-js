@@ -1,0 +1,5 @@
+{
+  "source": "soul-brews-studio/maw-plugin-registry/activity@v1.0.0",
+  "version": "v1.0.0",
+  "summary": "Classify pane activity from diffed peek snapshots."
+}

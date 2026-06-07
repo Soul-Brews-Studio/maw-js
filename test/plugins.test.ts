@@ -70,6 +70,24 @@ describe("PluginSystem", () => {
     expect(order).toEqual([1, 2]);
   });
 
+  test("can skip a named in-process handler when an external event sink owns the event", async () => {
+    const sys = new PluginSystem({
+      shouldSkipHandler: (eventName, pluginName) =>
+        eventName === "MessageSend" && pluginName === "messages",
+    });
+    const received: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.on("MessageSend", () => received.push("messages"));
+    }, "user", "messages");
+    sys.load((hooks) => {
+      hooks.on("MessageSend", () => received.push("other"));
+    }, "user", "other");
+
+    await sys.emit({ ...mockEvent, event: "MessageSend" });
+    expect(received).toEqual(["other"]);
+  });
+
   test("error in one plugin does not crash others", async () => {
     const sys = new PluginSystem();
     const received: string[] = [];
