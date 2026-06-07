@@ -30,7 +30,7 @@ function logsApp(projectsDir: string) {
     projectsDir,
     cfgLimit: cfgLimit as any,
     existsSync: () => true,
-    readdirSync,
+    readdirSync: ((path: string) => readdirSync(path).sort()) as any,
     readFileSync,
     statSync,
     join,

@@ -76,6 +76,10 @@ function iso(daysAgo: number): string {
   return new Date(NOW.getTime() - daysAgo * DAY_MS).toISOString();
 }
 
+function isoFromSystemNow(daysAgo: number): string {
+  return new Date(Date.now() - daysAgo * DAY_MS).toISOString();
+}
+
 function entry(patch: Record<string, unknown> = {}) {
   return {
     org: "Soul-Brews-Studio",
@@ -229,7 +233,7 @@ describe("oracle stale extra coverage", () => {
 
   test("cmdOracleScanStale prints json, all-clear, and all-tier formatted output", async () => {
     currentCache = cache([entry({ name: "dead", local_path: "/repos/dead", has_psi: false })]);
-    execResponses.set("/repos/dead", iso(120));
+    execResponses.set("/repos/dead", isoFromSystemNow(120));
 
     const jsonOut = await captureLog(() => stale.cmdOracleScanStale({ json: true }));
     const parsed = JSON.parse(jsonOut);
@@ -241,7 +245,7 @@ describe("oracle stale extra coverage", () => {
     });
 
     currentCache = cache([entry({ name: "fresh", local_path: "/repos/fresh" })]);
-    execResponses.set("/repos/fresh", iso(1));
+    execResponses.set("/repos/fresh", isoFromSystemNow(1));
 
     const clearOut = stripAnsi(await captureLog(() => stale.cmdOracleScanStale()));
     expect(clearOut).toContain("No stale oracles — all clear.");
@@ -254,10 +258,10 @@ describe("oracle stale extra coverage", () => {
       entry({ name: "awake", local_path: "/repos/awake" }),
     ]);
     sessions = [{ name: "live", windows: [{ index: 0, name: "awake-oracle" }] }];
-    execResponses.set("/repos/dusty", iso(45));
-    execResponses.set("/repos/slowpoke", iso(15));
-    execResponses.set("/repos/fresh", iso(1));
-    execResponses.set("/repos/awake", iso(200));
+    execResponses.set("/repos/dusty", isoFromSystemNow(45));
+    execResponses.set("/repos/slowpoke", isoFromSystemNow(15));
+    execResponses.set("/repos/fresh", isoFromSystemNow(1));
+    execResponses.set("/repos/awake", isoFromSystemNow(200));
 
     const formatted = stripAnsi(await captureLog(() => stale.cmdOracleScanStale({ all: true })));
 
