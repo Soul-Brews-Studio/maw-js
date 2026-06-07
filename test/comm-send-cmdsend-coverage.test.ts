@@ -21,6 +21,7 @@ const _rScopeAcl = await import("../src/commands/shared/scope-acl");
 const _rQueueStore = await import("../src/commands/shared/queue-store");
 const _rTrustStore = await import("../src/lib/trust-store");
 const _rConsentGate = await import("../src/core/consent/gate");
+const _rEventHooks = await import("../src/plugin/event-hooks");
 const _rFindWindow = await import("../src/core/runtime/find-window");
 const realSdk = {
   listSessions: _rSdk.listSessions,
@@ -43,6 +44,7 @@ const realScopeAcl = { loadAllScopes: _rScopeAcl.loadAllScopes, evaluateAclFromD
 const realQueueStore = { savePending: _rQueueStore.savePending };
 const realTrustStore = { cmdAdd: _rTrustStore.cmdAdd };
 const realConsentGate = { maybeGateConsent: _rConsentGate.maybeGateConsent };
+const realEventHooks = { runPluginEventHooks: _rEventHooks.runPluginEventHooks };
 
 type Session = { name: string; windows: Array<{ index: number; name: string; active: boolean }> };
 type ResolvedTarget =
@@ -87,6 +89,7 @@ let savePendingCalls: any[];
 let trustAddCalls: Array<{ sender: string; target: string }>;
 let trustAddError: Error | null;
 let consentDecision: { allow: boolean; message?: string; exitCode?: number };
+let transportEventCalls: Array<{ eventName: string; payload: unknown }>;
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
@@ -207,6 +210,16 @@ mock.module(join(import.meta.dir, "../src/core/consent/gate"), () => ({
   maybeGateConsent: async (...args: Parameters<typeof realConsentGate.maybeGateConsent>) => mockActive ? consentDecision : realConsentGate.maybeGateConsent(...args),
 }));
 
+mock.module(join(import.meta.dir, "../src/plugin/event-hooks"), () => ({
+  ..._rEventHooks,
+  runPluginEventHooks: async (...args: Parameters<typeof realEventHooks.runPluginEventHooks>) => {
+    if (!mockActive) return realEventHooks.runPluginEventHooks(...args);
+    const [eventName, payload] = args;
+    transportEventCalls.push({ eventName, payload });
+    return { eventName, matched: 0, invoked: 0, skipped: 0, failed: 0 };
+  },
+}));
+
 const origSleep = Bun.sleep.bind(Bun);
 const origExit = process.exit;
 const origErr = console.error;
@@ -290,6 +303,7 @@ beforeEach(() => {
   trustAddCalls = [];
   trustAddError = null;
   consentDecision = { allow: true };
+  transportEventCalls = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
   process.env.MAW_TEST_MODE = "1";
   delete process.env.MAW_CONSENT;
@@ -351,6 +365,23 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] hello", route: "local" }]);
     expect(captureCalls.map(c => c.lines)).toEqual([3]);
     expect(emitFeedCalls[0].data.route).toBe("local");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "local",
+        to: "local:session:oracle",
+        from: "test-node:sender",
+        via: "tmux",
+        message: "[test-node:sender] hello",
+        result: {
+          ok: true,
+          state: "local",
+          route: "local",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("delivered");
     expect(logs.join("\n")).toContain("accepted");
   });
@@ -521,6 +552,28 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("peer:remote");
     expect(emitFeedCalls[0].data.route).toBe("peer");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "peer",
+        node: "remote",
+        target: "oracle",
+        peerUrl: "http://remote:3456",
+        to: "remote:session:oracle",
+        from: "test-node:sender",
+        via: "http",
+        message: "[test-node:sender] ping",
+        result: {
+          ok: false,
+          state: "queued",
+          target: "remote-session:oracle.0",
+          peerUrl: "http://remote:3456",
+          lastLine: "remote ack",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).not.toContain("delivered");
     expect(runHookCalls[0].name).toBe("after_send");
@@ -562,6 +615,28 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("discovery");
     expect(emitFeedCalls[0].data.route).toBe("discovery");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "discovery",
+        node: "path/target",
+        target: "found:0",
+        peerUrl: "http://discovered:3456",
+        to: "path/target",
+        from: "test-node:sender",
+        via: "discovery",
+        message: "[test-node:sender] hello",
+        result: {
+          ok: false,
+          state: "queued",
+          target: "found:0",
+          peerUrl: "http://discovered:3456",
+          lastLine: "found ack",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).not.toContain("delivered");
   });

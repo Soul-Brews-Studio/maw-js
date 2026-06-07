@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs"
 import { join } from "path";
 import { tmpdir } from "os";
 import type { LoadedPlugin } from "../src/plugin/types";
-import { runLifecycleHooks, runServeLifecycleHooks, runSleepLifecycleHooks, runWakeLifecycleHooks } from "../src/plugin/lifecycle";
+import {
+  runLifecycleHooks,
+  runServeLifecycleHooks,
+  runSleepLifecycleHooks,
+  runTransportLifecycleHooks,
+  runWakeLifecycleHooks,
+} from "../src/plugin/lifecycle";
 
 const tempDirs: string[] = [];
 
@@ -168,6 +174,25 @@ describe("plugin lifecycle hooks (#1576)", () => {
     expect(scoped).toEqual([{ name: "route-owner", dir: plugin.dir }]);
     expect(routes).toEqual(["route-owner:GET /api/owned"]);
     expect(fallbacks).toEqual(["route-owner:owned-fallback"]);
+  });
+
+  test("transport hooks run on new transport lifecycle", async () => {
+    const log = makeLog();
+    const plugin = makePlugin("router", {
+      hook: { transport: { script: "transport.ts", handler: "onTransport" } },
+      files: {
+        "index.ts": "export function serve() { throw new Error('entry should not run') }\n",
+        "transport.ts": `export function onTransport(ctx) { const fs = require(\"fs\"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, [ctx.phase, ctx.plugin.name, ctx.router ? 'router-ok' : 'missing-router', ctx.config.node || ''].join(":") + \"\\n\"); }\n`,
+      },
+    });
+
+    const summary = await runTransportLifecycleHooks(
+      { router: { connectAll: async () => {} } as any, config: { node: "test-node" } as any },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "transport", ran: 1, skipped: 0, failed: 0 });
+    expect(readFileSync(log, "utf8")).toBe("transport:router:router-ok:test-node\n");
   });
 
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {

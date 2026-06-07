@@ -39,6 +39,7 @@ describe("manifest optional-field validator edge coverage", () => {
       transport: { script: "transport.ts", handler: "transport", ensures: ["transport:workspace-hub"], policy: "best-effort" },
     });
     expectError(() => validators.parseHooks({ hooks: { wake: [] } }), "plugin.json: hooks.wake must be an object");
+    expectError(() => validators.parseHooks({ hooks: { transport: { script: 123 } } }), "plugin.json: hooks.transport.script must be a non-empty string");
     expectError(() => validators.parseHooks({ hooks: { wake: { script: "" } } }), "plugin.json: hooks.wake.script must be a non-empty string");
     expectError(() => validators.parseHooks({ hooks: { sleep: { handler: "" } } }), "plugin.json: hooks.sleep.handler must be a non-empty string");
     expectError(() => validators.parseHooks({ hooks: { serve: { ensures: [""] } } }), "plugin.json: hooks.serve.ensures must be an array of non-empty strings");

@@ -60,7 +60,10 @@ export function parseApi(r: Record<string, unknown>): PluginManifest["api"] {
   return { path: a.path, methods: a.methods as ("GET" | "POST")[] };
 }
 
-function parseLifecycleHook(hooks: Record<string, unknown>, key: "wake" | "sleep" | "serve" | "transport"): PluginLifecycleHook | undefined {
+function parseLifecycleHook(
+  hooks: Record<string, unknown>,
+  key: "wake" | "sleep" | "serve" | "transport",
+): PluginLifecycleHook | undefined {
   const raw = hooks[key];
   if (raw === undefined) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {

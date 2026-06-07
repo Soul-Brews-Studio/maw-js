@@ -12,9 +12,11 @@ import { pathToFileURL } from "url";
 import { discoverPackages } from "./registry";
 import type { MawEngine } from "../engine";
 import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
+import type { MawConfig } from "../config/types";
+import type { TransportRouter } from "../core/transport/transport";
 import type { LoadedPlugin, PluginLifecycleHook, ServeRouteRegistrar } from "./types";
 
-export type LifecyclePhase = "wake" | "sleep" | "serve";
+export type LifecyclePhase = "wake" | "sleep" | "serve" | "transport";
 
 export interface PluginLifecycleContext {
   phase: LifecyclePhase;
@@ -74,6 +76,18 @@ export interface ServeLifecycleContextInput {
   plugins?: unknown;
   /** Reload user plugins and return the current plugin stats/debug payload. */
   reloadPlugins?: () => unknown | Promise<unknown>;
+}
+
+export interface TransportLifecycleContextInput {
+  router: TransportRouter;
+  config: MawConfig;
+  /** Transport lifecycle logger scoped by CLI verbosity for transport plugins. */
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
 }
 
 export interface LifecycleRunSummary {
@@ -221,4 +235,12 @@ export function runServeLifecycleHooks(
   logger?: LifecycleLogger,
 ): Promise<LifecycleRunSummary> {
   return runLifecycleHooks("serve", context, discover, logger);
+}
+
+export function runTransportLifecycleHooks(
+  context: TransportLifecycleContextInput,
+  discover?: LifecycleDiscover,
+  logger?: LifecycleLogger,
+): Promise<LifecycleRunSummary> {
+  return runLifecycleHooks("transport", context, discover, logger);
 }

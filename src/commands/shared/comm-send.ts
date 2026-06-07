@@ -22,6 +22,7 @@ import {
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
+import { runPluginEventHooks } from "../../plugin/event-hooks";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -921,6 +922,20 @@ export async function cmdSend(
     }, config.port || 3456);
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+    await runPluginEventHooks("transport:after_send", {
+      event: "transport:after_send",
+      route: "local",
+      target,
+      to: query,
+      from: senderIdentity.display,
+      result: {
+        ok: true,
+        state: "local",
+        route: "local",
+      },
+      via: "tmux",
+      message: outboundMessage,
+    });
     // #1980: warn on silent misdelivery to a window that isn't the named oracle.
     const mismatch = detectWindowMismatch(query, result.target, sessions);
     if (mismatch) console.log(`  \x1b[33m⚠\x1b[0m ${mismatch}`);
@@ -955,6 +970,24 @@ export async function cmdSend(
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       // #1980: surface the receiving node's misdelivery warning, if any.
       if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
+      await runPluginEventHooks("transport:after_send", {
+        event: "transport:after_send",
+        route: "peer",
+        node: result.node,
+        target: result.target,
+        peerUrl: result.peerUrl,
+        to: query,
+        from: senderIdentity.display,
+        result: {
+          ok: state === "delivered",
+          state,
+          target: res.data.target || result.target,
+          peerUrl: result.peerUrl,
+          lastLine: res.data.lastLine,
+        },
+        via: "http",
+        message: outboundMessage,
+      });
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
@@ -1006,6 +1039,24 @@ export async function cmdSend(
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
       console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      await runPluginEventHooks("transport:after_send", {
+        event: "transport:after_send",
+        route: "discovery",
+        node: query.split(":")[0] ?? null,
+        target: res.data.target || query,
+        peerUrl,
+        to: query,
+        from: senderIdentity.display,
+        result: {
+          ok: state === "delivered",
+          state,
+          target: res.data.target || query,
+          peerUrl,
+          lastLine: res.data.lastLine,
+        },
+        via: "discovery",
+        message: outboundMessage,
+      });
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
