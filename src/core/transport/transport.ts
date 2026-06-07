@@ -112,13 +112,22 @@ export interface Transport {
  */
 export class TransportRouter {
   private transports: Transport[] = [];
+  private broadcastTransports: Transport[] = [];
+  private readonly broadcastTo: Set<string>;
   private messageHandlers = new Set<(msg: TransportMessage) => void>();
   private presenceHandlers = new Set<(p: TransportPresence) => void>();
   private feedHandlers = new Set<(e: FeedEvent) => void>();
 
+  constructor(broadcastTo: string[] = []) {
+    this.broadcastTo = new Set(broadcastTo.filter((name) => typeof name === "string" && name.length > 0));
+  }
+
   /** Register a transport (order matters — first match wins for send) */
   register(transport: Transport) {
     this.transports.push(transport);
+    if (this.broadcastTo.has(transport.name) && !this.broadcastTransports.includes(transport)) {
+      this.broadcastTransports.push(transport);
+    }
 
     // Wire up incoming events from all transports
     transport.onMessage((msg) => {
@@ -148,7 +157,10 @@ export class TransportRouter {
       if (t.connected && t.canReach(target)) {
         try {
           const ok = await t.send(target, message);
-          if (ok) return { ok: true, via: t.name, retryable: false };
+          if (ok) {
+            this.relayBroadcast(target, message, t);
+            return { ok: true, via: t.name, retryable: false };
+          }
           // Send returned false — try next transport
           console.log(`[transport] ${t.name}: send failed for ${target.oracle}, trying next`);
         } catch (err) {
@@ -160,6 +172,14 @@ export class TransportRouter {
       }
     }
     return { ok: false, via: "none", reason: "unreachable", retryable: false };
+  }
+
+  private relayBroadcast(target: TransportTarget, message: string, primary: Transport): void {
+    const relays = this.broadcastTransports
+      .filter((t) => t !== primary && t.connected)
+      .map((t) => Promise.resolve().then(() => t.send(target, message)));
+    if (relays.length === 0) return;
+    void Promise.allSettled(relays);
   }
 
   /** Broadcast presence through all connected transports */

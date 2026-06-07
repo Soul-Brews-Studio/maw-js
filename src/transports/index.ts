@@ -46,7 +46,7 @@ export function createTransportRouter(): TransportRouter {
   if (router) return router;
 
   const config = loadConfig();
-  router = new TransportRouter();
+  router = new TransportRouter(config.broadcastTo ?? []);
 
   // 1. Always register tmux (local fast path) — auto-connected
   const tmux = new TmuxTransport();

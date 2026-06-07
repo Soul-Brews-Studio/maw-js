@@ -42,6 +42,7 @@ let connectRejectByName = new Map<string, unknown>();
 let disconnectAllReject: unknown = null;
 let transportInstances: FakeTransport[] = [];
 let routerInstances: FakeRouter[] = [];
+let routerConstructorArgs: unknown[][] = [];
 
 function makeTransport(name: string, options?: unknown): FakeTransport {
   const transport: FakeTransport = {
@@ -78,7 +79,8 @@ class FakeRouter {
     await Promise.all(this.registered.map((transport) => transport.disconnect()));
   });
 
-  constructor() {
+  constructor(...args: unknown[]) {
+    routerConstructorArgs.push(args);
     routerInstances.push(this);
   }
 }
@@ -179,6 +181,7 @@ beforeEach(() => {
   disconnectAllReject = null;
   transportInstances = [];
   routerInstances = [];
+  routerConstructorArgs = [];
 });
 
 afterEach(() => {
@@ -195,6 +198,7 @@ describe("transport registry default coverage", () => {
     expect(sameFromGet).toBe(router);
     expect(loadConfigCalls).toBe(1);
     expect(loadWorkspaceConfigsCalls).toBe(1);
+    expect(routerConstructorArgs).toEqual([[[]]]);
     expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw"]);
     expect(transportInstances.find((transport) => transport.name === "tmux")?.connect).toHaveBeenCalledTimes(1);
     expect(transportInstances.filter((transport) => transport.name !== "tmux").every((transport) => transport.connect.mock.calls.length === 0)).toBe(true);
@@ -215,10 +219,12 @@ describe("transport registry default coverage", () => {
       peers: [{ name: "white", url: "http://white.local:3456" }],
       discovery: { transport: "both" },
       zenoh: { scout: { enabled: true } },
+      broadcastTo: ["nanoclaw"],
     };
 
     const router = createTransportRouter() as unknown as FakeRouter;
 
+    expect(routerConstructorArgs).toEqual([[["nanoclaw"]]]);
     expect(router.registered.map((transport) => transport.name)).toEqual([
       "tmux",
       "hub",

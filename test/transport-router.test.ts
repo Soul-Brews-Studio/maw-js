@@ -89,6 +89,52 @@ describe("TransportRouter", () => {
   });
 
 
+
+
+  test("relays successful primary sends to configured broadcast transports without blocking", async () => {
+    let releaseBroadcast: (() => void) | null = null;
+    const router = new TransportRouter(["nanoclaw", "offline-broadcast"]);
+    const primary = fakeTransport({ name: "tmux" });
+    const broadcast = fakeTransport({
+      name: "nanoclaw",
+      send: async (_target, message) => {
+        broadcast.sent.push(message);
+        await new Promise<void>((resolve) => { releaseBroadcast = resolve; });
+        return true;
+      },
+    });
+    const offlineBroadcast = fakeTransport({ name: "offline-broadcast", connected: false });
+    router.register(primary);
+    router.register(broadcast);
+    router.register(offlineBroadcast);
+
+    const result = await router.send(target, "relay-me", "codex");
+
+    expect(result).toEqual({ ok: true, via: "tmux", retryable: false });
+    expect(primary.sent).toEqual(["relay-me"]);
+    await Promise.resolve();
+    expect(broadcast.sent).toEqual(["relay-me"]);
+    expect(offlineBroadcast.sent).toEqual([]);
+    releaseBroadcast?.();
+  });
+
+  test("skips broadcast relay when no primary succeeds and ignores relay failures", async () => {
+    const failedPrimaryRouter = new TransportRouter(["nanoclaw"]);
+    const failedPrimaryBroadcast = fakeTransport({ name: "nanoclaw", canReach: () => false });
+    failedPrimaryRouter.register(fakeTransport({ name: "tmux", send: async () => false }));
+    failedPrimaryRouter.register(failedPrimaryBroadcast);
+
+    expect(await failedPrimaryRouter.send(target, "no-relay", "codex")).toEqual({ ok: false, via: "none", reason: "unreachable", retryable: false });
+    expect(failedPrimaryBroadcast.sent).toEqual([]);
+
+    const relayFailureRouter = new TransportRouter(["nanoclaw"]);
+    relayFailureRouter.register(fakeTransport({ name: "tmux" }));
+    relayFailureRouter.register(fakeTransport({ name: "nanoclaw", send: async () => { throw new Error("relay down"); } }));
+
+    expect(await relayFailureRouter.send(target, "best-effort", "codex")).toEqual({ ok: true, via: "tmux", retryable: false });
+    await Promise.resolve();
+  });
+
   test("connect/disconnect and broadcast methods fan out to connected transports", async () => {
     const calls: string[] = [];
     const router = new TransportRouter();

@@ -217,6 +217,8 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** Transport names that receive best-effort relay sends after primary delivery succeeds (#2497). */
+  broadcastTo?: string[];
   /** Fleet snapshot retention policy (#2146). */
   snapshotRetention?: MawSnapshotRetention;
   /** Message/inbox retention policy (#2165). */

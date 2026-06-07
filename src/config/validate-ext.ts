@@ -130,6 +130,15 @@ function validateExtFields(
     }
   }
 
+  // broadcastTo: string[] of transport names for best-effort send relay (#2497)
+  if ("broadcastTo" in raw) {
+    if (Array.isArray(raw.broadcastTo)) {
+      result.broadcastTo = (raw.broadcastTo as unknown[]).filter(s => typeof s === "string") as string[];
+    } else {
+      warn("broadcastTo", "must be an array of transport names");
+    }
+  }
+
   // migrations: one-shot migration markers
   if ("migrations" in raw) {
     if (raw.migrations && typeof raw.migrations === "object" && !Array.isArray(raw.migrations)) {
