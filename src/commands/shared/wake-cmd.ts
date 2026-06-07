@@ -1105,7 +1105,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   if (shouldCreateSession) {
     // #2 — refuse to spawn a brand-new session/agent once the fleet is at the
-    // configured concurrency cap (no-op when limits.maxConcurrentAgents is 0).
+    // configured concurrency cap (no-op when limits.maxConcurrentAgents is explicitly 0).
     await assertAgentCapacity(oracle);
 
     // #769 — URL input names the new session after the full repo (e.g.
@@ -1451,7 +1451,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   // #2 — a new task/worktree window is a net-new agent pane: cap-check before
-  // spawning it (no-op when limits.maxConcurrentAgents is 0).
+  // spawning it (no-op when limits.maxConcurrentAgents is explicitly 0).
   await assertAgentCapacity(oracle);
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
