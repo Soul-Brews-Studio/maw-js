@@ -6,8 +6,12 @@
  */
 
 import type { FeedEvent } from "../../lib/feed";
-import { fire, markAgentActive, checkIdleTriggers, getTriggers } from "./triggers";
+import { fire, markAgentActive, checkIdleTriggers, getTriggers, sweepStaleAgentState } from "./triggers";
 import { agentStatusStore } from "../agent-status";
+
+function unrefInterval(timer: ReturnType<typeof setInterval>): void {
+  (timer as { unref?: () => void }).unref?.();
+}
 
 /**
  * Register a feed listener that maps feed events → trigger events.
@@ -40,11 +44,16 @@ export function setupTriggerListener(feedListeners: Set<(event: FeedEvent) => vo
     }
   });
 
+  // Periodic stale-state sweep: prune agents absent from feed events for >1h (#2386).
+  unrefInterval(setInterval(() => {
+    sweepStaleAgentState();
+  }, 15 * 60 * 1000));
+
   // Periodic idle check (every 15s)
   const idleTriggers = getTriggers().filter(t => t.on === "agent-idle");
   if (idleTriggers.length > 0) {
-    setInterval(() => {
+    unrefInterval(setInterval(() => {
       checkIdleTriggers();
-    }, 15_000);
+    }, 15_000));
   }
 }
