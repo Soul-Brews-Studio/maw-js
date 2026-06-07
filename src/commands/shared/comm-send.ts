@@ -849,6 +849,9 @@ export async function cmdSend(
     console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
     return true;
   };
+  const warnOfflineInboxOnly = (): void => {
+    console.warn(`\x1b[33m⚠ target node offline — message written to inbox only, will not be seen until node wakes\x1b[0m`);
+  };
 
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
@@ -1030,7 +1033,10 @@ export async function cmdSend(
   // Try receiver inbox queue before surfacing a local-only resolver miss.
   if (bareResolution.locate?.repoPath) {
     const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
-    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) return;
+    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) {
+      warnOfflineInboxOnly();
+      return;
+    }
     console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
   } else if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
 

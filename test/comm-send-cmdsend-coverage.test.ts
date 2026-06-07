@@ -742,6 +742,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(receiverWrites).toHaveLength(1);
     expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
     expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
+    expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
   });
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
