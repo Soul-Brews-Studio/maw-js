@@ -66,6 +66,9 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-comms.ts
     return { mode: "broadcast", message: args.join(" ") };
   },
 }));
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-up.ts"), () => ({
+  cmdTeamUp: async (...args: unknown[]) => calls.push({ name: "up", args }),
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/task-ops.ts"), () => ({
   cmdTeamTaskAdd: (...args: unknown[]) => calls.push({ name: "task-add", args }),
   cmdTeamTaskList: (...args: unknown[]) => calls.push({ name: "task-list", args }),
@@ -87,39 +90,24 @@ beforeEach(() => {
 });
 
 describe("team command plugin standalone boundary (#2336)", () => {
-  test("team-up vendor boundary explicitly tracks prompt priming seams", () => {
+  test("entrypoint and touched team-up files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "team",
-      files: ["team-up.ts"],
-      requireSdk: false,
+      files: ["index.ts", "team-liveness.ts", "team-up.ts"],
       allowRelative: [
-        "../../../commands/shared/comm-send",
-        "../../../commands/shared/wake-cmd",
+        "../../../core/transport/tmux",
+        "../../../core/agent-detect",
         "../../../config/load",
         "../../../config/types",
-        "../../../core/transport/tmux",
+        "../../../commands/shared/wake-cmd",
+        "../../../commands/shared/comm-send",
       ],
     }).map((record) => record.spec);
 
-    expect(imports).toContain("./team-charter");
-    expect(imports).toContain("./team-liveness");
-    expect(imports).toContain("../../../commands/shared/comm-send");
-  });
-
-  test("entrypoint uses SDK rather than direct plugin/cli/core imports", () => {
-    const source = readFileSync(join(root, "src/vendor/mpr-plugins/team/index.ts"), "utf8");
-    const specs = [...source.matchAll(/\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g)].map((m) => m[1]);
-    const forbidden = specs.filter((spec) =>
-      spec?.startsWith("maw-js/plugin")
-      || spec?.startsWith("maw-js/cli/")
-      || spec?.startsWith("maw-js/core/")
-      || spec?.startsWith("maw-js/commands/shared/")
-      || spec === "maw-js/config",
-    );
 
     expect(command).toMatchObject({ name: "team" });
-    expect(forbidden).toEqual([]);
-    expect(specs).toContain("maw-js/sdk");
+    expect(imports).toContain("maw-js/sdk");
+    expect(imports).toEqual(expect.arrayContaining(["./team-up", "../../../commands/shared/wake-cmd"]));
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
     expect(sdk).toContain("parseFlags");
     expect(sdk).toContain("hostExec");
@@ -143,6 +131,21 @@ describe("team command plugin standalone boundary (#2336)", () => {
     targets = ["neo"];
     await teamHandler({ source: "cli", args: ["send", "avengers", "hello", "all"] } as any);
     expect(calls.pop()).toEqual({ name: "broadcast", args: ["avengers", "hello all"] });
+
+    await teamHandler({ source: "cli", args: ["up", "avengers", "--members", "coder-1, oracle", "--session", "alpha", "--dry-run"] } as any);
+    expect(calls.pop()).toEqual({
+      name: "up",
+      args: ["avengers", {
+        dryRun: true,
+        status: false,
+        force: false,
+        gather: false,
+        engine: undefined,
+        only: [],
+        members: ["coder-1", "oracle"],
+        session: "alpha",
+      }],
+    });
   });
 
   test("validation paths return InvokeResult errors without side effects", async () => {
