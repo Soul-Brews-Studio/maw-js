@@ -191,11 +191,18 @@ describe("routeTools default-suite seams", () => {
   test("routes plugins, artifacts, agents, and audit through injected handlers", async () => {
     const h = harness();
 
+    expect(await routeToolsWithDeps("plugins", ["plugins", "install", "./demo", "--local", "--symlink", "--force"], h.deps)).toBe(true);
+    expect(h.calls.plugins[0]).toMatchObject({
+      sub: "install",
+      args: ["./demo", "--local", "--symlink", "--force"],
+      flags: { "--local": true, "--symlink": true, "--force": true },
+    });
+
     expect(await routeToolsWithDeps("plugins", ["plugins", "info", "about", "--json"], h.deps)).toBe(true);
-    expect(h.calls.plugins[0]).toMatchObject({ sub: "info", args: ["about", "--json"], flags: { "--json": true } });
+    expect(h.calls.plugins[1]).toMatchObject({ sub: "info", args: ["about", "--json"], flags: { "--json": true } });
 
     expect(await routeToolsWithDeps("plugin", ["plugin", "ls", "--all", "-v", "--api"], h.deps)).toBe(true);
-    expect(h.calls.plugins[1]).toMatchObject({
+    expect(h.calls.plugins[2]).toMatchObject({
       sub: "ls",
       args: ["--all", "-v", "--api"],
       flags: { "--all": true, "-v": true, "--api": true },

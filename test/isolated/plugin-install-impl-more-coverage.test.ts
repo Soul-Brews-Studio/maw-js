@@ -55,6 +55,7 @@ let exitCode: number | undefined;
 
 const originalEnv = {
   consent: process.env.MAW_CONSENT,
+  pluginsDir: process.env.MAW_PLUGINS_DIR,
 };
 const originalLog = console.log;
 const originalError = console.error;
@@ -147,6 +148,7 @@ beforeEach(() => {
   stderr = [];
   exitCode = undefined;
   delete process.env.MAW_CONSENT;
+  delete process.env.MAW_PLUGINS_DIR;
   console.log = (...args: unknown[]) => stdout.push(args.map(String).join(" "));
   console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
   (process as any).exit = (code?: number): never => {
@@ -158,6 +160,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalEnv.consent === undefined) delete process.env.MAW_CONSENT;
   else process.env.MAW_CONSENT = originalEnv.consent;
+  if (originalEnv.pluginsDir === undefined) delete process.env.MAW_PLUGINS_DIR;
+  else process.env.MAW_PLUGINS_DIR = originalEnv.pluginsDir;
   console.log = originalLog;
   console.error = originalError;
   (process as any).exit = originalExit;
@@ -196,6 +200,27 @@ describe("cmdPluginInstall source dispatch", () => {
     expect(handlerCalls).toEqual([
       { fn: "dir", args: ["/tmp/dev-plugin", { force: true, weight: 5 }] },
     ]);
+  });
+
+  test("accepts --local and --symlink for directory installs without leaking MAW_PLUGINS_DIR", async () => {
+    plannedMode = { kind: "dir", src: "/tmp/dev-plugin" };
+
+    await cmdPluginInstall(["/tmp/dev-plugin", "--local", "--symlink", "--force"]);
+
+    expect(process.env.MAW_PLUGINS_DIR).toBeUndefined();
+    expect(handlerCalls).toEqual([
+      { fn: "dir", args: ["/tmp/dev-plugin", { force: true, weight: undefined }] },
+    ]);
+  });
+
+  test("rejects --symlink for sealed artifact installs", async () => {
+    plannedMode = { kind: "tarball", src: "/tmp/builds/demo-1.2.3.tgz" };
+
+    await expect(cmdPluginInstall(["/tmp/builds/demo-1.2.3.tgz", "--symlink"])).rejects.toThrow(
+      /--symlink is only supported for local directory plugin installs/,
+    );
+
+    expect(handlerCalls).toEqual([]);
   });
 
   test("normalizes tarball source labels and forwards pin/weight options", async () => {

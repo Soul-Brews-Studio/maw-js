@@ -177,6 +177,8 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const flags = parseFlags(args, {
       "--json": Boolean,
       "--force": Boolean,
+      "--local": Boolean,
+      "--symlink": Boolean,
       "--all": Boolean,
       "--verbose": Boolean,
       "-v": Boolean,

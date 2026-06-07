@@ -3,7 +3,7 @@
  */
 
 import type { LoadedPlugin } from "../../plugin/types";
-import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, cpSync, readFileSync, symlinkSync } from "fs";
 import { join, resolve } from "path";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
@@ -12,11 +12,23 @@ import { mawDataPath } from "../../core/xdg";
 /** Allowlist: only http/https URLs permitted as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
-function getPluginHome(): string {
+export type PluginInstallOptions = {
+  /** Install into the cwd-local .maw/plugins tree instead of the global plugin home. */
+  local?: boolean;
+  /** Symlink the source directory into place for development instead of copying it. */
+  symlink?: boolean;
+};
+
+function getPluginHome(options: PluginInstallOptions = {}): string {
+  if (options.local) return join(process.cwd(), ".maw", "plugins");
   return process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins");
 }
 
-export async function doInstall(srcPath: string, force: boolean): Promise<void> {
+export async function doInstall(
+  srcPath: string,
+  force: boolean,
+  options: PluginInstallOptions = {},
+): Promise<void> {
   let src: string;
 
   // GitHub URL → clone via ghq, then install from local path
@@ -84,7 +96,8 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
     process.exit(1);
   }
 
-  const dest = join(getPluginHome(), manifest.name);
+  const pluginHome = getPluginHome(options);
+  const dest = join(pluginHome, manifest.name);
   if (existsSync(dest)) {
     if (!force) {
       console.error(
@@ -96,8 +109,12 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
     archiveToTmp(manifest.name, dest);
   }
 
-  mkdirSync(dest, { recursive: true });
-  cpSync(src, dest, { recursive: true });
+  mkdirSync(pluginHome, { recursive: true });
+  if (options.symlink) {
+    symlinkSync(resolve(src), dest, "dir");
+  } else {
+    cpSync(src, dest, { recursive: true });
+  }
   console.log(
     `\x1b[32m✓\x1b[0m installed ${manifest.name}@${manifest.version} → ${dest}`,
   );

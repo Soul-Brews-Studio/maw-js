@@ -28,6 +28,8 @@ type Flags = {
   _: string[];
   "--json"?: boolean;
   "--force"?: boolean;
+  "--local"?: boolean;
+  "--symlink"?: boolean;
   "--all"?: boolean;
   "--verbose"?: boolean;
   "-v"?: boolean;
@@ -73,10 +75,13 @@ export async function cmdPlugins(
       return doInfo(name, discover);
     case "install":
       if (!name) {
-        console.error("usage: maw plugins install <path> [--force]");
+        console.error("usage: maw plugins install <path> [--force] [--local] [--symlink]");
         process.exit(1);
       }
-      return doInstall(name, flags["--force"] ?? false);
+      return doInstall(name, flags["--force"] ?? false, {
+        local: flags["--local"] ?? false,
+        symlink: flags["--symlink"] ?? false,
+      });
     case "remove":
     case "uninstall":
     case "rm":
