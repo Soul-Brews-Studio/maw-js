@@ -219,6 +219,10 @@ export interface MawConfig {
   disabledPlugins?: string[];
   /** Transport names that receive best-effort relay sends after primary delivery succeeds (#2497). */
   broadcastTo?: string[];
+  /** Default target for `maw forward-error` structured error reports (#2511). */
+  errorForward?: {
+    target?: string;
+  };
   /** Fleet snapshot retention policy (#2146). */
   snapshotRetention?: MawSnapshotRetention;
   /** Message/inbox retention policy (#2165). */

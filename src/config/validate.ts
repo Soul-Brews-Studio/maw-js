@@ -141,6 +141,17 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
   if (c.scout !== undefined && typeof c.scout !== "boolean") errors.push("scout must be a boolean");
 
+  if (c.errorForward !== undefined) {
+    if (!c.errorForward || typeof c.errorForward !== "object" || Array.isArray(c.errorForward)) {
+      errors.push("errorForward must be an object");
+    } else {
+      const errorForward = c.errorForward as Record<string, unknown>;
+      if (errorForward.target !== undefined && typeof errorForward.target !== "string") {
+        errors.push("errorForward.target must be a string");
+      }
+    }
+  }
+
   if (c.env !== undefined) {
     if (!c.env || typeof c.env !== "object" || Array.isArray(c.env)) {
       errors.push("env must be a Record<string, string>");

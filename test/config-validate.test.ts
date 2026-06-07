@@ -99,6 +99,7 @@ describe("validateConfigShape", () => {
       engines: { codex: { cmd: "codex" } },
       sessions: { mawjs: "54-mawjs" },
       peers: ["http://peer:3456"],
+      errorForward: { target: "doctor" },
     })).toEqual([]);
   });
 
@@ -111,6 +112,7 @@ describe("validateConfigShape", () => {
       oracleUrl: 4,
       tmuxSocket: 5,
       federationToken: 6,
+      errorForward: [],
     })).toEqual([
       "host must be a string",
       "bind must be a string",
@@ -119,6 +121,7 @@ describe("validateConfigShape", () => {
       "oracleUrl must be a string",
       "tmuxSocket must be a string",
       "federationToken must be a string",
+      "errorForward must be an object",
     ]);
   });
 
@@ -128,7 +131,9 @@ describe("validateConfigShape", () => {
       commands: { default: "claude", bad: false },
       engines: { nope: false, broken: { cmd: "" }, badName: { name: 7, cmd: "tool" } },
       sessions: { ok: "54-mawjs", bad: 2 },
+      errorForward: { target: 8 },
     })).toEqual([
+      "errorForward.target must be a string",
       "env.BAD must be a string",
       "commands.bad must be a string",
       "engines.nope must be an object",

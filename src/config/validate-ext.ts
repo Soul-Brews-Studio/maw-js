@@ -139,6 +139,24 @@ function validateExtFields(
     }
   }
 
+  // errorForward: default target for `maw forward-error` structured reports (#2511)
+  if ("errorForward" in raw) {
+    if (raw.errorForward && typeof raw.errorForward === "object" && !Array.isArray(raw.errorForward)) {
+      const input = raw.errorForward as Record<string, unknown>;
+      const errorForward: NonNullable<MawConfig["errorForward"]> = {};
+      if ("target" in input) {
+        if (typeof input.target === "string" && input.target.trim().length > 0) {
+          errorForward.target = input.target.trim();
+        } else {
+          warn("errorForward.target", "must be a non-empty string");
+        }
+      }
+      if (Object.keys(errorForward).length > 0) result.errorForward = errorForward;
+    } else {
+      warn("errorForward", "must be an object");
+    }
+  }
+
   // migrations: one-shot migration markers
   if ("migrations" in raw) {
     if (raw.migrations && typeof raw.migrations === "object" && !Array.isArray(raw.migrations)) {

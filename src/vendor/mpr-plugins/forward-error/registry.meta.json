@@ -1,0 +1,5 @@
+{
+  "name": "forward-error",
+  "summary": "Forward recent tmux pane error context to a configured doctor oracle.",
+  "tier": "standard"
+}
