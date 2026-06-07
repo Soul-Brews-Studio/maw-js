@@ -21,15 +21,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     let target: string;
-    let opts: { pane?: number } = {};
+    let opts: { pane?: number; index?: number; all?: boolean } = {};
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
-      const flags = parseFlags(args, { "--pane": Number, "--peer": String }, 0);
+      const flags = parseFlags(args, { "--pane": Number, "--index": Number, "--all": Boolean, "--peer": String }, 0);
 
       target = flags._[0];
       if (!target || target === "--help" || target === "-h") {
-        return { ok: false, error: "usage: maw kill <target>[:window] [--pane N] [--peer <alias>]  (see: maw sleep for graceful stop, maw done for worktrees)" };
+        return { ok: false, error: "usage: maw kill <target>[:window] [--pane N] [--index N|--all] [--peer <alias>]  (see: maw sleep for graceful stop, maw done for worktrees)" };
       }
       if (target.startsWith("-")) {
         return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw kill <target>  (see: maw sleep for graceful stop, maw done for worktrees)` };
@@ -39,12 +39,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return await forwardToPeer(flags["--peer"], target, flags);
       }
 
-      opts = { pane: flags["--pane"] };
+      opts = { pane: flags["--pane"], index: flags["--index"], all: !!flags["--all"] };
     } else {
       const body = ctx.args as Record<string, unknown>;
       if (!body.target) return { ok: false, error: "target is required" };
       target = body.target as string;
-      opts = { pane: body.pane as number | undefined };
+      opts = { pane: body.pane as number | undefined, index: body.index as number | undefined, all: body.all as boolean | undefined };
     }
 
     await cmdKill(target, opts);
@@ -81,6 +81,8 @@ async function forwardToPeer(
 
   const body: Record<string, unknown> = { target };
   if (typeof flags["--pane"] === "number") body.pane = flags["--pane"];
+  if (typeof flags["--index"] === "number") body.index = flags["--index"];
+  if (flags["--all"]) body.all = true;
 
   const { callPeerKill } = await import("./internal/peer-call");
   let res: { ok: boolean; status?: number; data?: any };
