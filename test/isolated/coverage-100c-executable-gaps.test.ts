@@ -96,8 +96,7 @@ describe("coverage 100c executable gap tests", () => {
     console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
 
     expect(hub.loadWorkspaceConfigs()).toEqual([{ id: "alpha", hubUrl: "wss://hub.example.test", token: "secret", sharedAgents: ["mawjs"] }]);
-    expect(warnings.join("\n")).toContain("invalid workspace config: invalid.json");
-    expect(warnings.join("\n")).toContain("failed to parse workspace config: broken.json");
+    expect(warnings).toEqual([]);
   });
 
   test("plugin install extraction rejects traversal, oversized bodies, and missing source entries", async () => {

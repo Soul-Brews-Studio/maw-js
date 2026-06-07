@@ -25,16 +25,38 @@ describe("hub workspace config validation (#1521)", () => {
     expect(validateWorkspaceConfig({ id: "ws", hubUrl: "wss://hub", token: "t", sharedAgents: ["agent"] })).toEqual({ ok: true });
   });
 
-  test("warning includes the invalid filename and reason", () => {
+  test("skips invalid workspace configs silently by default", () => {
     mkdirSync(WORKSPACES_DIR, { recursive: true });
     writeFileSync(join(WORKSPACES_DIR, "bad.json"), JSON.stringify({ id: "ws-bad", hubUrl: "http://hub", token: "t", sharedAgents: [] }));
     const warnings: string[] = [];
     const originalWarn = console.warn;
+    const originalFlag = process.env.MAW_HUB_CONFIG_WARNINGS;
+    delete process.env.MAW_HUB_CONFIG_WARNINGS;
     console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
     try {
       expect(loadWorkspaceConfigs()).toEqual([]);
     } finally {
       console.warn = originalWarn;
+      if (originalFlag === undefined) delete process.env.MAW_HUB_CONFIG_WARNINGS;
+      else process.env.MAW_HUB_CONFIG_WARNINGS = originalFlag;
+    }
+    expect(warnings).toEqual([]);
+  });
+
+  test("opt-in diagnostics include the invalid filename and reason", () => {
+    mkdirSync(WORKSPACES_DIR, { recursive: true });
+    writeFileSync(join(WORKSPACES_DIR, "bad.json"), JSON.stringify({ id: "ws-bad", hubUrl: "http://hub", token: "t", sharedAgents: [] }));
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    const originalFlag = process.env.MAW_HUB_CONFIG_WARNINGS;
+    process.env.MAW_HUB_CONFIG_WARNINGS = "1";
+    console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+    try {
+      expect(loadWorkspaceConfigs()).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
+      if (originalFlag === undefined) delete process.env.MAW_HUB_CONFIG_WARNINGS;
+      else process.env.MAW_HUB_CONFIG_WARNINGS = originalFlag;
     }
     expect(warnings.join("\n")).toContain("[hub] invalid workspace config: bad.json (hubUrl must be ws:|wss: (got http:))");
   });

@@ -187,8 +187,15 @@ describe("coverage 100b hub config and connection", () => {
       writeFileSync(join(workspacesDir, "skip.txt"), "not json");
 
       const warnings: string[] = [];
+      const originalFlag = process.env.MAW_HUB_CONFIG_WARNINGS;
+      process.env.MAW_HUB_CONFIG_WARNINGS = "1";
       console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
-      expect(first.loadWorkspaceConfigs()).toEqual([{ id: "good", hubUrl: "wss://hub.example.test", token: "tok", sharedAgents: ["neo"] }]);
+      try {
+        expect(first.loadWorkspaceConfigs()).toEqual([{ id: "good", hubUrl: "wss://hub.example.test", token: "tok", sharedAgents: ["neo"] }]);
+      } finally {
+        if (originalFlag === undefined) delete process.env.MAW_HUB_CONFIG_WARNINGS;
+        else process.env.MAW_HUB_CONFIG_WARNINGS = originalFlag;
+      }
       expect(warnings.join("\n")).toContain("[hub] failed to parse workspace config: bad.json");
     } finally {
       // Keep the mocked CONFIG_FILE root alive for later config/load tests in this file.

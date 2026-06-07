@@ -31,6 +31,16 @@ function workspaceDirsForRead(): string[] {
   return primary === legacy ? [primary] : [primary, legacy];
 }
 
+function shouldWarnOnInvalidWorkspaceConfig(): boolean {
+  return process.env.MAW_HUB_CONFIG_WARNINGS === "1" || process.env.MAW_VERBOSE === "1";
+}
+
+function warnInvalidWorkspaceConfig(message: string, error?: unknown): void {
+  if (!shouldWarnOnInvalidWorkspaceConfig()) return;
+  if (error === undefined) console.warn(message);
+  else console.warn(message, error);
+}
+
 /** Load all workspace configs from the data dir, with legacy config fallback. */
 export function loadWorkspaceConfigs(): WorkspaceConfig[] {
   const primary = workspaceDir();
@@ -52,10 +62,10 @@ export function loadWorkspaceConfigs(): WorkspaceConfig[] {
         if (validation.ok) {
           byId.set((raw as WorkspaceConfig).id, raw as WorkspaceConfig);
         } else {
-          console.warn(`[hub] invalid workspace config: ${file} (${validation.reason})`);
+          warnInvalidWorkspaceConfig(`[hub] invalid workspace config: ${file} (${validation.reason})`);
         }
       } catch (err) {
-        console.warn(`[hub] failed to parse workspace config: ${file}`, err);
+        warnInvalidWorkspaceConfig(`[hub] failed to parse workspace config: ${file}`, err);
       }
     }
   }
