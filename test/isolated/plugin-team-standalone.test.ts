@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "../..");
@@ -33,6 +34,10 @@ function parseFlags(args: string[], spec: Record<string, unknown>, start = 0) {
 const sdkMock = {
   parseFlags,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return ""; },
+  tmux: {
+    listPaneIds: async () => new Set<string>(),
+    killPane: async () => undefined,
+  },
 };
 
 mock.module("maw-js/sdk", () => sdkMock);
@@ -129,6 +134,74 @@ describe("team command plugin standalone boundary (#2336)", () => {
     const unknown = await teamHandler({ source: "cli", args: ["nope"] } as any);
     expect(unknown).toMatchObject({ ok: false, error: "unknown subcommand: nope" });
     expect(calls).toEqual([]);
+  });
+
+
+  test("team spawn honors config.defaultEngine fallback without explicit --engine", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-team-standalone-"));
+    const cwd = join(tmp, "repo");
+    const psi = join(cwd, "ψ");
+    const teamsDir = join(tmp, "teams");
+    const tasksDir = join(tmp, "tasks");
+    mkdirSync(join(psi, "memory", "mailbox", "teams", "avengers"), { recursive: true });
+    mkdirSync(join(teamsDir, "avengers"), { recursive: true });
+    writeFileSync(join(cwd, "CLAUDE.md"), "oracle repo\n");
+    writeFileSync(join(psi, "memory", "mailbox", "teams", "avengers", "manifest.json"), JSON.stringify({ name: "avengers", members: [] }));
+    writeFileSync(join(teamsDir, "avengers", "config.json"), JSON.stringify({ name: "avengers", members: [] }));
+
+    const testConfig = {
+      defaultEngine: "codex",
+      commands: {},
+      engines: {
+        codex: {
+          cmd: "codex",
+          model: { flag: "--model", default: "gpt-5.5" },
+          capabilities: ["model", "system-prompt-file"],
+        },
+      },
+    };
+    mock.module(import.meta.resolve("../../src/config/load.ts"), () => ({
+      loadConfig: () => testConfig,
+      loadConfigWithProvenance: () => ({ config: testConfig, sources: [], provenance: {}, warnings: [] }),
+      resetConfig: () => undefined,
+      saveConfig: () => undefined,
+      configForDisplay: () => testConfig,
+      cfgInterval: () => 1,
+      cfgTimeout: () => 1,
+      cfgLimit: () => 80,
+      cfg: (key: keyof typeof testConfig) => testConfig[key],
+    }));
+
+    const helpers = await import("../../src/vendor/mpr-plugins/team/team-helpers.ts");
+    helpers._setDirs(teamsDir, tasksDir);
+    const lifecycle = await import("../../src/vendor/mpr-plugins/team/team-lifecycle.ts?plugin-team-default-engine");
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(cwd);
+      await lifecycle.cmdTeamSpawn("avengers", "builder");
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    const toolConfig = JSON.parse(readFileSync(join(teamsDir, "avengers", "config.json"), "utf8"));
+    expect(toolConfig.members).toEqual([{ name: "builder", engine: "codex", model: "gpt-5.5" }]);
+    const prompt = readFileSync(join(psi, "memory", "mailbox", "teams", "avengers", "builder-spawn-prompt.md"), "utf8");
+    expect(prompt).toContain("You are 'builder' on team 'avengers'.");
+
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test("memberEngine honors config.defaultEngine before hard-coded claude fallback", async () => {
+    mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd.ts"), () => ({
+      cmdWake: async () => "",
+    }));
+    const { memberEngine } = await import("../../src/vendor/mpr-plugins/team/team-liveness.ts?plugin-team-member-engine");
+
+    expect(memberEngine({ role: "builder" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("codex");
+    expect(memberEngine({ role: "builder", model: "opencode" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("opencode");
+    expect(memberEngine({ role: "builder", engine: "aider" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("aider");
+    expect(memberEngine({ role: "builder", engine: "aider" } as any, "thclaws", { defaultEngine: "codex" } as any)).toBe("thclaws");
+    expect(memberEngine({ role: "builder" } as any, undefined, {} as any)).toBe("claude");
   });
 
   test("enter subcommand sends tmux enter via SDK hostExec", async () => {
