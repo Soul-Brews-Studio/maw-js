@@ -516,10 +516,9 @@ describe("tmux impl extra coverage", () => {
     await expect(cmdTmuxLayout("demo:1.2", "tiled")).rejects.toThrow("select-layout failed for 'demo:1' (from session:w.p): layout denied");
   });
 
-  test("kill resolves pane aliases, reports ambiguous aliases, protects fleet sessions, and wraps kill failures", async () => {
+  test("kill resolves pane aliases, reports ambiguous aliases, protects whole fleet sessions, and wraps kill failures", async () => {
     fleetFiles = ["42-live-oracle.json"];
-    await expect(cmdTmuxKill("42-live-oracle")).rejects.toThrow("refusing to kill: session '42-live-oracle' is fleet or view");
-    fleetFiles = [];
+    await expect(cmdTmuxKill("42-live-oracle", { session: true })).rejects.toThrow("refusing to kill: session '42-live-oracle' is fleet or view");
 
     hostResponses.set("list-panes -a -F", "%101|||scratch:0.0|||worker|||tile-a|||/tmp/repo.wt-1-scout\n");
     const ok = await capture(() => cmdTmuxKill("scout"));

@@ -242,9 +242,12 @@ export function planRehydrateWorktreeWindows(
   const oracleBase = oracle.replace(/^\d+-/, "").toLowerCase();
   for (const wt of worktrees) {
     const taskPart = wt.name.replace(/^\d+-/, "");
-    if (taskPart.toLowerCase() === oracleBase) continue;
-    if (liveTileRoles.has(taskPart)) continue;
-    let wtWindowName = `${oracle}-${taskPart}`;
+    const cleanTask = taskPart.toLowerCase().startsWith(`${oracleBase}-`)
+      ? taskPart.slice(oracleBase.length + 1)
+      : taskPart;
+    if (cleanTask.toLowerCase() === oracleBase) continue;
+    if (liveTileRoles.has(taskPart) || liveTileRoles.has(cleanTask)) continue;
+    let wtWindowName = `${oracle}-${cleanTask}`;
     if (usedNames.has(wtWindowName)) {
       if (existingWindows.includes(wtWindowName)) continue;
       wtWindowName = `${oracle}-${wt.name}`;

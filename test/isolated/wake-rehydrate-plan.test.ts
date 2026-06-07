@@ -32,4 +32,19 @@ describe("planRehydrateWorktreeWindows (#1563)", () => {
 
     expect(planned.map(p => p.windowName)).toEqual(["athena-fix"]);
   });
+
+  test("strips an existing oracle prefix before naming rehydrated agent windows (#2375)", () => {
+    const planned = planRehydrateWorktreeWindows("athena", [
+      { name: "1-athena-codex-1", path: "/repo/agents/1-athena-codex-1" },
+    ]);
+
+    expect(planned).toEqual([
+      {
+        worktreeName: "1-athena-codex-1",
+        windowName: "athena-codex-1",
+        path: "/repo/agents/1-athena-codex-1",
+      },
+    ]);
+    expect(planned.map(p => p.windowName)).not.toContain("athena-athena-codex-1");
+  });
 });
