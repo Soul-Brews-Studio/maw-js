@@ -79,8 +79,8 @@ export function memberWorktree(member: TeamCharterMember): string {
   return typeof member.worktree === "string" && member.worktree.trim() ? member.worktree.trim() : identity;
 }
 
-export function memberEngine(member: TeamCharterMember, override?: string): string {
-  return override ?? member.engine ?? member.model ?? "claude";
+export function memberEngine(member: TeamCharterMember, override?: string, config: MawConfig = loadConfig()): string {
+  return override ?? member.engine ?? member.model ?? config.defaultEngine ?? "claude";
 }
 
 export function memberMatchesSelector(member: TeamCharterMember, selector: string): boolean {

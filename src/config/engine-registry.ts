@@ -19,7 +19,7 @@ export const DEFAULT_ENGINES = {
 
 export type EngineRegistry = Record<string, EngineDef>;
 
-function isClaudeLikeCommand(cmd: string): boolean {
+export function isClaudeLikeCommand(cmd: string): boolean {
   return /(^|\s)(?:command\s+)?claude[A-Za-z0-9_-]*(?:\s|$)/.test(cmd);
 }
 

@@ -80,7 +80,8 @@ export function classifyMember(
   const pane = panes.find((candidate) =>
     candidate.sessionName === session && (candidate.windowName === windowIdentity || suffix.test(candidate.windowName))
   );
-  const engine = opts.engine ?? member.engine ?? member.model ?? "claude";
+  const config = loadConfig();
+  const engine = opts.engine ?? member.engine ?? member.model ?? config.defaultEngine ?? "claude";
   const worktree = typeof member.worktree === "string" && member.worktree.trim() ? member.worktree.trim() : windowIdentity;
   if (!pane) return { member, role, engine, worktree, windowIdentity, state: "missing" };
   if (SHELL_RE.test(pane.command)) return { member, role, engine, worktree, windowIdentity, state: "dead", pane };

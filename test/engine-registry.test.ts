@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-const { DEFAULT_ENGINES, resolveEngine } = await import("../src/config/engine-registry");
+const { DEFAULT_ENGINES, isClaudeLikeCommand, resolveEngine } = await import("../src/config/engine-registry");
 
 describe("generic engine registry (#1960 P1)", () => {
   test("lowers the legacy swarm known agents into dormant EngineDef defaults", () => {
@@ -49,5 +49,10 @@ describe("generic engine registry (#1960 P1)", () => {
       name: "gemini",
       cmd: "gemini",
     });
+  });
+
+  test("exports Claude-like command detection for command rendering", () => {
+    expect(isClaudeLikeCommand("claude --continue")).toBe(true);
+    expect(isClaudeLikeCommand("codex --continue")).toBe(false);
   });
 });

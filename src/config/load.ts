@@ -34,6 +34,7 @@ const DEFAULTS: MawConfig = {
   oracleUrl: "http://localhost:47779",
   env: {},
   commands: { default: "claude" },
+  defaultEngine: "claude",
   sessions: {},
 };
 

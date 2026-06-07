@@ -5,6 +5,8 @@ import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
+import { loadConfig } from "../../../config/load";
+import { resolveEngine } from "../../../config/engine-registry";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -241,8 +243,10 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const engine = opts.engine || "claude";
-  const model = opts.model || (engine === "claude" ? "sonnet" : undefined);
+  const config = loadConfig();
+  const engine = opts.engine || config.defaultEngine || "claude";
+  const resolvedEngine = resolveEngine(engine, config);
+  const model = opts.model || resolvedEngine.model?.default;
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];

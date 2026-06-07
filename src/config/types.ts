@@ -98,6 +98,8 @@ export interface MawConfig {
   oracleUrl: string;
   env: Record<string, string>;
   commands: Record<string, string>;
+  /** Default engine key/command used when no command-specific fallback is configured (#2400). */
+  defaultEngine?: string;
   /**
    * Generic engine definitions (#1960 P1).
    *

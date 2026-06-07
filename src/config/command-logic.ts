@@ -4,7 +4,7 @@ import { join } from "path";
 import type { MawConfig } from "./types";
 import type { EngineDef } from "./engine-def";
 import { getChannelEnv, getChannelPermissionMode, getChannelPluginIds } from "../commands/shared/channel-loader";
-import { DEFAULT_ENGINES, resolveEngine } from "./engine-registry";
+import { DEFAULT_ENGINES, isClaudeLikeCommand, resolveEngine } from "./engine-registry";
 
 const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
@@ -28,10 +28,6 @@ export type BuildCommandInput = string | BuildCommandOpts | undefined;
 
 function normalizeBuildCommandOpts(input?: BuildCommandInput): BuildCommandOpts {
   return typeof input === "string" ? { engine: input } : { ...(input || {}) };
-}
-
-function isClaudeLikeCommand(cmd: string): boolean {
-  return /(^|\s)(?:command\s+)?claude[A-Za-z0-9_-]*(?:\s|$)/.test(cmd);
 }
 
 function hasChannelsFlag(cmd: string): boolean {
@@ -125,13 +121,14 @@ function legacyCommandForAgent(
   agentName: string,
   opts: BuildCommandOpts,
 ): string {
-  const commands = config.commands || { default: "claude" };
+  const commands = config.commands || { default: config.defaultEngine ?? "claude" };
+  const defaultEngine = config.defaultEngine ?? "claude";
   let cmd: string;
 
   if (opts.engine && commands[opts.engine]) {
     cmd = commands[opts.engine];
   } else {
-    cmd = commands.default || "claude";
+    cmd = commands.default || defaultEngine;
     for (const [pattern, command] of Object.entries(commands)) {
       if (pattern === "default") continue;
       if (matchesAgentPattern(pattern, agentName)) { cmd = command; break; }
@@ -158,7 +155,7 @@ function selectEngineForAgent(
     return resolveEngine(opts.engine, config);
   }
 
-  let engineName = "default";
+  let engineName = commands.default ? "default" : (config.defaultEngine ?? "default");
   for (const pattern of Object.keys(commands)) {
     if (pattern === "default") continue;
     if (matchesAgentPattern(pattern, agentName)) { engineName = pattern; break; }

@@ -111,4 +111,21 @@ describe("buildCommandFromConfig golden master (#1960 P0)", () => {
       engines: { codex: { name: "codex", cmd: "codex --typed" } },
     } as any, "codex-agent", "codex")).toBe("codex --typed");
   });
+
+  test("defaultEngine supplies the default fallback when commands.default is absent", () => {
+    delete process.env.MAW_GENERIC_ENGINES;
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      defaultEngine: "codex",
+      commands: {},
+    } as any, "unmapped-agent")).toBe("codex");
+
+    process.env.MAW_GENERIC_ENGINES = "0";
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      defaultEngine: "opencode",
+      commands: {},
+    } as any, "unmapped-agent")).toBe("opencode");
+  });
 });
