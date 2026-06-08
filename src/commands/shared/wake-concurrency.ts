@@ -20,6 +20,7 @@
 import { cfgLimit } from "../../config";
 import { tmux } from "../../core/transport/tmux";
 import { isAgentCommand } from "../../core/transport/ssh";
+import { UserError } from "../../core/util/user-error";
 
 /**
  * Pure cap decision — throws a loud, actionable error when `liveAgents` is at
@@ -29,7 +30,7 @@ import { isAgentCommand } from "../../core/transport/ssh";
 export function checkCapacity(liveAgents: number, cap: number, spawning: string): void {
   if (!cap || cap <= 0) return; // cap disabled by explicit opt-out
   if (liveAgents >= cap) {
-    throw new Error(
+    throw new UserError(
       `agent concurrency cap reached: ${liveAgents}/${cap} agents already live — ` +
       `refusing to spawn '${spawning}'. Raise limits.maxConcurrentAgents in maw.config.json ` +
       `or sleep an idle agent first (maw sleep <agent>).`,
@@ -37,10 +38,39 @@ export function checkCapacity(liveAgents: number, cap: number, spawning: string)
   }
 }
 
+export interface LiveAgent {
+  name: string;
+  target: string;
+  idleSec: number;
+}
+
+/** List tmux panes currently running an agent process with metadata. */
+export async function listLiveAgents(): Promise<LiveAgent[]> {
+  const panes = await tmux.listPanes();
+  const now = Date.now() / 1000;
+  return panes
+    .filter(p => isAgentCommand(p.command))
+    .map(p => ({
+      name: p.title || p.winName || p.target,
+      target: p.target,
+      idleSec: p.lastActivity ? Math.round(now - p.lastActivity) : 0,
+    }));
+}
+
 /** Count tmux panes currently running an agent process across all sessions. */
 export async function countLiveAgents(): Promise<number> {
-  const panes = await tmux.listPanes();
-  return panes.filter(p => isAgentCommand(p.command)).length;
+  return (await listLiveAgents()).length;
+}
+
+function formatAgentTable(agents: LiveAgent[]): string {
+  const sorted = [...agents].sort((a, b) => b.idleSec - a.idleSec);
+  const lines = sorted.map(a => {
+    const idle = a.idleSec > 60
+      ? `${Math.round(a.idleSec / 60)}m`
+      : `${a.idleSec}s`;
+    return `  ${a.name.padEnd(40)} idle ${idle.padStart(5)}   ${a.target}`;
+  });
+  return lines.join("\n");
 }
 
 /**
@@ -53,6 +83,16 @@ export async function countLiveAgents(): Promise<number> {
  */
 export async function assertAgentCapacity(spawning: string): Promise<void> {
   const cap = cfgLimit("maxConcurrentAgents");
-  if (!cap || cap <= 0) return; // disabled — don't even query tmux
-  checkCapacity(await countLiveAgents(), cap, spawning);
+  if (!cap || cap <= 0) return;
+  const agents = await listLiveAgents();
+  if (agents.length >= cap) {
+    const table = formatAgentTable(agents);
+    throw new UserError(
+      `agent concurrency cap reached: ${agents.length}/${cap} agents already live — ` +
+      `refusing to spawn '${spawning}'.\n\n` +
+      `Active agents:\n${table}\n\n` +
+      `Fix: maw sleep <name>  — free a slot by sleeping an idle agent\n` +
+      `     Set limits.maxConcurrentAgents in maw.config.json to raise the cap`,
+    );
+  }
 }
