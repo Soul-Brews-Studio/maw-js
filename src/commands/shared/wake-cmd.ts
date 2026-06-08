@@ -1244,18 +1244,33 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, existingWindows, liveTileRoles);
         logAgentsRehydrationSource(plan.length, allWt);
         if (plan.length > 0) {
-          console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
-        }
-        for (const wt of plan) {
-          await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
-          await new Promise(r => setTimeout(r, 300));
-          const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
-          const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
-          const target = `${session}:${wt.windowName}`;
-          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
-          preExistingWindows.add(wt.windowName);
-          preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
-          console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
+          let skipRehydrate = false;
+          if (_wtPicker.isStdoutTTY()) {
+            console.log(`\x1b[36m↻\x1b[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
+            for (const wt of plan) {
+              console.log(`  \x1b[90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}\x1b[0m`);
+            }
+            console.log("");
+            process.stdout.write(`  Rehydrate all? [Y/n] `);
+            const answer = _wtPicker.readChoice();
+            skipRehydrate = !!answer && /^n/i.test(answer);
+          }
+          if (skipRehydrate) {
+            console.log(`\x1b[33m⚡\x1b[0m skipped agent rehydration`);
+          } else {
+            console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
+            for (const wt of plan) {
+              await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
+              await new Promise(r => setTimeout(r, 300));
+              const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
+              const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
+              const target = `${session}:${wt.windowName}`;
+              await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
+              preExistingWindows.add(wt.windowName);
+              preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
+              console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
+            }
+          }
         }
       } else {
         logAgentsRehydrationSource(0, allWt);
