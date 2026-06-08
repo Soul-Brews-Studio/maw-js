@@ -49,6 +49,28 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
 
 export const WORKTREE_ENGINE_FILE = ".maw-engine";
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function acquireWorktreePathLock(
+  wtPath: string,
+  hostExecFn: WakeSessionDeps["hostExec"],
+): Promise<(() => Promise<void>) | null> {
+  const quotedPath = shellSingleQuote(wtPath);
+  const quotedLock = shellSingleQuote(`${wtPath}.maw-create.lock`);
+  try {
+    await hostExecFn(`[ ! -e ${quotedPath} ] && mkdir ${quotedLock}`);
+  } catch {
+    return null;
+  }
+  return async () => {
+    try {
+      await hostExecFn(`rmdir ${quotedLock} 2>/dev/null || true`);
+    } catch { /* best-effort lock cleanup */ }
+  };
+}
+
 function normalizeWorktreeEngineName(engine: string | undefined, fallbackToClaude = false): string | undefined {
   const normalized = ((engine ?? (fallbackToClaude ? "claude" : ""))).trim().split(/\r?\n/, 1)[0]?.trim();
   if (!normalized) return undefined;
@@ -261,11 +283,14 @@ export async function createWorktree(
   const nums = existingWorktrees.map(w => parseInt(w.name) || 0);
   let nextNum = d.fresh && nums.length > 0 ? Math.max(...nums) + 1 : 1;
   const safe = (s: string) => s.replace(/'/g, "'\\''");
-  try { await d.hostExec(`git -C '${safe(repoPath)}' rev-parse HEAD 2>/dev/null`); } catch {
-    await d.hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
+  try { await d.hostExec(`git -C ${shellSingleQuote(repoPath)} rev-parse HEAD 2>/dev/null`); } catch {
+    await d.hostExec(`git -C ${shellSingleQuote(repoPath)} commit --allow-empty -m "init: bootstrap for worktree"`);
   }
 
   const layout = normalizeWorktreeLayout(d.layout);
+  if (layout === "nested") {
+    await d.hostExec(`mkdir -p ${shellSingleQuote(`${repoPath}/agents`)}`);
+  }
   const existingWindowNames = new Set([...d.existingWindowNames].filter(Boolean));
   const preferredWindowName = `${oracle}-${name}`;
   const windowNameForWorktree = (wtName: string): string => {
@@ -278,6 +303,7 @@ export async function createWorktree(
   let windowName = "";
   let branchExists = false;
   let allocated = false;
+  let releaseWorktreePathLock: (() => Promise<void>) | null = null;
   if (d.named) {
     wtName = name;
     wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
@@ -288,6 +314,8 @@ export async function createWorktree(
     }
     const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
     if (!knownWorktree) {
+      releaseWorktreePathLock = await acquireWorktreePathLock(wtPath, d.hostExec);
+      if (!releaseWorktreePathLock) throw new Error(`worktree slot '${wtName}' is already reserved`);
       try {
         await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
         branchExists = true;
@@ -307,10 +335,17 @@ export async function createWorktree(
         nextNum++;
         continue;
       }
+      releaseWorktreePathLock = await acquireWorktreePathLock(wtPath, d.hostExec);
+      if (!releaseWorktreePathLock) {
+        nextNum++;
+        continue;
+      }
       try {
         await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
         branchExists = true;
         if (d.fresh) {
+          await releaseWorktreePathLock();
+          releaseWorktreePathLock = null;
           nextNum++;
           continue;
         }
@@ -326,15 +361,16 @@ export async function createWorktree(
     throw new Error(`could not allocate worktree for ${name}`);
   }
 
-  if (layout === "nested") {
-    await d.hostExec(`mkdir -p '${safe(repoPath)}/agents'`);
-  }
   const addArgs = branchExists
     ? `'${safe(wtPath)}' '${safe(branch)}'`
     : `'${safe(wtPath)}' -b '${safe(branch)}'`;
-  await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
-  await reconcileParentClaudeDir(repoPath, wtPath, d.log);
-  writeWorktreeEngineFile(wtPath, d.engine, d.log);
-  d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
-  return { wtPath, windowName };
+  try {
+    await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
+    await reconcileParentClaudeDir(repoPath, wtPath, d.log);
+    writeWorktreeEngineFile(wtPath, d.engine, d.log);
+    d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
+    return { wtPath, windowName };
+  } finally {
+    await releaseWorktreePathLock?.();
+  }
 }
