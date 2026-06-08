@@ -104,6 +104,7 @@ beforeEach(() => {
 describe("bud plugin standalone boundary (#2314)", () => {
   test("all bud sources use SDK or local/platform imports only", () => {
     const imports = walkSources(budDir).flatMap((file) => importSpecs(readFileSync(file, "utf8")));
+    const manifest = JSON.parse(readFileSync(join(budDir, "plugin.json"), "utf8"));
     const forbidden = imports.filter((spec) =>
       spec.startsWith("maw-js/core/")
       || spec.startsWith("maw-js/commands/shared/")
@@ -116,6 +117,8 @@ describe("bud plugin standalone boundary (#2314)", () => {
     );
 
     expect(command).toMatchObject({ name: "bud" });
+    expect(manifest.cli.aliases).toEqual(["buddy"]);
+    expect(readFileSync(join(budDir, "plugin.ts"), "utf8")).toContain('"aliases": [\n      "buddy"\n    ]');
     expect(forbidden).toEqual([]);
     expect(imports).toContain("maw-js/sdk");
   });
