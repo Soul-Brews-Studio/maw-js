@@ -779,12 +779,13 @@ async function resolveWakeFleetSessionRepo(meta: WakeFleetSessionMetadata): Prom
     return { repoPath: existing, repoName: existing.split("/").pop()!, parentDir: existing.replace(/\/[^/]+$/, "") };
   }
 
-  console.log(`\x1b[36m🌱\x1b[0m ${meta.session} pinned in fleet → github.com/${meta.repo} — cloning to ghq...`);
+  const cloneSlug = meta.repo.replace(/^github\.com\//i, "");
+  console.log(`\x1b[36m🌱\x1b[0m ${meta.session} pinned in fleet → github.com/${cloneSlug} — cloning to ghq...`);
   try {
-    await hostExec(`ghq get -u 'github.com/${meta.repo}'`);
+    await hostExec(`ghq get -u 'github.com/${cloneSlug}'`);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${meta.repo} clone/update failed: ${msg.split("\n")[0]}`);
+    console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${cloneSlug} clone/update failed: ${msg.split("\n")[0]}`);
   }
   const cloned = await ghqFind(`/${meta.repo}`) || await ghqFind(`/${repoStem}`);
   if (cloned) {

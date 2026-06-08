@@ -1,7 +1,7 @@
 import { hostExec } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { ghqFind } from "maw-js/core/ghq";
-import { buildCommand } from "maw-js/config";
+import { buildCommandInDir } from "maw-js/config";
 import { findWorktrees } from "maw-js/commands/shared/wake";
 import { resolveWorktreeTarget } from "maw-js/core/matcher/resolve-target";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "maw-js/core/fleet/worktree-layout";
@@ -82,7 +82,7 @@ export async function cmdWorkon(repo: string, task?: string, opts: { layout?: Wo
   // Create window + start claude
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  await tmux.sendText(`${session}:${windowName}`, buildCommand(windowName));
+  await tmux.sendText(`${session}:${windowName}`, buildCommandInDir(windowName, targetPath));
 
   console.log(`\x1b[32m✅\x1b[0m workon '${windowName}' in ${session} → ${targetPath}`);
 }
