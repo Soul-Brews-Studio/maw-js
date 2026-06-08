@@ -136,34 +136,34 @@ describe("auto restore startup helper", () => {
     expect(writes.join("")).not.toContain("Restore all?");
   });
 
-  test("swallows list/session errors and handles declined restore prompts", async () => {
+  test("swallows list/session errors and prints hint for valid snapshots", async () => {
     listSessionsError = new Error("tmux unavailable");
     await maybeAutoRestore("wake");
-    expect(wakeCalls).toEqual([]);
+    expect(logs.join("\n")).not.toContain("Last snapshot");
 
     listSessionsError = null;
     snapshot = { timestamp: new Date(Date.now() - 10 * 60_000).toISOString(), sessions: [{ name: "01-alpha" }] };
-    ttyAnswer = "no\n";
     await maybeAutoRestore("wake");
-    expect(writes.join("")).toContain("Restore all?");
+    expect(logs.join("\n")).toContain("Last snapshot: 1 session");
+    expect(logs.join("\n")).toContain("01-alpha");
+    expect(logs.join("\n")).toContain("maw wake");
     expect(wakeCalls).toEqual([]);
   });
 
-  test("accepted snapshots wake each oracle and report per-session failures", async () => {
+  test("hint mode shows all sessions without waking any", async () => {
     snapshot = {
       timestamp: new Date(Date.now() - 65 * 60_000).toISOString(),
       sessions: [{ name: "01-alpha" }, { name: "02-beta" }],
     };
-    wakeErrorFor = "beta";
-    ttyAnswer = "yes\n";
 
     await maybeAutoRestore("wake");
 
-    expect(wakeCalls).toEqual([["alpha", { attach: false }], ["beta", { attach: false }]]);
+    expect(wakeCalls).toEqual([]);
     expect(logs.join("\n")).toContain("Last snapshot: 2 sessions (1h ago)");
     expect(logs.join("\n")).toContain("01-alpha");
-    expect(logs.join("\n")).toContain("02-beta: wake failed");
-    expect(writes.join("")).toContain("Restore all?");
+    expect(logs.join("\n")).toContain("02-beta");
+    expect(logs.join("\n")).toContain("maw wake");
+    expect(logs.join("\n")).not.toContain("Restore all?");
   });
 });
 
