@@ -7,6 +7,8 @@ let hostExecCalls: string[] = [];
 let hostExecFailures = new Map<string, Error>();
 let newWindowCalls: Array<{ session: string; name: string; opts: unknown }> = [];
 let sendTextCalls: Array<{ target: string; text: string }> = [];
+let listWindowsReturn: Array<{ index: number; name: string; active: boolean }> = [];
+let selectWindowCalls: string[] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 
@@ -46,6 +48,10 @@ mock.module("maw-js/sdk", () => ({
     return "";
   },
   tmux: {
+    listWindows: async (_session: string) => listWindowsReturn,
+    selectWindow: async (target: string) => {
+      selectWindowCalls.push(target);
+    },
     newWindow: async (session: string, name: string, opts: unknown) => {
       newWindowCalls.push({ session, name, opts });
     },
@@ -64,6 +70,8 @@ beforeEach(() => {
   hostExecFailures = new Map();
   newWindowCalls = [];
   sendTextCalls = [];
+  listWindowsReturn = [];
+  selectWindowCalls = [];
   logs = [];
   errors = [];
   process.env.TMUX = "/tmp/tmux-1000/default,1,0";
@@ -99,6 +107,39 @@ describe("workon plugin coverage", () => {
     ]);
     expect(sendTextCalls).toEqual([{ target: "alpha-session:maw-js", text: "agent --name maw-js" }]);
     expect(logs.join("\n")).toContain("workon 'maw-js'");
+  });
+
+  test("#2571 — reuses an existing window of the same name (no duplicate)", async () => {
+    listWindowsReturn = [{ index: 1, name: "maw-js", active: false }];
+
+    await cmdWorkon("Soul-Brews-Studio/maw-js");
+
+    // Selects the live window and returns — no second window, no second agent.
+    expect(selectWindowCalls).toEqual(["alpha-session:maw-js"]);
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("already open");
+  });
+
+  test("#2571 — still creates the window when only a different name is open", async () => {
+    listWindowsReturn = [{ index: 1, name: "some-other-window", active: true }];
+
+    await cmdWorkon("Soul-Brews-Studio/maw-js");
+
+    expect(selectWindowCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([
+      { session: "alpha-session", name: "maw-js", opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js" } },
+    ]);
+  });
+
+  test("#2571 — dedups a task window by its full <repo>-<task> name", async () => {
+    worktrees = [{ path: "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-2-fix-ci", name: "2-fix-ci" }];
+    listWindowsReturn = [{ index: 3, name: "maw-js-fix", active: false }];
+
+    await cmdWorkon("maw-js", "fix");
+
+    expect(selectWindowCalls).toEqual(["alpha-session:maw-js-fix"]);
+    expect(newWindowCalls).toEqual([]);
   });
 
   test("reuses a matching worktree for task names", async () => {

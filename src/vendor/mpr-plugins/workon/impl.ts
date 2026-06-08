@@ -79,6 +79,16 @@ export async function cmdWorkon(repo: string, task?: string, opts: { layout?: Wo
     throw new Error("could not detect current tmux session");
   }
 
+  // #2571 — reuse an existing window of the same name instead of stacking a
+  // duplicate. Repeated `maw workon <repo> [task]` previously piled up windows
+  // (and a second agent) for a repo/worktree that was already open.
+  const existingWindow = (await tmux.listWindows(session)).find(w => w.name === windowName);
+  if (existingWindow) {
+    await tmux.selectWindow(`${session}:${windowName}`);
+    console.log(`\x1b[33m⚡\x1b[0m workon '${windowName}' already open in ${session} — selected`);
+    return;
+  }
+
   // Create window + start claude
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
