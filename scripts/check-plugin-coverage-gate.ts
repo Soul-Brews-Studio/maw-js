@@ -61,6 +61,8 @@ function standaloneTestFor(plugin: string): string {
 
 function analyzeChangedFiles(files: string[]): GateResult {
   const pluginChanges = new Map<string, string[]>();
+  const pluginNonManifestChanges = new Set<string>();
+  const pluginOnlyGeneratedChanges = new Set<string>();
   const sdkChanges: string[] = [];
   const testChanges = files.filter((file) => STANDALONE_TEST_RE.test(file) || BOUNDARY_PATTERN_FILES.has(file));
   const failures: string[] = [];
@@ -73,6 +75,13 @@ function analyzeChangedFiles(files: string[]): GateResult {
       const plugin = pluginMatch[1];
       if (!pluginChanges.has(plugin)) pluginChanges.set(plugin, []);
       pluginChanges.get(plugin)!.push(file);
+      const isPluginTs = /\/plugin\.ts$/.test(file);
+      const isPluginJson = /\/plugin\.json$/.test(file);
+      if (!isPluginTs) {
+        pluginNonManifestChanges.add(plugin);
+      } else if (!isPluginJson) {
+        pluginOnlyGeneratedChanges.add(plugin);
+      }
       continue;
     }
 
@@ -82,6 +91,16 @@ function analyzeChangedFiles(files: string[]): GateResult {
   }
 
   for (const [plugin, changed] of pluginChanges) {
+    const onlyGeneratedFiles = changed.length > 0
+      && changed.every((file) => /\/plugin\.ts$/.test(file));
+    if (onlyGeneratedFiles && !pluginNonManifestChanges.has(plugin)) {
+      continue;
+    }
+
+    if (!pluginNonManifestChanges.has(plugin) && pluginOnlyGeneratedChanges.has(plugin) && changed.length > 0) {
+      continue;
+    }
+
     const test = standaloneTestFor(plugin);
     if (!existsSync(test)) {
       failures.push(

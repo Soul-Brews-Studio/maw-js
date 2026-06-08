@@ -253,8 +253,12 @@ import type { InvokeContext, InvokeResult } from "../plugin/types";
 export interface PluginConfig {
   /** Plugin name (must match plugin.json name) */
   name: string;
-  /** The handler — one function, all surfaces (cli/api/peer) */
-  handler: (ctx: InvokeContext) => Promise<InvokeResult>;
+  /**
+   * Optional handler for command/API/peer entry points.
+   *
+   * Plugin manifests that use `entry` + `hooks` can omit a top-level handler.
+   */
+  handler?: (ctx: InvokeContext) => Promise<InvokeResult>;
   /** Phase 0: GATE — return false to cancel event pipeline */
   onGate?: (event: any) => boolean;
   /** Phase 1: FILTER — modify event before handlers */
@@ -287,6 +291,8 @@ export interface PluginConfig {
  */
 export function definePlugin(config: PluginConfig): PluginConfig {
   if (!config.name) throw new Error("definePlugin: name is required");
-  if (typeof config.handler !== "function") throw new Error("definePlugin: handler is required");
+  if (config.handler !== undefined && typeof config.handler !== "function") {
+    throw new Error("definePlugin: handler must be a function");
+  }
   return config;
 }
