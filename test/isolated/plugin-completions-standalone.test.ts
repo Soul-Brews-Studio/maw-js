@@ -21,10 +21,18 @@ let plugins: Array<{
 
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleet: () => fleet,
+  loadFleetEntries: () => fleet,
+  resolveFleetSession: () => null,
+  loadDisabledFleetEntries: () => [],
+  countDisabledFleetFiles: () => 0,
+  fleetDirForWrite: () => "",
+  fleetDirsForRead: () => [],
 }));
 
 mock.module("maw-js/plugin/registry", () => ({
   discoverPackages: () => plugins,
+  invokePlugin: async () => ({ ok: true }),
+  importPluginSymbol: async () => undefined,
 }));
 
 function parseImportSpecs(source: string): string[] {

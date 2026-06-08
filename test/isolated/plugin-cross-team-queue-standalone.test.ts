@@ -15,7 +15,10 @@ function walkSources(dir: string): string[] {
     if (entry.isDirectory()) {
       if (entry.name === "dist" || entry.name.startsWith(".")) continue;
       out.push(...walkSources(full));
-    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) {
+    } else if (
+      (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) &&
+      entry.name !== "plugin.ts"
+    ) {
       out.push(full);
     }
   }

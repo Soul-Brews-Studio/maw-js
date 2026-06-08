@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "path";
 
@@ -98,6 +98,13 @@ describe("find impl fleet psi coverage", () => {
     const orgPath = join(reposRoot, "Soul-Brews-Studio");
     const repoPath = join(orgPath, "alpha-oracle");
     const psiPath = join(repoPath, "ψ", "memory");
+    const localPsi = join(process.cwd(), "ψ", "memory");
+    const expectedGrepCommands = [
+      `grep -ril ${shSingleQuote("needle")} ${shSingleQuote(psiPath)} 2>/dev/null || true`,
+    ];
+    if (existsSync(localPsi) && localPsi !== psiPath) {
+      expectedGrepCommands.push(`grep -ril ${shSingleQuote("needle")} ${shSingleQuote(localPsi)} 2>/dev/null || true`);
+    }
     const files = Array.from({ length: 12 }, (_, index) => join(psiPath, "notes", `hit-${index}.md`));
 
     mkdirSync(psiPath, { recursive: true });
@@ -123,9 +130,7 @@ describe("find impl fleet psi coverage", () => {
     expect(output).toContain("... and 2 more");
     expect(output).toContain("12 match(es)");
     expect(output).toContain("— 12 code");
-    expect(hostExecCalls.filter((command) => command.includes("grep -ril"))).toEqual([
-      `grep -ril ${shSingleQuote("needle")} ${shSingleQuote(psiPath)} 2>/dev/null || true`,
-    ]);
+    expect(hostExecCalls.filter((command) => command.includes("grep -ril"))).toEqual(expectedGrepCommands);
     expect(hostExecCalls.filter((command) => command.includes("grep -m1 -i"))).toHaveLength(12);
   });
 });
