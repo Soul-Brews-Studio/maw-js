@@ -171,6 +171,42 @@ export function getChannelEnv(
   return env;
 }
 
+/**
+ * Reduce an agent/window/session name to the stem used to key channel config
+ * (the directory name under `~/.claude/channels/`). Strips a leading numeric
+ * fleet prefix (`139-mawjs` → `mawjs`) and a trailing `-oracle` suffix
+ * (`mawjs-codex-oracle` → `mawjs-codex`), and lowercases. Exported for #2555
+ * tests and reuse by the idle-exemption + `maw ls` display paths.
+ */
+export function channelStem(agent: string): string {
+  return agent.trim().toLowerCase().replace(/^\d+-/, "").replace(/-oracle$/, "");
+}
+
+/**
+ * #2555 — true when the agent subscribes to at least one channel plugin.
+ *
+ * Channel listeners (discord/telegram/etc. relays) are idle-but-waiting for
+ * inbound messages, so auto-sleep triggers must exempt them. Accepts any
+ * agent/window/session identifier; it is reduced to the channel stem via
+ * `channelStem()`. `repoPath` (when known) honors the repo-local
+ * `.claude/channel.json` override per #1195.
+ */
+export function isChannelListener(agent: string, repoPath?: string): boolean {
+  const stem = channelStem(agent);
+  if (!stem) return false;
+  return getChannelPluginIds(stem, undefined, repoPath).length > 0;
+}
+
+/**
+ * #2555 — channel plugin ids for an agent, or `[]` when it listens on none.
+ * Used by `maw ls` to render the `[ch: discord]` tag next to exempt agents.
+ */
+export function channelListenerIds(agent: string, repoPath?: string): string[] {
+  const stem = channelStem(agent);
+  if (!stem) return [];
+  return getChannelPluginIds(stem, undefined, repoPath);
+}
+
 export function listAllOracleChannels(): Array<{ oracle: string; plugins: ChannelPlugin[] }> {
   if (!existsSync(channelsBase())) return [];
   const { readdirSync } = require("fs");

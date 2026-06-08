@@ -21,6 +21,7 @@ import { cfgLimit } from "../../config";
 import { tmux } from "../../core/transport/tmux";
 import { isAgentCommand } from "../../core/transport/ssh";
 import { UserError } from "../../core/util/user-error";
+import { channelListenerIds } from "./channel-loader";
 
 /**
  * Pure cap decision — throws a loud, actionable error when `liveAgents` is at
@@ -42,6 +43,18 @@ export interface LiveAgent {
   name: string;
   target: string;
   idleSec: number;
+  /** #2555 — channel plugin ids the agent listens on ([] = not a listener). */
+  channel: string[];
+}
+
+/**
+ * #2555 — channel plugin ids for a live agent pane. The repo dir in the pane
+ * cwd (`…/discord-oracle/agents/…`) is the authoritative stem; the pane title /
+ * window name is the fallback for non-worktree panes.
+ */
+function paneChannelIds(p: { cwd?: string; title?: string; winName?: string; target: string }): string[] {
+  const fromCwd = p.cwd?.match(/([^/]+)-oracle(?:\/|$)/)?.[1];
+  return channelListenerIds(fromCwd || p.title || p.winName || p.target);
 }
 
 /** List tmux panes currently running an agent process with metadata. */
@@ -54,6 +67,7 @@ export async function listLiveAgents(): Promise<LiveAgent[]> {
       name: p.title || p.winName || p.target,
       target: p.target,
       idleSec: p.lastActivity ? Math.round(now - p.lastActivity) : 0,
+      channel: paneChannelIds(p),
     }));
 }
 
@@ -62,13 +76,16 @@ export async function countLiveAgents(): Promise<number> {
   return (await listLiveAgents()).length;
 }
 
-function formatAgentTable(agents: LiveAgent[]): string {
+export function formatAgentTable(agents: LiveAgent[]): string {
   const sorted = [...agents].sort((a, b) => b.idleSec - a.idleSec);
   const lines = sorted.map(a => {
     const idle = a.idleSec > 60
       ? `${Math.round(a.idleSec / 60)}m`
       : `${a.idleSec}s`;
-    return `  ${a.name.padEnd(40)} idle ${idle.padStart(5)}   ${a.target}`;
+    // #2555 — flag channel listeners so the operator doesn't sleep an
+    // idle-but-waiting relay to free a slot (it's auto-sleep exempt).
+    const channel = a.channel?.length ? `  \x1b[36m📡 [ch: ${a.channel.join(", ")}]\x1b[0m` : "";
+    return `  ${a.name.padEnd(40)} idle ${idle.padStart(5)}   ${a.target}${channel}`;
   });
   return lines.join("\n");
 }

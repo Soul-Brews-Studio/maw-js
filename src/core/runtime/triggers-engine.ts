@@ -8,6 +8,7 @@
 // No execSync — use async Bun.spawn to avoid blocking event loop
 import { loadConfig, saveConfig, type TriggerConfig, type TriggerEvent } from "../../config";
 import { logAudit } from "../fleet/audit";
+import { isAgentExemptFromTrigger } from "./idle-exempt";
 
 export interface TriggerContext {
   agent?: string;
@@ -121,6 +122,12 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
         const idleSec = (Date.now() - lastActivity) / 1000;
         if (idleSec < t.timeout) continue;
       }
+    }
+
+    // #2555 — channel-aware exemption: a trigger with exempt:["channel-listener"]
+    // never fires for an agent subscribed to a channel plugin (idle-but-waiting).
+    if (event === "agent-idle" && ctx.agent && isAgentExemptFromTrigger(t, ctx.agent)) {
+      continue;
     }
 
     const action = expandAction(t.action, event, ctx);

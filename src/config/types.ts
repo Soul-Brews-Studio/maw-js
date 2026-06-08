@@ -8,6 +8,13 @@ export interface TriggerConfig {
   action: string;       // shell command to execute — supports {agent}, {repo}, {issue} templates
   name?: string;        // optional human label
   once?: boolean;       // fire once then self-destruct (#149)
+  /**
+   * #2555 — exemption tags that suppress this trigger for matching agents.
+   * Currently supports `"channel-listener"`: agents subscribed to a channel
+   * plugin (discord/telegram/etc.) are idle-but-waiting for inbound messages
+   * and must not be auto-slept. Absent/empty = no exemptions.
+   */
+  exempt?: string[];
 }
 
 /** Named peer with URL */
