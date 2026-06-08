@@ -33,6 +33,11 @@ const peerBackoff = new Map<string, { failures: number; nextProbeAfter: number }
 const BACKOFF_BASE = 5_000;
 const BACKOFF_MAX = 60_000;
 
+export function resetPeerCaches() {
+  federationStatusCache = null;
+  peerBackoff.clear();
+}
+
 export interface PeerStatus {
   url: string;
   peerName?: string;
