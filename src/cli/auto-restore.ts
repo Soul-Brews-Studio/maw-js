@@ -1,12 +1,13 @@
 /**
- * Auto-restore: if no live tmux sessions exist and a recent (<24h) snapshot
- * is on disk, prompt the user to revive every session in the snapshot.
+ * Auto-restore hint: if no live tmux sessions exist and a recent (<24h)
+ * snapshot is on disk, print a non-blocking hint showing what can be restored.
+ *
+ * Previously this did a blocking /dev/tty read which could hang the CLI
+ * in wrapper scripts, multiplexers, or shell-init contexts. Now it just
+ * prints and returns — the user runs `maw wake <name>` themselves.
  *
  * Skipped for help-style invocations (--help / -h), non-interactive shells,
  * and diagnostic commands so automation output stays machine-readable.
- *
- * Exceptions are intentionally swallowed — auto-restore is best-effort
- * UX sugar, never load-bearing for the actual command the user typed.
  */
 export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
   if (!cmd || cmd === "--help" || cmd === "-h") return;
@@ -25,28 +26,9 @@ export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
 
     const mins = Math.round(ageMs / 60000);
     const ageStr = mins >= 60 ? `${Math.round(mins / 60)}h ago` : `${mins}m ago`;
-    console.log(`\x1b[36m📸\x1b[0m Last snapshot: ${snap.sessions.length} sessions (${ageStr})`);
+    console.log(`\x1b[36m📸\x1b[0m Last snapshot: ${snap.sessions.length} session${snap.sessions.length === 1 ? "" : "s"} (${ageStr})`);
     for (const s of snap.sessions) console.log(`   ${s.name}`);
-    process.stdout.write(`\nRestore all? [y/N] `);
-    const fs = await import("fs");
-    const buf = new Uint8Array(64);
-    const fd = fs.openSync("/dev/tty", "r");
-    const n = fs.readSync(fd, buf);
-    fs.closeSync(fd);
-    const answer = new TextDecoder().decode(buf.subarray(0, n)).trim().toLowerCase();
-    if (answer !== "y" && answer !== "yes") return;
-
-    const { cmdWake } = await import("../commands/shared/wake-cmd");
-    for (const s of snap.sessions) {
-      const oracle = s.name.replace(/^\d+-/, "");
-      try {
-        await cmdWake(oracle, { attach: false });
-        console.log(`  \x1b[32m✓\x1b[0m ${s.name}`);
-      } catch (e: any) {
-        console.log(`  \x1b[31m✗\x1b[0m ${s.name}: ${e?.message || String(e)}`);
-      }
-    }
-    console.log("");
+    console.log(`\x1b[36m↻\x1b[0m  restore: \x1b[1mmaw wake <name>\x1b[0m   or   \x1b[1mmaw wake --all\x1b[0m`);
   } catch {}
 }
 
