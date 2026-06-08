@@ -141,6 +141,34 @@ agents:
     ]);
   });
 
+  test("charter v3 defaults are inherited and overridden by members", () => {
+    const charter = parseTeamCharterText(`
+name: test-defaults
+defaults:
+  engine: omx
+  worktree: true
+  branch: alpha
+
+members:
+  - role: lead
+    name: oracle
+    engine: claude
+    worktree: false
+  - role: builder
+    name: codex-1
+`);
+
+    expect(charter.defaults).toEqual({ engine: "omx", worktree: true, branch: "alpha" });
+    expect(charter.warnings).toBeUndefined();
+    expect(charter.members).toEqual([
+      { role: "lead", name: "oracle", engine: "claude", worktree: false, branch: "alpha" },
+      { role: "builder", name: "codex-1", engine: "omx", worktree: true, branch: "alpha" },
+    ]);
+
+    const rendered = formatTeamCharterPlan(planTeamCharter(charter));
+    expect(rendered).toContain("builder (target=auto, name=codex-1, engine=omx, worktree=true, branch=alpha)");
+  });
+
   test("warns and ignores unknown top-level and member keys", () => {
     const charter = parseTeamCharterText(`
 name: warn-team

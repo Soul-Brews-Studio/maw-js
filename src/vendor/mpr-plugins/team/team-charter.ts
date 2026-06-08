@@ -13,6 +13,7 @@ export interface TeamCharterMember {
   prompt?: string;
   engine?: string;
   worktree?: boolean | string;
+  branch?: string;
   queue?: string[];
   node?: string;
   channels?: boolean;
@@ -29,6 +30,7 @@ export interface TeamCharter {
   project?: string;
   /** Optional top-level discord bridge toggle. `false` disables, string enables. */
   discord?: string | false;
+  defaults?: Partial<TeamCharterMember>;
   members: TeamCharterMember[];
   /** New-style agent map (`agents: { codex: { engine: omx, ... } }`). */
   agents?: Record<string, Record<string, unknown>>;
@@ -182,6 +184,20 @@ function parseYamlMapBlock(lines: string[], start: number, parentIndent: number)
   return { value: out, next: i };
 }
 
+function parseFlatScalarMapBlock(lines: string[], start: number, parentIndent: number, label: string): { value: Record<string, unknown>; next: number } {
+  const map: Record<string, unknown> = {};
+  let i = start;
+  for (; i < lines.length; i++) {
+    const child = lines[i]!;
+    if (!child.trim()) continue;
+    if (lineIndent(child) <= parentIndent) break;
+    const field = child.match(/^ {2}([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (!field) throw new Error(`unsupported ${label} field near line ${i + 1}: ${child.trim()}`);
+    map[field[1]!] = scalar(field[2] ?? "");
+  }
+  return { value: map, next: i };
+}
+
 function parseYamlSubset(text: string): TeamCharter {
   const lines = text.split(/\r?\n/).map(stripComment);
   const root: Record<string, unknown> = { members: [] };
@@ -264,22 +280,10 @@ function parseYamlSubset(text: string): TeamCharter {
       root.agents = block.value;
       continue;
     }
-    if ((key === "lifecycle" || key === "governance") && raw === "") {
-      const map: Record<string, unknown> = {};
-      i++;
-      while (i < lines.length) {
-        const child = lines[i]!;
-        if (!child.trim()) {
-          i++;
-          continue;
-        }
-        if (lineIndent(child) === 0) break;
-        const field = child.match(/^ {2}([A-Za-z_][\w-]*):\s*(.*)$/);
-        if (!field) throw new Error(`unsupported ${key} field near line ${i + 1}: ${child.trim()}`);
-        map[field[1]!] = scalar(field[2] ?? "");
-        i++;
-      }
-      root[key] = map;
+    if ((key === "defaults" || key === "lifecycle" || key === "governance") && raw === "") {
+      const block = parseFlatScalarMapBlock(lines, i + 1, 0, key);
+      root[key] = block.value;
+      i = block.next;
       continue;
     }
     root[key] = raw === "" ? "" : scalar(raw);
@@ -288,8 +292,8 @@ function parseYamlSubset(text: string): TeamCharter {
   return normalizeCharter(root);
 }
 
-const KNOWN_TOP_LEVEL_KEYS = new Set(["name", "description", "goal", "session", "project", "discord", "members", "agents", "lifecycle", "governance"]);
-const KNOWN_MEMBER_KEYS = new Set(["role", "name", "target", "model", "cwd", "prompt", "engine", "worktree", "queue", "node", "channels", "discord"]);
+const KNOWN_TOP_LEVEL_KEYS = new Set(["name", "description", "goal", "session", "project", "discord", "defaults", "members", "agents", "lifecycle", "governance"]);
+const KNOWN_MEMBER_KEYS = new Set(["role", "name", "target", "model", "cwd", "prompt", "engine", "worktree", "branch", "queue", "node", "channels", "discord"]);
 
 function normalizeTeamMember(roleRaw: string, m: Record<string, unknown>): TeamCharterMember {
   const role = roleRaw.trim();
@@ -304,12 +308,19 @@ function normalizeTeamMember(roleRaw: string, m: Record<string, unknown>): TeamC
     ...(typeof m.engine === "string" && m.engine.trim() ? { engine: m.engine.trim() } : {}),
     ...(typeof m.worktree === "boolean" ? { worktree: m.worktree } : {}),
     ...(typeof m.worktree === "string" && m.worktree.trim() ? { worktree: m.worktree.trim() } : {}),
+    ...(typeof m.branch === "string" && m.branch.trim() ? { branch: m.branch.trim() } : {}),
     ...(Array.isArray(m.queue) ? { queue: m.queue.filter((item): item is string => typeof item === "string" && item.trim()).map((item) => item.trim()) } : {}),
     ...(typeof m.queue === "string" && m.queue.trim() ? { queue: [m.queue.trim()] } : {}),
     ...(typeof m.node === "string" && m.node.trim() ? { node: m.node.trim() } : {}),
     ...(typeof m.channels === "boolean" ? { channels: m.channels } : {}),
     ...(typeof m.discord === "boolean" && m.discord === false ? { discord: false } : {}),
   };
+}
+
+function normalizeTeamMemberDefaults(defaults: Record<string, unknown>): Partial<TeamCharterMember> {
+  const memberDefaults: Partial<TeamCharterMember> = { ...normalizeTeamMember("defaults", defaults) };
+  delete memberDefaults.role;
+  return memberDefaults;
 }
 
 function normalizeCharter(value: unknown): TeamCharter {
@@ -321,6 +332,13 @@ function normalizeCharter(value: unknown): TeamCharter {
     if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
       warnings.push(`team charter has unsupported top-level key: ${key}`);
     }
+  }
+
+  const defaults = (raw.defaults && typeof raw.defaults === "object" && !Array.isArray(raw.defaults))
+    ? raw.defaults as Record<string, unknown>
+    : {};
+  for (const [key] of Object.entries(defaults)) {
+    if (!KNOWN_MEMBER_KEYS.has(key)) warnings.push(`defaults has unsupported key: ${key}`);
   }
 
   if (typeof raw.name !== "string" || !raw.name.trim()) throw new Error("team charter requires name");
@@ -335,7 +353,7 @@ function normalizeCharter(value: unknown): TeamCharter {
     }
     if (typeof m.role !== "string" || !m.role.trim()) throw new Error(`member ${idx + 1} requires role`);
 
-    return normalizeTeamMember(m.role.trim(), m);
+    return normalizeTeamMember(m.role.trim(), { ...defaults, ...m });
   }) : [];
   const membersFromAgents = (raw.agents && typeof raw.agents === "object" && !Array.isArray(raw.agents))
     ? Object.entries(raw.agents).map(([agentKey, agentValue], idx) => {
@@ -346,7 +364,7 @@ function normalizeCharter(value: unknown): TeamCharter {
       for (const [key] of Object.entries(m)) {
         if (!KNOWN_MEMBER_KEYS.has(key)) warnings.push(`member '${agentKey}' has unsupported key: ${key}`);
       }
-      return normalizeTeamMember(agentKey, m);
+      return normalizeTeamMember(agentKey, { ...defaults, ...m });
     })
     : [];
   const members = [...membersFromList, ...membersFromAgents];
@@ -358,6 +376,7 @@ function normalizeCharter(value: unknown): TeamCharter {
     ...(typeof raw.project === "string" && raw.project.trim() ? { project: raw.project.trim() } : {}),
     ...(raw.discord === false ? { discord: false } : typeof raw.discord === "string" ? { discord: raw.discord.trim() } : {}),
     ...(typeof raw.session === "string" && raw.session.trim() ? { session: raw.session.trim() } : {}),
+    ...(Object.keys(defaults).length ? { defaults: normalizeTeamMemberDefaults(defaults) } : {}),
     members,
     ...(raw.agents && typeof raw.agents === "object" && !Array.isArray(raw.agents) ? { agents: raw.agents as Record<string, Record<string, unknown>> } : {}),
     ...(warnings.length ? { warnings } : {}),
@@ -421,6 +440,7 @@ export function formatTeamCharterPlan(plan: TeamCharterPlan): string {
       if (member.cwd) bits.push(`cwd=${member.cwd}`);
       if (member.engine) bits.push(`engine=${member.engine}`);
       if (member.worktree) bits.push(`worktree=${member.worktree}`);
+      if (member.branch) bits.push(`branch=${member.branch}`);
       return `  - ${member.role} (${bits.join(", ")})`;
     }),
     "",
@@ -480,6 +500,7 @@ export function loadTeamCharter(charter: TeamCharter, opts: { noSpawn?: boolean;
     members: charter.members.map((member) => member.role),
     source: "team-charter",
     charter: {
+      ...(charter.defaults ? { defaults: charter.defaults } : {}),
       members: charter.members,
       ...(charter.lifecycle ? { lifecycle: charter.lifecycle } : {}),
       ...(charter.governance ? { governance: charter.governance } : {}),
