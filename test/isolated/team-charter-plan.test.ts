@@ -84,6 +84,47 @@ governance:
     expect(rendered).toContain("verifier: target 'new:light' is planned only");
   });
 
+
+  test("parses top-level flags and engines with YAML anchors", () => {
+    const charter = parseTeamCharterText(`
+name: charter-v3
+flags:
+  claude-combo: &claude-combo
+    - "--dangerously-skip-permissions"
+    - "--channels plugin:discord@claude-plugins-official"
+  omx-combo: &omx-combo ["--yolo", "--direct"]
+engines:
+  opus48: ["claude --model claude-opus-4-8", *claude-combo]
+  omx-5.5: ["omx --model gpt-5.5", *omx-combo]
+members:
+  - role: builder
+    engine: opus48
+`);
+
+    expect(charter.flags?.["claude-combo"]).toEqual([
+      "--dangerously-skip-permissions",
+      "--channels plugin:discord@claude-plugins-official",
+    ]);
+    expect(charter.flags?.["omx-combo"]).toEqual(["--yolo", "--direct"]);
+    expect(charter.engines?.opus48).toEqual([
+      "claude --model claude-opus-4-8",
+      ["--dangerously-skip-permissions", "--channels plugin:discord@claude-plugins-official"],
+    ]);
+    expect(charter.engines?.["omx-5.5"]).toEqual(["omx --model gpt-5.5", ["--yolo", "--direct"]]);
+    expect(charter.warnings).toBeUndefined();
+  });
+
+  test("fails loudly for unknown YAML anchor references", () => {
+    expect(() => parseTeamCharterText(`
+name: bad-anchor
+engines:
+  missing: ["claude", *nope]
+members:
+  - role: builder
+    engine: missing
+`)).toThrow("unknown YAML anchor reference: *nope");
+  });
+
   test("parses JSON charters without requiring a YAML dependency", () => {
     const charter = parseTeamCharterText(JSON.stringify({
       name: "json-team",

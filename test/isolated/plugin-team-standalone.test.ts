@@ -257,13 +257,14 @@ agents:
     mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd.ts"), () => ({
       cmdWake: async () => "",
     }));
-    const { memberEngine } = await import("../../src/vendor/mpr-plugins/team/team-liveness.ts?plugin-team-member-engine");
+    const { memberEngine, resolveCharterEngineCommand } = await import("../../src/vendor/mpr-plugins/team/team-liveness.ts?plugin-team-member-engine");
 
     expect(memberEngine({ role: "builder" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("codex");
     expect(memberEngine({ role: "builder", model: "opencode" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("opencode");
     expect(memberEngine({ role: "builder", engine: "aider" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("aider");
     expect(memberEngine({ role: "builder", engine: "aider" } as any, "thclaws", { defaultEngine: "codex" } as any)).toBe("thclaws");
     expect(memberEngine({ role: "builder" } as any, undefined, {} as any)).toBe("claude");
+    expect(resolveCharterEngineCommand("opus48", { opus48: ["claude --model opus", ["--dangerously-skip-permissions"]] })).toBe("claude --model opus --dangerously-skip-permissions");
   });
 
   test("enter subcommand sends tmux enter via SDK hostExec", async () => {

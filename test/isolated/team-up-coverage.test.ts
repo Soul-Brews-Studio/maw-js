@@ -482,9 +482,37 @@ members:
     expect(result.warnings).toContain("current tmux session 'lead-session' differs from --session '01-mawjs'; targeting explicit session");
   });
 
+
+  test("dry-run action commands resolve charter engines with YAML anchor flags", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "anchors.yaml"), `
+name: anchors
+session: charter-session
+flags:
+  claude-combo: &claude-combo
+    - "--dangerously-skip-permissions"
+    - "--channels plugin:discord@claude-plugins-official"
+engines:
+  opus48: ["claude --model claude-opus-4-8", *claude-combo]
+members:
+  - role: builder
+    engine: opus48
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+
+    const result = await cmdTeamUp("anchors", { dryRun: true }, { cwd: root, tmux, loadConfigFn: () => config, logger: () => {} });
+
+    expect(result.actions[0]).toMatchObject({
+      role: "builder",
+      command: "claude --model claude-opus-4-8 --dangerously-skip-permissions --channels plugin:discord@claude-plugins-official",
+    });
+  });
+
   test("engine command resolves resume key only when requested", () => {
     expect(engineCommand("omx", {}, config)).toBe("maw run omx");
     expect(engineCommand("omx", { resume: true }, config)).toBe("maw run omx-resume");
+    expect(engineCommand("opus48", { engines: { opus48: ["claude --model opus", ["--dangerously-skip-permissions", "--channels plugin:discord"]] } }, config)).toBe("claude --model opus --dangerously-skip-permissions --channels plugin:discord");
+    expect(engineCommand("opus48", { resume: true, engines: { "opus48-resume": ["claude --resume abc", ["--dangerously-skip-permissions"]] } }, config)).toBe("claude --resume abc --dangerously-skip-permissions");
   });
 });
 

@@ -2,10 +2,11 @@ import { existsSync } from "fs";
 import { basename, dirname, join } from "path";
 import { Tmux } from "../../../core/transport/tmux";
 import { isAgentCommand } from "../../../core/agent-detect";
+import { resolveEngine } from "maw-js/sdk";
 import { loadConfig } from "../../../config/load";
 import type { MawConfig } from "../../../config/types";
 import { cmdWake, type WakeOptions } from "../../../commands/shared/wake-cmd";
-import type { TeamCharterMember } from "./team-charter";
+import type { TeamCharterEngines, TeamCharterMember } from "./team-charter";
 
 export type TeamMemberState = "live" | "dead" | "missing" | "skipped";
 
@@ -186,9 +187,28 @@ export function classifyMember(
   return { member, role, engine, worktree, windowIdentity, state: "dead", pane };
 }
 
-export function engineCommand(engine: string, opts: { resume?: boolean } = {}, config: MawConfig = loadConfig()): string {
+export interface EngineCommandOptions {
+  resume?: boolean;
+  engines?: TeamCharterEngines;
+}
+
+function flattenEngineValue(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap((item) => flattenEngineValue(item));
+  if (typeof value === "string") return [value.trim()].filter(Boolean);
+  if (value == null) return [];
+  return [String(value).trim()].filter(Boolean);
+}
+
+export function resolveCharterEngineCommand(engine: string, engines?: TeamCharterEngines): string | undefined {
+  const value = engines?.[engine];
+  if (value === undefined) return undefined;
+  const command = flattenEngineValue(value).join(" ").trim();
+  return command || undefined;
+}
+
+export function engineCommand(engine: string, opts: EngineCommandOptions = {}, config: MawConfig = loadConfig()): string {
   const key = opts.resume ? `${engine}-resume` : engine;
-  return config.commands?.[key] ?? config.commands?.default ?? key;
+  return resolveCharterEngineCommand(key, opts.engines) ?? resolveEngine(key, config).cmd;
 }
 
 export function repoSlugFromRoot(root: string): string {
