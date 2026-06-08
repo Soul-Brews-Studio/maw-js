@@ -31,6 +31,7 @@ export interface TeamUpOptions {
   status?: boolean;
   gather?: boolean;
   engine?: string;
+  quick?: number;
   only?: string[];
   members?: string[];
   session?: string;
@@ -155,6 +156,20 @@ function promptDelayMs(charter: TeamCharter): number {
   return typeof configured === "number" ? configured : 3000;
 }
 
+export function quickCharter(count: number, opts: { name?: string; engine?: string; session?: string } = {}): TeamCharter {
+  const safeCount = Math.max(1, Math.floor(count));
+  const engine = opts.engine || "claude";
+  return {
+    name: opts.name || "quick",
+    ...(opts.session ? { session: opts.session } : {}),
+    members: Array.from({ length: safeCount }, (_, index) => {
+      const n = index + 1;
+      const role = `builder-${n}`;
+      return { role, name: role, engine, worktree: role };
+    }),
+  };
+}
+
 async function primeMember(
   member: TeamCharter["members"][number],
   session: string,
@@ -175,11 +190,13 @@ async function primeMember(
 export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: TeamUpDeps = {}): Promise<TeamUpResult> {
   const cwd = deps.cwd ?? process.cwd();
   const config: MawConfig = (deps.loadConfigFn ?? loadConfig)();
-  const charterPath = deps.charterPath !== undefined ? deps.charterPath : resolveCharterPath(team, cwd, config.node);
-  if (!charterPath) throw new Error(config.node ? `charter not found: ${team} (no team file for node '${config.node}')` : `charter not found: ${team}`);
+  const quickCount = typeof opts.quick === "number" && Number.isFinite(opts.quick) ? Math.floor(opts.quick) : undefined;
+  if (quickCount !== undefined && quickCount < 1) throw new Error("--quick must be a positive integer");
+  const charterPath = quickCount !== undefined ? null : (deps.charterPath !== undefined ? deps.charterPath : resolveCharterPath(team, cwd, config.node));
+  if (!charterPath && quickCount === undefined) throw new Error(config.node ? `charter not found: ${team} (no team file for node '${config.node}')` : `charter not found: ${team}`);
 
-  const read = deps.readTeamCharterFn ?? readTeamCharter;
-  const charter: TeamCharter = read(charterPath);
+  const read = deps.readTeamCharterFn ?? ((path: string) => quickCount !== undefined ? quickCharter(quickCount, { name: team, engine: opts.engine, session: opts.session }) : readTeamCharter(path));
+  const charter: TeamCharter = read(charterPath as string);
   const tmux = deps.tmux ?? new Tmux();
   const repoRoot = deps.repoRoot ?? findRepoRoot(cwd);
   const repoSlug = deps.repoSlug ?? repoSlugFromRoot(repoRoot);

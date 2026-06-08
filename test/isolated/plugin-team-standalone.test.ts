@@ -21,15 +21,16 @@ function parseFlags(args: string[], spec: Record<string, unknown>, start = 0) {
   const out: Record<string, any> & { _: string[] } = { _: [] };
   for (let i = start; i < args.length; i += 1) {
     const arg = args[i]!;
-    const parser = spec[arg];
+    const rawParser = spec[arg];
+    const key = typeof rawParser === "string" ? rawParser : arg;
+    const parser = typeof rawParser === "string" ? spec[rawParser] : rawParser;
     if (!parser) {
       out._.push(arg);
-    } else if (typeof parser === "string") {
-      out[parser] = true;
     } else if (parser === Boolean) {
-      out[arg] = true;
+      out[key] = true;
     } else if (parser === String || parser === Number) {
-      out[arg] = args[++i];
+      const value = args[++i];
+      out[key] = parser === Number ? Number(value) : value;
     }
   }
   return out;
@@ -69,7 +70,15 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-comms.ts
   },
 }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-up.ts"), () => ({
-  cmdTeamUp: async (...args: unknown[]) => calls.push({ name: "up", args }),
+  cmdTeamUp: async (...args: unknown[]) => {
+    calls.push({ name: "up", args });
+    const deps = args[2] as { readTeamCharterFn?: () => unknown } | undefined;
+    deps?.readTeamCharterFn?.();
+  },
+  quickCharter: (...args: unknown[]) => {
+    calls.push({ name: "quick-charter", args });
+    return { name: "quick", members: [] };
+  },
 }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/task-ops.ts"), () => ({
   cmdTeamTaskAdd: (...args: unknown[]) => calls.push({ name: "task-add", args }),
@@ -150,6 +159,18 @@ describe("team command plugin standalone boundary (#2336)", () => {
         members: ["coder-1", "oracle"],
         session: "alpha",
       }],
+    });
+  });
+
+  test("team up --quick dispatches through an in-memory charter seam", async () => {
+    await expect(teamHandler({ source: "cli", args: ["up", "--quick", "3", "-e", "omx", "--session", "charter-session"] } as any))
+      .resolves.toMatchObject({ ok: true });
+
+    expect(calls.find((call) => call.name === "quick-charter")).toMatchObject({
+      args: [3, { name: "quick", engine: "omx", session: "charter-session" }],
+    });
+    expect(calls.find((call) => call.name === "up")).toMatchObject({
+      args: ["quick", expect.objectContaining({ quick: 3, engine: "omx", session: "charter-session" }), expect.objectContaining({ charterPath: null })],
     });
   });
 

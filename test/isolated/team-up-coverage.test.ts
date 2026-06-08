@@ -9,7 +9,7 @@ import { tmpdir } from "os";
 // despite green tests. Guard the copy that actually ships.
 import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
-import { cmdTeamUp } from "../../src/vendor/mpr-plugins/team/team-up";
+import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 
 const dirs: string[] = [];
@@ -329,6 +329,57 @@ agents:
     expect(events.indexOf("sleep:7")).toBeGreaterThan(events.indexOf("wake:end:coder-b"));
     expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-a"));
     expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-b"));
+  });
+
+  test("--quick synthesizes an in-memory builder charter with explicit worktree names", async () => {
+    expect(quickCharter(3, { name: "quick", engine: "omx", session: "charter-session" })).toMatchObject({
+      name: "quick",
+      session: "charter-session",
+      members: [
+        { role: "builder-1", name: "builder-1", engine: "omx", worktree: "builder-1" },
+        { role: "builder-2", name: "builder-2", engine: "omx", worktree: "builder-2" },
+        { role: "builder-3", name: "builder-3", engine: "omx", worktree: "builder-3" },
+      ],
+    });
+
+    const root = tempRepo();
+    let listCalls = 0;
+    const tmux = {
+      run: async (...args: string[]) => {
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          return [
+            "charter-session|builder-1|codex|/wt/builder-1|%1",
+            "charter-session|builder-2|codex|/wt/builder-2|%2",
+            "charter-session|builder-3|codex|/wt/builder-3|%3",
+          ].join("\n");
+        }
+        return "";
+      },
+    };
+    const wakes: any[] = [];
+
+    const result = await cmdTeamUp("quick", { quick: 3, engine: "omx", session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      cmdWakeFn: async (...args: any[]) => { wakes.push(args); return "woke"; },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(wakes.map((wake) => wake[1])).toEqual([
+      { wt: "builder-1", engine: "omx", session: "charter-session", repoPath: root },
+      { wt: "builder-2", engine: "omx", session: "charter-session", repoPath: root },
+      { wt: "builder-3", engine: "omx", session: "charter-session", repoPath: root },
+    ]);
+    expect(result.roster.map((member) => [member.role, member.engine, member.state])).toEqual([
+      ["builder-1", "omx", "live"],
+      ["builder-2", "omx", "live"],
+      ["builder-3", "omx", "live"],
+    ]);
   });
 
   test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {

@@ -408,11 +408,6 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "up") {
       // #1976 — charter-driven team wake: reconcile the charter against live
       // panes (skip live, resume dead in place, fresh-wake missing).
-      if (!args[1]) {
-        logs.push("usage: maw team up <team> [--session <name>] [--members <roles>] [--only <a,b>] [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
-        return { ok: false, error: "team required", output: logs.join("\n") };
-      }
-      const { cmdTeamUp } = await import("./team-up");
       const flags = parseFlags(args, {
         "--dry-run": Boolean,
         "--status": Boolean,
@@ -420,20 +415,38 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--gather": Boolean,
         "--engine": String,
         "-e": "--engine",
+        "--quick": Number,
         "--only": String,
         "--members": String,
         "--session": String,
-      }, 2);
-      await cmdTeamUp(args[1], {
+      }, 1);
+      const quick = flags["--quick"] === undefined ? undefined : Number(flags["--quick"]);
+      const team = (flags._[0] as string | undefined) || (quick !== undefined ? "quick" : undefined);
+      if (!team) {
+        logs.push("usage: maw team up <team> [--session <name>] [--members <roles>] [--only <a,b>] [--dry-run] [--status] [--force] [--gather] [-e <engine>] [--quick N]");
+        logs.push("       maw team up --quick N [-e <engine>] [--session <name>]");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      if (quick !== undefined && (!Number.isInteger(quick) || quick < 1)) {
+        return { ok: false, error: "--quick must be a positive integer", output: logs.join("\n") || undefined };
+      }
+      const { cmdTeamUp, quickCharter } = await import("./team-up");
+      const engine = flags["--engine"] as string | undefined;
+      const session = flags["--session"] as string | undefined;
+      await cmdTeamUp(team, {
         dryRun: Boolean(flags["--dry-run"]),
         status: Boolean(flags["--status"]),
         force: Boolean(flags["--force"]),
         gather: Boolean(flags["--gather"]),
-        engine: flags["--engine"] as string | undefined,
+        engine,
+        quick,
         only: String(flags["--only"] || "").split(",").map((s) => s.trim()).filter(Boolean),
         members: String(flags["--members"] || "").split(",").map((s) => s.trim()).filter(Boolean),
-        session: flags["--session"] as string | undefined,
-      });
+        session,
+      }, quick !== undefined ? {
+        charterPath: null,
+        readTeamCharterFn: () => quickCharter(quick, { name: team, engine, session }),
+      } : undefined);
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
