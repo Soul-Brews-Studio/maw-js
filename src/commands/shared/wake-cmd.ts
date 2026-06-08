@@ -10,6 +10,9 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
 import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
+import { stripOracleRepoSuffix, bringCwdMetadata, deriveOracleFromCwd } from "./wake-cwd";
+// #2569 — re-export so the wake barrel surface still exposes deriveOracleFromCwd.
+export { deriveOracleFromCwd } from "./wake-cwd";
 import * as wakeSession from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
@@ -137,31 +140,8 @@ type BringWindowLookupCandidate = BringWindowCandidate & {
   aliases: string[];
 };
 
-function stripOracleRepoSuffix(name: string): string | null {
-  return name.toLowerCase().endsWith("-oracle") ? name.slice(0, -"-oracle".length) : null;
-}
-
-function bringCwdMetadata(cwd: string | undefined): { oracle?: string; worktree?: string } {
-  const parts = cwd ? resolve(cwd).split(/[\\/]+/).filter(Boolean) : [];
-  const agentsIdx = parts.lastIndexOf("agents");
-  if (agentsIdx > 0 && parts[agentsIdx + 1]) {
-    return {
-      oracle: stripOracleRepoSuffix(parts[agentsIdx - 1] ?? "") ?? undefined,
-      worktree: parts[agentsIdx + 1],
-    };
-  }
-
-  for (const part of parts.slice().reverse()) {
-    const worktreeMarker = part.indexOf(".wt-");
-    if (worktreeMarker > 0) {
-      const oracle = stripOracleRepoSuffix(part.slice(0, worktreeMarker)) ?? undefined;
-      return { oracle, worktree: part.slice(worktreeMarker + ".wt-".length) || undefined };
-    }
-    const oracle = stripOracleRepoSuffix(part);
-    if (oracle) return { oracle };
-  }
-  return {};
-}
+// #2569 — cwd → oracle/worktree derivation lives in ./wake-cwd (deps-free so it
+// is unit-testable without the sdk/config mock cascade).
 
 function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map(v => v.trim()).filter(Boolean))];
@@ -855,6 +835,20 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
+
+  // #2569 — zero-arg wake: `maw wake` (or `maw wake .`) inside an oracle repo
+  // derives the oracle from the current directory, then runs the normal flow.
+  if (!oracle || oracle === ".") {
+    const derived = deriveOracleFromCwd(process.cwd());
+    if (!derived) {
+      throw new UserError(
+        "maw wake: no oracle name given and the current directory is not an oracle repo.\n" +
+        "Run inside an oracle repo or its worktree, or pass a name: maw wake <oracle>.",
+      );
+    }
+    console.log(`\x1b[36m→\x1b[0m wake: derived oracle '\x1b[1m${derived}\x1b[0m' from cwd ${process.cwd()}`);
+    oracle = derived;
+  }
 
   const parsed = parseWakeTarget(oracle);
   let parsedRepoPath: string | null = null;

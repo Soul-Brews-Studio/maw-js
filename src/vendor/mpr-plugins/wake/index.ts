@@ -27,14 +27,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   try {
     if (ctx.source === "cli") {
-      const args = ctx.args as string[];
+      const args = [...(ctx.args as string[])];
 
-      if (!args[0]) {
-        return {
-          ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--keep-last N] [--max-age D] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --layout selects new worktree layout: nested (default repo/agents/N-X) or legacy (.wt-N-X)\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
-        };
-      }
+      // #2569 — zero-arg `maw wake` derives the oracle from process.cwd(). Hand
+      // the `.` sentinel down the normal flow; cmdWake resolves it from the cwd
+      // and surfaces a clear error if the directory is not an oracle repo.
+      if (!args[0]) args[0] = ".";
 
       if (args[0].toLowerCase() === "all") {
         const flags = parseFlags(args, { "--kill": Boolean, "--all": Boolean, "--resume": Boolean }, 1);
