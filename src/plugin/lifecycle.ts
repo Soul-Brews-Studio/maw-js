@@ -189,6 +189,7 @@ export async function runLifecycleHooks(
   },
 ): Promise<LifecycleRunSummary> {
   const summary: LifecycleRunSummary = { phase, ran: 0, skipped: 0, failed: 0 };
+  const ranPluginNames: string[] = [];
 
   for (const plugin of sortByLifecycleOrder(discover())) {
     if (plugin.disabled) { summary.skipped++; continue; }
@@ -199,6 +200,7 @@ export async function runLifecycleHooks(
     try {
       await runOneLifecycleHook(phase, plugin, hook, baseContext);
       summary.ran++;
+      ranPluginNames.push(plugin.manifest.name);
     } catch (error) {
       summary.failed++;
       const msg = messageOf(error);
@@ -210,7 +212,8 @@ export async function runLifecycleHooks(
   }
 
   if (summary.ran > 0) {
-    logger.info(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}`);
+    const names = ranPluginNames.length > 0 ? ` (${ranPluginNames.join(", ")})` : "";
+    logger.info(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}${names}`);
   }
   return summary;
 }

@@ -84,6 +84,25 @@ describe("plugin lifecycle hooks (#1576)", () => {
     ]);
   });
 
+  test("verbose lifecycle summary includes successful plugin names", async () => {
+    makeLog();
+    const plugins = [
+      makePlugin("later", { weight: 20 }),
+      makePlugin("earlier", { weight: 5 }),
+    ];
+    const info: string[] = [];
+
+    const summary = await runLifecycleHooks(
+      "wake",
+      { oracle: "mawjs", session: "47-mawjs" },
+      () => plugins,
+      { info: (message) => info.push(message), warn: () => {} },
+    );
+
+    expect(summary).toEqual({ phase: "wake", ran: 2, skipped: 0, failed: 0 });
+    expect(info).toEqual(["\x1b[36m↻\x1b[0m plugin lifecycle wake: 2 hooks (earlier, later)"]);
+  });
+
   test("hooks.wake.script + handler runs the declared module export", async () => {
     const log = makeLog();
     const plugin = makePlugin("scripted", {
