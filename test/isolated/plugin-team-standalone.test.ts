@@ -110,6 +110,9 @@ describe("team command plugin standalone boundary (#2336)", () => {
     expect(command).toMatchObject({ name: "team" });
     expect(imports).toContain("maw-js/sdk");
     expect(imports).toEqual(expect.arrayContaining(["./team-up", "../../../commands/shared/wake-cmd"]));
+    const teamUp = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-up.ts"), "utf8");
+    expect(teamUp).toContain("Promise.all(launchTasks.map((task) => task.run()))");
+    expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
     expect(sdk).toContain("parseFlags");
     expect(sdk).toContain("hostExec");

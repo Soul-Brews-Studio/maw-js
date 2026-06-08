@@ -247,36 +247,49 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   const sleep = deps.sleep ?? DEFAULT_SLEEP;
+  const launchTasks: Array<{ item: ClassifiedTeamMember; run: () => Promise<void> }> = [];
   for (const [index, item] of roster.entries()) {
     const memberKey = memberActionKey(item, index);
     if (item.state === "skipped") {
       actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
     } else if (opts.force) {
-      if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
       const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
-      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, memberKey, state: item.state, action: "force fresh wake", command });
-      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
-      await sleep(promptDelayMs(charter));
-      await primeMember(item.member, session, repoRoot, deps, warnings);
+      launchTasks.push({
+        item,
+        run: async () => {
+          if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
+          await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+        },
+      });
     } else if (item.state === "live") {
       actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
     } else if (item.state === "dead") {
       const command = engineCommand(item.engine, { resume: true, engines: charter.engines }, config);
-      await tmux.run("send-keys", "-t", item.pane!.paneId, "C-u");
-      await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
       actions.push({ role: item.role, memberKey, state: item.state, action: "resume in place", command });
-      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
-      await sleep(promptDelayMs(charter));
-      await primeMember(item.member, session, repoRoot, deps, warnings);
+      launchTasks.push({
+        item,
+        run: async () => {
+          await tmux.run("send-keys", "-t", item.pane!.paneId, "C-u");
+          await tmux.run("send-keys", "-t", item.pane!.paneId, command, "Enter");
+        },
+      });
     } else {
       const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
-      await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
       actions.push({ role: item.role, memberKey, state: item.state, action: "fresh wake", command });
-      await waitForNonShell(item.member, session, tmux, sleep, targetRepoSlug);
-      await sleep(promptDelayMs(charter));
-      await primeMember(item.member, session, repoRoot, deps, warnings);
+      launchTasks.push({
+        item,
+        run: async () => {
+          await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+        },
+      });
     }
+  }
+  await Promise.all(launchTasks.map((task) => task.run()));
+  if (launchTasks.length > 0) {
+    await Promise.all(launchTasks.map((task) => waitForNonShell(task.item.member, session, tmux, sleep, targetRepoSlug)));
+    await sleep(promptDelayMs(charter));
+    await Promise.all(launchTasks.map((task) => primeMember(task.item.member, session, repoRoot, deps, warnings)));
   }
 
   const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);

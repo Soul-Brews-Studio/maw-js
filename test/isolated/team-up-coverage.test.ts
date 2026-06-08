@@ -262,6 +262,75 @@ agents:
     expect(events.indexOf("sleep:42")).toBeLessThan(events.indexOf("send"));
   });
 
+  test("team up launches missing members in parallel before readiness waits and prompt priming", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-parallel-wake-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+session: charter-session
+lifecycle:
+  prompt_delay: 7
+agents:
+  coder-a:
+    engine: omx
+    prompt: prompt a
+  coder-b:
+    engine: claude48
+    prompt: prompt b
+`, "utf-8");
+
+    let listCalls = 0;
+    const events: string[] = [];
+    const tmux = {
+      run: async (...args: string[]) => {
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          return [
+            "charter-session|coder-a|codex|/wt/coder-a|%1",
+            "charter-session|coder-b|claude|/wt/coder-b|%2",
+          ].join("\n");
+        }
+        return "";
+      },
+    };
+    const wakeResolvers: Array<() => void> = [];
+    const wakes: any[] = [];
+
+    const run = cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async (...args: any[]) => {
+        wakes.push(args);
+        events.push(`wake:start:${args[1].wt}`);
+        await new Promise<void>((resolve) => wakeResolvers.push(resolve));
+        events.push(`wake:end:${args[1].wt}`);
+        return "woke";
+      },
+      cmdSendFn: async (...args: any[]) => { events.push(`prime:${args[0]}`); },
+      sleep: async (ms: number) => { events.push(`sleep:${ms}`); },
+      logger: () => {},
+    });
+
+    for (let i = 0; i < 20 && wakeResolvers.length < 2; i++) await Promise.resolve();
+
+    expect(wakeResolvers).toHaveLength(2);
+    expect(events).toEqual(["wake:start:coder-a", "wake:start:coder-b"]);
+    expect(wakes.map((wake) => wake[1].wt)).toEqual(["coder-a", "coder-b"]);
+
+    for (const resolveWake of wakeResolvers) resolveWake();
+    await run;
+
+    expect(events.indexOf("sleep:7")).toBeGreaterThan(events.indexOf("wake:end:coder-a"));
+    expect(events.indexOf("sleep:7")).toBeGreaterThan(events.indexOf("wake:end:coder-b"));
+    expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-a"));
+    expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-b"));
+  });
+
   test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-"));
     dirs.push(root);
