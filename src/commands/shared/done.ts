@@ -8,6 +8,7 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { mawDataPath } from "../../core/xdg";
 import { pruneJsonlFile } from "../../vendor/mpr-plugins/messages/retention";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
+import { inferRetrospectiveCommand } from "../../vendor/mpr-plugins/done/retrospective-command";
 
 export interface DoneOpts {
   force?: boolean;
@@ -429,12 +430,22 @@ export async function autoSave(
   const target = `${sessionName}:${windowName}`;
 
   let paneCwd = "";
+  let paneCurrentCommand = "";
   try {
-    paneCwd = (await d.hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`)).trim();
+    const paneInfo = await d.hostExec(`tmux display-message -t '${target}' -p '#{pane_current_command}\t#{pane_current_path}'`);
+    const [rawPaneCommand, rawPanePath] = paneInfo.split("\t");
+    paneCurrentCommand = (rawPaneCommand ?? "").trim();
+    paneCwd = (rawPanePath ?? "").trim();
   } catch { /* pane may not exist */ }
 
+  const retrospectiveCommand = inferRetrospectiveCommand(paneCurrentCommand);
+
   if (opts.dryRun) {
-    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send /rrr to ${target} and wait 10s`);
+    if (retrospectiveCommand) {
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
+    } else {
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would skip retro (no retrospective command for this engine)`);
+    }
     if (paneCwd) {
       d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
@@ -444,13 +455,17 @@ export async function autoSave(
     return;
   }
 
-  d.logger.log(`  \x1b[36m⏳\x1b[0m sending /rrr to ${target}...`);
-  try {
-    await d.tmux.sendText(target, "/rrr");
-    await d.sleep(10_000);
-    d.logger.log(`  \x1b[32m✓\x1b[0m /rrr sent (waited 10s)`);
-  } catch {
-    d.logger.log(`  \x1b[33m⚠\x1b[0m could not send /rrr (agent may not be running)`);
+  if (retrospectiveCommand) {
+    d.logger.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
+    try {
+      await d.tmux.sendText(target, retrospectiveCommand);
+      await d.sleep(10_000);
+      d.logger.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
+    } catch {
+      d.logger.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
+    }
+  } else {
+    d.logger.log(`  \x1b[90m○\x1b[0m no retrospective command for this engine — skipping retro`);
   }
 
   if (paneCwd) {

@@ -92,7 +92,7 @@ function createHarness(options: {
     hostExec: async (command: string) => {
       commands.push(command);
       if (options.hostExec) return await options.hostExec(command);
-      if (command.includes("pane_current_path")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
+      if (command.includes("pane_current_path")) return "claude\t/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
       if (command.startsWith("find ")) return "";
       return "";
     },
@@ -141,7 +141,7 @@ describe("cmdDone", () => {
 
     await cmdDone(" tile-1/ ", { dryRun: true }, h.deps);
 
-    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'"]);
+    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'"]);
     expect(h.killed).toEqual([]);
     expect(h.snapshots).toEqual([]);
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
@@ -178,7 +178,7 @@ describe("cmdDone", () => {
 
     await cmdDone("TILE-1", { force: true }, h.deps);
 
-    expect(h.commands).not.toContain("tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'");
+    expect(h.commands).not.toContain("tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'");
     expect(h.killed).toEqual(["work:tile-1"]);
     expect(h.commands).toEqual([
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' rev-parse --abbrev-ref HEAD",
@@ -310,7 +310,7 @@ describe("done inbox and autosave helpers", () => {
     expect(h.sent).toEqual([{ target: "work:tile-1", text: "/rrr" }]);
     expect(h.sleeps).toEqual([10_000]);
     expect(h.commands).toEqual([
-      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' add -A",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' commit -m 'chore: auto-save before done'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' push",
@@ -326,7 +326,7 @@ describe("done inbox and autosave helpers", () => {
 
     const commitPushFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "/repo";
+        if (command.includes("pane_current_path")) return "claude\t/repo";
         if (command.includes(" commit ")) throw new Error("nothing");
         if (command.endsWith(" push")) throw new Error("denied");
         return "";
@@ -338,7 +338,7 @@ describe("done inbox and autosave helpers", () => {
 
     const addFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "/repo";
+        if (command.includes("pane_current_path")) return "claude\t/repo";
         if (command.endsWith(" add -A")) throw new Error("add failed");
         return "";
       },
@@ -358,6 +358,24 @@ describe("done inbox and autosave helpers", () => {
 
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
     expect(h.logs.join("\n")).not.toContain("would git add + commit + push");
+  });
+
+  test("autoSave uses engine-aware retrospective command from shared done", async () => {
+    const omx = createHarness({
+      hostExec: (command) => command.includes("pane_current_path") ? "omx\t/repo" : "",
+    });
+    await autoSave("tile-1", "work", {}, omx.deps);
+    expect(omx.sent).toEqual([{ target: "work:tile-1", text: "$rrr" }]);
+    expect(omx.sleeps).toEqual([10_000]);
+    expect(omx.logs.join("\n")).toContain("$rrr sent (waited 10s)");
+
+    const codex = createHarness({
+      hostExec: (command) => command.includes("pane_current_path") ? "codex\t/repo" : "",
+    });
+    await autoSave("tile-1", "work", {}, codex.deps);
+    expect(codex.sent).toEqual([]);
+    expect(codex.sleeps).toEqual([]);
+    expect(codex.logs.join("\n")).toContain("no retrospective command for this engine");
   });
 });
 
