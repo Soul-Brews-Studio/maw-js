@@ -30,6 +30,27 @@ function literalize(suffix: string): string {
   return suffix.endsWith("$") ? suffix.slice(0, -1) : suffix;
 }
 
+/**
+ * #2577 — pick the best repo path among the ghq suffix-matches.
+ *
+ * A misconfigured ghq root (one that already ends in `.../github.com`) makes
+ * ghq clone into a DOUBLED `…/github.com/github.com/<org>/<repo>` path. `ghq
+ * list` then surfaces BOTH that and the correct `…/github.com/<org>/<repo>`,
+ * and since both `endsWith` the queried suffix the old first-match returned
+ * whichever ghq happened to list first — which broke `maw wake neo`. Prefer a
+ * canonical (non-doubled) path; fall back to a doubled one only when it is the
+ * sole match, so a genuinely doubled-only checkout still resolves.
+ *
+ * Exported for tests.
+ */
+export function selectRepoMatch(paths: string[], suffix: string): string | null {
+  const lower = literalize(suffix).toLowerCase();
+  const matches = paths.filter((p) => p.toLowerCase().endsWith(lower));
+  if (matches.length === 0) return null;
+  const canonical = matches.find((p) => !p.toLowerCase().includes("/github.com/github.com/"));
+  return canonical ?? matches[0]!;
+}
+
 export const GhqDiscovery: RepoDiscovery = {
   name: "ghq",
 
@@ -50,13 +71,11 @@ export const GhqDiscovery: RepoDiscovery = {
   },
 
   async findBySuffix(suffix: string): Promise<string | null> {
-    const lower = literalize(suffix).toLowerCase();
-    return (await this.list()).find((p) => p.toLowerCase().endsWith(lower)) ?? null;
+    return selectRepoMatch(await this.list(), suffix);
   },
 
   findBySuffixSync(suffix: string): string | null {
-    const lower = literalize(suffix).toLowerCase();
-    return this.listSync().find((p) => p.toLowerCase().endsWith(lower)) ?? null;
+    return selectRepoMatch(this.listSync(), suffix);
   },
 };
 
