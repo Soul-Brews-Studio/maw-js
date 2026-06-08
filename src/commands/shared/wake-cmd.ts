@@ -809,6 +809,24 @@ export async function chooseWakeSessionName(oracle: string, urlRepoName?: string
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
+/**
+ * Resolve the tmux session the operator ran `maw wake` from (#2557).
+ *
+ * Only consulted for `--task`/`--wt` placement so a budded oracle's worktree
+ * window lands in the current session instead of an unrelated workspace that
+ * happens to host the repo. Returns null when not inside tmux or on any tmux
+ * error, which makes detectSession fall back to its historical ordering.
+ */
+async function resolveInvokingTmuxSession(): Promise<string | null> {
+  if (!process.env.TMUX) return null;
+  try {
+    const name = (await tmux.run("display-message", "-p", "#{session_name}")).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
 type WakeWindowLookupEntry = { name: string; cwd?: string };
 
 function escapeRegExp(value: string): string {
@@ -1006,7 +1024,11 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   const foreignSession = requestedForeignSession;
-  let session = foreignSession ? "" : (preResolvedSession || await detectSession(oracle, opts.urlRepoName));
+  // #2557 — task/worktree wakes prefer the invoking session for placement so the
+  // new agent window lands where the operator ran the command, not in an
+  // unrelated workspace that the fleet registry happens to map the repo to.
+  const invokingSession = (opts.task || opts.wt) ? await resolveInvokingTmuxSession() : null;
+  let session = foreignSession ? "" : (preResolvedSession || await detectSession(oracle, opts.urlRepoName, { invokingSession }));
   if (foreignSession) {
     const exists = opts.dryRun || await tmux.hasSession(foreignSession);
     if (exists) {

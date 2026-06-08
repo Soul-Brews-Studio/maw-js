@@ -473,7 +473,16 @@ function knownFleetSessionStems(): string[] {
   }
 }
 
-export async function detectSession(oracle: string, urlRepoName?: string): Promise<string | null> {
+export async function detectSession(
+  oracle: string,
+  urlRepoName?: string,
+  opts: { invokingSession?: string | null } = {},
+): Promise<string | null> {
+  // #2557 — `--task`/`--wt` wakes pass the operator's invoking tmux session so a
+  // budded oracle's worktree window lands in the current session instead of an
+  // unrelated workspace that merely hosts the repo. `null` (plain wake / not in
+  // tmux) preserves the historical placement order exactly.
+  const invokingSession = opts.invokingSession || null;
   const sessions = await tmux.listSessions();
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
@@ -498,7 +507,11 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     const fleetSession =
       resolveFleetSession(urlRepoName) ||
       resolveFleetSession(oracle);
-    if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+    const liveFleetSession = fleetSession && sessions.find(s => s.name === fleetSession) ? fleetSession : null;
+    // #2557 — defer the window-metadata home for task/worktree wakes so the
+    // oracle's own name-matched sessions and the invoking session (below) can
+    // claim placement first. Plain wakes keep the historical metadata-first win.
+    if (liveFleetSession && !invokingSession) return liveFleetSession;
 
     // #2461 — session stems may be registered/generated with or without
     // human-readable hyphens. A URL/repo target like `maw-js-oracle` should
@@ -515,6 +528,13 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
       console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
       process.exit(1);
     }
+
+    // #2557 — task/worktree wake: prefer the invoking session over the deferred
+    // window-metadata home once the strict name matches above have missed.
+    if (invokingSession) {
+      if (sessions.find(s => s.name === invokingSession)) return invokingSession;
+      if (liveFleetSession) return liveFleetSession;
+    }
     return null;
   }
 
@@ -523,7 +543,11 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // in 23-discord-admin. Try this before generic suffix matching so unrelated
   // aux/channel sessions like odin-discord do not steal `maw wake discord`.
   const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+  const liveFleetSession = fleetSession && sessions.find(s => s.name === fleetSession) ? fleetSession : null;
+  // #2557 — for `--task`/`--wt` placement, defer the window-metadata home so the
+  // invoking session (resolved below, after the oracle's own name-matched
+  // sessions) can win over an unrelated workspace that hosts the oracle's repo.
+  if (liveFleetSession && !invokingSession) return liveFleetSession;
 
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
@@ -551,6 +575,16 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     for (const s of numeric) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
     console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
     process.exit(1);
+  }
+
+  // #2557 — task/worktree wake prefers the invoking tmux session over the
+  // deferred window-metadata home, but only after the oracle's own
+  // name-matched sessions (handled above) have had priority. This keeps a
+  // budded oracle's task window in the operator's current session instead of
+  // an unrelated workspace (e.g. `03-catlab-hello`) that merely hosts the repo.
+  if (invokingSession) {
+    if (sessions.find(s => s.name === invokingSession)) return invokingSession;
+    if (liveFleetSession) return liveFleetSession;
   }
 
   // #1794 — wake may be invoked with a short fuzzy oracle token ("homeke")

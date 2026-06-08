@@ -9,6 +9,8 @@
  */
 import { afterEach, beforeEach, describe, it, expect, mock } from "bun:test";
 import { join } from "path";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 
 const root = join(import.meta.dir, "../..");
 const { mockConfigModule } = await import("../../../test/helpers/mock-config");
@@ -257,6 +259,81 @@ describe("detectSession (#769) — URL-aware resolution", () => {
     } finally {
       process.exit = origExit;
     }
+  });
+});
+
+describe("detectSession (#2557) — `--task` placement prefers the invoking session", () => {
+  // A budded oracle (`mawjs-codex`) whose repo windows were spawned into an
+  // unrelated `maw new` workspace (`03-catlab-hello`). The fleet registry maps
+  // the repo to that workspace via window metadata, so a bare `maw wake
+  // mawjs-codex --task` would otherwise scatter the new agent into catlab. The
+  // invoking session (`139-mawjs`) must win for task placement, while plain
+  // wakes keep resolving to the metadata home.
+  const fleetRoot = join(tmpdir(), "maw-2557-state");
+  const fleetDir = join(fleetRoot, "fleet");
+
+  function writeFleetSession(name: string, windows: Array<{ name: string; repo: string }>): void {
+    writeFileSync(join(fleetDir, `${name}.json`), JSON.stringify({ name, windows }));
+  }
+
+  beforeEach(() => {
+    rmSync(fleetRoot, { recursive: true, force: true });
+    mkdirSync(fleetDir, { recursive: true });
+    process.env.MAW_STATE_DIR = fleetRoot;
+  });
+
+  afterEach(() => {
+    rmSync(fleetRoot, { recursive: true, force: true });
+  });
+
+  it("scatters into the window-metadata workspace WITHOUT the fix signal (documents the bug)", async () => {
+    // Plain wake (no invokingSession) keeps the historical behavior: the fleet
+    // window-metadata home wins. This is also the exact path #2557 reported.
+    tmuxSessions = [{ name: "139-mawjs" }, { name: "03-catlab-hello" }];
+    writeFleetSession("03-catlab-hello", [
+      { name: "lead", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+      { name: "mawjs-codex-oracle", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+    ]);
+    expect(await detectSession("mawjs-codex")).toBe("03-catlab-hello");
+  });
+
+  it("places the task window in the invoking session, not the metadata workspace", async () => {
+    tmuxSessions = [{ name: "139-mawjs" }, { name: "03-catlab-hello" }];
+    writeFleetSession("03-catlab-hello", [
+      { name: "lead", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+      { name: "mawjs-codex-oracle", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+    ]);
+    expect(await detectSession("mawjs-codex", undefined, { invokingSession: "139-mawjs" })).toBe("139-mawjs");
+  });
+
+  it("still prefers the oracle's own name-matched session over the invoking session", async () => {
+    // If mawjs-codex has a real `NN-mawjs-codex` home, that wins over both the
+    // invoking session and the metadata workspace (ordering: name > invoking).
+    tmuxSessions = [{ name: "139-mawjs" }, { name: "03-catlab-hello" }, { name: "48-mawjs-codex" }];
+    writeFleetSession("03-catlab-hello", [
+      { name: "mawjs-codex-oracle", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+    ]);
+    expect(await detectSession("mawjs-codex", undefined, { invokingSession: "139-mawjs" })).toBe("48-mawjs-codex");
+  });
+
+  it("does NOT disturb a deliberately role-named home (23-discord-admin) for plain wakes", async () => {
+    // Regression guard for the case resolveFleetWindowSessionTarget exists for:
+    // `discord-oracle` lives in `23-discord-admin`. Plain wake still resolves it.
+    tmuxSessions = [{ name: "23-discord-admin" }, { name: "03-catlab-hello" }];
+    writeFleetSession("23-discord-admin", [
+      { name: "discord-oracle", repo: "github.com/Soul-Brews-Studio/discord-oracle" },
+    ]);
+    expect(await detectSession("discord")).toBe("23-discord-admin");
+  });
+
+  it("falls back to the metadata home when the invoking session is no longer live", async () => {
+    // Defensive: a stale invokingSession (session died mid-wake) must not strand
+    // placement — the deferred window-metadata home is still returned.
+    tmuxSessions = [{ name: "03-catlab-hello" }];
+    writeFleetSession("03-catlab-hello", [
+      { name: "mawjs-codex-oracle", repo: "github.com/Soul-Brews-Studio/mawjs-codex-oracle" },
+    ]);
+    expect(await detectSession("mawjs-codex", undefined, { invokingSession: "139-mawjs" })).toBe("03-catlab-hello");
   });
 });
 
