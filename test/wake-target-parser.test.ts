@@ -17,6 +17,16 @@ describe("parseWakeTarget — GitHub URLs", () => {
     expect(r).toEqual({ oracle: "repo", slug: "org/repo" });
   });
 
+  test("allows dotted repo names in HTTPS URLs", () => {
+    const r = parseWakeTarget("https://github.com/nicolo-ribaudo/ember.js");
+    expect(r).toEqual({ oracle: "ember.js", slug: "nicolo-ribaudo/ember.js" });
+  });
+
+  test("allows dotted repo names while stripping .git suffix", () => {
+    const r = parseWakeTarget("https://github.com/org/my.repo.git");
+    expect(r).toEqual({ oracle: "my.repo", slug: "org/my.repo" });
+  });
+
   test("HTTP without TLS", () => {
     const r = parseWakeTarget("http://github.com/org/repo");
     expect(r).toEqual({ oracle: "repo", slug: "org/repo" });

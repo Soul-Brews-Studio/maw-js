@@ -15,7 +15,7 @@ import { ghqFind } from "../../core/ghq";
 const ORG_REPO_SLUG = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
 /** Matches GitHub URLs: https://github.com/org/repo[.git][/issues/N][/...] and git@ SSH form */
-const GITHUB_URL = /^(?:https?:\/\/|git@)github\.com[:/]([^/]+)\/([^/.]+?)(?:\.git)?(?:\/issues\/(\d+))?(?:\/.*)?$/;
+const GITHUB_URL = /^(?:https?:\/\/|git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/issues\/(\d+))?(?:\/.*)?$/;
 
 function matchGitHubUrl(input: string): { org: string; repo: string; issueNum?: number } | null {
   const m = input.match(GITHUB_URL);
