@@ -123,7 +123,7 @@ mock.module(import.meta.resolve("../../src/plugins/index"), () => ({
 mock.module(import.meta.resolve("../../src/lib/peers/store"), () => ({ loadPeers: () => ({ peers: {} }) }));
 mock.module(import.meta.resolve("../../src/lib/peers/duplicate-detect"), () => ({ warnDuplicatesAtBoot: () => {} }));
 
-const { createViews, startServer, createServeLogger, normalizeServeVerbosity } = await import("../../src/core/server.ts?coverage-core-shared-server");
+const { createViews, startServer, createServeLogger, normalizeServeVerbosity, formatBatchedUiStateAccessLog } = await import("../../src/core/server.ts?coverage-core-shared-server");
 
 const original = {
   serve: Bun.serve,
@@ -224,6 +224,17 @@ describe("coverage core shared server", () => {
       console.warn = oldWarn;
       console.error = oldError;
     }
+  });
+
+  test("batches noisy ui-state access logs", () => {
+    const state = { count: 0, windowStartedAt: 1_000 };
+
+    expect(formatBatchedUiStateAccessLog(state, { method: "GET", status: 200, now: 1_100 })).toBeNull();
+    expect(formatBatchedUiStateAccessLog(state, { method: "GET", status: 200, now: 10_999 })).toBeNull();
+    expect(formatBatchedUiStateAccessLog(state, { method: "GET", status: 200, now: 11_000 })).toBe(
+      "[serve:http] GET /api/ui-state -> 200 (3 requests/10s)",
+    );
+    expect(state).toEqual({ count: 0, windowStartedAt: 11_000 });
   });
 
   test("createViews covers topology success, missing door fallback, and error JSON", async () => {

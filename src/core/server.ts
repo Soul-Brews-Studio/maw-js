@@ -73,6 +73,28 @@ export function createServeLogger(verbosity: ServeVerbosity): ServeLogger {
   };
 }
 
+const UI_STATE_ACCESS_LOG_PATH = "/api/ui-state";
+const UI_STATE_ACCESS_LOG_INTERVAL_MS = 10_000;
+
+type UiStateAccessLogState = {
+  count: number;
+  windowStartedAt: number;
+};
+
+export function formatBatchedUiStateAccessLog(
+  state: UiStateAccessLogState,
+  input: { method: string; status: number; now: number },
+): string | null {
+  state.count++;
+  const elapsedMs = input.now - state.windowStartedAt;
+  if (elapsedMs < UI_STATE_ACCESS_LOG_INTERVAL_MS) return null;
+  const count = state.count;
+  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+  state.count = 0;
+  state.windowStartedAt = input.now;
+  return `[serve:http] ${input.method} ${UI_STATE_ACCESS_LOG_PATH} -> ${input.status} (${count} requests/${elapsedSec}s)`;
+}
+
 function websocketRouteLabel(ws: { data?: Record<string, unknown> }): string {
   const route = ws.data?.__serveWsRoute;
   if (typeof route === "string") return route;
@@ -224,13 +246,27 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     log.error("[plugins] failed to init:", err);
   }
 
+  const uiStateAccessLogState: UiStateAccessLogState = { count: 0, windowStartedAt: Date.now() };
+
   const fetchHandler = async (req: Request, server: any) => {
     const startedAt = Date.now();
     const url = new URL(req.url);
     const apiPath = url.pathname.replace(/^\/api/, "");
     const logAccess = (response?: Response) => {
       const status = response?.status ?? 101;
-      log.access(`[serve:http] ${req.method} ${url.pathname}${url.search} -> ${status} ${Date.now() - startedAt}ms`);
+      const finishedAt = Date.now();
+      if (url.pathname === UI_STATE_ACCESS_LOG_PATH) {
+        if (verbosity >= 3) {
+          const batchLine = formatBatchedUiStateAccessLog(uiStateAccessLogState, {
+            method: req.method,
+            status,
+            now: finishedAt,
+          });
+          if (batchLine) log.access(batchLine);
+        }
+        return response;
+      }
+      log.access(`[serve:http] ${req.method} ${url.pathname}${url.search} -> ${status} ${finishedAt - startedAt}ms`);
       return response;
     };
 
