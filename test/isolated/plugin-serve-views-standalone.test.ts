@@ -55,4 +55,24 @@ describe("serve-views plugin", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  test("createViews does not print missing-ui warnings when called repeatedly", async () => {
+    const { createViews } = await import("../../src/vendor/mpr-plugins/serve-views/index.ts?standalone-create-repeat");
+    const tmp = mkdtempSync(join(tmpdir(), "maw-serve-views-repeat-"));
+    const previousWrite = process.stderr.write;
+    const stderr: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      createViews(join(tmp, "missing-ui"), join(tmp, "missing-door.html"));
+      createViews(join(tmp, "missing-ui"), join(tmp, "missing-door.html"));
+
+      expect(stderr.join("")).not.toContain("maw-ui not found");
+    } finally {
+      process.stderr.write = previousWrite;
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
