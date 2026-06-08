@@ -218,6 +218,41 @@ describe("team command plugin standalone boundary (#2336)", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  test("team charter standalone parser applies defaults block inheritance", async () => {
+    const { parseTeamCharterText, formatTeamCharterPlan, planTeamCharter } = await import(
+      "../../src/vendor/mpr-plugins/team/team-charter.ts?plugin-team-charter-defaults-standalone"
+    );
+
+    const charter = parseTeamCharterText(`
+name: standalone-defaults
+defaults:
+  engine: omx
+  worktree: true
+  branch: alpha
+  unexpected: ignored
+
+members:
+  - role: lead
+    engine: claude
+    worktree: false
+  - role: builder
+agents:
+  verifier:
+    branch: beta
+`);
+
+    expect(charter.defaults).toEqual({ engine: "omx", worktree: true, branch: "alpha" });
+    expect(charter.warnings).toEqual(["defaults has unsupported key: unexpected"]);
+    expect(charter.members).toEqual([
+      { role: "lead", engine: "claude", worktree: false, branch: "alpha" },
+      { role: "builder", engine: "omx", worktree: true, branch: "alpha" },
+      { role: "verifier", engine: "omx", worktree: true, branch: "beta" },
+    ]);
+    expect(formatTeamCharterPlan(planTeamCharter(charter))).toContain(
+      "verifier (target=auto, engine=omx, worktree=true, branch=beta)",
+    );
+  });
+
   test("memberEngine honors config.defaultEngine before hard-coded claude fallback", async () => {
     mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd.ts"), () => ({
       cmdWake: async () => "",
