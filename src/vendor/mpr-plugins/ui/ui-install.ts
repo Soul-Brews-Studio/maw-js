@@ -15,12 +15,13 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mawDataPath } from "../../../core/xdg";
 
 const REPO = "Soul-Brews-Studio/maw-ui";
+const REPO_URL = `https://github.com/${REPO}.git`;
 const VERSION_MARKER = ".maw-ui-version";
 
 export function uiDistDir(): string {
@@ -63,7 +64,19 @@ export function buildGhReleaseArgs(repo: string, ref: string | undefined, dir: s
   return args;
 }
 
-export async function cmdUiInstall(version?: string): Promise<void> {
+export function buildGitCloneArgs(repoUrl: string, ref: string | undefined, dir: string): string[] {
+  const args = ["clone", "--depth", "1"];
+  if (ref) args.push("--branch", ref);
+  args.push(repoUrl, dir);
+  return args;
+}
+
+export async function cmdUiInstall(version?: string, options: { source?: boolean } = {}): Promise<void> {
+  if (options.source) {
+    await cmdUiInstallFromSource(version);
+    return;
+  }
+
   const displayRef = version ?? "latest";
 
   process.stdout.write(`⚡ downloading maw-ui ${displayRef} from ${REPO}...\n`);
@@ -107,6 +120,53 @@ export async function cmdUiInstall(version?: string): Promise<void> {
     if (markerRef) writeFileSync(join(distDir, VERSION_MARKER), markerRef + "\n");
 
     console.log(`✓ maw-ui ${displayRef} installed → ${distDir} (${files.length} top-level entries)`);
+    console.log(`  → restart maw server to serve the new UI: pm2 restart maw OR maw serve`);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+export async function cmdUiInstallFromSource(version?: string): Promise<void> {
+  const displayRef = version ?? "default branch";
+  process.stdout.write(`⚡ building maw-ui ${displayRef} from source ${REPO_URL}...\n`);
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "maw-ui-src-"));
+  const srcDir = join(tmpDir, "maw-ui");
+  try {
+    const clone = spawnSync("git", buildGitCloneArgs(REPO_URL, version, srcDir), { encoding: "utf-8" });
+    if (clone.status !== 0) {
+      throw new Error(`git clone failed:\n${clone.stderr}`);
+    }
+
+    const install = spawnSync("bun", ["install"], { cwd: srcDir, encoding: "utf-8" });
+    if (install.status !== 0) {
+      throw new Error(`bun install failed:\n${install.stderr}`);
+    }
+
+    const build = spawnSync("bun", ["run", "build"], { cwd: srcDir, encoding: "utf-8" });
+    if (build.status !== 0) {
+      throw new Error(`bun run build failed:\n${build.stderr}`);
+    }
+
+    const builtDist = join(srcDir, "dist");
+    if (!existsSync(join(builtDist, "index.html"))) {
+      throw new Error(`maw-ui build did not produce ${join(builtDist, "index.html")}`);
+    }
+
+    const distDir = uiDistDir();
+    rmSync(distDir, { recursive: true, force: true });
+    mkdirSync(distDir, { recursive: true });
+    cpSync(builtDist, distDir, { recursive: true });
+
+    let markerRef = version;
+    if (!markerRef) {
+      const rev = spawnSync("git", ["-C", srcDir, "rev-parse", "--short", "HEAD"], { encoding: "utf-8" });
+      if (rev.status === 0 && rev.stdout.trim()) markerRef = `source:${rev.stdout.trim()}`;
+    }
+    if (markerRef) writeFileSync(join(distDir, VERSION_MARKER), markerRef + "\n");
+
+    const files = readdirSync(distDir);
+    console.log(`✓ maw-ui ${displayRef} built and installed → ${distDir} (${files.length} top-level entries)`);
     console.log(`  → restart maw server to serve the new UI: pm2 restart maw OR maw serve`);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });

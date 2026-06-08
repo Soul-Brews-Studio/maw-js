@@ -34,7 +34,6 @@ export function createViews(
       doorHtml = readFileSync(doorHtmlPath, "utf-8");
     } catch {
       // door.html missing (e.g. fresh clone without assets) — serve inline stub
-      process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
       doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
     }
     views.get("/", (c) => c.html(doorHtml));

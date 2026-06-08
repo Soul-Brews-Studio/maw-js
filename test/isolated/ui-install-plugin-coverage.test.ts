@@ -14,6 +14,7 @@ let stdoutWrites: string[] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 let tarWritesFile = true;
+let sourceBuildWritesFile = false;
 
 const original = {
   write: process.stdout.write,
@@ -28,7 +29,7 @@ mock.module("os", () => ({
 }));
 
 mock.module("child_process", () => ({
-  spawnSync: (cmd: string, args: string[] = []) => {
+  spawnSync: (cmd: string, args: string[] = [], options?: Record<string, unknown>) => {
     spawnCalls.push({ cmd, args });
     const queued = spawnStatuses.shift();
 
@@ -38,13 +39,19 @@ mock.module("child_process", () => ({
       mkdirSync(target, { recursive: true });
       writeFileSync(join(target, "index.html"), '<div data-maw-ui-version="1.2.3"></div>');
     }
+    if (cmd === "bun" && args.join(" ") === "run build" && sourceBuildWritesFile) {
+      const cwd = String(options?.cwd ?? "");
+      mkdirSync(join(cwd, "dist"), { recursive: true });
+      writeFileSync(join(cwd, "dist", "index.html"), '<div data-maw-ui-version="source"></div>');
+      writeFileSync(join(cwd, "dist", "app.js"), "console.log(1)");
+    }
 
     return queued ?? { status: 0, stdout: "v9.9.9\n", stderr: "" };
   },
 }));
 
 const ui = await import("../../src/vendor/mpr-plugins/ui/ui-install.ts?ui-install-plugin-coverage");
-const { buildGhReleaseArgs, cmdUiInstall, cmdUiStatus, resolveInstalledVersion, uiDistDir } = ui;
+const { buildGhReleaseArgs, buildGitCloneArgs, cmdUiInstall, cmdUiStatus, resolveInstalledVersion, uiDistDir } = ui;
 
 beforeEach(() => {
   rmSync(distDir, { recursive: true, force: true });
@@ -54,6 +61,7 @@ beforeEach(() => {
   logs = [];
   errors = [];
   tarWritesFile = true;
+  sourceBuildWritesFile = false;
   delete process.env.MAW_DATA_DIR;
   process.stdout.write = ((chunk: string | Uint8Array) => {
     stdoutWrites.push(String(chunk));
@@ -87,6 +95,12 @@ describe("ui install plugin coverage", () => {
     ]);
     expect(buildGhReleaseArgs("owner/repo", "v1", "/tmp/out")).toEqual([
       "release", "download", "v1", "-R", "owner/repo", "--pattern", "maw-ui-dist.tar.gz", "--dir", "/tmp/out",
+    ]);
+    expect(buildGitCloneArgs("https://example/repo.git", undefined, "/tmp/src")).toEqual([
+      "clone", "--depth", "1", "https://example/repo.git", "/tmp/src",
+    ]);
+    expect(buildGitCloneArgs("https://example/repo.git", "v1", "/tmp/src")).toEqual([
+      "clone", "--depth", "1", "--branch", "v1", "https://example/repo.git", "/tmp/src",
     ]);
   });
 
@@ -184,5 +198,47 @@ describe("ui install plugin coverage", () => {
 
     expect(existsSync(join(distDir, ".maw-ui-version"))).toBe(false);
     expect(spawnCalls.at(-1)?.args).toEqual(["release", "view", "-R", "Soul-Brews-Studio/maw-ui", "--json", "tagName", "-q", ".tagName"]);
+  });
+
+  test("source install clones, builds, copies dist, and writes source marker", async () => {
+    sourceBuildWritesFile = true;
+    spawnStatuses = [
+      { status: 0, stdout: "", stderr: "" },
+      { status: 0, stdout: "", stderr: "" },
+      { status: 0, stdout: "", stderr: "" },
+      { status: 0, stdout: "abc123\n", stderr: "" },
+    ];
+
+    await cmdUiInstall(undefined, { source: true });
+
+    expect(stdoutWrites.join("")).toContain("building maw-ui default branch from source");
+    expect(spawnCalls.map((call) => call.cmd)).toEqual(["git", "bun", "bun", "git"]);
+    expect(spawnCalls[0].args.slice(0, 3)).toEqual(["clone", "--depth", "1"]);
+    expect(spawnCalls[1].args).toEqual(["install"]);
+    expect(spawnCalls[2].args).toEqual(["run", "build"]);
+    expect(readFileSync(join(distDir, "index.html"), "utf-8")).toContain("source");
+    expect(readFileSync(join(distDir, ".maw-ui-version"), "utf-8")).toBe("source:abc123\n");
+  });
+
+  test("source install supports explicit refs and reports build failures", async () => {
+    sourceBuildWritesFile = true;
+    spawnStatuses = [
+      { status: 0, stdout: "", stderr: "" },
+      { status: 0, stdout: "", stderr: "" },
+      { status: 0, stdout: "", stderr: "" },
+    ];
+
+    await cmdUiInstall("v5.0.0", { source: true });
+    expect(spawnCalls[0].args).toContain("--branch");
+    expect(spawnCalls[0].args).toContain("v5.0.0");
+    expect(readFileSync(join(distDir, ".maw-ui-version"), "utf-8")).toBe("v5.0.0\n");
+
+    spawnCalls = [];
+    sourceBuildWritesFile = false;
+    spawnStatuses = [
+      { status: 0, stdout: "", stderr: "" },
+      { status: 7, stdout: "", stderr: "install failed" },
+    ];
+    await expect(cmdUiInstall(undefined, { source: true })).rejects.toThrow("bun install failed");
   });
 });

@@ -118,6 +118,7 @@ export function parseUiArgs(args: string[]): UiOptions {
     "--install": Boolean,
     "--tunnel": Boolean,
     "--dev": Boolean,
+    "--source": Boolean,
     "--3d": Boolean,
     "--version": String,
   }, 0);
@@ -129,6 +130,7 @@ export function parseUiArgs(args: string[]): UiOptions {
   return {
     peer,
     install: flags["--install"],
+    installSource: flags["--source"],
     tunnel: flags["--tunnel"],
     dev: flags["--dev"],
     threeD: flags["--3d"],
@@ -145,7 +147,7 @@ export async function cmdUi(args: string[]): Promise<void> {
   if (opts.subcommand === "install" || opts.install) {
     const { cmdUiInstall } = await import("./ui-install");
     // --version takes precedence; fall back to peer (backward compat with --install <version>)
-    await cmdUiInstall(opts.version ?? opts.peer);
+    await cmdUiInstall(opts.version ?? opts.peer, { source: opts.installSource });
     return;
   }
 

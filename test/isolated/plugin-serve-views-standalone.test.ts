@@ -32,7 +32,11 @@ describe("serve-views plugin", () => {
     const tmp = mkdtempSync(join(tmpdir(), "maw-serve-views-"));
     const previousCwd = process.cwd();
     const previousWrite = process.stderr.write;
-    process.stderr.write = (() => true) as typeof process.stderr.write;
+    const stderr: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
     try {
       mkdirSync(join(tmp, "ψ", "outbox"), { recursive: true });
       writeFileSync(join(tmp, "ψ", "outbox", "fleet-topology.html"), "<h1>topology</h1>");
@@ -44,6 +48,7 @@ describe("serve-views plugin", () => {
       rmSync(join(tmp, "ψ"), { recursive: true, force: true });
       expect((await views.request("http://local/topology")).status).toBe(404);
       expect(await (await views.request("http://local/")).text()).toContain("maw-ui not installed");
+      expect(stderr.join("")).not.toContain("maw-ui not found");
     } finally {
       process.chdir(previousCwd);
       process.stderr.write = previousWrite;
