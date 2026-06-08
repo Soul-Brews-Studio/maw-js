@@ -1,6 +1,6 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { execSync } from "child_process";
-import { basename } from "path";
+import { deriveOracleFromCwd } from "maw-js/commands/shared/wake-cwd";
 
 export const command = {
   name: "oracle-workon",
@@ -97,14 +97,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     let oracle = positional[0];
     if (!oracle) {
-      const cwdBase = basename(process.cwd());
-      const stripped = cwdBase.replace(/-oracle$/, "");
-      if (stripped === cwdBase) {
-        console.error(`⚠ cwd '${cwdBase}' is not an oracle repo. Pass <oracle> as positional.`);
+      const derived = deriveOracleFromCwd(process.cwd());
+      if (!derived) {
+        console.error(`⚠ cwd is not an oracle repo. Pass <oracle> as positional.`);
         return { ok: false, error: "oracle not detected", output: logs.join("\n") || undefined };
       }
-      oracle = stripped;
-      console.log(`  auto-detected oracle: ${oracle} (from cwd: ${cwdBase})`);
+      oracle = derived;
+      console.log(`  auto-detected oracle: ${oracle} (from cwd)`);
     }
 
     console.log(`  oracle:  ${oracle}`);
