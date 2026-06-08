@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-const { DEFAULT_ENGINES, isClaudeLikeCommand, resolveEngine } = await import("../src/config/engine-registry");
+const { DEFAULT_ENGINES, defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeCommand, isClaudeLikeEngine, resolveEngine } = await import("../src/config/engine-registry");
 
 describe("generic engine registry (#1960 P1)", () => {
   test("lowers the legacy swarm known agents into dormant EngineDef defaults", () => {
@@ -49,6 +49,28 @@ describe("generic engine registry (#1960 P1)", () => {
       name: "gemini",
       cmd: "gemini",
     });
+  });
+
+
+
+  test("lists typed engines before legacy shims and keeps configured pattern keys separate from defaults", () => {
+    const config = {
+      engines: { codex: { name: "codex", cmd: "codex --typed" }, "foo-*": { name: "foo-*", cmd: "foo-typed" } },
+      commands: { default: "claude", codex: "codex --legacy", "bar-*": "bar-legacy" },
+    } as any;
+
+    expect(engineNamesForConfig(config).slice(0, 5)).toEqual(["codex", "foo-*", "default", "bar-*", "claude"]);
+    expect(enginePatternKeysForConfig(config)).toEqual(["codex", "foo-*", "default", "bar-*"]);
+  });
+
+  test("chooses config default keys and gates Claude-like behavior by engine capability", () => {
+    expect(defaultEngineNameForConfig({ engines: { default: { name: "default", cmd: "codex --typed" } } } as any)).toBe("default");
+    expect(defaultEngineNameForConfig({ commands: { default: "claude --legacy" } } as any)).toBe("default");
+    expect(defaultEngineNameForConfig({ defaultEngine: "codex" } as any)).toBe("codex");
+
+    expect(isClaudeLikeEngine("claude", {} as any)).toBe(true);
+    expect(isClaudeLikeEngine("plain-claude", { engines: { "plain-claude": { name: "plain-claude", cmd: "claude" } } } as any)).toBe(false);
+    expect(isClaudeLikeEngine("cap-claude", { engines: { "cap-claude": { name: "cap-claude", cmd: "codex", capabilities: ["system-prompt-file"] } } } as any)).toBe(true);
   });
 
   test("exports Claude-like command detection for command rendering", () => {

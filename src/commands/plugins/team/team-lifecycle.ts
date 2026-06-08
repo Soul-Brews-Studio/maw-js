@@ -6,7 +6,7 @@ import { assertValidOracleName } from "../../../core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
 import { loadConfig } from "../../../config/load";
-import { resolveEngine } from "../../../config/engine-registry";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -244,7 +244,7 @@ export async function cmdTeamSpawn(
 
   // Build spawn prompt
   const config = loadConfig();
-  const engine = opts.engine || config.defaultEngine || "claude";
+  const engine = opts.engine || config.defaultEngine || defaultEngineNameForConfig(config);
   const resolvedEngine = resolveEngine(engine, config);
   const model = opts.model || resolvedEngine.model?.default;
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;

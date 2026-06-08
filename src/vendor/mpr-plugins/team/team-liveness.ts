@@ -2,8 +2,8 @@ import { existsSync } from "fs";
 import { basename, dirname, join } from "path";
 import { Tmux } from "../../../core/transport/tmux";
 import { isAgentCommand } from "../../../core/agent-detect";
-import { resolveEngine } from "maw-js/sdk";
 import { loadConfig } from "../../../config/load";
+import { defaultEngineNameForConfig, resolveEngine } from "maw-js/sdk";
 import type { MawConfig } from "../../../config/types";
 import { cmdWake, type WakeOptions } from "../../../commands/shared/wake-cmd";
 import type { TeamCharterEngines, TeamCharterMember } from "./team-charter";
@@ -82,7 +82,7 @@ export function memberWorktree(member: TeamCharterMember): string {
 }
 
 export function memberEngine(member: TeamCharterMember, override?: string, config: MawConfig = loadConfig()): string {
-  return override ?? member.engine ?? member.model ?? config.defaultEngine ?? "claude";
+  return override ?? member.engine ?? member.model ?? config.defaultEngine ?? defaultEngineNameForConfig(config);
 }
 
 export function memberMatchesSelector(member: TeamCharterMember, selector: string): boolean {

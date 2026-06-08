@@ -2,6 +2,7 @@ import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCom
 import { resolve } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { defaultEngineNameForConfig } from "../../config/engine-registry";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeWorktreeLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
 import { prefixCommandWithSpawnSessionEnv } from "../../core/fleet/parent-session";
@@ -955,6 +956,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   const { repoPath, repoName, parentDir } = resolved;
+  const config = loadConfig();
   const worktreeLayout = normalizeWorktreeLayout(opts.layout);
 
   if (opts.bud && !opts.task && !opts.wt) {
@@ -1134,7 +1136,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)
-    const config = loadConfig();
     const agents = config.agents || {};
     if (!(oracle in agents)) {
       const node = config.node || "local";
@@ -1331,7 +1332,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
           named: Boolean(stableName && !opts.fresh),
           layout: worktreeLayout,
           existingWindowNames: knownWindows,
-          engine: opts.engine || "claude",
+          engine: opts.engine || config.defaultEngine || defaultEngineNameForConfig(config),
         });
         targetPath = result.wtPath;
         windowName = result.windowName;

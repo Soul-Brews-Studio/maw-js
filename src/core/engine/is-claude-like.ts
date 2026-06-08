@@ -1,5 +1,5 @@
 import type { MawConfig } from "../../config/types";
-import { resolveEngine } from "../../config/engine-registry";
+import { isClaudeLikeCommand, resolveEngine } from "../../config/engine-registry";
 
 /**
  * Shared claude-like engine detector (#2099).
@@ -16,9 +16,6 @@ import { resolveEngine } from "../../config/engine-registry";
  * claude-like, or it declares the claude-only `system-prompt-file` capability.
  */
 
-/** Matches a launch command whose executable is claude (or claude-prefixed). */
-const CLAUDE_LIKE_CMD = /(^|\s)(?:command\s+)?claude[A-Za-z0-9_-]*(?:\s|$)/;
-
 /** Capability only claude-like engines declare (the `-p`/system-prompt form). */
 const CLAUDE_LIKE_CAPABILITY = "system-prompt-file";
 
@@ -31,6 +28,6 @@ export function isClaudeLikeEngine(
   if (name.toLowerCase() === "claude") return true;
 
   const def = resolveEngine(name, config);
-  if (CLAUDE_LIKE_CMD.test(def.cmd)) return true;
+  if (isClaudeLikeCommand(def.cmd)) return true;
   return def.capabilities?.includes(CLAUDE_LIKE_CAPABILITY) ?? false;
 }

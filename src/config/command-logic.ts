@@ -4,7 +4,7 @@ import { join } from "path";
 import type { MawConfig } from "./types";
 import type { EngineDef } from "./engine-def";
 import { getChannelEnv, getChannelPermissionMode, getChannelPluginIds } from "../commands/shared/channel-loader";
-import { DEFAULT_ENGINES, isClaudeLikeCommand, resolveEngine } from "./engine-registry";
+import { defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeEngine, resolveEngine } from "./engine-registry";
 
 const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
@@ -79,9 +79,9 @@ function enrichOptionsFromChannelConfig(
   return opts;
 }
 
-function applyChannelFlags(cmd: string, opts: BuildCommandOpts): string {
+function applyChannelFlags(cmd: string, opts: BuildCommandOpts, engine: EngineDef | null, config: Partial<MawConfig>): string {
   const channels = opts.channels?.filter(Boolean) ?? [];
-  if (!isClaudeLikeCommand(cmd)) return cmd;
+  if (!isClaudeLikeEngine(engine?.name, config)) return cmd;
   if (channels.length > 0 && !hasChannelsFlag(cmd)) {
     cmd += ` --channels ${channels.join(" ")}`;
   }
@@ -116,26 +116,39 @@ function shouldAutoDiscordChannels(cwd?: string): boolean {
   try { return existsSync(join(cwd, ".discord")); } catch { return false; }
 }
 
+function commandKeyForAgent(
+  config: Partial<MawConfig>,
+  agentName: string,
+  opts: BuildCommandOpts,
+): string {
+  const keys = enginePatternKeysForConfig(config);
+  const known = new Set(engineNamesForConfig(config));
+
+  if (opts.engine && known.has(opts.engine)) return opts.engine;
+
+  let key = defaultEngineNameForConfig(config);
+
+  for (const pattern of keys) {
+    if (pattern === "default") continue;
+    if (matchesAgentPattern(pattern, agentName)) {
+      key = pattern;
+      break;
+    }
+  }
+
+  return key;
+}
+
+function legacyConfig(config: Partial<MawConfig>): Partial<MawConfig> {
+  return { ...config, engines: undefined };
+}
+
 function legacyCommandForAgent(
   config: Partial<MawConfig>,
   agentName: string,
   opts: BuildCommandOpts,
 ): string {
-  const commands = config.commands || { default: config.defaultEngine ?? "claude" };
-  const defaultEngine = config.defaultEngine ?? "claude";
-  let cmd: string;
-
-  if (opts.engine && commands[opts.engine]) {
-    cmd = commands[opts.engine];
-  } else {
-    cmd = commands.default || defaultEngine;
-    for (const [pattern, command] of Object.entries(commands)) {
-      if (pattern === "default") continue;
-      if (matchesAgentPattern(pattern, agentName)) { cmd = command; break; }
-    }
-  }
-
-  return cmd;
+  return resolveEngine(commandKeyForAgent(legacyConfig(config), agentName, opts), legacyConfig(config)).cmd;
 }
 
 function selectEngineForAgent(
@@ -143,25 +156,7 @@ function selectEngineForAgent(
   agentName: string,
   opts: BuildCommandOpts,
 ): EngineDef {
-  const commands = config.commands || { default: "claude" };
-
-  // Preserve the legacy "unknown explicit engine falls back to default/pattern"
-  // behavior unless the new typed engine registry has an explicit entry.
-  if (opts.engine && (
-    config.engines?.[opts.engine]
-    || commands[opts.engine]
-    || DEFAULT_ENGINES[opts.engine as keyof typeof DEFAULT_ENGINES]
-  )) {
-    return resolveEngine(opts.engine, config);
-  }
-
-  let engineName = commands.default ? "default" : (config.defaultEngine ?? "default");
-  for (const pattern of Object.keys(commands)) {
-    if (pattern === "default") continue;
-    if (matchesAgentPattern(pattern, agentName)) { engineName = pattern; break; }
-  }
-
-  return resolveEngine(engineName, config);
+  return resolveEngine(commandKeyForAgent(config, agentName, opts), config);
 }
 
 function engineHas(engine: EngineDef | null, capability: string): boolean {
@@ -200,10 +195,10 @@ function applyResumeFlag(cmd: string, engine: EngineDef | null, sessionId: strin
   return `${cmd} ${engine.resume.flag} ${value}`;
 }
 
-function addDiscordChannelsForClaude(cmd: string, cwd?: string): string {
+function addDiscordChannelsForClaude(cmd: string, engine: EngineDef | null, config: Partial<MawConfig>, cwd?: string): string {
   if (!shouldAutoDiscordChannels(cwd)) return cmd;
   if (hasChannelsFlag(cmd)) return cmd;
-  if (!isClaudeLikeCommand(cmd)) return cmd;
+  if (!isClaudeLikeEngine(engine?.name, config)) return cmd;
   return `${cmd} --channels ${DISCORD_CHANNEL_PLUGIN}`;
 }
 
@@ -215,23 +210,23 @@ export function buildCommandFromConfig(
 ): string {
   const opts = enrichOptionsFromChannelConfig(agentName, normalizeBuildCommandOpts(optsOrEngine), context.cwd);
   const genericRenderer = process.env.MAW_GENERIC_ENGINES !== "0";
-  const engine = genericRenderer ? selectEngineForAgent(config, agentName, opts) : null;
+  const engine = selectEngineForAgent(genericRenderer ? config : legacyConfig(config), agentName, opts);
   let cmd = genericRenderer
-    ? engine!.cmd
+    ? engine.cmd
     : legacyCommandForAgent(config, agentName, opts);
 
   cmd = applyFreshLaunch(cmd, engine, opts);
   cmd = applyModelFlag(cmd, engine, opts);
   cmd = applySystemPromptFile(cmd, engine, opts);
 
-  const commandOpts = opts.channelConfigLoaded && !isClaudeLikeCommand(cmd)
+  const commandOpts = opts.channelConfigLoaded && !isClaudeLikeEngine(engine.name, config)
     ? { ...opts, channels: [], channelEnv: undefined }
     : opts;
 
   if (commandOpts.channels?.length) {
-    cmd = applyChannelFlags(cmd, commandOpts);
+    cmd = applyChannelFlags(cmd, commandOpts, engine, config);
   } else {
-    cmd = addDiscordChannelsForClaude(cmd, context.cwd);
+    cmd = addDiscordChannelsForClaude(cmd, engine, config, context.cwd);
   }
 
   // Inject --session-id if configured for this agent

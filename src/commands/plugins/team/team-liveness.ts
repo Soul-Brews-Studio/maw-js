@@ -3,6 +3,7 @@ import { basename, dirname, join } from "path";
 import { Tmux } from "../../../core/transport/tmux";
 import { isAgentCommand } from "../../../core/agent-detect";
 import { loadConfig } from "../../../config/load";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import type { MawConfig } from "../../../config/types";
 import { cmdWake, type WakeOptions } from "../../shared/wake-cmd";
 import type { TeamCharterMember } from "../../../vendor/mpr-plugins/team/team-charter";
@@ -81,7 +82,7 @@ export function classifyMember(
     candidate.sessionName === session && (candidate.windowName === windowIdentity || suffix.test(candidate.windowName))
   );
   const config = loadConfig();
-  const engine = opts.engine ?? member.engine ?? member.model ?? config.defaultEngine ?? "claude";
+  const engine = opts.engine ?? member.engine ?? member.model ?? config.defaultEngine ?? defaultEngineNameForConfig(config);
   const worktree = typeof member.worktree === "string" && member.worktree.trim() ? member.worktree.trim() : windowIdentity;
   if (!pane) return { member, role, engine, worktree, windowIdentity, state: "missing" };
   if (SHELL_RE.test(pane.command)) return { member, role, engine, worktree, windowIdentity, state: "dead", pane };
@@ -91,7 +92,7 @@ export function classifyMember(
 
 export function engineCommand(engine: string, opts: { resume?: boolean } = {}, config: MawConfig = loadConfig()): string {
   const key = opts.resume ? `${engine}-resume` : engine;
-  return config.commands?.[key] ?? config.commands?.default ?? key;
+  return resolveEngine(key, config).cmd;
 }
 
 export function repoSlugFromRoot(root: string): string {

@@ -1,6 +1,7 @@
 import { listSessions, getPaneInfos, isAgentCommand } from "../../sdk";
 import { buildCommandInDir, loadConfig } from "../../config";
 import { Tmux } from "../../core/transport/tmux";
+import { enginePatternKeysForConfig } from "../../config/engine-registry";
 
 export interface PreflightFs {
   readdirSync: typeof import("fs").readdirSync;
@@ -142,7 +143,7 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}, deps: Partial<P
 
   // 4. Config check
   const config = io.loadConfig();
-  const engines = Object.keys(config.commands || {}).filter(k => k !== "default");
+  const engines = enginePatternKeysForConfig(config).filter(k => k !== "default");
   io.log(`  \x1b[32m✓\x1b[0m config: node=${config.node || "?"}, engines=[${engines.join(", ") || "default only"}]`);
   pass++;
 

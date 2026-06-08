@@ -2,12 +2,12 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFi
 import { createHash } from "crypto";
 import { join } from "path";
 import { tmux } from "maw-js/sdk";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
 import { writeWorktreeEngineFile } from "../../../commands/shared/wake-session";
 import { loadConfig } from "../../../config/load";
-import { resolveEngine } from "../../../config/engine-registry";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -274,7 +274,7 @@ export async function cmdTeamSpawn(
 
   // Build spawn prompt
   const config = loadConfig();
-  const engine = opts.engine || config.defaultEngine || "claude";
+  const engine = opts.engine || config.defaultEngine || defaultEngineNameForConfig(config);
   if (opts.cwd && existsSync(opts.cwd)) writeWorktreeEngineFile(opts.cwd, engine, console.log.bind(console));
   const resolvedEngine = resolveEngine(engine, config);
   const model = opts.model || resolvedEngine.model?.default;

@@ -256,7 +256,7 @@ agents:
     );
   });
 
-  test("memberEngine honors config.defaultEngine before hard-coded claude fallback", async () => {
+  test("memberEngine honors config.defaultEngine without hard-coded claude fallback", async () => {
     mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd.ts"), () => ({
       cmdWake: async () => "",
     }));
@@ -266,6 +266,7 @@ agents:
     expect(memberEngine({ role: "builder", model: "opencode" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("opencode");
     expect(memberEngine({ role: "builder", engine: "aider" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("aider");
     expect(memberEngine({ role: "builder", engine: "aider" } as any, "thclaws", { defaultEngine: "codex" } as any)).toBe("thclaws");
+    expect(memberEngine({ role: "builder" } as any, undefined, { commands: { default: "codex --legacy" } } as any)).toBe("default");
     expect(memberEngine({ role: "builder" } as any, undefined, {} as any)).toBe("claude");
     expect(resolveCharterEngineCommand("opus48", { opus48: ["claude --model opus", ["--dangerously-skip-permissions"]] })).toBe("claude --model opus --dangerously-skip-permissions");
   });

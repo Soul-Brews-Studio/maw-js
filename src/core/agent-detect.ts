@@ -1,4 +1,4 @@
-import { DEFAULT_ENGINES } from "../config/engine-registry";
+import { engineNamesForConfig, resolveEngine } from "../config/engine-registry";
 import type { EngineDef } from "../config/engine-def";
 import type { MawConfig } from "../config/types";
 
@@ -25,21 +25,12 @@ function processNamesFromEngine(def: EngineDef | undefined): string[] {
   return normalizedProcessNames(def?.processNames ?? []);
 }
 
-function processNamesFromLegacyCommands(commands: Record<string, string> | undefined): string[] {
-  if (!commands) return [];
-  return normalizedProcessNames(
-    Object.entries(commands)
-      .filter(([name, command]) => name !== "default" && command !== "default")
-      .map(([, command]) => firstCommandToken(command)),
-  );
-}
-
-/** Engine process names from built-ins plus config.engines/processNames and legacy command bins. */
+/** Engine process names from config.engines, legacy command shims, and built-in registry fallbacks. */
 export function agentProcessNames(config?: Partial<MawConfig> | null): string[] {
   const names: string[] = [];
-  for (const def of Object.values(DEFAULT_ENGINES)) names.push(...processNamesFromEngine(def));
-  for (const def of Object.values(config?.engines ?? {})) names.push(...processNamesFromEngine(def));
-  names.push(...processNamesFromLegacyCommands(config?.commands));
+  for (const name of engineNamesForConfig(config ?? {})) {
+    names.push(...processNamesFromEngine(resolveEngine(name, config ?? {})));
+  }
   return normalizedProcessNames(names);
 }
 
@@ -90,9 +81,9 @@ export function matchesEngineIdlePrompt(output: string | null | undefined): bool
  * agent runtime.
  *
  * Detection layers (any match → true):
- *  1. Config/default engine `processNames` (claude, claude-code, codex,
- *     thclaws, thclaude, opencode, aider, plus configured engines).
- *  2. Legacy `config.commands` executable names, exact basename match.
+ *  1. Engine registry `processNames` (config.engines primary, legacy
+ *     config.commands shims, then built-in defaults).
+ *  2. Legacy command executable names are included through resolveEngine().
  *  3. Generic node wrapper panes.
  *  4. Claude Code 2.1+ version command strings (e.g. `2.1.121`).
  */

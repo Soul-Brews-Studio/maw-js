@@ -1,6 +1,7 @@
 import type { MawConfig } from "./types";
 import type { EngineDef } from "./engine-def";
 
+/** @deprecated Seed-only defaults. Prefer resolveEngine()/engineNamesForConfig(). */
 export const DEFAULT_ENGINES = {
   claude: {
     name: "claude",
@@ -53,4 +54,31 @@ export function resolveEngine(name: string, config: Partial<MawConfig> = {}): En
   if (builtIn) return { ...builtIn };
 
   return { name, cmd: name };
+}
+
+export function engineNamesForConfig(config: Partial<MawConfig> = {}): string[] {
+  return [...new Set([
+    ...Object.keys(config.engines ?? {}),
+    ...Object.keys(config.commands ?? {}),
+    ...Object.keys(DEFAULT_ENGINES),
+  ])];
+}
+
+export function enginePatternKeysForConfig(config: Partial<MawConfig> = {}): string[] {
+  return [...new Set([
+    ...Object.keys(config.engines ?? {}),
+    ...Object.keys(config.commands ?? {}),
+  ])];
+}
+
+export function defaultEngineNameForConfig(config: Partial<MawConfig> = {}): string {
+  return (config.engines?.default || config.commands?.default)
+    ? "default"
+    : (config.defaultEngine ?? "claude");
+}
+
+export function isClaudeLikeEngine(name: string | undefined, config: Partial<MawConfig> = {}): boolean {
+  const engineName = name?.trim();
+  if (!engineName) return false;
+  return resolveEngine(engineName, config).capabilities?.includes("system-prompt-file") ?? false;
 }

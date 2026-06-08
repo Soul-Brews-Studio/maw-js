@@ -30,6 +30,7 @@ import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
 import { lsFederated } from "../vendor/mpr-plugins/ls/internal/peer-call";
+import { engineNamesForConfig } from "../config/engine-registry";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -510,13 +511,13 @@ export async function invokeDirectHandler(
     }
     if (flags["--session-id"]) opts.sessionId = flags["--session-id"] as string;
 
-    // Shorthand: --codex, --gemini etc. → engine from config.commands
+    // Shorthand: --codex, --gemini etc. → engine from config.engines/legacy commands.
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
     if (!opts.engine) {
       const loadConfig = deps.loadConfig ?? (await import("../config")).loadConfig;
-      const commands = loadConfig().commands || {};
+      const engineNames = new Set(engineNamesForConfig(loadConfig()));
       for (const arg of (flags._ as string[])) {
-        if (arg.startsWith("--") && commands[arg.slice(2)]) {
+        if (arg.startsWith("--") && engineNames.has(arg.slice(2))) {
           opts.engine = arg.slice(2);
           break;
         }
