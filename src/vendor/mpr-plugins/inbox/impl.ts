@@ -125,10 +125,10 @@ function parseFrontmatter(content: string): { frontmatter: InboxFrontmatter; bod
   const fm: InboxFrontmatter = { from: "unknown", to: "unknown", timestamp: "", read: false };
   if (!match) return { frontmatter: fm, body: content };
   for (const line of match[1].split("\n")) {
-    const colon = line.indexOf(": ");
+    const colon = line.indexOf(":");
     if (colon < 0) continue;
-    const k = line.slice(0, colon);
-    const v = line.slice(colon + 2).trim();
+    const k = line.slice(0, colon).trim();
+    const v = line.slice(colon + 1).trim();
     if (k === "from") fm.from = v;
     else if (k === "to") fm.to = v;
     else if (k === "timestamp" || k === "date") fm.timestamp = v;
@@ -650,6 +650,22 @@ export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?:
   console.log();
 }
 
+function markInboxFrontmatterRead(content: string, timestamp = new Date().toISOString()): string {
+  if (!content.startsWith("---\n")) return content;
+  const end = content.indexOf("\n---", 4);
+  if (end < 0) return content;
+  let frontmatter = content.slice(0, end + "\n---".length);
+  if (/^read:\s*false\s*$/im.test(frontmatter)) {
+    frontmatter = frontmatter.replace(/^read:\s*false\s*$/im, "read: true");
+  } else if (!/^read:/im.test(frontmatter)) {
+    frontmatter = frontmatter.replace(/\n---$/, "\nread: true\n---");
+  }
+  if (!/^readAt:/im.test(frontmatter)) {
+    frontmatter = frontmatter.replace(/\n---$/, `\nreadAt: ${timestamp}\n---`);
+  }
+  return frontmatter + content.slice(end + "\n---".length);
+}
+
 export async function cmdInboxMarkRead(id: string) {
   if (!id) { console.error("usage: maw inbox read <id>"); return; }
   const msgs = loadInboxMessages(resolveInboxDir());
@@ -657,7 +673,12 @@ export async function cmdInboxMarkRead(id: string) {
   if (!msg) { console.error(`\x1b[31merror\x1b[0m: message not found: ${id}`); return; }
   if (msg.frontmatter.read) { console.log(`\x1b[90malready read:\x1b[0m ${msg.filename}`); return; }
   const content = readFileSync(msg.path, "utf-8");
-  writeFileSync(msg.path, content.replace(/^read: false$/m, "read: true"));
+  const updated = markInboxFrontmatterRead(content);
+  if (updated === content) {
+    console.error(`\x1b[31merror\x1b[0m: could not mark read: ${msg.filename}`);
+    return;
+  }
+  writeFileSync(msg.path, updated);
   console.log(`\x1b[32m✓\x1b[0m marked read: ${msg.filename}`);
 }
 

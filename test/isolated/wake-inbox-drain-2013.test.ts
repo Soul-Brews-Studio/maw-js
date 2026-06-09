@@ -35,6 +35,33 @@ describe("wake inbox drain (#2390)", () => {
     expect(updated).not.toContain("readAt:");
   });
 
+
+  test("marks unread messages read when the attach flow consumes wake inbox", () => {
+    const repo = mkdtempSync(join(tmpdir(), "maw-wake-drain-mark-read-"));
+    const inbox = join(repo, "ψ", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const unread = join(inbox, "001.md");
+    const missingRead = join(inbox, "002.md");
+    writeFileSync(unread, [
+      "---",
+      "from: alpha:sender",
+      "timestamp: 2026-06-06T00:00:00.000Z",
+      "read:false",
+      "---",
+      "",
+      "please review #2588",
+    ].join("\n"));
+    writeFileSync(missingRead, ["---", "from: beta:sender", "---", "", "missing read flag"].join("\n"));
+
+    const result = drainWakeInbox(repo, { markRead: true });
+
+    expect(result.count).toBe(2);
+    expect(readFileSync(unread, "utf-8")).toContain("read: true");
+    expect(readFileSync(unread, "utf-8")).toContain("readAt:");
+    expect(readFileSync(missingRead, "utf-8")).toContain("read: true");
+    expect(readFileSync(missingRead, "utf-8")).toContain("readAt:");
+  });
+
   test("merges drained inbox after an explicit wake prompt", () => {
     expect(mergeWakeInboxPrompt("continue task", "You have 1 unread messages in inbox. Run maw inbox --unread to review."))
       .toBe("continue task\n\nYou have 1 unread messages in inbox. Run maw inbox --unread to review.");

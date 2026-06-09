@@ -308,11 +308,19 @@ const {
   getLiveTileRoles,
   _wtPicker,
   promptAmbiguousWorktreePick,
+  shouldMarkWakeInboxRead,
 } = await import("../../src/commands/shared/wake-cmd");
 
 beforeEach(resetState);
 
 describe("wake-cmd thirteenth-pass isolated coverage", () => {
+  test("marks wake inbox read only for attach-follow consume path", () => {
+    expect(shouldMarkWakeInboxRead({}, { MAW_ATTACH_FOLLOWS: "1" })).toBe(true);
+    expect(shouldMarkWakeInboxRead({ dryRun: true }, { MAW_ATTACH_FOLLOWS: "1" })).toBe(false);
+    expect(shouldMarkWakeInboxRead({ listWt: true }, { MAW_ATTACH_FOLLOWS: "1" })).toBe(false);
+    expect(shouldMarkWakeInboxRead({}, {})).toBe(false);
+  });
+
   test("exported helpers cover live tile parsing, failures, and picker defaults", async () => {
     await expect(getLiveTileRoles("54-neo", {
       hostExecFn: async () => "main\n\n side \nmain\n",

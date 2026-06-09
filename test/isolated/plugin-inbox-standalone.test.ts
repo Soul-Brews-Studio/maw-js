@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const realSdk = await import("../../src/sdk/index.ts");
@@ -55,6 +55,7 @@ mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
 
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/inbox/index.ts");
 const {
+  cmdInboxMarkRead,
   cmdInboxWrite,
   cmdQueueList,
   formatQueueDetail,
@@ -136,6 +137,38 @@ describe("inbox plugin standalone boundary (#2329)", () => {
     expect(updated).toEqual([{ id: "abc123", patch: { status: "approved" } }]);
     expect(sent).toEqual([{ target: "codex-5", message: "hello from queue", force: undefined }]);
     expect(deleted).toEqual(["abc123"]);
+  });
+
+
+  test("mark-read robustly updates compact or missing read frontmatter", async () => {
+    const inbox = join(psiPath, "inbox");
+    const compact = join(inbox, "2026-06-09_00-01_sender_compact.md");
+    const missing = join(inbox, "2026-06-09_00-02_sender_missing.md");
+    writeFileSync(compact, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:01:00.000Z",
+      "read:false",
+      "---",
+      "",
+      "compact read flag",
+    ].join("\n"));
+    writeFileSync(missing, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:02:00.000Z",
+      "---",
+      "",
+      "missing read flag",
+    ].join("\n"));
+
+    await cmdInboxMarkRead("compact");
+    await cmdInboxMarkRead("missing");
+
+    expect(readFileSync(compact, "utf8")).toContain("read: true");
+    expect(readFileSync(compact, "utf8")).toContain("readAt:");
+    expect(readFileSync(missing, "utf8")).toContain("read: true");
+    expect(readFileSync(missing, "utf8")).toContain("readAt:");
   });
 
   test("local inbox write and relative time are non-destructive and deterministic", async () => {

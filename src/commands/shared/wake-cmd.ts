@@ -844,6 +844,10 @@ function findExistingWakeWindow(windowNames: Iterable<string>, oracle: string, w
   return findExistingWakeWindowEntry([...windowNames].map(name => ({ name })), oracle, windowName)?.name;
 }
 
+export function shouldMarkWakeInboxRead(opts: Pick<WakeOptions, "dryRun" | "listWt">, env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.MAW_ATTACH_FOLLOWS === "1" && !opts.dryRun && !opts.listWt;
+}
+
 export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
@@ -1022,7 +1026,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
-  const drainedInbox = drainWakeInbox(repoPath, { markRead: false, engine: opts.engine });
+  const drainedInbox = drainWakeInbox(repoPath, { markRead: shouldMarkWakeInboxRead(opts), engine: opts.engine });
   if (drainedInbox.prompt.trim()) {
     opts = { ...opts, prompt: mergeWakeInboxPrompt(opts.prompt, drainedInbox.prompt) };
   }
