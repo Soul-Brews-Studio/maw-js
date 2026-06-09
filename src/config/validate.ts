@@ -77,10 +77,13 @@ export function validateBasicFields(
 
   // gateway: serve gateway selector (#2566)
   if ("gateway" in raw) {
-    if (raw.gateway === "bun" || raw.gateway === "rust" || raw.gateway === "auto") {
+    if (raw.gateway === "bun" || raw.gateway === "rust") {
       result.gateway = raw.gateway;
+    } else if (raw.gateway === "auto") {
+      warn("gateway", '"auto" is deprecated, using "bun"');
+      result.gateway = "bun";
     } else {
-      warn("gateway", "must be one of: bun, rust, auto");
+      warn("gateway", "must be one of: bun, rust");
     }
   }
 
@@ -150,7 +153,7 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
   if (c.scout !== undefined && typeof c.scout !== "boolean") errors.push("scout must be a boolean");
   if (c.gateway !== undefined && c.gateway !== "bun" && c.gateway !== "rust" && c.gateway !== "auto") {
-    errors.push("gateway must be one of: bun, rust, auto");
+    errors.push("gateway must be one of: bun, rust");
   }
 
   if (c.errorForward !== undefined) {

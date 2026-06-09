@@ -59,6 +59,14 @@ describe("validateBasicFields", () => {
     ]);
   });
 
+
+  test("coerces deprecated gateway auto to bun with a warning", () => {
+    const { result, warnings } = collectBasic({ gateway: "auto" });
+
+    expect(result).toEqual({ gateway: "bun" });
+    expect(warnings).toEqual(['gateway: "auto" is deprecated, using "bun"']);
+  });
+
   test("warns for invalid maps and commands without default string", () => {
     const cases = [
       [{ env: [] }, "env: must be an object"],
@@ -100,6 +108,7 @@ describe("validateConfigShape", () => {
       sessions: { mawjs: "54-mawjs" },
       peers: ["http://peer:3456"],
       errorForward: { target: "doctor" },
+      gateway: "auto",
     })).toEqual([]);
   });
 

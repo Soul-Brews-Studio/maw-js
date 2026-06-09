@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { normalizeGateway, selectGateway } from "../../src/core/gateway";
+import { normalizeGateway, resolveGatewayBinary, selectGateway } from "../../src/core/gateway";
 import { routeToolsWithDeps, type RouteToolsDeps } from "../../src/cli/route-tools";
 
 function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
@@ -35,7 +38,7 @@ function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
 describe("gateway selector (#2566)", () => {
   test("selectGateway honors CLI > env > config > bun precedence", () => {
     expect(selectGateway({}).kind).toBe("bun");
-    expect(selectGateway({ config: { gateway: "auto" } }).kind).toBe("auto");
+    expect(selectGateway({ config: { gateway: "bun" } }).kind).toBe("bun");
     expect(selectGateway({ config: { gateway: "rust" } }).kind).toBe("rust");
     expect(selectGateway({ env: { MAW_GATEWAY: "rust" }, config: { gateway: "bun" } }).kind).toBe("rust");
     expect(selectGateway({ cliGateway: "bun", env: { MAW_GATEWAY: "rust" }, config: { gateway: "rust" } }).kind).toBe("bun");
@@ -45,13 +48,10 @@ describe("gateway selector (#2566)", () => {
     const cases = [
       [{ cliGateway: "bun" }, "bun"],
       [{ cliGateway: "rust" }, "rust"],
-      [{ cliGateway: "auto" }, "auto"],
       [{ env: { MAW_GATEWAY: "bun" } }, "bun"],
       [{ env: { MAW_GATEWAY: "rust" } }, "rust"],
-      [{ env: { MAW_GATEWAY: "auto" } }, "auto"],
       [{ config: { gateway: "bun" } }, "bun"],
       [{ config: { gateway: "rust" } }, "rust"],
-      [{ config: { gateway: "auto" } }, "auto"],
     ] as const;
 
     for (const [input, kind] of cases) {
@@ -67,10 +67,8 @@ describe("gateway selector (#2566)", () => {
     expect(debugCalls).toEqual([]);
 
     expect(selectGateway({ cliGateway: "rust", log }).kind).toBe("rust");
-    expect(selectGateway({ cliGateway: "auto", log }).kind).toBe("auto");
     expect(debugCalls).toEqual([
       "[gateway] selected rust gateway instead of default bun",
-      "[gateway] selected auto gateway instead of default bun",
     ]);
   });
 
@@ -83,8 +81,9 @@ describe("gateway selector (#2566)", () => {
 
   test("rejects invalid gateway values at the selection boundary", () => {
     expect(normalizeGateway("BUN")).toBe("bun");
-    expect(() => selectGateway({ cliGateway: "sidecar" })).toThrow("--gateway must be one of: bun, rust, auto");
-    expect(() => normalizeGateway(7, "config.gateway")).toThrow("config.gateway must be one of: bun, rust, auto");
+    expect(() => selectGateway({ cliGateway: "auto" })).toThrow("--gateway must be one of: bun, rust");
+    expect(() => selectGateway({ cliGateway: "sidecar" })).toThrow("--gateway must be one of: bun, rust");
+    expect(() => normalizeGateway(7, "config.gateway")).toThrow("config.gateway must be one of: bun, rust");
   });
 
   test("maw serve forwards --gateway without treating it as an unknown flag", async () => {
@@ -95,11 +94,55 @@ describe("gateway selector (#2566)", () => {
     expect(calls).toContainEqual({ type: "start", port: 4567, options: { verbosity: 1, gateway: "rust" } });
   });
 
-  test("maw serve accepts --gateway=auto and preserves --as handling", async () => {
+  test("maw serve accepts --gateway=bun and preserves --as handling", async () => {
     const calls: Array<Record<string, unknown>> = [];
-    await expect(routeToolsWithDeps("serve", ["serve", "--gateway=auto", "--as", "blue", "4568"], routeDeps(calls))).resolves.toBe(true);
+    await expect(routeToolsWithDeps("serve", ["serve", "--gateway=bun", "--as", "blue", "4568"], routeDeps(calls))).resolves.toBe(true);
 
     expect(calls).toContainEqual({ type: "lock", instanceName: "blue", opts: { forceTakeover: false } });
-    expect(calls).toContainEqual({ type: "start", port: 4568, options: { verbosity: 1, gateway: "auto" } });
+    expect(calls).toContainEqual({ type: "start", port: 4568, options: { verbosity: 1, gateway: "bun" } });
+  });
+
+  test("RustGateway.start throws UserError when maw-gateway is not found", async () => {
+    expect(resolveGatewayBinary({ PATH: "/definitely/missing" })).toBeNull();
+    await expect(selectGateway({ cliGateway: "rust" }).start(4569)).rejects.toThrow("maw-gateway binary not found");
+  });
+
+  test("RustGateway.start passes only allowlisted environment to maw-gateway", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-gateway-env-"));
+    const binary = join(tmp, "maw-gateway");
+    const envFile = join(tmp, "env.txt");
+    const previous = {
+      MAW_GATEWAY_BIN: process.env.MAW_GATEWAY_BIN,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    };
+    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\necho "listening on :$3"\nsleep 30\n`);
+    chmodSync(binary, 0o755);
+
+    try {
+      process.env.MAW_GATEWAY_BIN = binary;
+      process.env.ANTHROPIC_API_KEY = "secret-anthropic";
+      process.env.GITHUB_TOKEN = "secret-github";
+
+      const child = await selectGateway({ cliGateway: "rust" }).start(4570) as { kill: () => void; once: (event: string, cb: () => void) => void };
+      const envText = readFileSync(envFile, "utf8");
+      expect(envText).toContain("PORT=4570");
+      expect(envText).not.toContain("ANTHROPIC_API_KEY");
+      expect(envText).not.toContain("GITHUB_TOKEN");
+      expect(envText).not.toContain("secret-anthropic");
+      expect(envText).not.toContain("secret-github");
+      await new Promise<void>((resolve) => {
+        child.once("exit", resolve);
+        child.kill();
+      });
+    } finally {
+      if (previous.MAW_GATEWAY_BIN === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous.MAW_GATEWAY_BIN;
+      if (previous.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous.ANTHROPIC_API_KEY;
+      if (previous.GITHUB_TOKEN === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = previous.GITHUB_TOKEN;
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -1,8 +1,11 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import type { MawConfig } from "../config/types";
 import { UserError } from "./util/user-error";
 import type { StartServerOptions } from "./server";
 
-export type GatewayKind = "bun" | "rust" | "auto";
+export type GatewayKind = "bun" | "rust";
 
 export type GatewayStartOptions = StartServerOptions & {
   gateway?: GatewayKind;
@@ -20,14 +23,23 @@ export type Gateway = {
   start(port: number, options?: GatewayStartOptions): Promise<unknown>;
 };
 
-const VALID_GATEWAYS = new Set<GatewayKind>(["bun", "rust", "auto"]);
+const VALID_GATEWAYS = new Set<GatewayKind>(["bun", "rust"]);
+const GATEWAY_LIST = "bun, rust";
+const RUST_GATEWAY_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "MAW_GATEWAY_BIN",
+  "PORT",
+  "MAW_HOME",
+  "XDG_CONFIG_HOME",
+] as const;
 
 export function normalizeGateway(value: unknown, source = "gateway"): GatewayKind | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value !== "string") throw new UserError(`${source} must be one of: bun, rust, auto`);
+  if (typeof value !== "string") throw new UserError(`${source} must be one of: ${GATEWAY_LIST}`);
   const normalized = value.trim().toLowerCase();
   if (VALID_GATEWAYS.has(normalized as GatewayKind)) return normalized as GatewayKind;
-  throw new UserError(`${source} must be one of: bun, rust, auto`);
+  throw new UserError(`${source} must be one of: ${GATEWAY_LIST}`);
 }
 
 /**
@@ -45,17 +57,11 @@ export function selectGateway(input: GatewaySelectionInput = {}): Gateway {
   }
 
   if (selected === "rust") return new RustGateway();
-  // auto remains conservative in Phase 2: preserve the existing Bun/Elysia path
-  // until the external maw-gateway binary is production-ready.
-  return new BunGateway(selected);
+  return new BunGateway();
 }
 
 class BunGateway implements Gateway {
-  readonly kind: GatewayKind;
-
-  constructor(kind: GatewayKind = "bun") {
-    this.kind = kind;
-  }
+  readonly kind = "bun" as const;
 
   async start(port: number, options: GatewayStartOptions = {}): Promise<unknown> {
     const { startBunGatewayServer } = await import("./server");
@@ -63,21 +69,112 @@ class BunGateway implements Gateway {
   }
 }
 
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findOnPath(binary: string, pathValue = process.env.PATH ?? ""): string | null {
+  if (binary.includes("/") || binary.includes("\\") || isAbsolute(binary)) {
+    return isExecutable(binary) ? binary : null;
+  }
+  for (const dir of pathValue.split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, binary);
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
+}
+
+export function resolveGatewayBinary(env: Pick<NodeJS.ProcessEnv, "MAW_GATEWAY_BIN" | "PATH"> = process.env): string | null {
+  const configured = env.MAW_GATEWAY_BIN?.trim();
+  if (configured) return findOnPath(configured, env.PATH);
+  return findOnPath("maw-gateway", env.PATH);
+}
+
+function rustGatewayEnv(source: NodeJS.ProcessEnv, port: number): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { PORT: String(port) };
+  for (const key of RUST_GATEWAY_ENV_ALLOWLIST) {
+    const value = key === "PORT" ? String(port) : source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
 class RustGateway implements Gateway {
   readonly kind = "rust" as const;
 
-  constructor(private readonly binary = process.env.MAW_GATEWAY_BIN || "maw-gateway") {}
+  constructor(private readonly binary = resolveGatewayBinary()) {}
 
-  async start(port: number, options: GatewayStartOptions = {}): Promise<unknown> {
-    const verbosity = options.verbosity ?? 1;
-    if (verbosity >= 1) {
-      console.warn(
-        `[gateway:rust] ${this.binary} stub selected for port ${port}; ` +
-        `IPC contract register/request/response/ws-frame/ping/pong over /tmp/maw-${port}.sock or TCP is not wired yet; falling back to BunGateway.`,
-      );
-    }
-    // Phase 2 intentionally preserves runtime behavior while creating the seam
-    // where the future Rust gateway process will be spawned and supervised.
-    return new BunGateway("bun").start(port, { ...options, gateway: "bun" });
+  async start(port: number): Promise<ChildProcessWithoutNullStreams> {
+    if (!this.binary) throw new UserError("maw-gateway binary not found");
+
+    const child = spawn(this.binary, ["serve", "--port", String(port)], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: rustGatewayEnv(process.env, port),
+    });
+
+    const readyNeedle = `listening on :${port}`;
+    let stdout = "";
+    let stderr = "";
+
+    return await new Promise<ChildProcessWithoutNullStreams>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        fail(new UserError(`maw-gateway did not report readiness on :${port}`));
+      }, 5_000);
+
+      const cleanupReadinessListeners = () => {
+        clearTimeout(timeout);
+        child.stdout.off("data", onStdout);
+        child.stderr.off("data", onStderr);
+        child.off("error", onError);
+        child.off("exit", onExitBeforeReady);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanupReadinessListeners();
+        if (!child.killed) child.kill();
+        reject(error);
+      };
+      const supervise = () => {
+        child.on("exit", (code, signal) => {
+          console.warn("[gateway:rust] process exited", { code, signal });
+        });
+        process.once("exit", () => {
+          if (!child.killed) child.kill();
+        });
+      };
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        cleanupReadinessListeners();
+        supervise();
+        resolve(child);
+      };
+      const onStdout = (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+        if (stdout.includes(readyNeedle)) succeed();
+      };
+      const onStderr = (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      };
+      const onError = (error: Error) => {
+        fail(new UserError(`failed to start maw-gateway: ${error.message}`));
+      };
+      const onExitBeforeReady = (code: number | null, signal: NodeJS.Signals | null) => {
+        fail(new UserError(`maw-gateway exited before readiness (${signal ?? `code ${code ?? "unknown"}`})${stderr ? `: ${stderr.trim()}` : ""}`));
+      };
+
+      child.stdout.on("data", onStdout);
+      child.stderr.on("data", onStderr);
+      child.once("error", onError);
+      child.once("exit", onExitBeforeReady);
+    });
   }
 }

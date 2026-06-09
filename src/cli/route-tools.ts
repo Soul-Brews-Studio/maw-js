@@ -16,7 +16,7 @@ const CORE_HELP: Record<string, string> = {
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
   audit: "usage: maw audit [limit]",
-  serve: "usage: maw serve [port] [--gateway bun|rust|auto] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv] | maw serve status|--status|stop",
+  serve: "usage: maw serve [port] [--gateway bun|rust] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv] | maw serve status|--status|stop",
 };
 
 type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
@@ -129,14 +129,14 @@ function readServeGatewayFlag(serveArgs: string[]): { gateway?: GatewayKind; arg
     const arg = serveArgs[i];
     if (arg === "--gateway") {
       const value = serveArgs[i + 1];
-      if (value === undefined) throw new UserError("--gateway requires one of: bun, rust, auto");
+      if (value === undefined) throw new UserError("--gateway requires one of: bun, rust");
       gateway = normalizeGateway(value, "--gateway");
       i++;
       continue;
     }
     if (arg.startsWith("--gateway=")) {
       const value = arg.slice("--gateway=".length);
-      if (!value) throw new UserError("--gateway requires one of: bun, rust, auto");
+      if (!value) throw new UserError("--gateway requires one of: bun, rust");
       gateway = normalizeGateway(value, "--gateway");
       continue;
     }
@@ -375,7 +375,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const unknownFlag = filteredArgs.find(a => a.startsWith("-"));
     if (unknownFlag) {
       deps.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
-      deps.error(`  usage: maw serve [port] [--gateway bun|rust|auto] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv]  (run 'maw serve --help' for more)`);
+      deps.error(`  usage: maw serve [port] [--gateway bun|rust] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv]  (run 'maw serve --help' for more)`);
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));
