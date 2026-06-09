@@ -58,7 +58,7 @@ export function checkCapacity(
       `agent concurrency cap reached: ${liveAgents}/${cap} agents already live — ` +
       `refusing to spawn '${spawning}'.\n\n` +
       `Config: ${sourceLine}\n\n` +
-      `Fix: Raise limits.maxConcurrentAgents in your maw config ` +
+      `Fix: maw config set limits.maxConcurrentAgents ${Math.max(cap + 1, liveAgents + 1)} ` +
       `or sleep an idle agent first (maw sleep <agent>).`,
     );
   }
@@ -136,7 +136,7 @@ export async function assertAgentCapacity(spawning: string): Promise<void> {
       `Active agents:\n${table}\n\n` +
       `Config: ${sourceLine}\n\n` +
       `Fix: maw sleep <name>  — free a slot by sleeping an idle agent\n` +
-      `     Set limits.maxConcurrentAgents in your maw config to raise the cap`,
+      `     maw config set limits.maxConcurrentAgents ${Math.max(cap + 1, agents.length + 1)}`,
     );
   }
 }

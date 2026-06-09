@@ -112,6 +112,24 @@ function validateExtFields(
     if (Object.keys(discovery).length > 0) result.discovery = discovery;
   }
 
+  // limits: Record<string, number >= 0>. Keep the object generic so new typed
+  // limits can be introduced without a validator whitelist update (#2602).
+  if ("limits" in raw) {
+    if (raw.limits && typeof raw.limits === "object" && !Array.isArray(raw.limits)) {
+      const limits: Record<string, number> = {};
+      for (const [key, value] of Object.entries(raw.limits as Record<string, unknown>)) {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          limits[key] = value;
+        } else {
+          warn(`limits.${key}`, "must be a number >= 0");
+        }
+      }
+      if (Object.keys(limits).length > 0) result.limits = limits;
+    } else {
+      warn("limits", "must be an object");
+    }
+  }
+
   // pluginSources: string[] of URLs
   if ("pluginSources" in raw) {
     if (Array.isArray(raw.pluginSources)) {

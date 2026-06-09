@@ -191,6 +191,16 @@ export function validateConfigShape(config: unknown): string[] {
     }
   }
 
+  if (c.limits !== undefined) {
+    if (!c.limits || typeof c.limits !== "object" || Array.isArray(c.limits)) {
+      errors.push("limits must be a Record<string, number>");
+    } else {
+      for (const [k, v] of Object.entries(c.limits as Record<string, unknown>)) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0) errors.push(`limits.${k} must be a number >= 0`);
+      }
+    }
+  }
+
   if (c.sessions !== undefined) {
     if (!c.sessions || typeof c.sessions !== "object" || Array.isArray(c.sessions)) {
       errors.push("sessions must be a Record<string, string>");

@@ -9,7 +9,7 @@ export default definePlugin({
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "config",
-    "help": "maw config <show|sources|explain <key>> [--json] — inspect merged config and config layer provenance"
+    "help": "maw config <show|sources|explain <key>|set <key> <value>> [--json] — inspect or update merged config and config layer provenance"
   },
   "weight": 10,
   "tier": "standard"

@@ -20,6 +20,9 @@ const loadedConfig = {
     teams: {
       default: ["a", "b"],
     },
+    limits: {
+      maxConcurrentAgents: 20,
+    },
   },
   sources: [
     {
@@ -42,6 +45,26 @@ const loadedConfig = {
     },
   ],
   provenance: {
+    "limits": [
+      {
+        path: "/etc/maw/core.config.json",
+        weight: 10,
+        isLocal: false,
+        scope: "core",
+        action: "set",
+        value: { maxConcurrentAgents: 10 },
+      },
+    ],
+    "limits.maxConcurrentAgents": [
+      {
+        path: "/cwd/maw.config.json",
+        weight: 0,
+        isLocal: true,
+        scope: "project",
+        action: "set",
+        value: 20,
+      },
+    ],
     "teams.default": [
       {
         path: "/etc/maw/core.config.json",
@@ -66,9 +89,14 @@ const loadedConfig = {
 
 let loadCallCount = 0;
 let lastLoadOptions: unknown;
+let savedPatch: unknown;
 
 mock.module(import.meta.resolve("../../src/config.ts"), () => ({
   ...mockConfigModule(() => loadedConfig.config as any),
+  saveConfig: (patch: unknown) => {
+    savedPatch = patch;
+    return { ...loadedConfig.config, limits: { maxConcurrentAgents: 25 } };
+  },
   loadConfigWithProvenance: (opts?: unknown) => {
     loadCallCount += 1;
     lastLoadOptions = opts;
@@ -90,6 +118,7 @@ describe("src/commands/plugins/config/index.ts", () => {
   beforeEach(() => {
     loadCallCount = 0;
     lastLoadOptions = undefined;
+    savedPatch = undefined;
   });
 
   test("exports metadata", () => {
@@ -135,6 +164,15 @@ describe("src/commands/plugins/config/index.ts", () => {
     });
   });
 
+  test("set accepts dot-path nested keys and numeric values", async () => {
+    const logs: string[] = [];
+    const result = await run(["set", "limits.maxConcurrentAgents", "25", "--json"], (...parts) => logs.push(parts.map(String).join(" ")));
+
+    expect(result.ok).toBe(true);
+    expect(savedPatch).toEqual({ limits: { maxConcurrentAgents: 25 } });
+    expect(JSON.parse(logs.join("\n"))).toEqual({ key: "limits.maxConcurrentAgents", value: 25 });
+  });
+
   test("explain returns provenance and final value", async () => {
     const logs: string[] = [];
     const result = await run(
@@ -148,6 +186,19 @@ describe("src/commands/plugins/config/index.ts", () => {
       key: "teams.default",
       finalValue: ["a", "b"],
       entries: loadedConfig.provenance["teams.default"],
+    });
+  });
+
+  test("explain resolves nested limits final value and provenance", async () => {
+    const logs: string[] = [];
+    const result = await run(["explain", "limits.maxConcurrentAgents", "--json"], (...parts) => logs.push(parts.map(String).join(" ")));
+
+    const payload = JSON.parse(logs.join("\n"));
+    expect(result.ok).toBe(true);
+    expect(payload).toEqual({
+      key: "limits.maxConcurrentAgents",
+      finalValue: 20,
+      entries: loadedConfig.provenance["limits.maxConcurrentAgents"],
     });
   });
 
@@ -165,7 +216,7 @@ describe("src/commands/plugins/config/index.ts", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "usage: maw config <show|sources|explain <key>> [--json]",
+      error: "usage: maw config <show|sources|explain <key>|set <key> <value>> [--json]",
     });
   });
 });

@@ -88,8 +88,8 @@ describe("checkCapacity — pure cap decision (#2)", () => {
     expect(() => checkCapacity(8, 5, "pulse")).toThrow(/8\/5/);
   });
 
-  test("error message is actionable — names the config knob", () => {
-    expect(() => checkCapacity(5, 5, "neo")).toThrow(/maxConcurrentAgents/);
+  test("error message is actionable — names the config set command", () => {
+    expect(() => checkCapacity(5, 5, "neo")).toThrow(/maw config set limits\.maxConcurrentAgents 6/);
   });
 
   test("error message can include the exact config source line", () => {
@@ -157,6 +157,7 @@ describe("assertAgentCapacity — the guard cmdWake calls before spawning", () =
 
     await expect(assertAgentCapacity("neo")).rejects.toThrow(/concurrency cap reached: 3\/2/);
     await expect(assertAgentCapacity("neo")).rejects.toThrow(/Config: limits\.maxConcurrentAgents: 2 from \/tmp\/maw\/maw\.config\.90\.local\.json/);
+    await expect(assertAgentCapacity("neo")).rejects.toThrow(/maw config set limits\.maxConcurrentAgents 4/);
   });
 
   test("exactly at cap → rejects (cap is inclusive)", async () => {
