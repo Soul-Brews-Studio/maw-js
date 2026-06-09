@@ -99,6 +99,13 @@ describe("gateway selector (#2566)", () => {
     expect(calls).toContainEqual({ type: "start", port: 4568, options: { verbosity: 1, gateway: "bun", forceTakeover: false } });
   });
 
+  test("maw serve preserves frame verbosity when forwarding rust gateway startup options", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await expect(routeToolsWithDeps("serve", ["serve", "--gateway", "rust", "-vvvv", "4569"], routeDeps(calls))).resolves.toBe(true);
+
+    expect(calls).toContainEqual({ type: "start", port: 4569, options: { verbosity: 4, gateway: "rust", forceTakeover: false } });
+  });
+
   test("RustGateway.start throws UserError when maw-gateway is not found", async () => {
     const previous = process.env.MAW_GATEWAY_BIN;
     try {

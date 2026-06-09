@@ -62,14 +62,14 @@ describe("RustGateway port cleanup", () => {
     chmodSync(binary, 0o755);
     process.env.MAW_GATEWAY_BIN = binary;
     try {
-      const child = await selectGateway({ cliGateway: "rust" }).start(4788) as FakeChild;
+      const child = await selectGateway({ cliGateway: "rust" }).start(4788, { verbosity: 4 }) as FakeChild;
 
       expect(calls[0]).toContain("exec:lsof -ti :4788 | xargs kill");
       expect(calls[0]).toContain('{"stdio":"ignore"}');
       expect(calls[1]).toContain("exec:lsof -ti :4789 | xargs kill");
-      expect(calls).toContain('bun:4789:{"gateway":"bun"}');
+      expect(calls).toContain('bun:4789:{"verbosity":4,"gateway":"bun"}');
       const spawnCall = calls.find(call => call.startsWith(`spawn:${binary}:`));
-      expect(spawnCall).toContain('["serve","--port","4788","--backend","4789"]');
+      expect(spawnCall).toContain('["serve","--port","4788","--backend","4789","--verbose","4"]');
       expect(spawnCall).toContain('"PORT":"4788"');
       expect(spawnCall).toContain('"MAW_BACKEND_PORT":"4789"');
       expect(spawnCall).not.toContain("ANTHROPIC_API_KEY");

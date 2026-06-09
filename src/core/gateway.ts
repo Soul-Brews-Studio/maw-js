@@ -139,8 +139,10 @@ class RustGateway implements Gateway {
     await cleanupGatewayPort(port);
     await cleanupGatewayPort(backendPort);
     const backend = await new BunGateway().start(backendPort, { ...options, gateway: "bun" });
+    const childArgs = ["serve", "--port", String(port), "--backend", String(backendPort)];
+    if (typeof options.verbosity === "number") childArgs.push("--verbose", String(Math.max(0, Math.min(4, options.verbosity))));
 
-    const child = spawn(this.binary, ["serve", "--port", String(port), "--backend", String(backendPort)], {
+    const child = spawn(this.binary, childArgs, {
       stdio: ["ignore", "pipe", "pipe"],
       env: rustGatewayEnv(process.env, port, backendPort),
     });
