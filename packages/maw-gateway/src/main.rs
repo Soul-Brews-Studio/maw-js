@@ -1,6 +1,15 @@
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{
+    body::Body,
+    extract::State,
+    http::Request,
+    middleware::{self, Next},
+    response::Response,
+    routing::get,
+    Json, Router,
+};
 use serde::Serialize;
-use std::{env, net::SocketAddr, process};
+use std::{env, net::SocketAddr, process, time::Instant};
+use tower_http::trace::TraceLayer;
 
 #[derive(Clone)]
 struct AppState {
@@ -20,6 +29,23 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         gateway: "rust",
         port: state.port,
     })
+}
+
+async fn log_request(request: Request<Body>, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let started = Instant::now();
+    let response = next.run(request).await;
+    let elapsed_ms = started.elapsed().as_millis();
+
+    println!(
+        "{} {} {} {}ms",
+        method,
+        path,
+        response.status().as_u16(),
+        elapsed_ms
+    );
+    response
 }
 
 fn usage() -> ! {
@@ -54,6 +80,22 @@ fn parse_port(args: &[String]) -> u16 {
     port.unwrap_or_else(|| usage())
 }
 
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = terminate.recv() => {},
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -61,6 +103,8 @@ async fn main() {
     let state = AppState { port };
     let app = Router::new()
         .route("/api/health", get(health))
+        .layer(middleware::from_fn(log_request))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -72,7 +116,10 @@ async fn main() {
     };
 
     println!("listening on :{}", port);
-    if let Err(error) = axum::serve(listener, app).await {
+    if let Err(error) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+    {
         eprintln!("server error: {}", error);
         process::exit(1);
     }

@@ -143,6 +143,8 @@ class RustGateway implements Gateway {
         reject(error);
       };
       const supervise = () => {
+        child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+        child.stderr.on("data", (chunk) => process.stderr.write(chunk));
         child.on("exit", (code, signal) => {
           console.warn("[gateway:rust] process exited", { code, signal });
         });

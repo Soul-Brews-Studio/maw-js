@@ -103,8 +103,15 @@ describe("gateway selector (#2566)", () => {
   });
 
   test("RustGateway.start throws UserError when maw-gateway is not found", async () => {
-    expect(resolveGatewayBinary({ PATH: "/definitely/missing" })).toBeNull();
-    await expect(selectGateway({ cliGateway: "rust" }).start(4569)).rejects.toThrow("maw-gateway binary not found");
+    const previous = process.env.MAW_GATEWAY_BIN;
+    try {
+      process.env.MAW_GATEWAY_BIN = "/definitely/missing/maw-gateway";
+      expect(resolveGatewayBinary({ PATH: "/definitely/missing" })).toBeNull();
+      await expect(selectGateway({ cliGateway: "rust" }).start(4569)).rejects.toThrow("maw-gateway binary not found");
+    } finally {
+      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous;
+    }
   });
 
   test("RustGateway.start passes only allowlisted environment to maw-gateway", async () => {
@@ -115,14 +122,20 @@ describe("gateway selector (#2566)", () => {
       MAW_GATEWAY_BIN: process.env.MAW_GATEWAY_BIN,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+      stdoutWrite: process.stdout.write,
     };
-    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\necho "listening on :$3"\nsleep 30\n`);
+    const forwarded: string[] = [];
+    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\necho "listening on :$3"\nsleep 0.1\necho "forwarded after readiness"\nsleep 30\n`);
     chmodSync(binary, 0o755);
 
     try {
       process.env.MAW_GATEWAY_BIN = binary;
       process.env.ANTHROPIC_API_KEY = "secret-anthropic";
       process.env.GITHUB_TOKEN = "secret-github";
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        forwarded.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
 
       const child = await selectGateway({ cliGateway: "rust" }).start(4570) as { kill: () => void; once: (event: string, cb: () => void) => void };
       const envText = readFileSync(envFile, "utf8");
@@ -131,11 +144,16 @@ describe("gateway selector (#2566)", () => {
       expect(envText).not.toContain("GITHUB_TOKEN");
       expect(envText).not.toContain("secret-anthropic");
       expect(envText).not.toContain("secret-github");
+      for (let i = 0; i < 20 && !forwarded.join("").includes("forwarded after readiness"); i++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(forwarded.join("")).toContain("forwarded after readiness");
       await new Promise<void>((resolve) => {
         child.once("exit", resolve);
         child.kill();
       });
     } finally {
+      process.stdout.write = previous.stdoutWrite;
       if (previous.MAW_GATEWAY_BIN === undefined) delete process.env.MAW_GATEWAY_BIN;
       else process.env.MAW_GATEWAY_BIN = previous.MAW_GATEWAY_BIN;
       if (previous.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;

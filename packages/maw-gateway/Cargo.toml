@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.6", features = ["trace"] }
