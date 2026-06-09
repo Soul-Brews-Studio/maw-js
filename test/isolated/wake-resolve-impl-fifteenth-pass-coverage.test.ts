@@ -298,8 +298,8 @@ describe("resolveOracle fallback branches", () => {
     ghqFindMap = {};
     hostExecHandler = async () => { throw new Error("network down\nmore"); };
     await expect(resolveOracle("broken")).resolves.toBeUndefined();
-    expect(errors.join("\n")).toContain("fleet-pinned Org/broken-oracle clone/update failed: network down");
-    expect(errors.join("\n")).toContain("clone failed and not found locally");
+    expect(errors.join("\n")).toContain("fleet-pinned Org/broken-oracle clone failed: network down");
+    expect(errors.join("\n")).toContain("is not cloned locally");
     expect(exitCodes).toContain(1);
   });
 

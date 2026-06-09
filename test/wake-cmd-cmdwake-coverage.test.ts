@@ -29,6 +29,7 @@ const _rShouldAutoWake =
   await import("../src/commands/shared/should-auto-wake");
 const _rTeamEnsure = await import("../src/commands/plugins/team/ensure-config");
 const _rFleetEnsure = await import("../src/commands/shared/fleet-ensure");
+const _rFleetLoad = await import("../src/commands/shared/fleet-load");
 
 const realSdk = {
   hostExec: _rSdk.hostExec,
@@ -95,6 +96,7 @@ const realClaudeSessions = {
 const realShouldAutoWake = { shouldAutoWake: _rShouldAutoWake.shouldAutoWake };
 const realTeamEnsure = { ensureTeamConfig: _rTeamEnsure.ensureTeamConfig };
 const realFleetEnsure = { ensureFleetSessionEntry: _rFleetEnsure.ensureFleetSessionEntry };
+const realFleetLoad = { loadFleet: _rFleetLoad.loadFleet };
 
 type TmuxWindow = {
   index: number;
@@ -115,6 +117,7 @@ let worktrees: Array<{ name: string; path: string }>;
 let sessions: Array<{ name: string }>;
 let sessionMap: Record<string, string>;
 let fleetSession: string | null;
+let fleetSessions: Array<{ name: string; windows: Array<{ name: string; repo?: string }> }>;
 let detectSessionReturn: string | null;
 let detectSessionByOracle: Record<string, string | null>;
 let shouldWakeDecision: { wake: boolean; reason: string };
@@ -153,6 +156,7 @@ let throwCurrentSessionProbe: boolean;
 
 let logs: string[];
 let hostExecCalls: string[];
+let hostExecImpl: ((cmd: string) => Promise<string>) | null;
 let detectSessionCalls: Array<{ oracle: string; urlRepoName?: string }>;
 let findWorktreesCalls: Array<{ parentDir: string; repoName: string; taskSlug?: string; scopeStem?: string }>;
 let setSessionEnvCalls: string[];
@@ -251,6 +255,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
     }
     if (cmd.includes("list-panes")) return liveTileRoles.join("\n");
     if (cmd.includes("branch --show-current")) return `${branchName}\n`;
+    if (hostExecImpl) return hostExecImpl(cmd);
     return "";
   },
   restoreTabOrder: async (session: string) => {
@@ -590,6 +595,12 @@ mock.module(join(import.meta.dir, "../src/commands/shared/fleet-ensure"), () => 
   },
 }));
 
+mock.module(join(import.meta.dir, "../src/commands/shared/fleet-load"), () => ({
+  ..._rFleetLoad,
+  loadFleet: (...args: Parameters<typeof _rFleetLoad.loadFleet>) =>
+    mockActive ? fleetSessions as ReturnType<typeof _rFleetLoad.loadFleet> : realFleetLoad.loadFleet(...args),
+}));
+
 const { cmdWake, _wtPicker, promptAmbiguousBringPick, WakeSession, parseRehydrationSelection } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
@@ -612,6 +623,7 @@ beforeEach(() => {
   sessions = [{ name: "54-mawjs" }];
   sessionMap = {};
   fleetSession = null;
+  fleetSessions = [];
   detectSessionReturn = "54-mawjs";
   detectSessionByOracle = {};
   shouldWakeDecision = { wake: false, reason: "already-live" };
@@ -638,6 +650,7 @@ beforeEach(() => {
 
   logs = [];
   hostExecCalls = [];
+  hostExecImpl = null;
   detectSessionCalls = [];
   findWorktreesCalls = [];
   setSessionEnvCalls = [];
@@ -808,6 +821,45 @@ describe("cmdWake main-suite coverage", () => {
     expect(logs.join("\n")).not.toContain("drained");
     expect(detectSessionCalls).toHaveLength(0);
     expect(sendTextCalls).toHaveLength(0);
+  });
+
+  test("fleet-pinned numeric wake skips ghq get when the repo already exists", async () => {
+    fleetSessions = [{ name: "12-special", windows: [{ name: "special-oracle", repo: "Org/special-oracle" }] }];
+    ghqFindReturn = "/repos/Org/special-oracle";
+    sessions = [];
+
+    const { result } = await captureLogs(() => cmdWake("12-special", { dryRun: true }));
+
+    expect(result).toBe("54-mawjs:special-oracle");
+    expect(hostExecCalls.filter((cmd) => cmd.startsWith("ghq get"))).toEqual([]);
+  });
+
+  test("fleet-pinned numeric wake bounds missing ghq clone and prints manual hint", async () => {
+    const previousTimeout = process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS;
+    const errors: string[] = [];
+    const originalError = console.error;
+    process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS = "20";
+    fleetSessions = [{ name: "12-special", windows: [{ name: "special-oracle", repo: "Org/special-oracle" }] }];
+    ghqFindReturn = null;
+    sessions = [];
+    hostExecImpl = async (cmd) => {
+      if (cmd.startsWith("ghq get")) return await new Promise<string>(() => {});
+      return "";
+    };
+    console.error = (...parts: unknown[]) => { errors.push(parts.map(String).join(" ")); };
+    const started = Date.now();
+    try {
+      await expect(cmdWake("12-special", { dryRun: true })).rejects.toThrow("run ghq get github.com/Org/special-oracle && maw wake special");
+    } finally {
+      console.error = originalError;
+      if (previousTimeout === undefined) delete process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS;
+      else process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS = previousTimeout;
+    }
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(hostExecCalls.filter((cmd) => cmd.startsWith("ghq get"))).toEqual(["ghq get 'github.com/Org/special-oracle'"]);
+    expect(errors.join("\n")).toContain("timed out after 20ms");
+    expect(errors.join("\n")).toContain("run manually: ghq get github.com/Org/special-oracle && maw wake special");
   });
 
   test("lists worktrees without detecting or mutating tmux", async () => {

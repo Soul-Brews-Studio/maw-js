@@ -882,6 +882,37 @@ async function loadWakeFleetSessions(): Promise<FleetSession[]> {
   }
 }
 
+const DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS = 10_000;
+
+function wakeFleetGhqGetTimeoutMs(): number {
+  const raw = process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS;
+  if (raw === undefined) return DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS;
+}
+
+function isWakeFleetCloneTimeout(error: unknown): boolean {
+  return error instanceof Error && /timed out after \d+ms/.test(error.message);
+}
+
+async function hostExecWakeFleetGhqGet(command: string, timeoutMs: number): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      hostExec(command, undefined, { timeoutMs }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function wakeFleetManualCloneHint(cloneSlug: string, oracle: string): string {
+  return `ghq get github.com/${cloneSlug} && maw wake ${oracle}`;
+}
+
 async function resolveWakeFleetSessionRepo(meta: WakeFleetSessionMetadata): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   const repoStem = fleetRepoStem(meta.repo);
   const existing = await ghqFind(`/${meta.repo}`) || await ghqFind(`/${repoStem}`);
@@ -890,19 +921,25 @@ async function resolveWakeFleetSessionRepo(meta: WakeFleetSessionMetadata): Prom
   }
 
   const cloneSlug = meta.repo.replace(/^github\.com\//i, "");
-  console.log(`\x1b[36m🌱\x1b[0m ${meta.session} pinned in fleet → github.com/${cloneSlug} — cloning to ghq...`);
+  const timeoutMs = wakeFleetGhqGetTimeoutMs();
+  const hint = wakeFleetManualCloneHint(cloneSlug, meta.oracle);
+  console.log(`\x1b[36m🌱\x1b[0m ${meta.session} pinned in fleet → github.com/${cloneSlug} — checking ghq clone (bounded ${Math.ceil(timeoutMs / 1000)}s)...`);
   try {
-    await hostExec(`ghq get -u 'github.com/${cloneSlug}'`);
+    await hostExecWakeFleetGhqGet(`ghq get 'github.com/${cloneSlug}'`, timeoutMs);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${cloneSlug} clone/update failed: ${msg.split("\n")[0]}`);
+    const reason = isWakeFleetCloneTimeout(e) ? `timed out after ${timeoutMs}ms` : msg.split("\n")[0];
+    console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${cloneSlug} clone failed: ${reason}`);
+    console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
   }
   const cloned = await ghqFind(`/${meta.repo}`) || await ghqFind(`/${repoStem}`);
   if (cloned) {
     console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
     return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
   }
-  throw new Error(`fleet-pinned ${meta.repo} for session ${meta.session} — clone failed and not found locally`);
+  console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${meta.repo} for session ${meta.session} is not cloned locally`);
+  console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
+  throw new Error(`fleet-pinned ${meta.repo} for session ${meta.session} not found locally; run ${hint}`);
 }
 
 export async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {

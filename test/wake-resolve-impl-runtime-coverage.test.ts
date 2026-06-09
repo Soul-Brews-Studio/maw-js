@@ -306,7 +306,7 @@ describe("resolveOracle runtime paths", () => {
     writeFleet("12-special", [{ name: "special-oracle", repo: "Org/special-oracle" }]);
     ghqFindImpl = async (query) => ghqFindMap[query] ?? null;
     hostExecImpl = async (cmd) => {
-      if (cmd.includes("ghq get -u 'github.com/Org/special-oracle'")) {
+      if (cmd.includes("ghq get 'github.com/Org/special-oracle'")) {
         ghqFindMap["/special-oracle"] = "/repos/Org/special-oracle";
       }
       return "";
@@ -342,9 +342,9 @@ describe("resolveOracle runtime paths", () => {
 
     await expect(resolveOracle("broken")).resolves.toEqual(scanSuggestResult);
 
-    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle clone/update failed: network down"))).toBe(true);
-    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle — clone failed"))).toBe(true);
-    expect(errors.some((line) => line.includes("ghq get -u 'github.com/Org/broken-oracle'"))).toBe(true);
+    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle clone failed: network down"))).toBe(true);
+    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle is not cloned locally"))).toBe(true);
+    expect(errors.some((line) => line.includes("ghq get github.com/Org/broken-oracle && maw wake broken"))).toBe(true);
     expect(exitCalls).toContain(1);
   });
 
