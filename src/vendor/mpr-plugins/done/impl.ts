@@ -1,10 +1,13 @@
 import { join } from "path";
+import { existsSync, readdirSync } from "fs";
 import { listSessions } from "maw-js/sdk";
 import { getGhqRoot } from "maw-js/config/ghq-root";
 import { takeSnapshot } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
 import { resolveOracle } from "maw-js/commands/shared/wake-resolve";
+import { readTeamCharter, type TeamCharter } from "maw-js/vendor/mpr-plugins/team/team-charter";
+import { findRepoRoot, resolveCharterPath } from "maw-js/vendor/mpr-plugins/team/team-liveness";
 import { signalParentInbox, autoSave } from "./done-autosave";
 import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig, warnRemainingWorktrees } from "./done-worktree";
 
@@ -21,6 +24,7 @@ export interface DoneOpts {
 
 type DoneWindow = { index: number; name: string; active: boolean };
 type DoneSession = { name: string; windows: DoneWindow[] };
+type TeamCharterMember = TeamCharter["members"][number] & { isLead?: boolean };
 
 export interface DoneAllSummary {
   sessionName: string | null;
@@ -34,6 +38,69 @@ function doneAllSessionStem(name: string): string {
 
 function doneAllCompactStem(name: string): string {
   return doneAllSessionStem(name).replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeWindowName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function windowIdentityVariants(raw: string): string[] {
+  const clean = normalizeWindowName(raw);
+  if (!clean) return [];
+  const short = clean.replace(/-oracle$/i, "");
+  return [...new Set([clean, short])];
+}
+
+function isLeadMember(member: TeamCharterMember): boolean {
+  if (typeof member.isLead === "boolean") return member.isLead;
+  return member.role === "lead" || member.role === "bridge";
+}
+
+function leadWindowCandidates(charter: TeamCharter | null): string[] {
+  if (!charter) return [];
+  const out = new Set<string>();
+  for (const member of charter.members) {
+    if (!isLeadMember(member)) continue;
+    const raw = (member.name || member.role || "").trim();
+    if (!raw) continue;
+    for (const alias of windowIdentityVariants(raw)) out.add(alias);
+  }
+  return [...out];
+}
+
+function resolveTeamCharterPath(session: DoneSession): string | null {
+  const stem = doneAllSessionStem(session.name);
+  const repoRoot = findRepoRoot();
+  const direct = resolveCharterPath(stem, repoRoot);
+  if (direct) return direct;
+
+  const candidates = [
+    join(repoRoot, ".maw", "teams"),
+    join(repoRoot, "ψ", "teams"),
+  ];
+  for (const dir of candidates) {
+    if (!existsSync(dir)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".yaml") && !entry.endsWith(".yml")) continue;
+      const path = join(dir, entry);
+      try {
+        const charter = readTeamCharter(path);
+        const candidateNames = leadWindowCandidates(charter);
+        if (!candidateNames.length) continue;
+        const hasMatch = session.windows.some((window) => candidateNames.includes(normalizeWindowName(window.name)));
+        if (hasMatch) return path;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
 }
 
 async function currentSessionName(sessions: DoneSession[], oracle?: string): Promise<string | null> {
@@ -70,7 +137,8 @@ async function currentSessionName(sessions: DoneSession[], oracle?: string): Pro
 function nonLeadWindows(session: DoneSession): DoneWindow[] {
   const windows = [...session.windows];
   if (windows.length === 0) return [];
-  const leadIndex = Math.min(...windows.map(w => w.index));
+  const lead = leadWindow(session);
+  const leadIndex = lead?.index ?? Math.min(...windows.map((w) => w.index));
   return windows
     .filter(w => w.index !== leadIndex)
     .sort((a, b) => a.index - b.index);
@@ -89,7 +157,27 @@ function failMissingDoneTarget(windowName: string): never {
 
 function leadWindow(session: DoneSession): DoneWindow | null {
   if (session.windows.length === 0) return null;
+
+  const charterPath = resolveTeamCharterPath(session);
+  if (charterPath) {
+    let charter: TeamCharter | null = null;
+    try {
+      charter = readTeamCharter(charterPath);
+    } catch {
+      console.warn(`  ⚠ could not read team charter ${charterPath}; falling back to first window`);
+    }
+    if (charter) {
+      const candidates = new Set(leadWindowCandidates(charter));
+      const found = session.windows.filter((window) => candidates.has(normalizeWindowName(window.name)));
+      if (found.length > 0) {
+        return found.sort((a, b) => a.index - b.index)[0] ?? null;
+      }
+      console.warn(`  ⚠ team charter ${charterPath} has no matching lead window; falling back to first window`);
+    }
+  }
+
   const leadIndex = Math.min(...session.windows.map(w => w.index));
+  if (charterPath) console.warn(`  ⚠ fallback lead-window heuristic for session ${session.name}: using lowest tmux index`);
   return session.windows.find(w => w.index === leadIndex) ?? null;
 }
 
@@ -100,7 +188,9 @@ async function currentTmuxIdentity(): Promise<{ sessionName: string; windowIndex
     const windowIndex = Number(indexRaw);
     if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
   } catch {
-    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
+    // Outside tmux or tmux unavailable. Keep from blocking; lead context is
+    // impossible to verify from this execution path.
+    return null;
   }
   return null;
 }
@@ -114,6 +204,9 @@ async function assertDoneMayTargetWindow(
   if (!lead || lead.index !== windowIndex) return;
 
   const current = await currentTmuxIdentity();
+  if (!current) {
+    return;
+  }
   if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
 
   const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
