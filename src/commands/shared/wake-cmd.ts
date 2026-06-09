@@ -1158,6 +1158,26 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
+  // #2609 — fuzzy attach targets may only resolve to the canonical oracle name
+  // after resolveOracle() (e.g. `transcri` → `transcriber`). If that canonical
+  // session is already live and has its oracle window, this is a re-attach: do
+  // not drain inbox or run agents/ rehydrate again. The first wake still falls
+  // through because there is no live session/window yet.
+  if (isAttachOnlyWake(opts)) {
+    const liveAttachSession = preResolvedSession || await detectSession(oracle, opts.urlRepoName);
+    if (liveAttachSession) {
+      const attachWindow = preResolvedFleetSession?.windowName || mainWindowNameForWakeSession(sessionContext, oracle);
+      const liveWindows = await tmux.listWindows(liveAttachSession).catch(() => [] as { name: string }[]);
+      if (liveWindows.some(w => w.name === attachWindow)) {
+        console.log(`\x1b[36m→\x1b[0m session exists: ${liveAttachSession}`);
+        await tmux.selectWindow(`${liveAttachSession}:${attachWindow}`);
+        await wakeSession.attachToSession(liveAttachSession);
+        await recordWakeSnapshot(opts);
+        return `${liveAttachSession}:${attachWindow}`;
+      }
+    }
+  }
+
   const drainedInbox = drainWakeInbox(repoPath, { markRead: shouldMarkWakeInboxRead(opts), engine: opts.engine });
   if (drainedInbox.prompt.trim()) {
     opts = { ...opts, prompt: mergeWakeInboxPrompt(opts.prompt, drainedInbox.prompt) };

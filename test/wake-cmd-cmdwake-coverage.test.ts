@@ -116,6 +116,7 @@ let sessions: Array<{ name: string }>;
 let sessionMap: Record<string, string>;
 let fleetSession: string | null;
 let detectSessionReturn: string | null;
+let detectSessionByOracle: Record<string, string | null>;
 let shouldWakeDecision: { wake: boolean; reason: string };
 let snapshotReturn: Snapshot | null;
 let claudeSessions: Array<{
@@ -374,6 +375,9 @@ mock.module(
       if (!mockActive)
         return realWakeResolve.detectSession(oracle, urlRepoName);
       detectSessionCalls.push({ oracle, urlRepoName });
+      if (Object.prototype.hasOwnProperty.call(detectSessionByOracle, oracle)) {
+        return detectSessionByOracle[oracle] ?? null;
+      }
       return detectSessionReturn;
     },
     setSessionEnv: async (session: string) => {
@@ -609,6 +613,7 @@ beforeEach(() => {
   sessionMap = {};
   fleetSession = null;
   detectSessionReturn = "54-mawjs";
+  detectSessionByOracle = {};
   shouldWakeDecision = { wake: false, reason: "already-live" };
   snapshotReturn = null;
   claudeSessions = [];
@@ -914,6 +919,49 @@ describe("cmdWake main-suite coverage", () => {
     expect(detectSessionCalls).toEqual([{ oracle: "mawjs", urlRepoName: undefined }]);
     expect(maybeSplitCalls).toEqual([]);
     expect(maybeOpenWindowCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("#2609 attach re-run fast-path skips inbox and rehydrate after fuzzy resolve", async () => {
+    repoName = "transcriber-oracle";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    detectSessionReturn = null;
+    detectSessionByOracle = { transcri: null, transcriber: "162-transcriber" };
+    sessions = [{ name: "162-transcriber" }];
+    hasSessions = new Set(["162-transcriber"]);
+    windowsBySession = {
+      "162-transcriber": [
+        { index: 0, name: "transcriber-oracle", active: true, cwd: repoPath },
+      ],
+    };
+    worktrees = [
+      { name: "1-agent", path: join(repoPath, "agents", "1-agent") },
+    ];
+    const inboxDir = join(repoPath, "ψ", "inbox");
+    mkdirSync(inboxDir, { recursive: true });
+    writeFileSync(join(inboxDir, "001.md"), "---\nfrom: lead\nread: false\n---\nhello", "utf-8");
+
+    const { result, logs } = await captureLogs(() => cmdWake("transcri", { attach: true }));
+    const rendered = logs.join("\n");
+
+    expect(result).toBe("162-transcriber:transcriber-oracle");
+    expect(detectSessionCalls).toEqual([
+      { oracle: "transcri", urlRepoName: undefined },
+      { oracle: "transcriber", urlRepoName: undefined },
+    ]);
+    expect(selectWindowCalls).toEqual(["162-transcriber:transcriber-oracle"]);
+    expect(attachCalls).toEqual(["162-transcriber"]);
+    expect(rendered).toContain("session exists: 162-transcriber");
+    expect(rendered).not.toContain("📬");
+    expect(rendered).not.toContain("agents/ rehydrate");
+    expect(findWorktreesCalls).toEqual([]);
+    expect(setSessionEnvCalls).toEqual([]);
+    expect(lifecycleCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+    expect(ensureSessionRunningCalls).toEqual([]);
     expect(takeSnapshotCalls).toEqual(["wake"]);
   });
 
