@@ -91,7 +91,7 @@ describe("gateway selector (#2566)", () => {
     await expect(routeToolsWithDeps("serve", ["serve", "--gateway", "rust", "4567", "--force-takeover"], routeDeps(calls))).resolves.toBe(true);
 
     expect(calls).toContainEqual({ type: "lock", instanceName: null, opts: { forceTakeover: true } });
-    expect(calls).toContainEqual({ type: "start", port: 4567, options: { verbosity: 1, gateway: "rust" } });
+    expect(calls).toContainEqual({ type: "start", port: 4567, options: { verbosity: 1, gateway: "rust", forceTakeover: true } });
   });
 
   test("maw serve accepts --gateway=bun and preserves --as handling", async () => {
@@ -99,7 +99,7 @@ describe("gateway selector (#2566)", () => {
     await expect(routeToolsWithDeps("serve", ["serve", "--gateway=bun", "--as", "blue", "4568"], routeDeps(calls))).resolves.toBe(true);
 
     expect(calls).toContainEqual({ type: "lock", instanceName: "blue", opts: { forceTakeover: false } });
-    expect(calls).toContainEqual({ type: "start", port: 4568, options: { verbosity: 1, gateway: "bun" } });
+    expect(calls).toContainEqual({ type: "start", port: 4568, options: { verbosity: 1, gateway: "bun", forceTakeover: false } });
   });
 
   test("RustGateway.start throws UserError when maw-gateway is not found", async () => {

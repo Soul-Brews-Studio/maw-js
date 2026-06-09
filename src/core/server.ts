@@ -50,6 +50,8 @@ export type StartServerOptions = {
   gateway?: GatewayKind;
   /** Optional serve composition profile; default preserves today's full wiring. */
   profile?: ServeProfile;
+  /** Request takeover behavior for gateway implementations that can clear a bound port. */
+  forceTakeover?: boolean;
 };
 
 type ServeLogger = {

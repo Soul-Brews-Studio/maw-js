@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import type { MawConfig } from "../config/types";
@@ -105,6 +105,16 @@ function rustGatewayEnv(source: NodeJS.ProcessEnv, port: number): NodeJS.Process
   return env;
 }
 
+async function cleanupGatewayPort(port: number): Promise<void> {
+  try {
+    execSync(`lsof -ti :${port} | xargs kill 2>/dev/null`, { stdio: "ignore" });
+  } catch {
+    // lsof exits non-zero when the port is free, or may be unavailable on a
+    // minimal system. Either case should not block gateway startup.
+  }
+  await new Promise(resolve => setTimeout(resolve, 500));
+}
+
 class RustGateway implements Gateway {
   readonly kind = "rust" as const;
 
@@ -112,6 +122,8 @@ class RustGateway implements Gateway {
 
   async start(port: number): Promise<ChildProcessWithoutNullStreams> {
     if (!this.binary) throw new UserError("maw-gateway binary not found");
+
+    await cleanupGatewayPort(port);
 
     const child = spawn(this.binary, ["serve", "--port", String(port)], {
       stdio: ["ignore", "pipe", "pipe"],

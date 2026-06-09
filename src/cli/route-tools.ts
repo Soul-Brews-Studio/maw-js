@@ -68,11 +68,11 @@ type ServeStatusTools = {
 
 type ServeStartTools = {
   acquirePidLock: (instanceName: string | null, opts: { forceTakeover: boolean }) => void;
-  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind }) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => Promise<void> | void;
 };
 
 type CoreServerTools = {
-  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind }) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => Promise<void> | void;
 };
 type CoreServerLoader = () => Promise<CoreServerTools>;
 
@@ -203,7 +203,7 @@ export function createDefaultRouteToolsDeps(loadCoreServer?: CoreServerLoader): 
       const { acquirePidLock } = await import("./instance-pid");
       return {
         acquirePidLock,
-        startServer: async (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind }) => {
+        startServer: async (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => {
           const { startServer } = loadCoreServer ? await loadCoreServer() : await import("../core/server");
           await startServer(port, options);
         },
@@ -385,7 +385,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const instanceName = asIdx === -1 ? null : serveArgs[asIdx + 1];
     acquirePidLock(instanceName, { forceTakeover: forceIdx !== -1 });
     if (noScoutIdx !== -1) process.env.MAW_NO_SCOUT = "1";
-    await startServer(portArg ? +portArg : 3456, { verbosity: serveVerbosity, gateway });
+    await startServer(portArg ? +portArg : 3456, { verbosity: serveVerbosity, gateway, forceTakeover: forceIdx !== -1 });
     return true;
   }
   return false;
