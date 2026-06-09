@@ -6,7 +6,13 @@ use axum::{
         ws::{CloseCode, CloseFrame, Message as AxumMessage, WebSocketUpgrade},
         Path, State,
     },
-    http::{Request, StatusCode, Uri},
+    http::{
+        header::{
+            HeaderMap, HeaderName, CONNECTION, CONTENT_LENGTH, HOST, PROXY_AUTHENTICATE,
+            PROXY_AUTHORIZATION, TE, TRAILER, TRANSFER_ENCODING, UPGRADE,
+        },
+        Request, StatusCode, Uri,
+    },
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -253,16 +259,73 @@ fn tungstenite_to_axum(message: WsMessage) -> Option<AxumMessage> {
     }
 }
 
+fn strip_connection_listed_headers(headers: &mut HeaderMap) {
+    let connection_tokens = headers
+        .get(CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    headers.remove(CONNECTION);
+
+    for token in connection_tokens {
+        if let Ok(name) = HeaderName::from_bytes(token.as_bytes()) {
+            headers.remove(name);
+        }
+    }
+}
+
+fn strip_request_proxy_headers(headers: &mut HeaderMap) {
+    strip_connection_listed_headers(headers);
+    for name in [
+        HOST,
+        CONTENT_LENGTH,
+        HeaderName::from_static("keep-alive"),
+        PROXY_AUTHENTICATE,
+        PROXY_AUTHORIZATION,
+        TE,
+        TRAILER,
+        TRANSFER_ENCODING,
+        UPGRADE,
+    ] {
+        headers.remove(name);
+    }
+}
+
+fn strip_response_proxy_headers(headers: &mut HeaderMap) {
+    strip_connection_listed_headers(headers);
+    for name in [
+        CONTENT_LENGTH,
+        HeaderName::from_static("keep-alive"),
+        PROXY_AUTHENTICATE,
+        PROXY_AUTHORIZATION,
+        TE,
+        TRAILER,
+        TRANSFER_ENCODING,
+        UPGRADE,
+    ] {
+        headers.remove(name);
+    }
+}
+
 async fn build_http_request(
     request: Request<Body>,
     target: HyperUri,
 ) -> Result<HyperRequest<Full<Bytes>>, StatusCode> {
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     let payload = body
         .collect()
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?
         .to_bytes();
+    strip_request_proxy_headers(&mut parts.headers);
 
     let mut builder = HyperRequest::builder()
         .method(parts.method)
@@ -306,7 +369,8 @@ async fn proxy_http(State(state): State<AppState>, req: Request<Body>) -> Respon
     };
 
     let status = upstream.status();
-    let headers = std::mem::take(upstream.headers_mut());
+    let mut headers = std::mem::take(upstream.headers_mut());
+    strip_response_proxy_headers(&mut headers);
     let body = match upstream
         .into_body()
         .collect()
@@ -468,7 +532,10 @@ mod tests {
     use super::{app, parse_args, AppState, GatewayArgs};
     use axum::{routing::get, Router};
     use http_body_util::{BodyExt, Full};
-    use hyper::{body::Bytes as HyperBytes, Request as HyperRequest, StatusCode, Uri as HyperUri};
+    use hyper::{
+        body::Bytes as HyperBytes, header::CONTENT_LENGTH, Request as HyperRequest, StatusCode,
+        Uri as HyperUri,
+    };
     use hyper_util::client::legacy::{connect::HttpConnector, Client};
     use hyper_util::rt::TokioExecutor;
     use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
@@ -625,19 +692,58 @@ mod tests {
 
     #[tokio::test]
     async fn root_proxies_to_backend_when_available() {
+        let repeated = "<p>rust gateway root proxy regression</p>".repeat(48);
+        let html = format!("<!doctype html><html><body><main>{repeated}</main></body></html>");
+        let expected_len = html.len();
         let backend_listener = TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("bind backend");
         let backend_port = backend_listener.local_addr().expect("backend addr").port();
+        let expected_html = html.clone();
         let backend = tokio::spawn(async move {
-            let app = Router::new().route("/", get(|| async { "arra office" }));
+            let html = html.clone();
+            let app = Router::new().route(
+                "/",
+                get(move || {
+                    let html = html.clone();
+                    async move { html }
+                }),
+            );
             let _ = axum::serve(backend_listener, app).await;
         });
 
+        let client = test_client();
         let (port, shutdown, handle) = spawn_gateway(Some(backend_port)).await;
-        let (status, body) = get_root(port).await;
+        let uri = format!("http://127.0.0.1:{port}/")
+            .parse::<HyperUri>()
+            .expect("root uri");
+        let request = HyperRequest::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Full::new(HyperBytes::new()))
+            .expect("root request");
+        let response = client.request(request).await.expect("root response");
+        let status = response.status();
+        let content_length = response
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<usize>().ok());
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("root body")
+            .to_bytes();
+
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "arra office");
+        assert_eq!(content_length, Some(expected_len));
+        assert!(body.len() > 1024, "body len was {}", body.len());
+        assert_eq!(body.len(), expected_len);
+        assert_eq!(
+            String::from_utf8(body.to_vec()).expect("utf8 body"),
+            expected_html
+        );
 
         let _ = shutdown.send(());
         let _ = handle.await;
