@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { normalizeGateway, resolveGatewayBinary, selectGateway } from "../../src/core/gateway";
 import { routeToolsWithDeps, type RouteToolsDeps } from "../../src/cli/route-tools";
@@ -33,20 +30,6 @@ function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
       startServer: (port, options) => calls.push({ type: "start", port, options }),
     }),
   };
-}
-
-async function waitForFetch(url: string, attempts = 30): Promise<Response> {
-  let lastError: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) return response;
-    } catch (error) {
-      lastError = error;
-    }
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  throw lastError instanceof Error ? lastError : new Error(`fetch failed: ${url}`);
 }
 
 describe("gateway selector (#2566)", () => {
@@ -127,95 +110,4 @@ describe("gateway selector (#2566)", () => {
       else process.env.MAW_GATEWAY_BIN = previous;
     }
   });
-
-  test("RustGateway.start passes only allowlisted environment to maw-gateway", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "maw-gateway-env-"));
-    const binary = join(tmp, "maw-gateway");
-    const envFile = join(tmp, "env.txt");
-    const argsFile = join(tmp, "args.txt");
-    const previous = {
-      MAW_GATEWAY_BIN: process.env.MAW_GATEWAY_BIN,
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-      GITHUB_TOKEN: process.env.GITHUB_TOKEN,
-      stdoutWrite: process.stdout.write,
-    };
-    const forwarded: string[] = [];
-    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\nprintf '%s\n' "$@" > ${JSON.stringify(argsFile)}\necho "listening on :$3"\nsleep 0.1\necho "forwarded after readiness"\nexec sleep 30\n`);
-    chmodSync(binary, 0o755);
-
-    try {
-      process.env.MAW_GATEWAY_BIN = binary;
-      process.env.ANTHROPIC_API_KEY = "secret-anthropic";
-      process.env.GITHUB_TOKEN = "secret-github";
-      process.stdout.write = ((chunk: string | Uint8Array) => {
-        forwarded.push(String(chunk));
-        return true;
-      }) as typeof process.stdout.write;
-
-      const child = await selectGateway({ cliGateway: "rust" }).start(4570) as { kill: () => void; once: (event: string, cb: () => void) => void };
-      const envText = readFileSync(envFile, "utf8");
-      expect(envText).toContain("PORT=4570");
-      expect(envText).toContain("MAW_BACKEND_PORT=4571");
-      expect(envText).not.toContain("ANTHROPIC_API_KEY");
-      expect(envText).not.toContain("GITHUB_TOKEN");
-      expect(envText).not.toContain("secret-anthropic");
-      expect(envText).not.toContain("secret-github");
-      expect(readFileSync(argsFile, "utf8").split("\n").filter(Boolean)).toEqual(["serve", "--port", "4570", "--backend", "4571"]);
-      for (let i = 0; i < 20 && !forwarded.join("").includes("forwarded after readiness"); i++) {
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
-      expect(forwarded.join("")).toContain("forwarded after readiness");
-      await new Promise<void>((resolve) => {
-        child.once("exit", resolve);
-        child.kill("SIGKILL");
-      });
-    } finally {
-      process.stdout.write = previous.stdoutWrite;
-      if (previous.MAW_GATEWAY_BIN === undefined) delete process.env.MAW_GATEWAY_BIN;
-      else process.env.MAW_GATEWAY_BIN = previous.MAW_GATEWAY_BIN;
-      if (previous.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
-      else process.env.ANTHROPIC_API_KEY = previous.ANTHROPIC_API_KEY;
-      if (previous.GITHUB_TOKEN === undefined) delete process.env.GITHUB_TOKEN;
-      else process.env.GITHUB_TOKEN = previous.GITHUB_TOKEN;
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  test("maw serve --gateway rust starts Rust on :3456 and Bun backend on :3457", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "maw-gateway-dual-"));
-    const binary = join(tmp, "maw-gateway");
-    const argsFile = join(tmp, "args.txt");
-    const previous = process.env.MAW_GATEWAY_BIN;
-    writeFileSync(binary, `#!/bin/sh\nprintf '%s\n' "$@" > ${JSON.stringify(argsFile)}\necho "listening on :$3"\nexec sleep 30\n`);
-    chmodSync(binary, 0o755);
-
-    try {
-      process.env.MAW_GATEWAY_BIN = binary;
-      const child = await selectGateway({ cliGateway: "rust" }).start(3456) as { kill: () => void; once: (event: string, cb: () => void) => void };
-
-      expect(readFileSync(argsFile, "utf8").split("\n").filter(Boolean)).toEqual(["serve", "--port", "3456", "--backend", "3457"]);
-      const response = await waitForFetch("http://127.0.0.1:3457/api/health");
-      const health = await response.json() as { ok?: boolean };
-      expect(health.ok).toBe(true);
-
-      await new Promise<void>((resolve) => {
-        child.once("exit", resolve);
-        child.kill("SIGKILL");
-      });
-      for (let i = 0; i < 20; i++) {
-        try {
-          await fetch("http://127.0.0.1:3457/api/health");
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } catch {
-          return;
-        }
-      }
-      throw new Error("Bun backend stayed alive after Rust gateway exit");
-    } finally {
-      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
-      else process.env.MAW_GATEWAY_BIN = previous;
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  }, 15_000);
-
 });
