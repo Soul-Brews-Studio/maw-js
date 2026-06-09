@@ -5,7 +5,6 @@ import { isAgentCommand } from "../../../core/agent-detect";
 import { loadConfig } from "../../../config/load";
 import type { MawConfig } from "../../../config/types";
 import { Tmux } from "../../../core/transport/tmux";
-import { cmdDone } from "../done/impl";
 import { readTeamCharter, type TeamCharter, type TeamCharterMember } from "./team-charter";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
 import {
@@ -58,7 +57,7 @@ export interface TeamApplyDeps {
   readTeamCharterFn?: typeof readTeamCharter;
   loadConfigFn?: typeof loadConfig;
   cmdWakeFn?: WakeMemberDeps["cmdWakeFn"];
-  cmdDoneFn?: typeof cmdDone;
+  cmdDoneFn?: (windowName: string, opts?: { sessionName?: string; dryRun?: boolean; force?: boolean }) => Promise<void>;
   branchForPathFn?: (path: string) => string | undefined;
   repoRoot?: string;
   repoSlug?: string;
@@ -186,12 +185,15 @@ export async function cmdTeamApply(teamOrPath: string, opts: TeamApplyOptions = 
     }
   }
 
-  const done = deps.cmdDoneFn ?? cmdDone;
+  let done = deps.cmdDoneFn;
   for (const pane of removed) {
     const role = pane.windowName;
     const action = opts.apply ? "maw done removed member" : "would maw done removed member";
     actions.push({ kind: "shutdown", role, state: "extra", action, target: pane.windowName });
-    if (opts.apply) await done(pane.windowName, { sessionName: session });
+    if (opts.apply) {
+      if (!done) done = (await import("../done/impl")).cmdDone;
+      await done(pane.windowName, { sessionName: session });
+    }
   }
 
   if (!removed.length && !roster.some((item) => item.state === "missing")) {

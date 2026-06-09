@@ -8,7 +8,7 @@ import { readTeamCharter, type TeamCharter } from "./team-charter";
 import { loadConfig } from "../../../config/load";
 import type { MawConfig } from "../../../config/types";
 import { Tmux } from "../../../core/transport/tmux";
-import { cmdWake } from "../../../commands/shared/wake-cmd";
+import type { WakeOptions } from "../../../commands/shared/wake-cmd";
 import { cmdSend } from "../../../commands/shared/comm-send";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
 import {
@@ -64,7 +64,7 @@ export interface TeamUpDeps {
   charterPath?: string | null;
   readTeamCharterFn?: typeof readTeamCharter;
   loadConfigFn?: typeof loadConfig;
-  cmdWakeFn?: typeof cmdWake;
+  cmdWakeFn?: (oracle: string, opts: WakeOptions) => Promise<string>;
   cmdSendFn?: typeof cmdSend;
   sleep?: (ms: number) => Promise<void>;
   repoRoot?: string;

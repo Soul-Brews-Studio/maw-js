@@ -5,7 +5,7 @@ import { isAgentCommand } from "../../../core/agent-detect";
 import { loadConfig } from "../../../config/load";
 import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import type { MawConfig } from "../../../config/types";
-import { cmdWake, type WakeOptions } from "../../shared/wake-cmd";
+import type { WakeOptions } from "../../shared/wake-cmd";
 import type { TeamCharterMember } from "../../../vendor/mpr-plugins/team/team-charter";
 
 export type TeamMemberState = "live" | "dead" | "missing";
@@ -29,7 +29,7 @@ export interface ClassifiedTeamMember {
 }
 
 export interface WakeMemberDeps {
-  cmdWakeFn?: typeof cmdWake;
+  cmdWakeFn?: (oracle: string, opts: WakeOptions) => Promise<string>;
 }
 
 const SHELL_RE = /^-?(zsh|bash|sh|fish)$/i;
@@ -116,7 +116,7 @@ export async function wakeMember(
   opts: WakeOptions & { engine: string; session: string; repoPath: string },
   deps: WakeMemberDeps = {},
 ): Promise<string> {
-  const wake = deps.cmdWakeFn ?? cmdWake;
+  const wake = deps.cmdWakeFn ?? (await import("../../shared/wake-cmd")).cmdWake;
   return wake(repoSlug, {
     wt: typeof member.worktree === "string" && member.worktree.trim() ? member.worktree.trim() : (member.name?.trim() || member.role),
     engine: opts.engine,

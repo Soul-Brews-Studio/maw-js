@@ -3,9 +3,9 @@ import { basename, dirname, join } from "path";
 import { Tmux } from "../../../core/transport/tmux";
 import { isAgentCommand } from "../../../core/agent-detect";
 import { loadConfig } from "../../../config/load";
-import { defaultEngineNameForConfig, resolveEngine } from "maw-js/sdk";
+import * as mawSdk from "maw-js/sdk";
 import type { MawConfig } from "../../../config/types";
-import { cmdWake, type WakeOptions } from "../../../commands/shared/wake-cmd";
+import type { WakeOptions } from "../../../commands/shared/wake-cmd";
 import type { TeamCharterEngines, TeamCharterMember } from "./team-charter";
 
 export type TeamMemberState = "live" | "dead" | "missing" | "skipped";
@@ -35,7 +35,7 @@ export interface ClassifiedTeamMember {
 }
 
 export interface WakeMemberDeps {
-  cmdWakeFn?: typeof cmdWake;
+  cmdWakeFn?: (oracle: string, opts: WakeOptions) => Promise<string>;
 }
 
 export interface ClassifyMemberOptions {
@@ -82,7 +82,7 @@ export function memberWorktree(member: TeamCharterMember): string {
 }
 
 export function memberEngine(member: TeamCharterMember, override?: string, config: MawConfig = loadConfig()): string {
-  return override ?? member.engine ?? member.model ?? config.defaultEngine ?? defaultEngineNameForConfig(config);
+  return override ?? member.engine ?? member.model ?? config.defaultEngine ?? mawSdk.defaultEngineNameForConfig(config);
 }
 
 export function memberMatchesSelector(member: TeamCharterMember, selector: string): boolean {
@@ -208,7 +208,7 @@ export function resolveCharterEngineCommand(engine: string, engines?: TeamCharte
 
 export function engineCommand(engine: string, opts: EngineCommandOptions = {}, config: MawConfig = loadConfig()): string {
   const key = opts.resume ? `${engine}-resume` : engine;
-  return resolveCharterEngineCommand(key, opts.engines) ?? resolveEngine(key, config).cmd;
+  return resolveCharterEngineCommand(key, opts.engines) ?? mawSdk.resolveEngine(key, config).cmd;
 }
 
 export function repoSlugFromRoot(root: string): string {
@@ -232,6 +232,6 @@ export async function wakeMember(
   opts: WakeOptions & { engine: string; session: string; repoPath: string },
   deps: WakeMemberDeps = {},
 ): Promise<string> {
-  const wake = deps.cmdWakeFn ?? cmdWake;
+  const wake = deps.cmdWakeFn ?? (await import("../../../commands/shared/wake-cmd")).cmdWake;
   return wake(memberWakeTarget(repoSlug, member), memberWakeOptions(member, opts));
 }
