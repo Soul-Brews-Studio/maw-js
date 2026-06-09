@@ -99,11 +99,13 @@ mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
     payload.http?.route("POST", "/api/triggers/fire", () => new Response("plugin trigger fire"));
     payload.http?.route("POST", "/api/worktrees/cleanup", () => new Response("plugin cleanup"));
     payload.http?.route("POST", "/api/protected-auth-fail", () => new Response("should not bypass auth"));
-    payload.ws?.route("/ws/tmux", () => ({ target: null, previewTargets: new Set(), mode: "tmux-stream" }), {
-      open: () => { tmuxStreamEvents.push("open"); },
-      message: () => { tmuxStreamEvents.push("message"); },
-      close: () => { tmuxStreamEvents.push("close"); },
-    });
+    if (!payload.ws?.snapshot?.().includes("/ws/tmux")) {
+      payload.ws?.route("/ws/tmux", () => ({ target: null, previewTargets: new Set(), mode: "tmux-stream" }), {
+        open: () => { tmuxStreamEvents.push("open"); },
+        message: () => { tmuxStreamEvents.push("message"); },
+        close: () => { tmuxStreamEvents.push("close"); },
+      });
+    }
   },
 }));
 mock.module(import.meta.resolve("../../src/core/engine-plugin-registry"), () => ({

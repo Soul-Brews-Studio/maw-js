@@ -134,6 +134,85 @@ export function servePortInUseInstructions(port: number, hostname: string): stri
 // pulling in server.ts's module-level auto-start side effects.
 import { resolveBindHost } from "./bind-host";
 
+
+export const SERVE_ROUTE_SNAPSHOT_SYMBOL = Symbol.for("maw.serve.routeSnapshot");
+
+export type ServeRouteSnapshotEntry = {
+  kind: "HTTP" | "WS" | "MIDDLEWARE" | "FALLBACK" | "PROXY";
+  method?: string;
+  path: string;
+  source: string;
+};
+
+type ServeRouteSnapshotDeps = {
+  http: ServeRouteRegistry;
+  ws: ServeWsRegistry;
+  apiRoutes?: Array<{ method?: unknown; path?: unknown }>;
+};
+
+function routeMethods(method: unknown): string[] {
+  if (Array.isArray(method)) return method.map(String);
+  if (typeof method === "string") return [method];
+  return [String(method ?? "UNKNOWN")];
+}
+
+export function collectServeRouteSnapshot({ http, ws, apiRoutes = api.routes ?? [] }: ServeRouteSnapshotDeps): ServeRouteSnapshotEntry[] {
+  const entries: ServeRouteSnapshotEntry[] = [
+    { kind: "MIDDLEWARE", path: "01 *", source: "CORS preflight (handleCorsOptions)" },
+    { kind: "MIDDLEWARE", path: "02 /ws*", source: "WebSocket upgrade registry before HTTP routing" },
+    { kind: "PROXY", path: "/api/{engine-plugin-prefix}/*", source: "dynamic engine plugin proxy (findEnginePluginRegistration)" },
+    { kind: "MIDDLEWARE", path: "03 /api protected", source: "legacy Elysia auth gate before serve plugin fallback" },
+    { kind: "MIDDLEWARE", path: "04 /api", source: "serve route registry before legacy Elysia for unprotected API routes" },
+    { kind: "MIDDLEWARE", path: "05 /api", source: "legacy Elysia app with @elysiajs/cors" },
+    { kind: "MIDDLEWARE", path: "06 /api", source: "federationAuth HMAC" },
+    { kind: "MIDDLEWARE", path: "07 /api", source: "fromSigningAuth peer signature" },
+    { kind: "MIDDLEWARE", path: "08 *", source: "fallback CORS wrapper" },
+  ];
+
+  for (const route of apiRoutes) {
+    const path = typeof route.path === "string" ? route.path : String(route.path ?? "");
+    if (!path) continue;
+    for (const method of routeMethods(route.method)) {
+      entries.push({ kind: "HTTP", method: method.toUpperCase(), path, source: "elysia api" });
+    }
+  }
+
+  for (const route of http.snapshot()) {
+    entries.push({
+      kind: "HTTP",
+      method: route.method,
+      path: route.path,
+      source: route.plugin ? `serve plugin:${route.plugin}` : "serve route registry",
+    });
+  }
+
+  for (const route of ws.snapshot()) {
+    entries.push({ kind: "WS", method: "WS", path: route, source: "serve ws registry" });
+  }
+
+  for (const fallback of http.fallbackSnapshot()) {
+    entries.push({
+      kind: "FALLBACK",
+      method: "FALLBACK",
+      path: `* (${fallback.id})`,
+      source: fallback.plugin ? `serve plugin:${fallback.plugin}` : "serve route registry",
+    });
+  }
+
+  return entries;
+}
+
+export function formatServeRouteSnapshot(entries: ServeRouteSnapshotEntry[]): string {
+  return entries
+    .map((entry) => {
+      if (entry.kind === "MIDDLEWARE") return `MIDDLEWARE ${entry.path} -> ${entry.source}`;
+      if (entry.kind === "PROXY") return `PROXY ${entry.path} -> ${entry.source}`;
+      return `${entry.method ?? entry.kind} ${entry.path} -> ${entry.source}`;
+    })
+    .sort((a, b) => a.localeCompare(b))
+    .join("\n");
+}
+
 export const views = createViews();
 
 // --- Server ---
@@ -380,6 +459,9 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     try { server.stop(true); } catch { /* best effort */ }
     throw err;
   }
+
+  const routeSnapshot = collectServeRouteSnapshot({ http: serveRoutes, ws: serveWs });
+  (server as unknown as Record<symbol, ServeRouteSnapshotEntry[]>)[SERVE_ROUTE_SNAPSHOT_SYMBOL] = routeSnapshot;
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;
