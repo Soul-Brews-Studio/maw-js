@@ -61,6 +61,8 @@ const {
   formatQueueList,
   relativeTime,
   resolvePendingId,
+  cmdInboxMarkRead,
+  loadInboxMessages,
 } = await import("../../src/vendor/mpr-plugins/inbox/impl.ts");
 
 function importsOf(dir: string): string[] {
@@ -145,5 +147,35 @@ describe("inbox plugin standalone boundary (#2329)", () => {
     expect(readFileSync(join(psiPath, "inbox", files[0]), "utf8")).toContain("standalone note");
     expect(relativeTime(new Date(0))).toBe("—");
     expect(relativeTime(new Date(Date.now() + 1000))).toBe("future");
+  });
+
+  test("cmdInboxMarkRead handles dirty frontmatter read state formatting", async () => {
+    const { writeFileSync } = require("fs");
+    const inboxDir = join(psiPath, "inbox");
+
+    // 1. read: false with CRLF and trailing spaces
+    const file1 = join(inboxDir, "2026-06-08_12-00_test1.md");
+    const content1 = "---\nfrom: m1\nto: codex-5\ntimestamp: 2026-06-08T12:00:00Z\nread: false  \r\n---\nbody1";
+    writeFileSync(file1, content1);
+
+    // 2. missing read flag in frontmatter
+    const file2 = join(inboxDir, "2026-06-08_12-01_test2.md");
+    const content2 = "---\nfrom: m2\nto: codex-5\ntimestamp: 2026-06-08T12:01:00Z\n---\nbody2";
+    writeFileSync(file2, content2);
+
+    // Verify they are loaded as unread first
+    let messages = loadInboxMessages(inboxDir);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].frontmatter.read).toBe(false);
+    expect(messages[1].frontmatter.read).toBe(false);
+
+    // Mark read
+    await cmdInboxMarkRead("2026-06-08_12-01_test2");
+    await cmdInboxMarkRead("2026-06-08_12-00_test1");
+
+    // Verify updated status
+    messages = loadInboxMessages(inboxDir);
+    expect(messages[0].frontmatter.read).toBe(true);
+    expect(messages[1].frontmatter.read).toBe(true);
   });
 });

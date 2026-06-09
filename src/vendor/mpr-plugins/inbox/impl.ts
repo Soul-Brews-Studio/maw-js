@@ -657,7 +657,37 @@ export async function cmdInboxMarkRead(id: string) {
   if (!msg) { console.error(`\x1b[31merror\x1b[0m: message not found: ${id}`); return; }
   if (msg.frontmatter.read) { console.log(`\x1b[90malready read:\x1b[0m ${msg.filename}`); return; }
   const content = readFileSync(msg.path, "utf-8");
-  writeFileSync(msg.path, content.replace(/^read: false$/m, "read: true"));
+  const timestamp = new Date().toISOString();
+  
+  let updatedContent = content;
+  if (/^read:\s*false\s*$/im.test(content)) {
+    updatedContent = content.replace(/^read:\s*false\s*$/im, "read: true");
+  } else if (!/^read:/im.test(content)) {
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (match) {
+      const lineEnd = content.includes("\r\n") ? "\r\n" : "\n";
+      const oldFm = match[1];
+      const newFm = oldFm + `${lineEnd}read: true`;
+      updatedContent = content.replace(oldFm, newFm);
+    } else {
+      updatedContent = content + `\nread: true\n`;
+    }
+  } else {
+    updatedContent = content.replace(/^read:\s*.*$/im, "read: true");
+  }
+
+  // Inject readAt if not present
+  if (!/^readAt:/im.test(updatedContent)) {
+    const match = updatedContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (match) {
+      const lineEnd = updatedContent.includes("\r\n") ? "\r\n" : "\n";
+      const oldFm = match[1];
+      const newFm = oldFm + `${lineEnd}readAt: ${timestamp}`;
+      updatedContent = updatedContent.replace(oldFm, newFm);
+    }
+  }
+
+  writeFileSync(msg.path, updatedContent);
   console.log(`\x1b[32m✓\x1b[0m marked read: ${msg.filename}`);
 }
 
