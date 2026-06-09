@@ -259,6 +259,7 @@ describe("direct handler invocation", () => {
 
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", [
       "neo",
+      "--work",
       "--task", "fix bug",
       "--wt", "issue-1",
       "--layout", "legacy",
@@ -285,6 +286,7 @@ describe("direct handler invocation", () => {
 
     expect(calls.loadConfig).toBe(1);
     expect(calls.wake).toEqual([["neo", {
+      sessionMode: "work",
       task: "fix bug",
       wt: "issue-1",
       layout: "legacy",
@@ -309,6 +311,14 @@ describe("direct handler invocation", () => {
       allLocal: true,
       engine: "codex",
     }]]);
+  });
+
+
+  test("wake rejects conflicting explicit session modes", async () => {
+    const { deps } = makeDeps();
+
+    await expect(invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", ["neo", "--work", "--oracle"], deps))
+      .rejects.toThrow("choose only one");
   });
 
   test("#1897 wake -a is attach-only and does not set bring/split flags", async () => {

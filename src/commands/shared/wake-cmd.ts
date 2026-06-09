@@ -1,5 +1,7 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { defaultEngineNameForConfig } from "../../config/engine-registry";
@@ -313,6 +315,81 @@ export async function getLiveTileRoles(
   }
 }
 
+
+export type WakeSessionMode = "oracle" | "work";
+
+export class WakeSession {
+  readonly mode: WakeSessionMode;
+
+  constructor(mode: WakeSessionMode) {
+    this.mode = mode;
+    Object.freeze(this);
+  }
+}
+
+function repoNameFromPath(repoPath: string): string {
+  return repoPath.split("/").filter(Boolean).pop() ?? repoPath;
+}
+
+function stripGitSuffix(name: string): string {
+  return name.replace(/\.git$/i, "");
+}
+
+function repoNameFromTarget(target: string, urlRepoName?: string): string {
+  if (urlRepoName?.trim()) return stripGitSuffix(urlRepoName.trim());
+  const cleaned = stripGitSuffix(target.trim().replace(/\/+$/, ""));
+  return cleaned.split("/").filter(Boolean).pop() ?? cleaned;
+}
+
+function detectWakeSessionMode(target: string, opts: Pick<WakeOptions, "sessionMode" | "urlRepoName" | "repoPath">): WakeSession {
+  if (opts.sessionMode) return new WakeSession(opts.sessionMode);
+  if (/^\d+-/.test(target.trim())) return new WakeSession("oracle");
+  const repoName = opts.repoPath ? repoNameFromPath(opts.repoPath) : repoNameFromTarget(target, opts.urlRepoName);
+  if (repoName.toLowerCase().endsWith("-oracle")) return new WakeSession("oracle");
+  return new WakeSession(opts.repoPath || opts.urlRepoName ? "work" : "oracle");
+}
+
+function identityForWakeSession(session: WakeSession, repoName: string, currentIdentity: string): string {
+  if (session.mode === "work") return repoName;
+  return repoName.toLowerCase().endsWith("-oracle") ? repoName.replace(/-oracle$/i, "") : currentIdentity;
+}
+
+function mainWindowNameForWakeSession(session: WakeSession, identity: string): string {
+  return session.mode === "oracle" ? `${identity}-oracle` : identity;
+}
+
+async function resolveWorkRepository(target: string, parsedRepoPath: string | null, opts: Pick<WakeOptions, "repoPath" | "urlRepoName">): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
+  if (opts.repoPath) {
+    const repoPath = opts.repoPath;
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+  }
+  if (parsedRepoPath) {
+    const repoPath = parsedRepoPath;
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+  }
+
+  const repoName = repoNameFromTarget(target, opts.urlRepoName);
+  const repoPath = await ghqFind(`/${repoName}`);
+  if (repoPath) {
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+  }
+
+  throw new UserError(`work repo not found: ${repoName} (try: ghq get <url> OR maw wake ${target} --oracle for oracle mode)`);
+}
+
+function ensureWakeSessionVault(session: WakeSession, repoPath: string): void {
+  if (session.mode !== "work") return;
+  const psiDir = join(repoPath, "ψ");
+  mkdirSync(psiDir, { recursive: true });
+
+  const gitignorePath = join(repoPath, ".gitignore");
+  const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
+  const lines = existing.split(/\r?\n/);
+  if (lines.some(line => line.trim() === "ψ/" || line.trim() === "ψ")) return;
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync(gitignorePath, `${existing}${prefix}ψ/\n`, "utf-8");
+}
+
 export interface WakeOptions {
   task?: string;
   wt?: string;
@@ -356,6 +433,8 @@ export interface WakeOptions {
   layout?: WorktreeLayout;
   /** Force Discord channel launch for Claude-like engines (#1999). */
   channels?: boolean;
+  /** Explicit wake session mode override. Auto mode infers from the resolved repo suffix. */
+  sessionMode?: WakeSessionMode;
 }
 
 function isAttachOnlyWake(opts: WakeOptions): boolean {
@@ -867,6 +946,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     oracle = derived;
   }
 
+  const requestedTarget = oracle;
   const parsed = parseWakeTarget(oracle);
   let parsedRepoPath: string | null = null;
   if (parsed) {
@@ -875,9 +955,20 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // exact cloned/local slug instead of later resolving the bare oracle name
     // through `ghqFind(/repo)`, which can silently pick a different org.
     parsedRepoPath = await ghqFind(`/${parsed.slug}`);
-    oracle = parsed.oracle;
     if (!opts.urlRepoName) opts.urlRepoName = parsed.slug.split("/").pop();
   }
+
+  if (!opts.sessionMode && !parsed && !opts.repoPath && !opts.incubate) {
+    const candidateRepo = repoNameFromTarget(requestedTarget, opts.urlRepoName);
+    const workRepoPath = await ghqFind(`/${candidateRepo}`);
+    if (workRepoPath && !repoNameFromPath(workRepoPath).toLowerCase().endsWith("-oracle")) {
+      parsedRepoPath = workRepoPath;
+      opts = { ...opts, urlRepoName: repoNameFromPath(workRepoPath) };
+    }
+  }
+
+  let sessionContext = detectWakeSessionMode(requestedTarget, opts);
+  oracle = parsed && sessionContext.mode === "oracle" ? parsed.oracle : repoNameFromTarget(requestedTarget, opts.urlRepoName);
 
   // #358 — reject -view suffix at the user-input boundary (before any session work).
   assertValidOracleName(oracle);
@@ -921,7 +1012,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[36m→\x1b[0m live tmux session: ${liveAttachSession}`);
       await wakeSession.attachToSession(liveAttachSession);
       await recordWakeSnapshot(opts);
-      const attachWindow = preResolvedFleetSession?.windowName || `${oracle}-oracle`;
+      const attachWindow = preResolvedFleetSession?.windowName || mainWindowNameForWakeSession(sessionContext, oracle);
       return `${liveAttachSession}:${attachWindow}`;
     }
   }
@@ -953,7 +1044,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
-  if (opts.repoPath) {
+  if (sessionContext.mode === "work") {
+    resolved = await resolveWorkRepository(requestedTarget, parsedRepoPath, opts);
+  } else if (opts.repoPath) {
     // #421 — caller already knows the exact on-disk path (e.g. `maw bud --org`
     // just cloned it). Skip resolveOracle so a stale same-named repo in a
     // different org can't shadow the freshly-created one.
@@ -996,13 +1089,13 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     throw new Error("--signal-on-birth requires --bud");
   }
 
-  // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
-  // update oracle to the resolved name so session/window names are correct.
-  const resolvedOracle = repoName.replace(/-oracle$/, "");
-  if (!preResolvedFleetSession && resolvedOracle !== oracle && repoName.endsWith("-oracle")) {
-    oracle = resolvedOracle;
+  // #2598 — Session(mode) owns the identity source. Oracle sessions strip the
+  // repo suffix; work sessions use the repo name verbatim.
+  sessionContext = new WakeSession(sessionContext.mode);
+  const resolvedIdentity = identityForWakeSession(sessionContext, repoName, oracle);
+  if (!preResolvedFleetSession && resolvedIdentity !== oracle) {
+    oracle = resolvedIdentity;
   }
-
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
   const ghSlug = repoPath.includes("github.com/")
     ? repoPath.slice(repoPath.indexOf("github.com/") + "github.com/".length)
@@ -1071,7 +1164,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     isLive: Boolean(session),
   });
 
-  const mainWindowName = foreignSession ? oracle : `${oracle}-oracle`;
+  const mainWindowName = foreignSession ? oracle : mainWindowNameForWakeSession(sessionContext, oracle);
   const shouldCreateSession = !session && (wakeDecision.wake || Boolean(foreignSession));
 
   if (opts.dryRun) {
@@ -1133,6 +1226,8 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
     return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
   }
+
+  ensureWakeSessionVault(sessionContext, repoPath);
 
   let knownWindows = new Set<string>();
   let knownWindowEntries: WakeWindowLookupEntry[] = [];

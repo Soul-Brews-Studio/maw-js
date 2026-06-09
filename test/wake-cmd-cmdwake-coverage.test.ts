@@ -586,7 +586,7 @@ mock.module(join(import.meta.dir, "../src/commands/shared/fleet-ensure"), () => 
   },
 }));
 
-const { cmdWake, _wtPicker, promptAmbiguousBringPick } = await import("../src/commands/shared/wake-cmd");
+const { cmdWake, _wtPicker, promptAmbiguousBringPick, WakeSession } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
 
@@ -666,6 +666,48 @@ afterEach(() => {
 });
 
 describe("cmdWake main-suite coverage", () => {
+  test("#2598 WakeSession mode is immutable", () => {
+    const session = new WakeSession("work");
+    expect(session.mode).toBe("work");
+    expect(Object.isFrozen(session)).toBe(true);
+  });
+
+  test("#2598 work mode uses repo identity and keeps ψ local/gitignored", async () => {
+    repoName = "maw-js";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("maw-js", { repoPath, sessionMode: "work", noRehydrate: true }),
+    );
+
+    expect(result).toBe("01-maw-js:maw-js");
+    expect(newSessionCalls).toEqual([{ name: "01-maw-js", opts: { window: "maw-js", cwd: repoPath } }]);
+    expect(sendTextCalls[0]?.target).toBe("01-maw-js:maw-js");
+    expect(existsSync(join(repoPath, "ψ"))).toBe(true);
+    expect(readFileSync(join(repoPath, ".gitignore"), "utf-8")).toContain("ψ/\n");
+  });
+
+  test("#2598 explicit oracle override wins over non-oracle repo detection", async () => {
+    ghqFindReturn = join(parentDir, "maw-js");
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("maw-js", { sessionMode: "oracle", dryRun: true, noRehydrate: true }),
+    );
+
+    expect(result).toBe("mawjs:dry-run");
+    expect(newSessionCalls).toHaveLength(0);
+    expect(existsSync(join(repoPath, ".gitignore"))).toBe(false);
+  });
+
   test("#1816 bring picker handles headless, empty, quit, invalid, and success choices", () => {
     const candidate = { name: "mawjs-features", target: "54-mawjs:mawjs-features", detail: "tmux window" };
 
