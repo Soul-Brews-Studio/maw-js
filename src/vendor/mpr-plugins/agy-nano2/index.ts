@@ -20,7 +20,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     log("🚀 Starting Rust-based Discord Proxy Server (Avengers) on port 8090...");
     
     // We will spawn the compiled avengers binary from /tmp/claude-proxy-main/
-    const binPath = "/tmp/claude-proxy-main/claude-proxy-main/target/debug/avengers";
+    const binPath = "/tmp/claude-proxy-main/claude-proxy-main/target/release/avengers";
     if (!existsSync(binPath)) {
       log(`❌ Error: Avengers binary not found at ${binPath}. Please compile it first.`);
       return done(false);
