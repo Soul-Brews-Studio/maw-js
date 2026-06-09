@@ -30,6 +30,7 @@ mock.module("maw-js/core/ghq", () => ({
 
 mock.module("maw-js/config", () => ({
   buildCommand: (name: string) => `agent --name ${name}`,
+  buildCommandInDir: (name: string, cwd: string) => `cd ${cwd} && agent --name ${name}`,
 }));
 
 mock.module("maw-js/commands/shared/wake", () => ({
@@ -116,7 +117,10 @@ describe("workon plugin coverage", () => {
     expect(newWindowCalls).toEqual([
       { session: "alpha-session", name: "maw-js", opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js" } },
     ]);
-    expect(sendTextCalls).toEqual([{ target: "alpha-session:maw-js", text: "agent --name maw-js" }]);
+    expect(sendTextCalls).toEqual([{
+      target: "alpha-session:maw-js",
+      text: "cd /opt/Code/github.com/Soul-Brews-Studio/maw-js && agent --name maw-js",
+    }]);
     expect(logs.join("\n")).toContain("workon 'maw-js'");
   });
 
@@ -129,7 +133,7 @@ describe("workon plugin coverage", () => {
     expect(selectWindowCalls).toEqual(["alpha-session:maw-js"]);
     expect(newWindowCalls).toEqual([]);
     expect(sendTextCalls).toEqual([]);
-    expect(logs.join("\n")).toContain("already open");
+    expect(logs.join("\n")).toContain("reusing existing window");
   });
 
   test("#2571 — still creates the window when only a different name is open", async () => {
@@ -192,7 +196,10 @@ describe("workon plugin coverage", () => {
       name: "maw-js-new-task",
       opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/8-new-task" },
     });
-    expect(sendTextCalls[0]).toEqual({ target: "alpha-session:maw-js-new-task", text: "agent --name maw-js-new-task" });
+    expect(sendTextCalls[0]).toEqual({
+      target: "alpha-session:maw-js-new-task",
+      text: "cd /opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/8-new-task && agent --name maw-js-new-task",
+    });
   });
 
   test("sanitizes slash-separated task names before resolving paths and branches", async () => {

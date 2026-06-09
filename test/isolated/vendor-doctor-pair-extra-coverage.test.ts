@@ -1,7 +1,7 @@
 /** Extra isolated branch coverage for vendor doctor + pair peer internals. */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realChildProcess from "child_process";
-import * as realFs from "fs";
+import * as realFs from "node:fs";
 import * as realOs from "os";
 
 const C = { green: "", red: "", yellow: "", gray: "", reset: "" };
@@ -29,6 +29,9 @@ const originalLog = console.log;
 const originalFetch = globalThis.fetch;
 const originalResolveSync = Bun.resolveSync;
 const originalSpawn = Bun.spawn;
+const realExistsSync = realFs.existsSync;
+const realReadlinkSync = realFs.readlinkSync;
+const realReadFileSync = realFs.readFileSync;
 
 mock.module("os", () => ({ ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host", default: { ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host" } }));
 mock.module("node:os", () => ({ ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host", default: { ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host" } }));
@@ -52,16 +55,19 @@ mock.module("child_process", () => ({
 mock.module("fs", () => ({
   ...realFs,
   existsSync: (path: string) => {
-    if (path === DOCTOR_BIN) {
+    const pathText = String(path);
+    if (pathText === DOCTOR_BIN) {
       if (installMode === "present-plain") return true;
       return execCalls.includes("bun add -g github:Soul-Brews-Studio/maw-js")
         && installMode === "missing-then-restored";
     }
-    return true;
+    if (pathText.endsWith("/package.json")) return true;
+    if (pathText.startsWith(DOCTOR_HOME)) return true;
+    return realExistsSync(path);
   },
   readlinkSync: (path: string) => {
     if (path === DOCTOR_BIN && installMode === "present-plain") throw new Error("not a symlink");
-    return realFs.readlinkSync(path);
+    return realReadlinkSync(path);
   },
   readFileSync: (path: string, encoding?: BufferEncoding) => {
     if (String(path).endsWith("/package.json")) {
@@ -69,7 +75,7 @@ mock.module("fs", () => ({
       if (sourcePackageMode === "missing-version") return JSON.stringify({ name: "maw-js" });
       return JSON.stringify({ version: "1.2.3-test" });
     }
-    return realFs.readFileSync(path, encoding);
+    return realReadFileSync(path, encoding);
   },
 }));
 

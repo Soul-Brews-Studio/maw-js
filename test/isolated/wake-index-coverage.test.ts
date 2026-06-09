@@ -109,12 +109,11 @@ describe("wake plugin index", () => {
     });
   });
 
-  test("returns usage when cli args omit the wake target", async () => {
+  test("zero-arg cli wake delegates cwd-derived oracle resolution", async () => {
     const result = await handler({ source: "cli", args: [] } as any);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("usage: maw wake <oracle|org/repo|URL>");
-    expect(wakeCalls).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(wakeCalls).toEqual([{ oracle: ".", opts: {} }]);
   });
 
   test("dispatches wake all with parsed fleet flags", async () => {

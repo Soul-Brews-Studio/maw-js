@@ -191,6 +191,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
     return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}${resume}`;
   },
   cfgTimeout: () => 0,
+  cfgLimit: () => 0,
   loadConfig: () => ({ node: "m5", agents: configAgents }),
   saveConfig: (patch: any) => {
     savedConfigs.push(patch);

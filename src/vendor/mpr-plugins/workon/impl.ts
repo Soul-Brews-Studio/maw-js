@@ -3,6 +3,7 @@ import { tmux } from "maw-js/sdk";
 import { ghqFind } from "maw-js/core/ghq";
 import { buildCommandInDir } from "maw-js/config";
 import { findWorktrees } from "maw-js/commands/shared/wake";
+import { ensureFleetSessionEntry } from "maw-js/commands/shared/fleet-ensure";
 import { resolveWorktreeTarget } from "maw-js/core/matcher/resolve-target";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "maw-js/core/fleet/worktree-layout";
 
@@ -91,6 +92,13 @@ export async function cmdWorkon(repo: string, task?: string, opts: { layout?: Wo
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
   await tmux.sendText(`${session}:${windowName}`, buildCommandInDir(windowName, targetPath));
+
+  if (!task && repoName.endsWith("-oracle")) {
+    const fleet = ensureFleetSessionEntry({ session, window: windowName, cwd: targetPath, createdBy: "maw workon" });
+    if (fleet.status === "created") {
+      console.log(`\x1b[32m+\x1b[0m fleet registered ${session}:${windowName}`);
+    }
+  }
 
   console.log(`\x1b[32m✅\x1b[0m workon '${windowName}' in ${session} → ${targetPath}`);
 }

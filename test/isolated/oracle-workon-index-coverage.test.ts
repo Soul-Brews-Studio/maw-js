@@ -127,17 +127,22 @@ describe("oracle-workon plugin index", () => {
     expect(execCalls).toEqual([]);
   });
 
-  test("returns oracle detection guidance when cwd is not an oracle repo", async () => {
+  test("falls back to cwd basename when cwd is not an oracle repo", async () => {
     process.env.TMUX = "%0";
-    chdirTemp("plain-workspace-");
+    fastTimers();
+    const dir = chdirTemp("plain-workspace-");
+    const basename = dir.split(/[\\/]+/).filter(Boolean).at(-1)!;
 
     const result = await handler({ source: "cli", args: ["--task", "ship-fix"] } as any);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("oracle not detected");
-    expect(result.output).toContain("is not an oracle repo");
-    expect(result.output).toContain("Pass <oracle> as positional");
-    expect(execCalls).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain(`auto-detected oracle: ${basename} (from cwd)`);
+    expect(execCalls).toEqual([
+      {
+        cmd: `maw wake ${basename} --task ship-fix --split --no-attach --engine claude47`,
+        options: { stdio: "inherit" },
+      },
+    ]);
   });
 
   test("builds escaped dry-run wake and tiled swarm commands for explicit oracle", async () => {
@@ -179,7 +184,7 @@ describe("oracle-workon plugin index", () => {
     const result = await handler({ source: "cli", args: ["--task", "ship-fix"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("auto-detected oracle: pulse (from cwd: pulse-oracle");
+    expect(result.output).toContain("auto-detected oracle: pulse (from cwd)");
     expect(result.output).toContain("agents:  none");
     expect(result.output).toContain("leader:    (check: maw panes)");
     expect(result.output).toContain("cleanup:   maw done pulse-ship-fix");
