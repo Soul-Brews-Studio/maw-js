@@ -107,7 +107,7 @@ function rustGatewayEnv(source: NodeJS.ProcessEnv, port: number): NodeJS.Process
 
 async function cleanupGatewayPort(port: number): Promise<void> {
   try {
-    execSync(`lsof -ti :${port} | xargs kill 2>/dev/null`, { stdio: "ignore" });
+    execSync(`lsof -ti :${port} | xargs kill`, { stdio: "ignore" });
   } catch {
     // lsof exits non-zero when the port is free, or may be unavailable on a
     // minimal system. Either case should not block gateway startup.
