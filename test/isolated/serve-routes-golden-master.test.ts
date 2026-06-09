@@ -83,6 +83,7 @@ afterEach(() => {
 
 mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () => ({ setupTriggerListener: () => {} }));
 mock.module(import.meta.resolve("../../src/transports"), () => ({
+  createScopedTransportRouter: () => ({ connectAll: () => Promise.resolve(), onMessage: () => {} }),
   createTransportRouter: () => ({ connectAll: () => Promise.resolve(), onMessage: () => {} }),
   getTransportRouter: () => null,
   resetTransportRouter: () => {},

@@ -68,6 +68,9 @@ mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () =
   setupTriggerListener: () => {},
 }));
 mock.module(import.meta.resolve("../../src/transports"), () => ({
+  createScopedTransportRouter: () => ({
+    connectAll: () => connectShouldReject ? Promise.reject(new Error("connect rejected")) : Promise.resolve(),
+  }),
   createTransportRouter: () => ({
     connectAll: () => connectShouldReject ? Promise.reject(new Error("connect rejected")) : Promise.resolve(),
   }),

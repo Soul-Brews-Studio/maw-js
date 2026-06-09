@@ -19,11 +19,16 @@ let apiPaths: string[] = [];
 let proxiedPaths: string[] = [];
 let lifecyclePayloads: unknown[] = [];
 let transportProfiles: unknown[] = [];
+let transportRouters: unknown[] = [];
+let engineRouters: unknown[] = [];
 let healthPolls = 0;
 let tmp = "";
 
 class FakeEngine {
-  setTransportRouter() { engineCalls.push("router"); }
+  setTransportRouter(router: unknown) {
+    engineCalls.push("router");
+    engineRouters.push(router);
+  }
   handleOpen() { engineCalls.push("open"); }
   handleMessage() { engineCalls.push("message"); }
   handleClose() { engineCalls.push("close"); }
@@ -51,11 +56,16 @@ mock.module(import.meta.resolve("../../src/views/index"), () => ({
   mountViews: (views: Hono) => { views.get("/throws", () => { throw new Error("view failed"); }); },
 }));
 mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () => ({ setupTriggerListener: () => {} }));
+function createFakeTransportRouter(transports?: string[]) {
+  const router = { transports, connectAll: () => Promise.resolve() };
+  transportProfiles.push(transports);
+  transportRouters.push(router);
+  return router;
+}
+
 mock.module(import.meta.resolve("../../src/transports"), () => ({
-  createTransportRouter: (transports?: string[]) => {
-    transportProfiles.push(transports);
-    return { connectAll: () => Promise.resolve() };
-  },
+  createScopedTransportRouter: createFakeTransportRouter,
+  createTransportRouter: createFakeTransportRouter,
   getTransportRouter: () => null,
   resetTransportRouter: () => {},
 }));
@@ -154,6 +164,8 @@ beforeEach(() => {
   proxiedPaths = [];
   lifecyclePayloads = [];
   transportProfiles = [];
+  transportRouters = [];
+  engineRouters = [];
   healthPolls = 0;
   Bun.serve = ((opts: any) => {
     serveCalls.push(opts);
@@ -346,6 +358,18 @@ describe("coverage core shared server", () => {
       profile: { views: false, apiRouters: ["identity"] },
     });
     expect(serveCalls).toHaveLength(1);
+  });
+
+  test("startServer scopes transport routers to sequential ServeProfiles without state bleed", async () => {
+    await startServer(4912, { transports: ["tmux"], views: false, intervals: false });
+    await startServer(4913, { transports: ["http"], views: false, intervals: false });
+
+    expect(transportProfiles).toEqual([["tmux"], ["http"]]);
+    expect(transportRouters).toHaveLength(2);
+    expect(transportRouters[0]).not.toBe(transportRouters[1]);
+    expect(engineRouters).toEqual(transportRouters);
+    expect(engineRouters[0]).toMatchObject({ transports: ["tmux"] });
+    expect(engineRouters[1]).toMatchObject({ transports: ["http"] });
   });
 
 });

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "fs";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
 import { setupTriggerListener } from "./runtime/trigger-listener";
-import { createTransportRouter } from "../transports";
+import { createScopedTransportRouter } from "../transports";
 import { isProtected, setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
@@ -288,7 +288,7 @@ export async function startBunGatewayServer(
   // side effects relative to dispatch, trigger listeners, and feed plugin setup.
   if (profile.transports === undefined || profile.transports.length > 0) {
     try {
-      const router = createTransportRouter(profile.transports);
+      const router = createScopedTransportRouter(profile.transports);
       router.connectAll().catch(err => log.error("[transport] connect failed:", err));
       engine.setTransportRouter(router);
     } catch (err) {

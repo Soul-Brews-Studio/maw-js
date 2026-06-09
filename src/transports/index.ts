@@ -49,22 +49,16 @@ function transportProfileKey(transports?: string[]): string {
   return transports === undefined ? "all" : [...new Set(transports)].sort().join(",");
 }
 
-/** Build transport router from maw.config.json */
-export function createTransportRouter(transports?: string[]): TransportRouter {
-  const profileKey = transportProfileKey(transports);
-  if (router && routerProfileKey === profileKey) return router;
-  if (router) router.disconnectAll().catch(() => {});
-
+function buildTransportRouter(transports?: string[]): TransportRouter {
   const config = loadConfig();
   const enabledTransports = transports === undefined ? null : new Set(transports);
-  router = new TransportRouter(config.broadcastTo ?? []);
-  routerProfileKey = profileKey;
+  const nextRouter = new TransportRouter(config.broadcastTo ?? []);
 
   // 1. Always register tmux (local fast path) by default — auto-connected
   if (transportEnabled(enabledTransports, "tmux")) {
     const tmux = new TmuxTransport();
     tmux.connect().catch(() => {}); // tmux is always available locally
-    router.register(tmux);
+    nextRouter.register(tmux);
   }
 
   const discovery = discoveryTransport(config);
@@ -80,7 +74,7 @@ export function createTransportRouter(transports?: string[]): TransportRouter {
       autoPair: true,
     });
     scout.connect().catch(() => {});
-    router.register(scout);
+    nextRouter.register(scout);
   }
 
   // 2.5b. Zenoh Scout — opt-in discovery/presence provider only.
@@ -89,7 +83,7 @@ export function createTransportRouter(transports?: string[]): TransportRouter {
   if (transportEnabled(enabledTransports, "zenoh-scout") && (discovery === "zenoh" || discovery === "both")) {
     const zenohScout = new PluginTransportAdapter(ZENOH_SCOUT_PLUGIN, ZENOH_SCOUT_TRANSPORT_FACTORY, config);
     zenohScout.connect().catch(() => {});
-    router.register(zenohScout);
+    nextRouter.register(zenohScout);
   }
 
   // 2.6. Zenoh transport — pub/sub + auto-discovery (dynamic import — WASM)
@@ -100,13 +94,13 @@ export function createTransportRouter(transports?: string[]): TransportRouter {
         node: config.node ?? "local",
       });
       zt.connect().catch((e) => console.warn(`[zenoh] connect failed: ${e}`));
-      router!.register(zt);
+      nextRouter.register(zt);
     }).catch((e) => console.warn(`[zenoh] load failed: ${e}`));
   }
 
   // 3. HTTP federation as fallback
   if (transportEnabled(enabledTransports, "http") && config.peers && config.peers.length > 0) {
-    router.register(
+    nextRouter.register(
       new HttpTransport({
         peers: config.peers,
         selfHost: config.node ?? "local",
@@ -115,8 +109,24 @@ export function createTransportRouter(transports?: string[]): TransportRouter {
   }
 
   // 4. NanoClaw (external chat channels — Telegram, Discord, etc.)
-  if (transportEnabled(enabledTransports, "nanoclaw")) router.register(new NanoclawTransport());
+  if (transportEnabled(enabledTransports, "nanoclaw")) nextRouter.register(new NanoclawTransport());
 
+  return nextRouter;
+}
+
+/** Build a fresh transport router scoped to one serve profile lifecycle. */
+export function createScopedTransportRouter(transports?: string[]): TransportRouter {
+  return buildTransportRouter(transports);
+}
+
+/** Build or reuse the legacy singleton transport router from maw.config.json. */
+export function createTransportRouter(transports?: string[]): TransportRouter {
+  const profileKey = transportProfileKey(transports);
+  if (router && routerProfileKey === profileKey) return router;
+  if (router) router.disconnectAll().catch(() => {});
+
+  router = buildTransportRouter(transports);
+  routerProfileKey = profileKey;
   return router;
 }
 
