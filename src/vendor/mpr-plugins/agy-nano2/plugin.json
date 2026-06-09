@@ -1,0 +1,11 @@
+{
+  "name": "agy-nano2",
+  "version": "1.0.0",
+  "description": "Agy Nano2 fleet operations.",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "cli": {
+    "command": "agy-nano2",
+    "help": "maw agy-nano2 rust serve — start the Rust-based Discord proxy or connector"
+  }
+}
