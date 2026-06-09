@@ -2,9 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "fs";
 import { cp } from "fs/promises";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
-import { execFile } from "child_process";
+import { execFile, execSync } from "child_process";
 import { promisify } from "util";
-import { getGhqRoot } from "maw-js/sdk";
 import type { DoctorCheck } from "../impl";
 
 const execFileAsync = promisify(execFile);
@@ -146,9 +145,24 @@ async function remapPairViaStagedClaudeHome(pair: FixSessionsPair, deps: Require
   await deps.execFile("rsync", ["-a", "--ignore-existing", `${stageCanonical}/`, `${pair.canonicalSessionDir}/`]);
 }
 
+
+function resolveGhqRoot(): string {
+  const envRoot = process.env.GHQ_ROOT;
+  if (envRoot && envRoot.length > 0) return normalizeBareGhqRoot(envRoot);
+  try {
+    const out = execSync("ghq root", { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    if (out.length > 0) return normalizeBareGhqRoot(out);
+  } catch { /* ghq absent */ }
+  return join(process.env.HOME || "", "Code");
+}
+
+function normalizeBareGhqRoot(raw: string): string {
+  return raw.trim().replace(/\/+$/, "").replace(/\/github\.com$/i, "");
+}
+
 function normalizeDeps(deps: FixSessionsDeps): Required<FixSessionsDeps> {
   return {
-    ghqRoot: deps.ghqRoot ?? (() => getGhqRoot()),
+    ghqRoot: deps.ghqRoot ?? resolveGhqRoot,
     claudeHome: deps.claudeHome ?? (() => process.env.CLAUDE_HOME || join(process.env.HOME || "", ".claude")),
     quarantineRoot: deps.quarantineRoot ?? (() => join(tmpdir(), `maw-doubled-github-${new Date().toISOString().replace(/[:.]/g, "-")}`)),
     exists: deps.exists ?? existsSync,

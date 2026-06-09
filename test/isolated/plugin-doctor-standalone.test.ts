@@ -39,7 +39,6 @@ const sdkMock = {
   mawDataPath: (...parts: string[]) => tmpPath("data", ...parts),
   mawStateDir: () => tmpPath("state"),
   mawStatePath: (...parts: string[]) => tmpPath("state", ...parts),
-  getGhqRoot: () => tmpPath("ghq"),
 };
 
 mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
@@ -88,7 +87,7 @@ describe("doctor plugin standalone boundary (#2328)", () => {
     expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
 
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
-    for (const symbol of ["C", "loadConfig", "loadManifestCached", "invalidateManifest", "mawStatePath", "isMawXdgEnabled", "mawCacheDir", "getGhqRoot"]) {
+    for (const symbol of ["C", "loadConfig", "loadManifestCached", "invalidateManifest", "mawStatePath", "isMawXdgEnabled", "mawCacheDir"]) {
       expect(sdk).toContain(symbol);
     }
   });
