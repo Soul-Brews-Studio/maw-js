@@ -17,7 +17,7 @@
  * server.
  */
 
-import { cfgLimit } from "../../config";
+import * as config from "../../config";
 import { tmux } from "../../core/transport/tmux";
 import { isAgentCommand } from "../../core/transport/ssh";
 import { UserError } from "../../core/util/user-error";
@@ -28,12 +28,37 @@ import { channelListenerIds } from "./channel-loader";
  * or over `cap`. A `cap` of `0` or less means "disabled" and is always a
  * no-op. Kept free of I/O so tests can exercise every branch directly.
  */
-export function checkCapacity(liveAgents: number, cap: number, spawning: string): void {
+const MAX_CONCURRENT_AGENTS_KEY = "limits.maxConcurrentAgents";
+
+export function maxConcurrentAgentsSourceLine(): string {
+  try {
+    const loaded = config.loadConfigWithProvenance?.({ cwd: process.cwd() });
+    const entries = loaded?.provenance?.[MAX_CONCURRENT_AGENTS_KEY] ?? [];
+    const source = [...entries].reverse().find((entry) => entry.action === "set");
+    const value = config.cfgLimit("maxConcurrentAgents");
+    if (source) {
+      return `${MAX_CONCURRENT_AGENTS_KEY}: ${value} from ${source.path}`;
+    }
+    return `${MAX_CONCURRENT_AGENTS_KEY}: ${value} from built-in default`;
+  } catch {
+    const value = config.cfgLimit("maxConcurrentAgents");
+    return `${MAX_CONCURRENT_AGENTS_KEY}: ${value} (config source unavailable)`;
+  }
+}
+
+export function checkCapacity(
+  liveAgents: number,
+  cap: number,
+  spawning: string,
+  sourceLine = `${MAX_CONCURRENT_AGENTS_KEY}: ${cap}`,
+): void {
   if (!cap || cap <= 0) return; // cap disabled by explicit opt-out
   if (liveAgents >= cap) {
     throw new UserError(
       `agent concurrency cap reached: ${liveAgents}/${cap} agents already live — ` +
-      `refusing to spawn '${spawning}'. Raise limits.maxConcurrentAgents in maw.config.json ` +
+      `refusing to spawn '${spawning}'.\n\n` +
+      `Config: ${sourceLine}\n\n` +
+      `Fix: Raise limits.maxConcurrentAgents in your maw config ` +
       `or sleep an idle agent first (maw sleep <agent>).`,
     );
   }
@@ -99,17 +124,19 @@ export function formatAgentTable(agents: LiveAgent[]): string {
  *                  error so the operator knows what was refused.
  */
 export async function assertAgentCapacity(spawning: string): Promise<void> {
-  const cap = cfgLimit("maxConcurrentAgents");
+  const cap = config.cfgLimit("maxConcurrentAgents");
   if (!cap || cap <= 0) return;
   const agents = await listLiveAgents();
   if (agents.length >= cap) {
+    const sourceLine = maxConcurrentAgentsSourceLine();
     const table = formatAgentTable(agents);
     throw new UserError(
       `agent concurrency cap reached: ${agents.length}/${cap} agents already live — ` +
       `refusing to spawn '${spawning}'.\n\n` +
       `Active agents:\n${table}\n\n` +
+      `Config: ${sourceLine}\n\n` +
       `Fix: maw sleep <name>  — free a slot by sleeping an idle agent\n` +
-      `     Set limits.maxConcurrentAgents in maw.config.json to raise the cap`,
+      `     Set limits.maxConcurrentAgents in your maw config to raise the cap`,
     );
   }
 }

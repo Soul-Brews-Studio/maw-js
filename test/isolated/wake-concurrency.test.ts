@@ -19,6 +19,7 @@ const root = join(import.meta.dir, "../..");
 
 // Controllable cap value — assertAgentCapacity reads it via cfgLimit().
 let capValue = 0;
+let capSourcePath: string | null = null;
 
 // tmux mock first, then config mock — both mock.module, registered before the
 // dynamic import in beforeAll so wake-concurrency.ts resolves to the shims.
@@ -31,23 +32,41 @@ mock.module(join(root, "src/config"), () => {
     ...base,
     cfgLimit: (k: string) =>
       k === "maxConcurrentAgents" ? capValue : base.cfgLimit(k),
+    loadConfigWithProvenance: () => ({
+      config: { limits: { maxConcurrentAgents: capValue } },
+      sources: capSourcePath ? [{ path: capSourcePath, weight: 50, scope: "user", isLocal: false }] : [],
+      provenance: capSourcePath ? {
+        "limits.maxConcurrentAgents": [{
+          path: capSourcePath,
+          weight: 50,
+          scope: "user",
+          isLocal: false,
+          value: capValue,
+          action: "set",
+        }],
+      } : {},
+      warnings: [],
+    }),
   };
 });
 
 let checkCapacity: typeof import("../../src/commands/shared/wake-concurrency").checkCapacity;
 let countLiveAgents: typeof import("../../src/commands/shared/wake-concurrency").countLiveAgents;
 let assertAgentCapacity: typeof import("../../src/commands/shared/wake-concurrency").assertAgentCapacity;
+let maxConcurrentAgentsSourceLine: typeof import("../../src/commands/shared/wake-concurrency").maxConcurrentAgentsSourceLine;
 
 beforeAll(async () => {
   const mod = await import("../../src/commands/shared/wake-concurrency");
   checkCapacity = mod.checkCapacity;
   countLiveAgents = mod.countLiveAgents;
   assertAgentCapacity = mod.assertAgentCapacity;
+  maxConcurrentAgentsSourceLine = mod.maxConcurrentAgentsSourceLine;
 });
 
 afterEach(() => {
   resetMocks();
   capValue = 0;
+  capSourcePath = null;
 });
 
 describe("checkCapacity — pure cap decision (#2)", () => {
@@ -72,6 +91,11 @@ describe("checkCapacity — pure cap decision (#2)", () => {
   test("error message is actionable — names the config knob", () => {
     expect(() => checkCapacity(5, 5, "neo")).toThrow(/maxConcurrentAgents/);
   });
+
+  test("error message can include the exact config source line", () => {
+    expect(() => checkCapacity(5, 5, "neo", "limits.maxConcurrentAgents: 5 from /tmp/maw.config.50.json"))
+      .toThrow(/Config: limits\.maxConcurrentAgents: 5 from \/tmp\/maw\.config\.50\.json/);
+  });
 });
 
 describe("countLiveAgents — counts agent panes across the fleet", () => {
@@ -92,6 +116,24 @@ describe("countLiveAgents — counts agent panes across the fleet", () => {
   });
 });
 
+describe("maxConcurrentAgentsSourceLine — explains where the cap came from", () => {
+  test("reports the full config path when provenance names a source file", () => {
+    capValue = 7;
+    capSourcePath = "/Users/nat/.config/maw/maw.config.50.json";
+
+    expect(maxConcurrentAgentsSourceLine()).toBe(
+      "limits.maxConcurrentAgents: 7 from /Users/nat/.config/maw/maw.config.50.json",
+    );
+  });
+
+  test("reports built-in default when no config file sets the cap", () => {
+    capValue = 10;
+    capSourcePath = null;
+
+    expect(maxConcurrentAgentsSourceLine()).toBe("limits.maxConcurrentAgents: 10 from built-in default");
+  });
+});
+
 describe("assertAgentCapacity — the guard cmdWake calls before spawning", () => {
   test("disabled (cap 0) → no throw, and does NOT even query tmux", async () => {
     capValue = 0;
@@ -108,10 +150,13 @@ describe("assertAgentCapacity — the guard cmdWake calls before spawning", () =
     expect(getCapturedCommands().some(c => c.includes("list-panes"))).toBe(true);
   });
 
-  test("at/over cap → rejects loudly", async () => {
+  test("at/over cap → rejects loudly with the config source path", async () => {
     capValue = 2;
+    capSourcePath = "/tmp/maw/maw.config.90.local.json";
     setPanes([{ command: "claude" }, { command: "claude" }, { command: "node" }]);
+
     await expect(assertAgentCapacity("neo")).rejects.toThrow(/concurrency cap reached: 3\/2/);
+    await expect(assertAgentCapacity("neo")).rejects.toThrow(/Config: limits\.maxConcurrentAgents: 2 from \/tmp\/maw\/maw\.config\.90\.local\.json/);
   });
 
   test("exactly at cap → rejects (cap is inclusive)", async () => {
