@@ -469,6 +469,18 @@ function logAgentsRehydrationSource(count: number, worktrees: { path: string }[]
   console.log(`\x1b[90m↻ agents/ rehydrate: none from ${source}\x1b[0m`);
 }
 
+function shouldSkipAgentsRehydrationPrompt(plan: RehydrateWorktreePlan[]): boolean {
+  if (plan.length === 0 || !_wtPicker.isStdoutTTY()) return false;
+  console.log(`\x1b[36m↻\x1b[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
+  for (const wt of plan) {
+    console.log(`  \x1b[90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}\x1b[0m`);
+  }
+  console.log("");
+  process.stdout.write(`  Rehydrate all? [Y/n] `);
+  const answer = _wtPicker.readChoice();
+  return !!answer && /^n/i.test(answer);
+}
+
 async function restoreSnapshotWindows(
   oracle: string,
   session: string,
@@ -1186,19 +1198,24 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const rehydratableWt = await filterMergedWorktreesForRehydrate(allWt, { hostExec, baseBranch: "alpha" });
       const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, [...existingWindows]);
       logAgentsRehydrationSource(plan.length, allWt);
-      if (plan.length > 0) {
+      const skipRehydrate = shouldSkipAgentsRehydrationPrompt(plan);
+      if (skipRehydrate) {
+        console.log(`\x1b[33m⚡\x1b[0m skipped agent rehydration`);
+      } else if (plan.length > 0) {
         console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
       }
-      for (const wt of plan) {
-        await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
-        await new Promise(r => setTimeout(r, 300));
-        const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
-        const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
-        const target = `${session}:${wt.windowName}`;
-        await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
-        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
-        existingWindows.add(wt.windowName);
-        console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
+      if (!skipRehydrate) {
+        for (const wt of plan) {
+          await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
+          await new Promise(r => setTimeout(r, 300));
+          const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
+          const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
+          const target = `${session}:${wt.windowName}`;
+          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
+          await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+          existingWindows.add(wt.windowName);
+          console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
+        }
       }
     }
     knownWindows = existingWindows;
@@ -1239,17 +1256,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, existingWindows, liveTileRoles);
         logAgentsRehydrationSource(plan.length, allWt);
         if (plan.length > 0) {
-          let skipRehydrate = false;
-          if (_wtPicker.isStdoutTTY()) {
-            console.log(`\x1b[36m↻\x1b[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
-            for (const wt of plan) {
-              console.log(`  \x1b[90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}\x1b[0m`);
-            }
-            console.log("");
-            process.stdout.write(`  Rehydrate all? [Y/n] `);
-            const answer = _wtPicker.readChoice();
-            skipRehydrate = !!answer && /^n/i.test(answer);
-          }
+          const skipRehydrate = shouldSkipAgentsRehydrationPrompt(plan);
           if (skipRehydrate) {
             console.log(`\x1b[33m⚡\x1b[0m skipped agent rehydration`);
           } else {
