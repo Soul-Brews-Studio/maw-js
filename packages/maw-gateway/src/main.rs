@@ -49,7 +49,7 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: maw-gateway serve --port PORT");
+    eprintln!("usage: maw-gateway serve [--port PORT]");
     process::exit(2);
 }
 
@@ -77,7 +77,27 @@ fn parse_port(args: &[String]) -> u16 {
         index += 1;
     }
 
-    port.unwrap_or_else(|| usage())
+    port.unwrap_or(3456)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_port;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_port_defaults_to_3456() {
+        assert_eq!(parse_port(&args(&["serve"])), 3456);
+    }
+
+    #[test]
+    fn parse_port_accepts_space_and_equals_forms() {
+        assert_eq!(parse_port(&args(&["serve", "--port", "8080"])), 8080);
+        assert_eq!(parse_port(&args(&["serve", "--port=9090"])), 9090);
+    }
 }
 
 #[cfg(unix)]
