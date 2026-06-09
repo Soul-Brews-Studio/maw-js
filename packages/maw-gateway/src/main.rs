@@ -582,7 +582,40 @@ mod tests {
     use hyper_util::client::legacy::{connect::HttpConnector, Client};
     use hyper_util::rt::TokioExecutor;
     use std::time::Duration;
-    use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
+    use tokio::{io::AsyncReadExt, net::TcpListener, sync::broadcast, task::JoinHandle};
+
+    struct TestCleanup {
+        shutdown: Option<broadcast::Sender<()>>,
+        tasks: Vec<JoinHandle<()>>,
+    }
+
+    impl TestCleanup {
+        fn new() -> Self {
+            Self {
+                shutdown: None,
+                tasks: Vec::new(),
+            }
+        }
+
+        fn set_shutdown(&mut self, shutdown: broadcast::Sender<()>) {
+            self.shutdown = Some(shutdown);
+        }
+
+        fn track(&mut self, task: JoinHandle<()>) {
+            self.tasks.push(task);
+        }
+    }
+
+    impl Drop for TestCleanup {
+        fn drop(&mut self) {
+            if let Some(shutdown) = self.shutdown.take() {
+                let _ = shutdown.send(());
+            }
+            for task in self.tasks.drain(..) {
+                task.abort();
+            }
+        }
+    }
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -797,73 +830,72 @@ mod tests {
 
     #[tokio::test]
     async fn slow_upstream_returns_gateway_timeout_within_configured_timeout() {
-        let backend_listener = TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .expect("bind backend");
-        let backend_port = backend_listener.local_addr().expect("backend addr").port();
-        let backend = tokio::spawn(async move {
-            let app = Router::new().route(
-                "/api/federation/status",
-                get(|| async {
-                    tokio::time::sleep(Duration::from_millis(120)).await;
-                    "too slow"
-                }),
+        tokio::time::timeout(Duration::from_secs(1), async {
+            let mut cleanup = TestCleanup::new();
+
+            let backend_listener = TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("bind backend");
+            let backend_port = backend_listener.local_addr().expect("backend addr").port();
+            cleanup.track(tokio::spawn(async move {
+                let (mut socket, _) = backend_listener.accept().await.expect("accept backend");
+                let mut buffer = [0u8; 1024];
+                let _ = socket.read(&mut buffer).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }));
+
+            let listener = TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("bind gateway");
+            let port = listener.local_addr().expect("gateway addr").port();
+            let (shutdown, _) = broadcast::channel(16);
+            cleanup.set_shutdown(shutdown.clone());
+            let state = AppState {
+                port,
+                backend_port: Some(backend_port),
+                verbosity: 1,
+                proxy_timeout: Duration::from_millis(25),
+                client: std::sync::Arc::new(test_client()),
+                shutdown: shutdown.clone(),
+            };
+            let mut shutdown_rx = shutdown.subscribe();
+            cleanup.track(tokio::spawn(async move {
+                let _ = axum::serve(listener, app(state))
+                    .with_graceful_shutdown(async move {
+                        let _ = shutdown_rx.recv().await;
+                    })
+                    .await;
+            }));
+
+            let client = test_client();
+            let uri = format!("http://127.0.0.1:{port}/api/federation/status")
+                .parse::<HyperUri>()
+                .expect("slow uri");
+            let request = HyperRequest::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Full::new(HyperBytes::new()))
+                .expect("slow request");
+            let started = tokio::time::Instant::now();
+            let response = client.request(request).await.expect("slow response");
+            let elapsed = started.elapsed();
+            let status = response.status();
+            let body = response
+                .into_body()
+                .collect()
+                .await
+                .expect("slow body")
+                .to_bytes();
+
+            assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+            assert!(
+                elapsed < Duration::from_millis(100),
+                "elapsed was {elapsed:?}"
             );
-            let _ = axum::serve(backend_listener, app).await;
-        });
-
-        let listener = TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .expect("bind gateway");
-        let port = listener.local_addr().expect("gateway addr").port();
-        let (shutdown, _) = broadcast::channel(16);
-        let state = AppState {
-            port,
-            backend_port: Some(backend_port),
-            verbosity: 1,
-            proxy_timeout: Duration::from_millis(25),
-            client: std::sync::Arc::new(test_client()),
-            shutdown: shutdown.clone(),
-        };
-        let mut shutdown_rx = shutdown.subscribe();
-        let gateway = tokio::spawn(async move {
-            let _ = axum::serve(listener, app(state))
-                .with_graceful_shutdown(async move {
-                    let _ = shutdown_rx.recv().await;
-                })
-                .await;
-        });
-
-        let client = test_client();
-        let uri = format!("http://127.0.0.1:{port}/api/federation/status")
-            .parse::<HyperUri>()
-            .expect("slow uri");
-        let request = HyperRequest::builder()
-            .method("GET")
-            .uri(uri)
-            .body(Full::new(HyperBytes::new()))
-            .expect("slow request");
-        let started = tokio::time::Instant::now();
-        let response = client.request(request).await.expect("slow response");
-        let elapsed = started.elapsed();
-        let status = response.status();
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .expect("slow body")
-            .to_bytes();
-
-        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
-        assert!(
-            elapsed < Duration::from_millis(100),
-            "elapsed was {elapsed:?}"
-        );
-        assert_eq!(body.as_ref(), b"gateway upstream timed out");
-
-        let _ = shutdown.send(());
-        let _ = gateway.await;
-        backend.abort();
+            assert_eq!(body.as_ref(), b"gateway upstream timed out");
+        })
+        .await
+        .expect("slow_upstream timeout test exceeded hard 1s limit");
     }
 }
 
