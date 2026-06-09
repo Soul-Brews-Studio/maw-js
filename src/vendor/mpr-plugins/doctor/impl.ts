@@ -1,5 +1,6 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statfsSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
+import { createServer } from "net";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
 import { loadPeers } from "./internal/peers-store";
@@ -24,6 +25,7 @@ import { checkStillbornWorktrees } from "./internal/stillborn-worktrees";
 import { checkStalePeers, cmdFixStalePeers } from "./internal/stale-peers";
 import { detectBunLinkedCheckout } from "./internal/bun-link-detect";
 import { fixDoubledGithubSessions } from "./internal/fix-sessions";
+import { normalizeGateway, resolveGatewayBinary, type GatewayKind } from "maw-js/core/gateway";
 
 export type DoctorSeverity = "info" | "warn" | "error";
 
@@ -58,6 +60,7 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   const capture = flags.has("--capture");
   const noPrompt = flags.has("--no-prompt") || Boolean(process.env.MAW_TEST_MODE);
   const forwardTarget = parsed.values["--forward"];
+  const cliGateway = parsed.values["--gateway"];
   const allowDrift = flags.has("--allow-drift");
   const smoke = flags.has("--smoke") || only === "smoke";
   const xdgMigrate = flags.has("--migrate") || flags.has("--fix-xdg");
@@ -92,6 +95,9 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   } else {
     if (!only || only === "serve") {
       checks.push(await checkServeHealth());
+    }
+    if (!only || only === "gateway" || only === "all") {
+      checks.push(await checkRustGatewayDoctor(cliGateway));
     }
     if (!only || only === "install" || only === "all") {
       checks.push(await checkInstall());
@@ -193,6 +199,12 @@ function parseDoctorArgs(args: string[]): { flags: Set<string>; values: Record<s
     } else if (arg.startsWith("--forward=")) {
       flags.add("--forward");
       values["--forward"] = arg.slice("--forward=".length) || "doctor";
+    } else if (arg === "--gateway") {
+      flags.add(arg);
+      values[arg] = args[++i] || "";
+    } else if (arg.startsWith("--gateway=")) {
+      flags.add("--gateway");
+      values["--gateway"] = arg.slice("--gateway=".length);
     } else if (arg.startsWith("--")) {
       flags.add(arg);
     } else {
@@ -304,6 +316,164 @@ async function checkServeHealth(): Promise<DoctorCheck> {
   } catch {
     return { name: "serve", ok: false, severity: "warn", message: `not reachable on :${port}`, fix: ["maw serve"] };
   }
+}
+
+
+async function checkRustGatewayDoctor(cliGateway?: string): Promise<DoctorCheck> {
+  const selected = resolveDoctorGateway(cliGateway);
+  if (selected.kind !== "rust") {
+    return {
+      name: "gateway",
+      ok: true,
+      severity: "info",
+      message: `gateway ${selected.kind} selected — rust probe skipped`,
+      details: { gateway: selected.kind, source: selected.source },
+    };
+  }
+
+  const binary = resolveGatewayBinary();
+  if (!binary) {
+    return {
+      name: "gateway:rust",
+      ok: false,
+      severity: "error",
+      message: "binary not found on PATH — build: cargo build --release in packages/maw-gateway",
+      fix: ["cargo build --release --manifest-path packages/maw-gateway/Cargo.toml"],
+      details: { gateway: "rust", source: selected.source, binary: null },
+    };
+  }
+
+  const { port, backendPort } = await rustGatewayProbePorts();
+  const probe = await probeRustGatewayBinary(binary, port, backendPort);
+  if (probe.ok) {
+    return {
+      name: "gateway:rust",
+      ok: true,
+      severity: "info",
+      message: `binary found at ${binary}; starts OK (ready on :${port}); --backend supported (proxy-capable)`,
+      details: { gateway: "rust", source: selected.source, binary, port, backendPort },
+    };
+  }
+
+  const stale = probe.reason === "stale-backend";
+  return {
+    name: "gateway:rust",
+    ok: false,
+    severity: "error",
+    message: stale
+      ? `stale binary at ${binary} rejects --backend — rebuild from packages/maw-gateway`
+      : `binary at ${binary} failed to start: ${probe.message}`,
+    fix: ["cargo build --release --manifest-path packages/maw-gateway/Cargo.toml"],
+    details: { gateway: "rust", source: selected.source, binary, port, backendPort, ...probe },
+  };
+}
+
+function resolveDoctorGateway(cliGateway?: string): { kind: GatewayKind; source: "cli" | "env" | "config" | "default" } {
+  const cli = normalizeGateway(cliGateway, "--gateway");
+  if (cli) return { kind: cli, source: "cli" };
+  const env = normalizeGateway(process.env.MAW_GATEWAY, "MAW_GATEWAY");
+  if (env) return { kind: env, source: "env" };
+  const config = normalizeGateway((loadConfig() as { gateway?: unknown } | null | undefined)?.gateway, "config.gateway");
+  if (config) return { kind: config, source: "config" };
+  return { kind: "bun", source: "default" };
+}
+
+async function rustGatewayProbePorts(): Promise<{ port: number; backendPort: number }> {
+  return { port: await reserveEphemeralPort(), backendPort: await reserveEphemeralPort() };
+}
+
+async function reserveEphemeralPort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+async function probeRustGatewayBinary(binary: string, port: number, backendPort: number, timeoutMs = 3000): Promise<
+  | { ok: true }
+  | { ok: false; reason: "stale-backend" | "failed" | "timeout"; message: string; exitCode?: number | null; signal?: string | null; stdout?: string; stderr?: string }
+> {
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let stdout = "";
+  let stderr = "";
+  const readyNeedle = `listening on :${port}`;
+  try {
+    child = Bun.spawn([binary, "serve", "--port", String(port), "--backend", String(backendPort)], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        PORT: String(port),
+        MAW_BACKEND_PORT: String(backendPort),
+      },
+    });
+
+    const stdoutDone = readProbeStream(child.stdout, (chunk) => { stdout += chunk; });
+    const stderrDone = readProbeStream(child.stderr, (chunk) => { stderr += chunk; });
+    let probeSettled = false;
+    const exited = child.exited.then((exitCode) => ({ type: "exit" as const, exitCode }));
+    const ready = waitForProbeReady(() => stdout.includes(readyNeedle), () => probeSettled, 25)
+      .then((ready) => ({ type: ready ? "ready" as const : "stopped" as const }));
+    const timeout = new Promise<{ type: "timeout" }>((resolve) => setTimeout(() => resolve({ type: "timeout" }), timeoutMs));
+    const result = await Promise.race([ready, exited, timeout]);
+    probeSettled = true;
+
+    if (result.type === "ready") {
+      child.kill();
+      await Promise.race([child.exited, new Promise(resolve => setTimeout(resolve, 300))]);
+      await Promise.race([Promise.allSettled([stdoutDone, stderrDone]), new Promise(resolve => setTimeout(resolve, 300))]);
+      return { ok: true };
+    }
+
+    if (result.type === "timeout" || result.type === "stopped") {
+      child.kill();
+      await Promise.race([child.exited, new Promise(resolve => setTimeout(resolve, 300))]);
+      return { ok: false, reason: "timeout", message: `did not report ${readyNeedle} within ${timeoutMs}ms`, stdout, stderr };
+    }
+
+    await Promise.race([Promise.allSettled([stdoutDone, stderrDone]), new Promise(resolve => setTimeout(resolve, 300))]);
+    const combined = `${stdout}\n${stderr}`;
+    if (/--backend|usage:.*maw-gateway serve|unexpected argument|unknown option|unrecognized option/i.test(combined)) {
+      return { ok: false, reason: "stale-backend", message: combined.trim() || `exit ${result.exitCode}`, exitCode: result.exitCode, stdout, stderr };
+    }
+    return { ok: false, reason: "failed", message: combined.trim() || `exit ${result.exitCode}`, exitCode: result.exitCode, stdout, stderr };
+  } catch (e: any) {
+    return { ok: false, reason: "failed", message: e?.message || String(e), stdout, stderr };
+  } finally {
+    try { child?.kill(); } catch { /* best effort */ }
+  }
+}
+
+async function readProbeStream(stream: ReadableStream<Uint8Array> | null | undefined, onChunk: (chunk: string) => void): Promise<void> {
+  if (!stream) return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) onChunk(decoder.decode(value, { stream: true }));
+    }
+    const tail = decoder.decode();
+    if (tail) onChunk(tail);
+  } catch {
+    // Process shutdown can close streams abruptly; the accumulated output is enough.
+  }
+}
+
+async function waitForProbeReady(isReady: () => boolean, shouldStop: () => boolean, intervalMs: number): Promise<boolean> {
+  while (!isReady()) {
+    if (shouldStop()) return false;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return true;
 }
 
 function checkPluginHealth(): DoctorCheck {

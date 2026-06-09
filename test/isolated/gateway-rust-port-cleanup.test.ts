@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const calls: string[] = [];
+const realChildProcess = await import("node:child_process");
 
 class FakeStream extends EventEmitter {
   off(eventName: string, listener: (...args: unknown[]) => void) {
@@ -24,6 +25,7 @@ class FakeChild extends EventEmitter {
 }
 
 mock.module("node:child_process", () => ({
+  ...realChildProcess,
   execSync: (cmd: string, opts: unknown) => {
     calls.push(`exec:${cmd}:${JSON.stringify(opts)}`);
   },

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
@@ -81,12 +81,13 @@ afterEach(() => {
 
 describe("doctor plugin standalone boundary (#2328)", () => {
   test("all doctor sources use SDK or local/platform imports only", () => {
-    const imports = expectStandalonePluginBoundary({ plugin: "doctor", root });
+    const imports = expectStandalonePluginBoundary({ plugin: "doctor", root, allowMawJs: ["maw-js/core/gateway"] });
 
     expect(command).toMatchObject({ name: "doctor" });
     expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
 
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
+    expect(imports.map((record) => record.spec)).toContain("maw-js/core/gateway");
     for (const symbol of ["C", "loadConfig", "loadManifestCached", "invalidateManifest", "mawStatePath", "isMawXdgEnabled", "mawCacheDir"]) {
       expect(sdk).toContain(symbol);
     }
@@ -170,4 +171,86 @@ describe("doctor plugin standalone boundary (#2328)", () => {
     expect(parsed.comparison).toContainEqual({ name: "hub", before: "ok", after: "issue", status: "regressed" });
     expect(JSON.parse(readFileSync(tmpPath("state", "doctor-last.json"), "utf8")).checks.hub).toBe("issue");
   });
+
+  test("gateway check skips when rust gateway is not selected", async () => {
+    config = { oracle: "local", node: "home", gateway: "bun" };
+
+    const result = await doctorHandler({ source: "cli", args: ["gateway"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(stripAnsi(result.output)).toContain("gateway: gateway bun selected — rust probe skipped");
+  });
+
+  test("gateway check reports missing rust gateway binary", async () => {
+    config = { oracle: "local", node: "home", gateway: "rust" };
+    const previous = process.env.MAW_GATEWAY_BIN;
+    process.env.MAW_GATEWAY_BIN = tmpPath("missing", "maw-gateway");
+    try {
+      const result = await doctorHandler({ source: "cli", args: ["gateway", "--json", "--no-prompt"] } as any);
+
+      expect(result.ok).toBe(false);
+      const parsed = JSON.parse(stripAnsi(result.output));
+      expect(parsed.checks[0]).toMatchObject({
+        name: "gateway:rust",
+        ok: false,
+        severity: "error",
+      });
+      expect(parsed.checks[0].message).toContain("binary not found on PATH");
+      expect(parsed.checks[0].fix[0]).toContain("cargo build --release");
+    } finally {
+      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous;
+    }
+  });
+
+  test("gateway check reports OK for proxy-capable rust gateway binary", async () => {
+    config = { oracle: "local", node: "home", gateway: "rust" };
+    const binary = tmpPath("maw-gateway-ok");
+    const previous = process.env.MAW_GATEWAY_BIN;
+    writeFileSync(binary, `#!/bin/sh\necho "listening on :$3"\nexec sleep 30\n`);
+    chmodSync(binary, 0o755);
+    process.env.MAW_GATEWAY_BIN = binary;
+    try {
+      const result = await doctorHandler({ source: "cli", args: ["gateway", "--json", "--no-prompt"] } as any);
+
+      expect(result.ok).toBe(true);
+      const parsed = JSON.parse(stripAnsi(result.output));
+      expect(parsed.checks[0]).toMatchObject({
+        name: "gateway:rust",
+        ok: true,
+        severity: "info",
+      });
+      expect(parsed.checks[0].message).toContain("starts OK");
+      expect(parsed.checks[0].message).toContain("--backend supported");
+    } finally {
+      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous;
+    }
+  });
+
+  test("gateway check flags stale rust gateway binary that rejects --backend", async () => {
+    config = { oracle: "local", node: "home", gateway: "rust" };
+    const binary = tmpPath("maw-gateway-stale");
+    const previous = process.env.MAW_GATEWAY_BIN;
+    writeFileSync(binary, `#!/bin/sh\necho "usage: maw-gateway serve [--port PORT]" >&2\nexit 2\n`);
+    chmodSync(binary, 0o755);
+    process.env.MAW_GATEWAY_BIN = binary;
+    try {
+      const result = await doctorHandler({ source: "cli", args: ["gateway", "--json", "--no-prompt"] } as any);
+
+      expect(result.ok).toBe(false);
+      const parsed = JSON.parse(stripAnsi(result.output));
+      expect(parsed.checks[0]).toMatchObject({
+        name: "gateway:rust",
+        ok: false,
+        severity: "error",
+      });
+      expect(parsed.checks[0].message).toContain("stale binary");
+      expect(parsed.checks[0].message).toContain("rejects --backend");
+    } finally {
+      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous;
+    }
+  });
+
 });
