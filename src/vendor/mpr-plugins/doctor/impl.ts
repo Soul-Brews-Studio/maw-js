@@ -23,6 +23,7 @@ import { checkMawJsBranch } from "./internal/maw-js-branch-check";
 import { checkStillbornWorktrees } from "./internal/stillborn-worktrees";
 import { checkStalePeers, cmdFixStalePeers } from "./internal/stale-peers";
 import { detectBunLinkedCheckout } from "./internal/bun-link-detect";
+import { fixDoubledGithubSessions } from "./internal/fix-sessions";
 
 export type DoctorSeverity = "info" | "warn" | "error";
 
@@ -71,6 +72,13 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   // fix result directly so index.ts surfaces it unchanged.
   if (flags.has("--fix-stale")) {
     return await cmdFixStalePeers();
+  }
+
+  if (flags.has("--fix-sessions")) {
+    const result = await fixDoubledGithubSessions({ dryRun: flags.has("--dry-run") || flags.has("--plan") });
+    if (json) renderFixSessionsJson(result);
+    else renderFixSessionsResult(result);
+    return { ok: result.ok, checks: result.checks };
   }
 
   const renderLog = console.log;
@@ -137,6 +145,40 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   if (json) renderJsonResults(checks, ok, comparison);
   else renderResults(checks, ok, comparison);
   return { ok, checks, comparison };
+}
+
+
+function renderFixSessionsResult(result: Awaited<ReturnType<typeof fixDoubledGithubSessions>>): void {
+  console.log("");
+  console.log(`  ${result.ok ? C.green + "✓" : C.red + "✗"} maw doctor --fix-sessions${C.reset}`);
+  console.log(`    ${result.dryRun ? "dry-run" : "applied"}: ${result.pairs.length} doubled github.com/github.com dir${result.pairs.length === 1 ? "" : "s"}`);
+  console.log(`    ${C.gray}quarantine: ${result.quarantineRoot}${C.reset}`);
+  for (const pair of result.pairs) {
+    const status = pair.outcome === "error" ? C.red + "✗" : pair.outcome === "done" ? C.green + "✓" : C.yellow + "•";
+    console.log(`    ${status}${C.reset} ${pair.action} sessions=${pair.sessionCount} canonical=${pair.canonicalExists ? "yes" : "missing"}`);
+    console.log(`       doubled:   ${pair.doubled}`);
+    console.log(`       canonical: ${pair.canonical}`);
+    console.log(`       cleanup:   mv ${shellQuote(pair.doubled)} ${shellQuote(pair.cleanupTarget)}`);
+    for (const message of pair.messages) console.log(`       ${C.gray}${message}${C.reset}`);
+  }
+  if (result.dryRun) console.log(`    ${C.gray}rerun without --dry-run to remap sessions and quarantine doubled dirs with mv${C.reset}`);
+  console.log("");
+}
+
+function renderFixSessionsJson(result: Awaited<ReturnType<typeof fixDoubledGithubSessions>>): void {
+  console.log(JSON.stringify({
+    ok: result.ok,
+    dryRun: result.dryRun,
+    quarantineRoot: result.quarantineRoot,
+    pairs: result.pairs,
+    checks: result.checks.map(c => ({
+      name: c.name,
+      ok: c.ok,
+      severity: severityFor(c),
+      message: c.message,
+      ...(c.details === undefined ? {} : { details: c.details }),
+    })),
+  }, null, 2));
 }
 
 function parseDoctorArgs(args: string[]): { flags: Set<string>; values: Record<string, string>; positional: string[] } {

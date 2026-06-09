@@ -9,7 +9,7 @@ export default definePlugin({
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "doctor",
-    "help": "maw doctor [install|xdg|all] [--json] [--no-prompt] [--capture] [--forward <target>] — diagnose health, show fixes, persist before/after; piped stdin diagnoses an error; use `maw doctor xdg --migrate --dry-run` to preview XDG copy-forward"
+    "help": "maw doctor [install|xdg|all] [--json] [--no-prompt] [--capture] [--forward <target>] — diagnose health, show fixes, persist before/after; use `maw doctor --fix-sessions --dry-run` for doubled github.com session repair planning; use `maw doctor xdg --migrate --dry-run` to preview XDG copy-forward"
   },
   "weight": 30,
   "tier": "standard",

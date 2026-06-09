@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 const realSdk = await import("../../src/sdk/index.ts");
 afterAll(() => { mock.restore(); });
 
@@ -38,6 +39,7 @@ const sdkMock = {
   mawDataPath: (...parts: string[]) => tmpPath("data", ...parts),
   mawStateDir: () => tmpPath("state"),
   mawStatePath: (...parts: string[]) => tmpPath("state", ...parts),
+  getGhqRoot: () => tmpPath("ghq"),
 };
 
 mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
@@ -54,25 +56,6 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/doctor/internal/bu
 
 const { command, default: doctorHandler } = await import("../../src/vendor/mpr-plugins/doctor/index.ts?plugin-doctor-standalone");
 const peersStore = await import("../../src/vendor/mpr-plugins/doctor/internal/peers-store.ts?plugin-doctor-standalone");
-
-function walkSources(dir: string): string[] {
-  const { readdirSync } = require("node:fs");
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkSources(full));
-    else if (entry.name.endsWith(".ts")) out.push(full);
-  }
-  return out;
-}
-
-function importSpecs(source: string): string[] {
-  const specs = new Set<string>();
-  const re = /\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(source))) specs.add(match[1] ?? match[2]);
-  return [...specs];
-}
 
 function stripAnsi(value: string | undefined) {
   return String(value ?? "").replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -99,23 +82,13 @@ afterEach(() => {
 
 describe("doctor plugin standalone boundary (#2328)", () => {
   test("all doctor sources use SDK or local/platform imports only", () => {
-    const imports = walkSources(doctorDir).flatMap((file) => importSpecs(readFileSync(file, "utf8")));
-    const forbidden = imports.filter((spec) =>
-      spec.startsWith("maw-js/core/")
-      || spec.startsWith("maw-js/commands/shared/")
-      || spec.startsWith("maw-js/lib/")
-      || spec.startsWith("maw-js/config")
-      || spec.startsWith("maw-js/plugin")
-      || spec.includes("../../../core")
-      || spec.includes("../../../../core"),
-    );
+    const imports = expectStandalonePluginBoundary({ plugin: "doctor", root });
 
     expect(command).toMatchObject({ name: "doctor" });
-    expect(forbidden).toEqual([]);
-    expect(imports).toContain("maw-js/sdk");
+    expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
 
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
-    for (const symbol of ["C", "loadConfig", "loadManifestCached", "invalidateManifest", "mawStatePath", "isMawXdgEnabled", "mawCacheDir"]) {
+    for (const symbol of ["C", "loadConfig", "loadManifestCached", "invalidateManifest", "mawStatePath", "isMawXdgEnabled", "mawCacheDir", "getGhqRoot"]) {
       expect(sdk).toContain(symbol);
     }
   });
