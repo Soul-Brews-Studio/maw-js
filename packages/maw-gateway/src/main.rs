@@ -1,5 +1,7 @@
 use std::{
     env,
+    error::Error as StdError,
+    io::ErrorKind,
     net::SocketAddr,
     process,
     sync::Arc,
@@ -17,7 +19,7 @@ use axum::{
             HeaderMap, HeaderName, CONNECTION, CONTENT_LENGTH, HOST, PROXY_AUTHENTICATE,
             PROXY_AUTHORIZATION, TE, TRAILER, TRANSFER_ENCODING, UPGRADE,
         },
-        Request, StatusCode, Uri,
+        Method, Request, StatusCode, Uri, Version,
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -28,8 +30,8 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Bytes as HyperBytes, Request as HyperRequest, Uri as HyperUri};
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
-use hyper_util::rt::TokioExecutor;
+use hyper_util::client::legacy::{connect::HttpConnector, Client, Error as ClientError};
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio_tungstenite::{
@@ -46,6 +48,7 @@ use tower_http::trace::TraceLayer;
 
 type BackendClient = Client<HttpConnector, Full<HyperBytes>>;
 const DEFAULT_PROXY_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_POOL_IDLE_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Clone)]
 struct AppState {
@@ -62,6 +65,14 @@ struct GatewayArgs {
     port: u16,
     backend_port: Option<u16>,
     verbosity: u8,
+}
+
+#[derive(Clone)]
+struct BufferedProxyRequest {
+    method: Method,
+    version: Version,
+    headers: HeaderMap,
+    payload: Bytes,
 }
 
 #[derive(Serialize)]
@@ -101,6 +112,17 @@ fn proxy_timeout_duration() -> Duration {
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_PROXY_TIMEOUT_MS);
     Duration::from_millis(timeout_ms)
+}
+
+fn backend_pool_idle_timeout() -> Duration {
+    Duration::from_secs(DEFAULT_POOL_IDLE_TIMEOUT_SECS)
+}
+
+fn build_backend_client() -> BackendClient {
+    let mut builder = Client::builder(TokioExecutor::new());
+    builder.pool_idle_timeout(backend_pool_idle_timeout());
+    builder.pool_timer(TokioTimer::new());
+    builder.build(HttpConnector::new())
 }
 
 fn status_payload(state: &AppState, backend_reachable: bool) -> StatusResponse {
@@ -332,10 +354,25 @@ fn strip_response_proxy_headers(headers: &mut HeaderMap) {
     }
 }
 
-async fn build_http_request(
-    request: Request<Body>,
+fn build_http_request(
+    request: BufferedProxyRequest,
     target: HyperUri,
 ) -> Result<HyperRequest<Full<Bytes>>, StatusCode> {
+    let mut builder = HyperRequest::builder()
+        .method(request.method)
+        .uri(target)
+        .version(request.version);
+
+    for (name, value) in &request.headers {
+        builder = builder.header(name, value);
+    }
+
+    builder
+        .body(Full::new(request.payload))
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn buffer_proxy_request(request: Request<Body>) -> Result<BufferedProxyRequest, StatusCode> {
     let (mut parts, body) = request.into_parts();
     let payload = body
         .collect()
@@ -344,18 +381,12 @@ async fn build_http_request(
         .to_bytes();
     strip_request_proxy_headers(&mut parts.headers);
 
-    let mut builder = HyperRequest::builder()
-        .method(parts.method)
-        .uri(target)
-        .version(parts.version);
-
-    for (name, value) in &parts.headers {
-        builder = builder.header(name, value);
-    }
-
-    builder
-        .body(Full::new(payload))
-        .map_err(|_| StatusCode::BAD_REQUEST)
+    Ok(BufferedProxyRequest {
+        method: parts.method,
+        version: parts.version,
+        headers: parts.headers,
+        payload,
+    })
 }
 
 fn map_backend_request_error(error: &dyn std::fmt::Display) -> StatusCode {
@@ -372,6 +403,64 @@ fn map_backend_request_error(error: &dyn std::fmt::Display) -> StatusCode {
     }
 }
 
+fn is_idempotent_method(method: &Method) -> bool {
+    matches!(*method, Method::GET | Method::HEAD)
+}
+
+fn is_retryable_pooled_connection_error(error: &ClientError) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    if message.contains("sendrequest")
+        || message.contains("incompletemessage")
+        || message.contains("connection reset")
+        || message.contains("channel closed")
+    {
+        return true;
+    }
+
+    let mut source = error.source();
+    while let Some(current) = source {
+        if let Some(hyper_error) = current.downcast_ref::<hyper::Error>() {
+            if hyper_error.is_closed()
+                || hyper_error.is_incomplete_message()
+                || hyper_error.is_canceled()
+            {
+                return true;
+            }
+        }
+        if let Some(io_error) = current.downcast_ref::<std::io::Error>() {
+            if matches!(
+                io_error.kind(),
+                ErrorKind::ConnectionReset
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::UnexpectedEof
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::NotConnected
+            ) {
+                return true;
+            }
+        }
+        source = current.source();
+    }
+
+    false
+}
+
+enum UpstreamRequestError {
+    Timeout,
+    Request(ClientError),
+}
+
+async fn send_upstream_request(
+    state: &AppState,
+    request: HyperRequest<Full<Bytes>>,
+) -> Result<Response<hyper::body::Incoming>, UpstreamRequestError> {
+    match tokio::time::timeout(state.proxy_timeout, state.client.request(request)).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) => Err(UpstreamRequestError::Request(error)),
+        Err(_) => Err(UpstreamRequestError::Timeout),
+    }
+}
+
 async fn proxy_http(State(state): State<AppState>, req: Request<Body>) -> Response {
     let is_root = req.uri().path() == "/";
     let Some(target) = build_backend_http_uri(&state, req.uri()) else {
@@ -382,15 +471,45 @@ async fn proxy_http(State(state): State<AppState>, req: Request<Body>) -> Respon
         };
     };
 
-    let request = match build_http_request(req, target).await {
+    let request = match buffer_proxy_request(req).await {
         Ok(request) => request,
         Err(status) => return status.into_response(),
     };
 
-    let mut upstream =
-        match tokio::time::timeout(state.proxy_timeout, state.client.request(request)).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(error)) => {
+    let mut upstream = match build_http_request(request.clone(), target.clone()) {
+        Ok(first_request) => match send_upstream_request(&state, first_request).await {
+            Ok(response) => response,
+            Err(UpstreamRequestError::Request(error))
+                if is_idempotent_method(&request.method)
+                    && is_retryable_pooled_connection_error(&error) =>
+            {
+                eprintln!("backend request failed on pooled connection, retrying once: {error}");
+                let retry_request = match build_http_request(request, target) {
+                    Ok(retry_request) => retry_request,
+                    Err(status) => return status.into_response(),
+                };
+                match send_upstream_request(&state, retry_request).await {
+                    Ok(response) => response,
+                    Err(UpstreamRequestError::Request(error)) => {
+                        let status = map_backend_request_error(&error);
+                        eprintln!("backend request failed: {error}");
+                        return if is_root && status == StatusCode::SERVICE_UNAVAILABLE {
+                            Json(status_payload(&state, false)).into_response()
+                        } else {
+                            status.into_response()
+                        };
+                    }
+                    Err(UpstreamRequestError::Timeout) => {
+                        eprintln!(
+                            "backend request timed out after {}ms",
+                            state.proxy_timeout.as_millis()
+                        );
+                        return (StatusCode::GATEWAY_TIMEOUT, "gateway upstream timed out")
+                            .into_response();
+                    }
+                }
+            }
+            Err(UpstreamRequestError::Request(error)) => {
                 let status = map_backend_request_error(&error);
                 eprintln!("backend request failed: {error}");
                 return if is_root && status == StatusCode::SERVICE_UNAVAILABLE {
@@ -399,14 +518,16 @@ async fn proxy_http(State(state): State<AppState>, req: Request<Body>) -> Respon
                     status.into_response()
                 };
             }
-            Err(_) => {
+            Err(UpstreamRequestError::Timeout) => {
                 eprintln!(
                     "backend request timed out after {}ms",
                     state.proxy_timeout.as_millis()
                 );
                 return (StatusCode::GATEWAY_TIMEOUT, "gateway upstream timed out").into_response();
             }
-        };
+        },
+        Err(status) => return status.into_response(),
+    };
 
     let status = upstream.status();
     let mut headers = std::mem::take(upstream.headers_mut());
@@ -572,7 +693,9 @@ fn app(state: AppState) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{app, parse_args, proxy_timeout_duration, AppState, GatewayArgs};
+    use super::{
+        app, build_backend_client, parse_args, proxy_timeout_duration, AppState, GatewayArgs,
+    };
     use axum::{routing::get, Router};
     use http_body_util::{BodyExt, Full};
     use hyper::{
@@ -580,9 +703,19 @@ mod tests {
         Uri as HyperUri,
     };
     use hyper_util::client::legacy::{connect::HttpConnector, Client};
-    use hyper_util::rt::TokioExecutor;
-    use std::time::Duration;
-    use tokio::{io::AsyncReadExt, net::TcpListener, sync::broadcast, task::JoinHandle};
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::broadcast,
+        task::JoinHandle,
+    };
 
     struct TestCleanup {
         shutdown: Option<broadcast::Sender<()>>,
@@ -622,7 +755,7 @@ mod tests {
     }
 
     fn test_client() -> Client<HttpConnector, Full<HyperBytes>> {
-        Client::builder(TokioExecutor::new()).build(HttpConnector::new())
+        build_backend_client()
     }
 
     async fn get_root(port: u16) -> (StatusCode, String) {
@@ -897,6 +1030,122 @@ mod tests {
         .await
         .expect("slow_upstream timeout test exceeded hard 1s limit");
     }
+
+    #[tokio::test]
+    async fn idempotent_request_retries_after_backend_closes_keep_alive_connection() {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            let mut cleanup = TestCleanup::new();
+            let connections = Arc::new(AtomicUsize::new(0));
+
+            let backend_listener = TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("bind backend");
+            let backend_port = backend_listener.local_addr().expect("backend addr").port();
+            let backend_connections = Arc::clone(&connections);
+            cleanup.track(tokio::spawn(async move {
+                for request_index in 0..2 {
+                    let (mut socket, _) = backend_listener.accept().await.expect("accept backend");
+                    backend_connections.fetch_add(1, Ordering::SeqCst);
+
+                    let mut buffer = Vec::new();
+                    loop {
+                        let mut chunk = [0u8; 1024];
+                        let read = socket.read(&mut chunk).await.expect("read backend request");
+                        if read == 0 {
+                            break;
+                        }
+                        buffer.extend_from_slice(&chunk[..read]);
+                        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok",
+                        )
+                        .await
+                        .expect("write backend response");
+                    socket.flush().await.expect("flush backend response");
+
+                    if request_index == 0 {
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                }
+            }));
+
+            let listener = TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("bind gateway");
+            let port = listener.local_addr().expect("gateway addr").port();
+            let (shutdown, _) = broadcast::channel(16);
+            cleanup.set_shutdown(shutdown.clone());
+            let state = AppState {
+                port,
+                backend_port: Some(backend_port),
+                verbosity: 1,
+                proxy_timeout: Duration::from_secs(1),
+                client: std::sync::Arc::new(build_backend_client()),
+                shutdown: shutdown.clone(),
+            };
+            let mut shutdown_rx = shutdown.subscribe();
+            cleanup.track(tokio::spawn(async move {
+                let _ = axum::serve(listener, app(state))
+                    .with_graceful_shutdown(async move {
+                        let _ = shutdown_rx.recv().await;
+                    })
+                    .await;
+            }));
+
+            let client = test_client();
+            let uri = format!("http://127.0.0.1:{port}/api/ui-state")
+                .parse::<HyperUri>()
+                .expect("retry uri");
+
+            let first = client
+                .request(
+                    HyperRequest::builder()
+                        .method("GET")
+                        .uri(uri.clone())
+                        .body(Full::new(HyperBytes::new()))
+                        .expect("first request"),
+                )
+                .await
+                .expect("first gateway response");
+            assert_eq!(first.status(), StatusCode::OK);
+            let first_body = first
+                .into_body()
+                .collect()
+                .await
+                .expect("first body")
+                .to_bytes();
+            assert_eq!(first_body.as_ref(), b"ok");
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            let second = client
+                .request(
+                    HyperRequest::builder()
+                        .method("GET")
+                        .uri(uri)
+                        .body(Full::new(HyperBytes::new()))
+                        .expect("second request"),
+                )
+                .await
+                .expect("second gateway response");
+            assert_eq!(second.status(), StatusCode::OK);
+            let second_body = second
+                .into_body()
+                .collect()
+                .await
+                .expect("second body")
+                .to_bytes();
+            assert_eq!(second_body.as_ref(), b"ok");
+            assert_eq!(connections.load(Ordering::SeqCst), 2);
+        })
+        .await
+        .expect("retry keep-alive test exceeded hard 1s limit");
+    }
 }
 
 #[cfg(unix)]
@@ -925,7 +1174,7 @@ async fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let gateway_args = parse_args(&args);
 
-    let client = Client::builder(TokioExecutor::new()).build(HttpConnector::new());
+    let client = build_backend_client();
     let (shutdown_sender, _) = broadcast::channel(16);
     let state = AppState {
         port: gateway_args.port,
