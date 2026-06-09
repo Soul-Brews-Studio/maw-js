@@ -258,8 +258,10 @@ export async function startServer(
   overrideOptions?: StartServerOptions,
 ) {
   const { options } = resolveStartServerInputs(profileOrOptions, overrideOptions);
+  const verbosity = options.verbosity ?? normalizeServeVerbosity(process.env.MAW_SERVE_VERBOSITY);
+  const log = createServeLogger(verbosity);
   const config = loadConfig();
-  const gateway = selectGateway({ cliGateway: options.gateway, env: process.env, config });
+  const gateway = selectGateway({ cliGateway: options.gateway, env: process.env, config, log });
   if (gateway.kind !== "rust") return startBunGatewayServer(port, profileOrOptions, overrideOptions);
   return gateway.start(port, options);
 }

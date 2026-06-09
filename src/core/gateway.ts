@@ -12,6 +12,7 @@ export type GatewaySelectionInput = {
   cliGateway?: string | null;
   env?: Pick<NodeJS.ProcessEnv, "MAW_GATEWAY">;
   config?: Partial<Pick<MawConfig, "gateway">> | null;
+  log?: Pick<Console, "debug">;
 };
 
 export type Gateway = {
@@ -39,13 +40,17 @@ export function selectGateway(input: GatewaySelectionInput = {}): Gateway {
     ?? normalizeGateway(input.config?.gateway, "config.gateway")
     ?? "bun";
 
+  if (selected !== "bun") {
+    input.log?.debug(`[gateway] selected ${selected} gateway instead of default bun`);
+  }
+
   if (selected === "rust") return new RustGateway();
   // auto remains conservative in Phase 2: preserve the existing Bun/Elysia path
   // until the external maw-gateway binary is production-ready.
   return new BunGateway(selected);
 }
 
-export class BunGateway implements Gateway {
+class BunGateway implements Gateway {
   readonly kind: GatewayKind;
 
   constructor(kind: GatewayKind = "bun") {
@@ -58,7 +63,7 @@ export class BunGateway implements Gateway {
   }
 }
 
-export class RustGateway implements Gateway {
+class RustGateway implements Gateway {
   readonly kind = "rust" as const;
 
   constructor(private readonly binary = process.env.MAW_GATEWAY_BIN || "maw-gateway") {}

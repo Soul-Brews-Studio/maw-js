@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { BunGateway, RustGateway, normalizeGateway, selectGateway } from "../../src/core/gateway";
+import { normalizeGateway, selectGateway } from "../../src/core/gateway";
 import { routeToolsWithDeps, type RouteToolsDeps } from "../../src/cli/route-tools";
 
 function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
@@ -35,10 +35,50 @@ function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
 describe("gateway selector (#2566)", () => {
   test("selectGateway honors CLI > env > config > bun precedence", () => {
     expect(selectGateway({}).kind).toBe("bun");
-    expect(selectGateway({ config: { gateway: "auto" } })).toBeInstanceOf(BunGateway);
-    expect(selectGateway({ config: { gateway: "rust" } })).toBeInstanceOf(RustGateway);
-    expect(selectGateway({ env: { MAW_GATEWAY: "rust" }, config: { gateway: "bun" } })).toBeInstanceOf(RustGateway);
+    expect(selectGateway({ config: { gateway: "auto" } }).kind).toBe("auto");
+    expect(selectGateway({ config: { gateway: "rust" } }).kind).toBe("rust");
+    expect(selectGateway({ env: { MAW_GATEWAY: "rust" }, config: { gateway: "bun" } }).kind).toBe("rust");
     expect(selectGateway({ cliGateway: "bun", env: { MAW_GATEWAY: "rust" }, config: { gateway: "rust" } }).kind).toBe("bun");
+  });
+
+  test("selectGateway returns the correct gateway kind for each accepted input", () => {
+    const cases = [
+      [{ cliGateway: "bun" }, "bun"],
+      [{ cliGateway: "rust" }, "rust"],
+      [{ cliGateway: "auto" }, "auto"],
+      [{ env: { MAW_GATEWAY: "bun" } }, "bun"],
+      [{ env: { MAW_GATEWAY: "rust" } }, "rust"],
+      [{ env: { MAW_GATEWAY: "auto" } }, "auto"],
+      [{ config: { gateway: "bun" } }, "bun"],
+      [{ config: { gateway: "rust" } }, "rust"],
+      [{ config: { gateway: "auto" } }, "auto"],
+    ] as const;
+
+    for (const [input, kind] of cases) {
+      expect(selectGateway(input).kind).toBe(kind);
+    }
+  });
+
+  test("selectGateway logs debug output when a non-default gateway is selected", () => {
+    const debugCalls: string[] = [];
+    const log = { debug: (...args: unknown[]) => debugCalls.push(args.map(String).join(" ")) };
+
+    expect(selectGateway({ cliGateway: "bun", log }).kind).toBe("bun");
+    expect(debugCalls).toEqual([]);
+
+    expect(selectGateway({ cliGateway: "rust", log }).kind).toBe("rust");
+    expect(selectGateway({ cliGateway: "auto", log }).kind).toBe("auto");
+    expect(debugCalls).toEqual([
+      "[gateway] selected rust gateway instead of default bun",
+      "[gateway] selected auto gateway instead of default bun",
+    ]);
+  });
+
+  test("gateway implementation classes stay internal to the module", async () => {
+    const gatewayModule = await import("../../src/core/gateway");
+
+    expect("BunGateway" in gatewayModule).toBe(false);
+    expect("RustGateway" in gatewayModule).toBe(false);
   });
 
   test("rejects invalid gateway values at the selection boundary", () => {
