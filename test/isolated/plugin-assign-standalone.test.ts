@@ -1,10 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 import { invokePlugin } from "../../src/plugin/registry-invoke";
 import type { LoadedPlugin } from "../../src/plugin/types";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 const realSdk = await import("../../src/sdk/index.ts");
 afterAll(() => { mock.restore(); });
 
@@ -33,34 +33,6 @@ const sdkMock = {
 mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
 mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => ({ ...realSdk, ...sdkMock }));
 
-function walkSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "dist" || entry.name.startsWith(".")) continue;
-      out.push(...walkSources(full));
-    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
-function parseImportSpecs(source: string): string[] {
-  const specs = new Set<string>();
-  const importFrom = /\b(?:import|export)\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g;
-  const importFn = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
-  const requireFn = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
-
-  for (const re of [importFrom, importFn, requireFn]) {
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(source)) !== null) specs.add(m[1]);
-  }
-
-  return [...specs];
-}
-
 function loadAssignPlugin(): LoadedPlugin {
   const loaded = loadManifestFromDir(pluginDir);
   expect(loaded).not.toBeNull();
@@ -76,16 +48,8 @@ beforeEach(() => {
 
 describe("assign plugin standalone boundary (#2251)", () => {
   test("imports runtime dependencies only through the SDK boundary", () => {
-    const imports = walkSources(pluginDir).flatMap((file) => parseImportSpecs(readFileSync(file, "utf8")));
-
-    const disallowed = imports.filter((spec) => {
-      if (spec.startsWith(".")) return false;
-      if (spec.startsWith("node:")) return false;
-      return spec !== "maw-js/sdk";
-    });
-
-    expect(disallowed).toEqual([]);
-    expect(imports).toContain("maw-js/sdk");
+    const imports = expectStandalonePluginBoundary({ plugin: "assign" });
+    expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
   });
 
   test("plugin loads and missing issue URL returns InvokeResult error", async () => {

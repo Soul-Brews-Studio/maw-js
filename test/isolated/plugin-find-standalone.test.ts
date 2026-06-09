@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 const realSdk = await import("../../src/sdk/index.ts");
 afterAll(() => { mock.restore(); });
 
@@ -57,18 +58,8 @@ afterEach(() => {
 
 describe("find plugin standalone boundary (#2113)", () => {
   test("imports runtime dependencies from the SDK boundary", () => {
-    const files = ["index.ts", "impl.ts"].map((file) =>
-      readFileSync(join(root, "src/vendor/mpr-plugins/find", file), "utf8"),
-    );
-    for (const source of files) {
-      expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|lib|config)(?:\/|")/);
-      expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+/);
-    }
-    const combined = files.join("\n");
-    expect(combined).toContain('from "maw-js/sdk"');
-    expect(combined).toContain("getGhqRoot");
-    expect(combined).toContain("loadFleetCore");
-    expect(combined).toContain("hostExec");
+    const imports = expectStandalonePluginBoundary({ plugin: "find" });
+    expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");
   });
 
   test("finds oracle and fleet matches with only SDK mocked", async () => {
