@@ -1,0 +1,11 @@
+{
+  "name": "no10",
+  "version": "1.0.0",
+  "description": "No.10 X fleet operations.",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "cli": {
+    "command": "no10-x",
+    "help": "maw no10-x rust serve — start the Rust-based Discord proxy or connector"
+  }
+}
