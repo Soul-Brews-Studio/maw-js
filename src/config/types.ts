@@ -107,6 +107,8 @@ export interface MawConfig {
   commands: Record<string, string>;
   /** Default engine key/command used when no command-specific fallback is configured (#2400). */
   defaultEngine?: string;
+  /** Serve gateway preference (#2566). CLI --gateway and MAW_GATEWAY override this. */
+  gateway?: "bun" | "rust" | "auto";
   /**
    * Generic engine definitions (#1960 P1).
    *

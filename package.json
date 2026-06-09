@@ -83,6 +83,7 @@
     "./core/fleet/validate": "./src/core/fleet/validate.ts",
     "./core/fleet/worktree-layout": "./src/core/fleet/worktree-layout.ts",
     "./core/ghq": "./src/core/ghq.ts",
+    "./core/gateway": "./src/core/gateway.ts",
     "./core/resolve": "./src/core/resolve.ts",
     "./core/matcher/normalize-target": "./src/core/matcher/normalize-target.ts",
     "./core/matcher/resolve-target": "./src/core/matcher/resolve-target.ts",

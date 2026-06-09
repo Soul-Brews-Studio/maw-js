@@ -1,5 +1,6 @@
 import { MawEngine } from "../engine";
 import { loadConfig, cfgTimeout } from "../config";
+import { selectGateway, type GatewayKind } from "./gateway";
 import { existsSync, readFileSync } from "fs";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
@@ -34,6 +35,8 @@ export type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
 export type StartServerOptions = {
   /** 0=quiet (errors only), 1=normal, 2=debug, 3=HTTP access, 4=WS frames */
   verbosity?: ServeVerbosity;
+  /** Serve gateway selection (#2566): CLI > env MAW_GATEWAY > config.gateway > bun. */
+  gateway?: GatewayKind;
 };
 
 type ServeLogger = {
@@ -139,6 +142,13 @@ export const views = createViews();
 // --- Server ---
 
 export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
+  const config = loadConfig();
+  const gateway = selectGateway({ cliGateway: options.gateway, env: process.env, config });
+  if (gateway.kind !== "rust") return startBunGatewayServer(port, options);
+  return gateway.start(port, options);
+}
+
+export async function startBunGatewayServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
   const verbosity = options.verbosity ?? normalizeServeVerbosity(process.env.MAW_SERVE_VERBOSITY);
   const log = createServeLogger(verbosity);
   const engine = new MawEngine({ feedBuffer, feedListeners });

@@ -75,6 +75,15 @@ export function validateBasicFields(
     }
   }
 
+  // gateway: serve gateway selector (#2566)
+  if ("gateway" in raw) {
+    if (raw.gateway === "bun" || raw.gateway === "rust" || raw.gateway === "auto") {
+      result.gateway = raw.gateway;
+    } else {
+      warn("gateway", "must be one of: bun, rust, auto");
+    }
+  }
+
   // engines: Record<string, EngineDef> (#1960 P1). Dormant typed surface; keep
   // validation intentionally light so future optional EngineDef fields can roll
   // out without rejecting existing config.
@@ -140,6 +149,9 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.tmuxSocket !== undefined && typeof c.tmuxSocket !== "string") errors.push("tmuxSocket must be a string");
   if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
   if (c.scout !== undefined && typeof c.scout !== "boolean") errors.push("scout must be a boolean");
+  if (c.gateway !== undefined && c.gateway !== "bun" && c.gateway !== "rust" && c.gateway !== "auto") {
+    errors.push("gateway must be one of: bun, rust, auto");
+  }
 
   if (c.errorForward !== undefined) {
     if (!c.errorForward || typeof c.errorForward !== "object" || Array.isArray(c.errorForward)) {
