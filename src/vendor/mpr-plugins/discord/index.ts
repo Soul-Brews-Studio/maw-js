@@ -4,6 +4,7 @@ import { cmdStatus } from "./status";
 import { cmdBind } from "./bind";
 import { cmdAccess } from "./access";
 import { cmdGuilds, cmdChannels, cmdMembers, cmdInventory } from "./inventory";
+import { cmdPost } from "./post";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -110,6 +111,20 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: true, output: logs.join("\n") };
     }
 
+    if (sub === "post") {
+      const bot = args[1];
+      const channelId = args[2];
+      const text = args[3];
+      const replyTo = args[4];
+      if (!bot || !channelId || !text) {
+        log("usage: maw discord post <bot> <channel_id> <text> [reply_to]");
+        return { ok: false, error: "missing required arguments", output: logs.join("\n") };
+      }
+      const msgId = await cmdPost(bot, channelId, text, replyTo);
+      log(`sent (id: ${msgId})`);
+      return { ok: true, output: logs.join("\n") };
+    }
+
     if (sub === "guilds") {
       await cmdGuilds.run(log, args.slice(1));
       return { ok: true, output: logs.join("\n") };
@@ -139,7 +154,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     log(`unknown subcommand: ${sub}`);
     printUsage(log);
     return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), output: logs.join("\n") };
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    return { ok: false, error: err.message, output: logs.join("\n") };
   }
 }

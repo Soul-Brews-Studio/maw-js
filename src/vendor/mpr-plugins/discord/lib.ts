@@ -49,6 +49,10 @@ export interface DiscordPing {
   username?: string;
 }
 
+export interface DiscordUserMeResponse {
+  username: string;
+}
+
 export async function pingDiscord(token: string, timeoutMs = 5000): Promise<DiscordPing> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -58,7 +62,7 @@ export async function pingDiscord(token: string, timeoutMs = 5000): Promise<Disc
       signal: ctrl.signal,
     });
     if (res.ok) {
-      const data: any = await res.json();
+      const data = (await res.json()) as DiscordUserMeResponse;
       return { ok: true, status: res.status, username: data.username };
     }
     return { ok: false, status: res.status };
