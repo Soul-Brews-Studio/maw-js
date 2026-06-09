@@ -9,8 +9,15 @@ describe("done command plugin standalone boundary", () => {
   test("touched done autosave files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "done",
-      files: ["done-autosave.ts", "retrospective-command.ts"],
-      allowRelative: ["../../../core/xdg"],
+      files: ["impl.ts", "done-autosave.ts", "retrospective-command.ts"],
+      allowRelative: ["./done-autosave", "./done-worktree", "../../../core/xdg"],
+      allowMawJs: [
+        /^maw-js\/core\/matcher\/normalize-target$/,
+        /^maw-js\/commands\/shared\/wake-resolve$/,
+        /^maw-js\/config\/ghq-root$/,
+        /^maw-js\/vendor\/mpr-plugins\/team\/team-charter$/,
+        /^maw-js\/vendor\/mpr-plugins\/team\/team-liveness$/,
+      ],
     }).map((record) => record.spec);
 
     expect(imports).toContain("maw-js/sdk");

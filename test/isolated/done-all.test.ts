@@ -218,6 +218,33 @@ describe("cmdDoneAll", () => {
     expect(tmuxCommands).toContain("run display-message -p #{session_name}\t#{window_index}");
   });
 
+  test("allows done lead window when current tmux identity is unavailable (subshell case)", async () => {
+    sessions = [{
+      name: "139-mawjs",
+      windows: [
+        { index: 0, name: "mawjs-codex-1", active: true },
+        { index: 2, name: "mawjs-oracle", active: false },
+      ],
+    }];
+    currentSession = "139-mawjs";
+    tmuxCurrentWindowIndex = 2;
+    tmuxRunFails = true;
+    teamCharterPath = "/tmp/mawjs-team.yaml";
+    teamCharter = {
+      name: "mawjs-m5",
+      members: [
+        { name: "mawjs-oracle", role: "lead" },
+        { name: "mawjs-codex-1", role: "agent" },
+      ],
+    };
+
+    const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
+
+    await expect(cmdDone("mawjs-oracle", { force: true })).resolves.toBeUndefined();
+    expect(tmuxCommands).toContain("kill 139-mawjs:mawjs-oracle");
+    expect(tmuxCommands).toContain("run display-message -p #{session_name}\t#{window_index}");
+  });
+
   test("--force skips auto-save and kills only current-session non-lead windows", async () => {
     const summary = await cmdDoneAll({ force: true });
 
