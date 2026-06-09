@@ -282,55 +282,55 @@ describe("routeTools default-suite seams", () => {
     const start = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4567", "--as", "blue", "--force-takeover"], start.deps)).toBe(true);
     expect(start.calls.locks).toEqual([{ instanceName: "blue", opts: { forceTakeover: true } }]);
-    expect(start.calls.servers).toEqual([{ port: 4567, options: { verbosity: 1 } }]);
+    expect(start.calls.servers).toEqual([{ port: 4567, options: { verbosity: 1, gateway: undefined, forceTakeover: true } }]);
 
     const defaultPort = harness();
     expect(await routeToolsWithDeps("serve", ["serve"], defaultPort.deps)).toBe(true);
     expect(defaultPort.calls.locks).toEqual([{ instanceName: null, opts: { forceTakeover: false } }]);
-    expect(defaultPort.calls.servers).toEqual([{ port: 3456, options: { verbosity: 1 } }]);
+    expect(defaultPort.calls.servers).toEqual([{ port: 3456, options: { verbosity: 1, gateway: undefined, forceTakeover: false } }]);
 
     const oldNoScout = process.env.MAW_NO_SCOUT;
     delete process.env.MAW_NO_SCOUT;
     const noScout = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4568", "--no-scout"], noScout.deps)).toBe(true);
-    expect(noScout.calls.servers).toEqual([{ port: 4568, options: { verbosity: 1 } }]);
+    expect(noScout.calls.servers).toEqual([{ port: 4568, options: { verbosity: 1, gateway: undefined, forceTakeover: false } }]);
     expect(process.env.MAW_NO_SCOUT).toBe("1");
     if (oldNoScout === undefined) delete process.env.MAW_NO_SCOUT;
     else process.env.MAW_NO_SCOUT = oldNoScout;
 
     const quiet = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4569", "--quiet"], quiet.deps)).toBe(true);
-    expect(quiet.calls.servers).toEqual([{ port: 4569, options: { verbosity: 0 } }]);
+    expect(quiet.calls.servers).toEqual([{ port: 4569, options: { verbosity: 0, gateway: undefined, forceTakeover: false } }]);
 
     const shortQuiet = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4570", "-q"], shortQuiet.deps)).toBe(true);
-    expect(shortQuiet.calls.servers).toEqual([{ port: 4570, options: { verbosity: 0 } }]);
+    expect(shortQuiet.calls.servers).toEqual([{ port: 4570, options: { verbosity: 0, gateway: undefined, forceTakeover: false } }]);
 
     const verbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4571", "--verbose"], verbose.deps)).toBe(true);
-    expect(verbose.calls.servers).toEqual([{ port: 4571, options: { verbosity: 2 } }]);
+    expect(verbose.calls.servers).toEqual([{ port: 4571, options: { verbosity: 2, gateway: undefined, forceTakeover: false } }]);
 
     const shortVerbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4572", "-v"], shortVerbose.deps)).toBe(true);
-    expect(shortVerbose.calls.servers).toEqual([{ port: 4572, options: { verbosity: 2 } }]);
+    expect(shortVerbose.calls.servers).toEqual([{ port: 4572, options: { verbosity: 2, gateway: undefined, forceTakeover: false } }]);
 
     const accessVerbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4573", "-vv"], accessVerbose.deps)).toBe(true);
-    expect(accessVerbose.calls.servers).toEqual([{ port: 4573, options: { verbosity: 3 } }]);
+    expect(accessVerbose.calls.servers).toEqual([{ port: 4573, options: { verbosity: 3, gateway: undefined, forceTakeover: false } }]);
 
     const frameVerbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4574", "-vvv"], frameVerbose.deps)).toBe(true);
-    expect(frameVerbose.calls.servers).toEqual([{ port: 4574, options: { verbosity: 4 } }]);
+    expect(frameVerbose.calls.servers).toEqual([{ port: 4574, options: { verbosity: 4, gateway: undefined, forceTakeover: false } }]);
 
     const repeatedVerbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4575", "-v", "-v"], repeatedVerbose.deps)).toBe(true);
-    expect(repeatedVerbose.calls.servers).toEqual([{ port: 4575, options: { verbosity: 3 } }]);
+    expect(repeatedVerbose.calls.servers).toEqual([{ port: 4575, options: { verbosity: 3, gateway: undefined, forceTakeover: false } }]);
 
     const oldServeVerbosity = process.env.MAW_SERVE_VERBOSITY;
     process.env.MAW_SERVE_VERBOSITY = "4";
     const envFrameVerbose = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4576"], envFrameVerbose.deps)).toBe(true);
-    expect(envFrameVerbose.calls.servers).toEqual([{ port: 4576, options: { verbosity: 4 } }]);
+    expect(envFrameVerbose.calls.servers).toEqual([{ port: 4576, options: { verbosity: 4, gateway: undefined, forceTakeover: false } }]);
     if (oldServeVerbosity === undefined) delete process.env.MAW_SERVE_VERBOSITY;
     else process.env.MAW_SERVE_VERBOSITY = oldServeVerbosity;
 
