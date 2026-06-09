@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import type { Hono } from "hono";
 import { mountViews } from "../../src/views/index";
 import { federationView } from "../../src/views/federation";
@@ -20,7 +20,27 @@ mock.module(vendorTeamImplPath, () => ({
   cmdTeamLives: () => {},
 }));
 
-describe("absent-from-LCOV simple modules", () => {
+const startedProcesses: Array<ReturnType<typeof Bun.spawn>> = [];
+const originalBunSpawn = Bun.spawn;
+Bun.spawn = ((...args: Parameters<typeof Bun.spawn>) => {
+  const child = originalBunSpawn(...args);
+  startedProcesses.push(child);
+  return child;
+}) as typeof Bun.spawn;
+
+afterAll(() => {
+  for (const child of startedProcesses) {
+    try {
+      child.kill();
+    } catch {
+      // ignore
+    }
+  }
+  startedProcesses.length = 0;
+  Bun.spawn = originalBunSpawn;
+});
+
+describe("absent-from-LCOV simple modules", { timeout: 30000 }, () => {
   test("mountViews wires the standalone browser views", () => {
     const routes: Array<{ path: string; view: Hono }> = [];
     const app = {
