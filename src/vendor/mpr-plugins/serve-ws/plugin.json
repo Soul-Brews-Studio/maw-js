@@ -10,7 +10,7 @@
     "serve": {
       "script": "./index.ts",
       "handler": "serve",
-      "ensures": ["ws:route:/ws", "ws:route:/ws/pty"],
+      "ensures": ["ws:route:/ws", "ws:route:/ws/pty", "ws:route:/ws/tmux"],
       "policy": "fail-fast"
     }
   },
