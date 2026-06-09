@@ -63,16 +63,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+    const inTmux = Boolean(process.env.TMUX);
 
     if (hasFlag(args, "--help", "-h") || args.length === 0) {
       console.log(HELP);
       return { ok: true, output: logs.join("\n") || undefined };
-    }
-
-    if (!process.env.TMUX) {
-      console.error("⚠ maw oracle-workon requires tmux (splits need a pane to split FROM).");
-      console.error("  Try: tmux attach -t 01-mawjs   or   tmux new -s play");
-      return { ok: false, error: "not in tmux", output: logs.join("\n") || undefined };
     }
 
     const slug = getFlag(args, "--task");
@@ -111,7 +106,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     console.log(`  engine:  ${engine}`);
     console.log(`  agents:  ${agents.length ? agents.join(" ") : "none"}`);
 
-    let leaderCmd = `maw wake ${oracle} --task ${slug} --split --no-attach --engine ${engine}`;
+    let leaderCmd = `maw wake ${oracle} --task ${slug} --engine ${engine}`;
+    if (inTmux) {
+      leaderCmd += " --split --no-attach";
+    } else {
+      leaderCmd += " --work";
+    }
     if (prompt) leaderCmd += ` --prompt '${prompt.replace(/'/g, "'\\''")}'`;
 
     const swarmCmd = agents.length
@@ -121,7 +121,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (dryRun) {
       console.log("");
       console.log(`▶ ${leaderCmd}`);
-      if (swarmCmd) console.log(`▶ (in new pane) ${swarmCmd}`);
+      if (swarmCmd && inTmux) console.log(`▶ (in new pane) ${swarmCmd}`);
+      if (swarmCmd && !inTmux) console.log(`⚠ [dry-run] skipped agent spawn outside tmux: ${swarmCmd}`);
       console.log("");
       console.log("[dry-run] no changes made.");
       return { ok: true, output: logs.join("\n") || undefined };
@@ -134,7 +135,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     await new Promise((r) => setTimeout(r, 2000));
 
     let newPane = "";
-    if (agents.length) {
+    if (agents.length && inTmux) {
       const panes = execSync("tmux list-panes -a -F '#{pane_id} #{pane_title}'", { encoding: "utf8" });
       const match = panes
         .split("\n")
@@ -150,6 +151,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log(`▶ (in ${newPane}) ${swarmCmd}`);
       await new Promise((r) => setTimeout(r, 3000));
       execSync(`maw run ${newPane} '${swarmCmd.replace(/'/g, "'\\''")}'`, { stdio: "inherit" });
+    } else if (agents.length) {
+      console.log(`\n⚠ Skipped agent spawn outside tmux: ${swarmCmd}`);
     }
 
     console.log("");
