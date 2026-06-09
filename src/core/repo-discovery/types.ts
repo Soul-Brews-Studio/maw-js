@@ -18,6 +18,19 @@
  *     "no repos found" and "ghq not installed" identically — neither
  *     should crash the CLI.
  */
+/**
+ * Result of {@link RepoDiscovery.detectFromCwd}. Both fields are optional:
+ *   - `oracle` is set when the path contains a `<name>-oracle` segment.
+ *   - `worktree` is set when the path is inside a worktree
+ *     (nested `agents/<slug>` or legacy `.wt-<slug>`).
+ * Implementations return `null` (not an empty object) when nothing matches —
+ * callers use `?? {}` when they want the empty-object semantics.
+ */
+export interface RepoDetectResult {
+  oracle?: string;
+  worktree?: string;
+}
+
 export interface RepoDiscovery {
   /** Implementation identity — diagnostics/logging only, never branched on. */
   readonly name: string;
@@ -37,4 +50,18 @@ export interface RepoDiscovery {
 
   /** Sync variant of findBySuffix. */
   findBySuffixSync(suffix: string): string | null;
+
+  /**
+   * Detect `{ oracle, worktree }` from a directory path. Recognizes:
+   *   - nested worktree layout `…/<oracle>-oracle/agents/<worktree>`,
+   *   - legacy worktree dirs `…/<oracle>-oracle.wt-<worktree>`,
+   *   - a plain `<oracle>-oracle` segment anywhere up the path.
+   * Returns `null` when no `-oracle` segment is present (e.g. a source-repo
+   * dir like `maw-js`). Pure path-string analysis — does NOT consult the
+   * backend (so it's sync and free of I/O). `cwd` defaults to `process.cwd()`.
+   *
+   * #2573 — consolidates the ad-hoc CWD-to-repo logic previously duplicated
+   * across `bringCwdMetadata`, `deriveOracleFromCwd`, and `oracle-workon`.
+   */
+  detectFromCwd(cwd?: string): RepoDetectResult | null;
 }
