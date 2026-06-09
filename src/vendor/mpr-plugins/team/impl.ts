@@ -11,6 +11,7 @@ export { cmdTeamSend, cmdTeamBroadcast } from "./team-comms";
 export { cmdTeamBring, resolveTeamBringSession, teamOracleMemberNames, loadTeamOracleMemberNames, applyTeamBringLayout } from "./team-workspace";
 export { cmdTeamResume, cmdTeamLives } from "./team-reincarnation";
 export { cmdCleanupZombies } from "./team-cleanup-zombies";
+export { cmdTeamApply } from "./team-apply";
 export { parseTeamCharterText, readTeamCharter, planTeamCharter, formatTeamCharterPlan, preflightTeamCharter, formatTeamCharterPreflight, loadTeamCharter, formatTeamCharterLoad, composeTeamCharterMemberPrompt, spawnFromTeamCharter, formatTeamCharterSpawn } from "./team-charter";
 
 /**

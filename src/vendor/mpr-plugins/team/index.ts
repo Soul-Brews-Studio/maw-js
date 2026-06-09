@@ -372,6 +372,26 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         status: Boolean(flags["--status"]),
       });
 
+    } else if (sub === "apply") {
+      // #2612 — reconcile an edited charter against live tmux state. Dry-run by default.
+      const flags = parseFlags(args, {
+        "--apply": Boolean,
+        "--session": String,
+        "--charter": String,
+      }, 1);
+      const team = flags._[0];
+      if (!team) {
+        logs.push("usage: maw team apply <team|team.yaml> [--charter <path>] [--session <name>] [--apply]");
+        logs.push("       dry-run by default; pass --apply to spawn missing members and gracefully shut down removed members");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      const { cmdTeamApply } = await import("./team-apply");
+      await cmdTeamApply(team, {
+        apply: Boolean(flags["--apply"]),
+        session: flags["--session"] as string | undefined,
+        charterPath: flags["--charter"] as string | undefined,
+      });
+
     } else if (sub === "remove") {
       // #2073 — single-verb member removal: teardown pane/worktree + drop from charter.
       if (!args[1]) {
@@ -450,7 +470,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|apply|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

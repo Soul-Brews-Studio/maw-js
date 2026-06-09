@@ -80,6 +80,9 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-up.ts"),
     return { name: "quick", members: [] };
   },
 }));
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-apply.ts"), () => ({
+  cmdTeamApply: async (...args: unknown[]) => calls.push({ name: "apply", args }),
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/task-ops.ts"), () => ({
   cmdTeamTaskAdd: (...args: unknown[]) => calls.push({ name: "task-add", args }),
   cmdTeamTaskList: (...args: unknown[]) => calls.push({ name: "task-list", args }),
@@ -104,7 +107,7 @@ describe("team command plugin standalone boundary (#2336)", () => {
   test("entrypoint and touched team-up files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "team",
-      files: ["index.ts", "team-liveness.ts", "team-up.ts"],
+      files: ["index.ts", "team-liveness.ts", "team-up.ts", "team-apply.ts"],
       allowRelative: [
         "../../../core/transport/tmux",
         "../../../core/agent-detect",
@@ -112,13 +115,14 @@ describe("team command plugin standalone boundary (#2336)", () => {
         "../../../config/types",
         "../../../commands/shared/wake-cmd",
         "../../../commands/shared/comm-send",
+        "../done/impl",
       ],
     }).map((record) => record.spec);
 
 
     expect(command).toMatchObject({ name: "team" });
     expect(imports).toContain("maw-js/sdk");
-    expect(imports).toEqual(expect.arrayContaining(["./team-up", "../../../commands/shared/wake-cmd"]));
+    expect(imports).toEqual(expect.arrayContaining(["./team-up", "./team-apply", "../../../commands/shared/wake-cmd"]));
     const teamUp = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-up.ts"), "utf8");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => task.run()))");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
@@ -159,6 +163,12 @@ describe("team command plugin standalone boundary (#2336)", () => {
         members: ["coder-1", "oracle"],
         session: "alpha",
       }],
+    });
+
+    await teamHandler({ source: "cli", args: ["apply", "avengers", "--session", "alpha", "--charter", "/tmp/team.yaml", "--apply"] } as any);
+    expect(calls.pop()).toEqual({
+      name: "apply",
+      args: ["avengers", { apply: true, session: "alpha", charterPath: "/tmp/team.yaml" }],
     });
   });
 

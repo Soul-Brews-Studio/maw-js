@@ -11,6 +11,7 @@ import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-cha
 import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
 import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
+import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -779,6 +780,128 @@ members:
     });
     expect(doneCalls.map((c) => c[0])).toEqual(["mawjs-oracle", "mawjs-codex", "mawjs-coder-1"]);
     expect(calls).toContainEqual(["new-window", "-d", "-t", "charter-session:", "-n", TEAM_LIFECYCLE_GUARD_WINDOW]);
+  });
+});
+
+describe("maw team apply (#2612)", () => {
+  test("dry-run compares charter to live tmux state without spawning or shutting down", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: lead
+    name: mawjs-oracle
+    engine: claude
+    worktree: false
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-oracle|claude|/repo|%1",
+      "charter-session|mawjs-old-worker|codex|/wt/old-worker|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", {}, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action, a.target])).toEqual([
+      ["skip", "lead", "skip live", undefined],
+      ["spawn", "reviewer", "would spawn member", undefined],
+      ["shutdown", "mawjs-old-worker", "would maw done removed member", "mawjs-old-worker"],
+    ]);
+    expect(wakes).toEqual([]);
+    expect(doneCalls).toEqual([]);
+    expect(result.output).toContain("No changes made (pass --apply to execute)");
+  });
+
+  test("--apply spawns missing members and gracefully shuts down removed panes", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-old-worker|codex|/wt/old-worker|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", { apply: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoRoot: root,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action])).toEqual([
+      ["spawn", "reviewer", "spawn member"],
+      ["shutdown", "mawjs-old-worker", "maw done removed member"],
+    ]);
+    expect(wakes).toEqual([["Soul-Brews-Studio/maw-js", {
+      engine: "codex",
+      session: "charter-session",
+      repoPath: root,
+      wt: "reviewer",
+    }]]);
+    expect(doneCalls).toEqual([["mawjs-old-worker", { sessionName: "charter-session" }]]);
+  });
+
+  test("reports live member engine and branch drift without auto-migrating", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    branch: next
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-reviewer|claude|/wt/reviewer|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", { apply: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      branchForPathFn: () => "main",
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action, a.detail])).toEqual([
+      ["report", "reviewer", "engine changed; not migrated", "live=claude charter=codex"],
+      ["report", "reviewer", "branch changed; not migrated", "live=main charter=next"],
+    ]);
+    expect(wakes).toEqual([]);
+    expect(doneCalls).toEqual([]);
   });
 });
 
