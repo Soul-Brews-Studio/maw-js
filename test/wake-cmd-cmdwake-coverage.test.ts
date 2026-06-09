@@ -586,7 +586,7 @@ mock.module(join(import.meta.dir, "../src/commands/shared/fleet-ensure"), () => 
   },
 }));
 
-const { cmdWake, _wtPicker, promptAmbiguousBringPick, WakeSession } = await import("../src/commands/shared/wake-cmd");
+const { cmdWake, _wtPicker, promptAmbiguousBringPick, WakeSession, parseRehydrationSelection } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
 
@@ -706,6 +706,48 @@ describe("cmdWake main-suite coverage", () => {
     expect(result).toBe("mawjs:dry-run");
     expect(newSessionCalls).toHaveLength(0);
     expect(existsSync(join(repoPath, ".gitignore"))).toBe(false);
+  });
+
+
+  test("#2604 parses comma and range rehydration selections", () => {
+    expect(parseRehydrationSelection("1,3", 4)).toEqual([0, 2]);
+    expect(parseRehydrationSelection("2-4,1", 4)).toEqual([0, 1, 2, 3]);
+    expect(parseRehydrationSelection("4-2,99,nope", 4)).toEqual([1, 2, 3]);
+  });
+
+  test("#2604 selective prompt rehydrates only chosen saved agents", async () => {
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+    sessions = [];
+    hasSessions = new Set();
+    windowsBySession = {};
+    worktrees = [
+      { name: "1-bridge", path: join(repoPath, "agents", "1-bridge") },
+      { name: "2-white", path: join(repoPath, "agents", "2-white") },
+      { name: "3-wezterm", path: join(repoPath, "agents", "3-wezterm") },
+    ];
+    const originalIsStdoutTTY = _wtPicker.isStdoutTTY;
+    const originalReadChoice = _wtPicker.readChoice;
+    const answers = ["s", "1,3"];
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => answers.shift() ?? "";
+
+    try {
+      const { result, logs } = await captureLogs(() => cmdWake("mawjs", { engine: "codex" }));
+
+      expect(result).toBe("01-mawjs:mawjs-oracle");
+      expect(newWindowCalls).toEqual([
+        { session: "01-mawjs", name: "mawjs-bridge", opts: { cwd: worktrees[0]!.path } },
+        { session: "01-mawjs", name: "mawjs-wezterm", opts: { cwd: worktrees[2]!.path } },
+      ]);
+      const rendered = logs.join("\n");
+      expect(rendered).toContain("select saved agent windows");
+      expect(rendered).toContain("rehydrating: mawjs-bridge, mawjs-wezterm");
+      expect(rendered).not.toContain("window: mawjs-white");
+    } finally {
+      _wtPicker.isStdoutTTY = originalIsStdoutTTY;
+      _wtPicker.readChoice = originalReadChoice;
+    }
   });
 
   test("#1816 bring picker handles headless, empty, quit, invalid, and success choices", () => {

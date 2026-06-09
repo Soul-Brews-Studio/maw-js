@@ -548,16 +548,55 @@ function logAgentsRehydrationSource(count: number, worktrees: { path: string }[]
   console.log(`\x1b[90m↻ agents/ rehydrate: none from ${source}\x1b[0m`);
 }
 
-function shouldSkipAgentsRehydrationPrompt(plan: RehydrateWorktreePlan[]): boolean {
-  if (plan.length === 0 || !_wtPicker.isStdoutTTY()) return false;
-  console.log(`\x1b[36m↻\x1b[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
+export function parseRehydrationSelection(input: string, count: number): number[] {
+  const selected = new Set<number>();
+  for (const rawPart of input.split(",")) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const range = part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) continue;
+      const lo = Math.min(start, end);
+      const hi = Math.max(start, end);
+      for (let index = lo; index <= hi; index++) {
+        if (index >= 1 && index <= count) selected.add(index - 1);
+      }
+      continue;
+    }
+    if (/^\d+$/.test(part)) {
+      const index = Number(part);
+      if (index >= 1 && index <= count) selected.add(index - 1);
+    }
+  }
+  return [...selected].sort((a, b) => a - b);
+}
+
+function selectAgentsRehydrationPlan(plan: RehydrateWorktreePlan[]): RehydrateWorktreePlan[] {
+  if (plan.length === 0 || !_wtPicker.isStdoutTTY()) return plan;
+  console.log(`[36m↻[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
   for (const wt of plan) {
-    console.log(`  \x1b[90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}\x1b[0m`);
+    console.log(`  [90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}[0m`);
   }
   console.log("");
-  process.stdout.write(`  Rehydrate all? [Y/n] `);
-  const answer = _wtPicker.readChoice();
-  return !!answer && /^n/i.test(answer);
+  process.stdout.write(`  Rehydrate? [Y]es all / [n]one / [s]elect: `);
+  const answer = (_wtPicker.readChoice() || "").trim();
+  if (/^n/i.test(answer)) return [];
+  if (!/^s/i.test(answer)) return plan;
+
+  console.log(`[36m↻[0m select saved agent windows:`);
+  plan.forEach((wt, index) => {
+    console.log(`  [36m${index + 1}[0m) ${wt.windowName}  [90m${formatWorktreeSource(wt.path)}[0m`);
+  });
+  process.stdout.write(`  → `);
+  const rawSelection = _wtPicker.readChoice() || "";
+  const selectedIndices = parseRehydrationSelection(rawSelection, plan.length);
+  const selectedPlan = selectedIndices.map(index => plan[index]!).filter(Boolean);
+  if (selectedPlan.length > 0) {
+    console.log(`[32m✓[0m rehydrating: ${selectedPlan.map(wt => wt.windowName).join(", ")}`);
+  }
+  return selectedPlan;
 }
 
 async function restoreSnapshotWindows(
@@ -1297,24 +1336,22 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const rehydratableWt = await filterMergedWorktreesForRehydrate(allWt, { hostExec, baseBranch: "alpha" });
       const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, [...existingWindows]);
       logAgentsRehydrationSource(plan.length, allWt);
-      const skipRehydrate = shouldSkipAgentsRehydrationPrompt(plan);
-      if (skipRehydrate) {
+      const selectedPlan = selectAgentsRehydrationPlan(plan);
+      if (plan.length > 0 && selectedPlan.length === 0) {
         console.log(`\x1b[33m⚡\x1b[0m skipped agent rehydration`);
-      } else if (plan.length > 0) {
+      } else if (selectedPlan.length > 0) {
         console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
       }
-      if (!skipRehydrate) {
-        for (const wt of plan) {
-          await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
-          await new Promise(r => setTimeout(r, 300));
-          const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
-          const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
-          const target = `${session}:${wt.windowName}`;
-          await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
-          await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
-          existingWindows.add(wt.windowName);
-          console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
-        }
+      for (const wt of selectedPlan) {
+        await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
+        await new Promise(r => setTimeout(r, 300));
+        const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
+        const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
+        const target = `${session}:${wt.windowName}`;
+        await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
+        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+        existingWindows.add(wt.windowName);
+        console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
       }
     }
     knownWindows = existingWindows;
@@ -1355,12 +1392,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, existingWindows, liveTileRoles);
         logAgentsRehydrationSource(plan.length, allWt);
         if (plan.length > 0) {
-          const skipRehydrate = shouldSkipAgentsRehydrationPrompt(plan);
-          if (skipRehydrate) {
+          const selectedPlan = selectAgentsRehydrationPlan(plan);
+          if (selectedPlan.length === 0) {
             console.log(`\x1b[33m⚡\x1b[0m skipped agent rehydration`);
           } else {
             console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
-            for (const wt of plan) {
+            for (const wt of selectedPlan) {
               await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
               await new Promise(r => setTimeout(r, 300));
               const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);

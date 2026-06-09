@@ -318,7 +318,7 @@ describe("wake-cmd isolated executable branch coverage", () => {
       expect(result).toBe("01-mawjs:mawjs-oracle");
       const rendered = logs.join("\n");
       expect(rendered).toContain("found 1 saved agent window");
-      expect(writes.join("")).toContain("Rehydrate all? [Y/n]");
+      expect(writes.join("")).toContain("Rehydrate? [Y]es all / [n]one / [s]elect:");
       expect(rendered).toContain("skipped agent rehydration");
       expect(sessions).toContainEqual({ name: "01-mawjs" });
       expect(windowsBySession["01-mawjs"]).toEqual([{ name: "mawjs-oracle", cwd: repoPath }]);
