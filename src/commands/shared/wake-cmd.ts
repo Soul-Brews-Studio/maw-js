@@ -575,9 +575,9 @@ export function parseRehydrationSelection(input: string, count: number): number[
 
 function selectAgentsRehydrationPlan(plan: RehydrateWorktreePlan[]): RehydrateWorktreePlan[] {
   if (plan.length === 0 || !_wtPicker.isStdoutTTY()) return plan;
-  console.log(`[36m↻[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
+  console.log(`\x1b[36m↻\x1b[0m found ${plan.length} saved agent window${plan.length === 1 ? "" : "s"}:`);
   for (const wt of plan) {
-    console.log(`  [90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}[0m`);
+    console.log(`  \x1b[90m${wt.windowName.padEnd(40)} ${formatWorktreeSource(wt.path)}\x1b[0m`);
   }
   console.log("");
   process.stdout.write(`  Rehydrate? [Y]es all / [n]one / [s]elect: `);
@@ -585,16 +585,16 @@ function selectAgentsRehydrationPlan(plan: RehydrateWorktreePlan[]): RehydrateWo
   if (/^n/i.test(answer)) return [];
   if (!/^s/i.test(answer)) return plan;
 
-  console.log(`[36m↻[0m select saved agent windows:`);
+  console.log(`\x1b[36m↻\x1b[0m select saved agent windows:`);
   plan.forEach((wt, index) => {
-    console.log(`  [36m${index + 1}[0m) ${wt.windowName}  [90m${formatWorktreeSource(wt.path)}[0m`);
+    console.log(`  \x1b[36m${index + 1}\x1b[0m) ${wt.windowName}  \x1b[90m${formatWorktreeSource(wt.path)}\x1b[0m`);
   });
   process.stdout.write(`  → `);
   const rawSelection = _wtPicker.readChoice() || "";
   const selectedIndices = parseRehydrationSelection(rawSelection, plan.length);
   const selectedPlan = selectedIndices.map(index => plan[index]!).filter(Boolean);
   if (selectedPlan.length > 0) {
-    console.log(`[32m✓[0m rehydrating: ${selectedPlan.map(wt => wt.windowName).join(", ")}`);
+    console.log(`\x1b[32m✓\x1b[0m rehydrating: ${selectedPlan.map(wt => wt.windowName).join(", ")}`);
   }
   return selectedPlan;
 }

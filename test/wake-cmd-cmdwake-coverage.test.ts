@@ -746,8 +746,10 @@ describe("cmdWake main-suite coverage", () => {
         { session: "01-mawjs", name: "mawjs-wezterm", opts: { cwd: worktrees[2]!.path } },
       ]);
       const rendered = logs.join("\n");
-      expect(rendered).toContain("select saved agent windows");
-      expect(rendered).toContain("rehydrating: mawjs-bridge, mawjs-wezterm");
+      expect(rendered).toContain("\x1b[36m↻\x1b[0m select saved agent windows");
+      expect(rendered).toContain("  \x1b[36m1\x1b[0m) mawjs-bridge");
+      expect(rendered).toContain("\x1b[32m✓\x1b[0m rehydrating: mawjs-bridge, mawjs-wezterm");
+      expect(rendered).not.toMatch(/(^|[^\x1b])\[36m/);
       expect(rendered).not.toContain("window: mawjs-white");
     } finally {
       _wtPicker.isStdoutTTY = originalIsStdoutTTY;
