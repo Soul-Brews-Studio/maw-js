@@ -169,6 +169,30 @@ describe("plugin lifecycle hooks (#1576)", () => {
     expect(routes).toEqual(["route-owner:GET /api/owned"]);
     expect(fallbacks).toEqual(["route-owner:owned-fallback"]);
   });
+  test("serve profile filters views and selected API routers without reordering remaining hooks", async () => {
+    const log = makeLog();
+    const plugins = [
+      makePlugin("serve-views", { weight: 1, hook: { serve: {} }, files: { "index.ts": `export function serve() { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, "views\\n"); }\n` } }),
+      makePlugin("serve-identity", { weight: 2, hook: { serve: {} }, files: { "index.ts": `export function serve() { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, "identity\\n"); }\n` } }),
+      makePlugin("serve-worktrees", { weight: 3, hook: { serve: {} }, files: { "index.ts": `export function serve() { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, "worktrees\\n"); }\n` } }),
+      makePlugin("serve-ws", { weight: 4, hook: { serve: {} }, files: { "index.ts": `export function serve() { const fs = require("fs"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, "ws\\n"); }\n` } }),
+    ];
+
+    const summary = await runServeLifecycleHooks(
+      {
+        port: 4567,
+        httpUrl: "http://localhost:4567",
+        wsUrl: "ws://localhost:4567/ws",
+        hostname: "127.0.0.1",
+        profile: { views: false, apiRouters: ["identity"] },
+      },
+      () => plugins,
+    );
+
+    expect(summary).toEqual({ phase: "serve", ran: 2, skipped: 2, failed: 0 });
+    expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["identity", "ws"]);
+  });
+
 
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {
     const log = makeLog();

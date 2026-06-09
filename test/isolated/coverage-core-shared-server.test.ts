@@ -18,6 +18,7 @@ let tmuxStreamEvents: string[] = [];
 let apiPaths: string[] = [];
 let proxiedPaths: string[] = [];
 let lifecyclePayloads: unknown[] = [];
+let transportProfiles: unknown[] = [];
 let healthPolls = 0;
 let tmp = "";
 
@@ -51,7 +52,10 @@ mock.module(import.meta.resolve("../../src/views/index"), () => ({
 }));
 mock.module(import.meta.resolve("../../src/core/runtime/trigger-listener"), () => ({ setupTriggerListener: () => {} }));
 mock.module(import.meta.resolve("../../src/transports"), () => ({
-  createTransportRouter: () => ({ connectAll: () => Promise.resolve() }),
+  createTransportRouter: (transports?: string[]) => {
+    transportProfiles.push(transports);
+    return { connectAll: () => Promise.resolve() };
+  },
   getTransportRouter: () => null,
   resetTransportRouter: () => {},
 }));
@@ -149,6 +153,7 @@ beforeEach(() => {
   apiPaths = [];
   proxiedPaths = [];
   lifecyclePayloads = [];
+  transportProfiles = [];
   healthPolls = 0;
   Bun.serve = ((opts: any) => {
     serveCalls.push(opts);
@@ -266,6 +271,7 @@ describe("coverage core shared server", () => {
     expect(killed).toEqual([]);
     expect(engineCalls).toContain("router");
     expect(lifecyclePayloads).toHaveLength(1);
+    expect(transportProfiles).toEqual([undefined]);
     expect(lifecyclePayloads[0]).toMatchObject({
       port: 4910,
       httpUrl: "http://localhost:4910",
@@ -274,6 +280,7 @@ describe("coverage core shared server", () => {
       log: expect.any(Object),
       plugins: expect.any(Object),
       reloadPlugins: expect.any(Function),
+      profile: { views: true, apiRouters: undefined },
     });
     expect((lifecyclePayloads[0] as any).http).toEqual(expect.objectContaining({ route: expect.any(Function) }));
     // Engine plugin health polling moved to serve-engine-health-polling; this
@@ -327,6 +334,20 @@ describe("coverage core shared server", () => {
     expect(serveLogs.some((line) => line.includes("[serve:http] OPTIONS /anything -> 204"))).toBe(true);
     expect(serveLogs.some((line) => line.includes("[serve:http] GET /ws/pty -> 101"))).toBe(true);
   });
+
+  test("startServer accepts a lean ServeProfile while preserving startup guard slots", async () => {
+    await startServer(4911, { transports: ["tmux"], views: false, intervals: false, apiRouters: ["identity"] });
+
+    expect(transportProfiles).toEqual([["tmux"]]);
+    expect(engineCalls).toContain("router");
+    expect(lifecyclePayloads).toHaveLength(1);
+    expect(lifecyclePayloads[0]).toMatchObject({
+      port: 4911,
+      profile: { views: false, apiRouters: ["identity"] },
+    });
+    expect(serveCalls).toHaveLength(1);
+  });
+
 });
 
 function upgradeServer(ok: boolean) {

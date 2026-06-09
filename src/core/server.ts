@@ -32,11 +32,24 @@ export { createViews };
 export const VERSION = getRuntimeVersionLabel();
 
 export type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
+export type ServeProfile = {
+  /** Transport names to initialize. Omit for today's full transport wiring. */
+  transports?: string[];
+  /** Maintenance timers such as capture/session/status polling and dispatch delivery. */
+  intervals?: boolean;
+  /** Static/browser view fallbacks registered by the serve-views lifecycle plugin. */
+  views?: boolean;
+  /** API serve lifecycle modules to mount, e.g. ["identity", "triggers"]. Omit for all. */
+  apiRouters?: string[];
+};
+
 export type StartServerOptions = {
   /** 0=quiet (errors only), 1=normal, 2=debug, 3=HTTP access, 4=WS frames */
   verbosity?: ServeVerbosity;
   /** Serve gateway selection (#2566): CLI > env MAW_GATEWAY > config.gateway > bun. */
   gateway?: GatewayKind;
+  /** Optional serve composition profile; default preserves today's full wiring. */
+  profile?: ServeProfile;
 };
 
 type ServeLogger = {
@@ -218,19 +231,48 @@ export function formatServeRouteSnapshot(entries: ServeRouteSnapshotEntry[]): st
 
 export const views = createViews();
 
+export type StartServerProfileOrOptions = ServeProfile | StartServerOptions;
+
+function looksLikeStartServerOptions(input: StartServerProfileOrOptions | undefined): input is StartServerOptions {
+  return !!input && ("verbosity" in input || "profile" in input || "gateway" in input);
+}
+
+function resolveStartServerInputs(input: StartServerProfileOrOptions | undefined, overrideOptions?: StartServerOptions): { profile: ServeProfile; options: StartServerOptions } {
+  const baseOptions = looksLikeStartServerOptions(input) ? input : {};
+  const profile = looksLikeStartServerOptions(input) ? (input.profile ?? {}) : (input ?? {});
+  return {
+    profile: { ...profile, ...overrideOptions?.profile },
+    options: { ...baseOptions, ...overrideOptions },
+  };
+}
+
+function profileFlag(profile: ServeProfile, key: "intervals" | "views"): boolean {
+  return profile[key] !== false;
+}
+
 // --- Server ---
 
-export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
+export async function startServer(
+  port = +(process.env.MAW_PORT || loadConfig().port || 3456),
+  profileOrOptions: StartServerProfileOrOptions = {},
+  overrideOptions?: StartServerOptions,
+) {
+  const { options } = resolveStartServerInputs(profileOrOptions, overrideOptions);
   const config = loadConfig();
   const gateway = selectGateway({ cliGateway: options.gateway, env: process.env, config });
-  if (gateway.kind !== "rust") return startBunGatewayServer(port, options);
+  if (gateway.kind !== "rust") return startBunGatewayServer(port, profileOrOptions, overrideOptions);
   return gateway.start(port, options);
 }
 
-export async function startBunGatewayServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456), options: StartServerOptions = {}) {
+export async function startBunGatewayServer(
+  port = +(process.env.MAW_PORT || loadConfig().port || 3456),
+  profileOrOptions: StartServerProfileOrOptions = {},
+  overrideOptions?: StartServerOptions,
+) {
+  const { profile, options } = resolveStartServerInputs(profileOrOptions, overrideOptions);
   const verbosity = options.verbosity ?? normalizeServeVerbosity(process.env.MAW_SERVE_VERBOSITY);
   const log = createServeLogger(verbosity);
-  const engine = new MawEngine({ feedBuffer, feedListeners });
+  const engine = new MawEngine({ feedBuffer, feedListeners, intervals: profileFlag(profile, "intervals") });
   const serveRoutes = new ServeRouteRegistry();
   const serveWs = new ServeWsRegistry();
   registerServeWs({
@@ -242,16 +284,20 @@ export async function startBunGatewayServer(port = +(process.env.MAW_PORT || loa
   const WS_URL = `ws://localhost:${port}/ws`;
 
   // Connect transport router (non-blocking — server starts even if transports fail)
-  try {
-    const router = createTransportRouter();
-    router.connectAll().catch(err => log.error("[transport] connect failed:", err));
-    engine.setTransportRouter(router);
-  } catch (err) {
-    log.error("[transport] router init failed:", err);
+  // Guard stays in the original startup slot so lean profiles do not reorder
+  // side effects relative to dispatch, trigger listeners, and feed plugin setup.
+  if (profile.transports === undefined || profile.transports.length > 0) {
+    try {
+      const router = createTransportRouter(profile.transports);
+      router.connectAll().catch(err => log.error("[transport] connect failed:", err));
+      engine.setTransportRouter(router);
+    } catch (err) {
+      log.error("[transport] router init failed:", err);
+    }
   }
 
   // Start dispatch engine — auto-delivers queued messages when agents become idle
-  startDispatchEngine(sendKeys);
+  if (profileFlag(profile, "intervals")) startDispatchEngine(sendKeys);
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
@@ -461,6 +507,10 @@ export async function startBunGatewayServer(port = +(process.env.MAW_PORT || loa
       log,
       plugins: serveLifecyclePlugins,
       reloadPlugins: serveLifecycleReloadPlugins,
+      profile: {
+        views: profileFlag(profile, "views"),
+        apiRouters: profile.apiRouters,
+      },
     }, undefined, {
       info: (message) => log.info(message),
       warn: (message) => log.warn(message),

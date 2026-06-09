@@ -107,6 +107,10 @@ function newEngine() {
   return new MawEngine({ feedBuffer: [], feedListeners: new Set() });
 }
 
+function newEngineWithoutIntervals() {
+  return new MawEngine({ feedBuffer: [], feedListeners: new Set(), intervals: false });
+}
+
 // --- Tests ---
 
 describe("MawEngine (isolated)", () => {
@@ -114,6 +118,20 @@ describe("MawEngine (isolated)", () => {
     sshResult = "";
     sshCommands = [];
     mockSessions = [];
+  });
+
+  test("intervals:false skips headless startup polling but still serves initial sessions", async () => {
+    mockSessions = [{ name: "s", windows: [{ index: 0, name: "w", active: true }] }];
+    const engine = newEngineWithoutIntervals();
+    await Promise.resolve();
+    expect(sshCommands.some(cmd => cmd.includes("list-windows"))).toBe(false);
+
+    const { ws, messages } = makeWS();
+    engine.handleOpen(ws as any);
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(messages.some(m => m.type === "sessions")).toBe(true);
+    expect(sshCommands.some(cmd => cmd.includes("list-windows"))).toBe(true);
   });
 
   describe("handleOpen — no stale recent agents", () => {

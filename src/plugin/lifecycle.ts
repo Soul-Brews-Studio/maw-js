@@ -14,6 +14,7 @@ import type { MawEngine } from "../engine";
 import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
 import type { MawConfig } from "../config/types";
 import type { TransportRouter } from "../core/transport/transport";
+import type { ServeProfile } from "../core/server";
 import type { LoadedPlugin, PluginLifecycleHook, ServeRouteRegistrar } from "./types";
 
 export type LifecyclePhase = "wake" | "sleep" | "serve" | "transport";
@@ -76,6 +77,8 @@ export interface ServeLifecycleContextInput {
   plugins?: unknown;
   /** Reload user plugins and return the current plugin stats/debug payload. */
   reloadPlugins?: () => unknown | Promise<unknown>;
+  /** Optional lean serve composition profile for filtering serve hook mounts. */
+  profile?: Pick<ServeProfile, "views" | "apiRouters">;
 }
 
 export interface TransportLifecycleContextInput {
@@ -153,6 +156,27 @@ function resolveHookModulePath(plugin: LoadedPlugin, hook: PluginLifecycleHook):
   return realPath;
 }
 
+function serveApiRouterName(pluginName: string): string | null {
+  if (pluginName === "serve-views" || pluginName === "serve-ws") return null;
+  if (pluginName.startsWith("serve-")) return pluginName.slice("serve-".length);
+  return pluginName;
+}
+
+function shouldRunLifecycleHook(
+  phase: LifecyclePhase,
+  plugin: LoadedPlugin,
+  baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures">,
+): boolean {
+  if (phase !== "serve") return true;
+  const profile = (baseContext as { profile?: Pick<ServeProfile, "views" | "apiRouters"> }).profile;
+  if (!profile) return true;
+  const pluginName = plugin.manifest.name;
+  if (profile.views === false && pluginName === "serve-views") return false;
+  if (profile.apiRouters === undefined) return true;
+  const routerName = serveApiRouterName(pluginName);
+  return routerName === null || profile.apiRouters.includes(routerName);
+}
+
 async function runOneLifecycleHook(
   phase: LifecyclePhase,
   plugin: LoadedPlugin,
@@ -195,6 +219,7 @@ export async function runLifecycleHooks(
     if (plugin.disabled) { summary.skipped++; continue; }
     const hook = plugin.manifest.hooks?.[phase];
     if (!hook) continue;
+    if (!shouldRunLifecycleHook(phase, plugin, baseContext)) { summary.skipped++; continue; }
     if (plugin.kind !== "ts" && !hook.script) { summary.skipped++; continue; }
 
     try {

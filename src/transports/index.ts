@@ -39,23 +39,38 @@ export function discoveryTransport(config: ReturnType<typeof loadConfig>): Disco
 
 /** Singleton router instance */
 let router: TransportRouter | null = null;
+let routerProfileKey = "all";
+
+function transportEnabled(profile: Set<string> | null, name: string): boolean {
+  return !profile || profile.has(name);
+}
+
+function transportProfileKey(transports?: string[]): string {
+  return transports === undefined ? "all" : [...new Set(transports)].sort().join(",");
+}
 
 /** Build transport router from maw.config.json */
-export function createTransportRouter(): TransportRouter {
-  if (router) return router;
+export function createTransportRouter(transports?: string[]): TransportRouter {
+  const profileKey = transportProfileKey(transports);
+  if (router && routerProfileKey === profileKey) return router;
+  if (router) router.disconnectAll().catch(() => {});
 
   const config = loadConfig();
+  const enabledTransports = transports === undefined ? null : new Set(transports);
   router = new TransportRouter(config.broadcastTo ?? []);
+  routerProfileKey = profileKey;
 
-  // 1. Always register tmux (local fast path) — auto-connected
-  const tmux = new TmuxTransport();
-  tmux.connect().catch(() => {}); // tmux is always available locally
-  router.register(tmux);
+  // 1. Always register tmux (local fast path) by default — auto-connected
+  if (transportEnabled(enabledTransports, "tmux")) {
+    const tmux = new TmuxTransport();
+    tmux.connect().catch(() => {}); // tmux is always available locally
+    router.register(tmux);
+  }
 
   const discovery = discoveryTransport(config);
 
   // 2.5. Scout P2P — zero-config LAN discovery + auto-pairing.
-  if (discovery === "scout" || discovery === "both") {
+  if (transportEnabled(enabledTransports, "scout") && (discovery === "scout" || discovery === "both")) {
     const oracles = Object.keys(config.agents || {}).filter(k => k.endsWith("-oracle"));
     const scout = new ScoutTransport({
       node: config.node ?? "local",
@@ -71,14 +86,14 @@ export function createTransportRouter(): TransportRouter {
   // 2.5b. Zenoh Scout — opt-in discovery/presence provider only.
   // Pairing/trust remains in MAW's HTTP pair/peers flow. The transport is
   // provided by the plugin module surface so core does not import vendored code.
-  if (discovery === "zenoh" || discovery === "both") {
+  if (transportEnabled(enabledTransports, "zenoh-scout") && (discovery === "zenoh" || discovery === "both")) {
     const zenohScout = new PluginTransportAdapter(ZENOH_SCOUT_PLUGIN, ZENOH_SCOUT_TRANSPORT_FACTORY, config);
     zenohScout.connect().catch(() => {});
     router.register(zenohScout);
   }
 
   // 2.6. Zenoh transport — pub/sub + auto-discovery (dynamic import — WASM)
-  if (config.zenoh?.locator) {
+  if (transportEnabled(enabledTransports, "zenoh") && config.zenoh?.locator) {
     import("./zenoh").then(({ ZenohTransport }) => {
       const zt = new ZenohTransport({
         locator: config.zenoh!.locator,
@@ -90,7 +105,7 @@ export function createTransportRouter(): TransportRouter {
   }
 
   // 3. HTTP federation as fallback
-  if (config.peers && config.peers.length > 0) {
+  if (transportEnabled(enabledTransports, "http") && config.peers && config.peers.length > 0) {
     router.register(
       new HttpTransport({
         peers: config.peers,
@@ -100,7 +115,7 @@ export function createTransportRouter(): TransportRouter {
   }
 
   // 4. NanoClaw (external chat channels — Telegram, Discord, etc.)
-  router.register(new NanoclawTransport());
+  if (transportEnabled(enabledTransports, "nanoclaw")) router.register(new NanoclawTransport());
 
   return router;
 }
@@ -203,6 +218,7 @@ export function resetTransportRouter() {
     router.disconnectAll().catch(() => {});
     router = null;
   }
+  routerProfileKey = "all";
 }
 
 export { TmuxTransport } from "./tmux";
