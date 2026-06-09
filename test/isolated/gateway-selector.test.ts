@@ -35,6 +35,20 @@ function routeDeps(calls: Array<Record<string, unknown>>): RouteToolsDeps {
   };
 }
 
+async function waitForFetch(url: string, attempts = 30): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw lastError instanceof Error ? lastError : new Error(`fetch failed: ${url}`);
+}
+
 describe("gateway selector (#2566)", () => {
   test("selectGateway honors CLI > env > config > bun precedence", () => {
     expect(selectGateway({}).kind).toBe("bun");
@@ -118,6 +132,7 @@ describe("gateway selector (#2566)", () => {
     const tmp = mkdtempSync(join(tmpdir(), "maw-gateway-env-"));
     const binary = join(tmp, "maw-gateway");
     const envFile = join(tmp, "env.txt");
+    const argsFile = join(tmp, "args.txt");
     const previous = {
       MAW_GATEWAY_BIN: process.env.MAW_GATEWAY_BIN,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -125,7 +140,7 @@ describe("gateway selector (#2566)", () => {
       stdoutWrite: process.stdout.write,
     };
     const forwarded: string[] = [];
-    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\necho "listening on :$3"\nsleep 0.1\necho "forwarded after readiness"\nsleep 30\n`);
+    writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(envFile)}\nprintf '%s\n' "$@" > ${JSON.stringify(argsFile)}\necho "listening on :$3"\nsleep 0.1\necho "forwarded after readiness"\nexec sleep 30\n`);
     chmodSync(binary, 0o755);
 
     try {
@@ -140,17 +155,19 @@ describe("gateway selector (#2566)", () => {
       const child = await selectGateway({ cliGateway: "rust" }).start(4570) as { kill: () => void; once: (event: string, cb: () => void) => void };
       const envText = readFileSync(envFile, "utf8");
       expect(envText).toContain("PORT=4570");
+      expect(envText).toContain("MAW_BACKEND_PORT=4571");
       expect(envText).not.toContain("ANTHROPIC_API_KEY");
       expect(envText).not.toContain("GITHUB_TOKEN");
       expect(envText).not.toContain("secret-anthropic");
       expect(envText).not.toContain("secret-github");
+      expect(readFileSync(argsFile, "utf8").split("\n").filter(Boolean)).toEqual(["serve", "--port", "4570", "--backend", "4571"]);
       for (let i = 0; i < 20 && !forwarded.join("").includes("forwarded after readiness"); i++) {
         await new Promise(resolve => setTimeout(resolve, 10));
       }
       expect(forwarded.join("")).toContain("forwarded after readiness");
       await new Promise<void>((resolve) => {
         child.once("exit", resolve);
-        child.kill();
+        child.kill("SIGKILL");
       });
     } finally {
       process.stdout.write = previous.stdoutWrite;
@@ -163,4 +180,42 @@ describe("gateway selector (#2566)", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  test("maw serve --gateway rust starts Rust on :3456 and Bun backend on :3457", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "maw-gateway-dual-"));
+    const binary = join(tmp, "maw-gateway");
+    const argsFile = join(tmp, "args.txt");
+    const previous = process.env.MAW_GATEWAY_BIN;
+    writeFileSync(binary, `#!/bin/sh\nprintf '%s\n' "$@" > ${JSON.stringify(argsFile)}\necho "listening on :$3"\nexec sleep 30\n`);
+    chmodSync(binary, 0o755);
+
+    try {
+      process.env.MAW_GATEWAY_BIN = binary;
+      const child = await selectGateway({ cliGateway: "rust" }).start(3456) as { kill: () => void; once: (event: string, cb: () => void) => void };
+
+      expect(readFileSync(argsFile, "utf8").split("\n").filter(Boolean)).toEqual(["serve", "--port", "3456", "--backend", "3457"]);
+      const response = await waitForFetch("http://127.0.0.1:3457/api/health");
+      const health = await response.json() as { ok?: boolean };
+      expect(health.ok).toBe(true);
+
+      await new Promise<void>((resolve) => {
+        child.once("exit", resolve);
+        child.kill("SIGKILL");
+      });
+      for (let i = 0; i < 20; i++) {
+        try {
+          await fetch("http://127.0.0.1:3457/api/health");
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch {
+          return;
+        }
+      }
+      throw new Error("Bun backend stayed alive after Rust gateway exit");
+    } finally {
+      if (previous === undefined) delete process.env.MAW_GATEWAY_BIN;
+      else process.env.MAW_GATEWAY_BIN = previous;
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 15_000);
+
 });

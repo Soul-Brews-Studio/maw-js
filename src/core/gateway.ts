@@ -30,6 +30,7 @@ const RUST_GATEWAY_ENV_ALLOWLIST = [
   "HOME",
   "MAW_GATEWAY_BIN",
   "PORT",
+  "MAW_BACKEND_PORT",
   "MAW_HOME",
   "XDG_CONFIG_HOME",
 ] as const;
@@ -96,13 +97,24 @@ export function resolveGatewayBinary(env: Pick<NodeJS.ProcessEnv, "MAW_GATEWAY_B
   return findOnPath("maw-gateway", env.PATH);
 }
 
-function rustGatewayEnv(source: NodeJS.ProcessEnv, port: number): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { PORT: String(port) };
+function rustGatewayEnv(source: NodeJS.ProcessEnv, port: number, backendPort: number): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { PORT: String(port), MAW_BACKEND_PORT: String(backendPort) };
   for (const key of RUST_GATEWAY_ENV_ALLOWLIST) {
-    const value = key === "PORT" ? String(port) : source[key];
+    const value = key === "PORT"
+      ? String(port)
+      : key === "MAW_BACKEND_PORT"
+        ? String(backendPort)
+        : source[key];
     if (value !== undefined) env[key] = value;
   }
   return env;
+}
+
+function stopGatewayHandle(handle: unknown): void {
+  const stop = (handle as { stop?: (closeActiveConnections?: boolean) => unknown } | undefined)?.stop;
+  if (typeof stop === "function") {
+    try { stop.call(handle, true); } catch { /* best effort */ }
+  }
 }
 
 async function cleanupGatewayPort(port: number): Promise<void> {
@@ -120,14 +132,17 @@ class RustGateway implements Gateway {
 
   constructor(private readonly binary = resolveGatewayBinary()) {}
 
-  async start(port: number): Promise<ChildProcessWithoutNullStreams> {
+  async start(port: number, options: GatewayStartOptions = {}): Promise<ChildProcessWithoutNullStreams> {
     if (!this.binary) throw new UserError("maw-gateway binary not found");
 
+    const backendPort = port + 1;
     await cleanupGatewayPort(port);
+    await cleanupGatewayPort(backendPort);
+    const backend = await new BunGateway().start(backendPort, { ...options, gateway: "bun" });
 
-    const child = spawn(this.binary, ["serve", "--port", String(port)], {
+    const child = spawn(this.binary, ["serve", "--port", String(port), "--backend", String(backendPort)], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: rustGatewayEnv(process.env, port),
+      env: rustGatewayEnv(process.env, port, backendPort),
     });
 
     const readyNeedle = `listening on :${port}`;
@@ -152,6 +167,7 @@ class RustGateway implements Gateway {
         settled = true;
         cleanupReadinessListeners();
         if (!child.killed) child.kill();
+        stopGatewayHandle(backend);
         reject(error);
       };
       const supervise = () => {
@@ -159,9 +175,11 @@ class RustGateway implements Gateway {
         child.stderr.on("data", (chunk) => process.stderr.write(chunk));
         child.on("exit", (code, signal) => {
           console.warn("[gateway:rust] process exited", { code, signal });
+          stopGatewayHandle(backend);
         });
         process.once("exit", () => {
           if (!child.killed) child.kill();
+          stopGatewayHandle(backend);
         });
       };
       const succeed = () => {

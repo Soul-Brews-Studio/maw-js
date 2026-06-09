@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 #[derive(Clone)]
 struct AppState {
     port: u16,
+    backend_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -21,6 +22,7 @@ struct HealthResponse {
     ok: bool,
     gateway: &'static str,
     port: u16,
+    backend_port: Option<u16>,
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -28,6 +30,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         ok: true,
         gateway: "rust",
         port: state.port,
+        backend_port: state.backend_port,
     })
 }
 
@@ -53,12 +56,13 @@ fn usage() -> ! {
     process::exit(2);
 }
 
-fn parse_port(args: &[String]) -> u16 {
+fn parse_ports(args: &[String]) -> (u16, Option<u16>) {
     if args.first().map(String::as_str) != Some("serve") {
         usage();
     }
 
     let mut port: Option<u16> = None;
+    let mut backend_port: Option<u16> = None;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -72,31 +76,52 @@ fn parse_port(args: &[String]) -> u16 {
             value if value.starts_with("--port=") => {
                 port = value["--port=".len()..].parse::<u16>().ok();
             }
+            "--backend" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    usage()
+                };
+                backend_port = value.parse::<u16>().ok();
+            }
+            value if value.starts_with("--backend=") => {
+                backend_port = value["--backend=".len()..].parse::<u16>().ok();
+            }
             _ => usage(),
         }
         index += 1;
     }
 
-    port.unwrap_or(3456)
+    (port.unwrap_or(3456), backend_port)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_port;
+    use super::parse_ports;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
     }
 
     #[test]
-    fn parse_port_defaults_to_3456() {
-        assert_eq!(parse_port(&args(&["serve"])), 3456);
+    fn parse_ports_defaults_to_3456_without_backend() {
+        assert_eq!(parse_ports(&args(&["serve"])), (3456, None));
     }
 
     #[test]
-    fn parse_port_accepts_space_and_equals_forms() {
-        assert_eq!(parse_port(&args(&["serve", "--port", "8080"])), 8080);
-        assert_eq!(parse_port(&args(&["serve", "--port=9090"])), 9090);
+    fn parse_ports_accepts_space_and_equals_forms() {
+        assert_eq!(
+            parse_ports(&args(&["serve", "--port", "8080"])),
+            (8080, None)
+        );
+        assert_eq!(parse_ports(&args(&["serve", "--port=9090"])), (9090, None));
+        assert_eq!(
+            parse_ports(&args(&["serve", "--port", "8080", "--backend", "8081"])),
+            (8080, Some(8081))
+        );
+        assert_eq!(
+            parse_ports(&args(&["serve", "--port=9090", "--backend=9091"])),
+            (9090, Some(9091))
+        );
     }
 }
 
@@ -119,8 +144,8 @@ async fn shutdown_signal() {
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
-    let port = parse_port(&args);
-    let state = AppState { port };
+    let (port, backend_port) = parse_ports(&args);
+    let state = AppState { port, backend_port };
     let app = Router::new()
         .route("/api/health", get(health))
         .layer(middleware::from_fn(log_request))
