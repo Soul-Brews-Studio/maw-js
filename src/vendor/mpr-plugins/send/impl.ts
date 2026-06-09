@@ -13,7 +13,7 @@
  *   maw send <target> "<text>"
  */
 
-import { curlFetch, listSessions, loadConfig, resolveOraclePane, resolveTarget, Tmux } from "maw-js/sdk";
+import { curlFetch, listSessions, loadConfig, resolveOraclePane, resolveTarget, Tmux, UserError } from "maw-js/sdk";
 
 export interface SendOpts {
   target: string;
@@ -22,19 +22,19 @@ export interface SendOpts {
 
 export async function cmdSend(opts: SendOpts): Promise<void> {
   const { target: query, text } = opts;
-  if (!query) throw new Error('usage: maw send <target> "<text>"');
+  if (!query) throw new UserError('usage: maw send <target> "<text>"');
 
   const config = loadConfig();
   const sessions = await listSessions();
   const result = resolveTarget(query, config, sessions);
 
   if (!result) {
-    throw new Error(`could not resolve target: ${query}`);
+    throw new UserError(`could not resolve target: ${query}`);
   }
 
   if (result.type === "error") {
     const hint = result.hint ? ` — ${result.hint}` : "";
-    throw new Error(`${result.detail}${hint}`);
+    throw new UserError(`${result.detail}${hint}`);
   }
 
   if (result.type === "peer") {
@@ -46,7 +46,7 @@ export async function cmdSend(opts: SendOpts): Promise<void> {
     });
     if (!res.ok || !res.data?.ok) {
       const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
-      throw new Error(`peer send failed (${result.node} ${result.peerUrl}): ${underlying}`);
+      throw new UserError(`peer send failed (${result.node} ${result.peerUrl}): ${underlying}`);
     }
     console.log(`\x1b[32mtyped\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${truncate(text)}`);
     return;
@@ -79,9 +79,9 @@ export function parseSendArgs(args: string[]): SendOpts {
   // Find the first non-flag arg — that's the target. Everything after
   // (regardless of dashes) is text.
   const targetIdx = args.findIndex(a => !a.startsWith("-"));
-  if (targetIdx < 0) throw new Error('usage: maw send <target> "<text>"');
+  if (targetIdx < 0) throw new UserError('usage: maw send <target> "<text>"');
   const target = args[targetIdx];
   const text = args.slice(targetIdx + 1).join(" ");
-  if (text.length === 0) throw new Error('usage: maw send <target> "<text>" — text is required');
+  if (text.length === 0) throw new UserError('usage: maw send <target> "<text>" — text is required');
   return { target, text };
 }

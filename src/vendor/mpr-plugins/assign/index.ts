@@ -1,3 +1,4 @@
+import { UserError } from "maw-js/sdk";
 import type { InvokeContext, InvokeResult } from "maw-js/sdk";
 import { cmdAssign } from "./impl";
 
@@ -21,7 +22,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     if (!args[0]) {
-      throw new Error("usage: maw assign <issue-url> [--oracle <name>]");
+      throw new UserError("usage: maw assign <issue-url> [--oracle <name>]");
     }
     const oracleIdx = args.indexOf("--oracle");
     const oracle = oracleIdx !== -1 ? args[oracleIdx + 1] : undefined;

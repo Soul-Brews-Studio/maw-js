@@ -1,3 +1,4 @@
+import { UserError } from "maw-js/sdk";
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdFind } from "./impl";
 
@@ -20,7 +21,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-    if (!args[0]) throw new Error("usage: maw find <keyword> [--oracle <name>]");
+    if (!args[0]) throw new UserError("usage: maw find <keyword> [--oracle <name>]");
     const oracleIdx = args.indexOf("--oracle");
     await cmdFind(args[0], { oracle: oracleIdx !== -1 ? args[oracleIdx + 1] : undefined });
     return { ok: true, output: logs.join("\n") || undefined };

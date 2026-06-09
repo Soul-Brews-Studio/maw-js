@@ -64,7 +64,14 @@ describe("send plugin standalone boundary", () => {
 
   test("parses target plus raw text including dash args", () => {
     expect(parseSendArgs(["pane", "ls", "-la", "/tmp"])).toEqual({ target: "pane", text: "ls -la /tmp" });
-    expect(() => parseSendArgs(["--flag"])).toThrow("usage: maw send");
+    let thrown: unknown;
+    try {
+      parseSendArgs(["--flag"]);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(realSdk.isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("usage: maw send");
   });
 
   test("local CLI invocation sends literal text without Enter", async () => {

@@ -63,8 +63,8 @@ describe("reply plugin standalone boundary (#2284)", () => {
     const files = ["index.ts", "impl.ts"].map((file) => readFileSync(join(pluginDir, file), "utf8"));
     const imports = files.flatMap(parseImportSpecs);
 
-    expect(imports.filter((spec) => spec.startsWith("maw-js/core/") || spec.startsWith("maw-js/commands/shared/") || spec.startsWith("maw-js/lib/") || spec === "maw-js/config" || spec.startsWith("maw-js/config/") || spec === "maw-js/sdk")).toEqual([]);
-    expect(imports).toEqual(["maw-js/plugin/types", "./impl"]);
+    expect(imports.filter((spec) => spec.startsWith("maw-js/core/") || spec.startsWith("maw-js/commands/shared/") || spec.startsWith("maw-js/lib/") || spec === "maw-js/config" || spec.startsWith("maw-js/config/"))).toEqual([]);
+    expect(imports).toEqual(["maw-js/plugin/types", "./impl", "maw-js/sdk"]);
   });
 
   test("plugin loads from manifest and reports CLI metadata", async () => {

@@ -4,6 +4,7 @@ import { mawDataPath } from "../../core/xdg";
 import { validatePluginName } from "./plugin-create-scaffold";
 import { scaffoldRust } from "./plugin-create-rust";
 import { scaffoldAs } from "./plugin-create-as";
+import { UserError } from "../../core/util/user-error";
 
 export async function cmdPluginCreate(
   name: string | undefined,
@@ -20,24 +21,19 @@ export async function cmdPluginCreate(
 
   // Validate flags
   if (!isRust && !isAs) {
-    console.error("usage: maw plugin create [--rust | --as] <name> [--here]");
-    console.error("  Specify either --rust or --as");
-    process.exit(1);
+    throw new UserError("usage: maw plugin create [--rust | --as] <name> [--here]\n  Specify either --rust or --as");
   }
   if (isRust && isAs) {
-    console.error("  Specify --rust or --as, not both");
-    process.exit(1);
+    throw new UserError("Specify --rust or --as, not both");
   }
 
   // Validate name
   if (!name) {
-    console.error("usage: maw plugin create [--rust | --as] <name> [--here]");
-    process.exit(1);
+    throw new UserError("usage: maw plugin create [--rust | --as] <name> [--here]");
   }
   const nameErr = validatePluginName(name);
   if (nameErr) {
-    console.error(`\x1b[31m✗\x1b[0m Invalid plugin name: ${nameErr}`);
-    process.exit(1);
+    throw new UserError(`Invalid plugin name: ${nameErr}`);
   }
 
   // Resolve destination
@@ -47,8 +43,7 @@ export async function cmdPluginCreate(
       : join(process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins"), name));
 
   if (existsSync(dest)) {
-    console.error(`\x1b[31m✗\x1b[0m Destination already exists: ${dest}`);
-    process.exit(1);
+    throw new UserError(`Destination already exists: ${dest}`);
   }
 
   const type = isRust ? "Rust" : "AssemblyScript";
@@ -62,8 +57,7 @@ export async function cmdPluginCreate(
       scaffoldAs(name, dest);
     }
   } catch (err: any) {
-    console.error(`\x1b[31m✗\x1b[0m ${err.message}`);
-    process.exit(1);
+    throw new UserError(String(err?.message ?? err));
   }
 
   console.log(`\n\x1b[32m✓\x1b[0m Plugin scaffolded: \x1b[1m${name}\x1b[0m`);

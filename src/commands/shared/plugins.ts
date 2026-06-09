@@ -17,6 +17,7 @@ import { doLs, doInfo, type PluginLsOptions } from "./plugins-ls-info";
 import { doInstall, doRemove } from "./plugins-install";
 import { doProfile, doNuke } from "./plugins-profile";
 import { doEnable, doDisable } from "./plugins-toggle";
+import { UserError } from "../../core/util/user-error";
 
 export { doLs, doInfo } from "./plugins-ls-info";
 export { doInstall, doRemove } from "./plugins-install";
@@ -68,16 +69,10 @@ export async function cmdPlugins(
     case "list":
       return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover, undefined, lsOptions(flags));
     case "info":
-      if (!name) {
-        console.error("usage: maw plugins info <name>");
-        process.exit(1);
-      }
+      if (!name) throw new UserError("usage: maw plugins info <name>");
       return doInfo(name, discover);
     case "install":
-      if (!name) {
-        console.error("usage: maw plugins install <path> [--force] [--local] [--symlink]");
-        process.exit(1);
-      }
+      if (!name) throw new UserError("usage: maw plugins install <path> [--force] [--local] [--symlink]");
       return doInstall(name, flags["--force"] ?? false, {
         local: flags["--local"] ?? false,
         symlink: flags["--symlink"] ?? false,
@@ -85,17 +80,14 @@ export async function cmdPlugins(
     case "remove":
     case "uninstall":
     case "rm":
-      if (!name) {
-        console.error("usage: maw plugins remove <name>");
-        process.exit(1);
-      }
+      if (!name) throw new UserError("usage: maw plugins remove <name>");
       return doRemove(name, discover);
     case "enable": {
-      if (!name) { console.error("usage: maw plugin enable <name> [more...]"); process.exit(1); }
+      if (!name) throw new UserError("usage: maw plugin enable <name> [more...]");
       return doEnable(flags._);
     }
     case "disable": {
-      if (!name) { console.error("usage: maw plugin disable <name>"); process.exit(1); }
+      if (!name) throw new UserError("usage: maw plugin disable <name>");
       return doDisable(name);
     }
     case "lean":

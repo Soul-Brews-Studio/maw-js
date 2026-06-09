@@ -57,6 +57,14 @@ describe("send-enter plugin standalone boundary", () => {
     expect(parseSendEnterArgs(["pane"])).toEqual({ target: "pane", count: 1 });
     expect(parseSendEnterArgs(["--N", "3", "pane"])).toEqual({ target: "pane", count: 3 });
     expect(parseSendEnterArgs(["pane", "--N=2"])).toEqual({ target: "pane", count: 2 });
+    let thrown: unknown;
+    try {
+      parseSendEnterArgs(["--N", "0", "pane"]);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(realSdk.isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("--N requires a positive integer");
   });
 
   test("local API invocation sends N enters through tmux", async () => {

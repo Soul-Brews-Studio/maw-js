@@ -11,6 +11,7 @@ import {
   type FleetManageDeps,
 } from "../src/commands/shared/fleet-manage";
 import type { FleetEntry, FleetSession } from "../src/commands/shared/fleet-load";
+import { isUserError } from "../src/core/util/user-error";
 
 const session = (name: string, windows: Array<{ name: string; repo?: string }> = []): FleetSession => ({
   name,
@@ -218,6 +219,12 @@ describe("cmdFleetRename", () => {
 
     await expect(cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps))
       .rejects.toThrow(/already exists/);
+    try {
+      await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps);
+      throw new Error("expected duplicate fleet rename to throw");
+    } catch (err) {
+      expect(isUserError(err)).toBe(true);
+    }
 
     const dry = makeDeps([entries[0]], {
       exists: path => !path.endsWith("23-discord.json"),
@@ -306,6 +313,12 @@ describe("cmdFleetRenumber", () => {
 
     await expect(cmdFleetRenumber(h.deps))
       .rejects.toThrow("fleet 'mawjs' already running as 89-mawjs");
+    try {
+      await cmdFleetRenumber(h.deps);
+      throw new Error("expected running fleet conflict to throw");
+    } catch (err) {
+      expect(isUserError(err)).toBe(true);
+    }
 
     expect(h.writes).toEqual([]);
     expect(h.renames).toEqual([]);
@@ -323,6 +336,12 @@ describe("cmdFleetRenumber", () => {
 
     await expect(cmdFleetRenumber(h.deps))
       .rejects.toThrow("duplicate fleet name(s): mawjs (89-mawjs.json, 150-mawjs.json)");
+    try {
+      await cmdFleetRenumber(h.deps);
+      throw new Error("expected duplicate fleet names to throw");
+    } catch (err) {
+      expect(isUserError(err)).toBe(true);
+    }
 
     expect(h.writes).toEqual([]);
     expect(h.renames).toEqual([]);

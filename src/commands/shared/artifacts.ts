@@ -8,6 +8,7 @@
  */
 
 import { listArtifacts, getArtifact } from "../../lib/artifacts";
+import { UserError } from "../../core/util/user-error";
 
 export async function cmdArtifacts(sub: string, args: string[], flags: Record<string, any>) {
   const json = flags["--json"];
@@ -43,10 +44,10 @@ export async function cmdArtifacts(sub: string, args: string[], flags: Record<st
   if (sub === "get" || sub === "show") {
     const team = args[0];
     const taskId = args[1];
-    if (!team || !taskId) { console.error("usage: maw artifacts get <team> <task-id>"); process.exit(1); }
+    if (!team || !taskId) throw new UserError("usage: maw artifacts get <team> <task-id>");
 
     const art = getArtifact(team, taskId);
-    if (!art) { console.error(`artifact not found: ${team}/${taskId}`); process.exit(1); }
+    if (!art) throw new UserError(`artifact not found: ${team}/${taskId}`);
 
     if (json) { console.log(JSON.stringify(art, null, 2)); return; }
 
@@ -77,8 +78,7 @@ export async function cmdArtifacts(sub: string, args: string[], flags: Record<st
     return;
   }
 
-  console.error("usage: maw artifacts [ls|get] [team] [task-id] [--json]");
-  process.exit(1);
+  throw new UserError("usage: maw artifacts [ls|get] [team] [task-id] [--json]");
 }
 
 function pad(s: string, n: number): string { return s.padEnd(n); }

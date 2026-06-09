@@ -2,6 +2,7 @@ import { dirname, join } from "path";
 import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux } from "../../sdk";
 import { countDisabledFleetFiles, fleetDirForWrite, loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";
+import { UserError } from "../../core/util/user-error";
 
 export interface FleetManageDeps {
   loadFleetEntries: typeof loadFleetEntries;
@@ -35,7 +36,7 @@ function stripNumberPrefix(name: string): string {
 
 function validateFleetRenameName(label: string, name: string): void {
   if (!name || !/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith("-") || name.includes("..")) {
-    throw new Error(`invalid ${label}: ${JSON.stringify(name)}`);
+    throw new UserError(`invalid ${label}: ${JSON.stringify(name)}`);
   }
 }
 
@@ -173,7 +174,7 @@ export async function cmdFleetRename(
   const newName = stripJson(options.newName);
   validateFleetRenameName("old fleet name", oldName);
   validateFleetRenameName("new fleet name", newName);
-  if (oldName === newName) throw new Error("old and new fleet names are identical");
+  if (oldName === newName) throw new UserError("old and new fleet names are identical");
 
   const entries = io.loadFleetEntries();
   const target = entries.find(e =>
@@ -182,7 +183,7 @@ export async function cmdFleetRename(
     e.groupName === oldName ||
     stripNumberPrefix(displaySessionName(e)) === oldName
   );
-  if (!target) throw new Error(`fleet not found: ${oldName}`);
+  if (!target) throw new UserError(`fleet not found: ${oldName}`);
 
   const existing = entries.find(e => e !== target && (
     stripJson(e.file) === newName ||
@@ -193,7 +194,7 @@ export async function cmdFleetRename(
   const targetDir = entryDir(io, target);
   const oldPath = entryPath(io, target);
   const newPath = io.join(targetDir, newFile);
-  if (existing || (newPath !== oldPath && io.existsSync(newPath))) throw new Error(`target fleet already exists: ${newName}`);
+  if (existing || (newPath !== oldPath && io.existsSync(newPath))) throw new UserError(`target fleet already exists: ${newName}`);
 
   const aliases = peerAliases(oldName);
   aliases.add(displaySessionName(target));
@@ -276,7 +277,7 @@ export async function cmdFleetRenumber(deps: Partial<FleetManageDeps> = {}) {
     const details = duplicateFleetNames
       .map(([name, files]) => `${name} (${files.join(", ")})`)
       .join(", ");
-    throw new Error(`duplicate fleet name(s): ${details}; renumber cannot safely merge duplicate fleets`);
+    throw new UserError(`duplicate fleet name(s): ${details}; renumber cannot safely merge duplicate fleets`);
   }
 
   const runningSessions = await io.getSessionNames();
@@ -298,7 +299,7 @@ export async function cmdFleetRenumber(deps: Partial<FleetManageDeps> = {}) {
     const exactRunning = runningSessions.find(s => s === oldName) ?? null;
     const sameFleetRunning = runningSessions.find(s => stripNumberPrefix(s) === e.groupName && s !== oldName);
     if (sameFleetRunning) {
-      throw new Error(`fleet '${e.groupName}' already running as ${sameFleetRunning}; refusing to renumber ${oldName} → ${newName}`);
+      throw new UserError(`fleet '${e.groupName}' already running as ${sameFleetRunning}; refusing to renumber ${oldName} → ${newName}`);
     }
     return { e, newFile, newName, oldName, runningMatch: exactRunning };
   });

@@ -91,6 +91,7 @@ mock.module(pluginsUiPath, () => ({
   printTable: () => undefined,
 }));
 
+const { isUserError } = await import("../../src/core/util/user-error.ts");
 const { applyInstancePreset } = await import("../../src/cli/instance-preset.ts?instance-preset-extra-coverage");
 const { cmdLoad } = await import("../../src/vendor/mpr-plugins/token/load.ts?token-load-extra-coverage");
 const { cmdPlugins } = await import("../../src/commands/shared/plugins.ts?plugins-extra-coverage");
@@ -338,18 +339,23 @@ describe("cmdPlugins isolated branch dispatcher", () => {
     ]);
   });
 
-  test("exits with usage for missing required plugin arguments", async () => {
-    stubExit();
+  test("throws UserError for missing required plugin arguments", async () => {
+    const cases = [
+      ["info", "usage: maw plugins info <name>"],
+      ["install", "usage: maw plugins install <path> [--force] [--local] [--symlink]"],
+      ["remove", "usage: maw plugins remove <name>"],
+      ["enable", "usage: maw plugin enable <name> [more...]"],
+      ["disable", "usage: maw plugin disable <name>"],
+    ] as const;
 
-    for (const sub of ["info", "install", "remove", "enable", "disable"] as const) {
-      await expect(cmdPlugins(sub, [], { _: [] })).rejects.toThrow("process.exit(1)");
+    for (const [sub, message] of cases) {
+      try {
+        await cmdPlugins(sub, [], { _: [] });
+        throw new Error(`expected ${sub} to throw`);
+      } catch (err) {
+        expect(isUserError(err)).toBe(true);
+        expect((err as Error).message).toBe(message);
+      }
     }
-
-    expect(exitCodes).toEqual([1, 1, 1, 1, 1]);
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins info <name>");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins install <path> [--force] [--local] [--symlink]");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins remove <name>");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin enable <name> [more...]");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin disable <name>");
   });
 });

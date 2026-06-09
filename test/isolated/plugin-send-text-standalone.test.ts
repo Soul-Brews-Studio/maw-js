@@ -64,7 +64,14 @@ describe("send-text plugin standalone boundary", () => {
 
   test("parses target plus text and rejects missing text", () => {
     expect(parseSendTextArgs(["pane", "/awaken"])).toEqual({ target: "pane", text: "/awaken" });
-    expect(() => parseSendTextArgs(["pane"])).toThrow("text is required");
+    let thrown: unknown;
+    try {
+      parseSendTextArgs(["pane"]);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(realSdk.isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("text is required");
   });
 
   test("local CLI invocation sends text plus Enter through Tmux.sendText", async () => {

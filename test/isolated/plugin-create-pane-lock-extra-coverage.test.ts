@@ -50,6 +50,7 @@ mock.module(join(root, "src/commands/plugins/plugin/lock"), () => ({
 }));
 
 const { cmdPluginCreate } = await import("../../src/commands/shared/plugin-create-cmd");
+const { isUserError } = await import("../../src/core/util/user-error.ts");
 const panePlugin = await import("../../src/commands/plugins/pane/index");
 const { cmdPluginPin, cmdPluginUnpin } = await import("../../src/commands/plugins/plugin/lock-cli");
 
@@ -122,25 +123,30 @@ afterEach(() => {
 describe("cmdPluginCreate focused branch coverage", () => {
   test("rejects missing type, conflicting type, missing name, invalid name, and existing destination", async () => {
     let got = await capture(() => cmdPluginCreate("demo", {}));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("Specify either --rust or --as");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("Specify either --rust or --as");
 
     got = await capture(() => cmdPluginCreate("demo", { "--rust": true, "--as": true }));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("not both");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("not both");
 
     got = await capture(() => cmdPluginCreate(undefined, { "--rust": true }));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("usage: maw plugin create");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("usage: maw plugin create");
 
     got = await capture(() => cmdPluginCreate("Bad Name", { "--as": true }));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("Invalid plugin name");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("Invalid plugin name");
 
     const existing = tmpDir("maw-plugin-create-existing-");
     got = await capture(() => cmdPluginCreate("demo", { "--rust": true, "--dest": existing }));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("Destination already exists");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("Destination already exists");
   });
 
   test("dispatches rust/as scaffolders and reports scaffold failures", async () => {
@@ -160,8 +166,9 @@ describe("cmdPluginCreate focused branch coverage", () => {
 
     rustFailure = new Error("scaffold exploded");
     got = await capture(() => cmdPluginCreate("bad-rust", { "--rust": true, "--dest": join(tmpDir("maw-plugin-create-fail-"), "bad-rust") }));
-    expect(got.exitCode).toBe(1);
-    expect(got.stderr).toContain("scaffold exploded");
+    expect(got.exitCode).toBeUndefined();
+    expect(isUserError(got.thrown)).toBe(true);
+    expect((got.thrown as Error).message).toContain("scaffold exploded");
   });
 });
 

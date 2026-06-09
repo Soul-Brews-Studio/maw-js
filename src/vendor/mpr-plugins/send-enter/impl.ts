@@ -12,7 +12,7 @@
  *   maw send-enter <target> --N 3    # send N Enters
  */
 
-import { listSessions, loadConfig, resolveOraclePane, resolveTarget, tmux } from "maw-js/sdk";
+import { listSessions, loadConfig, resolveOraclePane, resolveTarget, tmux, UserError } from "maw-js/sdk";
 
 export interface SendEnterOpts {
   target: string;
@@ -23,24 +23,24 @@ export async function cmdSendEnter(opts: SendEnterOpts): Promise<void> {
   const { target: query } = opts;
   const count = Math.max(1, opts.count ?? 1);
 
-  if (!query) throw new Error("usage: maw send-enter <target> [--N <count>]");
+  if (!query) throw new UserError("usage: maw send-enter <target> [--N <count>]");
 
   const config = loadConfig();
   const sessions = await listSessions();
   const result = resolveTarget(query, config, sessions);
 
   if (!result) {
-    throw new Error(`could not resolve target: ${query}`);
+    throw new UserError(`could not resolve target: ${query}`);
   }
 
   if (result.type === "error") {
     const hint = result.hint ? ` — ${result.hint}` : "";
-    throw new Error(`${result.detail}${hint}`);
+    throw new UserError(`${result.detail}${hint}`);
   }
 
   if (result.type === "peer") {
     // Phase 1: local-only. Federation deferred to follow-up (see #728).
-    throw new Error(
+    throw new UserError(
       `send-enter: cross-node target '${query}' (node '${result.node}') not yet supported — Phase 1 is local-only. ` +
         `Workaround: ssh ${result.node} && maw send-enter ${result.target}`,
     );
@@ -73,7 +73,7 @@ export function parseSendEnterArgs(args: string[]): SendEnterOpts {
       const next = args[i + 1];
       const n = parseInt(next ?? "", 10);
       if (!Number.isFinite(n) || n < 1) {
-        throw new Error(`--N requires a positive integer (got: ${next ?? "nothing"})`);
+        throw new UserError(`--N requires a positive integer (got: ${next ?? "nothing"})`);
       }
       count = n;
       i++;
@@ -82,7 +82,7 @@ export function parseSendEnterArgs(args: string[]): SendEnterOpts {
     if (a.startsWith("--N=") || a.startsWith("--n=")) {
       const n = parseInt(a.split("=")[1] ?? "", 10);
       if (!Number.isFinite(n) || n < 1) {
-        throw new Error(`--N requires a positive integer (got: ${a})`);
+        throw new UserError(`--N requires a positive integer (got: ${a})`);
       }
       count = n;
       continue;
@@ -93,6 +93,6 @@ export function parseSendEnterArgs(args: string[]): SendEnterOpts {
     }
   }
 
-  if (!target) throw new Error("usage: maw send-enter <target> [--N <count>]");
+  if (!target) throw new UserError("usage: maw send-enter <target> [--N <count>]");
   return { target, count };
 }
