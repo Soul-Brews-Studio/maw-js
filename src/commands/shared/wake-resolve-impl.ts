@@ -102,6 +102,20 @@ function repoNameFromPath(path: string): string {
   return path.split("/").pop() ?? "";
 }
 
+function isLikelyHostName(segment: string): boolean {
+  if (segment === "github.com") return true;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(segment);
+}
+
+function sanitizeFleetRepoForClone(slug: string): string | null {
+  const parts = slug.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  if (isLikelyHostName(owner)) return null;
+  return `${owner}/${repo}`;
+}
+
 function repoSlugFromPath(path: string): string {
   const parts = path.split("/").filter(Boolean);
   return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
@@ -285,13 +299,18 @@ export async function resolveOracle(
     for (const config of loadFleet()) {
       const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
       if (win?.repo) {
-        const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
+        const sanitizedFleetPin = sanitizeFleetRepoForClone(win.repo);
+        if (!sanitizedFleetPin) {
+          console.error(`\x1b[33m⚠\x1b[0m malformed fleet repo '${win.repo}' for ${win.name}; expected 'owner/repo'.`);
+          continue;
+        }
+        const fullPath = await ghqFind(`/${sanitizedFleetPin.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
           const repoPath = fullPath;
           return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
         }
         // Fleet knows the slug but it's not cloned yet — remember for step 3
-        fleetRepo = win.repo;
+        fleetRepo = sanitizedFleetPin;
       }
     }
   } catch { /* fleet dir may not exist */ }

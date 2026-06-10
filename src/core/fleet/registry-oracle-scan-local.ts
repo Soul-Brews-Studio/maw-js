@@ -82,6 +82,20 @@ interface ScanLocalDeps {
   fleetLineage?: Map<string, FleetLineage>;
 }
 
+function isLikelyHostName(segment: string): boolean {
+  if (segment === "github.com") return true;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(segment);
+}
+
+function parseFleetRepoSlug(key: string): { org: string; repo: string } | null {
+  const parts = key.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [org, repo] = parts;
+  if (!org || !repo) return null;
+  if (isLikelyHostName(org)) return null;
+  return { org, repo };
+}
+
 /**
  * Scan local ghq for oracles. Verbose-by-default per user direction
  * (alpha.74, 2026-04-16) — pass verbose=false for the terse summary.
@@ -105,6 +119,10 @@ export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry
   // Walk reposRoot: <reposRoot>/<org>/<repo>/
   try {
     for (const org of readdirSync(reposRoot)) {
+      if (isLikelyHostName(org)) {
+        if (verbose) console.log(`  \x1b[90m  ⏭ skipping host-like org segment: ${org}\x1b[0m`);
+        continue;
+      }
       const orgPath = join(reposRoot, org);
       try {
         if (!statSync(orgPath).isDirectory()) continue;
@@ -188,8 +206,9 @@ export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry
   let fleetOnly = 0;
   for (const [key, lineage] of fleetLineage) {
     if (!seen.has(key)) {
-      const [org, repo] = key.split("/");
-      if (org && repo) {
+      const parsed = parseFleetRepoSlug(key);
+      if (parsed) {
+        const { org, repo } = parsed;
         fleetOnly++;
         if (verbose) {
           console.log(`  \x1b[90m  + ${key}\x1b[0m [\x1b[36mfleet-only\x1b[0m] (not cloned)`);

@@ -321,6 +321,29 @@ describe("resolveOracle runtime paths", () => {
     expect(logs.some((line) => line.includes("found at /repos/Org/special-oracle"))).toBe(true);
   });
 
+  test("skips malformed fleet slug (owner-only) and still resolves via fallback org scan", async () => {
+    writeFleet("12-special", [{ name: "special-oracle", repo: "github.com/laris-co" }]);
+    config.githubOrgs = ["Soul-Brews-Studio"];
+    hostExecImpl = async (cmd) => {
+      if (cmd.includes("gh repo view 'Soul-Brews-Studio/special-oracle'")) return '{"name":"special-oracle"}';
+      if (cmd.includes("ghq get -u 'github.com/Soul-Brews-Studio/special-oracle'")) {
+        ghqFindMap["/special-oracle"] = "/repos/Soul-Brews-Studio/special-oracle";
+      }
+      return "";
+    };
+
+    await expect(resolveOracle("special")).resolves.toEqual({
+      repoPath: "/repos/Soul-Brews-Studio/special-oracle",
+      repoName: "special-oracle",
+      parentDir: "/repos/Soul-Brews-Studio",
+    });
+
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get 'github.com/github.com/laris-co'"))).toBe(false);
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get 'github.com/laris-co'"))).toBe(false);
+    expect(errors.some((line) => line.includes("malformed fleet repo 'github.com/laris-co'"))).toBe(true);
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get -u 'github.com/Soul-Brews-Studio/special-oracle'"))).toBe(true);
+  });
+
   test("re-checks fleet-pinned repos before cloning and reports failed fleet clones", async () => {
     writeFleet("12-special", [{ name: "special-oracle", repo: "Org/special-oracle" }]);
     let findCount = 0;

@@ -140,6 +140,41 @@ describe("registry-oracle-scan-local", () => {
     });
   });
 
+  test("scanLocal ignores host-like org segments at ghq root", () => {
+    const root = tmpRoot("host-org");
+    const ghqRoot = join(root, "ghq");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    mkdirp(join(ghqRoot, "github.com", "Soul-Brews-Studio"));
+
+    makeRepo(ghqRoot, "Soul-Brews-Studio", "valid-oracle", { psi: true });
+    makeRepo(ghqRoot, "github.com", "laris-co", { psi: true });
+
+    writeJson(join(fleetDir, "fleet.json"), {
+      project_repos: [],
+      windows: [],
+    });
+
+    const entries = scanLocal(false, { ghqRoot, fleetDir });
+
+    expect(entries.map((entry) => `${entry.org}/${entry.repo}`)).toEqual(["Soul-Brews-Studio/valid-oracle"]);
+  });
+
+  test("scanLocal treats malformed fleet lineage key github.com/owner as non-oracle", () => {
+    const root = tmpRoot("malformed-lineage");
+    const ghqRoot = join(root, "ghq");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+
+    writeJson(join(fleetDir, "fleet.json"), {
+      project_repos: ["github.com/laris-co"],
+    });
+
+    const entries = scanLocal(false, { ghqRoot, fleetDir });
+
+    expect(entries).toHaveLength(0);
+  });
+
   test("scanLocal verbose mode reports scan sources, fleet-only refs, enrichment, and walk failures", () => {
     const root = tmpRoot("verbose");
     const ghqRoot = join(root, "ghq");
