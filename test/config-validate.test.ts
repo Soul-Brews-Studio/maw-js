@@ -73,7 +73,7 @@ describe("validateBasicFields", () => {
     const cases = [
       [{ env: [] }, "env: must be an object"],
       [{ commands: [] }, "commands: must be an object"],
-      [{ commands: { default: 123 } }, "commands.default: must be a string"],
+      [{ commands: { default: 123 } }, "commands.default: must be a string or null"],
       [{ engines: [] }, "engines: must be an object"],
       [{ engines: { codex: false } }, "engines.codex: must be an object"],
       [{ engines: { codex: { cmd: "" } } }, "engines.codex.cmd: must be a non-empty string"],
@@ -186,14 +186,14 @@ describe("validateConfigShape", () => {
   test("reports invalid object maps and nested values", () => {
     expect(validateConfigShape({
       env: { GOOD: "ok", BAD: 1 },
-      commands: { default: "claude", bad: false },
+      commands: { default: "claude", tombstone: null, bad: false },
       engines: { nope: false, broken: { cmd: "" }, badName: { name: 7, cmd: "tool" } },
       sessions: { ok: "54-mawjs", bad: 2 },
       errorForward: { target: 8 },
     })).toEqual([
       "errorForward.target must be a string",
       "env.BAD must be a string",
-      "commands.bad must be a string",
+      "commands.bad must be a string or null",
       "engines.nope must be an object",
       "engines.broken.cmd must be a non-empty string",
       "engines.badName.name must be a string",
@@ -202,7 +202,7 @@ describe("validateConfigShape", () => {
 
     expect(validateConfigShape({ env: [], commands: null, sessions: [] })).toEqual([
       "env must be a Record<string, string>",
-      "commands must be a Record<string, string>",
+      "commands must be a Record<string, string | null>",
       "sessions must be a Record<string, string>",
     ]);
   });

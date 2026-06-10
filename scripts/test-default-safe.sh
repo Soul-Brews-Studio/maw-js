@@ -140,7 +140,7 @@ if [ "${#REQUESTED_FILES[@]}" -gt 0 ]; then
   for f in "${REQUESTED_FILES[@]}"; do
     [[ "$f" == test/helpers/* ]] && continue
     [[ "$f" == test/isolated/* ]] && continue
-    [[ "$f" == *"/agents/"* ]] && continue
+    [[ "$f" == agents/* || "$f" == *"/agents/"* ]] && continue
     [[ "$f" == test/zz-mock-tmux-smoke.test.ts ]] && continue
     [[ "$f" == test/zz-mock-transport-smoke.test.ts ]] && continue
     ALL_TEST_FILES+=("$f")
@@ -150,11 +150,11 @@ else
   while IFS= read -r f; do
     [[ -n "$f" ]] && ALL_TEST_FILES+=("$f")
   done < <(
-    git ls-files -- 'test/*.ts' 'test/**/*.ts' |
+    git ls-files -- ':(top)test/*.ts' ':(top)test/**/*.ts' |
       while IFS= read -r f; do
         [[ "$f" == test/helpers/* ]] && continue
         [[ "$f" == test/isolated/* ]] && continue
-        [[ "$f" == *"/agents/"* ]] && continue
+        [[ "$f" == agents/* || "$f" == *"/agents/"* ]] && continue
         [[ "$f" == test/zz-mock-tmux-smoke.test.ts ]] && continue
         [[ "$f" == test/zz-mock-transport-smoke.test.ts ]] && continue
         printf '%s\n' "$f"

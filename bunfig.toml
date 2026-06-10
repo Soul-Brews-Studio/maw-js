@@ -1,0 +1,3 @@
+[test]
+pathIgnorePatterns = ["**/agents/**", "agents/**"]
+testPathIgnorePatterns = ["**/agents/**", "agents/**"]

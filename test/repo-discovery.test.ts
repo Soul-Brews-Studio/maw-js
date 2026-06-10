@@ -177,20 +177,15 @@ describe("findBySuffix — contract", () => {
     expect(withDollar).toBe(without);
   });
 
-  test("GhqDiscovery itself literalizes $ (the real, not mocked, impl)", () => {
-    // Exercise the *real* adapter's literalize guard without spawning ghq:
-    // findBySuffixSync delegates to listSync() which returns [] when ghq
-    // is absent — but the code path that strips $ still runs. A suffix
-    // that won't match anything regardless lets us assert "returns null,
-    // doesn't throw" on both forms.
-    expect(() => GhqDiscovery.findBySuffixSync("/xxx-no-such-repo$")).not.toThrow();
-    expect(() => GhqDiscovery.findBySuffixSync("/xxx-no-such-repo")).not.toThrow();
-    // Both produce the same sentinel (either null or a real path), never
-    // diverge — if literalize regressed, "$" form would always be null
-    // while bare form might be a string. Same-value equality catches it.
-    expect(GhqDiscovery.findBySuffixSync("/xxx-no-such-repo$")).toBe(
-      GhqDiscovery.findBySuffixSync("/xxx-no-such-repo"),
-    );
+  test("GhqDiscovery itself literalizes $ without hitting the real ghq backend", () => {
+    const originalListSync = GhqDiscovery.listSync;
+    try {
+      GhqDiscovery.listSync = () => ["/home/user/Code/github.com/org/foo"];
+      expect(GhqDiscovery.findBySuffixSync("/foo$")).toBe("/home/user/Code/github.com/org/foo");
+      expect(GhqDiscovery.findBySuffixSync("/foo")).toBe("/home/user/Code/github.com/org/foo");
+    } finally {
+      GhqDiscovery.listSync = originalListSync;
+    }
   });
 
   test("no match returns null (not undefined, not empty string)", async () => {

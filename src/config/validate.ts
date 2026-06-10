@@ -62,15 +62,20 @@ export function validateBasicFields(
     }
   }
 
-  // commands: Record<string, string>. `commands.default` is optional: the
-  // no-engine fallback is selected by defaultEngine/defaultEngineNameForConfig.
+  // commands: Record<string, string | null> per layer. `null` is a tombstone
+  // that must survive validation so deepMerge can delete inherited commands.
+  // Final merged config.commands remains string-only after tombstones apply.
   if ("commands" in raw) {
     if (raw.commands && typeof raw.commands === "object" && !Array.isArray(raw.commands)) {
       const cmds = raw.commands as Record<string, unknown>;
-      const validCommands: Record<string, string> = {};
+      const validCommands: Record<string, string | null> = {};
       for (const [name, value] of Object.entries(cmds)) {
+        if (value === null) {
+          validCommands[name] = null;
+          continue;
+        }
         if (typeof value !== "string") {
-          warn(`commands.${name}`, "must be a string");
+          warn(`commands.${name}`, "must be a string or null");
           continue;
         }
         validCommands[name] = value;
@@ -214,10 +219,10 @@ export function validateConfigShape(config: unknown): string[] {
 
   if (c.commands !== undefined) {
     if (!c.commands || typeof c.commands !== "object" || Array.isArray(c.commands)) {
-      errors.push("commands must be a Record<string, string>");
+      errors.push("commands must be a Record<string, string | null>");
     } else {
       for (const [k, v] of Object.entries(c.commands as Record<string, unknown>)) {
-        if (typeof v !== "string") errors.push(`commands.${k} must be a string`);
+        if (v !== null && typeof v !== "string") errors.push(`commands.${k} must be a string or null`);
       }
     }
   }
