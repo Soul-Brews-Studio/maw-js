@@ -24,10 +24,26 @@ export function isClaudeLikeCommand(cmd: string): boolean {
   return /(^|\s)(?:command\s+)?claude[A-Za-z0-9_-]*(?:\s|$)/.test(cmd);
 }
 
+function legacyCommandProcessName(cmd: string): string | undefined {
+  const tokens = cmd.trim().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token) continue;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue;
+    if (token === "env") continue;
+    if (token === "command") return tokens[i + 1];
+    return token;
+  }
+  return undefined;
+}
+
 function fromLegacyCommand(name: string, cmd: string): EngineDef {
   const builtIn = DEFAULT_ENGINES[name];
-  const bin = cmd.trim().split(/\s+/)[0];
-  const def: EngineDef = { name, cmd, ...(builtIn?.label ? { label: builtIn.label } : {}), processNames: bin && bin !== "default" ? [bin] : builtIn?.processNames };
+  const bin = legacyCommandProcessName(cmd);
+  const processNames = bin && bin !== "default"
+    ? [...new Set([bin, ...(builtIn?.processNames ?? [])])]
+    : builtIn?.processNames;
+  const def: EngineDef = { name, cmd, ...(builtIn?.label ? { label: builtIn.label } : {}), processNames };
   if (isClaudeLikeCommand(cmd)) {
     def.resume = { flag: "--resume", replaces: "--continue", quoteValue: true };
     def.model = { flag: "--model", default: "sonnet" };

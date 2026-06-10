@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 const { DEFAULT_ENGINES, defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeCommand, isClaudeLikeEngine, resolveEngine } = await import("../src/config/engine-registry");
+const { validateBasicFields } = await import("../src/config/validate");
 
 describe("generic engine registry (#1960 P1)", () => {
   test("lowers the legacy swarm known agents into dormant EngineDef defaults", () => {
@@ -24,6 +25,23 @@ describe("generic engine registry (#1960 P1)", () => {
     } as any);
 
     expect(engine).toEqual({ name: "codex", cmd: "codex --config custom", label: "Custom Codex" });
+  });
+
+  test("keeps default-less legacy commands through validation and resolves explicit engine aliases", () => {
+    const result: Record<string, unknown> = {};
+    const warnings: string[] = [];
+    validateBasicFields({
+      commands: { claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude" },
+      defaultEngine: "claude48",
+    }, result, (field: string, msg: string) => warnings.push(`${field}: ${msg}`));
+
+    expect(warnings).toEqual([]);
+    expect(result.commands).toEqual({ claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude" });
+    expect(resolveEngine("claude48", result as any)).toMatchObject({
+      name: "claude48",
+      cmd: "ANTHROPIC_MODEL=claude-opus-4-8 command claude",
+      capabilities: ["channels", "resume", "model", "system-prompt-file"],
+    });
   });
 
   test("synthesizes Claude capabilities for legacy Claude-like command aliases", () => {
@@ -75,6 +93,9 @@ describe("generic engine registry (#1960 P1)", () => {
 
   test("exports Claude-like command detection for command rendering", () => {
     expect(isClaudeLikeCommand("claude --continue")).toBe(true);
+    expect(isClaudeLikeCommand("ANTHROPIC_MODEL=claude-opus-4-8 command claude --continue")).toBe(true);
+    expect(resolveEngine("claude48", { commands: { claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude --continue" } } as any).processNames).toEqual(["claude"]);
+    expect(resolveEngine("codex", { commands: { codex: "OMX_AUTO_UPDATE=0 codex --search" } } as any).processNames).toEqual(["codex"]);
     expect(isClaudeLikeCommand("codex --continue")).toBe(false);
   });
 });

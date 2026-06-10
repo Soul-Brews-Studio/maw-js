@@ -14,6 +14,7 @@ let mockActive = false;
 const _rSdk = await import("../src/sdk");
 const _rGhq = await import("../src/core/ghq");
 const _rConfig = await import("../src/config");
+const _rCommandLogic = await import("../src/config/command-logic");
 const _rWakeResolve = await import("../src/commands/shared/wake-resolve");
 const _rWakeSession = await import("../src/commands/shared/wake-session");
 const _rWakeMaybeSplit =
@@ -141,6 +142,7 @@ let claudeSessions: Array<{
   sizeBytes: number;
 }>;
 let config: any;
+let useRealBuildCommandInDir: boolean;
 let ensureTeamConfigReturn: boolean;
 let hasSessions: Set<string>;
 let newSessionVisibleToHasSession: boolean;
@@ -339,6 +341,9 @@ mock.module(join(import.meta.dir, "../src/config"), () => ({
   buildCommandInDir: (windowName: string, cwd: string, optsOrEngine?: string | { engine?: string }) => {
     if (!mockActive)
       return realConfig.buildCommandInDir(windowName, cwd, optsOrEngine);
+    if (useRealBuildCommandInDir) {
+      return _rCommandLogic.buildCommandInDirFromConfig(config, windowName, cwd, optsOrEngine as any);
+    }
     const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
     return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`;
   },
@@ -640,6 +645,7 @@ beforeEach(() => {
   snapshotReturn = null;
   claudeSessions = [];
   config = { node: "m5", agents: {} };
+  useRealBuildCommandInDir = false;
   ensureTeamConfigReturn = false;
   hasSessions = new Set(["54-mawjs"]);
   newSessionVisibleToHasSession = true;
@@ -736,6 +742,34 @@ describe("cmdWake main-suite coverage", () => {
     expect(sendTextCalls).toHaveLength(1);
     expect(sendTextCalls[0]?.target).toBe("01-mawjs:mawjs-oracle");
     expect(waitForEngineCalls).toEqual([]);
+  });
+
+
+  test("#2670 fresh wake with explicit default-less engine uses configured opus command, not bare claude", async () => {
+    useRealBuildCommandInDir = true;
+    config = {
+      node: "m5",
+      agents: {},
+      commands: {
+        claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude",
+        claude46: "ANTHROPIC_MODEL=claude-sonnet-4-6 command claude",
+      },
+      defaultEngine: "claude48",
+    };
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { engine: "claude48", freshLaunch: true, noRehydrate: true, noFleet: true }),
+    );
+
+    expect(result).toBe("01-mawjs:mawjs-oracle");
+    expect(sendTextCalls[0]?.target).toBe("01-mawjs:mawjs-oracle");
+    expect(sendTextCalls[0]?.text).toContain("ANTHROPIC_MODEL=claude-opus-4-8 command claude");
+    expect(sendTextCalls[0]?.text).not.toMatch(/(^|&&\s*)claude(\s|$)/);
+    expect(sendTextCalls[0]?.text).not.toContain("claude --agent");
   });
 
   test("#2661 --wait preserves engine-ready blocking for fresh session creation", async () => {

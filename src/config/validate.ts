@@ -1,4 +1,5 @@
 import type { MawConfig } from "./types";
+import { DEFAULT_ENGINES } from "./engine-registry";
 
 /** @internal Validates basic scalar/map fields: host, port, ghqRoot, oracleUrl, env, commands, sessions, tmuxSocket */
 export function validateBasicFields(
@@ -61,17 +62,51 @@ export function validateBasicFields(
     }
   }
 
-  // commands: Record<string, string>, must have "default" if present
+  // commands: Record<string, string>. `commands.default` is optional: the
+  // no-engine fallback is selected by defaultEngine/defaultEngineNameForConfig.
   if ("commands" in raw) {
     if (raw.commands && typeof raw.commands === "object" && !Array.isArray(raw.commands)) {
       const cmds = raw.commands as Record<string, unknown>;
-      if (!("default" in cmds) || typeof cmds.default !== "string") {
-        warn("commands", "must include a 'default' string entry");
-      } else {
-        result.commands = cmds as Record<string, string>;
+      const validCommands: Record<string, string> = {};
+      for (const [name, value] of Object.entries(cmds)) {
+        if (typeof value !== "string") {
+          warn(`commands.${name}`, "must be a string");
+          continue;
+        }
+        validCommands[name] = value;
+      }
+      const validCommandNames = Object.keys(validCommands);
+      if (validCommandNames.length > 0) {
+        result.commands = validCommands;
+      }
+      const explicitDefaultEngine = typeof raw.defaultEngine === "string" && raw.defaultEngine.trim().length > 0
+        ? raw.defaultEngine.trim()
+        : undefined;
+      const engines = raw.engines && typeof raw.engines === "object" && !Array.isArray(raw.engines)
+        ? raw.engines as Record<string, unknown>
+        : {};
+      const defaultEngineResolves = !!explicitDefaultEngine && (
+        explicitDefaultEngine in validCommands ||
+        explicitDefaultEngine in engines ||
+        explicitDefaultEngine in DEFAULT_ENGINES
+      );
+      if (!("default" in validCommands) && explicitDefaultEngine && !defaultEngineResolves) {
+        warn("commands", `has no default entry and defaultEngine '${explicitDefaultEngine}' is not configured`);
+      } else if (!("default" in validCommands) && !explicitDefaultEngine && (validCommandNames.length > 0 || Object.keys(cmds).length === 0)) {
+        warn("commands", "has no default entry and no defaultEngine; bare wake will use built-in claude");
       }
     } else {
       warn("commands", "must be an object");
+    }
+  }
+
+  // defaultEngine: string (#2670) — source of truth for bare wake when no
+  // commands.default/engines.default exists.
+  if ("defaultEngine" in raw) {
+    if (typeof raw.defaultEngine === "string" && raw.defaultEngine.trim().length > 0) {
+      result.defaultEngine = raw.defaultEngine.trim();
+    } else {
+      warn("defaultEngine", "must be a non-empty string");
     }
   }
 
