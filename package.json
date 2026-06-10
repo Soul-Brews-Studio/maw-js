@@ -121,6 +121,8 @@
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
     "./commands/plugins/tmux/impl": "./src/commands/plugins/tmux/impl.ts",
+    "./vendor/mpr-plugins/team/team-charter": "./src/vendor/mpr-plugins/team/team-charter.ts",
+    "./vendor/mpr-plugins/team/team-liveness": "./src/vendor/mpr-plugins/team/team-liveness.ts",
     "./commands/shared/workspace": "./src/commands/shared/workspace.ts",
     "./core/transport/transport": "./src/core/transport/transport.ts",
     "./commands/shared/discovered-peers-client": "./src/commands/shared/discovered-peers-client.ts"
