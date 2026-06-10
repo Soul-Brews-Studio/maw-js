@@ -263,7 +263,14 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
       reader,
     });
     reader.emit("end");
-    await expect(picked).resolves.toBeNull();
+    await expect(picked).resolves.toMatchObject({
+      owner: "o",
+      repo: "r-oracle",
+      path: undefined,
+      lastActivityMs: 0,
+      hasLiveSession: false,
+      recommended: true,
+    });
     await expect(coreResolve.pickOracle([{ owner: "o", repo: "r-oracle" }], {
       stream: { write: () => true } as any,
       reader: { on: () => { throw new Error("tty gone"); }, resume: () => {} } as any,

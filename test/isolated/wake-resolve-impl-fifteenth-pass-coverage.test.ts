@@ -114,6 +114,13 @@ mock.module(join(srcRoot, "src/core/ghq"), () => ({
 mock.module(join(srcRoot, "src/core/resolve"), () => ({
   resolveOracle: async () => resolveResults.shift() ?? { kind: "not-found" },
   pickOracle: async () => null,
+  rankOracleCandidates: (candidates: { owner: string; repo: string; path?: string }[]) => candidates.map((candidate, index) => ({
+    ...candidate,
+    path: candidate.path,
+    lastActivityMs: 0,
+    hasLiveSession: false,
+    recommended: index === 0,
+  })),
 }));
 
 mock.module(join(srcRoot, "src/core/fleet/worktrees-scan"), () => ({

@@ -247,7 +247,14 @@ describe("coverage core shared helpers", () => {
     reader.write("2\nignored");
     const selected = await selectedPromise;
 
-    expect(selected).toEqual({ owner: "two", repo: "beta-oracle", path: "/gh/two/beta-oracle" });
+    expect(selected).toMatchObject({
+      owner: "two",
+      repo: "beta-oracle",
+      path: "/gh/two/beta-oracle",
+      hasLiveSession: false,
+      lastActivityMs: 0,
+      recommended: false,
+    });
     expect(writes.join("")).toContain("Select [1-2]");
     expect((reader as EventEmitter).listenerCount("data")).toBe(0);
     expect((reader as EventEmitter).listenerCount("end")).toBe(0);
