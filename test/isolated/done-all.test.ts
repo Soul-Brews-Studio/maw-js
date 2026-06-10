@@ -5,7 +5,7 @@
  * the current tmux session, but it must never target the lead window or a
  * same-named window from another session.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -123,6 +123,10 @@ mock.module("maw-js/vendor/mpr-plugins/team/team-liveness", () => ({
 
 const { cmdDoneAll } = await import("../../src/vendor/mpr-plugins/done/impl");
 const donePlugin = await import("../../src/vendor/mpr-plugins/done/index");
+
+afterAll(() => {
+  mock.restore();
+});
 
 beforeEach(() => {
   sessions = [

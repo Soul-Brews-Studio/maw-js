@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -45,6 +45,13 @@ mock.module("maw-js/sdk", () => ({
 }));
 
 mock.module("maw-js/config/ghq-root", () => ({ getGhqRoot: () => "/tmp/ghq" }));
+mock.module("maw-js/vendor/mpr-plugins/team/team-charter", () => ({
+  readTeamCharter: () => ({ name: "", members: [] }),
+}));
+mock.module("maw-js/vendor/mpr-plugins/team/team-liveness", () => ({
+  findRepoRoot: () => root,
+  resolveCharterPath: () => null,
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/done/done-autosave.ts"), () => ({
   signalParentInbox: async () => undefined,
   autoSave: async () => undefined,
@@ -121,6 +128,9 @@ afterEach(() => {
   console.warn = originalConsole.warn;
   process.env = { ...originalEnv };
   for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+afterAll(() => {
+  mock.restore();
 });
 
 describe("coverage-100b vendor/core direct gaps", () => {
