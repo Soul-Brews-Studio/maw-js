@@ -32,7 +32,7 @@ import { parseBringToTarget } from "../commands/shared/bring-flags";
 import { lsFederated } from "../vendor/mpr-plugins/ls/internal/peer-call";
 import { engineNamesForConfig } from "../config/engine-registry";
 
-export type DirectHandler = { kind: "direct"; handler: string };
+export type DirectHandler = { kind: "direct"; handler: string; argv?: string[] };
 export type AliasResolution =
   | { kind: "argv"; argv: string[] }
   | { kind: "direct"; handler: string; argv: string[] };
@@ -88,7 +88,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
   awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
-  work: ["wake", "--work", "."],
+  work: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake", argv: ["--work", "."] },
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
   promote: { kind: "direct", handler: "../commands/shared/promote-cmd:cmdPromote" },
 
@@ -115,7 +115,7 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   if (Array.isArray(entry)) return { kind: "argv", argv: [...entry, ...args.slice(1)] };
 
   // Direct-handler: pass the rest of argv (everything after the verb) as-is.
-  return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
+  return { kind: "direct", handler: entry.handler, argv: [...(entry.argv ?? []), ...args.slice(1)] };
 }
 
 export function parseBringArgs(

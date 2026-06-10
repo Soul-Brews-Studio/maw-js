@@ -1,4 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import { join } from "path";
+
+const srcRoot = join(import.meta.dir, "../..");
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => ({
@@ -11,6 +14,13 @@ mock.module("maw-js/config", () => ({
 mock.module("maw-js/core/ghq", () => ({
   ghqFindSync: () => null,
 }));
+
+const mockXdg = () => ({
+  mawDataPath: (...parts: string[]) => ["/tmp/maw-ui-test-no-dist", ...parts].join("/"),
+});
+
+mock.module("maw-js/core/xdg", mockXdg);
+mock.module(join(srcRoot, "src/core/xdg"), mockXdg);
 
 const ui = await import("../../src/vendor/mpr-plugins/ui/impl.ts?ui-impl-next-coverage");
 
