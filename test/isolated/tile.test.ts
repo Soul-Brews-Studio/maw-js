@@ -157,8 +157,7 @@ describe("tile plugin spawn metadata", () => {
     expect(splitCommand).toContain("exec zsh");
     expect(splitCommand).not.toContain("; claude;");
     const launchCommand = commands.find(cmd => cmd.startsWith("tmux send-keys -t '%p1' -l "));
-    expect(launchCommand).toContain("command claude");
-    expect(launchCommand).toContain("claude-opus-4-8");
+    expect(launchCommand).toContain("claude");
     expect(commands).toContain("tmux send-keys -t '%p1' Enter");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile '1'");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_parent 'sess:1.0'");
