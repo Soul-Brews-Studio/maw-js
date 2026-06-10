@@ -69,7 +69,7 @@ function markFrontmatterRead(raw: string, timestamp: string): string {
 export function formatWakeInboxPrompt(messages: WakeInboxMessage[], omittedCount = 0): string {
   const unreadCount = messages.length + omittedCount;
   if (unreadCount <= 0) return "";
-  return `You have ${unreadCount} unread messages in inbox. Run maw inbox --unread to review.`;
+  return `You have ${unreadCount} unread messages in inbox. Run maw inbox --unread to review.\n`;
 }
 
 export function mergeWakeInboxPrompt(existingPrompt: string | undefined, inboxPrompt: string): string | undefined {

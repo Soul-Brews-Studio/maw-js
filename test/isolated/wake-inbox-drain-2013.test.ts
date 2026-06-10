@@ -27,7 +27,7 @@ describe("wake inbox drain (#2390)", () => {
     const result = drainWakeInbox(repo);
 
     expect(result.count).toBe(1);
-    expect(result.prompt).toBe("You have 1 unread messages in inbox. Run maw inbox --unread to review.");
+    expect(result.prompt).toBe("You have 1 unread messages in inbox. Run maw inbox --unread to review.\n");
     expect(result.prompt).not.toContain("please review #2013");
     expect(result.prompt).not.toContain("old");
     const updated = readFileSync(unread, "utf-8");
@@ -63,8 +63,15 @@ describe("wake inbox drain (#2390)", () => {
   });
 
   test("merges drained inbox after an explicit wake prompt", () => {
-    expect(mergeWakeInboxPrompt("continue task", "You have 1 unread messages in inbox. Run maw inbox --unread to review."))
-      .toBe("continue task\n\nYou have 1 unread messages in inbox. Run maw inbox --unread to review.");
+    expect(mergeWakeInboxPrompt("continue task", "You have 1 unread messages in inbox. Run maw inbox --unread to review.\n"))
+      .toBe("continue task\n\nYou have 1 unread messages in inbox. Run maw inbox --unread to review.\n");
+  });
+
+  test("terminates unread notice before a following launch command", () => {
+    const notice = mergeWakeInboxPrompt(undefined, "You have 1 unread messages in inbox. Run maw inbox --unread to review.\n");
+
+    expect(`${notice}DISCORD_STATE_DIR=/tmp claude --continue`)
+      .toContain("review.\nDISCORD_STATE_DIR=/tmp");
   });
 
   test("skips draining inbox for non-Claude engines", () => {
@@ -108,7 +115,7 @@ test("counts all unread messages without body-size omissions", () => {
   expect(Buffer.byteLength(result.prompt, "utf-8")).toBeLessThanOrEqual(400);
   expect(result.count).toBe(2);
   expect(result.omittedCount).toBe(0);
-  expect(result.prompt).toBe("You have 2 unread messages in inbox. Run maw inbox --unread to review.");
+  expect(result.prompt).toBe("You have 2 unread messages in inbox. Run maw inbox --unread to review.\n");
   expect(result.prompt).not.toContain("small body");
   expect(result.prompt).not.toContain("xxx");
   expect(readFileSync(small, "utf-8")).toContain("read: false");
