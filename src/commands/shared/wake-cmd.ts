@@ -433,6 +433,8 @@ export interface WakeOptions {
   layout?: WorktreeLayout;
   /** Force Discord channel launch for Claude-like engines (#1999). */
   channels?: boolean;
+  /** Wait until the engine process is detected after sending bootstrap commands. Default wake returns immediately (#2661). */
+  wait?: boolean;
   /** Explicit wake session mode override. Auto mode infers from the resolved repo suffix. */
   sessionMode?: WakeSessionMode;
 }
@@ -458,6 +460,7 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
     && !opts.signalOnBirth
     && !opts.engine
     && !opts.channels
+    && !opts.wait
     && !opts.fromSnapshot
     && !opts.snapshotId;
 }
@@ -616,7 +619,6 @@ async function restoreSnapshotWindows(
   }
   for (const win of planned) {
     await tmux.newWindow(session, win.windowName, { cwd: win.cwd });
-    await new Promise(r => setTimeout(r, 300));
     await tmux.sendText(`${session}:${win.windowName}`, buildWakeCommand(win.windowName, win.cwd, { engine }));
     existingWindows.add(win.windowName);
     const label = win.source === "worktree" ? "worktree" : "repo";
@@ -1342,14 +1344,13 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session), {
       hasSession: tmux.hasSession,
     });
-    await new Promise(r => setTimeout(r, 300));
     await retryFreshSessionTmuxStep(session, "launch main window", () => {
       const command = buildWakeCommand(mainWindowName, repoPath, opts);
       return sendWakeCommandAndPrompt(`${session}:${mainWindowName}`, opts.prompt, command, opts.engine);
     }, {
       hasSession: tmux.hasSession,
     });
-    await wakeSession.waitForEngine(`${session}:${mainWindowName}`, getPaneInfos, isAgentCommand);
+    if (opts.wait) await wakeSession.waitForEngine(`${session}:${mainWindowName}`, getPaneInfos, isAgentCommand);
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     if (!opts.noFleet) {
@@ -1401,12 +1402,11 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
       for (const wt of selectedPlan) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
-        await new Promise(r => setTimeout(r, 300));
         const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
         const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
         const target = `${session}:${wt.windowName}`;
         await tmux.sendText(target, await buildWakeCommandForPane(wt.windowName, wt.path, wtOpts, target));
-        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+        if (opts.wait) await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
       }
@@ -1456,7 +1456,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
             console.log(`\x1b[36m↻\x1b[0m rehydrating from agents/ folder:`);
             for (const wt of selectedPlan) {
               await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
-              await new Promise(r => setTimeout(r, 300));
               const wtEngine = wakeSession.readWorktreeEngineFile(wt.path);
               const wtOpts = wtEngine ? { ...opts, engine: wtEngine } : opts;
               const target = `${session}:${wt.windowName}`;
@@ -1629,7 +1628,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching fresh...`);
         await tmux.sendText(target, buildWakeCommand(existingWindow, targetPath, { ...opts, freshLaunch: true }));
-        await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+        if (opts.wait) await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
         if (opts.attach) {
           await tmux.selectWindow(target);
           await wakeSession.attachToSession(session);
@@ -1689,7 +1688,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   registerWorktreeWindow();
-  await new Promise(r => setTimeout(r, 300));
   const cmd = buildWakeCommand(windowName, targetPath, opts);
   if (opts.prompt) {
     await sendWakeCommandAndPrompt(`${session}:${windowName}`, opts.prompt, cmd, opts.engine);

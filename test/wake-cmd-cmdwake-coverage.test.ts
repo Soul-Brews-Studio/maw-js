@@ -69,6 +69,7 @@ const realWakeResolve = {
 const realWakeSession = {
   attachToSession: _rWakeSession.attachToSession,
   ensureSessionRunning: _rWakeSession.ensureSessionRunning,
+  waitForEngine: _rWakeSession.waitForEngine,
   createWorktree: _rWakeSession.createWorktree,
 };
 const realWakeMaybeSplit = {
@@ -173,6 +174,7 @@ let saveConfigCalls: any[];
 let ensureTeamConfigCalls: string[];
 let attachCalls: string[];
 let ensureSessionRunningCalls: string[];
+let waitForEngineCalls: string[];
 let maybeSplitCalls: Array<{ target: string; opts: any }>;
 let maybeOpenWindowCalls: Array<{ target: string; opts: any }>;
 let writeSignalCalls: Array<{ root: string; child: string; signal: any }>;
@@ -414,6 +416,14 @@ mock.module(
       const [session] = args;
       ensureSessionRunningCalls.push(session);
       return ensureSessionRunningReturn;
+    },
+    waitForEngine: async (
+      ...args: Parameters<typeof _rWakeSession.waitForEngine>
+    ) => {
+      if (!mockActive) return realWakeSession.waitForEngine(...args);
+      const [target] = args;
+      waitForEngineCalls.push(target);
+      return true;
     },
     createWorktree: async (
       repoPathArg: string,
@@ -667,6 +677,7 @@ beforeEach(() => {
   ensureTeamConfigCalls = [];
   attachCalls = [];
   ensureSessionRunningCalls = [];
+  waitForEngineCalls = [];
   maybeSplitCalls = [];
   maybeOpenWindowCalls = [];
   writeSignalCalls = [];
@@ -708,6 +719,38 @@ describe("cmdWake main-suite coverage", () => {
     expect(sendTextCalls[0]?.target).toBe("01-maw-js:maw-js");
     expect(existsSync(join(repoPath, "ψ"))).toBe(true);
     expect(readFileSync(join(repoPath, ".gitignore"), "utf-8")).toContain("ψ/\n");
+  });
+
+  test("#2661 fresh session creation returns without waiting for engine by default", async () => {
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { noRehydrate: true, noFleet: true }),
+    );
+
+    expect(result).toBe("01-mawjs:mawjs-oracle");
+    expect(newSessionCalls).toEqual([{ name: "01-mawjs", opts: { window: "mawjs-oracle", cwd: repoPath } }]);
+    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls[0]?.target).toBe("01-mawjs:mawjs-oracle");
+    expect(waitForEngineCalls).toEqual([]);
+  });
+
+  test("#2661 --wait preserves engine-ready blocking for fresh session creation", async () => {
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { noRehydrate: true, noFleet: true, wait: true }),
+    );
+
+    expect(result).toBe("01-mawjs:mawjs-oracle");
+    expect(sendTextCalls[0]?.target).toBe("01-mawjs:mawjs-oracle");
+    expect(waitForEngineCalls).toEqual(["01-mawjs:mawjs-oracle"]);
   });
 
   test("#2598 explicit oracle override wins over non-oracle repo detection", async () => {

@@ -313,6 +313,7 @@ describe("direct handler invocation", () => {
       "--split",
       "--parent-session-id", "parent-1",
       "--session-id", "child-1",
+      "--wait",
       "--all-local",
       "--codex",
     ], deps);
@@ -341,6 +342,7 @@ describe("direct handler invocation", () => {
       split: true,
       parentSessionId: "parent-1",
       sessionId: "child-1",
+      wait: true,
       allLocal: true,
       engine: "codex",
     }]]);

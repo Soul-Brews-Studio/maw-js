@@ -95,8 +95,8 @@ export function shouldOfferExistingSessionAttach(
   );
 }
 
-const FRESH_SESSION_READY_ATTEMPTS = 120;
-const FRESH_SESSION_READY_DELAY_MS = 250;
+const FRESH_SESSION_READY_ATTEMPTS = 10;
+const FRESH_SESSION_READY_DELAY_MS = 50;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

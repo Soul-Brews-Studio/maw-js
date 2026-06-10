@@ -171,7 +171,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--work|--oracle] [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--work|--oracle] [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--wait] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -179,6 +179,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
     write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
   }
   write("  --work/--oracle overrides suffix-based mode detection; work mode uses repo identity and keeps ψ/ local.");
+  write("  --wait waits for the engine process after bootstrap; default wake returns immediately after sending it.");
   write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
   write("  --layout selects new worktree filesystem layout: nested (default repo/agents/N-X) or legacy (.wt-N-X).");
@@ -445,6 +446,8 @@ export async function invokeDirectHandler(
       "--oracle": Boolean,
       "--parent-session-id": String,
       "--session-id": String,
+      "--wait": Boolean,
+      "--wait-engine": "--wait",
     }, 0);
 
     const positional = flags._;
@@ -481,6 +484,7 @@ export async function invokeDirectHandler(
       snapshotId?: string;
       layout?: "nested" | "legacy";
       sessionMode?: "oracle" | "work";
+      wait?: boolean;
     } = {};
     if (flags["--work"] && flags["--oracle"]) throw new UserError("wake: choose only one of --work or --oracle");
     if (flags["--work"]) opts.sessionMode = "work";
@@ -519,6 +523,7 @@ export async function invokeDirectHandler(
       opts.parentSessionId = (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined);
     }
     if (flags["--session-id"]) opts.sessionId = flags["--session-id"] as string;
+    if (flags["--wait"]) opts.wait = true;
 
     // Shorthand: --codex, --gemini etc. → engine from config.engines/legacy commands.
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
