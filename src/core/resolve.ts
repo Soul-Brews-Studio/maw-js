@@ -1,4 +1,6 @@
 import { ghqList } from "./ghq";
+import { lstatSync, readdirSync, statSync } from "fs";
+import { join } from "path";
 
 export type OracleRef = { owner: string; repo: string; path?: string };
 
@@ -17,6 +19,21 @@ export type ResolveOracleOptions = {
 export type PickOracleOptions = {
   stream?: Pick<NodeJS.WriteStream, "write">;
   reader?: NodeJS.ReadStream;
+  now?: number;
+  liveSessions?: Set<string>;
+  getLastActivityMs?: (path: string) => number;
+};
+
+export type RankedOracleCandidate = OracleRef & {
+  recommended: boolean;
+  lastActivityMs: number;
+  hasLiveSession: boolean;
+};
+
+type RankOracleOptions = {
+  liveSessions?: Set<string>;
+  now?: number;
+  getLastActivityMs?: (path: string) => number;
 };
 
 function repoNameFromPath(path: string): string {
@@ -68,6 +85,98 @@ function compareRefs(pwdHint?: { owner: string; repo: string }) {
     }
     return refSlug(a).localeCompare(refSlug(b));
   };
+}
+
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function defaultGetLastActivityMs(path: string): number {
+  let latest = 0;
+  const root = normalizeRepoPath(path);
+
+  const walk = (entry: string): void => {
+    try {
+      const stat = lstatSync(entry);
+      const mtime = stat.mtimeMs;
+      if (mtime > latest) latest = mtime;
+      if (!stat.isDirectory()) return;
+      const base = entry.split("/").pop() ?? "";
+      if (base === ".git") return;
+    } catch {
+      return;
+    }
+
+    let childEntries: string[];
+    try {
+      childEntries = readdirSync(entry);
+    } catch {
+      return;
+    }
+
+    for (const child of childEntries) {
+      if (child === ".git") continue;
+      walk(join(entry, child));
+    }
+  };
+
+  walk(root);
+  return latest;
+}
+
+function rankOracleCandidatePath(ref: OracleRef, liveSessions: Set<string>): boolean {
+  if (!ref.path) return false;
+  const normalized = normalizeRepoPath(ref.path);
+  return liveSessions.has(normalized);
+}
+
+function compareOracleCandidates(a: RankedOracleCandidate, b: RankedOracleCandidate): number {
+  if (a.hasLiveSession !== b.hasLiveSession) return a.hasLiveSession ? -1 : 1;
+  if (a.lastActivityMs !== b.lastActivityMs) return b.lastActivityMs - a.lastActivityMs;
+  return refSlug(a).localeCompare(refSlug(b));
+}
+
+function relativeTimeFromMs(now: number, lastActivityMs: number): string {
+  if (!Number.isFinite(lastActivityMs) || lastActivityMs <= 0) return "never";
+  const diffMs = Math.max(0, now - lastActivityMs);
+  const sec = Math.floor(diffMs / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (day > 0) return `${day}d ago`;
+  if (hr > 0) return `${hr}h ago`;
+  if (min > 0) return `${min}m ago`;
+  return `${sec}s ago`;
+}
+
+export function rankOracleCandidates(
+  candidates: OracleRef[],
+  opts: RankOracleOptions = {},
+): RankedOracleCandidate[] {
+  const now = opts.now ?? Date.now();
+  const liveSessions = opts.liveSessions
+    ? new Set([...opts.liveSessions].map(normalizeRepoPath))
+    : new Set<string>();
+  const getLastActivityMs = opts.getLastActivityMs ?? defaultGetLastActivityMs;
+
+  const ranked = candidates.map((candidate) => {
+    const normalizedPath = candidate.path ? normalizeRepoPath(candidate.path) : null;
+    const lastActivityMs = normalizedPath ? getLastActivityMs(normalizedPath) : 0;
+    const hasLiveSession = normalizedPath ? liveSessions.has(normalizedPath) : false;
+    return {
+      ...candidate,
+      path: normalizedPath ?? candidate.path,
+      lastActivityMs,
+      hasLiveSession,
+      recommended: false,
+    };
+  });
+
+  ranked.sort(compareOracleCandidates);
+  return ranked.map((candidate, index) => ({
+    ...candidate,
+    recommended: index === 0,
+  }));
 }
 
 function uniqueRefs(refs: OracleRef[]): OracleRef[] {
@@ -167,13 +276,36 @@ function readChoiceFromTty(): string {
 export async function pickOracle(candidates: OracleRef[], opts: PickOracleOptions = {}): Promise<OracleRef | null> {
   const stream = opts.stream ?? process.stdout;
   if (candidates.length === 0) return null;
+  const ranked = rankOracleCandidates(candidates, {
+    now: opts.now,
+    liveSessions: opts.liveSessions,
+    getLastActivityMs: opts.getLastActivityMs,
+  });
+
   stream.write("\n  Wake which oracle?\n");
-  candidates.forEach((candidate, index) => {
-    const suffix = candidate.path ? ` \x1b[90m${candidate.path}\x1b[0m` : "";
-    stream.write(`  \x1b[36m${index + 1}\x1b[0m) ${refSlug(candidate)}${suffix}\n`);
+  const now = opts.now ?? Date.now();
+  ranked.forEach((candidate, index) => {
+    const label = candidate.recommended
+      ? `    \x1b[33m⭐ recommended\x1b[0m`
+      : "";
+    const live = candidate.hasLiveSession
+      ? `\x1b[32m● live session\x1b[0m`
+      : "";
+    const markers = [label, live].filter(Boolean);
+    const markerText = markers.length ? `    ${markers.join(" \x1b[90m·\x1b[0m")} ` : "";
+    const pathText = candidate.path ? ` \x1b[90m${candidate.path}\x1b[0m` : "";
+    const activity = candidate.lastActivityMs
+      ? `\x1b[90medited ${relativeTimeFromMs(now, candidate.lastActivityMs)}\x1b[0m`
+      : "";
+    const detail = [markerText, pathText].filter(Boolean).join(" ");
+    const extra = [activity].filter(Boolean).join(" ");
+
+    stream.write(`  \x1b[36m${index + 1}\x1b[0m) ${refSlug(candidate)}${detail ? ` ${detail}` : ""}`);
+    if (extra) stream.write(`\n       ${extra}`);
+    stream.write("\n");
   });
   stream.write("\n");
-  stream.write(`  Select [1-${candidates.length}]: `);
+  stream.write(`  Select [1-${candidates.length}] (Enter = 1): `);
 
   let raw = "";
   try {
@@ -181,9 +313,11 @@ export async function pickOracle(candidates: OracleRef[], opts: PickOracleOption
   } catch {
     return null;
   }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return ranked[0] ?? null;
   const choice = Number.parseInt(raw.trim(), 10);
   if (!Number.isInteger(choice) || choice < 1 || choice > candidates.length) return null;
-  return candidates[choice - 1] ?? null;
+  return ranked[choice - 1] ?? null;
 }
 
 export const _test = {
@@ -191,4 +325,6 @@ export const _test = {
   repoNameFromPath,
   refSlug,
   normalizedIntentNames,
+  rankOracleCandidates,
+  _rankRelativeTime: relativeTimeFromMs,
 };

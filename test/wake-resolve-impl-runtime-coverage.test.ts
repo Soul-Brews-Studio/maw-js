@@ -36,6 +36,7 @@ const realSdk = {
   curlFetch: _rSdk.curlFetch,
   tmux: {
     listSessions: _rSdk.tmux.listSessions.bind(_rSdk.tmux),
+    listPanes: _rSdk.tmux.listPanes.bind(_rSdk.tmux),
     setEnvironment: _rSdk.tmux.setEnvironment.bind(_rSdk.tmux),
   },
 };
@@ -103,6 +104,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   tmux: {
     ..._rSdk.tmux,
     listSessions: async () => (mockActive ? sessions : realSdk.tmux.listSessions()),
+    listPanes: async () => (mockActive ? [] : realSdk.tmux.listPanes()),
     setEnvironment: async (session: string, key: string, val: string) => {
       if (!mockActive) return realSdk.tmux.setEnvironment(session, key, val);
       setEnvCalls.push({ session, key, val });

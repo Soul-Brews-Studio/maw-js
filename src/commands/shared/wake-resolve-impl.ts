@@ -1,7 +1,12 @@
 import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind, ghqList } from "../../core/ghq";
-import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
+import {
+  pickOracle,
+  rankOracleCandidates,
+  resolveOracle as resolveSharedOracle,
+  type OracleRef,
+} from "../../core/resolve";
 import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
@@ -255,6 +260,55 @@ function repoInfoFromOracleRef(ref: OracleRef): { repoPath: string; repoName: st
   return { repoPath: ref.path, repoName: ref.repo, parentDir: ref.path.replace(/\/[^/]+$/, "") };
 }
 
+function normalizeCandidatePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function candidatePathFromRef(ref: OracleRef): string | null {
+  return ref.path ? normalizeCandidatePath(ref.path) : null;
+}
+
+function pathLooksInside(cwd: string, candidatePath: string): boolean {
+  const normalizedCwd = normalizeCandidatePath(cwd);
+  return normalizedCwd === candidatePath || normalizedCwd.startsWith(`${candidatePath}/`);
+}
+
+function relativeTimeFromNow(now: number, thenMs: number): string {
+  if (!Number.isFinite(thenMs) || thenMs <= 0) return "never";
+  const diffMs = Math.max(0, now - thenMs);
+  const sec = Math.floor(diffMs / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (day > 0) return `${day}d ago`;
+  if (hr > 0) return `${hr}h ago`;
+  if (min > 0) return `${min}m ago`;
+  return `${sec}s ago`;
+}
+
+async function liveOracleCandidates(candidates: OracleRef[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const candidatePaths = candidates
+    .map(candidatePathFromRef)
+    .filter((path): path is string => Boolean(path));
+  if (candidatePaths.length === 0) return out;
+
+  try {
+    const panes = await tmux.listPanes();
+    for (const pane of panes) {
+      if (!pane.cwd) continue;
+      const cwd = pane.cwd;
+      for (const candidatePath of candidatePaths) {
+        if (pathLooksInside(cwd, candidatePath)) out.add(candidatePath);
+      }
+    }
+  } catch {
+    return out;
+  }
+
+  return out;
+}
+
 async function resolveLocalOracleWithPicker(
   oracle: string,
 ): Promise<{ repoPath: string; repoName: string; parentDir: string; fuzzy: boolean } | null> {
@@ -282,11 +336,35 @@ async function resolveLocalOracleWithPicker(
     return info ? { ...info, fuzzy } : null;
   }
 
-  console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${result.candidates.length} local oracles:`);
-  for (const c of result.candidates) console.error(`\x1b[90m    • ${oracleSlug(c)}\x1b[0m`);
+  const now = Date.now();
+  const liveSessions = await liveOracleCandidates(result.candidates);
+  const ranked = rankOracleCandidates(result.candidates, { liveSessions, now });
+
+  console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${result.candidates.length} local oracles (ranked by live session + recent activity):`);
+  ranked.forEach((candidate, index) => {
+    const label = candidate.recommended
+      ? "\x1b[33m⭐ recommended\x1b[0m"
+      : "";
+    const live = candidate.hasLiveSession
+      ? "\x1b[32m● live session\x1b[0m"
+      : "";
+    const markerText = [label, live].filter(Boolean);
+    const markers = markerText.length
+      ? `    ${markerText.join(" \x1b[90m·\x1b[0m")} `
+      : "";
+    console.error(`  \x1b[36m${index + 1}\x1b[0m) \x1b[90m${oracleSlug(candidate)}\x1b[0m ${markers}`.trimEnd());
+    if (candidate.path) console.error(`    \x1b[90m${candidate.path}\x1b[0m`);
+    const details: string[] = [];
+    if (candidate.hasLiveSession) details.push("live session");
+    if (candidate.lastActivityMs) details.push(`edited ${relativeTimeFromNow(now, candidate.lastActivityMs)}`);
+    if (details.length) console.error(`       ${details.join(" \x1b[90m·\x1b[0m ")}`);
+  });
 
   if (isInteractivePickerAvailable()) {
-    const picked = await pickOracle(result.candidates);
+    const picked = await pickOracle(result.candidates, {
+      liveSessions,
+      now,
+    });
     const info = picked ? repoInfoFromOracleRef(picked) : null;
     if (info) return { ...info, fuzzy: false };
     console.error(`\x1b[90m  aborted\x1b[0m`);
