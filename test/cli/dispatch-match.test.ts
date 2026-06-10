@@ -490,6 +490,21 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.scaffold).toContain("skeleton");
   });
 
+  test("`work --task X --wt issue` rewrites to `wake --work . --task X --wt issue`", () => {
+    const out = resolveTopAlias(["work", "--task", "X", "--wt", "issue"]);
+    expect(out).not.toBeNull();
+    expect(out).toEqual({
+      kind: "argv",
+      argv: ["wake", "--work", ".", "--task", "X", "--wt", "issue"],
+    });
+    const wakeOut = resolveTopAlias(["wake", "--work", ".", "--task", "X", "--wt", "issue"]);
+    expect(wakeOut).toEqual({
+      kind: "direct",
+      handler: "../commands/shared/wake-cmd:cmdWake",
+      argv: ["--work", ".", "--task", "X", "--wt", "issue"],
+    });
+  });
+
   test("`snapshots list --json` → fleet snapshots top-level alias", () => {
     const out = resolveTopAlias(["snapshots", "list", "--json"]);
     expect(out).not.toBeNull();

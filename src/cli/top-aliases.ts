@@ -54,6 +54,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
+  work: "Alias for `wake --work .` from cwd (derive oracle)",
   new: "Create a plain tmux workspace session",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   snapshots: "List and inspect fleet recovery snapshots",
@@ -87,6 +88,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
   awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
+  work: ["wake", "--work", "."],
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
   promote: { kind: "direct", handler: "../commands/shared/promote-cmd:cmdPromote" },
 

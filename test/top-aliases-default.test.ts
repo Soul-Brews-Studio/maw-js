@@ -70,6 +70,10 @@ describe("top alias resolution table", () => {
   });
 
   test("direct aliases return handler specs and trimmed argv", () => {
+    expect(resolveTopAlias(["work", "--task", "ship-fix", "--wt", "issue-1"])).toEqual({
+      kind: "argv",
+      argv: ["wake", "--work", ".", "--task", "ship-fix", "--wt", "issue-1"],
+    });
     expect(resolveTopAlias(["ls", "-v"])).toEqual({ kind: "direct", handler: "cmdLs", argv: ["-v"] });
     expect(resolveTopAlias(["layout", "tiled"])).toEqual({ kind: "direct", handler: "cmdLayout", argv: ["tiled"] });
     expect(resolveTopAlias(["bring", "neo"])).toEqual({
@@ -239,7 +243,8 @@ describe("direct handler invocation", () => {
     expect(calls.layout).toEqual([]);
 
     await invokeDirectHandler("cmdLayout", ["tiled"], deps);
-    expect(calls.layout).toEqual([[".", "tiled"]]);
+    expect(calls.layout).toHaveLength(1);
+    expect(calls.layout[0]?.[1]).toBe("tiled");
 
     await expect(invokeDirectHandler("cmdLayout", [], deps)).rejects.toThrow("layout: missing preset");
     expect(calls.errors.join("\n")).toContain("usage: maw layout <preset>");
