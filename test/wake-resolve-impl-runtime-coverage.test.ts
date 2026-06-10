@@ -435,6 +435,22 @@ describe("resolveOracle runtime paths", () => {
 
     expect(errors.some((line) => line.includes("oracle repo not found: missing"))).toBe(true);
     expect(errors.some((line) => line.includes("2 peers"))).toBe(true);
+    expect(errors.some((line) => line.includes("maw work"))).toBe(false);
+    expect(exitCalls).toContain(1);
+  });
+
+  test("adds a maw work hint on not-found when cwd is inside a git repo", async () => {
+    hostExecImpl = async (cmd) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return "/opt/Code/github.com/Soul-Brews-Studio/maw-js\n";
+      throw new Error("not found");
+    };
+
+    await expect(resolveOracle("typoed-name")).resolves.toBeUndefined();
+
+    const errorText = errors.join("\n");
+    expect(errorText).toContain("oracle repo not found: typoed-name");
+    expect(errorText).toContain("maw work");
+    expect(errorText).toContain("maw-js");
     expect(exitCalls).toContain(1);
   });
 });

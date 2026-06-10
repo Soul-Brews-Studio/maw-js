@@ -14,6 +14,27 @@ import type { Session } from "../../core/runtime/find-window";
 
 const DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS = 10_000;
 
+export function cwdWorkHint(cwd: string, gitToplevel: string | null | undefined): string | null {
+  if (!cwd.trim()) return null;
+  const top = gitToplevel?.trim();
+  if (!top) return null;
+  const repoName = top.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+  if (!repoName) return null;
+  return `  or:  maw work   — wake the current directory (${repoName}) in work mode`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function resolveGitToplevel(cwd: string): Promise<string | null> {
+  try {
+    return (await hostExec(`git -C ${shellQuote(cwd)} rev-parse --show-toplevel 2>/dev/null`)).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function wakeFleetGhqGetTimeoutMs(): number {
   const raw = process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS;
   if (raw === undefined) return DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS;
@@ -429,7 +450,12 @@ export async function resolveOracle(
     if (scanned) return scanned;
   } catch { /* scan suggest failed — fall through to original error */ }
 
-  console.error(`oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${(loadConfig().peers || []).length} peers — try: maw bud ${oracle}  OR  ghq get <url>)`);
+  const peerCount = (loadConfig().peers || []).length;
+  const workHint = cwdWorkHint(process.cwd(), await resolveGitToplevel(process.cwd()));
+  console.error([
+    `oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${peerCount} peers — try: maw bud ${oracle}  OR  ghq get <url>)`,
+    workHint,
+  ].filter(Boolean).join("\n"));
   process.exit(1);
 }
 
