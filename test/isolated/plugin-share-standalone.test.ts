@@ -50,6 +50,14 @@ function tamperHexDigest(hex: string): string {
   return `${hex.slice(0, -1)}${replacement}`;
 }
 
+function decodeWire(data: string | Uint8Array): string {
+  return typeof data === "string" ? data : new TextDecoder().decode(data);
+}
+
+function parseWire(data: string | Uint8Array): any {
+  return JSON.parse(decodeWire(data));
+}
+
 async function makeServeHarness() {
   const httpRoutes: Array<{ method: string; path: string; handler: (req: Request) => Response | Promise<Response> }> = [];
   const wsRoutes: Array<{ path: string; data: (req: Request) => unknown; handlers: Record<string, unknown> }> = [];
@@ -108,10 +116,11 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(viewer).toContain("resetForFreshSnapshot();");
     expect(viewer).toContain("resetPane(pane);");
     expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
-    expect(viewer).toContain("new window.FitAddon.FitAddon()");
-    expect(viewer).toContain('window.addEventListener("resize", fitAll)');
-    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitAll)');
-    expect(viewer).toContain("new ResizeObserver(fitAll)");
+    expect(viewer).toContain("const syncPaneDimensions = (pane, dimensions) =>");
+    expect(viewer).toContain("pane.term.resize(dimensions.cols, dimensions.rows)");
+    expect(viewer).toContain('window.addEventListener("resize", syncAllDimensions)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", syncAllDimensions)');
+    expect(viewer).toContain("new ResizeObserver(syncAllDimensions)");
     expect(viewer).toContain("const parseWireFrame = (plain) =>");
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
   });
@@ -276,6 +285,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       let liveChunk: ((chunk: Uint8Array) => void) | null = null;
       const handle = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sent.push(data) } as any, {
         tmux: {
+          run: async () => "80 24",
           capture: async () => "SNAPSHOT-PLAINTEXT\n",
           pipePane: async () => undefined,
         },
@@ -297,8 +307,14 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
         expect(shareCrypto.isEncryptedShareFrame(frame)).toBe(true);
       }
       const key = shareCrypto.deriveShareKey(secret);
-      expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[0] as Uint8Array))).toBe("SNAPSHOT-PLAINTEXT\n");
-      expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[1] as Uint8Array))).toBe("LIVE-PLAINTEXT\n");
+      expect(JSON.parse(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[0] as Uint8Array)))).toEqual({
+        type: "maw-share-frame",
+        pane: "neo:1:resolved",
+        data: "SNAPSHOT-PLAINTEXT\n",
+        snapshot: true,
+        dimensions: { cols: 80, rows: 24 },
+      });
+      expect(JSON.parse(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[1] as Uint8Array)))).toEqual({ type: "maw-share-frame", pane: "neo:1:resolved", data: "LIVE-PLAINTEXT\n" });
 
       if (childResolve) childResolve();
       await handle.close();
@@ -331,6 +347,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       join: (...parts: string[]) => parts.join("/"),
       unlinkSync: (path: string) => { removedFifos.push(path); },
       tmux: {
+        run: async () => "80 24",
         capture: async () => "SNAPSHOT\n",
         pipePane: async (...args: unknown[]) => { pipeCalls.push(args); },
       },
@@ -347,8 +364,8 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     const first = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sentA.push(data) } as any, deps);
     const second = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sentB.push(data) } as any, deps);
 
-    expect(sentA).toEqual(["SNAPSHOT\n"]);
-    expect(sentB).toEqual(["SNAPSHOT\n"]);
+    expect(sentA.map(parseWire)).toEqual([{ type: "maw-share-frame", pane: "neo:1", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } }]);
+    expect(sentB.map(parseWire)).toEqual([{ type: "maw-share-frame", pane: "neo:1", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } }]);
     expect(chunkHandlers).toHaveLength(1);
     expect(pipeCalls).toHaveLength(1);
     expect(createdFifos).toHaveLength(1);
@@ -357,8 +374,8 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(pipeCalls[0]).toEqual(["neo:1", `cat > '${createdFifos[0]}'`, { onlyIfClosed: true }]);
 
     chunkHandlers[0]!(encoder.encode("LIVE-1\n"));
-    expect(sentA.at(-1)).toEqual(encoder.encode("LIVE-1\n"));
-    expect(sentB.at(-1)).toEqual(encoder.encode("LIVE-1\n"));
+    expect(parseWire(sentA.at(-1)!)).toEqual({ type: "maw-share-frame", pane: "neo:1", data: "LIVE-1\n" });
+    expect(parseWire(sentB.at(-1)!)).toEqual({ type: "maw-share-frame", pane: "neo:1", data: "LIVE-1\n" });
 
     await first.close();
     expect(pipeCalls).toHaveLength(1);
@@ -366,8 +383,15 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(removedFifos).toEqual([]);
 
     chunkHandlers[0]!(encoder.encode("LIVE-2\n"));
-    expect(sentA.map((entry) => entry instanceof Uint8Array ? new TextDecoder().decode(entry) : entry)).toEqual(["SNAPSHOT\n", "LIVE-1\n"]);
-    expect(sentB.map((entry) => entry instanceof Uint8Array ? new TextDecoder().decode(entry) : entry)).toEqual(["SNAPSHOT\n", "LIVE-1\n", "LIVE-2\n"]);
+    expect(sentA.map(parseWire)).toEqual([
+      { type: "maw-share-frame", pane: "neo:1", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } },
+      { type: "maw-share-frame", pane: "neo:1", data: "LIVE-1\n" },
+    ]);
+    expect(sentB.map(parseWire)).toEqual([
+      { type: "maw-share-frame", pane: "neo:1", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } },
+      { type: "maw-share-frame", pane: "neo:1", data: "LIVE-1\n" },
+      { type: "maw-share-frame", pane: "neo:1", data: "LIVE-2\n" },
+    ]);
 
     if (childResolve) childResolve();
     await second.close();
@@ -405,6 +429,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       } as any,
       {
         tmux: {
+          run: async () => "80 24",
           capture: async () => "SNAPSHOT\n",
           pipePane: async (...args: unknown[]) => {
             pipeCalls.push(args);
@@ -426,7 +451,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       } as any,
     );
 
-    expect(sent).toEqual(["SNAPSHOT\n"]);
+    expect(sent.map(parseWire)).toEqual([{ type: "maw-share-frame", pane: "neo:1", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } }]);
     const expiryTimer = timers.find((timer) => timer.ms <= 50);
     expect(expiryTimer).toBeDefined();
 

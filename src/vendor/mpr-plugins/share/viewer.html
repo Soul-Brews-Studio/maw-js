@@ -80,6 +80,7 @@
         width: 100%;
         height: 100%;
         display: none;
+        overflow: auto;
         border: 1px solid #111827;
         box-sizing: border-box;
       }
@@ -89,9 +90,14 @@
         display: block;
       }
 
-      .pane-host, .fallback-pane, .xterm {
-        width: 100%;
-        height: 100%;
+      .pane-host, .fallback-pane {
+        min-width: 100%;
+        min-height: 100%;
+      }
+
+      .pane-host.source-sized {
+        width: max-content;
+        height: max-content;
       }
 
       .fallback-pane {
@@ -103,7 +109,6 @@
     </style>
     <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />
     <script src="https://unpkg.com/@xterm/xterm/lib/xterm.js"></script>
-    <script src="https://unpkg.com/@xterm/addon-fit/lib/addon-fit.js"></script>
   </head>
   <body>
     <div id="fallback" style="display:none;">xterm.js failed to load; falling back to static display.</div>
@@ -166,16 +171,30 @@
           return new TextDecoder().decode(plain);
         };
 
+        const parseDimensions = (value) => {
+          if (!value || typeof value !== "object") return null;
+          const cols = Number(value.cols);
+          const rows = Number(value.rows);
+          if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols <= 0 || rows <= 0) return null;
+          return { cols, rows };
+        };
+
         const parseWireFrame = (plain) => {
           try {
             const parsed = JSON.parse(plain);
-            if (parsed && typeof parsed === "object" && parsed.type === "maw-share-frame" && typeof parsed.pane === "string" && typeof parsed.data === "string") {
-              return { pane: parsed.pane, data: parsed.data, snapshot: parsed.snapshot === true, tagged: true };
+            if (parsed && typeof parsed === "object" && parsed.type === "maw-share-frame" && typeof parsed.pane === "string") {
+              return {
+                pane: parsed.pane,
+                data: typeof parsed.data === "string" ? parsed.data : "",
+                dimensions: parseDimensions(parsed.dimensions),
+                snapshot: parsed.snapshot === true,
+                tagged: true,
+              };
             }
           } catch {
             // legacy single-pane raw frame
           }
-          return { pane: "main", data: plain, snapshot: false, tagged: false };
+          return { pane: "main", data: plain, dimensions: null, snapshot: false, tagged: false };
         };
 
         let e2eKeyPromise = deriveE2EKey(e2eKey);
@@ -196,15 +215,24 @@
         const terms = document.getElementById("terms");
         const panes = new Map();
 
-        const terminalAvailable = () => Boolean(window.Terminal && window.FitAddon);
+        const terminalAvailable = () => Boolean(window.Terminal);
 
-        const fitPane = (pane) => {
-          if (!pane?.fit) return;
-          try { pane.fit.fit(); } catch { /* resize is advisory */ }
+        const syncPaneDimensions = (pane, dimensions) => {
+          if (!dimensions) return;
+          const same = pane.dimensions && pane.dimensions.cols === dimensions.cols && pane.dimensions.rows === dimensions.rows;
+          pane.dimensions = dimensions;
+          pane.root.dataset.cols = String(dimensions.cols);
+          pane.root.dataset.rows = String(dimensions.rows);
+          pane.host.classList.add("source-sized");
+          if (pane.term && !same) {
+            pane.term.resize(dimensions.cols, dimensions.rows);
+          }
         };
 
-        const fitAll = () => {
-          for (const pane of panes.values()) fitPane(pane);
+        const syncAllDimensions = () => {
+          for (const pane of panes.values()) {
+            if (pane.dimensions) syncPaneDimensions(pane, pane.dimensions);
+          }
         };
 
         const updateLayout = () => {
@@ -215,8 +243,8 @@
             pane.root.classList.toggle("active", id === activePane);
             pane.tab.classList.toggle("active", id === activePane);
           }
-          requestAnimationFrame(fitAll);
-          fitAll();
+          requestAnimationFrame(syncAllDimensions);
+          syncAllDimensions();
         };
 
         const selectPane = (id) => {
@@ -247,7 +275,6 @@
           tabs.appendChild(tab);
 
           let term = null;
-          let fit = null;
           if (terminalAvailable()) {
             term = new window.Terminal({
               theme: { background: "#0d0d0d", foreground: "#d1d5db" },
@@ -255,8 +282,6 @@
               disableStdin: true,
               cursorBlink: false,
             });
-            fit = new window.FitAddon.FitAddon();
-            term.loadAddon(fit);
             term.open(host);
           } else {
             fallback.textContent = "xterm.js unavailable; using fallback terminal.";
@@ -265,7 +290,7 @@
             pre.style.display = "block";
           }
 
-          const pane = { id, root, host, pre, tab, term, fit };
+          const pane = { id, root, host, pre, tab, term, dimensions: null };
           panes.set(id, pane);
           if (panes.size === 1) activePane = id;
           updateLayout();
@@ -299,8 +324,9 @@
               const plain = await decryptFrame(await e2eKeyPromise, event.data);
               const frame = parseWireFrame(plain);
               const pane = createPane(frame.pane);
+              if (frame.dimensions) syncPaneDimensions(pane, frame.dimensions);
               if (frame.snapshot) resetPane(pane);
-              writePane(pane, frame.data);
+              if (frame.data) writePane(pane, frame.data);
             } catch {
               fallback.textContent = "Unable to decrypt or route share frame.";
               fallback.style.display = "block";
@@ -308,10 +334,10 @@
           })();
         };
 
-        const resizeObserver = window.ResizeObserver ? new ResizeObserver(fitAll) : null;
+        const resizeObserver = window.ResizeObserver ? new ResizeObserver(syncAllDimensions) : null;
         resizeObserver?.observe(terms);
-        window.addEventListener("resize", fitAll);
-        window.visualViewport?.addEventListener("resize", fitAll);
+        window.addEventListener("resize", syncAllDimensions);
+        window.visualViewport?.addEventListener("resize", syncAllDimensions);
         tileToggle.addEventListener("click", () => {
           tileMode = !tileMode;
           updateLayout();
@@ -332,7 +358,7 @@
             reconnectAttempt = 0;
             fallback.style.display = "none";
             resetForFreshSnapshot();
-            fitAll();
+            syncAllDimensions();
             try {
               current.send("ping");
             } catch {

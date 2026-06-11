@@ -22,6 +22,14 @@ function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
+function text(data: WsMessage): string {
+  return typeof data === "string" ? data : new TextDecoder().decode(data);
+}
+
+function frame(data: WsMessage): any {
+  return JSON.parse(text(data));
+}
+
 describe("share readonly stream", () => {
   let killCalls: Array<Array<unknown>> = [];
   let pipeCalls: Array<Array<unknown>> = [];
@@ -60,6 +68,7 @@ describe("share readonly stream", () => {
       ws as unknown as any,
       {
         tmux: {
+          run: async () => "80 24",
           capture: async (target: string) => {
             captures.push(target);
             return "SNAPSHOT\n";
@@ -86,7 +95,10 @@ describe("share readonly stream", () => {
       } as any,
     );
 
-    expect(sent).toEqual(["SNAPSHOT\n", bytes("LIVE\n")] );
+    expect(sent.map(frame)).toEqual([
+      { type: "maw-share-frame", pane: "session:0", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 80, rows: 24 } },
+      { type: "maw-share-frame", pane: "session:0", data: "LIVE\n" },
+    ]);
     expect(captures).toEqual(["session:0"]);
 
     handle.onMessage("ping");
@@ -120,6 +132,7 @@ describe("share readonly stream", () => {
 
     const deps = {
       tmux: {
+        run: async () => "80 24",
         capture: async () => `SNAPSHOT-${++captureCount}\n`,
         pipePane: async (...args: unknown[]) => {
           localPipeCalls.push(args);
@@ -137,14 +150,20 @@ describe("share readonly stream", () => {
 
     const first = await attach(share, { send: (data: WsMessage) => sentA.push(data) } as any, deps);
     liveHandlers[0]!(bytes("LIVE-OLD\n"));
-    expect(sentA).toEqual(["SNAPSHOT-1\n", bytes("LIVE-OLD\n")]);
+    expect(sentA.map(frame)).toEqual([
+      { type: "maw-share-frame", pane: "session:0", data: "SNAPSHOT-1\n", snapshot: true, dimensions: { cols: 80, rows: 24 } },
+      { type: "maw-share-frame", pane: "session:0", data: "LIVE-OLD\n" },
+    ]);
 
     childResolvers[0]?.();
     await first.close();
 
     const second = await attach(share, { send: (data: WsMessage) => sentB.push(data) } as any, deps);
     liveHandlers[1]!(bytes("LIVE-NEW\n"));
-    expect(sentB).toEqual(["SNAPSHOT-2\n", bytes("LIVE-NEW\n")]);
+    expect(sentB.map(frame)).toEqual([
+      { type: "maw-share-frame", pane: "session:0", data: "SNAPSHOT-2\n", snapshot: true, dimensions: { cols: 80, rows: 24 } },
+      { type: "maw-share-frame", pane: "session:0", data: "LIVE-NEW\n" },
+    ]);
 
     expect(captureCount).toBe(2);
     expect(liveHandlers).toHaveLength(2);
@@ -172,6 +191,7 @@ describe("share readonly stream", () => {
 
     const handle = await attach(share, { send: (data: WsMessage) => sent.push(data) } as any, {
       tmux: {
+        run: async (_cmd: string, _flag: string, target: string) => target.includes("0.0") ? "106 51" : "90 40",
         capture: async (target: string) => `SNAPSHOT ${target}\n`,
         pipePane: async (...args: unknown[]) => { localPipeCalls.push(args); },
       },
@@ -188,15 +208,15 @@ describe("share readonly stream", () => {
       join: (...parts: string[]) => parts.join("/"),
     } as any);
 
-    expect(sent.slice(0, 2).map((frame) => JSON.parse(String(frame)))).toEqual([
-      { type: "maw-share-frame", pane: "session:0.0", data: "SNAPSHOT session:0.0\n", snapshot: true },
-      { type: "maw-share-frame", pane: "session:0.1", data: "SNAPSHOT session:0.1\n", snapshot: true },
+    expect(sent.slice(0, 2).map(frame)).toEqual([
+      { type: "maw-share-frame", pane: "session:0.0", data: "SNAPSHOT session:0.0\n", snapshot: true, dimensions: { cols: 106, rows: 51 } },
+      { type: "maw-share-frame", pane: "session:0.1", data: "SNAPSHOT session:0.1\n", snapshot: true, dimensions: { cols: 90, rows: 40 } },
     ]);
     expect(localPipeCalls.filter((call) => call.length === 3).map((call) => call[0]).sort()).toEqual(["session:0.0", "session:0.1"]);
 
     liveHandlers.get("session:0.0")!(bytes("LIVE A\n"));
     liveHandlers.get("session:0.1")!(bytes("LIVE B\n"));
-    expect(sent.slice(2).map((frame) => JSON.parse(String(frame)))).toEqual([
+    expect(sent.slice(2).map(frame)).toEqual([
       { type: "maw-share-frame", pane: "session:0.0", data: "LIVE A\n" },
       { type: "maw-share-frame", pane: "session:0.1", data: "LIVE B\n" },
     ]);
@@ -208,4 +228,48 @@ describe("share readonly stream", () => {
     expect(localPipeCalls.filter((call) => call.length === 1).map((call) => call[0]).sort()).toEqual(["session:0.0", "session:0.1"]);
     expect(localKillCalls.map(([target, signal]) => `${target}:${signal}`).sort()).toEqual(["session:0.0:SIGTERM", "session:0.1:SIGTERM"]);
   });
+  test("source pane resize pushes dimension-only frames without resizing tmux", async () => {
+    const share: Share = {
+      target: "session:0",
+      panes: [],
+      readOnly: true,
+      tokenHash: "hash",
+      expiresAt: Date.now() + 1_000_000,
+      auth: "token",
+    };
+    const sent: Array<WsMessage> = [];
+    const timers: Array<() => void> = [];
+    const pipeCalls: Array<Array<unknown>> = [];
+    const resizeCalls: unknown[] = [];
+    let dims = "106 51";
+    let childResolve: (() => void) | null = null;
+
+    const handle = await attach(share, { send: (data: WsMessage) => sent.push(data) } as any, {
+      tmux: {
+        run: async () => dims,
+        capture: async () => "SNAPSHOT\n",
+        pipePane: async (...args: unknown[]) => { pipeCalls.push(args); },
+        resizePane: async (...args: unknown[]) => { resizeCalls.push(args); },
+      },
+      makeFifo: async () => undefined,
+      spawnPipeReader: async () => ({
+        kill: () => undefined,
+        exited: new Promise((resolve) => { childResolve = () => resolve(0); }),
+      }),
+      setInterval: ((fn: () => void) => { timers.push(fn); return fn as any; }) as any,
+      clearInterval: (() => undefined) as any,
+    } as any);
+
+    expect(frame(sent[0]!)).toEqual({ type: "maw-share-frame", pane: "session:0", data: "SNAPSHOT\n", snapshot: true, dimensions: { cols: 106, rows: 51 } });
+    dims = "106 44";
+    timers[0]!();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+
+    expect(frame(sent.at(-1)!)).toEqual({ type: "maw-share-frame", pane: "session:0", data: "", dimensions: { cols: 106, rows: 44 } });
+    expect(resizeCalls).toEqual([]);
+
+    childResolve?.();
+    await handle.close();
+  });
+
 });

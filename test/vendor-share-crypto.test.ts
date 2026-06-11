@@ -98,6 +98,7 @@ describe("share crypto hardening", () => {
       { send: (data: string | Uint8Array) => sent.push(data) } as any,
       {
         tmux: {
+          run: async () => "80 24",
           capture: async () => "SNAPSHOT-SECRET\n",
           pipePane: async (...args: unknown[]) => {
             pipeCalls.push(args);
@@ -136,9 +137,15 @@ describe("share crypto hardening", () => {
     }
 
     const key = deriveShareKey(created.token);
-    expect(dec.decode(decryptShareFrame(key, encryptedFrames[0]!))).toBe("SNAPSHOT-SECRET\n");
-    expect(dec.decode(decryptShareFrame(key, encryptedFrames[1]!))).toBe("LIVE-SECRET-1\n");
-    expect(dec.decode(decryptShareFrame(key, encryptedFrames[2]!))).toBe("LIVE-SECRET-2\n");
+    expect(JSON.parse(dec.decode(decryptShareFrame(key, encryptedFrames[0]!)))).toEqual({
+      type: "maw-share-frame",
+      pane: "session:0",
+      data: "SNAPSHOT-SECRET\n",
+      snapshot: true,
+      dimensions: { cols: 80, rows: 24 },
+    });
+    expect(JSON.parse(dec.decode(decryptShareFrame(key, encryptedFrames[1]!)))).toEqual({ type: "maw-share-frame", pane: "session:0", data: "LIVE-SECRET-1\n" });
+    expect(JSON.parse(dec.decode(decryptShareFrame(key, encryptedFrames[2]!)))).toEqual({ type: "maw-share-frame", pane: "session:0", data: "LIVE-SECRET-2\n" });
     expect(share.encryptionFrameCounter).toBe(3n);
 
     await handle.close();

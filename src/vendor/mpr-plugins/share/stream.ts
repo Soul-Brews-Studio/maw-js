@@ -11,7 +11,7 @@ type ChildProcessLike = {
   exited: Promise<number | void>;
 };
 
-type TmuxShape = Pick<Tmux, "capture" | "pipePane">;
+type TmuxShape = Pick<Tmux, "capture" | "pipePane" | "run">;
 
 type StreamDeps = {
   tmpdir: typeof tmpdir;
@@ -22,6 +22,8 @@ type StreamDeps = {
   spawnPipeReader: (path: string, onChunk: (chunk: Uint8Array) => void) => Promise<ChildProcessLike>;
   setTimeout: typeof setTimeout;
   clearTimeout: typeof clearTimeout;
+  setInterval: typeof setInterval;
+  clearInterval: typeof clearInterval;
 };
 
 type Subscriber = {
@@ -34,11 +36,14 @@ type AttachedBus = {
   subscriberId: symbol;
 };
 
+type PaneDimensions = { cols: number; rows: number };
+
 type ShareWireFrame = {
   type: "maw-share-frame";
   pane: string;
   data: string;
   snapshot?: boolean;
+  dimensions?: PaneDimensions;
 };
 
 type TargetBus = {
@@ -132,6 +137,7 @@ export interface ShareStreamHandle {
 }
 
 const DEFAULT_SNAPSHOT_LINES = 120;
+const DIMENSIONS_POLL_MS = 1_000;
 const CLOSE_TIMEOUT_MS = 50;
 const MAX_BACKLOG_CHUNKS = 64;
 const MAX_BACKLOG_BYTES = 1024 * 1024;
@@ -179,6 +185,8 @@ function defaultDeps(): StreamDeps {
     },
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
   };
 }
 
@@ -227,9 +235,33 @@ function encodeWireData(data: string | Uint8Array): string {
   return typeof data === "string" ? data : new TextDecoder().decode(data);
 }
 
-function taggedFrame(target: string, data: string | Uint8Array, snapshot = false): string {
+function dimensionsKey(dimensions: PaneDimensions): string {
+  return `${dimensions.cols}x${dimensions.rows}`;
+}
+
+function parsePaneDimensions(raw: string, target: string): PaneDimensions {
+  const line = raw.split("\n").find((candidate) => candidate.trim().length > 0)?.trim() ?? "";
+  const match = line.match(/^(\d+)\s+(\d+)$/);
+  if (!match) {
+    throw new Error(`share stream failed to read source pane dimensions for ${target}: ${line || "empty tmux response"}`);
+  }
+  const cols = Number(match[1]);
+  const rows = Number(match[2]);
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols <= 0 || rows <= 0) {
+    throw new Error(`share stream got invalid source pane dimensions for ${target}: ${line}`);
+  }
+  return { cols, rows };
+}
+
+async function getPaneDimensions(tmux: TmuxShape, target: string): Promise<PaneDimensions> {
+  const raw = await tmux.run("list-panes", "-t", target, "-F", "#{pane_width} #{pane_height}");
+  return parsePaneDimensions(raw, target);
+}
+
+function taggedFrame(target: string, data: string | Uint8Array, snapshot = false, dimensions?: PaneDimensions): string {
   const frame: ShareWireFrame = { type: "maw-share-frame", pane: target, data: encodeWireData(data) };
   if (snapshot) frame.snapshot = true;
+  if (dimensions) frame.dimensions = dimensions;
   return JSON.stringify(frame);
 }
 
@@ -326,9 +358,10 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
 
   let closed = false;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  let dimensionsTimer: ReturnType<typeof setInterval> | null = null;
   const targets = shareTargets(share);
-  const multiplex = targets.length > 1;
   const attachedBuses: AttachedBus[] = [];
+  const lastDimensions = new Map<string, PaneDimensions>();
 
   const detach = async (): Promise<void> => {
     const pending = attachedBuses.splice(0);
@@ -345,6 +378,10 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
     if (expiryTimer) {
       resolved.clearTimeout(expiryTimer);
       expiryTimer = null;
+    }
+    if (dimensionsTimer) {
+      resolved.clearInterval(dimensionsTimer);
+      dimensionsTimer = null;
     }
 
     await detach();
@@ -368,11 +405,38 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
     // read-only mode intentionally ignores inbound traffic
   };
 
+  const sendTaggedFrame = (target: string, data: string | Uint8Array, snapshot = false, dimensions?: PaneDimensions): void => {
+    sendSafe(ws, nextEncryptedFrame(share, taggedFrame(target, data, snapshot, dimensions)));
+  };
+
+  const pollDimensions = async (): Promise<void> => {
+    await Promise.all(targets.map(async (target) => {
+      const dimensions = await getPaneDimensions(resolved.tmux, target);
+      const previous = lastDimensions.get(target);
+      if (previous && dimensionsKey(previous) === dimensionsKey(dimensions)) return;
+      lastDimensions.set(target, dimensions);
+      if (!closed) sendTaggedFrame(target, "", false, dimensions);
+    }));
+  };
+
   try {
     for (const target of targets) {
+      const dimensions = await getPaneDimensions(resolved.tmux, target);
+      lastDimensions.set(target, dimensions);
       const snapshot = await resolved.tmux.capture(target, DEFAULT_SNAPSHOT_LINES);
-      if (snapshot) sendSafe(ws, nextEncryptedFrame(share, multiplex ? taggedFrame(target, snapshot, true) : snapshot));
+      sendTaggedFrame(target, snapshot, true, dimensions);
     }
+
+    dimensionsTimer = resolved.setInterval(() => {
+      void pollDimensions().catch((error) => {
+        void close();
+        try {
+          ws.close(1011, error instanceof Error ? error.message : "share dimension poll failed");
+        } catch {
+          // socket may already be closed
+        }
+      });
+    }, DIMENSIONS_POLL_MS);
 
     for (const target of targets) {
       const targetBus = await getTargetBus(target, resolved);
@@ -385,7 +449,7 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
       const subscriber = {
         send: (chunk: string | Uint8Array) => {
           if (closed) return;
-          sendSafe(ws, nextEncryptedFrame(share, multiplex ? taggedFrame(target, chunk) : chunk));
+          sendTaggedFrame(target, chunk);
         },
       };
       targetBus.subscribers.set(subscriberId, subscriber);

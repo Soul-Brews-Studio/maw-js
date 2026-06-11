@@ -51,10 +51,11 @@ describe("share hardening", () => {
     expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
     expect(viewer).toContain("resetForFreshSnapshot();");
     expect(viewer).toContain("resetPane(pane);");
-    expect(viewer).toContain("new window.FitAddon.FitAddon()");
-    expect(viewer).toContain('window.addEventListener("resize", fitAll)');
-    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitAll)');
-    expect(viewer).toContain("new ResizeObserver(fitAll)");
+    expect(viewer).toContain("const syncPaneDimensions = (pane, dimensions) =>");
+    expect(viewer).toContain("pane.term.resize(dimensions.cols, dimensions.rows)");
+    expect(viewer).toContain('window.addEventListener("resize", syncAllDimensions)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", syncAllDimensions)');
+    expect(viewer).toContain("new ResizeObserver(syncAllDimensions)");
     expect(viewer).toContain("const parseWireFrame = (plain) =>");
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
     expect(viewer).toContain('<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />');
@@ -83,6 +84,7 @@ describe("share hardening", () => {
       } as any,
       {
         tmux: {
+          run: async () => "80 24",
           capture: async () => "SNAPSHOT\n",
           pipePane: async (...args: unknown[]) => {
             pipeCalls.push(args);
@@ -104,7 +106,13 @@ describe("share hardening", () => {
       } as any,
     );
 
-    expect(sent).toEqual(["SNAPSHOT\n"]);
+    expect(sent.map((data) => JSON.parse(String(data)))).toEqual([{
+      type: "maw-share-frame",
+      pane: "session:0",
+      data: "SNAPSHOT\n",
+      snapshot: true,
+      dimensions: { cols: 80, rows: 24 },
+    }]);
     const expiry = timers.find((timer) => timer.ms <= 50);
     expect(expiry).toBeDefined();
 
