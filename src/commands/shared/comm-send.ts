@@ -565,23 +565,35 @@ export async function cmdSend(
 
     // Fan-out sends individually. cmdSend calls process.exit on failure,
     // so we override it temporarily to keep iterating (#627 resilient fan-out).
+    // The override must still abort the nested cmdSend call; returning from
+    // process.exit lets fail paths continue through code that assumes `never`,
+    // which can leave subprocess/async work alive under isolated shard load.
+    class TeamMemberExitError extends Error {
+      readonly code: number;
+      constructor(code?: number) {
+        super("team member send exited");
+        this.name = "TeamMemberExitError";
+        this.code = code ?? 0;
+      }
+    }
     const origExit = process.exit;
     for (const member of members) {
       const routedMember = resolveTeamWorkspaceMemberTarget(teamName, member, sessions) ?? member;
-      let memberFailed = false;
       process.exit = ((code?: number) => {
-        memberFailed = true;
+        throw new TeamMemberExitError(code);
       }) as never;
       try {
         await cmdSend(routedMember, message, force, opts);
-        if (!memberFailed) delivered++;
-        else failed++;
+        delivered++;
       } catch (e: any) {
         failed++;
-        console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
+        if (!(e instanceof TeamMemberExitError)) {
+          console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
+        }
+      } finally {
+        process.exit = origExit;
       }
     }
-    process.exit = origExit;
 
     console.log(`\x1b[36m⚡\x1b[0m fan-out complete: ${delivered} delivered, ${failed} failed`);
     return;

@@ -397,10 +397,11 @@ describe("comm-send deep isolated branches", () => {
   });
 
   test("team fan-out counts delivered, member exits, and thrown member failures", async () => {
-    oracleMembers = ["good", "exit", "thrower"];
-    oracleRegistry = { members: ["sender", "good", "exit", "thrower"] };
+    oracleMembers = ["good", "bad:target", "thrower"];
+    oracleRegistry = { members: ["sender", "good", "bad:target", "thrower"] };
     resolveTargetHandler = (query) => {
       if (query === "good") return { type: "local", target: "session:good.0" };
+      if (query === "bad:target") return { type: "error", detail: "forced member exit" };
       if (query === "thrower") throw new Error("fanout boom");
       return null;
     };
@@ -412,8 +413,31 @@ describe("comm-send deep isolated branches", () => {
     expect(sendKeysCalls).toEqual([{ target: "session:good.0", text: "[test-node:sender] fan out" }]);
     expect(logs.join("\n")).toContain("self 'sender' excluded");
     expect(logs.join("\n")).toContain("fan-out complete: 1 delivered, 2 failed");
-    expect(errs.join("\n")).toContain("bare target 'exit' not found locally");
+    expect(errs.join("\n")).toContain("forced member exit");
     expect(errs.join("\n")).toContain("thrower: fanout boom");
+  });
+
+  test("team fan-out aborts a member after process.exit without leaking delivery side effects", async () => {
+    oracleMembers = ["denied"];
+    oracleRegistry = { members: ["sender", "denied"] };
+    resolveTargetHandler = (query) => {
+      expect(query).toBe("denied");
+      return { type: "local", target: "session:denied.0" };
+    };
+    process.env.MAW_CONSENT = "1";
+    consentDecision = { allow: false, message: "consent denied for member", exitCode: 7 };
+
+    await runCmd(() => cmdSend("team:squad", "should not deliver"));
+
+    expect(exitCode).toBeUndefined();
+    expect(consentCalls).toHaveLength(1);
+    expect(sendKeysCalls).toEqual([]);
+    expect(defaultInboxCalls).toEqual([]);
+    expect(runHookCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([]);
+    expect(emitFeedCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("fan-out complete: 0 delivered, 1 failed");
+    expect(errs.join("\n")).toContain("consent denied for member");
   });
 
   test("ACL queue records pending peer sends before network delivery", async () => {
