@@ -20,8 +20,7 @@ const ARCHIVE_SEGMENTS = new Set<string>([
   "snapshots",
 ]);
 
-const GITHUB_HOST_MARKER = "/github.com/";
-const DOUBLED_GITHUB_MARKER = `${GITHUB_HOST_MARKER}${GITHUB_HOST_MARKER}`;
+const GITHUB_HOST_SEGMENT = "github.com";
 
 function normalizeRepoPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -32,7 +31,10 @@ function pathSegments(path: string): string[] {
 }
 
 function isDoubledGithubPath(path: string): boolean {
-  return path.toLowerCase().includes(DOUBLED_GITHUB_MARKER);
+  const segments = pathSegments(path).map((segment) => segment.toLowerCase());
+  return segments.some((segment, index) => (
+    segment === GITHUB_HOST_SEGMENT && segments[index + 1] === GITHUB_HOST_SEGMENT
+  ));
 }
 
 export function isArchiveLikePath(repoPath: string): boolean {
@@ -41,9 +43,10 @@ export function isArchiveLikePath(repoPath: string): boolean {
 
 export function canonicalRepoKey(repoPath: string): string {
   const normalized = normalizeRepoPath(repoPath).toLowerCase();
-  const markerIndex = normalized.lastIndexOf(GITHUB_HOST_MARKER);
-  if (markerIndex >= 0) {
-    return normalized.slice(markerIndex + GITHUB_HOST_MARKER.length);
+  const segments = normalized.split("/").filter(Boolean);
+  const hostIndex = segments.lastIndexOf(GITHUB_HOST_SEGMENT);
+  if (hostIndex >= 0 && hostIndex < segments.length - 1) {
+    return segments.slice(hostIndex + 1).join("/");
   }
   return normalized;
 }
