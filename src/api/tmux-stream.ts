@@ -1,4 +1,7 @@
 import type { ServerWebSocket } from "bun";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { tmuxLsJsonRows } from "../commands/plugins/tmux/impl";
 import { Tmux } from "../core/transport/tmux";
 import type { WSData } from "../core/types";
@@ -10,6 +13,22 @@ type TimerHandle = ReturnType<typeof setInterval>;
 type StreamWebSocket = Pick<ServerWebSocket<WSData>, "send">;
 
 type PaneRef = { id?: string };
+type ChildProcessLike = {
+  kill: (signal?: string | number) => void;
+  exited: Promise<unknown>;
+};
+type PipePaneFn = (paneId: string, command?: string, opts?: { onlyIfClosed?: boolean }) => Promise<void>;
+type PipeSubscriber = (chunk: Uint8Array) => void;
+type PanePipeEntry = {
+  paneId: string;
+  dir: string;
+  file: string;
+  child: ChildProcessLike | null;
+  refs: number;
+  subscribers: Set<PipeSubscriber>;
+};
+
+const panePipeRegistry = new Map<string, PanePipeEntry>();
 
 export interface TmuxStreamDeps {
   intervalMs?: number;
@@ -17,6 +36,12 @@ export interface TmuxStreamDeps {
   layoutRows?: () => Promise<unknown[]>;
   listPanes?: () => Promise<PaneRef[]>;
   capturePane?: (paneId: string, lines: number) => Promise<string>;
+  pipePane?: PipePaneFn;
+  spawnTail?: (path: string, onChunk: (chunk: Uint8Array) => void) => Promise<ChildProcessLike>;
+  mkdtempSync?: typeof mkdtempSync;
+  tmpdir?: typeof tmpdir;
+  join?: typeof join;
+  rmSync?: typeof rmSync;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
   startTimers?: boolean;
@@ -38,6 +63,96 @@ function logStreamError(deps: TmuxStreamDeps, message: string, error: unknown): 
   else console.warn(`[tmux-stream] ${message}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
+function shellEscapeArg(value: string): string {
+  if (value === "") return "''";
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function defaultSpawnTail(path: string, onChunk: (chunk: Uint8Array) => void): Promise<ChildProcessLike> {
+  const child = Bun.spawn({
+    cmd: ["tail", "-n", "0", "-f", path],
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  void (async () => {
+    for await (const chunk of child.stdout) {
+      if (!chunk || chunk.byteLength === 0) continue;
+      onChunk(chunk as Uint8Array);
+    }
+  })();
+  return Promise.resolve({
+    kill: (signal) => {
+      try { child.kill(signal); } catch { /* best-effort cleanup */ }
+    },
+    exited: child.exited,
+  });
+}
+
+async function acquirePanePipe(
+  paneId: string,
+  subscriber: PipeSubscriber,
+  deps: {
+    pipePane: PipePaneFn;
+    spawnTail: (path: string, onChunk: (chunk: Uint8Array) => void) => Promise<ChildProcessLike>;
+    mkTempDir: typeof mkdtempSync;
+    getTmpdir: typeof tmpdir;
+    joinPath: typeof join;
+    removeDir: typeof rmSync;
+  },
+): Promise<void> {
+  const existing = panePipeRegistry.get(paneId);
+  if (existing) {
+    existing.refs += 1;
+    existing.subscribers.add(subscriber);
+    return;
+  }
+
+  const dir = deps.mkTempDir(deps.joinPath(deps.getTmpdir(), "maw-tmux-stream-"));
+  const file = deps.joinPath(dir, `${paneId.replace(/[^a-zA-Z0-9._-]/g, "-")}.log`);
+  await Bun.write(file, "");
+  const entry: PanePipeEntry = {
+    paneId,
+    dir,
+    file,
+    child: null,
+    refs: 1,
+    subscribers: new Set([subscriber]),
+  };
+  panePipeRegistry.set(paneId, entry);
+
+  try {
+    entry.child = await deps.spawnTail(file, (chunk) => {
+      for (const send of [...entry.subscribers]) send(chunk);
+    });
+    void entry.child.exited.catch(() => {});
+    await deps.pipePane(paneId, `cat >> ${shellEscapeArg(file)}`, { onlyIfClosed: true });
+  } catch (error) {
+    panePipeRegistry.delete(paneId);
+    try { entry.child?.kill("SIGTERM"); } catch { /* best-effort tail cleanup */ }
+    try { deps.removeDir(dir, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
+    throw error;
+  }
+}
+
+async function releasePanePipe(
+  paneId: string,
+  subscriber: PipeSubscriber,
+  deps: {
+    pipePane: PipePaneFn;
+    removeDir: typeof rmSync;
+  },
+): Promise<void> {
+  const entry = panePipeRegistry.get(paneId);
+  if (!entry) return;
+  if (entry.subscribers.delete(subscriber)) entry.refs -= 1;
+  if (entry.refs > 0) return;
+
+  panePipeRegistry.delete(paneId);
+  try { await deps.pipePane(paneId); } catch { /* pane may already be gone */ }
+  try { entry.child?.kill("SIGTERM"); } catch { /* best-effort tail cleanup */ }
+  try { deps.removeDir(entry.dir, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
+}
+
 export function layoutPayload(rows: unknown[]): string {
   return JSON.stringify({ type: "layout", panes: rows });
 }
@@ -47,19 +162,26 @@ export function capturePayload(captures: Record<string, string>): string {
 }
 
 export function createTmuxStreamConnection(ws: StreamWebSocket, deps: TmuxStreamDeps = {}): TmuxStreamConnection {
-  const tmux = deps.listPanes && deps.capturePane ? null : new Tmux();
+  const tmux = deps.listPanes && deps.capturePane && deps.pipePane ? null : new Tmux();
   const intervalMs = deps.intervalMs ?? TMUX_STREAM_INTERVAL_MS;
   const captureLines = deps.captureLines ?? TMUX_STREAM_CAPTURE_LINES;
   const layoutRows = deps.layoutRows ?? (() => tmuxLsJsonRows({ all: true, compact: true, teams: true, channels: true }));
   const listPanes = deps.listPanes ?? (() => tmux!.listPanes());
   const capturePane = deps.capturePane ?? ((paneId: string, lines: number) => tmux!.capture(paneId, lines));
+  const pipePane = deps.pipePane ?? ((paneId: string, command?: string, opts?: { onlyIfClosed?: boolean }) => tmux!.pipePane(paneId, command, opts));
+  const spawnTail = deps.spawnTail ?? defaultSpawnTail;
+  const mkTempDir = deps.mkdtempSync ?? mkdtempSync;
+  const getTmpdir = deps.tmpdir ?? tmpdir;
+  const joinPath = deps.join ?? join;
+  const removeDir = deps.rmSync ?? rmSync;
   const setIntervalFn = deps.setIntervalFn ?? setInterval;
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
   const captures: Record<string, string> = {};
+  const acquiredPipes = new Map<string, PipeSubscriber>();
+  const decoder = new TextDecoder();
   let captureRunning = false;
   let closed = false;
   let layoutTimer: TimerHandle | undefined;
-  let captureTimer: TimerHandle | undefined;
 
   async function sendLayout(): Promise<void> {
     if (closed) return;
@@ -97,6 +219,7 @@ export function createTmuxStreamConnection(ws: StreamWebSocket, deps: TmuxStream
           changed = true;
         }
       }
+      await syncPanePipes(liveIds);
       if (opts.force || changed) safeSend(ws, capturePayload(captures));
     } catch (error) {
       logStreamError(deps, "capture refresh failed", error);
@@ -105,17 +228,47 @@ export function createTmuxStreamConnection(ws: StreamWebSocket, deps: TmuxStream
     }
   }
 
+  function appendPipeChunk(paneId: string, chunk: Uint8Array): void {
+    if (closed) return;
+    const text = decoder.decode(chunk, { stream: true });
+    if (!text) return;
+    captures[paneId] = (captures[paneId] ?? "") + text;
+    safeSend(ws, capturePayload(captures));
+  }
+
+  async function startPanePipe(paneId: string): Promise<void> {
+    if (closed || acquiredPipes.has(paneId)) return;
+    const subscriber = (chunk: Uint8Array) => appendPipeChunk(paneId, chunk);
+    try {
+      await acquirePanePipe(paneId, subscriber, { pipePane, spawnTail, mkTempDir, getTmpdir, joinPath, removeDir });
+      acquiredPipes.set(paneId, subscriber);
+    } catch (error) {
+      logStreamError(deps, `pipe setup failed for pane ${paneId}`, error);
+    }
+  }
+
+  async function stopPanePipe(paneId: string): Promise<void> {
+    const subscriber = acquiredPipes.get(paneId);
+    if (!subscriber) return;
+    acquiredPipes.delete(paneId);
+    await releasePanePipe(paneId, subscriber, { pipePane, removeDir });
+  }
+
+  async function syncPanePipes(liveIds: Set<string>): Promise<void> {
+    await Promise.all([...acquiredPipes.keys()].filter((id) => !liveIds.has(id)).map((id) => stopPanePipe(id)));
+    await Promise.all([...liveIds].filter((id) => !acquiredPipes.has(id)).map((id) => startPanePipe(id)));
+  }
+
   function close(): void {
     closed = true;
     if (layoutTimer) clearIntervalFn(layoutTimer);
-    if (captureTimer) clearIntervalFn(captureTimer);
+    void Promise.all([...acquiredPipes.keys()].map((id) => stopPanePipe(id)));
   }
 
   if (deps.startTimers !== false) {
     void sendLayout();
     void sendCapture({ force: true });
     layoutTimer = setIntervalFn(() => { void sendLayout(); }, intervalMs);
-    captureTimer = setIntervalFn(() => { void sendCapture(); }, intervalMs);
   }
 
   return { sendLayout, sendCapture, close };
