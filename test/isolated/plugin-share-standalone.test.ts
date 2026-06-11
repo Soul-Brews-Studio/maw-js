@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import type { Share } from "../../src/vendor/mpr-plugins/share/impl";
 
 const realConfig = await import("../../src/config.ts");
 afterAll(() => { mock.restore(); });
@@ -63,6 +65,20 @@ async function makeServeHarness() {
 }
 
 describe("share plugin standalone boundary (#2685/#2703)", () => {
+  test("share plugin import boundary stays explicit for standalone coverage gate", () => {
+    expectStandalonePluginBoundary({
+      plugin: "share",
+      allowMawJs: ["maw-js/config"],
+      allowRelative: [
+        "../../../commands/plugins/tmux/impl",
+        "../../../core/serve-route-registry",
+        "../../../core/serve-ws-registry",
+        "../../../lib/federation-auth",
+        "../../../config",
+      ],
+    });
+  });
+
   test("manifest-backed sources expose the CLI command and serve hook", () => {
     const manifest = JSON.parse(readFileSync(join(root, "src/vendor/mpr-plugins/share/plugin.json"), "utf8"));
     expect(manifest.name).toBe("share");
@@ -169,6 +185,15 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       const { slug, token: secret } = parseShareOutput(result.output, "k");
       expect(secret.length).toBeGreaterThanOrEqual(43);
 
+      const viewerSource = readFileSync(join(root, "src/vendor/mpr-plugins/share/viewer.html"), "utf8");
+      const indexSource = readFileSync(join(root, "src/vendor/mpr-plugins/share/index.ts"), "utf8");
+      expect(viewerSource).toContain("const e2eKey = params.get(\"k\") || \"\";");
+      expect(viewerSource).toContain("const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;");
+      expect(viewerSource).toContain("?${e2eKey ? \"h\" : \"t\"}=");
+      expect(viewerSource).not.toContain("?${e2eKey ? \"k\" : \"t\"}=");
+      expect(viewerSource).not.toContain("const wsToken = e2eKey || token");
+      expect(indexSource).not.toContain('searchParams.get("k")');
+
       const viewer = await viewerRoute.handler(new Request(`http://127.0.0.1:4567/share/${slug}`));
       expect(viewer.status).toBe(200);
 
@@ -176,6 +201,8 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       expect(share).toMatchObject({ encrypted: true, auth: "encrypted" });
       expect(share.encryptionKeyHash).toBe(shareCrypto.hashShareSecret(secret));
       expect(share.encryptionKey).toBeTruthy();
+      await expect(shareRuntimeImpl.verifyShare(slug, shareCrypto.hashShareSecret(secret))).resolves.toBe(true);
+      await expect(shareRuntimeImpl.verifyShare(slug, `${shareCrypto.hashShareSecret(secret).slice(0, -1)}0`)).resolves.toBe(false);
 
       const sent: Array<string | Uint8Array> = [];
       let childResolve: (() => void) | null = null;
@@ -208,6 +235,69 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("active websocket stream closes and tears down tmux pipe when TTL expires", async () => {
+    const share: Share = {
+      target: "neo:1",
+      panes: [],
+      readOnly: true,
+      tokenHash: "hash",
+      expiresAt: Date.now() + 50,
+      auth: "token",
+    };
+    const sent: Array<string | Uint8Array> = [];
+    const closed: Array<[number | undefined, string | undefined]> = [];
+    const pipeCalls: unknown[][] = [];
+    const clearedTimers: unknown[] = [];
+    const timers: Array<{ fn: () => void; ms: number; id: object }> = [];
+
+    await shareStream.attach(
+      share as any,
+      {
+        send: (data: string | Uint8Array) => sent.push(data),
+        close: (code?: number, reason?: string) => closed.push([code, reason]),
+      } as any,
+      {
+        tmux: {
+          capture: async () => "SNAPSHOT\n",
+          pipePane: async (...args: unknown[]) => {
+            pipeCalls.push(args);
+          },
+        },
+        spawnTail: async () => ({
+          kill: () => undefined,
+          exited: Promise.resolve(0),
+        }),
+        setTimeout: ((fn: () => void, ms: number) => {
+          const id = {};
+          timers.push({ fn, ms, id });
+          return id as any;
+        }) as any,
+        clearTimeout: ((id: unknown) => {
+          clearedTimers.push(id);
+        }) as any,
+      } as any,
+    );
+
+    expect(sent).toEqual(["SNAPSHOT\n"]);
+    const expiryTimer = timers.find((timer) => timer.ms <= 50);
+    expect(expiryTimer).toBeDefined();
+
+    expiryTimer!.fn();
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+
+    expect(closed).toEqual([[1008, "share expired"]]);
+    expect(pipeCalls.some((call) => call[0] === "neo:1" && call.length === 1)).toBe(true);
+    expect(clearedTimers).toContain(expiryTimer!.id);
+  });
+
+  test("display URL fails loud for bind-only hosts", () => {
+    expect(() => sharePlugin.displayOriginForHost("0.0.0.0", 3457)).toThrow("bind-only host");
+    expect(() => sharePlugin.displayOriginForHost("::", 3457)).toThrow("bind-only host");
+    expect(() => sharePlugin.displayOriginForHost("http://localhost", 3457)).toThrow("without protocol");
+    expect(sharePlugin.displayOriginForHost("::1", 3457)).toBe("http://[::1]:3457");
+    expect(sharePlugin.displayOriginForHost("local", 3457)).toBe("http://local:3457");
   });
 
   test("serve hook registers create, viewer, metadata, and websocket routes", async () => {
