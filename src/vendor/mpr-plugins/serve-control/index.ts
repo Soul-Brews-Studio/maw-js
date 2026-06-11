@@ -123,8 +123,10 @@ async function routeControl(req: Request): Promise<Response> {
   try {
     if (verb === "send") {
       const text = sanitizeLiteral(ctx.body.text);
+      const enter = ctx.body.enter === true;
       await tmux.sendKeysLiteral(ctx.target, text);
-      return json(200, { ok: true, target: ctx.target, bytes: byteLength(text) });
+      if (enter) await tmux.sendKeys(ctx.target, "Enter");
+      return json(200, { ok: true, target: ctx.target, bytes: byteLength(text), enter });
     }
     if (verb === "key") {
       const key = typeof ctx.body.key === "string" ? ctx.body.key : "";

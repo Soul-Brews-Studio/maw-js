@@ -97,6 +97,17 @@ async function waitForCaptureContains(target: string, needle: string, timeoutMs 
   throw new Error(`timed out waiting for pane ${target} to contain ${JSON.stringify(needle)}\nLast capture:\n${capture}`);
 }
 
+async function waitForCaptureLine(target: string, expected: string, timeoutMs = 5_000): Promise<string> {
+  const started = Date.now();
+  let capture = "";
+  while (Date.now() - started < timeoutMs) {
+    capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-30"], { timeout: 5_000 }).stdout.toString();
+    if (capture.split("\n").some((line) => line.trim() === expected)) return capture;
+    await Bun.sleep(100);
+  }
+  throw new Error(`timed out waiting for pane ${target} to output line ${JSON.stringify(expected)}\nLast capture:\n${capture}`);
+}
+
 class FakeClassList {
   private values = new Set<string>();
   constructor(private readonly owner: FakeElement) {}
@@ -268,7 +279,8 @@ describe("share control viewer real-entry smoke (#2761)", () => {
       MAW_CONFIG_DIR: join(home, "config"),
       MAW_DISABLE_UPDATE_CHECK: "1",
     };
-    const typed = `MAW2761-viewer-typed-${process.pid}`;
+    const output = `MAW2765_VIEWER_EXECUTED_${process.pid}`;
+    const typed = `printf '${output}\\n'`;
     let serve: ReturnType<typeof Bun.spawn> | null = null;
 
     run(["tmux", "kill-session", "-t", session], { allowFailure: true, timeout: 2_000 });
@@ -291,6 +303,8 @@ describe("share control viewer real-entry smoke (#2761)", () => {
       await runViewerAgainstLiveBackend(viewer, url, target, typed);
       const capture = await waitForCaptureContains(target, typed);
       expect(capture).toContain(typed);
+      const executed = await waitForCaptureLine(target, output);
+      expect(executed.split("\n").some((line) => line.trim() === output)).toBe(true);
     } finally {
       if (serve) {
         serve.kill();

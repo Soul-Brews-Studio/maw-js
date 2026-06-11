@@ -113,11 +113,18 @@ describe("serve-control standalone security gate (#2757)", () => {
 
     res = await handler(req(path, { slug: share.slug, text: `a\0b${"x".repeat(25_000)}` }, share.controlToken));
     expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true, enter: false });
     expect(tmuxCalls[0][0]).toBe("send");
     expect(tmuxCalls[0][1]).toBe("%1");
     const sent = tmuxCalls[0][2] as string;
     expect(sent.includes("\0")).toBe(false);
     expect(new TextEncoder().encode(sent).byteLength).toBeLessThanOrEqual(20_000);
+
+    tmuxCalls.length = 0;
+    res = await handler(req(path, { slug: share.slug, text: "echo hi", enter: true }, share.controlToken));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true, enter: true });
+    expect(tmuxCalls).toEqual([["send", "%1", "echo hi"], ["key", "%1", "Enter"]]);
   });
 
   test("key verb rejects off-allowlist keys before tmux", async () => {

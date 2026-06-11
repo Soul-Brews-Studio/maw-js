@@ -126,14 +126,30 @@ describe("serve-control real-entry smoke", () => {
       expect(badKey.status).toBe(400);
 
       const typed = ` ${sentinel}-typed `;
-      const send = await postControl(port, target, controlToken, { slug, text: typed });
+      const send = await postControl(port, target, controlToken, { slug, text: typed, enter: false });
       expect(send.status).toBe(200);
       const sendPayload = await send.json();
-      expect(sendPayload.ok).toBe(true);
+      expect(sendPayload).toMatchObject({ ok: true, enter: false });
 
       await Bun.sleep(300);
-      const capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-20"], { timeout: 5_000 }).stdout.toString();
+      let capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-20"], { timeout: 5_000 }).stdout.toString();
       expect(capture).toContain(typed.trim());
+
+      const cancelDraft = await postControl(port, target, controlToken, { slug, key: "C-c" }, "key");
+      expect(cancelDraft.status).toBe(200);
+
+      const output = `${sentinel}-executed`;
+      const execute = await postControl(port, target, controlToken, { slug, text: `printf '${output}\\n'`, enter: true });
+      expect(execute.status).toBe(200);
+      await expect(execute.json()).resolves.toMatchObject({ ok: true, enter: true });
+
+      const started = Date.now();
+      do {
+        capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-30"], { timeout: 5_000 }).stdout.toString();
+        if (capture.split("\n").some((line) => line.trim() === output)) break;
+        await Bun.sleep(100);
+      } while (Date.now() - started < 5_000);
+      expect(capture.split("\n").some((line) => line.trim() === output)).toBe(true);
     } finally {
       if (serve) {
         serve.kill();
