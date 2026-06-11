@@ -39,6 +39,14 @@ type ShareMetadata = {
   auth: string;
 };
 
+type CreateShareRequest = {
+  target?: unknown;
+  panes?: unknown;
+  readOnly?: unknown;
+  ttl?: unknown;
+  auth?: unknown;
+};
+
 const viewerHtml = (() => {
   const p = join(import.meta.dir, "viewer.html");
   return existsSync(p) ? readFileSync(p, "utf-8") : "";
@@ -113,6 +121,53 @@ async function openShareWebSocket(
   }
 }
 
+function shareUrlForRequest(req: Request, slug: string, token: string): string {
+  const url = new URL(req.url);
+  return `${url.origin}/share/${slug}#t=${token}`;
+}
+
+async function parseJsonRequest(req: Request): Promise<CreateShareRequest> {
+  try {
+    const data = await req.json();
+    return data && typeof data === "object" ? data as CreateShareRequest : {};
+  } catch {
+    return {};
+  }
+}
+
+async function routeCreateShare(req: Request): Promise<Response> {
+  const body = await parseJsonRequest(req);
+  if (typeof body.target !== "string" || body.target.trim() === "") {
+    return new Response(JSON.stringify({ error: "target_required" }), {
+      status: 400,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  try {
+    const created = await createShare({
+      target: body.target,
+      panes: Array.isArray(body.panes) ? body.panes.filter((pane): pane is string => typeof pane === "string") : undefined,
+      readOnly: body.readOnly === undefined ? DEFAULT_READ_ONLY : body.readOnly !== false,
+      ttl: typeof body.ttl === "number" && Number.isFinite(body.ttl) ? body.ttl : DEFAULT_TTL_SECONDS,
+      auth: resolveAuthFlag(body.auth),
+    });
+    const payload = {
+      slug: created.slug,
+      token: created.token,
+      url: shareUrlForRequest(req, created.slug, created.token),
+    };
+    return new Response(JSON.stringify(payload), {
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  } catch (error: unknown) {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
+      status: 400,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+}
+
 function routeShareHtml(req: Request): Response {
   const params = parseRoutePart(new URL(req.url).pathname, "/share/:slug");
   const slug = params?.slug;
@@ -177,6 +232,7 @@ export async function serve(ctx: ServeHookContext): Promise<{ ok: true } | { ok:
   if (!ctx.http) return { ok: false, error: "share serve requires ctx.http" };
 
   const registerJson = async () => {
+    ctx.http.route("POST", "/api/share", routeCreateShare);
     ctx.http.route("GET", "/share/:slug", routeShareHtml);
     ctx.http.route("GET", "/api/share/:slug", routeShareMetadata);
   };
@@ -219,7 +275,7 @@ function daemonPortFromFlags(flags: Record<string, unknown>): number {
   const fromFlag = typeof flags["--port"] === "number" && Number.isFinite(flags["--port"])
     ? Number(flags["--port"])
     : undefined;
-  return fromFlag || loadConfig().port || 3456;
+  return fromFlag || loadConfig().port || 3457;
 }
 
 function resolveAuthFlag(raw: unknown): ShareAuth {
@@ -227,6 +283,33 @@ function resolveAuthFlag(raw: unknown): ShareAuth {
   const maybe = raw.toLowerCase();
   if (maybe === "token" || maybe === "federation" || maybe === "none") return maybe;
   throw new Error(`invalid --auth '${raw}', expected one of token|federation|none`);
+}
+
+function daemonOrigin(flags: Record<string, unknown>): string {
+  const host = loadConfig().host || "localhost";
+  const port = daemonPortFromFlags(flags);
+  return `http://${host}:${port}`;
+}
+
+async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; url: string }> {
+  const res = await fetch(`${origin}/api/share`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let payload: any = null;
+  try {
+    payload = await res.json();
+  } catch {
+    // keep null payload; status branch below reports HTTP code
+  }
+  if (!res.ok) {
+    throw new Error(payload?.error || `share daemon returned HTTP ${res.status}`);
+  }
+  if (!payload || typeof payload.url !== "string" || typeof payload.slug !== "string" || typeof payload.token !== "string") {
+    throw new Error("share daemon returned an invalid response");
+  }
+  return payload;
 }
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -259,16 +342,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const ttl = typeof flags["--ttl"] === "number" && Number.isFinite(flags["--ttl"]) ? flags["--ttl"] : DEFAULT_TTL_SECONDS;
     const auth = resolveAuthFlag(flags["--auth"]);
 
-    const { slug, token } = await createShare({
+    const { url } = await createShareViaDaemon(daemonOrigin(flags), {
       target: hit.resolved,
       readOnly,
       ttl,
       auth,
     });
 
-    const host = loadConfig().host || "localhost";
-    const port = daemonPortFromFlags(flags);
-    const url = `http://${host}:${port}/share/${slug}#t=${token}`;
     console.log(`🔗 ${url}`);
     return { ok: true, output: url };
   } catch (error: any) {

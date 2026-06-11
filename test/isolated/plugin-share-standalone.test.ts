@@ -10,7 +10,7 @@ const resolvedTargets: string[] = [];
 
 const configMock = {
   ...realConfig,
-  loadConfig: () => ({ host: "127.0.0.1", port: 3456 }),
+  loadConfig: () => ({ host: "127.0.0.1" }),
 };
 mock.module("maw-js/config", () => configMock);
 mock.module(import.meta.resolve("../../src/config.ts"), () => configMock);
@@ -32,7 +32,33 @@ beforeEach(() => {
   shareImpl.clearShareRegistry();
 });
 
-describe("share plugin standalone boundary (#2685)", () => {
+function parseShareOutput(output: unknown): { slug: string; token: string } {
+  const match = String(output).match(/\/share\/([^#]+)#t=(.+)$/);
+  expect(match).toBeTruthy();
+  return { slug: match![1]!, token: match![2]! };
+}
+
+async function makeServeHarness() {
+  const httpRoutes: Array<{ method: string; path: string; handler: (req: Request) => Response | Promise<Response> }> = [];
+  const wsRoutes: Array<{ path: string; data: (req: Request) => unknown; handlers: Record<string, unknown> }> = [];
+
+  const result = await sharePlugin.serve({
+    http: {
+      route(method: string, path: string, handler: (req: Request) => Response | Promise<Response>) {
+        httpRoutes.push({ method, path, handler });
+      },
+    },
+    ws: {
+      route(path: string, data: (req: Request) => unknown, handlers: Record<string, unknown>) {
+        wsRoutes.push({ path, data, handlers });
+      },
+    },
+  } as any);
+
+  return { result, httpRoutes, wsRoutes };
+}
+
+describe("share plugin standalone boundary (#2685/#2703)", () => {
   test("manifest-backed sources expose the CLI command and serve hook", () => {
     const manifest = JSON.parse(readFileSync(join(root, "src/vendor/mpr-plugins/share/plugin.json"), "utf8"));
     expect(manifest.name).toBe("share");
@@ -44,43 +70,63 @@ describe("share plugin standalone boundary (#2685)", () => {
     expect(index).toContain("export default async function handler");
   });
 
-  test("cli share dispatch parses read-only, ttl, port, and auth flags", async () => {
-    const result = await shareHandler({
-      source: "cli",
-      args: ["neo:1", "--read-only", "--ttl", "42", "--port", "4567", "--auth", "token"],
-    } as any);
+  test("cli share dispatch posts to daemon and daemon serves minted viewer", async () => {
+    const { httpRoutes } = await makeServeHarness();
+    const createRoute = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;
+    const viewerRoute = httpRoutes.find((route) => route.method === "GET" && route.path === "/share/:slug")!;
+    const metadataRoute = httpRoutes.find((route) => route.method === "GET" && route.path === "/api/share/:slug")!;
+    const originalFetch = globalThis.fetch;
+    const postedBodies: unknown[] = [];
+    const postedUrls: string[] = [];
 
-    expect(result.ok).toBe(true);
-    expect(resolvedTargets).toEqual(["neo:1"]);
-    expect(result.output).toMatch(/^http:\/\/127\.0\.0\.1:4567\/share\/[a-z0-9]+#t=.+/);
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      postedUrls.push(req.url);
+      postedBodies.push(await req.clone().json());
+      const url = new URL(req.url);
+      if (req.method === "POST" && url.pathname === "/api/share") {
+        return createRoute.handler(req);
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
 
-    const match = String(result.output).match(/\/share\/([^#]+)#t=(.+)$/);
-    expect(match).toBeTruthy();
-    const slug = match![1]!;
-    const token = match![2]!;
-    expect(slug).toMatch(/^[a-z0-9]+$/);
-    expect(token.length).toBeGreaterThan(10);
+    try {
+      const result = await shareHandler({
+        source: "cli",
+        args: ["neo:1", "--read-only", "--ttl", "42", "--port", "4567", "--auth", "token"],
+      } as any);
+
+      expect(result.ok).toBe(true);
+      expect(resolvedTargets).toEqual(["neo:1"]);
+      expect(postedUrls).toEqual(["http://127.0.0.1:4567/api/share"]);
+      expect(postedBodies).toEqual([{ target: "neo:1:resolved", readOnly: true, ttl: 42, auth: "token" }]);
+      expect(result.output).toMatch(/^http:\/\/127\.0\.0\.1:4567\/share\/[a-z0-9]+#t=.+/);
+
+      const { slug, token } = parseShareOutput(result.output);
+      expect(slug).toMatch(/^[a-z0-9]+$/);
+      expect(token.length).toBeGreaterThan(10);
+
+      const viewer = await viewerRoute.handler(new Request(`http://127.0.0.1:4567/share/${slug}`));
+      expect(viewer.status).toBe(200);
+
+      const metadata = await metadataRoute.handler(new Request(`http://127.0.0.1:4567/api/share/${slug}?token=${encodeURIComponent(token)}`));
+      expect(metadata.status).toBe(200);
+      await expect(metadata.json()).resolves.toMatchObject({
+        target: "neo:1:resolved",
+        readOnly: true,
+        auth: "token",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  test("serve hook registers viewer, metadata, and websocket routes", async () => {
-    const httpRoutes: Array<{ method: string; path: string; handler: (req: Request) => Response | Promise<Response> }> = [];
-    const wsRoutes: Array<{ path: string; data: (req: Request) => unknown; handlers: Record<string, unknown> }> = [];
-
-    const result = await sharePlugin.serve({
-      http: {
-        route(method: string, path: string, handler: (req: Request) => Response | Promise<Response>) {
-          httpRoutes.push({ method, path, handler });
-        },
-      },
-      ws: {
-        route(path: string, data: (req: Request) => unknown, handlers: Record<string, unknown>) {
-          wsRoutes.push({ path, data, handlers });
-        },
-      },
-    } as any);
+  test("serve hook registers create, viewer, metadata, and websocket routes", async () => {
+    const { result, httpRoutes, wsRoutes } = await makeServeHarness();
 
     expect(result).toEqual({ ok: true });
     expect(httpRoutes.map((route) => `${route.method} ${route.path}`)).toEqual([
+      "POST /api/share",
       "GET /share/:slug",
       "GET /api/share/:slug",
     ]);
@@ -89,23 +135,19 @@ describe("share plugin standalone boundary (#2685)", () => {
     expect(typeof wsRoutes[0]!.handlers.message).toBe("function");
     expect(typeof wsRoutes[0]!.handlers.close).toBe("function");
 
-    const created = await shareHandler({ source: "cli", args: ["neo:1", "--ttl", "60"] } as any);
-    const match = String(created.output).match(/\/share\/([^#]+)#t=(.+)$/);
-    expect(match).toBeTruthy();
-    const slug = match![1]!;
-    const token = match![2]!;
-    const metadata = httpRoutes.find((route) => route.path === "/api/share/:slug")!;
-    const response = await metadata.handler(new Request(`http://localhost/api/share/${slug}?token=${encodeURIComponent(token)}`));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      target: "neo:1:resolved",
-      readOnly: true,
-      auth: "token",
-    });
+    const create = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;
+    const created = await create.handler(new Request("http://localhost:3457/api/share", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "neo:1:resolved", ttl: 60, auth: "token" }),
+    }));
+    expect(created.status).toBe(200);
+    const payload = await created.json() as { slug: string; token: string; url: string };
+    expect(payload.url).toBe(`http://localhost:3457/share/${payload.slug}#t=${payload.token}`);
 
-    const wsData = wsRoutes[0]!.data(new Request(`http://localhost/ws/share/${slug}?t=${encodeURIComponent(token)}`)) as any;
-    expect(wsData.shareSlug).toBe(slug);
-    expect(wsData.shareToken).toBe(token);
+    const wsData = wsRoutes[0]!.data(new Request(`http://localhost/ws/share/${payload.slug}?t=${encodeURIComponent(payload.token)}`)) as any;
+    expect(wsData.shareSlug).toBe(payload.slug);
+    expect(wsData.shareToken).toBe(payload.token);
   });
 
   test("token auth public API mints, verifies, rejects bad tokens, and expires", async () => {
