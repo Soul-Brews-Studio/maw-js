@@ -38,17 +38,13 @@
     <pre id="ansi-fallback" style="display:none; margin:0;"></pre>
 
     <script>
-      (() => {
+      void (async () => {
         const match = location.pathname.match(/\/share\/([^/?#]+)/);
         const slug = match?.[1] || "";
         const params = new URLSearchParams(location.hash?.replace(/^#/, "") || "");
         const token = params.get("t") || params.get("token") || "";
         const e2eKey = params.get("k") || "";
-        const wsToken = e2eKey || token;
         const wsProto = location.protocol === "https:" ? "wss" : "ws";
-        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "k" : "t"}=${encodeURIComponent(wsToken)}`);
-        socket.binaryType = "arraybuffer";
-
 
         const b64urlToBytes = (value) => {
           const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
@@ -75,6 +71,15 @@
             ["decrypt"],
           );
         };
+
+        const sha256Hex = async (value) => {
+          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+          return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+
+        const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;
+        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`);
+        socket.binaryType = "arraybuffer";
 
         const decryptFrame = async (key, data) => {
           if (!key) return typeof data === "string" ? data : new TextDecoder().decode(data);

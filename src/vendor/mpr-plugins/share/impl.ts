@@ -61,6 +61,17 @@ function hashesMatch(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+function isSha256Hex(value: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(value);
+}
+
+function presentedMatchesTokenHash(share: Share, presented: string): boolean {
+  if (share.auth === "encrypted" && isSha256Hex(presented)) {
+    return hashesMatch(share.tokenHash, presented.toLowerCase());
+  }
+  return hashesMatch(share.tokenHash, hashToken(presented));
+}
+
 function makeSlug(): string {
   while (true) {
     const raw = randomUUID().replace(/-/g, "");
@@ -106,7 +117,8 @@ function encryptedAuthProvider(): ShareAuth {
     verify: (slug, presented) => {
       const share = shareRegistry.get(slug);
       if (!share?.encryptionKeyHash) return false;
-      return hashesMatch(share.encryptionKeyHash, hashShareSecret(presented));
+      const presentedHash = isSha256Hex(presented) ? presented.toLowerCase() : hashShareSecret(presented);
+      return hashesMatch(share.encryptionKeyHash, presentedHash);
     },
   };
 }
@@ -246,7 +258,7 @@ export async function verifyShare(slug: string, presented: string): Promise<bool
   if (!ok) return false;
   const expectedHash = share.tokenHash;
   if (expectedHash.length === 0) return false;
-  return hashesMatch(expectedHash, hashToken(presented));
+  return presentedMatchesTokenHash(share, presented);
 }
 
 export function revoke(slug: string): boolean {

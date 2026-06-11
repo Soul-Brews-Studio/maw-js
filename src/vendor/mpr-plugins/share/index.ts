@@ -75,7 +75,7 @@ function parseRoutePart(pathname: string, pattern: string): Record<string, strin
 
 function parseShareToken(req: Request): string {
   const url = new URL(req.url);
-  return url.searchParams.get("token") || url.searchParams.get("t") || url.searchParams.get("k") || "";
+  return url.searchParams.get("token") || url.searchParams.get("t") || url.searchParams.get("h") || "";
 }
 
 function getShareSlugFromWsData(data: ShareWsData): string | null {
@@ -294,11 +294,26 @@ function daemonLoopbackOrigin(flags: Record<string, unknown>): string {
   return `http://127.0.0.1:${port}`;
 }
 
-function displayOrigin(flags: Record<string, unknown>): string {
-  const { host } = loadConfig();
+function formatDisplayHost(host: string): string {
+  if (host.includes("://")) {
+    throw new Error(`share display URL requires config.host without protocol, got '${host}'`);
+  }
+  if (host === "0.0.0.0" || host === "::" || host === "[::]") {
+    throw new Error(`share display URL requires a reachable config.host, got bind-only host '${host}'`);
+  }
+  if (host.includes(":") && !host.startsWith("[") && !host.endsWith("]")) return `[${host}]`;
+  return host;
+}
+
+export function displayOriginForHost(host: string | undefined, port: number): string {
   if (!host) throw new Error("share display URL requires config.host");
+  return `http://${formatDisplayHost(host)}:${port}`;
+}
+
+export function displayOrigin(flags: Record<string, unknown>): string {
+  const { host } = loadConfig();
   const port = daemonPortFromFlags(flags);
-  return `http://${host}:${port}`;
+  return displayOriginForHost(host, port);
 }
 
 function displayShareUrl(origin: string, share: { slug: string; token: string; encrypted?: boolean }): string {
@@ -306,12 +321,19 @@ function displayShareUrl(origin: string, share: { slug: string; token: string; e
   return `${origin}/share/${share.slug}#${param}=${share.token}`;
 }
 
-async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; encrypted?: boolean }> {
-  const res = await fetch(`${origin}/api/share`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+export async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; encrypted?: boolean }> {
+  const endpoint = `${origin}/api/share`;
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`share daemon request failed at ${endpoint}: ${message}; is 'maw serve' running on this port?`);
+  }
   let payload: any = null;
   try {
     payload = await res.json();
@@ -319,7 +341,10 @@ async function createShareViaDaemon(origin: string, body: CreateShareRequest): P
     // keep null payload; status branch below reports HTTP code
   }
   if (!res.ok) {
-    throw new Error(payload?.error || `share daemon returned HTTP ${res.status}`);
+    if (res.status === 404) {
+      throw new Error(`share daemon at ${origin} does not expose /api/share (HTTP 404); ensure maw serve is running with the share plugin loaded`);
+    }
+    throw new Error(payload?.error || `share daemon at ${origin} returned HTTP ${res.status}`);
   }
   if (!payload || typeof payload.slug !== "string" || typeof payload.token !== "string") {
     throw new Error("share daemon returned an invalid response");

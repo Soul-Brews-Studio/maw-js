@@ -151,14 +151,19 @@ function normalizePing(message: string): string {
 }
 
 export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<StreamDeps> = {}): Promise<ShareStreamHandle> {
+  const baseDeps = defaultDeps();
   const resolved = {
-    ...defaultDeps(),
+    ...baseDeps,
     ...deps,
     tmux: {
-      ...(defaultDeps().tmux),
+      ...(baseDeps.tmux),
       ...(deps.tmux ?? {}),
     },
   };
+
+  if (share.expiresAt <= Date.now()) {
+    throw new Error("share expired before stream attach");
+  }
 
   const tempDir = resolved.mkdtempSync(join(resolved.tmpdir(), "maw-share-"));
   const consumerPath = makeStreamConsumerPath(tempDir, share.target);
@@ -167,10 +172,16 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
 
   let closed = false;
   let consumerChild: ChildProcessLike | null = null;
+  let expiryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
+
+    if (expiryTimer) {
+      resolved.clearTimeout(expiryTimer);
+      expiryTimer = null;
+    }
 
     try {
       await resolved.tmux.pipePane(share.target);
@@ -187,6 +198,17 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
       // best effort
     }
   };
+
+  expiryTimer = resolved.setTimeout(() => {
+    void (async () => {
+      await close();
+      try {
+        ws.close(1008, "share expired");
+      } catch {
+        // socket may already be closed
+      }
+    })();
+  }, Math.max(0, share.expiresAt - Date.now()));
 
   const onMessage = (message: unknown): void => {
     const text = decodeInboundMessage(message);
