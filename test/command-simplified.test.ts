@@ -165,8 +165,9 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe("codex --search");
   });
 
-  test("engine param selects built-in engines even when config omits them", () => {
+  test("engine param requires configured seed engines instead of runtime built-ins", () => {
     fakeConfig.commands = { default: "claude" };
+    fakeConfig.engines = { codex: { name: "codex", cmd: "codex" } };
     expect(buildCommand("any-agent", "codex")).toBe("codex");
   });
 

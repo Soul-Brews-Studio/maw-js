@@ -169,13 +169,52 @@ describe("config load coverage", () => {
     }
   });
 
+
+  test("loadConfig backfills ENGINE_SEED into existing configs without config.engines", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "maw-config-engine-seed-"));
+    try {
+      const configDir = join(sandbox, "config");
+      const configFile = join(configDir, "maw.config.json");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(configFile, JSON.stringify({
+        node: "legacy-node",
+        commands: { default: "claude --legacy" },
+      }));
+
+      const script = `
+        const { readFileSync } = await import("fs");
+        const { CONFIG_FILE } = await import("${process.cwd()}/src/core/paths.ts");
+        const { loadConfig } = await import("${process.cwd()}/src/config/load.ts");
+        const config = loadConfig();
+        const persisted = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+        console.log("RESULT:" + JSON.stringify({
+          commandDefault: config.commands.default,
+          engineKeys: Object.keys(config.engines ?? {}).sort(),
+          persistedEngineKeys: Object.keys(persisted.engines ?? {}).sort(),
+          persistedOmx: persisted.engines?.omx?.cmd,
+        }));
+      `;
+
+      const result = runConfigChild(script, { MAW_HOME: sandbox });
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("config.engines missing — seeded built-in engine definitions into config.engines (#2708)");
+      const payload = parseJsonLine(result.stdout, "RESULT:") as Record<string, any>;
+      expect(payload.commandDefault).toBe("claude --legacy");
+      expect(payload.engineKeys).toEqual(expect.arrayContaining(["claude", "codex", "omx"]));
+      expect(payload.persistedEngineKeys).toEqual(expect.arrayContaining(["claude", "codex", "omx"]));
+      expect(payload.persistedOmx).toBe("omx");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
   test("loadConfig migrates bind-address hosts without persisting when only in-memory heal is needed", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "maw-config-load-bind-"));
     try {
       const configDir = join(sandbox, "config");
       const configFile = join(configDir, "maw.config.json");
       mkdirSync(configDir, { recursive: true });
-      writeFileSync(configFile, JSON.stringify({ host: "0.0.0.0", node: "white" }));
+      writeFileSync(configFile, JSON.stringify({ host: "0.0.0.0", node: "white", engines: { claude: { name: "claude", cmd: "claude" } } }));
 
       const script = `
         const { readFileSync } = await import("fs");

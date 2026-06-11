@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-const { DEFAULT_ENGINES, defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeCommand, isClaudeLikeEngine, resolveEngine } = await import("../src/config/engine-registry");
+const { ENGINE_SEED, defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeCommand, isClaudeLikeEngine, resolveEngine } = await import("../src/config/engine-registry");
 const { validateBasicFields } = await import("../src/config/validate");
 
 describe("generic engine registry (#1960 P1)", () => {
-  test("lowers the legacy swarm known agents into dormant EngineDef defaults", () => {
-    expect(DEFAULT_ENGINES.claude).toMatchObject({
+  test("exposes seed-only engine definitions for init/bootstrap", () => {
+    expect(ENGINE_SEED.claude).toMatchObject({
       name: "claude",
       cmd: "claude",
       label: "Claude Code",
@@ -13,12 +13,12 @@ describe("generic engine registry (#1960 P1)", () => {
       resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
       model: { flag: "--model", default: "sonnet" },
     });
-    expect(DEFAULT_ENGINES.codex).toMatchObject({ name: "codex", cmd: "codex", label: "Codex CLI" });
-    expect(DEFAULT_ENGINES.opencode).toMatchObject({ name: "opencode", cmd: "opencode", label: "OpenCode" });
-    expect(DEFAULT_ENGINES.aider).toMatchObject({ name: "aider", cmd: "aider", label: "Aider" });
+    expect(ENGINE_SEED.codex).toMatchObject({ name: "codex", cmd: "codex", label: "Codex CLI" });
+    expect(ENGINE_SEED.opencode).toMatchObject({ name: "opencode", cmd: "opencode", label: "OpenCode" });
+    expect(ENGINE_SEED.aider).toMatchObject({ name: "aider", cmd: "aider", label: "Aider" });
   });
 
-  test("resolves config.engines before legacy commands and built-ins", () => {
+  test("resolves config.engines before legacy commands", () => {
     const engine = resolveEngine("codex", {
       engines: { codex: { name: "codex", cmd: "codex --config custom", label: "Custom Codex" } },
       commands: { default: "claude", codex: "codex --legacy" },
@@ -57,16 +57,9 @@ describe("generic engine registry (#1960 P1)", () => {
     });
   });
 
-  test("falls back to built-in engines, then raw command names", () => {
-    expect(resolveEngine("aider", { commands: { default: "claude" } } as any)).toMatchObject({
-      name: "aider",
-      cmd: "aider",
-      label: "Aider",
-    });
-    expect(resolveEngine("gemini", { commands: { default: "claude" } } as any)).toEqual({
-      name: "gemini",
-      cmd: "gemini",
-    });
+  test("fails loud instead of resolving unconfigured seed or raw engine names", () => {
+    expect(() => resolveEngine("aider", { commands: { default: "claude" } } as any)).toThrow(/engine 'aider' not resolvable/);
+    expect(() => resolveEngine("gemini", { commands: { default: "claude" } } as any)).toThrow(/engine 'gemini' not resolvable/);
   });
 
 
@@ -77,7 +70,7 @@ describe("generic engine registry (#1960 P1)", () => {
       commands: { default: "claude", codex: "codex --legacy", "bar-*": "bar-legacy" },
     } as any;
 
-    expect(engineNamesForConfig(config).slice(0, 5)).toEqual(["codex", "foo-*", "default", "bar-*", "claude"]);
+    expect(engineNamesForConfig(config)).toEqual(["codex", "foo-*", "default", "bar-*"]);
     expect(enginePatternKeysForConfig(config)).toEqual(["codex", "foo-*", "default", "bar-*"]);
   });
 
@@ -86,7 +79,8 @@ describe("generic engine registry (#1960 P1)", () => {
     expect(defaultEngineNameForConfig({ commands: { default: "claude --legacy" } } as any)).toBe("default");
     expect(defaultEngineNameForConfig({ defaultEngine: "codex" } as any)).toBe("codex");
 
-    expect(isClaudeLikeEngine("claude", {} as any)).toBe(true);
+    expect(() => isClaudeLikeEngine("claude", {} as any)).toThrow(/engine 'claude' not resolvable/);
+    expect(isClaudeLikeEngine("claude", { engines: { claude: ENGINE_SEED.claude } } as any)).toBe(true);
     expect(isClaudeLikeEngine("plain-claude", { engines: { "plain-claude": { name: "plain-claude", cmd: "claude" } } } as any)).toBe(false);
     expect(isClaudeLikeEngine("cap-claude", { engines: { "cap-claude": { name: "cap-claude", cmd: "codex", capabilities: ["system-prompt-file"] } } } as any)).toBe(true);
   });

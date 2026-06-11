@@ -6,6 +6,7 @@ import { refreshContext } from "../lib/context";
 import { verbose, info } from "../cli/verbosity";
 import type { MawConfig } from "./types";
 import { D } from "./types";
+import { ENGINE_SEED } from "./engine-registry";
 import { validateConfig } from "./validate-ext";
 import { loadFleetAgents } from "./fleet-merge";
 import { deepMerge, recordProvenance, type ProvenanceMap } from "./deep-merge";
@@ -41,6 +42,7 @@ const DEFAULTS: MawConfig = {
 let warnedGhqRoot = false;
 let warnedHostMigrated = false;
 let warnedHostNodeConflated = false;
+let warnedEngineSeedBackfilled = false;
 
 let cached: MawConfig | null = null;
 let cachedKey = "";
@@ -304,6 +306,19 @@ function buildLoadedConfig(opts: LoadConfigOptions = {}): LoadedConfigWithProven
   return { config: cached, sources, provenance, warnings };
 }
 
+function maybeBackfillEngineSeed(config: MawConfig): void {
+  if (config.engines && Object.keys(config.engines).length > 0) return;
+  config.engines = { ...ENGINE_SEED };
+  if (!warnedEngineSeedBackfilled) {
+    warnedEngineSeedBackfilled = true;
+    process.stderr.write(
+      `[maw] config.engines missing — seeded built-in engine definitions into config.engines (#2708). ` +
+      `Runtime engine resolution is now config-only; edit config.engines to customize.\n`,
+    );
+  }
+  persistLoadedConfig("config.engines seed migration (#2708)");
+}
+
 function maybeMigrateDefaultActivePlugins(config: MawConfig): void {
   const marker = DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION;
   if (config.migrations?.[marker]) return;
@@ -513,6 +528,7 @@ export function loadConfig(opts: LoadConfigOptions = {}): MawConfig {
     // (which is exactly what we want — they verify the disk write).
     persistLoadedConfig("config.host migration");
   }
+  maybeBackfillEngineSeed(cached);
   maybeMigrateDefaultActivePlugins(cached);
   maybeMigrateSplitTopAliasPlugin(cached);
   maybeMigrateShellenvStandardPlugin(cached);
@@ -569,6 +585,7 @@ export function resetConfig() {
   warnedGhqRoot = false;
   warnedHostMigrated = false;
   warnedHostNodeConflated = false;
+  warnedEngineSeedBackfilled = false;
 }
 
 /**

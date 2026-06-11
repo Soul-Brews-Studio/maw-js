@@ -1,8 +1,9 @@
 import type { MawConfig } from "./types";
 import type { EngineDef } from "./engine-def";
+import { UserError } from "../core/util/user-error";
 
-/** @deprecated Seed-only defaults. Prefer resolveEngine()/engineNamesForConfig(). */
-export const DEFAULT_ENGINES = {
+/** Seed-only engine definitions for maw init/bootstrap. Runtime resolvers must not consult this. */
+export const ENGINE_SEED = {
   claude: {
     name: "claude",
     cmd: "claude",
@@ -13,10 +14,14 @@ export const DEFAULT_ENGINES = {
     capabilities: ["channels", "resume", "model", "system-prompt-file"],
   },
   codex: { name: "codex", cmd: "codex", label: "Codex CLI", processNames: ["codex"] },
+  omx: { name: "omx", cmd: "omx", label: "Oh My Codex", processNames: ["omx", "codex"] },
   thclaws: { name: "thclaws", cmd: "thclaws", label: "thClaws", processNames: ["thclaws"] },
   opencode: { name: "opencode", cmd: "opencode", label: "OpenCode", processNames: ["opencode"] },
   aider: { name: "aider", cmd: "aider", label: "Aider", processNames: ["aider"] },
 } satisfies Record<string, EngineDef>;
+
+/** @deprecated Use ENGINE_SEED for config seeding only; not used by runtime resolution. */
+export const DEFAULT_ENGINES = ENGINE_SEED;
 
 export type EngineRegistry = Record<string, EngineDef>;
 
@@ -38,7 +43,7 @@ function legacyCommandProcessName(cmd: string): string | undefined {
 }
 
 function fromLegacyCommand(name: string, cmd: string): EngineDef {
-  const builtIn = DEFAULT_ENGINES[name];
+  const builtIn = ENGINE_SEED[name];
   const bin = legacyCommandProcessName(cmd);
   const processNames = bin && bin !== "default"
     ? [...new Set([bin, ...(builtIn?.processNames ?? [])])]
@@ -56,8 +61,10 @@ function fromLegacyCommand(name: string, cmd: string): EngineDef {
  * Resolve an engine definition without changing any launch behavior yet (#1960 P1).
  *
  * Precedence mirrors the planned migration contract:
- * config.engines[name] > legacy config.commands[name] > DEFAULT_ENGINES[name] >
- * a raw command named like the requested engine.
+ * config.engines[name] > legacy config.commands[name].
+ *
+ * ENGINE_SEED is intentionally excluded from runtime resolution (#2708). Fresh
+ * installs persist seed entries into config.engines during maw init/bootstrap.
  */
 export function resolveEngine(name: string, config: Partial<MawConfig> = {}): EngineDef {
   const configured = config.engines?.[name];
@@ -66,17 +73,14 @@ export function resolveEngine(name: string, config: Partial<MawConfig> = {}): En
   const legacy = config.commands?.[name];
   if (legacy) return fromLegacyCommand(name, legacy);
 
-  const builtIn = DEFAULT_ENGINES[name];
-  if (builtIn) return { ...builtIn };
-
-  return { name, cmd: name };
+  const known = engineNamesForConfig(config).sort().join(", ") || "none";
+  throw new UserError(`engine '${name}' not resolvable — known: [${known}]; define it in config.engines/config.commands or run maw init to seed config.engines`);
 }
 
 export function engineNamesForConfig(config: Partial<MawConfig> = {}): string[] {
   return [...new Set([
     ...Object.keys(config.engines ?? {}),
     ...Object.keys(config.commands ?? {}),
-    ...Object.keys(DEFAULT_ENGINES),
   ])];
 }
 

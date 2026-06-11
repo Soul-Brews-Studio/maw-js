@@ -1,5 +1,4 @@
 import type { MawConfig } from "./types";
-import { DEFAULT_ENGINES } from "./engine-registry";
 
 /** @internal Validates basic scalar/map fields: host, port, ghqRoot, oracleUrl, env, commands, sessions, tmuxSocket */
 export function validateBasicFields(
@@ -92,13 +91,12 @@ export function validateBasicFields(
         : {};
       const defaultEngineResolves = !!explicitDefaultEngine && (
         explicitDefaultEngine in validCommands ||
-        explicitDefaultEngine in engines ||
-        explicitDefaultEngine in DEFAULT_ENGINES
+        explicitDefaultEngine in engines
       );
       if (!("default" in validCommands) && explicitDefaultEngine && !defaultEngineResolves) {
         warn("commands", `has no default entry and defaultEngine '${explicitDefaultEngine}' is not configured`);
-      } else if (!("default" in validCommands) && !explicitDefaultEngine && (validCommandNames.length > 0 || Object.keys(cmds).length === 0)) {
-        warn("commands", "has no default entry and no defaultEngine; bare wake will use built-in claude");
+      } else if (!("default" in validCommands) && !explicitDefaultEngine && !("default" in engines) && Object.keys(engines).length === 0 && (validCommandNames.length > 0 || Object.keys(cmds).length === 0)) {
+        warn("commands", "has no default entry and no defaultEngine; bare wake requires config.engines/defaultEngine or maw init seed");
       }
     } else {
       warn("commands", "must be an object");

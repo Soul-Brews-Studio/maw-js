@@ -351,13 +351,18 @@ describe("bud impl extra isolated coverage", () => {
 
 describe("init write-config extra isolated coverage", () => {
   test("buildConfig writes local host defaults, optional token/ghqRoot, and federation peers only when enabled", () => {
-    expect(buildConfig({ node: "white" })).toEqual({
+    expect(buildConfig({ node: "white" })).toMatchObject({
       host: "local",
       node: "white",
       port: 3456,
       oracleUrl: "http://localhost:47779",
       env: {},
-      commands: { default: "claude --dangerously-skip-permissions --continue" },
+      engines: {
+        claude: expect.objectContaining({ name: "claude", cmd: "claude" }),
+        codex: expect.objectContaining({ name: "codex", cmd: "codex" }),
+        omx: expect.objectContaining({ name: "omx", cmd: "omx" }),
+      },
+      commands: {},
       sessions: {},
     });
 

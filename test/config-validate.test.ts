@@ -124,14 +124,14 @@ describe("validateBasicFields", () => {
     const { result, warnings } = collectBasic({ commands: {} });
 
     expect(result).toEqual({});
-    expect(warnings).toEqual(["commands: has no default entry and no defaultEngine; bare wake will use built-in claude"]);
+    expect(warnings).toEqual(["commands: has no default entry and no defaultEngine; bare wake requires config.engines/defaultEngine or maw init seed"]);
   });
 
-  test("accepts empty commands when defaultEngine resolves to a built-in engine", () => {
-    const { result, warnings } = collectBasic({ commands: {}, defaultEngine: "claude" });
+  test("accepts empty commands when defaultEngine resolves to a configured engine", () => {
+    const { result, warnings } = collectBasic({ commands: {}, defaultEngine: "claude", engines: { claude: { cmd: "claude" } } });
 
     expect(warnings).toEqual([]);
-    expect(result).toEqual({ defaultEngine: "claude" });
+    expect(result).toEqual({ defaultEngine: "claude", engines: { claude: { name: "claude", cmd: "claude" } } });
   });
 });
 

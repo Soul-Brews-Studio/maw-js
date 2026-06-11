@@ -25,8 +25,7 @@ export {
   getEnvVars, cfgTimeout, cfgLimit, cfgInterval, cfg, D,
   resetConfig,
 } from "../config";
-/** @deprecated DEFAULT_ENGINES is seed-only; plugins should call resolveEngine(). */
-export { DEFAULT_ENGINES, defaultEngineNameForConfig, resolveEngine } from "../config/engine-registry";
+export { ENGINE_SEED, defaultEngineNameForConfig, resolveEngine } from "../config/engine-registry";
 export { getGhqRoot } from "../config/ghq-root";
 export {
   isMawXdgEnabled,

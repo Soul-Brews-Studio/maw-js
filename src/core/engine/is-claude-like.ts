@@ -25,7 +25,6 @@ export function isClaudeLikeEngine(
 ): boolean {
   const name = engine?.trim();
   if (!name) return false;
-  if (name.toLowerCase() === "claude") return true;
 
   const def = resolveEngine(name, config);
   if (isClaudeLikeCommand(def.cmd)) return true;
