@@ -60,7 +60,12 @@ describe("share hardening", () => {
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
     expect(viewer).toContain("await loadShareMetadata();");
     expect(viewer).toContain("metadata?.control === true");
+    expect(viewer).toContain("params.get(\"c\")");
+    expect(viewer).toContain("x-maw-control-token");
+    expect(viewer).toContain("x-maw-control-signature");
     expect(viewer).toContain("x-maw-share-write-token");
+    expect(viewer).toContain("JSON.stringify({ slug, ...body })");
+    expect(viewer).toContain("signControlRequest(\"POST\", path, rawBody)");
     expect(viewer).toContain("/api/control/${encodeURIComponent(target)}/${action}");
     expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "send", { text, enter })');
     expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "key", { key })');

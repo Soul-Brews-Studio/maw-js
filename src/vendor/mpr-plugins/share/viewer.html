@@ -239,7 +239,7 @@
         const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;
         const wsUrl = () => `${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
         let shareMetadata = { control: false, writeToken: "", panes: [], target: "" };
-        let controlWriteToken = params.get("w") || params.get("writeToken") || "";
+        let controlWriteToken = params.get("c") || params.get("w") || params.get("writeToken") || "";
 
         const metadataUrl = () => `/api/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
 
@@ -358,18 +358,40 @@
           return shareMetadata.panes[0] || shareMetadata.target || id;
         };
 
-        const controlHeaders = () => ({
+        const hmacSha256Hex = async (secret, message) => {
+          const key = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"],
+          );
+          const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+          return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+
+        const controlHeaders = (signature) => ({
           "content-type": "application/json",
           "authorization": `Bearer ${controlWriteToken}`,
+          "x-maw-control-token": controlWriteToken,
+          "x-maw-control-signature": signature,
           "x-maw-share-write-token": controlWriteToken,
         });
 
+        const signControlRequest = async (method, path, rawBody) => {
+          const bodyHash = await sha256Hex(rawBody);
+          return hmacSha256Hex(controlWriteToken, `${method.toUpperCase()}\n${path}\n${bodyHash}`);
+        };
+
         const postControl = async (target, action, body = {}) => {
           if (!controlsEnabled()) throw new Error("share control is not enabled");
-          const response = await fetch(`/api/control/${encodeURIComponent(target)}/${action}`, {
+          const path = `/api/control/${encodeURIComponent(target)}/${action}`;
+          const rawBody = JSON.stringify({ slug, ...body });
+          const signature = await signControlRequest("POST", path, rawBody);
+          const response = await fetch(path, {
             method: "POST",
-            headers: controlHeaders(),
-            body: JSON.stringify(body),
+            headers: controlHeaders(signature),
+            body: rawBody,
           });
           if (!response.ok) {
             const detail = await response.text().catch(() => "");
