@@ -49,6 +49,8 @@ function restoreResolverEnv(): void {
 
 let tmuxSessions: Array<{ name: string }> = [];
 let hostExecOut = "";
+let ghqListRepos: string[] = [];
+let ghqFindResult: string | null = null;
 
 mock.module(join(root, "sdk"), () => ({
   tmux: {
@@ -57,6 +59,11 @@ mock.module(join(root, "sdk"), () => ({
   hostExec: async () => hostExecOut,
   curlFetch: async () => ({ ok: false }),
   FLEET_DIR: "/tmp/maw-test-nonexistent-fleet",
+}));
+
+mock.module(join(root, "core/ghq"), () => ({
+  ghqList: async () => ghqListRepos,
+  ghqFind: async () => ghqFindResult,
 }));
 
 mock.module(join(root, "config"), () => mockConfigModule(() => ({
@@ -73,6 +80,7 @@ const {
   findReusableWorktreeBySlug,
   resolveFromWorktrees,
   setSessionEnv,
+  resolveOracle,
 } = await import("./wake-resolve-impl");
 
 
@@ -80,6 +88,8 @@ beforeEach(() => {
   resetResolverEnv();
   tmuxSessions = [];
   hostExecOut = "";
+  ghqListRepos = [];
+  ghqFindResult = null;
 });
 
 afterEach(() => {
@@ -382,6 +392,22 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
         "laris-co/pulse-oracle",
         "Soul-Brews-Studio/pulse-oracle",
       ],
+    });
+  });
+});
+
+describe("resolveOracle local path selection (canonical vs archive)", () => {
+  it("prefers canonical github.com/<org>/<repo> over _archive duplicates", async () => {
+    ghqListRepos = [
+      "/opt/Code/_archive/oracle-world/github.com/Soul-Brews-Studio/mawjs-oracle",
+      "/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle",
+      "/opt/Code/github.com/github.com/Soul-Brews-Studio/mawjs-oracle",
+    ];
+
+    await expect(resolveOracle("mawjs")).resolves.toEqual({
+      repoPath: "/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle",
+      repoName: "mawjs-oracle",
+      parentDir: "/opt/Code/github.com/Soul-Brews-Studio",
     });
   });
 });

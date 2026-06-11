@@ -2,6 +2,7 @@ import { listSessions, type OracleEntry } from "../../../sdk";
 import { ghqFind, ghqList } from "../../../core/ghq";
 import { UserError } from "../../../core/util/user-error";
 import { loadFleetEntries } from "../../shared/fleet-load";
+import { canonicalRepoKey, normalizeGhqRepos } from "../../../core/repo-discovery/ghq-normalize";
 
 /** Like resolveOracle but returns null instead of throwing on miss */
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
@@ -11,7 +12,7 @@ export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: str
     return parseRepoPath(repoPath);
   }
 
-  const repos = await ghqList().catch(() => [] as string[]);
+  const repos = normalizeGhqRepos(await ghqList().catch(() => [] as string[]));
   const wantedOracle = `${oracle}-oracle`.toLowerCase();
   const directName = oracle.toLowerCase();
 
@@ -34,35 +35,10 @@ function repoCandidatesByBasename(repos: string[], basename: string): string[] {
   const seen = new Map<string, string>();
   for (const repoPath of repos) {
     if (repoPath.split("/").pop()?.toLowerCase() !== basename) continue;
-    if (isArchiveLikePath(repoPath)) continue;
     const key = canonicalRepoKey(repoPath);
     if (!seen.has(key)) seen.set(key, repoPath);
   }
   return [...seen.values()];
-}
-
-function isArchiveLikePath(repoPath: string): boolean {
-  const archiveSegments = new Set([
-    "_archive",
-    ".archive",
-    "archive",
-    "archives",
-    "backup",
-    "backups",
-    "snapshot",
-    "snapshots",
-  ]);
-  return repoPath
-    .split("/")
-    .some((segment) => archiveSegments.has(segment.toLowerCase()));
-}
-
-function canonicalRepoKey(repoPath: string): string {
-  const normalized = repoPath.replace(/\\/g, "/").toLowerCase();
-  const marker = "/github.com/";
-  const markerIndex = normalized.lastIndexOf(marker);
-  if (markerIndex >= 0) return normalized.slice(markerIndex + marker.length);
-  return normalized;
 }
 
 function ambiguousOracleError(oracle: string, candidates: string[]): UserError {

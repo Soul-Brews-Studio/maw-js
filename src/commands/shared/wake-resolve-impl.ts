@@ -1,6 +1,6 @@
 import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
-import { ghqFind, ghqList } from "../../core/ghq";
+import { ghqFind } from "../../core/ghq";
 import {
   pickOracle,
   rankOracleCandidates,
@@ -312,12 +312,9 @@ async function liveOracleCandidates(candidates: OracleRef[]): Promise<Set<string
 async function resolveLocalOracleWithPicker(
   oracle: string,
 ): Promise<{ repoPath: string; repoName: string; parentDir: string; fuzzy: boolean } | null> {
-  const repos = await ghqList().catch(() => [] as string[]);
-  if (repos.length === 0) return null;
   let result = await resolveSharedOracle(oracle, {
     nameSpace: "oracle",
     matchPolicy: "exact",
-    repos,
   });
   let fuzzy = false;
 
@@ -325,7 +322,6 @@ async function resolveLocalOracleWithPicker(
     result = await resolveSharedOracle(oracle, {
       nameSpace: "oracle",
       matchPolicy: "substring",
-      repos,
     });
     fuzzy = result.kind === "exact";
   }

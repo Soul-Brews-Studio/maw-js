@@ -1,6 +1,7 @@
 import { ghqList } from "./ghq";
 import { lstatSync, readdirSync, statSync } from "fs";
 import { join } from "path";
+import { normalizeGhqRepos } from "./repo-discovery/ghq-normalize";
 
 export type OracleRef = { owner: string; repo: string; path?: string };
 
@@ -220,9 +221,12 @@ function matchesRef(ref: OracleRef, query: string, matchPolicy: ResolveOracleOpt
 }
 
 async function readRepos(opts: ResolveOracleOptions): Promise<string[]> {
-  if (Array.isArray(opts.repos)) return opts.repos;
-  if (opts.repos) return opts.repos();
-  return ghqList();
+  const repos = Array.isArray(opts.repos)
+    ? opts.repos
+    : opts.repos
+      ? await opts.repos()
+      : await ghqList();
+  return normalizeGhqRepos(repos);
 }
 
 /**
