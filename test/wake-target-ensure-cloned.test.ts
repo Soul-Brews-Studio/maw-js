@@ -77,13 +77,10 @@ describe("ensureCloned", () => {
     expect(rendered.join("\n")).toContain("cloning org/repo");
   });
 
-  test("logs clone failures and leaves downstream resolution to continue", async () => {
+  test("throws clone failures for explicit targets", async () => {
     hostExecError = new Error("network down");
 
-    const rendered = await captureLogs(() => ensureCloned("org/repo"));
-
+    await expect(captureLogs(() => ensureCloned("org/repo"))).rejects.toThrow("ghq get failed for org/repo: network down");
     expect(hostExecCalls).toEqual(["ghq get github.com/org/repo"]);
-    expect(rendered.join("\n")).toContain("clone failed: network down");
-    expect(rendered.join("\n")).toContain("falling back to normal resolution");
   });
 });

@@ -134,6 +134,13 @@ describe("fleet-load coverage", () => {
     ]);
   });
 
+  test("loadFleetEntries fails loud on truncated active fleet JSON", () => {
+    const broken = join(fleetDir, "008-broken.json");
+    writeFileSync(broken, "{not json");
+
+    expect(() => fleetLoad.loadFleetEntries()).toThrow(`invalid fleet JSON ${broken}:`);
+  });
+
   test("loadFleetEntries reads XDG state fleet first with legacy config fallback", () => {
     writeFileSync(join(fleetDir, "10-legacy-only.json"), JSON.stringify({ name: "legacy", windows: [] }));
     writeFileSync(join(fleetDir, "20-overlap.json"), JSON.stringify({ name: "legacy-overlap", windows: [] }));
@@ -185,7 +192,7 @@ describe("fleet-load coverage", () => {
     ]);
   });
 
-  test("loadFleetEntries falls back past malformed XDG state fleet files", () => {
+  test("loadFleetEntries fails loud on malformed XDG state fleet files instead of silently using legacy fallback", () => {
     writeFileSync(join(fleetDir, "20-overlap.json"), JSON.stringify({
       name: "legacy-overlap",
       windows: [{ name: "legacy-recovers" }],
@@ -194,20 +201,10 @@ describe("fleet-load coverage", () => {
       name: "state",
       windows: [{ name: "state-oracle" }],
     }));
-    writeFileSync(join(stateFleetDir, "20-overlap.json"), "{not json");
+    const broken = join(stateFleetDir, "20-overlap.json");
+    writeFileSync(broken, "{not json");
 
-    expect(fleetLoad.loadFleetEntries().map(({ file, path, session }) => ({ file, path, session }))).toEqual([
-      {
-        file: "10-state-only.json",
-        path: join(stateFleetDir, "10-state-only.json"),
-        session: { name: "state", windows: [{ name: "state-oracle" }] },
-      },
-      {
-        file: "20-overlap.json",
-        path: join(fleetDir, "20-overlap.json"),
-        session: { name: "legacy-overlap", windows: [{ name: "legacy-recovers" }] },
-      },
-    ]);
+    expect(() => fleetLoad.loadFleetEntries()).toThrow(`invalid fleet JSON ${broken}:`);
   });
 
   test("getSessionNames returns trimmed tmux session names and [] on tmux errors", async () => {

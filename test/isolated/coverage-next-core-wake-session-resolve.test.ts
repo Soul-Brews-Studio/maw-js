@@ -83,7 +83,7 @@ describe("coverage next wake-session", () => {
     expect(wakeSession.readWorktreeEngineFile(wt)).toBe("opencode");
 
     writeFileSync(join(wt, ".maw-engine"), "bad;rm -rf /\n", "utf-8");
-    expect(wakeSession.readWorktreeEngineFile(wt)).toBeUndefined();
+    expect(() => wakeSession.readWorktreeEngineFile(wt)).toThrow("invalid worktree engine marker");
   });
 
   test("ensureSessionRunning retries idle shells with default commands and skips busy panes", async () => {

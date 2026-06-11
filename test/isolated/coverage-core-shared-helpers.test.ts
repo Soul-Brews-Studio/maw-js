@@ -201,16 +201,17 @@ describe("coverage core shared helpers", () => {
     expect(wakeTarget.parseWakeTarget("neo")).toBeNull();
   });
 
-  test("ensureCloned skips existing ghq hits and degrades on clone failure", async () => {
+  test("ensureCloned skips existing ghq hits and fails loud on clone failure", async () => {
     ghqHit = "/gh/Soul-Brews-Studio/neo-oracle";
     await wakeTarget.ensureCloned("Soul-Brews-Studio/neo-oracle");
     expect(hostExecCalls).toEqual([]);
 
     ghqHit = "";
     hostExecShouldReject = true;
-    await wakeTarget.ensureCloned("Soul-Brews-Studio/missing-oracle");
+    await expect(wakeTarget.ensureCloned("Soul-Brews-Studio/missing-oracle")).rejects.toThrow(
+      "ghq get failed for Soul-Brews-Studio/missing-oracle",
+    );
     expect(hostExecCalls).toEqual(["ghq get github.com/Soul-Brews-Studio/missing-oracle"]);
-    expect(logs.join("\n")).toContain("clone failed");
   });
 
   test("PID lock signal handlers remove the lock file before exiting", () => {

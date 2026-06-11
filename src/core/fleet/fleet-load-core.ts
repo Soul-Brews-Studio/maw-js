@@ -63,9 +63,9 @@ function readFleetFiles(dirs: string[]): Array<{ file: string; path: string; ses
       const path = join(dir, file);
       try {
         byName.set(file, { file, path, session: JSON.parse(readFileSync(path, "utf-8")) as FleetSession });
-      } catch {
-        // Keep looking in fallback dirs. A malformed state-first fleet file
-        // should not shadow a valid legacy config with the same filename.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`invalid fleet JSON ${path}: ${message}`);
       }
     }
   }

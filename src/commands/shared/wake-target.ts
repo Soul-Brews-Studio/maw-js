@@ -70,8 +70,8 @@ export function parseWakeTarget(target: string): ParsedWakeTarget | null {
 
 /**
  * Ensure a repo is cloned via ghq. Checks locally first (fast),
- * clones from GitHub only if not found. Silent on failure — lets
- * resolveOracle handle the error downstream.
+ * clones from GitHub only if not found. Clone failures are fatal for an
+ * explicit GitHub target so wake does not silently resolve a different repo.
  */
 export async function ensureCloned(slug: string): Promise<void> {
   const ghqHit = await ghqFind(`/${slug}`);
@@ -80,6 +80,7 @@ export async function ensureCloned(slug: string): Promise<void> {
   try {
     await hostExec(`ghq get github.com/${slug}`);
   } catch (e: any) {
-    console.log(`\x1b[33m⚠\x1b[0m clone failed: ${e.message || e}\n  falling back to normal resolution`);
+    const message = e?.message || String(e);
+    throw new Error(`ghq get failed for ${slug}: ${message}`);
   }
 }

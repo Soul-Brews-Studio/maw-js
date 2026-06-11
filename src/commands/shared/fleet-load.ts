@@ -58,6 +58,10 @@ export function resolveFleetSession(oracle: string): string | null {
   try {
     const resolved = resolveFleetWindowSessionTarget(oracle, loadFleet());
     if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
-  } catch { /* fleet dir may not exist */ }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("invalid fleet JSON ")) throw error;
+    /* fleet dir may not exist */
+  }
   return null;
 }

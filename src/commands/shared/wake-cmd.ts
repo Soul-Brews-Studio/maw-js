@@ -875,11 +875,14 @@ async function loadWakeFleetSessions(): Promise<FleetSession[]> {
   try {
     const { loadFleet } = await import("./fleet-load");
     return loadFleet();
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("invalid fleet JSON ")) throw error;
     // Some isolated tests mock the SDK facade narrowly and intentionally omit
     // fleet constants. Fleet metadata is an optimization for exact numeric
     // targets, so a load failure should fall back to the pre-#1892 resolver
-    // path rather than breaking ordinary wake paths.
+    // path rather than breaking ordinary wake paths. Malformed readable fleet
+    // files are rethrown above so corrupt JSON cannot silently reroute wake.
     return [];
   }
 }

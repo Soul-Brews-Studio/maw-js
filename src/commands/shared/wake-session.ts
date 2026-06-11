@@ -74,18 +74,25 @@ async function acquireWorktreePathLock(
 function normalizeWorktreeEngineName(engine: string | undefined, fallbackToClaude = false): string | undefined {
   const normalized = ((engine ?? (fallbackToClaude ? "claude" : ""))).trim().split(/\r?\n/, 1)[0]?.trim();
   if (!normalized) return undefined;
-  // Engine names are config keys / built-ins. Ignore unsafe file contents rather
-  // than letting a compromised worktree marker become a shell command.
+  // Engine names are config keys / built-ins. Reject unsafe file contents
+  // loudly at read-time so rehydrate never silently falls back to the wrong engine.
   if (!/^[A-Za-z0-9_.:-]+$/.test(normalized)) return undefined;
   return normalized;
 }
 
 export function readWorktreeEngineFile(wtPath: string): string | undefined {
+  const marker = join(wtPath, WORKTREE_ENGINE_FILE);
+  let raw: string;
   try {
-    return normalizeWorktreeEngineName(readFileSync(join(wtPath, WORKTREE_ENGINE_FILE), "utf-8"));
+    raw = readFileSync(marker, "utf-8");
   } catch {
     return undefined;
   }
+  const normalized = normalizeWorktreeEngineName(raw);
+  if (!normalized) {
+    throw new Error(`invalid worktree engine marker ${marker}: expected /^[A-Za-z0-9_.:-]+$/`);
+  }
+  return normalized;
 }
 
 export function writeWorktreeEngineFile(
