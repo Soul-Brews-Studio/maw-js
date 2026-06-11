@@ -495,6 +495,19 @@ export function verifyRequest(args: {
   const legacySignedAtIso = (headers.get("x-maw-signed-at") ?? "").trim();
   const hasV3Sig = !!from && !!v3Sig && !!v3Timestamp;
   const hasLegacySig = !!from && !!legacySig && !!legacySignedAtIso;
+  const hasAnyV3Header = !!v3Sig || !!v3Timestamp;
+  const hasAnyLegacyHeader = !!legacySig || !!legacySignedAtIso;
+  const partialV3 = hasAnyV3Header && !hasV3Sig;
+  const partialLegacy = !hasV3Sig && hasAnyLegacyHeader && !hasLegacySig;
+
+  if ((from && !hasAnyV3Header && !hasAnyLegacyHeader) || partialV3 || partialLegacy) {
+    if (!from) return { kind: "refuse-malformed", reason: "missing-from" };
+    if (partialV3 && !v3Sig) return { kind: "refuse-malformed", reason: "missing-signature" };
+    if (partialV3 && !v3Timestamp) return { kind: "refuse-malformed", reason: "invalid-timestamp" };
+    if (partialLegacy && !legacySig) return { kind: "refuse-malformed", reason: "missing-signature" };
+    if (partialLegacy && !legacySignedAtIso) return { kind: "refuse-malformed", reason: "invalid-signed-at" };
+    return { kind: "refuse-malformed", reason: "missing-signature" };
+  }
 
   const cached = from ? (args.lookupPubkey(from) ?? undefined) : undefined;
   // "Signed" means the v3 from-signing trio is present. During alpha, accept
