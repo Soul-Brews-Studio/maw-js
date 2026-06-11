@@ -24,6 +24,23 @@ Bun v1.3+ is required. tmux is needed for multi-agent features. On Linux, `ssh` 
 
 > **Don't trust grep on minified Bun bundles.** `bun build --minify` renames identifiers and dead-strips strings, so `strings dist/maw | grep <symbol>` is a false-negative trap. Run the binary instead — that's what `bun run preflight` does. See [docs/process/local-build-first.md](./docs/process/local-build-first.md).
 
+## Testing gates
+
+Use the scripted gates, not raw `bun test`, for full-suite local validation:
+
+```bash
+bun run test          # default-safe suite; isolates default files that use mock.module()
+bun run test:isolated # runs test/isolated/* with Bun --isolate/per-file isolation
+bun run test:all      # default-safe + isolated + mock-smoke + plugin suites
+```
+
+Raw `bun test` is **not** a valid full-suite gate for maw-js. The repository
+contains many mock-heavy isolated tests; without `--isolate` they can race or
+bleed `mock.module()` registrations, globals, timers, and process shims into
+unrelated files. If you need to run isolated tests directly, use
+`scripts/test-isolated.sh` (or `bun run test:isolated`) so each file gets the
+intended isolation boundary.
+
 ## ReDoS pre-flight
 
 `scripts/check-redos.ts` is a lightweight rules-based scanner that catches the regex shapes most likely to trip GitHub CodeQL's `js/polynomial-redos` alert. It's not a CodeQL replacement — CodeQL still runs in CI and is the authoritative gate. This script just shaves the ~5 min CI round-trip when a fixable ReDoS slips into a PR.
