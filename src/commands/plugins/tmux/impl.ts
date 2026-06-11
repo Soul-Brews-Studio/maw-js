@@ -268,6 +268,7 @@ interface AnnotatedPane {
     active?: boolean;
   };
   attached?: boolean;
+  attachedClients?: number;
 }
 
 export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
@@ -595,6 +596,7 @@ async function collectTmuxLsState(opts: TmuxLsOpts = {}): Promise<TmuxLsState> {
       active: p.active,
       window: p.window,
       attached: p.attached,
+      ...(p.attachedClients !== undefined ? { attachedClients: p.attachedClients } : {}),
     };
   });
 

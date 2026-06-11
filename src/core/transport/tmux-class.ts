@@ -284,6 +284,7 @@ export class Tmux {
         if (parts.length < 3) return [];
         const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached, dead] = parts;
         if (!id?.startsWith("%") || !target || bool(dead)) return [];
+        const attachedClients = num(attached) ?? 0;
         return [{
           id,
           command,
@@ -301,7 +302,8 @@ export class Tmux {
           winName: winName || undefined,
           active: bool(paneActive),
           window: { w: num(winW), h: num(winH), active: bool(winActive) },
-          attached: bool(attached),
+          attached: attachedClients > 0,
+          ...(attachedClients > 1 ? { attachedClients } : {}),
         }];
       });
     } catch { return []; }

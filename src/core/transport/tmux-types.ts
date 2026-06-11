@@ -33,6 +33,7 @@ export interface TmuxPane {
     active?: boolean;
   };
   attached?: boolean;
+  attachedClients?: number;
 }
 
 export interface TmuxWindow {
