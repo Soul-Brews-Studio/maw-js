@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>maw share</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0d0d0d;
+        color: #d1d5db;
+        height: 100%;
+      }
+
+      #fallback {
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+
+      #term {
+        width: 100%;
+        height: 100%;
+      }
+
+      xterm-host, #xterm {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+    <script src="https://unpkg.com/@xterm/xterm/lib/xterm.js"></script>
+    <script src="https://unpkg.com/@xterm/addon-fit/lib/addon-fit.js"></script>
+  </head>
+  <body>
+    <div id="fallback" style="display:none;">xterm.js failed to load; falling back to static display.</div>
+    <div id="term"></div>
+    <pre id="ansi-fallback" style="display:none; margin:0;"></pre>
+
+    <script>
+      (() => {
+        const match = location.pathname.match(/\/share\/([^/?#]+)/);
+        const slug = match?.[1] || "";
+        const params = new URLSearchParams(location.hash?.replace(/^#/, "") || "");
+        const token = params.get("t") || params.get("token") || "";
+        const wsProto = location.protocol === "https:" ? "wss" : "ws";
+        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?t=${encodeURIComponent(token)}`);
+
+        const fallback = document.getElementById("fallback");
+        const termHost = document.getElementById("term");
+        const pre = document.getElementById("ansi-fallback");
+
+        const writeFallback = (chunk) => {
+          pre.textContent += chunk;
+          pre.parentElement?.appendChild(pre);
+          pre.style.display = "block";
+          termHost.style.display = "none";
+        };
+
+        const initTerminal = () => {
+          if (!window.Terminal || !window.FitAddon) {
+            fallback.textContent = "xterm.js unavailable; using fallback terminal.";
+            fallback.style.display = "block";
+            return false;
+          }
+
+          const term = new window.Terminal({
+            theme: { background: "#0d0d0d", foreground: "#d1d5db" },
+            convertEol: true,
+            disableStdin: true,
+            cursorBlink: false,
+          });
+
+          const fit = new window.FitAddon.FitAddon();
+          term.loadAddon(fit);
+          term.open(termHost);
+          const resize = () => {
+            try { fit.fit(); } catch { /* resize is advisory */ }
+          };
+          window.addEventListener("resize", resize);
+          resize();
+
+          socket.addEventListener("message", (event) => {
+            term.write(typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data));
+          });
+          return true;
+        };
+
+        if (!initTerminal()) {
+          socket.addEventListener("message", (event) => {
+            if (typeof event.data === "string") {
+              writeFallback(event.data);
+            } else {
+              writeFallback(new TextDecoder().decode(event.data));
+            }
+          });
+        }
+
+        socket.addEventListener("open", () => {
+          try {
+            socket.send("ping");
+          } catch {
+            // ignore
+          }
+        });
+
+        socket.addEventListener("close", () => {
+          // read-only: nothing to do
+        });
+
+        socket.addEventListener("error", () => {
+          if (fallback.style.display === "none") {
+            fallback.textContent = "Connection error while opening share.";
+            fallback.style.display = "block";
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

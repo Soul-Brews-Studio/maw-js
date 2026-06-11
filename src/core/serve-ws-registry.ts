@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./types";
 
-export type ServeWsData = WSData & { __serveWsRoute?: string };
+export type ServeWsData = WSData & { __serveWsRoute?: string; params?: Record<string, string> };
 export type ServeWsSocket = ServerWebSocket<ServeWsData>;
 
 export type ServeWsDataFactory = (request: Request) => WSData;
@@ -32,9 +32,14 @@ type RegisteredServeWsRoute = {
   data: ServeWsDataFactory;
   handlers: ServeWsRouteHandlers;
 };
+type RouteMatch = {
+  params: Record<string, string>;
+  route: RegisteredServeWsRoute;
+};
 
 export class ServeWsRegistry implements ServeWsRouteRegistrar {
   private readonly routes = new Map<string, RegisteredServeWsRoute>();
+  private readonly paramRoutes: RegisteredServeWsRoute[] = [];
 
   readonly handlers = {
     open: (ws: ServeWsSocket) => this.dispatch("open", ws),
@@ -45,15 +50,45 @@ export class ServeWsRegistry implements ServeWsRouteRegistrar {
   route(path: string, data: ServeWsDataFactory, handlers: ServeWsRouteHandlers): void {
     assertAbsolutePath(path);
     if (this.routes.has(path)) throw new Error(`serve ws route already registered: ${path}`);
-    this.routes.set(path, { path, data, handlers });
+    const entry = { path, data, handlers };
+    this.routes.set(path, entry);
+    if (path.includes(":")) this.paramRoutes.push(entry);
+  }
+
+  private match(pathname: string): RouteMatch | null {
+    const exact = this.routes.get(pathname);
+    if (exact && !exact.path.includes(":")) {
+      return { route: exact, params: {} };
+    }
+
+    for (const entry of this.paramRoutes) {
+      const template = entry.path.split("/").filter(Boolean);
+      const actual = pathname.split("/").filter(Boolean);
+      if (template.length !== actual.length) continue;
+      const params: Record<string, string> = {};
+      let ok = true;
+      for (let i = 0; i < template.length; i += 1) {
+        const token = template[i];
+        if (token.startsWith(":")) {
+          params[token.slice(1)] = decodeURIComponent(actual[i] ?? "");
+        } else if (token !== actual[i]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return { route: entry, params };
+    }
+
+    return null;
   }
 
   handleUpgrade(req: Request, server: { upgrade: (request: Request, options: { data: ServeWsData }) => boolean }): ServeWsUpgradeResult {
     const url = new URL(req.url);
-    const route = this.routes.get(url.pathname);
+    const match = this.match(url.pathname);
+    const route = match?.route;
     if (!route) return { matched: false };
 
-    const data = { ...route.data(req), __serveWsRoute: route.path } as ServeWsData;
+    const data = { ...route.data(req), __serveWsRoute: route.path, ...(Object.keys(match?.params ?? {}).length ? { params: match?.params } : {}) } as ServeWsData;
     if (server.upgrade(req, { data })) return { matched: true };
     return { matched: true, response: new Response("WebSocket upgrade failed", { status: 400 }) };
   }

@@ -10,7 +10,8 @@
     "flags": {
       "--read-only": "boolean",
       "--ttl": "number",
-      "--port": "number"
+      "--port": "number",
+      "--auth": "string"
     }
   },
   "weight": 10,
