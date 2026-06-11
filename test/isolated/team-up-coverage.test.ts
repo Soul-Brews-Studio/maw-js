@@ -56,6 +56,8 @@ function fakeTmux(lines: string[]) {
 }
 
 const config = { commands: {
+  claude: "maw run claude",
+  "claude-resume": "maw run claude-resume",
   omx: "maw run omx",
   "omx-resume": "maw run omx-resume",
   claude48: "maw run claude48",

@@ -9,10 +9,10 @@ describe("isClaudeLikeEngine", () => {
     expect(isClaudeLikeEngine("   ")).toBe(false);
   });
 
-  it("matches configured literal claude names", () => {
+  it("matches configured and seed literal claude names", () => {
     const config: Partial<MawConfig> = { commands: { claude: "claude" } };
     expect(isClaudeLikeEngine("claude", config)).toBe(true);
-    expect(() => isClaudeLikeEngine("Claude", config)).toThrow(/engine 'Claude' not resolvable/);
+    expect(isClaudeLikeEngine("Claude")).toBe(true);
   });
 
   it("treats configured non-claude engines as not claude-like", () => {
@@ -58,7 +58,7 @@ describe("isClaudeLikeEngine", () => {
     expect(isClaudeLikeEngine("wrapped", config)).toBe(true);
   });
 
-  it("fails loud for an unconfigured engine name", () => {
-    expect(() => isClaudeLikeEngine("mystery")).toThrow(/engine 'mystery' not resolvable/);
+  it("returns false for an unknown unconfigured engine name", () => {
+    expect(isClaudeLikeEngine("mystery")).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { engineNamesForConfig, resolveEngine } from "../config/engine-registry";
+import { ENGINE_SEED, engineNamesForConfig, resolveEngine } from "../config/engine-registry";
 import type { EngineDef } from "../config/engine-def";
 import type { MawConfig } from "../config/types";
 
@@ -25,11 +25,21 @@ function processNamesFromEngine(def: EngineDef | undefined): string[] {
   return normalizedProcessNames(def?.processNames ?? []);
 }
 
-/** Engine process names from config.engines, legacy command shims, and built-in registry fallbacks. */
+/**
+ * Read-only agent-pane detection is deliberately lenient: it uses ENGINE_SEED
+ * process names as a baseline even when config is unavailable or empty. This is
+ * classification only, not launch resolution; spawn paths still call
+ * resolveEngine() and remain config-only/fail-loud (#2708).
+ */
 export function agentProcessNames(config?: Partial<MawConfig> | null): string[] {
-  const names: string[] = [];
-  for (const name of engineNamesForConfig(config ?? {})) {
-    names.push(...processNamesFromEngine(resolveEngine(name, config ?? {})));
+  const cfg = config ?? {};
+  const names: string[] = Object.values(ENGINE_SEED).flatMap(processNamesFromEngine);
+  for (const name of engineNamesForConfig(cfg)) {
+    try {
+      names.push(...processNamesFromEngine(resolveEngine(name, cfg)));
+    } catch {
+      // Detection must tolerate partial/bad config and config-load failures.
+    }
   }
   return normalizedProcessNames(names);
 }

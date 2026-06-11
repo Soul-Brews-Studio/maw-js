@@ -49,6 +49,7 @@ let cachedKey = "";
 let cachedSources: DiscoveredConfig[] = [];
 let cachedProvenance: ProvenanceMap = {};
 let cachedWarnings: string[] = [];
+let cachedLoadedAny = false;
 
 export interface LoadConfigOptions {
   cwd?: string;
@@ -303,11 +304,16 @@ function buildLoadedConfig(opts: LoadConfigOptions = {}): LoadedConfigWithProven
   cachedSources = sources;
   cachedProvenance = provenance;
   cachedWarnings = warnings;
+  cachedLoadedAny = loadedAny;
   return { config: cached, sources, provenance, warnings };
 }
 
 function maybeBackfillEngineSeed(config: MawConfig): void {
   if (config.engines && Object.keys(config.engines).length > 0) return;
+  const canPersistIntoCurrentHome = cachedSources.some((source) =>
+    (source.path === CONFIG_FILE || source.path === CONFIG_WEIGHTED_FILE) && existsSync(source.path)
+  );
+  if (!canPersistIntoCurrentHome) return;
   config.engines = { ...ENGINE_SEED };
   if (!warnedEngineSeedBackfilled) {
     warnedEngineSeedBackfilled = true;
@@ -528,7 +534,7 @@ export function loadConfig(opts: LoadConfigOptions = {}): MawConfig {
     // (which is exactly what we want — they verify the disk write).
     persistLoadedConfig("config.host migration");
   }
-  maybeBackfillEngineSeed(cached);
+  if (cachedLoadedAny) maybeBackfillEngineSeed(cached);
   maybeMigrateDefaultActivePlugins(cached);
   maybeMigrateSplitTopAliasPlugin(cached);
   maybeMigrateShellenvStandardPlugin(cached);
@@ -582,6 +588,7 @@ export function resetConfig() {
   cachedSources = [];
   cachedProvenance = {};
   cachedWarnings = [];
+  cachedLoadedAny = false;
   warnedGhqRoot = false;
   warnedHostMigrated = false;
   warnedHostNodeConflated = false;
