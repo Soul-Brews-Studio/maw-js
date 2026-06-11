@@ -63,7 +63,8 @@ describe("share readonly stream", () => {
             sendKeysCalls += 1;
           },
         },
-        spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+        makeFifo: async () => undefined,
+        spawnPipeReader: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
           onChunk(bytes("LIVE\n"));
           return {
             kill: (signal?: string | number) => {

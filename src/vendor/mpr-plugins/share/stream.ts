@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
@@ -14,12 +14,12 @@ type ChildProcessLike = {
 type TmuxShape = Pick<Tmux, "capture" | "pipePane">;
 
 type StreamDeps = {
-  mkdtempSync: typeof mkdtempSync;
   tmpdir: typeof tmpdir;
   join: typeof join;
-  rmSync: typeof rmSync;
+  unlinkSync: typeof unlinkSync;
   tmux: TmuxShape;
-  spawnTail: (path: string, onChunk: (chunk: Uint8Array) => void) => Promise<ChildProcessLike>;
+  makeFifo: (path: string) => Promise<void>;
+  spawnPipeReader: (path: string, onChunk: (chunk: Uint8Array) => void) => Promise<ChildProcessLike>;
   setTimeout: typeof setTimeout;
   clearTimeout: typeof clearTimeout;
 };
@@ -30,8 +30,7 @@ type Subscriber = {
 
 type TargetBus = {
   target: string;
-  tempDir: string;
-  consumerPath: string;
+  fifoPath: string;
   child: ChildProcessLike | null;
   subscribers: Map<symbol, Subscriber>;
   backlog: Uint8Array[];
@@ -43,12 +42,10 @@ type TargetBus = {
 const targetBuses = new Map<string, Promise<TargetBus>>();
 
 async function createTargetBus(target: string, deps: StreamDeps): Promise<TargetBus> {
-  const tempDir = deps.mkdtempSync(join(deps.tmpdir(), "maw-share-"));
-  const consumerPath = makeStreamConsumerPath(tempDir, target);
+  const fifoPath = makeStreamFifoPath(deps.tmpdir(), target);
   const bus: TargetBus = {
     target,
-    tempDir,
-    consumerPath,
+    fifoPath,
     child: null,
     subscribers: new Map(),
     backlog: [],
@@ -58,19 +55,21 @@ async function createTargetBus(target: string, deps: StreamDeps): Promise<Target
   };
 
   try {
-    await Bun.write(consumerPath, "");
-    const command = `cat >> ${shellEscapeArg(consumerPath)}`;
-    // tmux has one pipe-pane slot per pane. Use -o/onlyIfClosed so a second
-    // viewer for the same target never clobbers the existing producer; all
-    // viewers subscribe to this per-target fan-out bus instead.
-    await deps.tmux.pipePane(target, command, { onlyIfClosed: true });
-    bus.child = await deps.spawnTail(consumerPath, (chunk) => {
+    await deps.makeFifo(fifoPath);
+    bus.child = await deps.spawnPipeReader(fifoPath, (chunk) => {
       if (bus.subscribers.size === 0) {
         bufferBacklog(bus, chunk);
         return;
       }
       for (const subscriber of bus.subscribers.values()) subscriber.send(chunk);
     });
+    const command = `cat > ${shellEscapeArg(fifoPath)}`;
+    // tmux has one pipe-pane slot per pane. Use -o/onlyIfClosed so a second
+    // viewer for the same target never clobbers the existing producer; all
+    // viewers subscribe to this per-target fan-out bus instead. The FIFO
+    // removes the old tmpfile + tail -f relay: tmux writes into the FIFO and
+    // our single per-target cat subprocess exposes stdout directly to Bun.
+    await deps.tmux.pipePane(target, command, { onlyIfClosed: true });
     return bus;
   } catch (error) {
     targetBuses.delete(target);
@@ -102,7 +101,7 @@ async function teardownBus(bus: TargetBus): Promise<void> {
     bus.child = null;
 
     try {
-      bus.deps.rmSync(bus.tempDir, { recursive: true, force: true });
+      bus.deps.unlinkSync(bus.fifoPath);
     } catch {
       // best effort
     }
@@ -126,14 +125,25 @@ const MAX_BACKLOG_BYTES = 1024 * 1024;
 
 function defaultDeps(): StreamDeps {
   return {
-    mkdtempSync,
     tmpdir,
     join,
-    rmSync,
+    unlinkSync,
     tmux: new Tmux(),
-    spawnTail: async (path, onChunk) => {
+    makeFifo: async (path) => {
       const child = Bun.spawn({
-        cmd: ["tail", "-n", "0", "-f", path],
+        cmd: ["mkfifo", path],
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const code = await child.exited;
+      if (code !== 0) {
+        const detail = await new Response(child.stderr).text();
+        throw new Error(`share stream failed to create FIFO ${path}: ${detail.trim() || `mkfifo exited ${code}`}`);
+      }
+    },
+    spawnPipeReader: async (path, onChunk) => {
+      const child = Bun.spawn({
+        cmd: ["cat", path],
         stdout: "pipe",
         stderr: "inherit",
       });
@@ -173,8 +183,10 @@ function decodeInboundMessage(message: unknown): string | null {
   return null;
 }
 
-function makeStreamConsumerPath(tmpDir: string, target: string): string {
-  return join(tmpDir, `${Date.now().toString(36)}-${target.replace(/[^a-zA-Z0-9._-]/g, "-")}`);
+function makeStreamFifoPath(tmpDir: string, target: string): string {
+  const safeTarget = target.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const random = Math.random().toString(36).slice(2);
+  return join(tmpDir, `maw-share-${process.pid}-${Date.now().toString(36)}-${random}-${safeTarget}.fifo`);
 }
 
 function sendSafe(ws: ServerWebSocket, data: string | Uint8Array): void {

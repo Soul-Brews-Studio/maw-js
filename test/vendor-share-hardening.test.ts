@@ -71,7 +71,8 @@ describe("share hardening", () => {
             pipeCalls.push(args);
           },
         },
-        spawnTail: async () => ({
+        makeFifo: async () => undefined,
+        spawnPipeReader: async () => ({
           kill: () => {},
           exited: Promise.resolve(0),
         }),

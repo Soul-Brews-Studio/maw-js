@@ -103,7 +103,8 @@ describe("share crypto hardening", () => {
             pipeCalls.push(args);
           },
         },
-        spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+        makeFifo: async () => undefined,
+        spawnPipeReader: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
           onChunk(bytes("LIVE-SECRET-1\n"));
           onChunk(bytes("LIVE-SECRET-2\n"));
           return {

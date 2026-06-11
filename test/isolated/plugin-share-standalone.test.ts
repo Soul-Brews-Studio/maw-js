@@ -94,6 +94,14 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     const index = readFileSync(join(root, "src/vendor/mpr-plugins/share/index.ts"), "utf8");
     expect(index).toContain("export async function serve");
     expect(index).toContain("export default async function handler");
+
+    const stream = readFileSync(join(root, "src/vendor/mpr-plugins/share/stream.ts"), "utf8");
+    expect(stream).toContain('cmd: ["cat", path]');
+    expect(stream).toContain('cmd: ["mkfifo", path]');
+    expect(stream).toContain("cat > ${shellEscapeArg(fifoPath)}");
+    expect(stream).not.toContain('cmd: ["tail"');
+    expect(stream).not.toContain("cat >>");
+    expect(stream).not.toContain("mkdtempSync");
   });
 
   test("cli share dispatch posts to daemon and daemon serves minted viewer", async () => {
@@ -218,7 +226,8 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
           capture: async () => "SNAPSHOT-PLAINTEXT\n",
           pipePane: async () => undefined,
         },
-        spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+        makeFifo: async () => undefined,
+        spawnPipeReader: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
           liveChunk = onChunk;
           return {
             kill: () => undefined,
@@ -258,21 +267,22 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     const sentB: Array<string | Uint8Array> = [];
     const pipeCalls: unknown[][] = [];
     const killed: Array<string | number | undefined> = [];
-    const removedTmpDirs: string[] = [];
+    const createdFifos: string[] = [];
+    const removedFifos: string[] = [];
     const chunkHandlers: Array<(chunk: Uint8Array) => void> = [];
     const encoder = new TextEncoder();
     let childResolve: (() => void) | null = null;
 
     const deps = {
-      mkdtempSync: () => "/tmp/maw-share-fanout-test",
       tmpdir: () => "/tmp",
       join: (...parts: string[]) => parts.join("/"),
-      rmSync: (path: string) => { removedTmpDirs.push(path); },
+      unlinkSync: (path: string) => { removedFifos.push(path); },
       tmux: {
         capture: async () => "SNAPSHOT\n",
         pipePane: async (...args: unknown[]) => { pipeCalls.push(args); },
       },
-      spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+      makeFifo: async (path: string) => { createdFifos.push(path); },
+      spawnPipeReader: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
         chunkHandlers.push(onChunk);
         return {
           kill: (signal?: string | number) => { killed.push(signal); },
@@ -288,7 +298,10 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(sentB).toEqual(["SNAPSHOT\n"]);
     expect(chunkHandlers).toHaveLength(1);
     expect(pipeCalls).toHaveLength(1);
-    expect(pipeCalls[0]).toEqual(["neo:1", expect.stringContaining("cat >>"), { onlyIfClosed: true }]);
+    expect(createdFifos).toHaveLength(1);
+    expect(createdFifos[0]).toStartWith("/tmp/maw-share-");
+    expect(createdFifos[0]).toEndWith("-neo-1.fifo");
+    expect(pipeCalls[0]).toEqual(["neo:1", `cat > '${createdFifos[0]}'`, { onlyIfClosed: true }]);
 
     chunkHandlers[0]!(encoder.encode("LIVE-1\n"));
     expect(sentA.at(-1)).toEqual(encoder.encode("LIVE-1\n"));
@@ -297,7 +310,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     await first.close();
     expect(pipeCalls).toHaveLength(1);
     expect(killed).toEqual([]);
-    expect(removedTmpDirs).toEqual([]);
+    expect(removedFifos).toEqual([]);
 
     chunkHandlers[0]!(encoder.encode("LIVE-2\n"));
     expect(sentA.map((entry) => entry instanceof Uint8Array ? new TextDecoder().decode(entry) : entry)).toEqual(["SNAPSHOT\n", "LIVE-1\n"]);
@@ -306,13 +319,13 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     if (childResolve) childResolve();
     await second.close();
     expect(pipeCalls).toEqual([
-      ["neo:1", expect.stringContaining("cat >>"), { onlyIfClosed: true }],
+      ["neo:1", `cat > '${createdFifos[0]}'`, { onlyIfClosed: true }],
       ["neo:1"],
     ]);
     expect(killed).toContain("SIGTERM");
-    expect(removedTmpDirs).toEqual(["/tmp/maw-share-fanout-test"]);
+    expect(removedFifos).toEqual([createdFifos[0]]);
 
-    const lsof = Bun.spawnSync(["sh", "-lc", "command -v lsof >/dev/null 2>&1 && lsof +D /tmp/maw-share-fanout-test 2>/dev/null || true"]);
+    const lsof = Bun.spawnSync(["sh", "-lc", `command -v lsof >/dev/null 2>&1 && lsof ${createdFifos[0]} 2>/dev/null || true`]);
     expect(new TextDecoder().decode(lsof.stdout)).toBe("");
   });
 
@@ -344,7 +357,8 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
             pipeCalls.push(args);
           },
         },
-        spawnTail: async () => ({
+        makeFifo: async () => undefined,
+        spawnPipeReader: async () => ({
           kill: () => undefined,
           exited: Promise.resolve(0),
         }),
