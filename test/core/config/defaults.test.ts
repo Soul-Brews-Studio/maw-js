@@ -3,6 +3,6 @@ import { D } from "../../../src/config/types";
 
 describe("config defaults", () => {
   test("maxConcurrentAgents defaults to a bounded cap", () => {
-    expect(D.limits.maxConcurrentAgents).toBe(10);
+    expect(D.limits.maxConcurrentAgents).toBe(40);
   });
 });
