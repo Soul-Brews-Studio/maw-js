@@ -116,6 +116,15 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
   });
 
+  test("stream default deps preserve real Tmux prototype methods", () => {
+    const stream = readFileSync(join(root, "src/vendor/mpr-plugins/share/stream.ts"), "utf8");
+    expect(stream).toContain("tmux: deps.tmux ?? baseDeps.tmux");
+
+    const resolved = shareStream.__resolveShareStreamDepsForTests();
+    expect(typeof resolved.tmux.capture).toBe("function");
+    expect(typeof resolved.tmux.pipePane).toBe("function");
+  });
+
   test("cli share dispatch posts to daemon and daemon serves minted viewer", async () => {
     const { httpRoutes } = await makeServeHarness();
     const createRoute = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;

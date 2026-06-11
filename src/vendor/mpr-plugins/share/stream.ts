@@ -301,16 +301,24 @@ function normalizePing(message: string): string {
   return message.trim().toLowerCase();
 }
 
-export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<StreamDeps> = {}): Promise<ShareStreamHandle> {
+function resolveStreamDeps(deps: Partial<StreamDeps> = {}): StreamDeps {
   const baseDeps = defaultDeps();
-  const resolved = {
+  return {
     ...baseDeps,
     ...deps,
-    tmux: {
-      ...(baseDeps.tmux),
-      ...(deps.tmux ?? {}),
-    },
+    // Tmux is a class instance; object spread strips prototype methods such as
+    // capture() and pipePane(). Preserve the instance unless tests inject a full
+    // tmux shape.
+    tmux: deps.tmux ?? baseDeps.tmux,
   };
+}
+
+export function __resolveShareStreamDepsForTests(deps: Partial<StreamDeps> = {}): StreamDeps {
+  return resolveStreamDeps(deps);
+}
+
+export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<StreamDeps> = {}): Promise<ShareStreamHandle> {
+  const resolved = resolveStreamDeps(deps);
 
   if (share.expiresAt <= Date.now()) {
     throw new Error("share expired before stream attach");

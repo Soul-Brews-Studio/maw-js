@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { __resetShareStreamBusesForTests, attach } from "../src/vendor/mpr-plugins/share/stream";
+import { __resetShareStreamBusesForTests, __resolveShareStreamDepsForTests, attach } from "../src/vendor/mpr-plugins/share/stream";
 import type { Share } from "../src/vendor/mpr-plugins/share/impl";
 
 type WsMessage = string | Uint8Array;
@@ -34,6 +34,13 @@ describe("share readonly stream", () => {
     pipeCalls = [];
     captures = [];
     sendKeysCalls = 0;
+  });
+
+  test("default stream deps preserve real Tmux prototype methods", () => {
+    const resolved = __resolveShareStreamDepsForTests();
+
+    expect(typeof resolved.tmux.capture).toBe("function");
+    expect(typeof resolved.tmux.pipePane).toBe("function");
   });
 
   test("dropping inbound ws messages does not write pane text", async () => {
