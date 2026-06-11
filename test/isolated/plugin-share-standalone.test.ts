@@ -106,12 +106,14 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     const viewer = readFileSync(join(root, "src/vendor/mpr-plugins/share/viewer.html"), "utf8");
     expect(viewer).toContain("const wsUrl = () =>");
     expect(viewer).toContain("resetForFreshSnapshot();");
-    expect(viewer).toContain("term.reset();");
+    expect(viewer).toContain("resetPane(pane);");
     expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
     expect(viewer).toContain("new window.FitAddon.FitAddon()");
-    expect(viewer).toContain('window.addEventListener("resize", fitTerminal)');
-    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitTerminal)');
-    expect(viewer).toContain("new ResizeObserver(fitTerminal)");
+    expect(viewer).toContain('window.addEventListener("resize", fitAll)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitAll)');
+    expect(viewer).toContain("new ResizeObserver(fitAll)");
+    expect(viewer).toContain("const parseWireFrame = (plain) =>");
+    expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
   });
 
   test("cli share dispatch posts to daemon and daemon serves minted viewer", async () => {
@@ -165,6 +167,38 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     }
   });
 
+
+  test("cli share accepts multiple pane targets under one token", async () => {
+    const { httpRoutes } = await makeServeHarness();
+    const createRoute = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;
+    const originalFetch = globalThis.fetch;
+    const postedBodies: unknown[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      postedBodies.push(await req.clone().json());
+      return createRoute.handler(req);
+    }) as typeof fetch;
+
+    try {
+      const result = await shareHandler({
+        source: "cli",
+        args: ["neo:1.0", "neo:1.1", "--port", "4567"],
+      } as any);
+
+      expect(result.ok).toBe(true);
+      expect(resolvedTargets).toEqual(["neo:1.0", "neo:1.1"]);
+      expect(postedBodies).toEqual([{
+        target: "neo:1.0:resolved",
+        panes: ["neo:1.0:resolved", "neo:1.1:resolved"],
+        readOnly: true,
+        ttl: 3600,
+        auth: "token",
+      }]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
   test("crypto frames roundtrip and reject tamper or wrong key", () => {
     const secret = shareCrypto.mintShareSecret();
     const key = shareCrypto.deriveShareKey(secret);

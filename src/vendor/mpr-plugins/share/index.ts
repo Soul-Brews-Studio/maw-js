@@ -14,7 +14,7 @@ export const command = {
   description: "Share a live read-only tmux session/pane in a browser via a temporary link.",
 };
 
-const SHARE_USAGE = "usage: maw share <session-or-pane> [--read-only] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]";
+const SHARE_USAGE = "usage: maw share <session-or-pane> [additional-pane ...] [--read-only] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]";
 const DEFAULT_TTL_SECONDS = 3600;
 const DEFAULT_READ_ONLY = true;
 
@@ -366,18 +366,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--encrypt": Boolean,
     }, 0);
 
-    const target = flags._[0];
+    const targets = flags._;
+    const target = targets[0];
     if (!target || target === "--help" || target === "-h") {
       return { ok: false, error: `${SHARE_USAGE}` };
     }
-    if (target.startsWith("-")) {
+    if (targets.some((candidate) => candidate.startsWith("-"))) {
       return { ok: false, error: `${SHARE_USAGE}\n  target looks like a flag` };
     }
 
-    const hit = resolveTmuxTarget(target);
-    if (!hit) {
-      return { ok: false, error: `cannot resolve tmux target: ${target}` };
+    const hits = targets.map((candidate) => ({ candidate, hit: resolveTmuxTarget(candidate) }));
+    const missing = hits.find((entry) => !entry.hit);
+    if (missing) {
+      return { ok: false, error: `cannot resolve tmux target: ${missing.candidate}` };
     }
+    const resolvedTargets = hits.map((entry) => entry.hit!.resolved);
+    const hit = hits[0]!.hit!;
 
     const readOnly = flags["--read-only"] === undefined ? DEFAULT_READ_ONLY : Boolean(flags["--read-only"]);
     const ttl = typeof flags["--ttl"] === "number" && Number.isFinite(flags["--ttl"]) ? flags["--ttl"] : DEFAULT_TTL_SECONDS;
@@ -386,6 +390,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const request: CreateShareRequest = {
       target: hit.resolved,
+      panes: resolvedTargets.length > 1 ? resolvedTargets : undefined,
       readOnly,
       ttl,
       auth,

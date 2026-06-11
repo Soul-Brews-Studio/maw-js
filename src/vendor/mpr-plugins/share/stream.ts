@@ -28,6 +28,19 @@ type Subscriber = {
   send: (chunk: string | Uint8Array) => void;
 };
 
+type AttachedBus = {
+  target: string;
+  bus: TargetBus;
+  subscriberId: symbol;
+};
+
+type ShareWireFrame = {
+  type: "maw-share-frame";
+  pane: string;
+  data: string;
+  snapshot?: boolean;
+};
+
 type TargetBus = {
   target: string;
   fifoPath: string;
@@ -197,6 +210,29 @@ function sendSafe(ws: ServerWebSocket, data: string | Uint8Array): void {
   }
 }
 
+function shareTargets(share: Share): string[] {
+  const seen = new Set<string>();
+  const targets = (share.panes.length > 0 ? share.panes : [share.target])
+    .map((target) => target.trim())
+    .filter((target) => target.length > 0)
+    .filter((target) => {
+      if (seen.has(target)) return false;
+      seen.add(target);
+      return true;
+    });
+  return targets.length > 0 ? targets : [share.target];
+}
+
+function encodeWireData(data: string | Uint8Array): string {
+  return typeof data === "string" ? data : new TextDecoder().decode(data);
+}
+
+function taggedFrame(target: string, data: string | Uint8Array, snapshot = false): string {
+  const frame: ShareWireFrame = { type: "maw-share-frame", pane: target, data: encodeWireData(data) };
+  if (snapshot) frame.snapshot = true;
+  return JSON.stringify(frame);
+}
+
 function nextEncryptedFrame(share: Share, data: string | Uint8Array): string | Uint8Array {
   if (!share.encrypted) return data;
   if (!share.encryptionKey) throw new Error("encrypted share is missing its RAM-only key");
@@ -282,15 +318,16 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
 
   let closed = false;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
-  let bus: TargetBus | null = null;
-  const subscriberId = Symbol(`share:${share.target}`);
+  const targets = shareTargets(share);
+  const multiplex = targets.length > 1;
+  const attachedBuses: AttachedBus[] = [];
 
   const detach = async (): Promise<void> => {
-    if (!bus) return;
-    const targetBus = bus;
-    bus = null;
-    targetBus.subscribers.delete(subscriberId);
-    if (targetBus.subscribers.size === 0) await teardownBus(targetBus);
+    const pending = attachedBuses.splice(0);
+    await Promise.all(pending.map(async ({ bus: targetBus, subscriberId }) => {
+      targetBus.subscribers.delete(subscriberId);
+      if (targetBus.subscribers.size === 0) await teardownBus(targetBus);
+    }));
   };
 
   const close = async (): Promise<void> => {
@@ -324,21 +361,27 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
   };
 
   try {
-    const snapshot = await resolved.tmux.capture(share.target, DEFAULT_SNAPSHOT_LINES);
-    if (snapshot) sendSafe(ws, nextEncryptedFrame(share, snapshot));
+    for (const target of targets) {
+      const snapshot = await resolved.tmux.capture(target, DEFAULT_SNAPSHOT_LINES);
+      if (snapshot) sendSafe(ws, nextEncryptedFrame(share, multiplex ? taggedFrame(target, snapshot, true) : snapshot));
+    }
 
-    bus = await getTargetBus(share.target, resolved);
-    if (closed) {
-      await detach();
-    } else {
+    for (const target of targets) {
+      const targetBus = await getTargetBus(target, resolved);
+      const subscriberId = Symbol(`share:${target}`);
+      attachedBuses.push({ target, bus: targetBus, subscriberId });
+      if (closed) {
+        await detach();
+        break;
+      }
       const subscriber = {
         send: (chunk: string | Uint8Array) => {
           if (closed) return;
-          sendSafe(ws, nextEncryptedFrame(share, chunk));
+          sendSafe(ws, nextEncryptedFrame(share, multiplex ? taggedFrame(target, chunk) : chunk));
         },
       };
-      bus.subscribers.set(subscriberId, subscriber);
-      for (const chunk of drainBacklog(bus)) subscriber.send(chunk);
+      targetBus.subscribers.set(subscriberId, subscriber);
+      for (const chunk of drainBacklog(targetBus)) subscriber.send(chunk);
     }
   } catch (error) {
     await close();

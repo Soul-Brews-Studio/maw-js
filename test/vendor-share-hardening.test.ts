@@ -50,11 +50,13 @@ describe("share hardening", () => {
     expect(viewer).toContain("const RECONNECT_BASE_MS = 250;");
     expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
     expect(viewer).toContain("resetForFreshSnapshot();");
-    expect(viewer).toContain("term.reset();");
+    expect(viewer).toContain("resetPane(pane);");
     expect(viewer).toContain("new window.FitAddon.FitAddon()");
-    expect(viewer).toContain('window.addEventListener("resize", fitTerminal)');
-    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitTerminal)');
-    expect(viewer).toContain("new ResizeObserver(fitTerminal)");
+    expect(viewer).toContain('window.addEventListener("resize", fitAll)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitAll)');
+    expect(viewer).toContain("new ResizeObserver(fitAll)");
+    expect(viewer).toContain("const parseWireFrame = (plain) =>");
+    expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
     expect(viewer).toContain('<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />');
   });
 

@@ -147,4 +147,58 @@ describe("share readonly stream", () => {
     childResolvers[1]?.();
     await second.close();
   });
+
+  test("multi-pane share tags snapshots and live chunks per pane with independent pipe teardown", async () => {
+    const share: Share = {
+      target: "session:0",
+      panes: ["session:0.0", "session:0.1"],
+      readOnly: true,
+      tokenHash: "hash",
+      expiresAt: Date.now() + 1_000_000,
+      auth: "token",
+    };
+    const sent: Array<WsMessage> = [];
+    const localPipeCalls: Array<Array<unknown>> = [];
+    const liveHandlers = new Map<string, (chunk: Uint8Array) => void>();
+    const childResolvers = new Map<string, () => void>();
+    const localKillCalls: Array<[string, unknown]> = [];
+
+    const handle = await attach(share, { send: (data: WsMessage) => sent.push(data) } as any, {
+      tmux: {
+        capture: async (target: string) => `SNAPSHOT ${target}\n`,
+        pipePane: async (...args: unknown[]) => { localPipeCalls.push(args); },
+      },
+      makeFifo: async () => undefined,
+      spawnPipeReader: async (path: string, onChunk: (chunk: Uint8Array) => void) => {
+        const target = path.includes("session-0.0") ? "session:0.0" : "session:0.1";
+        liveHandlers.set(target, onChunk);
+        return {
+          kill: (signal?: string | number) => { localKillCalls.push([target, signal]); },
+          exited: new Promise((resolve) => { childResolvers.set(target, () => resolve(0)); }),
+        };
+      },
+      tmpdir: () => "/tmp",
+      join: (...parts: string[]) => parts.join("/"),
+    } as any);
+
+    expect(sent.slice(0, 2).map((frame) => JSON.parse(String(frame)))).toEqual([
+      { type: "maw-share-frame", pane: "session:0.0", data: "SNAPSHOT session:0.0\n", snapshot: true },
+      { type: "maw-share-frame", pane: "session:0.1", data: "SNAPSHOT session:0.1\n", snapshot: true },
+    ]);
+    expect(localPipeCalls.filter((call) => call.length === 3).map((call) => call[0]).sort()).toEqual(["session:0.0", "session:0.1"]);
+
+    liveHandlers.get("session:0.0")!(bytes("LIVE A\n"));
+    liveHandlers.get("session:0.1")!(bytes("LIVE B\n"));
+    expect(sent.slice(2).map((frame) => JSON.parse(String(frame)))).toEqual([
+      { type: "maw-share-frame", pane: "session:0.0", data: "LIVE A\n" },
+      { type: "maw-share-frame", pane: "session:0.1", data: "LIVE B\n" },
+    ]);
+
+    childResolvers.get("session:0.0")?.();
+    childResolvers.get("session:0.1")?.();
+    await handle.close();
+
+    expect(localPipeCalls.filter((call) => call.length === 1).map((call) => call[0]).sort()).toEqual(["session:0.0", "session:0.1"]);
+    expect(localKillCalls.map(([target, signal]) => `${target}:${signal}`).sort()).toEqual(["session:0.0:SIGTERM", "session:0.1:SIGTERM"]);
+  });
 });

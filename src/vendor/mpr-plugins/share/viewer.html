@@ -11,6 +11,9 @@
         background: #0d0d0d;
         color: #d1d5db;
         height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
       }
 
       #fallback {
@@ -19,14 +22,83 @@
         white-space: pre-wrap;
       }
 
+      #toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 4px 8px;
+        background: #111827;
+        border-bottom: 1px solid #1f2937;
+        box-sizing: border-box;
+        overflow-x: auto;
+      }
+
+      #tabs {
+        display: flex;
+        gap: 4px;
+        flex: 1 1 auto;
+      }
+
+      .tab, #tile-toggle {
+        color: #d1d5db;
+        background: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        white-space: nowrap;
+      }
+
+      .tab.active, #tile-toggle.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: white;
+      }
+
       #term {
+        width: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      #terms {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-auto-rows: minmax(0, 1fr);
+      }
+
+      #terms.tile {
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      }
+
+      .pane {
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        border: 1px solid #111827;
+        box-sizing: border-box;
+      }
+
+      #terms.tile .pane,
+      .pane.active {
+        display: block;
+      }
+
+      .pane-host, .fallback-pane, .xterm {
         width: 100%;
         height: 100%;
       }
 
-      xterm-host, #xterm {
-        width: 100%;
-        height: 100%;
+      .fallback-pane {
+        display: none;
+        margin: 0;
+        overflow: auto;
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
     </style>
     <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />
@@ -35,8 +107,11 @@
   </head>
   <body>
     <div id="fallback" style="display:none;">xterm.js failed to load; falling back to static display.</div>
-    <div id="term"></div>
-    <pre id="ansi-fallback" style="display:none; margin:0;"></pre>
+    <div id="toolbar" style="display:none;">
+      <div id="tabs"></div>
+      <button id="tile-toggle" type="button">tile</button>
+    </div>
+    <div id="term"><div id="terms"></div></div>
 
     <script>
       void (async () => {
@@ -91,6 +166,18 @@
           return new TextDecoder().decode(plain);
         };
 
+        const parseWireFrame = (plain) => {
+          try {
+            const parsed = JSON.parse(plain);
+            if (parsed && typeof parsed === "object" && parsed.type === "maw-share-frame" && typeof parsed.pane === "string" && typeof parsed.data === "string") {
+              return { pane: parsed.pane, data: parsed.data, snapshot: parsed.snapshot === true, tagged: true };
+            }
+          } catch {
+            // legacy single-pane raw frame
+          }
+          return { pane: "main", data: plain, snapshot: false, tagged: false };
+        };
+
         let e2eKeyPromise = deriveE2EKey(e2eKey);
 
         const RECONNECT_BASE_MS = 250;
@@ -99,81 +186,136 @@
         let reconnectAttempt = 0;
         let reconnectTimer = null;
         let shouldReconnect = true;
+        let tileMode = false;
+        let activePane = "main";
 
         const fallback = document.getElementById("fallback");
-        const termHost = document.getElementById("term");
-        const pre = document.getElementById("ansi-fallback");
+        const toolbar = document.getElementById("toolbar");
+        const tabs = document.getElementById("tabs");
+        const tileToggle = document.getElementById("tile-toggle");
+        const terms = document.getElementById("terms");
+        const panes = new Map();
 
-        const writeFallback = (chunk) => {
-          pre.textContent += chunk;
-          pre.parentElement?.appendChild(pre);
-          pre.style.display = "block";
-          termHost.style.display = "none";
+        const terminalAvailable = () => Boolean(window.Terminal && window.FitAddon);
+
+        const fitPane = (pane) => {
+          if (!pane?.fit) return;
+          try { pane.fit.fit(); } catch { /* resize is advisory */ }
         };
 
-        let term = null;
-        let fit = null;
-        let resizeObserver = null;
+        const fitAll = () => {
+          for (const pane of panes.values()) fitPane(pane);
+        };
 
-        const resetForFreshSnapshot = () => {
-          if (term) {
-            term.reset();
+        const updateLayout = () => {
+          toolbar.style.display = panes.size > 1 ? "flex" : "none";
+          terms.classList.toggle("tile", tileMode && panes.size > 1);
+          tileToggle.classList.toggle("active", tileMode);
+          for (const [id, pane] of panes.entries()) {
+            pane.root.classList.toggle("active", id === activePane);
+            pane.tab.classList.toggle("active", id === activePane);
+          }
+          requestAnimationFrame(fitAll);
+          fitAll();
+        };
+
+        const selectPane = (id) => {
+          activePane = id;
+          updateLayout();
+        };
+
+        const createPane = (id) => {
+          const existing = panes.get(id);
+          if (existing) return existing;
+
+          const root = document.createElement("section");
+          root.className = "pane";
+          root.dataset.pane = id;
+          const host = document.createElement("div");
+          host.className = "pane-host";
+          const pre = document.createElement("pre");
+          pre.className = "fallback-pane";
+          root.appendChild(host);
+          root.appendChild(pre);
+          terms.appendChild(root);
+
+          const tab = document.createElement("button");
+          tab.className = "tab";
+          tab.type = "button";
+          tab.textContent = id;
+          tab.addEventListener("click", () => selectPane(id));
+          tabs.appendChild(tab);
+
+          let term = null;
+          let fit = null;
+          if (terminalAvailable()) {
+            term = new window.Terminal({
+              theme: { background: "#0d0d0d", foreground: "#d1d5db" },
+              convertEol: true,
+              disableStdin: true,
+              cursorBlink: false,
+            });
+            fit = new window.FitAddon.FitAddon();
+            term.loadAddon(fit);
+            term.open(host);
+          } else {
+            fallback.textContent = "xterm.js unavailable; using fallback terminal.";
+            fallback.style.display = "block";
+            host.style.display = "none";
+            pre.style.display = "block";
+          }
+
+          const pane = { id, root, host, pre, tab, term, fit };
+          panes.set(id, pane);
+          if (panes.size === 1) activePane = id;
+          updateLayout();
+          return pane;
+        };
+
+        const resetPane = (pane) => {
+          if (pane.term) {
+            pane.term.reset();
             return;
           }
-          pre.textContent = "";
+          pane.pre.textContent = "";
+        };
+
+        const writePane = (pane, chunk) => {
+          if (pane.term) {
+            pane.term.write(chunk);
+            return;
+          }
+          pane.pre.textContent += chunk;
+          pane.pre.style.display = "block";
+        };
+
+        const resetForFreshSnapshot = () => {
+          for (const pane of panes.values()) resetPane(pane);
         };
 
         const handleFrame = (event) => {
           void (async () => {
             try {
               const plain = await decryptFrame(await e2eKeyPromise, event.data);
-              if (term) term.write(plain);
-              else writeFallback(plain);
+              const frame = parseWireFrame(plain);
+              const pane = createPane(frame.pane);
+              if (frame.snapshot) resetPane(pane);
+              writePane(pane, frame.data);
             } catch {
-              if (term) {
-                fallback.textContent = "Unable to decrypt encrypted share frame.";
-                fallback.style.display = "block";
-              } else {
-                writeFallback("\n[unable to decrypt encrypted share frame]\n");
-              }
+              fallback.textContent = "Unable to decrypt or route share frame.";
+              fallback.style.display = "block";
             }
           })();
         };
 
-        const fitTerminal = () => {
-          if (!fit) return;
-          try { fit.fit(); } catch { /* resize is advisory */ }
-        };
-
-        const initTerminal = () => {
-          if (!window.Terminal || !window.FitAddon) {
-            fallback.textContent = "xterm.js unavailable; using fallback terminal.";
-            fallback.style.display = "block";
-            return false;
-          }
-
-          term = new window.Terminal({
-            theme: { background: "#0d0d0d", foreground: "#d1d5db" },
-            convertEol: true,
-            disableStdin: true,
-            cursorBlink: false,
-          });
-
-          fit = new window.FitAddon.FitAddon();
-          term.loadAddon(fit);
-          term.open(termHost);
-          window.addEventListener("resize", fitTerminal);
-          window.visualViewport?.addEventListener("resize", fitTerminal);
-          if (window.ResizeObserver) {
-            resizeObserver = new ResizeObserver(fitTerminal);
-            resizeObserver.observe(termHost);
-          }
-          requestAnimationFrame(fitTerminal);
-          fitTerminal();
-          return true;
-        };
-
-        initTerminal();
+        const resizeObserver = window.ResizeObserver ? new ResizeObserver(fitAll) : null;
+        resizeObserver?.observe(terms);
+        window.addEventListener("resize", fitAll);
+        window.visualViewport?.addEventListener("resize", fitAll);
+        tileToggle.addEventListener("click", () => {
+          tileMode = !tileMode;
+          updateLayout();
+        });
 
         const connect = () => {
           if (reconnectTimer) {
@@ -188,9 +330,9 @@
           current.addEventListener("open", () => {
             if (socket !== current) return;
             reconnectAttempt = 0;
-            if (term) fallback.style.display = "none";
+            fallback.style.display = "none";
             resetForFreshSnapshot();
-            fitTerminal();
+            fitAll();
             try {
               current.send("ping");
             } catch {
