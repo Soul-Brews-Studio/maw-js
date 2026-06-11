@@ -6,6 +6,7 @@ const realSdk = await import("../../src/sdk/index.ts");
 afterAll(() => { mock.restore(); });
 
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import { isUserError } from "../../src/core/util/user-error";
 
 const root = join(import.meta.dir, "../..");
 
@@ -113,8 +114,10 @@ describe("team command plugin standalone boundary (#2336)", () => {
         "../../../core/agent-detect",
         "../../../config/load",
         "../../../config/types",
+        "../../../config/engine-registry",
         "../../../commands/shared/wake-cmd",
         "../../../commands/shared/comm-send",
+        "../../../core/util/user-error",
         "../done/impl",
       ],
     }).map((record) => record.spec);
@@ -126,6 +129,7 @@ describe("team command plugin standalone boundary (#2336)", () => {
     const teamUp = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-up.ts"), "utf8");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => task.run()))");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
+    expect(teamUp).toContain("validateRosterEngines(roster, charter, config)");
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
     expect(sdk).toContain("parseFlags");
     expect(sdk).toContain("hostExec");
@@ -171,6 +175,23 @@ describe("team command plugin standalone boundary (#2336)", () => {
       args: ["avengers", { apply: true, session: "alpha", charterPath: "/tmp/team.yaml" }],
     });
   });
+
+
+  test("team engine resolver fails loud on unresolved member engine", async () => {
+    const actualLiveness = await import("../../src/vendor/mpr-plugins/team/team-liveness.ts?plugin-team-preflight-2707");
+    let thrown: unknown;
+
+    try {
+      actualLiveness.assertTeamEngineResolvable("omx", {}, { commands: { default: "claude", codex: "codex" } } as any);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("engine 'omx' not resolvable");
+    expect((thrown as Error).message).toContain("known:");
+  });
+
 
   test("team up --quick dispatches through an in-memory charter seam", async () => {
     await expect(teamHandler({ source: "cli", args: ["up", "--quick", "3", "-e", "omx", "--session", "charter-session"] } as any))
