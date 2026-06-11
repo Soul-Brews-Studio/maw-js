@@ -106,10 +106,35 @@ if [[ -n "$SHARD_TOTAL" ]]; then
   fi
 
   echo "=== test-isolated.sh: shard ${SHARD_INDEX}/${SHARD_TOTAL} selected $TOTAL file(s), bun --isolate ==="
-else
-  echo "=== test-isolated.sh: $TOTAL files, bun --isolate ==="
+  exec bun test "${FILES[@]}" \
+    --path-ignore-patterns '**/agents/**' \
+    "${BUN_EXTRA_ARGS[@]}"
 fi
 
-exec bun test "${FILES[@]}" \
-  --path-ignore-patterns '**/agents/**' \
-  "${BUN_EXTRA_ARGS[@]}"
+PER_FILE_TIMEOUT="${MAW_TEST_ISOLATED_FILE_TIMEOUT:-60}"
+echo "=== test-isolated.sh: $TOTAL files, bun --isolate, per-file timeout ${PER_FILE_TIMEOUT}s ==="
+
+failures=0
+for file in "${FILES[@]}"; do
+  echo "--- $file ---"
+  set +e
+  timeout "$PER_FILE_TIMEOUT" bun test "$file" \
+    --path-ignore-patterns '**/agents/**' \
+    "${BUN_EXTRA_ARGS[@]}"
+  status=$?
+  set -e
+  if [[ "$status" -eq 124 ]]; then
+    echo "error: isolated test timed out after ${PER_FILE_TIMEOUT}s: $file" >&2
+    failures=$((failures + 1))
+  elif [[ "$status" -ne 0 ]]; then
+    echo "error: isolated test failed with exit $status: $file" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+if [[ "$failures" -gt 0 ]]; then
+  echo "=== test-isolated.sh: $failures file(s) failed or timed out ===" >&2
+  exit 1
+fi
+
+echo "=== test-isolated.sh: all $TOTAL file(s) passed ==="
