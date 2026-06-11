@@ -54,6 +54,28 @@ let splitCounter = 0;
 let sendKeysCounter = 0;
 let failOnSendKeysNumber: number | undefined;
 
+const swarmEngineSeed = {
+  claude: {
+    name: "claude",
+    cmd: "claude",
+    label: "Claude Code",
+    processNames: ["claude", "claude-code", "thclaude"],
+    capabilities: ["channels", "resume", "model", "system-prompt-file"],
+    resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
+    model: { flag: "--model", default: "sonnet" },
+  },
+  codex: { name: "codex", cmd: "codex", label: "Codex CLI", processNames: ["codex"] },
+  opencode: { name: "opencode", cmd: "opencode", label: "OpenCode", processNames: ["opencode"] },
+  aider: { name: "aider", cmd: "aider", label: "Aider", processNames: ["aider"] },
+  omx: { name: "omx", cmd: "omx", label: "Oh My Codex", processNames: ["omx", "codex"] },
+};
+
+function swarmConfig() {
+  const engines: Record<string, unknown> = { ...swarmEngineSeed };
+  for (const name of Object.keys(configCommands)) delete engines[name];
+  return { defaultEngine: "claude", commands: configCommands, engines };
+}
+
 const originalEnv = { ...process.env };
 const originalLog = console.log;
 const originalSetTimeout = globalThis.setTimeout;
@@ -79,7 +101,7 @@ mock.module(at("../../src/sdk"), () => ({
 }));
 
 mock.module(at("../../src/config"), () => ({
-  loadConfig: () => ({ commands: configCommands }),
+  loadConfig: () => swarmConfig(),
 }));
 
 mock.module(at("../../src/commands/plugins/tmux/layout-manager"), () => ({

@@ -322,6 +322,11 @@ function maybeBackfillEngineSeed(config: MawConfig): void {
       `Runtime engine resolution is now config-only; edit config.engines to customize.\n`,
     );
   }
+  // Preserve the #913 invariant: inherited/cross-node configs (host !== node)
+  // must not be rewritten as a side effect of load. The in-memory seed keeps
+  // the current process seamless; disk persistence only happens for local
+  // host===node configs that already passed the current-home guard above.
+  if (config.host !== config.node) return;
   persistLoadedConfig("config.engines seed migration (#2708)");
 }
 
