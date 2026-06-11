@@ -123,6 +123,17 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(viewer).toContain("new ResizeObserver(syncAllDimensions)");
     expect(viewer).toContain("const parseWireFrame = (plain) =>");
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
+    expect(viewer).toContain("await loadShareMetadata();");
+    expect(viewer).toContain("metadata?.control === true");
+    expect(viewer).toContain("metadata?.writeToken");
+    expect(viewer).toContain("x-maw-share-write-token");
+    expect(viewer).toContain("/api/control/${encodeURIComponent(target)}/${action}");
+    expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "send", { text, enter })');
+    expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "key", { key })');
+    expect(viewer).toContain('postControl(target, "kill")');
+    expect(viewer).toContain('root.classList.add("with-controls")');
+    expect(viewer).toContain('sendControlKey(pane, "Escape")');
+    expect(viewer).not.toContain('postControl(controlTargetForPane(pane.id), "resize"');
   });
 
   test("stream default deps preserve real Tmux prototype methods", () => {

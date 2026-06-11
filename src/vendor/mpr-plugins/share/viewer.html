@@ -106,6 +106,84 @@
         overflow: auto;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
+
+      .pane.with-controls {
+        display: none;
+        flex-direction: column;
+      }
+
+      #terms.tile .pane.with-controls,
+      .pane.with-controls.active {
+        display: flex;
+      }
+
+      .pane.with-controls .pane-host,
+      .pane.with-controls .fallback-pane {
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      .pane-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: 0 0 auto;
+        padding: 5px 6px;
+        border-top: 1px solid #1f2937;
+        background: rgba(17, 24, 39, 0.94);
+        box-sizing: border-box;
+      }
+
+      .pane-control-input {
+        flex: 1 1 auto;
+        min-width: 80px;
+        height: 24px;
+        resize: none;
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        border-radius: 6px;
+        outline: none;
+        background: rgba(3, 7, 18, 0.95);
+        color: #e5e7eb;
+        padding: 4px 7px;
+        font: 11px/15px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+
+      .pane-control-button {
+        flex: 0 0 auto;
+        min-width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(31, 41, 55, 0.86);
+        color: #e5e7eb;
+        font: 800 10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        cursor: pointer;
+        padding: 0 6px;
+      }
+
+      .pane-control-button:hover:not(:disabled) {
+        border-color: rgba(96, 165, 250, 0.72);
+        color: #ffffff;
+      }
+
+      .pane-control-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      .pane-control-send {
+        border-color: rgba(52, 211, 153, 0.34);
+        background: rgba(52, 211, 153, 0.12);
+        color: #6ee7b7;
+      }
+
+      .pane-control-kill {
+        border-color: rgba(244, 63, 94, 0.42);
+        background: rgba(244, 63, 94, 0.12);
+        color: #fb7185;
+      }
     </style>
     <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />
     <script src="https://unpkg.com/@xterm/xterm/lib/xterm.js"></script>
@@ -160,6 +238,29 @@
 
         const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;
         const wsUrl = () => `${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
+        let shareMetadata = { control: false, writeToken: "", panes: [], target: "" };
+        let controlWriteToken = params.get("w") || params.get("writeToken") || "";
+
+        const metadataUrl = () => `/api/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
+
+        const loadShareMetadata = async () => {
+          try {
+            const response = await fetch(metadataUrl(), { headers: { accept: "application/json" } });
+            if (!response.ok) throw new Error(`metadata ${response.status}`);
+            const metadata = await response.json();
+            shareMetadata = {
+              control: metadata?.control === true,
+              writeToken: typeof metadata?.writeToken === "string" ? metadata.writeToken : (typeof metadata?.controlToken === "string" ? metadata.controlToken : ""),
+              panes: Array.isArray(metadata?.panes) ? metadata.panes.filter((pane) => typeof pane === "string") : [],
+              target: typeof metadata?.target === "string" ? metadata.target : "",
+            };
+            if (shareMetadata.writeToken) controlWriteToken = shareMetadata.writeToken;
+          } catch {
+            shareMetadata = { control: false, writeToken: "", panes: [], target: "" };
+          }
+        };
+
+        const controlsEnabled = () => shareMetadata.control === true && Boolean(controlWriteToken);
 
         const decryptFrame = async (key, data) => {
           if (!key) return typeof data === "string" ? data : new TextDecoder().decode(data);
@@ -252,6 +353,152 @@
           updateLayout();
         };
 
+        const controlTargetForPane = (id) => {
+          if (id && id !== "main") return id;
+          return shareMetadata.panes[0] || shareMetadata.target || id;
+        };
+
+        const controlHeaders = () => ({
+          "content-type": "application/json",
+          "authorization": `Bearer ${controlWriteToken}`,
+          "x-maw-share-write-token": controlWriteToken,
+        });
+
+        const postControl = async (target, action, body = {}) => {
+          if (!controlsEnabled()) throw new Error("share control is not enabled");
+          const response = await fetch(`/api/control/${encodeURIComponent(target)}/${action}`, {
+            method: "POST",
+            headers: controlHeaders(),
+            body: JSON.stringify(body),
+          });
+          if (!response.ok) {
+            const detail = await response.text().catch(() => "");
+            throw new Error(detail || `control ${action} failed (${response.status})`);
+          }
+          return response;
+        };
+
+        const refocusControl = (pane) => requestAnimationFrame(() => pane.input?.focus());
+
+        const sendControlText = async (pane, enter) => {
+          const text = pane.input?.value.trimEnd() || "";
+          if (!text || pane.sending) return;
+          pane.sending = true;
+          pane.sendButton.disabled = true;
+          pane.sendNoEnterButton.disabled = true;
+          try {
+            await postControl(controlTargetForPane(pane.id), "send", { text, enter });
+            pane.input.value = "";
+            refocusControl(pane);
+          } catch (error) {
+            window.alert(`Send failed: ${String(error?.message || error)}`);
+          } finally {
+            pane.sending = false;
+            pane.sendButton.disabled = !pane.input.value.trim();
+            pane.sendNoEnterButton.disabled = !pane.input.value.trim();
+          }
+        };
+
+        const sendControlKey = async (pane, key) => {
+          try {
+            await postControl(controlTargetForPane(pane.id), "key", { key });
+            refocusControl(pane);
+          } catch (error) {
+            window.alert(`Key failed: ${String(error?.message || error)}`);
+          }
+        };
+
+        const killControlPane = async (pane) => {
+          const target = controlTargetForPane(pane.id);
+          if (!window.confirm(`Kill tmux pane ${target}?`)) return;
+          try {
+            await postControl(target, "kill");
+          } catch (error) {
+            window.alert(`Kill failed: ${String(error?.message || error)}`);
+          }
+        };
+
+        const createPaneControls = (pane) => {
+          const form = document.createElement("form");
+          form.className = "pane-controls";
+          form.dataset.controlTarget = controlTargetForPane(pane.id);
+
+          const input = document.createElement("textarea");
+          input.className = "pane-control-input";
+          input.rows = 1;
+          input.placeholder = `send to ${controlTargetForPane(pane.id)}`;
+
+          const keyUp = document.createElement("button");
+          keyUp.className = "pane-control-button";
+          keyUp.type = "button";
+          keyUp.title = "Up";
+          keyUp.textContent = "↑";
+
+          const keyDown = document.createElement("button");
+          keyDown.className = "pane-control-button";
+          keyDown.type = "button";
+          keyDown.title = "Down";
+          keyDown.textContent = "↓";
+
+          const keyEsc = document.createElement("button");
+          keyEsc.className = "pane-control-button";
+          keyEsc.type = "button";
+          keyEsc.title = "Esc";
+          keyEsc.textContent = "esc";
+
+          const sendNoEnter = document.createElement("button");
+          sendNoEnter.className = "pane-control-button pane-control-send";
+          sendNoEnter.type = "button";
+          sendNoEnter.title = "Send without Enter (Ctrl/Cmd+Enter)";
+          sendNoEnter.textContent = "send";
+          sendNoEnter.disabled = true;
+
+          const sendEnter = document.createElement("button");
+          sendEnter.className = "pane-control-button pane-control-send";
+          sendEnter.type = "submit";
+          sendEnter.title = "Send + Enter";
+          sendEnter.textContent = "↵";
+          sendEnter.disabled = true;
+
+          const kill = document.createElement("button");
+          kill.className = "pane-control-button pane-control-kill";
+          kill.type = "button";
+          kill.title = "Kill pane";
+          kill.textContent = "×";
+
+          input.addEventListener("input", () => {
+            const hasDraft = Boolean(input.value.trim());
+            sendEnter.disabled = !hasDraft || pane.sending;
+            sendNoEnter.disabled = !hasDraft || pane.sending;
+          });
+          input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey && !(event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void sendControlText(pane, true);
+            }
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              void sendControlText(pane, false);
+            }
+          });
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            void sendControlText(pane, true);
+          });
+          sendNoEnter.addEventListener("click", () => void sendControlText(pane, false));
+          keyUp.addEventListener("click", () => void sendControlKey(pane, "Up"));
+          keyDown.addEventListener("click", () => void sendControlKey(pane, "Down"));
+          keyEsc.addEventListener("click", () => void sendControlKey(pane, "Escape"));
+          kill.addEventListener("click", () => void killControlPane(pane));
+
+          form.append(input, keyUp, keyDown, keyEsc, sendNoEnter, sendEnter, kill);
+          pane.input = input;
+          pane.sendButton = sendEnter;
+          pane.sendNoEnterButton = sendNoEnter;
+          pane.controls = form;
+          return form;
+        };
+
         const createPane = (id) => {
           const existing = panes.get(id);
           if (existing) return existing;
@@ -290,7 +537,11 @@
             pre.style.display = "block";
           }
 
-          const pane = { id, root, host, pre, tab, term, dimensions: null };
+          const pane = { id, root, host, pre, tab, term, dimensions: null, controls: null, input: null, sendButton: null, sendNoEnterButton: null, sending: false };
+          if (controlsEnabled()) {
+            root.classList.add("with-controls");
+            root.appendChild(createPaneControls(pane));
+          }
           panes.set(id, pane);
           if (panes.size === 1) activePane = id;
           updateLayout();
@@ -396,6 +647,7 @@
           socket?.close();
         });
 
+        await loadShareMetadata();
         connect();
       })();
     </script>

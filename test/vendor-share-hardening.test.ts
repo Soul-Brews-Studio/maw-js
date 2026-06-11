@@ -58,6 +58,15 @@ describe("share hardening", () => {
     expect(viewer).toContain("new ResizeObserver(syncAllDimensions)");
     expect(viewer).toContain("const parseWireFrame = (plain) =>");
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
+    expect(viewer).toContain("await loadShareMetadata();");
+    expect(viewer).toContain("metadata?.control === true");
+    expect(viewer).toContain("x-maw-share-write-token");
+    expect(viewer).toContain("/api/control/${encodeURIComponent(target)}/${action}");
+    expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "send", { text, enter })');
+    expect(viewer).toContain('postControl(controlTargetForPane(pane.id), "key", { key })');
+    expect(viewer).toContain('postControl(target, "kill")');
+    expect(viewer).toContain('root.classList.add("with-controls")');
+    expect(viewer).not.toContain('postControl(controlTargetForPane(pane.id), "resize"');
     expect(viewer).toContain('<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />');
   });
 
