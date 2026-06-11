@@ -106,6 +106,23 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     return dir;
   }
 
+  /** Helper: create a legacy node_modules/maw checkout plugin (pre-rename pkg name). */
+  function makeLegacyMawNodeModulesBundledPlugin(name: string, lane: "commands" | "vendor" = "commands") {
+    const root = join(workDir, `old-maw-${lane}-${name}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ name: "maw", version: "2.0.0-alpha.14" }),
+    );
+    const dir = lane === "commands"
+      ? join(root, "node_modules", "maw", "src", "commands", "plugins", name)
+      : join(root, "node_modules", "maw", "src", "vendor", "mpr-plugins", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ stale: true });\n`);
+    return dir;
+  }
+
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
     makeBundledPlugin("beta");
@@ -190,6 +207,20 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(pluginDir, "wake"))).toBe(currentWake);
+  });
+
+  it("#2697 — stale symlink to renamed node_modules/maw bundled plugin is refreshed", async () => {
+    const currentOracle = makeBundledPlugin("oracle");
+    const staleOracle = makeLegacyMawNodeModulesBundledPlugin("oracle");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(staleOracle, join(pluginDir, "oracle"));
+    expect(readlinkSync(join(pluginDir, "oracle"))).toBe(staleOracle);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "oracle")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "oracle"))).toBe(currentOracle);
   });
 
   it("#1507 — legacy maw-plugin-registry symlink is healed to current vendored plugin", async () => {
