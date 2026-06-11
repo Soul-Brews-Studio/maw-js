@@ -244,6 +244,10 @@ let errs: string[];
 let logs: string[];
 let warns: string[];
 
+// These locate/manifest fallback cases exercise intentionally slow negative-path
+// waits; under isolated shard load the default 5s per-test cap flakes.
+const COMM_SEND_LOCATE_TIMEOUT_MS = 10_000;
+
 async function runCmd(fn: () => Promise<unknown>) {
   exitCode = undefined;
   errs = [];
@@ -795,7 +799,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBe(1);
     expect(curlFetchCalls).toEqual([]);
     expect(errs.join("\n")).toContain("not found locally");
-  });
+  }, COMM_SEND_LOCATE_TIMEOUT_MS);
 
 
 
@@ -818,7 +822,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
     expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
     expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
-  });
+  }, COMM_SEND_LOCATE_TIMEOUT_MS);
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
     listSessionsReturn = [{ name: "77-renamed", windows: [{ index: 0, name: "renamed-oracle", active: true, cwd: "/tmp/renamed-oracle" } as any] }];
@@ -830,7 +834,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBeUndefined();
     expect(curlFetchCalls).toEqual([]);
     expect(sendKeysCalls).toEqual([{ target: "77-renamed:renamed-oracle", text: "[test-node:sender] hello" }]);
-  });
+  }, COMM_SEND_LOCATE_TIMEOUT_MS);
 
   test("bare manifest cross-node hit does not silently route to peer (#2056)", async () => {
     config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
@@ -844,7 +848,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(curlFetchCalls).toEqual([]);
     expect(warns.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
     expect(errs.join("\n")).toContain("found but no active session");
-  });
+  }, COMM_SEND_LOCATE_TIMEOUT_MS);
 
   test("bare peer aliases are allowed as explicit federation targets (#1940)", async () => {
     config.namedPeers = [{
