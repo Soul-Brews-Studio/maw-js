@@ -491,9 +491,35 @@ describe("done worktree cleanup helpers", () => {
 
     expect(h.commands).toEqual([
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' rev-parse --abbrev-ref HEAD",
-      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' --force",
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree prune",
     ]);
+  });
+
+  test("removeWorktreeViaConfig fails loud instead of force-removing dirty worktrees without --force", async () => {
+    const h = createHarness({
+      files: {
+        "/fleet/team.json": JSON.stringify({
+          windows: [{ name: "tile-1", repo: "Soul-Brews-Studio/maw-js.wt-tile-1" }],
+        }),
+      },
+      hostExec: (command) => {
+        if (command.includes("rev-parse")) return "feature/dirty\n";
+        if (command.includes("worktree remove")) throw new Error("fatal: contains modified or untracked files");
+        if (command.includes("status --porcelain")) return "?? notes.txt\n";
+        return "";
+      },
+    });
+
+    await expect(removeWorktreeViaConfig("tile-1", "/repos/github.com", h.deps)).rejects.toThrow(
+      "has uncommitted changes; rerun maw done --force",
+    );
+
+    expect(h.commands).toContain(
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1'",
+    );
+    expect(h.commands.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(false);
+    expect(h.commands).not.toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree prune");
   });
 
   test("removeWorktreeViaConfig reads state fleet configs before duplicate legacy configs", async () => {
@@ -570,7 +596,7 @@ describe("done worktree cleanup helpers", () => {
     await expect(removeWorktreeByGhqScan("6-tile-1", "/repos/github.com", h.deps)).resolves.toBe(true);
 
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' rev-parse --abbrev-ref HEAD");
-    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' --force");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1'");
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/scan' 'alpha'");
     expect(h.commands).toContain("gh pr list --head 'feature/scan' --state merged --json number --limit 1");
     expect(h.logs.join("\n")).toContain("removed worktree maw-js.wt-6-tile-1");
@@ -618,7 +644,7 @@ describe("done worktree cleanup helpers", () => {
     await expect(removeWorktreeByGhqScan("mawjs-trio-coder", "/repos/github.com", h.deps, { cwd: "/repos/github.com/Soul-Brews-Studio/mawjs-oracle" })).resolves.toBe(true);
 
     expect(h.logs.join("\n")).toContain("scoped ambiguous worktree 'trio-coder' to cwd repo /repos/github.com/Soul-Brews-Studio/mawjs-oracle");
-    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/mawjs-oracle' worktree remove '/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder' --force");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/mawjs-oracle' worktree remove '/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder'");
     expect(h.commands.join("\n")).not.toContain("ccc-oracle.wt-trio-coder' --force");
   });
 

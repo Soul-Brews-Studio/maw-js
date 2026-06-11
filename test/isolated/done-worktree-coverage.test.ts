@@ -230,6 +230,23 @@ describe("removeWorktreeViaConfig", () => {
     expect(output).toContain("worktree remove failed: busy worktree");
   });
 
+  test("fails loud instead of force-removing dirty configured worktrees without --force", async () => {
+    writeFleetConfig("oracle.json", {
+      windows: [{ name: "dirty", repo: "org/repo.wt-dirty" }],
+    });
+    hostExecHandler = (command) => {
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/dirty\n";
+      if (command.includes("worktree remove")) throw new Error("fatal: contains modified or untracked files");
+      return "";
+    };
+
+    await expect(captureConsole(async () => {
+      await removeWorktreeViaConfig("dirty", REPOS_ROOT);
+    })).rejects.toThrow("has uncommitted changes; rerun maw done --force");
+
+    expect(hostExecCalls.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(false);
+  });
+
   test("ignores configured non-worktree repos", async () => {
     writeFleetConfig("oracle.json", {
       windows: [{ name: "plain", repo: "org/repo" }],

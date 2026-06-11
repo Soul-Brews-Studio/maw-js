@@ -519,8 +519,11 @@ export async function removeWorktreeViaConfig(
         }
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        if (opts.force) {
+          await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
+        } else {
+          await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)}`);
+        }
         await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
         if (branch && branch !== "main" && branch !== "HEAD") {
@@ -583,8 +586,11 @@ export async function removeWorktreeByGhqScan(
         }
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
-        // #1968: force removes ignored engine scratch (for example .omx/) left in finished worktrees.
-        await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        if (opts.force) {
+          await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
+        } else {
+          await d.hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)}`);
+        }
         await d.hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
         d.logger.log(`  \x1b[32m✓\x1b[0m removed worktree ${base}`);
         removed = true;
