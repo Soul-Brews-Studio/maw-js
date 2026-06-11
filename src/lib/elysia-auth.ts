@@ -32,6 +32,10 @@ const PROTECTED = new Set([
   "/worktrees/cleanup",
   "/_engine/register",
   "/_engine/unregister",
+  "/control/send",
+  "/control/key",
+  "/control/kill",
+  "/control/resize",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
@@ -45,6 +49,7 @@ const PROTECTED_POST = new Set([
 
 export function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
+  if (path.startsWith("/control/")) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation
   if (method === "POST" && path.startsWith("/plugins/")) return true;

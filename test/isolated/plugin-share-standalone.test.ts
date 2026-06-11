@@ -98,10 +98,13 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(manifest.name).toBe("share");
     expect(manifest.cli.command).toBe("share");
     expect(manifest.hooks.serve.handler).toBe("serve");
+    expect(manifest.cli.flags["--control"]).toBe("boolean");
 
     const index = readFileSync(join(root, "src/vendor/mpr-plugins/share/index.ts"), "utf8");
     expect(index).toContain("export async function serve");
     expect(index).toContain("export default async function handler");
+    expect(index).toContain('"--control": Boolean');
+    expect(index).toContain("controlToken");
 
     const stream = readFileSync(join(root, "src/vendor/mpr-plugins/share/stream.ts"), "utf8");
     expect(stream).toContain('cmd: ["cat", path]');
@@ -123,6 +126,23 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(viewer).toContain("new ResizeObserver(syncAllDimensions)");
     expect(viewer).toContain("const parseWireFrame = (plain) =>");
     expect(viewer).toContain("const tileToggle = document.getElementById(\"tile-toggle\")");
+  });
+
+
+
+  test("share --control mints a separate write token and marks metadata without exposing it through read token", async () => {
+    const created = await shareImpl.createShare({ target: "%control", readOnly: false, control: true });
+    expect(created.controlToken).toBeTruthy();
+    expect(created.controlToken).not.toBe(created.token);
+    const share = shareImpl.getShare(created.slug)!;
+    expect(share.readOnly).toBe(false);
+    expect(share.control?.allowedTargets).toEqual(["%control"]);
+    expect(share.control?.tokenHash).not.toBe(share.tokenHash);
+    expect(shareImpl.verifyShareControlToken(created.slug, "%control", created.controlToken!)).toEqual({ ok: true, share });
+    expect(shareImpl.verifyShareControlToken(created.slug, "%other", created.controlToken!)).toMatchObject({ ok: false, reason: "target_not_allowed", status: 403 });
+
+    const readonly = await shareImpl.createShare({ target: "%read", readOnly: true });
+    expect(shareImpl.verifyShareControlToken(readonly.slug, "%read", created.controlToken!)).toMatchObject({ ok: false, reason: "share_read_only", status: 403 });
   });
 
   test("stream default deps preserve real Tmux prototype methods", () => {

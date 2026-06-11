@@ -3,6 +3,11 @@ import { deriveShareKey, hashShareSecret, mintShareSecret, type ShareEncryptionK
 
 type ShareAuthKind = "token" | "federation" | "none" | "encrypted";
 
+export interface ShareControl {
+  tokenHash: string;
+  allowedTargets: string[];
+}
+
 export interface Share {
   target: string;
   panes: string[];
@@ -20,6 +25,7 @@ export interface Share {
   encryptionKey?: ShareEncryptionKey;
   encryptionKeyHash?: string;
   encryptionFrameCounter?: bigint;
+  control?: ShareControl;
 }
 
 export interface CreateShareOptions {
@@ -29,6 +35,7 @@ export interface CreateShareOptions {
   ttl?: number;
   auth?: ShareAuthKind;
   encrypted?: boolean;
+  control?: boolean;
 }
 
 export interface CreateShareResult {
@@ -36,6 +43,7 @@ export interface CreateShareResult {
   token: string;
   url: string;
   encrypted?: boolean;
+  controlToken?: string;
 }
 
 export interface ShareAuth {
@@ -70,6 +78,15 @@ function presentedMatchesTokenHash(share: Share, presented: string): boolean {
     return hashesMatch(share.tokenHash, presented.toLowerCase());
   }
   return hashesMatch(share.tokenHash, hashToken(presented));
+}
+
+
+function uniqueTargets(targets: string[]): string[] {
+  return [...new Set(targets.map((target) => target.trim()).filter(Boolean))];
+}
+
+function controlTargetsFor(target: string, panes: string[]): string[] {
+  return uniqueTargets(panes.length > 0 ? panes : [target]);
 }
 
 function makeSlug(): string {
@@ -209,6 +226,7 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
   const auth: ShareAuthKind = opts.auth ?? (opts.encrypted ? "encrypted" : "token");
   const encrypted = opts.encrypted === true || auth === "encrypted";
   const expiresAt = Date.now() + ensureTTL(opts.ttl);
+  if (opts.control === true && readOnly) throw new Error("share control requires readOnly=false");
 
   const authHandler = await resolveAuth(auth);
   const slug = makeSlug();
@@ -228,6 +246,13 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
     share.encryptionKey = deriveShareKey(token);
     share.encryptionKeyHash = hashShareSecret(token);
   }
+  const controlToken = opts.control === true ? randomBytes(32).toString("base64url") : undefined;
+  if (controlToken) {
+    share.control = {
+      tokenHash: hashToken(controlToken),
+      allowedTargets: controlTargetsFor(target, panes),
+    };
+  }
 
   shareRegistry.set(slug, share);
   ensureSweepTimer();
@@ -237,6 +262,7 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
     token,
     url: `/share/${slug}#${encrypted ? "k" : "t"}=${token}`,
     encrypted,
+    ...(controlToken ? { controlToken } : {}),
   };
 }
 
@@ -272,4 +298,16 @@ export function sweepExpiredShares(): number {
 export function clearShareRegistry(): void {
   shareRegistry.clear();
   stopShareSweepTimer();
+}
+
+
+export function verifyShareControlToken(slug: string, target: string, presented: string): { ok: true; share: Share } | { ok: false; reason: string; status: number } {
+  const share = getShare(slug);
+  if (!share) return { ok: false, reason: "invalid_share", status: 404 };
+  if (share.readOnly) return { ok: false, reason: "share_read_only", status: 403 };
+  if (!share.control) return { ok: false, reason: "control_not_enabled", status: 403 };
+  if (!share.control.allowedTargets.includes(target)) return { ok: false, reason: "target_not_allowed", status: 403 };
+  if (!presented) return { ok: false, reason: "control_token_required", status: 401 };
+  if (!hashesMatch(share.control.tokenHash, hashToken(presented))) return { ok: false, reason: "invalid_control_token", status: 401 };
+  return { ok: true, share };
 }
