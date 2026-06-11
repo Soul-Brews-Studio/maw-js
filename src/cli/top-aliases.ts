@@ -155,12 +155,13 @@ export async function invokeDirectHandler(
       "--model": String, "-m": "--model",
       "--reasoning-effort": String,
       "--dry-run": Boolean,
+      "--respawn-worktrees": Boolean,
     }, 0);
 
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [--resume <session-id>] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [-m|--model <name>] [--reasoning-effort <level>] [--dry-run]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [--resume <session-id>] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [-m|--model <name>] [--reasoning-effort <level>] [--dry-run] [--respawn-worktrees]");
       throw new UserError("wake: missing oracle name");
     }
 
@@ -197,6 +198,7 @@ export async function invokeDirectHandler(
       engine?: string;
       model?: string;
       reasoningEffort?: string;
+      respawnWorktrees?: boolean;
     } = {};
     if (flags["--wt"]) opts.wt = flags["--wt"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
@@ -219,6 +221,7 @@ export async function invokeDirectHandler(
     if (flags["--list"]) opts.listWt = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
+    if (flags["--respawn-worktrees"]) opts.respawnWorktrees = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
     if (flags["--model"]) opts.model = flags["--model"];
     if (flags["--reasoning-effort"]) opts.reasoningEffort = flags["--reasoning-effort"];

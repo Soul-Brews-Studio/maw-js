@@ -27,6 +27,8 @@ type CmdWakeOpts = {
   engine?: string;
   model?: string;
   reasoningEffort?: string;
+  /** Opt IN to per-worktree respawn (default OFF; thread #14 / owner GO 2026-06-11). */
+  respawnWorktrees?: boolean;
 };
 
 export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string> {
@@ -42,6 +44,14 @@ export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string
   // `opts.attach` checks honor caller intent. Lets api/sessions.ts and
   // friends pass `noAttach: true` cleanly without needing `attach: false`.
   if (opts.noAttach) opts.attach = false;
+
+  // Per-worktree respawn is OPT-IN (default OFF) — thread #14 / owner GO
+  // 2026-06-11 (ported by hand onto the pre-refactor wake in feat/all-prs-
+  // rebased; durable fix lives on alpha PR #2705). A plain `maw wake <role>`
+  // must NOT fan out a `<role>-<wt-suffix>` window per worktree on disk (the
+  // 17-window explosion + cross-role --continue incident).
+  const respawnWorktrees = opts.respawnWorktrees === true
+    || (loadConfig() as { respawnWorktrees?: boolean }).respawnWorktrees === true;
 
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
@@ -193,7 +203,7 @@ export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string
       console.log(`\x1b[32m+\x1b[0m team '${oracle}' auto-created`);
     }
 
-    if (!opts.task && !opts.wt) {
+    if (!opts.task && !opts.wt && respawnWorktrees) {
       const allWt = await findWorktrees(parentDir, repoName);
       const usedNames = new Set<string>();
       for (const wt of allWt) {
@@ -203,7 +213,12 @@ export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string
         usedNames.add(wtWindowName);
         await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
+        // F2: a respawned worktree window is a FRESH claude — never bare
+        // `--continue` (which resumes whoever last ran in that cwd = cross-role
+        // contamination in a shared/multi-role repo). A pinned sessionIds[window]
+        // still upgrades to `--resume <uuid>` inside buildCommand.
+        const wtWakeOpts = { ...(typeof wakeOpts === "string" ? { engine: wakeOpts } : (wakeOpts ?? {})), fresh: true };
+        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wtWakeOpts));
         console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
       }
     }
@@ -212,7 +227,7 @@ export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
 
-    if (!opts.task && !opts.wt) {
+    if (!opts.task && !opts.wt && respawnWorktrees) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
@@ -229,7 +244,9 @@ export async function cmdWake(oracle: string, opts: CmdWakeOpts): Promise<string
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, runtimeOpts({ resume: opts.resume, fresh: opts.fresh, prompt: opts.prompt })));
+          // F2: respawned worktree window = FRESH claude (no bare `--continue`
+          // cross-role resume). Pinned sessionIds[window] still → `--resume <uuid>`.
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, runtimeOpts({ fresh: true, prompt: opts.prompt })));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
