@@ -500,7 +500,7 @@ export function verifyRequest(args: {
   const partialV3 = hasAnyV3Header && !hasV3Sig;
   const partialLegacy = !hasV3Sig && hasAnyLegacyHeader && !hasLegacySig;
 
-  if ((from && !hasAnyV3Header && !hasAnyLegacyHeader) || partialV3 || partialLegacy) {
+  if (partialV3 || partialLegacy) {
     if (!from) return { kind: "refuse-malformed", reason: "missing-from" };
     if (partialV3 && !v3Sig) return { kind: "refuse-malformed", reason: "missing-signature" };
     if (partialV3 && !v3Timestamp) return { kind: "refuse-malformed", reason: "invalid-timestamp" };
