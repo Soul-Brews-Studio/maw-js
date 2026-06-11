@@ -10,6 +10,8 @@ delete process.env.MAW_CLI;
 
 let config: Record<string, any> = {};
 let serveCalls: any[] = [];
+let stoppedPorts: Array<{ port: number; force?: boolean }> = [];
+let serveThrowOnCall: number | null = null;
 let stopShouldThrow = false;
 let lifecycleShouldThrow = false;
 let sessionsShouldThrow = false;
@@ -155,8 +157,12 @@ const original = {
 
 Bun.serve = ((opts: any) => {
   serveCalls.push(opts);
+  if (serveThrowOnCall === serveCalls.length) {
+    throw Object.assign(new Error("TLS port busy"), { code: "EADDRINUSE", syscall: "listen" });
+  }
   return {
-    stop: (_force?: boolean) => {
+    stop: (force?: boolean) => {
+      stoppedPorts.push({ port: opts.port, force });
       if (stopShouldThrow) throw new Error("stop failed");
     },
   } as never;
@@ -179,6 +185,8 @@ describe("core server remaining isolated coverage", () => {
     process.chdir(tmp);
     config = { bind: "127.0.0.1", federationToken: "1234567890123456" };
     serveCalls = [];
+    stoppedPorts = [];
+    serveThrowOnCall = null;
     stopShouldThrow = false;
     lifecycleShouldThrow = false;
     sessionsShouldThrow = false;
@@ -309,6 +317,35 @@ describe("core server remaining isolated coverage", () => {
     stopShouldThrow = true;
 
     await expect(startServer(4791)).rejects.toThrow("lifecycle failed");
+  });
+
+  test("TLS bind failure stops the already-started HTTP server and fails loud", async () => {
+    const cert = join(tmp, "cert.pem");
+    const key = join(tmp, "key.pem");
+    writeFileSync(cert, "fake-cert");
+    writeFileSync(key, "fake-key");
+    config = { bind: "127.0.0.1", tls: { cert, key } };
+    serveThrowOnCall = 2;
+
+    await expect(startServer(4800)).rejects.toThrow("maw serve TLS port 4801 is already in use");
+
+    expect(serveCalls.map(call => call.port)).toEqual([4800, 4801]);
+    expect(stoppedPorts).toEqual([{ port: 4800, force: true }]);
+    expect(errors.join("\n")).toContain("maw serve cannot start: 127.0.0.1:4801 is already in use");
+  });
+
+  test("stopping a TLS-enabled server also stops the TLS listener", async () => {
+    const cert = join(tmp, "cert.pem");
+    const key = join(tmp, "key.pem");
+    writeFileSync(cert, "fake-cert");
+    writeFileSync(key, "fake-key");
+    config = { bind: "127.0.0.1", tls: { cert, key } };
+
+    const server = await startServer(4802) as { stop: (force?: boolean) => void };
+    server.stop(true);
+
+    expect(serveCalls.map(call => call.port)).toEqual([4802, 4803]);
+    expect(stoppedPorts).toEqual([{ port: 4802, force: true }, { port: 4803, force: true }]);
   });
 });
 

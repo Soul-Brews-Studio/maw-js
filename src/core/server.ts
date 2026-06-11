@@ -134,6 +134,29 @@ export function isAddressInUseError(err: unknown): boolean {
     || (e.syscall === "listen" && typeof e.message === "string" && /port .*in use|address.*in use|EADDRINUSE/i.test(e.message));
 }
 
+function bindTlsServerStop(primary: ReturnType<typeof Bun.serve>, tlsServer: ReturnType<typeof Bun.serve>): ReturnType<typeof Bun.serve> {
+  const originalStop = primary.stop;
+  primary.stop = ((closeActiveConnections?: boolean) => {
+    let primaryResult: unknown;
+    let primaryError: unknown;
+    try {
+      primaryResult = originalStop.call(primary, closeActiveConnections);
+    } catch (err) {
+      primaryError = err;
+    }
+
+    try {
+      tlsServer.stop(closeActiveConnections);
+    } catch (err) {
+      if (!primaryError) primaryError = err;
+    }
+
+    if (primaryError) throw primaryError;
+    return primaryResult;
+  }) as typeof primary.stop;
+  return primary;
+}
+
 export function servePortInUseInstructions(port: number, hostname: string): string[] {
   const bind = hostname === "0.0.0.0" ? `port ${port}` : `${hostname}:${port}`;
   return [
@@ -532,7 +555,18 @@ export async function startBunGatewayServer(
   if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
     const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
-    Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsConfig });
+    let tlsServer: ReturnType<typeof Bun.serve>;
+    try {
+      tlsServer = Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsConfig });
+    } catch (err) {
+      try { server.stop(true); } catch { /* best effort: startup is already failing */ }
+      if (isAddressInUseError(err)) {
+        for (const line of servePortInUseInstructions(tlsPort, hostname)) log.error(line);
+        throw new UserError(`maw serve TLS port ${tlsPort} is already in use`);
+      }
+      throw err;
+    }
+    bindTlsServerStop(server, tlsServer);
     log.info(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }
 
