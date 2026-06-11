@@ -828,7 +828,7 @@ describe("cmdWake main-suite coverage", () => {
     _wtPicker.readChoice = () => answers.shift() ?? "";
 
     try {
-      const { result, logs } = await captureLogs(() => cmdWake("mawjs", { engine: "codex" }));
+      const { result, logs } = await captureLogs(() => cmdWake("mawjs", { engine: "codex", respawnWorktrees: true }));
 
       expect(result).toBe("01-mawjs:mawjs-oracle");
       expect(newWindowCalls).toEqual([
@@ -1008,7 +1008,7 @@ describe("cmdWake main-suite coverage", () => {
     ];
 
     const { result, logs } = await captureLogs(() =>
-      cmdWake("mawjs", { dryRun: true }),
+      cmdWake("mawjs", { dryRun: true, respawnWorktrees: true }),
     );
     const rendered = logs.join("\n");
 
@@ -1498,7 +1498,7 @@ describe("cmdWake main-suite coverage", () => {
     };
 
     const { result } = await captureLogs(() =>
-      cmdWake("https://github.com/the-oracle-keeps-the-human-human/graph-oracle", {}),
+      cmdWake("https://github.com/the-oracle-keeps-the-human-human/graph-oracle", { respawnWorktrees: true }),
     );
 
     expect(result).toBe("24-graph:graph-oracle");
@@ -1622,7 +1622,7 @@ describe("cmdWake main-suite coverage", () => {
     restoreTabOrderReturn = 1;
 
     const { result, logs } = await captureLogs(() =>
-      cmdWake("mawjs", { engine: "codex" }),
+      cmdWake("mawjs", { engine: "codex", respawnWorktrees: true }),
     );
 
     expect(result).toBe("10-mawjs:mawjs-oracle");
@@ -1727,7 +1727,7 @@ describe("cmdWake main-suite coverage", () => {
     restoreTabOrderReturn = 1;
 
     const { result, logs } = await captureLogs(() =>
-      cmdWake("mawjs", { fromSnapshot: true, snapshotId: "snap-1" }),
+      cmdWake("mawjs", { fromSnapshot: true, snapshotId: "snap-1", respawnWorktrees: true }),
     );
 
     expect(result).toBe("54-mawjs:mawjs-oracle");

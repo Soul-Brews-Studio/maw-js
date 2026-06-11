@@ -171,7 +171,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--work|--oracle] [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--wait] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--work|--oracle] [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--respawn-worktrees] [--no-fleet] [--split] [--wait] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -185,6 +185,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   write("  --layout selects new worktree filesystem layout: nested (default repo/agents/N-X) or legacy (.wt-N-X).");
   write("  --pick opens the reusable worktree picker; --name creates/reuses a stable named worktree.");
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
+  write("  --respawn-worktrees opts IN to rehydrating a window per worktree on disk (default OFF; thread #14) — plain wake touches only the role window.");
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
   write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
   write("  --signal-on-birth with --bud also drops a parent ψ/memory/signals birth signal.");
@@ -436,6 +437,7 @@ export async function invokeDirectHandler(
       "--from-snapshot": Boolean,
       "--snapshot": String,
       "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
+      "--respawn-worktrees": Boolean,
       "--split": Boolean,
       "--split-target": String,
       "--bring-alias": Boolean,
@@ -470,6 +472,7 @@ export async function invokeDirectHandler(
       listWt?: boolean;
       dryRun?: boolean;
       noRehydrate?: boolean;
+      respawnWorktrees?: boolean;
       noFleet?: boolean;
       split?: boolean;
       splitTarget?: string;
@@ -507,6 +510,7 @@ export async function invokeDirectHandler(
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
     if (flags["--dry-run"]) opts.dryRun = true;
+    if (flags["--respawn-worktrees"]) opts.respawnWorktrees = true;
     if (flags["--no-fleet"]) opts.noFleet = true;
     if (flags["--from-snapshot"]) opts.fromSnapshot = true;
     if (flags["--snapshot"]) {

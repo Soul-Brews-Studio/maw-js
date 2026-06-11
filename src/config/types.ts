@@ -186,6 +186,13 @@ export interface MawConfig {
   githubOrgs?: string[];
   /** Fixed Claude session UUIDs per agent */
   sessionIds?: Record<string, string>;
+  /**
+   * Opt IN to per-worktree rehydration on a plain `maw wake <role>` (default
+   * OFF; thread #14 / owner GO 2026-06-11). When false/unset, plain wake touches
+   * only the role window — pass `--respawn-worktrees` for a one-off. See
+   * shouldRehydrateWorktrees in commands/shared/wake-cmd-helpers.ts.
+   */
+  respawnWorktrees?: boolean;
   /** Path to ψ/ directory */
   psiPath?: string;
   /** TLS cert/key paths */

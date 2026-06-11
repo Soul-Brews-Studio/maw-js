@@ -41,6 +41,7 @@ import {
   planSnapshotRestoreWindows,
   retryFreshSessionTmuxStep,
   shouldOfferExistingSessionAttach,
+  shouldRehydrateWorktrees,
   writeWakeBudBirthSignal,
   writeWakeBudLineage,
 } from "./wake-cmd-helpers";
@@ -405,6 +406,13 @@ export interface WakeOptions {
   listWt?: boolean;
   dryRun?: boolean;
   noRehydrate?: boolean;
+  /**
+   * Opt IN to per-worktree rehydration (default OFF; thread #14, owner GO
+   * 2026-06-11). Without this (and without the `respawnWorktrees` config key),
+   * a plain `maw wake <role>` touches only the role window and does NOT spawn a
+   * `<role>-<wt-suffix>` window per worktree on disk. See shouldRehydrateWorktrees.
+   */
+  respawnWorktrees?: boolean;
   noFleet?: boolean;
   split?: boolean;
   /** Hidden bring alias split anchor. Shape: "session:window" (#1816 Part 3). */
@@ -1264,6 +1272,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   const mainWindowName = foreignSession ? oracle : mainWindowNameForWakeSession(sessionContext, oracle);
   const shouldCreateSession = !session && (wakeDecision.wake || Boolean(foreignSession));
+  // Per-worktree rehydration is OPT-IN (default OFF) — thread #14 / owner GO
+  // 2026-06-11. Plain `maw wake <role>` must touch only the role window and not
+  // fan out a `<role>-<wt-suffix>` window per worktree on disk. Gated below.
+  const doRehydrate = shouldRehydrateWorktrees(opts, config);
 
   if (opts.dryRun) {
     console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
@@ -1303,8 +1315,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
     }
 
-    if (opts.noRehydrate || foreignSession) {
-      const reason = foreignSession ? "foreign workspace session" : "--main/--solo/--no-rehydrate";
+    if (!doRehydrate || foreignSession) {
+      const reason = foreignSession
+        ? "foreign workspace session"
+        : opts.noRehydrate
+          ? "--main/--solo/--no-rehydrate"
+          : "opt-in only — pass --respawn-worktrees (or config respawnWorktrees:true)";
       console.log(`\x1b[90m↻ worktree rehydrate skipped (${reason})\x1b[0m`);
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
@@ -1389,7 +1405,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
-    if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
+    if (!foreignSession && !opts.task && !opts.wt && doRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       const rehydratableWt = await filterMergedWorktreesForRehydrate(allWt, { hostExec, baseBranch: "alpha" });
       const plan = planRehydrateWorktreeWindows(oracle, rehydratableWt, [...existingWindows]);
@@ -1410,6 +1426,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         existingWindows.add(wt.windowName);
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
       }
+      if (selectedPlan.length > 0) console.log(`\x1b[36m↻\x1b[0m respawned ${selectedPlan.length} worktree window${selectedPlan.length === 1 ? "" : "s"}`);
     }
     knownWindows = existingWindows;
     knownWindowEntries = [...initialWindows, { name: mainWindowName, cwd: repoPath }];
@@ -1440,7 +1457,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
-    if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
+    if (!foreignSession && !opts.task && !opts.wt && doRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
@@ -1464,6 +1481,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
               preExistingWindowEntries.push({ name: wt.windowName, cwd: wt.path });
               console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}  \x1b[90m(from ${formatWorktreeSource(wt.path)})\x1b[0m`);
             }
+            console.log(`\x1b[36m↻\x1b[0m respawned ${selectedPlan.length} worktree window${selectedPlan.length === 1 ? "" : "s"}`);
           }
         }
       } else {

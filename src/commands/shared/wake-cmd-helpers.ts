@@ -215,6 +215,23 @@ export async function filterMergedWorktreesForRehydrate(
   return kept;
 }
 
+/**
+ * Per-worktree rehydration is OPT-IN (default OFF) — thread #14, owner GO
+ * 2026-06-11. A plain `maw wake <role>` must touch only the resolved role
+ * window; it must NOT fan out a `<role>-<wt-suffix>` window per worktree on
+ * disk (the 17-window explosion + cross-role resume incident). Rehydration
+ * runs only when the caller explicitly opts in via `--respawn-worktrees`
+ * (`opts.respawnWorktrees`) or the fleet config key `respawnWorktrees: true`,
+ * and is still suppressed by `--no-rehydrate` / `--main` / `--solo`.
+ */
+export function shouldRehydrateWorktrees(
+  opts: { respawnWorktrees?: boolean; noRehydrate?: boolean },
+  config: { respawnWorktrees?: boolean } = {},
+): boolean {
+  if (opts.noRehydrate) return false;
+  return opts.respawnWorktrees === true || config.respawnWorktrees === true;
+}
+
 export type RehydrateWorktreePlan = {
   worktreeName: string;
   windowName: string;
