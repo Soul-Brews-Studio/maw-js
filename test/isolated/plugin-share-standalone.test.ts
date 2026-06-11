@@ -44,6 +44,11 @@ function parseShareOutput(output: unknown, param = "t"): { slug: string; token: 
   return { slug: match![1]!, token: match![2]! };
 }
 
+function tamperHexDigest(hex: string): string {
+  const replacement = hex.endsWith("0") ? "1" : "0";
+  return `${hex.slice(0, -1)}${replacement}`;
+}
+
 async function makeServeHarness() {
   const httpRoutes: Array<{ method: string; path: string; handler: (req: Request) => Response | Promise<Response> }> = [];
   const wsRoutes: Array<{ path: string; data: (req: Request) => unknown; handlers: Record<string, unknown> }> = [];
@@ -202,7 +207,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       expect(share.encryptionKeyHash).toBe(shareCrypto.hashShareSecret(secret));
       expect(share.encryptionKey).toBeTruthy();
       await expect(shareRuntimeImpl.verifyShare(slug, shareCrypto.hashShareSecret(secret))).resolves.toBe(true);
-      await expect(shareRuntimeImpl.verifyShare(slug, `${shareCrypto.hashShareSecret(secret).slice(0, -1)}0`)).resolves.toBe(false);
+      await expect(shareRuntimeImpl.verifyShare(slug, tamperHexDigest(shareCrypto.hashShareSecret(secret)))).resolves.toBe(false);
 
       const sent: Array<string | Uint8Array> = [];
       let childResolve: (() => void) | null = null;

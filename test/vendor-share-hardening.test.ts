@@ -15,6 +15,11 @@ import {
   displayOriginForHost,
 } from "../src/vendor/mpr-plugins/share/index";
 
+function tamperHexDigest(hex: string): string {
+  const replacement = hex.endsWith("0") ? "1" : "0";
+  return `${hex.slice(0, -1)}${replacement}`;
+}
+
 describe("share hardening", () => {
   test("encrypted share verification accepts a server-visible hash proof without revealing fragment key", async () => {
     clearShareRegistry();
@@ -23,7 +28,7 @@ describe("share hardening", () => {
 
     expect(proof).not.toBe(share.token);
     await expect(verifyShare(share.slug, proof)).resolves.toBe(true);
-    await expect(verifyShare(share.slug, `${proof.slice(0, -1)}0`)).resolves.toBe(false);
+    await expect(verifyShare(share.slug, tamperHexDigest(proof))).resolves.toBe(false);
   });
 
   test("viewer keeps encrypted key out of server-visible websocket URL", () => {
