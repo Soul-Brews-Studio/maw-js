@@ -872,3 +872,84 @@ export declare function shouldAutoWake(oracle: string, opts: Record<string, unkn
 
 export declare function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }): Promise<void>;
 export declare function cmdPulseLs(opts?: { sync?: boolean }): Promise<void>;
+// --- SDK parity exports used by repo-vendored plugins (#2750) ---
+
+export interface InvokeContext {
+  source: "cli" | "api" | "peer";
+  args: string[] | Record<string, unknown>;
+}
+
+export interface InvokeResult {
+  ok: boolean;
+  output?: string;
+  error?: string;
+}
+
+export interface OracleEntry {
+  name: string;
+  repo?: string;
+  path?: string;
+  host?: string;
+  session?: string;
+  window?: string;
+  [key: string]: unknown;
+}
+
+export interface OracleManifestEntry {
+  name: string;
+  path?: string;
+  repo?: string;
+  host?: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export declare class SshAttachError extends Error {
+  code: string;
+  constructor(message: string, code?: string);
+}
+
+export declare const C: Record<string, string>;
+export declare function hostExec(host: string | undefined, command: string, opts?: Record<string, unknown>): Promise<string>;
+export declare function listSessions(host?: string): Promise<Session[]>;
+export declare function capture(target: string, lines?: number, host?: string): Promise<string>;
+export declare function sendKeys(target: string, keys: string | string[], host?: string): Promise<void>;
+export declare function getPaneCommand(target: string, host?: string): Promise<string>;
+export declare function tmuxCmd(): string;
+export declare function resolveSocket(): string | undefined;
+export declare function withPaneLock<T>(fn: () => Promise<T>): Promise<T>;
+export declare function attachRemoteSession(opts: Record<string, unknown>): void;
+export declare function curlFetch(url: string, opts?: Record<string, unknown>): Promise<{ ok: boolean; status: number; statusText?: string; text(): Promise<string>; json<T = unknown>(): Promise<T> }>;
+export declare function getFederationStatus(): Promise<FederationStatus> | FederationStatus;
+export declare function getTransportRouter(): unknown;
+export declare function resolveTarget(target: string, opts?: Record<string, unknown>): Promise<unknown> | unknown;
+export declare function resolveFleetWindowSessionTarget<T extends { name: string }>(target: string, items: readonly T[]): ResolveResult<T>;
+export declare function isInfrastructureChannelSessionName(name: string): boolean;
+export declare function findWindow(sessions: Session[], query: string, currentSession?: string): string | null;
+export declare function checkBusyGuard(target: string): Promise<unknown>;
+export declare function defaultEngineNameForConfig(config?: Partial<MawConfig>): string;
+export declare function resolveEngine(name: string, config?: Partial<MawConfig>): unknown;
+export declare function matchesEngineIdlePrompt(text: string, engine?: string): boolean;
+export declare function runHook(name: string, payload?: unknown): Promise<unknown>;
+export declare function getTriggers(): unknown[];
+export declare function getTriggerHistory(): unknown[];
+export declare function fire(event: unknown, ctx?: Record<string, unknown>): Promise<unknown[]>;
+export declare function scanWorktrees(deps?: Record<string, unknown>): Promise<unknown[]>;
+export declare function cleanupWorktree(wtPath: string): Promise<string[]>;
+export declare function saveTabOrder(session: string): Promise<void>;
+export declare function takeSnapshot(trigger: string, retentionPolicy?: Record<string, unknown>): Promise<string>;
+export declare function findWorktrees(root?: string): Promise<string[]>;
+export declare function ghqList(): Promise<string[]>;
+export declare function loadManifestCached(opts?: Record<string, unknown>): Promise<OracleManifestEntry[]> | OracleManifestEntry[];
+export declare function invalidateManifest(): void;
+export declare function saveConfig(config: Partial<MawConfig>): void;
+export declare function cmdWorkspaceCreate(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceJoin(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceShare(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceUnshare(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceLs(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceAgents(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceInvite(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceLeave(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceStatus(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+

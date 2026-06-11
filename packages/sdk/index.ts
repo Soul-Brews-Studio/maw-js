@@ -29,12 +29,13 @@ export type {
   Session,
   PluginInfo,
 } from "../../src/core/runtime/sdk";
+export type { InvokeContext, InvokeResult } from "../../src/plugin/types";
 
 // ─── tmux — top-level transport surface (#855) ───────────────────────────────
 // Plugins use `import { tmux } from "@maw-js/sdk"` for tmux ops (list, send,
 // capture). The `Tmux` class is also exported for consumers that need to
 // construct their own instances (custom socket / remote host).
-export { tmux, Tmux } from "../../src/core/transport/tmux";
+export { tmux, Tmux, tmuxCmd, resolveSocket, withPaneLock } from "../../src/core/transport/tmux";
 export type {
   TmuxPane,
   TmuxWindow,
@@ -94,6 +95,7 @@ export type { AgentRow } from "../../src/commands/shared/agents";
 export {
   loadConfig,
   loadConfigWithProvenance,
+  saveConfig,
   cfgTimeout,
   buildCommand,
   buildCommandInDir,
@@ -194,6 +196,42 @@ export {
 // Profile shape (TypeBox-derived). Used by `profile` plugin.
 export type { TProfile, TScope } from "../../src/lib/schemas";
 
+
+// ─── SDK parity exports used by repo-vendored plugins (#2750) ───────────────
+export { defaultEngineNameForConfig, resolveEngine } from "../../src/config/engine-registry";
+export { hostExec, listSessions, capture, sendKeys, getPaneCommand } from "../../src/core/transport/ssh";
+export { attachRemoteSession, SshAttachError } from "../../src/core/transport/ssh-attach";
+export { curlFetch } from "../../src/core/transport/curl-fetch";
+export { getFederationStatus } from "../../src/core/transport/peers";
+export { resolveTarget } from "../../src/core/routing";
+export { resolveFleetWindowSessionTarget } from "../../src/core/matcher/resolve-target";
+export { isInfrastructureChannelSessionName } from "../../src/core/matcher/channel-session";
+export { findWindow } from "../../src/core/runtime/find-window";
+export { checkBusyGuard } from "../../src/core/agent-status-guard";
+export { matchesEngineIdlePrompt } from "../../src/core/agent-detect";
+export { runHook } from "../../src/core/runtime/hooks";
+export { getTriggers, getTriggerHistory, fire } from "../../src/core/runtime/triggers";
+export { scanWorktrees, cleanupWorktree } from "../../src/core/fleet/worktrees";
+export { saveTabOrder } from "../../src/core/fleet/tab-order";
+export { takeSnapshot } from "../../src/core/fleet/snapshot";
+export { getTransportRouter } from "../../src/transports";
+export { C } from "../../src/commands/shared/fleet-doctor-fixer";
+export {
+  cmdWorkspaceCreate,
+  cmdWorkspaceJoin,
+  cmdWorkspaceShare,
+  cmdWorkspaceUnshare,
+  cmdWorkspaceLs,
+  cmdWorkspaceAgents,
+  cmdWorkspaceInvite,
+  cmdWorkspaceLeave,
+  cmdWorkspaceStatus,
+} from "../../src/commands/shared/workspace";
+export { ghqList } from "../../src/core/ghq";
+export { loadManifestCached, invalidateManifest } from "../../src/lib/oracle-manifest";
+export type { OracleManifestEntry } from "../../src/lib/oracle-manifest";
+export type { OracleEntry } from "../../src/core/fleet/oracle-registry";
+
 // ─── src/plugin/registry ─────────────────────────────────────────────────────
 // Runtime bridge for cross-plugin helper reuse. A plugin must opt in via
 // plugin.json module.path + module.exports before another plugin may import it.
@@ -203,7 +241,7 @@ export type { SleepLifecycleContextInput, LifecycleRunSummary } from "../../src/
 
 // ─── src/commands/shared/wake ───────────────────────────────────────────────
 // Wake helpers used by small orchestration plugins like assign.
-export { cmdWake, fetchIssuePrompt } from "../../src/commands/shared/wake";
+export { cmdWake, fetchIssuePrompt, findWorktrees } from "../../src/commands/shared/wake";
 export { parseWakeTarget, ensureCloned } from "../../src/commands/shared/wake-target";
 export { shouldAutoWake } from "../../src/commands/shared/should-auto-wake";
 

@@ -31,7 +31,8 @@
     "preflight": "bash scripts/preflight.sh",
     "test:coverage": "bash scripts/test-coverage.sh",
     "test:unit:coverage": "bash scripts/test-unit-coverage.sh",
-    "coverage:gap": "bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md"
+    "coverage:gap": "bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md",
+    "check:sdk-surface": "bun scripts/check-sdk-surface-parity.ts"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
