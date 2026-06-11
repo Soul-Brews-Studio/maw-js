@@ -14,11 +14,11 @@ export const command = {
   description: "Share a live read-only tmux session/pane in a browser via a temporary link.",
 };
 
-const SHARE_USAGE = "usage: maw share <session-or-pane> [--read-only] [--ttl <seconds>] [--port <number>] [--auth token|federation|none]";
+const SHARE_USAGE = "usage: maw share <session-or-pane> [--read-only] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]";
 const DEFAULT_TTL_SECONDS = 3600;
 const DEFAULT_READ_ONLY = true;
 
-type ShareAuth = "token" | "federation" | "none";
+type ShareAuth = "token" | "federation" | "none" | "encrypted";
 
 type ShareWsData = ServeWsData & {
   shareSlug?: string;
@@ -45,6 +45,7 @@ type CreateShareRequest = {
   readOnly?: unknown;
   ttl?: unknown;
   auth?: unknown;
+  encrypted?: unknown;
 };
 
 const viewerHtml = (() => {
@@ -74,7 +75,7 @@ function parseRoutePart(pathname: string, pattern: string): Record<string, strin
 
 function parseShareToken(req: Request): string {
   const url = new URL(req.url);
-  return url.searchParams.get("token") || url.searchParams.get("t") || "";
+  return url.searchParams.get("token") || url.searchParams.get("t") || url.searchParams.get("k") || "";
 }
 
 function getShareSlugFromWsData(data: ShareWsData): string | null {
@@ -121,9 +122,10 @@ async function openShareWebSocket(
   }
 }
 
-function shareUrlForRequest(req: Request, slug: string, token: string): string {
+function shareUrlForRequest(req: Request, slug: string, token: string, encrypted: boolean): string {
   const url = new URL(req.url);
-  return `${url.origin}/share/${slug}#t=${token}`;
+  const param = encrypted ? "k" : "t";
+  return `${url.origin}/share/${slug}#${param}=${token}`;
 }
 
 async function parseJsonRequest(req: Request): Promise<CreateShareRequest> {
@@ -151,11 +153,13 @@ async function routeCreateShare(req: Request): Promise<Response> {
       readOnly: body.readOnly === undefined ? DEFAULT_READ_ONLY : body.readOnly !== false,
       ttl: typeof body.ttl === "number" && Number.isFinite(body.ttl) ? body.ttl : DEFAULT_TTL_SECONDS,
       auth: resolveAuthFlag(body.auth),
+      encrypted: body.encrypted === true || body.auth === "encrypted",
     });
     const payload = {
       slug: created.slug,
       token: created.token,
-      url: shareUrlForRequest(req, created.slug, created.token),
+      encrypted: created.encrypted === true,
+      url: shareUrlForRequest(req, created.slug, created.token, created.encrypted === true),
     };
     return new Response(JSON.stringify(payload), {
       headers: { "content-type": "application/json; charset=utf-8" },
@@ -281,8 +285,8 @@ function daemonPortFromFlags(flags: Record<string, unknown>): number {
 function resolveAuthFlag(raw: unknown): ShareAuth {
   if (typeof raw !== "string") return "token";
   const maybe = raw.toLowerCase();
-  if (maybe === "token" || maybe === "federation" || maybe === "none") return maybe;
-  throw new Error(`invalid --auth '${raw}', expected one of token|federation|none`);
+  if (maybe === "token" || maybe === "federation" || maybe === "none" || maybe === "encrypted") return maybe;
+  throw new Error(`invalid --auth '${raw}', expected one of token|federation|none|encrypted`);
 }
 
 function daemonOrigin(flags: Record<string, unknown>): string {
@@ -291,7 +295,7 @@ function daemonOrigin(flags: Record<string, unknown>): string {
   return `http://${host}:${port}`;
 }
 
-async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; url: string }> {
+async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; url: string; encrypted?: boolean }> {
   const res = await fetch(`${origin}/api/share`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -323,6 +327,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--ttl": Number,
       "--port": Number,
       "--auth": String,
+      "--encrypt": Boolean,
     }, 0);
 
     const target = flags._[0];
@@ -340,14 +345,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const readOnly = flags["--read-only"] === undefined ? DEFAULT_READ_ONLY : Boolean(flags["--read-only"]);
     const ttl = typeof flags["--ttl"] === "number" && Number.isFinite(flags["--ttl"]) ? flags["--ttl"] : DEFAULT_TTL_SECONDS;
-    const auth = resolveAuthFlag(flags["--auth"]);
+    const encrypted = flags["--encrypt"] === true || flags["--auth"] === "encrypted";
+    const auth = encrypted && flags["--auth"] === undefined ? "encrypted" : resolveAuthFlag(flags["--auth"]);
 
-    const { url } = await createShareViaDaemon(daemonOrigin(flags), {
+    const request: CreateShareRequest = {
       target: hit.resolved,
       readOnly,
       ttl,
       auth,
-    });
+    };
+    if (encrypted) request.encrypted = true;
+
+    const { url } = await createShareViaDaemon(daemonOrigin(flags), request);
 
     console.log(`🔗 ${url}`);
     return { ok: true, output: url };

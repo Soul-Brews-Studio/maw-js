@@ -43,8 +43,50 @@
         const slug = match?.[1] || "";
         const params = new URLSearchParams(location.hash?.replace(/^#/, "") || "");
         const token = params.get("t") || params.get("token") || "";
+        const e2eKey = params.get("k") || "";
+        const wsToken = e2eKey || token;
         const wsProto = location.protocol === "https:" ? "wss" : "ws";
-        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?t=${encodeURIComponent(token)}`);
+        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "k" : "t"}=${encodeURIComponent(wsToken)}`);
+        socket.binaryType = "arraybuffer";
+
+
+        const b64urlToBytes = (value) => {
+          const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          return bytes;
+        };
+
+        const deriveE2EKey = async (secret) => {
+          if (!secret) return null;
+          const ikm = b64urlToBytes(secret);
+          const baseKey = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveKey"]);
+          return await crypto.subtle.deriveKey(
+            {
+              name: "HKDF",
+              hash: "SHA-256",
+              salt: new TextEncoder().encode("maw-share-e2e-hkdf-salt/v1"),
+              info: new TextEncoder().encode("maw-share-e2e/aes-256-gcm/v1"),
+            },
+            baseKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"],
+          );
+        };
+
+        const decryptFrame = async (key, data) => {
+          if (!key) return typeof data === "string" ? data : new TextDecoder().decode(data);
+          const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(await data.arrayBuffer());
+          if (bytes[0] !== 0x4d || bytes[1] !== 0x53 || bytes[2] !== 0x31) throw new Error("invalid encrypted frame");
+          const nonce = bytes.slice(3, 15);
+          const ciphertextAndTag = bytes.slice(15);
+          const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertextAndTag);
+          return new TextDecoder().decode(plain);
+        };
+
+        let e2eKeyPromise = deriveE2EKey(e2eKey);
 
         const fallback = document.getElementById("fallback");
         const termHost = document.getElementById("term");
@@ -81,18 +123,27 @@
           resize();
 
           socket.addEventListener("message", (event) => {
-            term.write(typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data));
+            void (async () => {
+              try {
+                term.write(await decryptFrame(await e2eKeyPromise, event.data));
+              } catch {
+                fallback.textContent = "Unable to decrypt encrypted share frame.";
+                fallback.style.display = "block";
+              }
+            })();
           });
           return true;
         };
 
         if (!initTerminal()) {
           socket.addEventListener("message", (event) => {
-            if (typeof event.data === "string") {
-              writeFallback(event.data);
-            } else {
-              writeFallback(new TextDecoder().decode(event.data));
-            }
+            void (async () => {
+              try {
+                writeFallback(await decryptFrame(await e2eKeyPromise, event.data));
+              } catch {
+                writeFallback("\n[unable to decrypt encrypted share frame]\n");
+              }
+            })();
           });
         }
 

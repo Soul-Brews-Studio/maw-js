@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { deriveShareKey, hashShareSecret, mintShareSecret, type ShareEncryptionKey } from "./crypto";
 
-type ShareAuthKind = "token" | "federation" | "none";
+type ShareAuthKind = "token" | "federation" | "none" | "encrypted";
 
 export interface Share {
   target: string;
@@ -9,6 +10,16 @@ export interface Share {
   tokenHash: string;
   expiresAt: number;
   auth: ShareAuthKind;
+  encrypted?: boolean;
+  /**
+   * #2686 threat model: daemon is the legitimate PTY plaintext source, but
+   * intermediaries between daemon and browser must not read PTY bytes. The
+   * derived AES key is RAM-only and must never be persisted or logged. Durable
+   * records may keep only encryptionKeyHash for verification.
+   */
+  encryptionKey?: ShareEncryptionKey;
+  encryptionKeyHash?: string;
+  encryptionFrameCounter?: bigint;
 }
 
 export interface CreateShareOptions {
@@ -17,12 +28,14 @@ export interface CreateShareOptions {
   readOnly?: boolean;
   ttl?: number;
   auth?: ShareAuthKind;
+  encrypted?: boolean;
 }
 
 export interface CreateShareResult {
   slug: string;
   token: string;
   url: string;
+  encrypted?: boolean;
 }
 
 export interface ShareAuth {
@@ -86,6 +99,18 @@ function noneAuthProvider(): ShareAuth {
   };
 }
 
+function encryptedAuthProvider(): ShareAuth {
+  return {
+    kind: "encrypted",
+    mint: () => mintShareSecret(),
+    verify: (slug, presented) => {
+      const share = shareRegistry.get(slug);
+      if (!share?.encryptionKeyHash) return false;
+      return hashesMatch(share.encryptionKeyHash, hashShareSecret(presented));
+    },
+  };
+}
+
 let federationAuth: (() => Promise<typeof import("../../../lib/federation-auth")>) | null = null;
 
 function resolveFederationAuthModule(): Promise<typeof import("../../../lib/federation-auth")> {
@@ -134,6 +159,7 @@ function federationAuthProvider(): Promise<ShareAuth> {
 async function resolveAuth(kind: ShareAuthKind): Promise<ShareAuth> {
   if (kind === "token") return tokenAuthProvider();
   if (kind === "none") return noneAuthProvider();
+  if (kind === "encrypted") return encryptedAuthProvider();
   return federationAuthProvider();
 }
 
@@ -168,7 +194,8 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
   const target = opts.target;
   const panes = Array.isArray(opts.panes) ? opts.panes.slice() : [];
   const readOnly = opts.readOnly !== false;
-  const auth: ShareAuthKind = opts.auth ?? "token";
+  const auth: ShareAuthKind = opts.auth ?? (opts.encrypted ? "encrypted" : "token");
+  const encrypted = opts.encrypted === true || auth === "encrypted";
   const expiresAt = Date.now() + ensureTTL(opts.ttl);
 
   const authHandler = await resolveAuth(auth);
@@ -180,9 +207,15 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
     tokenHash: "",
     expiresAt,
     auth,
+    encrypted,
+    encryptionFrameCounter: 0n,
   };
   const token = await authHandler.mint(share, slug);
   share.tokenHash = hashToken(token);
+  if (encrypted) {
+    share.encryptionKey = deriveShareKey(token);
+    share.encryptionKeyHash = hashShareSecret(token);
+  }
 
   shareRegistry.set(slug, share);
   ensureSweepTimer();
@@ -190,7 +223,8 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
   return {
     slug,
     token,
-    url: `/share/${slug}#${token}`,
+    url: `/share/${slug}#${encrypted ? "k" : "t"}=${token}`,
+    encrypted,
   };
 }
 

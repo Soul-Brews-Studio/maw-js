@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { Tmux } from "maw-js/sdk";
 import type { Share } from "./impl";
+import { encryptShareFrame } from "./crypto";
 
 type ChildProcessLike = {
   kill: (signal?: string | number) => void;
@@ -90,6 +91,19 @@ function sendSafe(ws: ServerWebSocket, data: string | Uint8Array): void {
   } catch {
     // ws may be closed already
   }
+}
+
+function nextEncryptedFrame(share: Share, data: string | Uint8Array): string | Uint8Array {
+  if (!share.encrypted) return data;
+  if (!share.encryptionKey) throw new Error("encrypted share is missing its RAM-only key");
+  const counter = share.encryptionFrameCounter ?? 0n;
+  if (counter >= 0xffff_ffff_ffff_ffffn) {
+    throw new Error("encrypted share frame counter exhausted; rotate share key");
+  }
+  // AES-GCM requires never reusing a (key, nonce) pair. We derive the nonce
+  // from this monotonic per-share counter and send it in the frame envelope.
+  share.encryptionFrameCounter = counter + 1n;
+  return encryptShareFrame(share.encryptionKey, data, counter);
 }
 
 async function awaitOrKill(child: ChildProcessLike | null, deps: Pick<StreamDeps, "setTimeout" | "clearTimeout">): Promise<void> {
@@ -182,14 +196,14 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
 
   try {
     const snapshot = await resolved.tmux.capture(share.target, DEFAULT_SNAPSHOT_LINES);
-    if (snapshot) sendSafe(ws, snapshot);
+    if (snapshot) sendSafe(ws, nextEncryptedFrame(share, snapshot));
 
     const command = `cat >> ${shellEscapeArg(consumerPath)}`;
     await resolved.tmux.pipePane(share.target, command);
 
     consumerChild = await resolved.spawnTail(consumerPath, (chunk) => {
       if (closed) return;
-      sendSafe(ws, chunk);
+      sendSafe(ws, nextEncryptedFrame(share, chunk));
     });
   } catch (error) {
     await close();

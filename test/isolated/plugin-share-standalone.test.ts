@@ -25,15 +25,19 @@ mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => (
 
 const sharePlugin = await import("../../src/vendor/mpr-plugins/share/index.ts?plugin-share-standalone");
 const shareImpl = await import("../../src/vendor/mpr-plugins/share/impl.ts?plugin-share-standalone");
+const shareRuntimeImpl = await import("../../src/vendor/mpr-plugins/share/impl.ts");
+const shareCrypto = await import("../../src/vendor/mpr-plugins/share/crypto.ts?plugin-share-standalone");
+const shareStream = await import("../../src/vendor/mpr-plugins/share/stream.ts?plugin-share-standalone");
 const shareHandler = sharePlugin.default;
 
 beforeEach(() => {
   resolvedTargets.length = 0;
   shareImpl.clearShareRegistry();
+  shareRuntimeImpl.clearShareRegistry();
 });
 
-function parseShareOutput(output: unknown): { slug: string; token: string } {
-  const match = String(output).match(/\/share\/([^#]+)#t=(.+)$/);
+function parseShareOutput(output: unknown, param = "t"): { slug: string; token: string } {
+  const match = String(output).match(new RegExp(`/share/([^#]+)#${param}=(.+)$`));
   expect(match).toBeTruthy();
   return { slug: match![1]!, token: match![2]! };
 }
@@ -121,6 +125,91 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     }
   });
 
+  test("crypto frames roundtrip and reject tamper or wrong key", () => {
+    const secret = shareCrypto.mintShareSecret();
+    const key = shareCrypto.deriveShareKey(secret);
+    const plaintext = new TextEncoder().encode("hello encrypted pty\n");
+    const frame = shareCrypto.encryptShareFrame(key, plaintext, 0n);
+
+    expect(shareCrypto.isEncryptedShareFrame(frame)).toBe(true);
+    expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, frame))).toBe("hello encrypted pty\n");
+
+    const tampered = new Uint8Array(frame);
+    tampered[tampered.length - 17] ^= 0xff;
+    expect(() => shareCrypto.decryptShareFrame(key, tampered)).toThrow();
+
+    const wrongKey = shareCrypto.deriveShareKey(shareCrypto.mintShareSecret());
+    expect(() => shareCrypto.decryptShareFrame(wrongKey, frame)).toThrow();
+  });
+
+  test("cli encrypted share mints on daemon and stream sends decryptable ciphertext only", async () => {
+    const { httpRoutes } = await makeServeHarness();
+    const createRoute = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;
+    const viewerRoute = httpRoutes.find((route) => route.method === "GET" && route.path === "/share/:slug")!;
+    const originalFetch = globalThis.fetch;
+    const postedBodies: unknown[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      postedBodies.push(await req.clone().json());
+      const url = new URL(req.url);
+      if (req.method === "POST" && url.pathname === "/api/share") return createRoute.handler(req);
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const result = await shareHandler({
+        source: "cli",
+        args: ["neo:1", "--encrypt", "--ttl", "42", "--port", "4567"],
+      } as any);
+
+      expect(result.ok).toBe(true);
+      expect(postedBodies).toEqual([{ target: "neo:1:resolved", readOnly: true, ttl: 42, auth: "encrypted", encrypted: true }]);
+      expect(result.output).toMatch(/^http:\/\/127\.0\.0\.1:4567\/share\/[a-z0-9]+#k=.+/);
+      const { slug, token: secret } = parseShareOutput(result.output, "k");
+      expect(secret.length).toBeGreaterThanOrEqual(43);
+
+      const viewer = await viewerRoute.handler(new Request(`http://127.0.0.1:4567/share/${slug}`));
+      expect(viewer.status).toBe(200);
+
+      const share = shareRuntimeImpl.getShare(slug)!;
+      expect(share).toMatchObject({ encrypted: true, auth: "encrypted" });
+      expect(share.encryptionKeyHash).toBe(shareCrypto.hashShareSecret(secret));
+      expect(share.encryptionKey).toBeTruthy();
+
+      const sent: Array<string | Uint8Array> = [];
+      let childResolve: (() => void) | null = null;
+      const handle = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sent.push(data) } as any, {
+        tmux: {
+          capture: async () => "SNAPSHOT-PLAINTEXT\n",
+          pipePane: async () => undefined,
+        },
+        spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+          onChunk(new TextEncoder().encode("LIVE-PLAINTEXT\n"));
+          return {
+            kill: () => undefined,
+            exited: new Promise((resolve) => { childResolve = resolve; }),
+          };
+        },
+      } as any);
+
+      expect(sent).toHaveLength(2);
+      expect(sent.every((frame) => frame instanceof Uint8Array)).toBe(true);
+      for (const frame of sent as Uint8Array[]) {
+        expect(new TextDecoder().decode(frame)).not.toContain("PLAINTEXT");
+        expect(shareCrypto.isEncryptedShareFrame(frame)).toBe(true);
+      }
+      const key = shareCrypto.deriveShareKey(secret);
+      expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[0] as Uint8Array))).toBe("SNAPSHOT-PLAINTEXT\n");
+      expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[1] as Uint8Array))).toBe("LIVE-PLAINTEXT\n");
+
+      await handle.close();
+      if (childResolve) childResolve();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("serve hook registers create, viewer, metadata, and websocket routes", async () => {
     const { result, httpRoutes, wsRoutes } = await makeServeHarness();
 
@@ -153,7 +242,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
   test("token auth public API mints, verifies, rejects bad tokens, and expires", async () => {
     const { slug, token, url } = await shareImpl.createShare({ target: "neo:1", panes: ["neo:1.0"], ttl: 1, auth: "token" });
 
-    expect(url).toBe(`/share/${slug}#${token}`);
+    expect(url).toBe(`/share/${slug}#t=${token}`);
     expect(shareImpl.getShare(slug)).toMatchObject({ target: "neo:1", panes: ["neo:1.0"], auth: "token" });
     await expect(shareImpl.verifyShare(slug, token)).resolves.toBe(true);
     await expect(shareImpl.verifyShare(slug, `${token}-bad`)).resolves.toBe(false);
