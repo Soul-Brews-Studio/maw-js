@@ -289,13 +289,24 @@ function resolveAuthFlag(raw: unknown): ShareAuth {
   throw new Error(`invalid --auth '${raw}', expected one of token|federation|none|encrypted`);
 }
 
-function daemonOrigin(flags: Record<string, unknown>): string {
-  const host = loadConfig().host || "localhost";
+function daemonLoopbackOrigin(flags: Record<string, unknown>): string {
+  const port = daemonPortFromFlags(flags);
+  return `http://127.0.0.1:${port}`;
+}
+
+function displayOrigin(flags: Record<string, unknown>): string {
+  const { host } = loadConfig();
+  if (!host) throw new Error("share display URL requires config.host");
   const port = daemonPortFromFlags(flags);
   return `http://${host}:${port}`;
 }
 
-async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; url: string; encrypted?: boolean }> {
+function displayShareUrl(origin: string, share: { slug: string; token: string; encrypted?: boolean }): string {
+  const param = share.encrypted === true ? "k" : "t";
+  return `${origin}/share/${share.slug}#${param}=${share.token}`;
+}
+
+async function createShareViaDaemon(origin: string, body: CreateShareRequest): Promise<{ slug: string; token: string; encrypted?: boolean }> {
   const res = await fetch(`${origin}/api/share`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -310,7 +321,7 @@ async function createShareViaDaemon(origin: string, body: CreateShareRequest): P
   if (!res.ok) {
     throw new Error(payload?.error || `share daemon returned HTTP ${res.status}`);
   }
-  if (!payload || typeof payload.url !== "string" || typeof payload.slug !== "string" || typeof payload.token !== "string") {
+  if (!payload || typeof payload.slug !== "string" || typeof payload.token !== "string") {
     throw new Error("share daemon returned an invalid response");
   }
   return payload;
@@ -356,7 +367,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     };
     if (encrypted) request.encrypted = true;
 
-    const { url } = await createShareViaDaemon(daemonOrigin(flags), request);
+    const share = await createShareViaDaemon(daemonLoopbackOrigin(flags), request);
+    const url = displayShareUrl(displayOrigin(flags), share);
 
     console.log(`🔗 ${url}`);
     return { ok: true, output: url };

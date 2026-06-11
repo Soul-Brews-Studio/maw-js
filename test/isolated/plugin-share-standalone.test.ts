@@ -10,7 +10,7 @@ const resolvedTargets: string[] = [];
 
 const configMock = {
   ...realConfig,
-  loadConfig: () => ({ host: "127.0.0.1" }),
+  loadConfig: () => ({ host: "local" }),
 };
 mock.module("maw-js/config", () => configMock);
 mock.module(import.meta.resolve("../../src/config.ts"), () => configMock);
@@ -104,7 +104,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       expect(resolvedTargets).toEqual(["neo:1"]);
       expect(postedUrls).toEqual(["http://127.0.0.1:4567/api/share"]);
       expect(postedBodies).toEqual([{ target: "neo:1:resolved", readOnly: true, ttl: 42, auth: "token" }]);
-      expect(result.output).toMatch(/^http:\/\/127\.0\.0\.1:4567\/share\/[a-z0-9]+#t=.+/);
+      expect(result.output).toMatch(/^http:\/\/local:4567\/share\/[a-z0-9]+#t=.+/);
 
       const { slug, token } = parseShareOutput(result.output);
       expect(slug).toMatch(/^[a-z0-9]+$/);
@@ -165,7 +165,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
 
       expect(result.ok).toBe(true);
       expect(postedBodies).toEqual([{ target: "neo:1:resolved", readOnly: true, ttl: 42, auth: "encrypted", encrypted: true }]);
-      expect(result.output).toMatch(/^http:\/\/127\.0\.0\.1:4567\/share\/[a-z0-9]+#k=.+/);
+      expect(result.output).toMatch(/^http:\/\/local:4567\/share\/[a-z0-9]+#k=.+/);
       const { slug, token: secret } = parseShareOutput(result.output, "k");
       expect(secret.length).toBeGreaterThanOrEqual(43);
 
