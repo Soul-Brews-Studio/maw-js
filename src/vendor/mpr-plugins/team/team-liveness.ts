@@ -4,6 +4,8 @@ import { Tmux } from "../../../core/transport/tmux";
 import { isAgentCommand } from "../../../core/agent-detect";
 import { loadConfig } from "../../../config/load";
 import * as mawSdk from "maw-js/sdk";
+import { UserError } from "../../../core/util/user-error";
+import { engineNamesForConfig } from "../../../config/engine-registry";
 import type { MawConfig } from "../../../config/types";
 import type { WakeOptions } from "../../../commands/shared/wake-cmd";
 import type { TeamCharterEngines, TeamCharterMember } from "./team-charter";
@@ -206,7 +208,24 @@ export function resolveCharterEngineCommand(engine: string, engines?: TeamCharte
   return command || undefined;
 }
 
+export function knownTeamEngineNames(config: MawConfig, engines?: TeamCharterEngines): string[] {
+  return [...new Set([
+    ...engineNamesForConfig(config),
+    ...Object.keys(engines ?? {}),
+  ])].sort();
+}
+
+export function assertTeamEngineResolvable(engine: string, opts: EngineCommandOptions = {}, config: MawConfig = loadConfig()): void {
+  const key = opts.resume ? `${engine}-resume` : engine;
+  if (resolveCharterEngineCommand(key, opts.engines)) return;
+  const known = new Set(knownTeamEngineNames(config, opts.engines));
+  if (known.has(engine) || known.has(key)) return;
+  const knownList = [...known].join(", ") || "none";
+  throw new UserError(`engine '${engine}' not resolvable — known: [${knownList}]; define it in config.engines/config.commands or charter.engines`);
+}
+
 export function engineCommand(engine: string, opts: EngineCommandOptions = {}, config: MawConfig = loadConfig()): string {
+  assertTeamEngineResolvable(engine, opts, config);
   const key = opts.resume ? `${engine}-resume` : engine;
   return resolveCharterEngineCommand(key, opts.engines) ?? mawSdk.resolveEngine(key, config).cmd;
 }

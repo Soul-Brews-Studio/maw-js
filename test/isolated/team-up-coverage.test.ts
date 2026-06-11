@@ -12,6 +12,7 @@ import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, res
 import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
+import { isUserError } from "../../src/core/util/user-error";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -451,6 +452,34 @@ members:
       ["lead", "mawjs-oracle", "mawjs-oracle", "live"],
       ["implementer", "mawjs-codex", "mawjs-codex", "live"],
     ]);
+  });
+
+
+  test("team up preflight aborts before spawn when charter engine is unresolved", async () => {
+    const root = tempRepo();
+    const { tmux, calls } = fakeTmux([]);
+    const wakes: any[] = [];
+    const badConfig = { commands: { default: "claude", codex: "codex" } } as any;
+    let thrown: unknown;
+
+    try {
+      await cmdTeamUp("alpha", {}, {
+        cwd: root,
+        tmux,
+        loadConfigFn: () => badConfig,
+        cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+        sleep: async () => {},
+        logger: () => {},
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("team up preflight failed");
+    expect((thrown as Error).message).toContain("coder-1: engine 'omx' not resolvable");
+    expect(wakes).toHaveLength(0);
+    expect(calls.some((call) => call[0] === "send-keys" || call[0] === "kill-window")).toBe(false);
   });
 
   test("role matching is anchored so coder-1 does not match coder-10", () => {

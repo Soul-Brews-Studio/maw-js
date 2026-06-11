@@ -5,6 +5,7 @@ import type { MawConfig } from "./types";
 import type { EngineDef } from "./engine-def";
 import { getChannelEnv, getChannelPermissionMode, getChannelPluginIds } from "../commands/shared/channel-loader";
 import { defaultEngineNameForConfig, engineNamesForConfig, enginePatternKeysForConfig, isClaudeLikeEngine, resolveEngine } from "./engine-registry";
+import { UserError } from "../core/util/user-error";
 
 const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
@@ -124,7 +125,11 @@ function commandKeyForAgent(
   const keys = enginePatternKeysForConfig(config);
   const known = new Set(engineNamesForConfig(config));
 
-  if (opts.engine && known.has(opts.engine)) return opts.engine;
+  if (opts.engine) {
+    if (known.has(opts.engine)) return opts.engine;
+    const knownList = [...known].sort().join(", ") || "none";
+    throw new UserError(`engine '${opts.engine}' not resolvable — known: [${knownList}]; define it in config.engines/config.commands or check charter`);
+  }
 
   let key = defaultEngineNameForConfig(config);
 

@@ -9,12 +9,14 @@ import { loadConfig } from "../../../config/load";
 import type { MawConfig } from "../../../config/types";
 import { Tmux } from "../../../core/transport/tmux";
 import type { WakeOptions } from "../../../commands/shared/wake-cmd";
+import { UserError } from "../../../core/util/user-error";
 import { cmdSend } from "../../../commands/shared/comm-send";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
 import {
   classifyMember,
   currentTmuxSession,
   engineCommand,
+  knownTeamEngineNames,
   findRepoRoot,
   listPaneSnapshots,
   repoSlugFromRoot,
@@ -151,6 +153,17 @@ function memberPrimingTarget(session: string, member: TeamCharter["members"][num
   return `${session}:${identity}`;
 }
 
+
+function validateRosterEngines(roster: ClassifiedTeamMember[], charter: TeamCharter, config: MawConfig): void {
+  const known = new Set(knownTeamEngineNames(config, charter.engines));
+  const bad = roster
+    .filter((item) => !known.has(item.engine) && !charter.engines?.[item.engine])
+    .map((item) => `${item.role}: engine '${item.engine}' not resolvable`);
+  if (bad.length === 0) return;
+  const knownList = [...known].sort().join(", ") || "none";
+  throw new UserError(`team up preflight failed: unresolved member engine(s): ${bad.join("; ")} — known: [${knownList}]; define missing engines in config.engines/config.commands or charter.engines before spawning`);
+}
+
 function promptDelayMs(charter: TeamCharter): number {
   const configured = charter.lifecycle?.prompt_delay;
   return typeof configured === "number" ? configured : 3000;
@@ -223,6 +236,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
     }
   }
   const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, members: requestedMembers, repoSlug: targetRepoSlug }));
+  validateRosterEngines(roster, charter, config);
   const actions: TeamUpAction[] = [];
 
   if (opts.status) {

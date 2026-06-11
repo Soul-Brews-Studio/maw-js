@@ -20,6 +20,7 @@ let fakeConfig: any = {
 let fakeSessionIds: Record<string, string> = {};
 
 const { buildCommandFromConfig, buildCommandInDirFromConfig } = await import("../src/config/command-logic");
+const { isUserError } = await import("../src/core/util/user-error");
 
 function testConfig() {
   return { ...fakeConfig, sessionIds: fakeSessionIds };
@@ -169,9 +170,17 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe("codex");
   });
 
-  test("engine param falls back to default when engine not in config", () => {
+  test("explicit unknown engine fails loud instead of falling back to default", () => {
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent", "gemini")).toBe("claude");
+    let thrown: unknown;
+    try {
+      buildCommand("any-agent", "gemini");
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("engine 'gemini' not resolvable");
+    expect((thrown as Error).message).toContain("known:");
   });
 
   test("engine param skips pattern matching", () => {
