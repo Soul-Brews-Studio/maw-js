@@ -24,6 +24,88 @@ type StreamDeps = {
   clearTimeout: typeof clearTimeout;
 };
 
+type Subscriber = {
+  send: (chunk: string | Uint8Array) => void;
+};
+
+type TargetBus = {
+  target: string;
+  tempDir: string;
+  consumerPath: string;
+  child: ChildProcessLike | null;
+  subscribers: Map<symbol, Subscriber>;
+  closing: Promise<void> | null;
+  deps: StreamDeps;
+};
+
+const targetBuses = new Map<string, Promise<TargetBus>>();
+
+async function createTargetBus(target: string, deps: StreamDeps): Promise<TargetBus> {
+  const tempDir = deps.mkdtempSync(join(deps.tmpdir(), "maw-share-"));
+  const consumerPath = makeStreamConsumerPath(tempDir, target);
+  const bus: TargetBus = {
+    target,
+    tempDir,
+    consumerPath,
+    child: null,
+    subscribers: new Map(),
+    closing: null,
+    deps,
+  };
+
+  try {
+    await Bun.write(consumerPath, "");
+    const command = `cat >> ${shellEscapeArg(consumerPath)}`;
+    // tmux has one pipe-pane slot per pane. Use -o/onlyIfClosed so a second
+    // viewer for the same target never clobbers the existing producer; all
+    // viewers subscribe to this per-target fan-out bus instead.
+    await deps.tmux.pipePane(target, command, { onlyIfClosed: true });
+    bus.child = await deps.spawnTail(consumerPath, (chunk) => {
+      for (const subscriber of bus.subscribers.values()) subscriber.send(chunk);
+    });
+    return bus;
+  } catch (error) {
+    targetBuses.delete(target);
+    try { await teardownBus(bus); } catch { /* best effort after setup failure */ }
+    throw error;
+  }
+}
+
+async function getTargetBus(target: string, deps: StreamDeps): Promise<TargetBus> {
+  let pending = targetBuses.get(target);
+  if (!pending) {
+    pending = createTargetBus(target, deps);
+    targetBuses.set(target, pending);
+  }
+  return pending;
+}
+
+async function teardownBus(bus: TargetBus): Promise<void> {
+  if (bus.closing) return bus.closing;
+  bus.closing = (async () => {
+    targetBuses.delete(bus.target);
+    try {
+      await bus.deps.tmux.pipePane(bus.target);
+    } catch {
+      // best-effort stream teardown
+    }
+
+    await awaitOrKill(bus.child, bus.deps);
+    bus.child = null;
+
+    try {
+      bus.deps.rmSync(bus.tempDir, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  })();
+  return bus.closing;
+}
+
+export function __resetShareStreamBusesForTests(): void {
+  targetBuses.clear();
+}
+
 export interface ShareStreamHandle {
   onMessage: (message: unknown) => void;
   close: () => Promise<void>;
@@ -165,14 +247,18 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
     throw new Error("share expired before stream attach");
   }
 
-  const tempDir = resolved.mkdtempSync(join(resolved.tmpdir(), "maw-share-"));
-  const consumerPath = makeStreamConsumerPath(tempDir, share.target);
-
-  await Bun.write(consumerPath, "");
-
   let closed = false;
-  let consumerChild: ChildProcessLike | null = null;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  let bus: TargetBus | null = null;
+  const subscriberId = Symbol(`share:${share.target}`);
+
+  const detach = async (): Promise<void> => {
+    if (!bus) return;
+    const targetBus = bus;
+    bus = null;
+    targetBus.subscribers.delete(subscriberId);
+    if (targetBus.subscribers.size === 0) await teardownBus(targetBus);
+  };
 
   const close = async (): Promise<void> => {
     if (closed) return;
@@ -183,20 +269,7 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
       expiryTimer = null;
     }
 
-    try {
-      await resolved.tmux.pipePane(share.target);
-    } catch {
-      // best-effort stream teardown
-    }
-
-    await awaitOrKill(consumerChild, resolved);
-    consumerChild = null;
-
-    try {
-      resolved.rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    await detach();
   };
 
   expiryTimer = resolved.setTimeout(() => {
@@ -220,13 +293,17 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
     const snapshot = await resolved.tmux.capture(share.target, DEFAULT_SNAPSHOT_LINES);
     if (snapshot) sendSafe(ws, nextEncryptedFrame(share, snapshot));
 
-    const command = `cat >> ${shellEscapeArg(consumerPath)}`;
-    await resolved.tmux.pipePane(share.target, command);
-
-    consumerChild = await resolved.spawnTail(consumerPath, (chunk) => {
-      if (closed) return;
-      sendSafe(ws, nextEncryptedFrame(share, chunk));
-    });
+    bus = await getTargetBus(share.target, resolved);
+    if (closed) {
+      await detach();
+    } else {
+      bus.subscribers.set(subscriberId, {
+        send: (chunk) => {
+          if (closed) return;
+          sendSafe(ws, nextEncryptedFrame(share, chunk));
+        },
+      });
+    }
   } catch (error) {
     await close();
     throw error;

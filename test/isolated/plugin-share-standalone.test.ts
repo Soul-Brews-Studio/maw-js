@@ -36,6 +36,7 @@ beforeEach(() => {
   resolvedTargets.length = 0;
   shareImpl.clearShareRegistry();
   shareRuntimeImpl.clearShareRegistry();
+  shareStream.__resetShareStreamBusesForTests();
 });
 
 function parseShareOutput(output: unknown, param = "t"): { slug: string; token: string } {
@@ -211,19 +212,21 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
 
       const sent: Array<string | Uint8Array> = [];
       let childResolve: (() => void) | null = null;
+      let liveChunk: ((chunk: Uint8Array) => void) | null = null;
       const handle = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sent.push(data) } as any, {
         tmux: {
           capture: async () => "SNAPSHOT-PLAINTEXT\n",
           pipePane: async () => undefined,
         },
         spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
-          onChunk(new TextEncoder().encode("LIVE-PLAINTEXT\n"));
+          liveChunk = onChunk;
           return {
             kill: () => undefined,
             exited: new Promise((resolve) => { childResolve = resolve; }),
           };
         },
       } as any);
+      liveChunk!(new TextEncoder().encode("LIVE-PLAINTEXT\n"));
 
       expect(sent).toHaveLength(2);
       expect(sent.every((frame) => frame instanceof Uint8Array)).toBe(true);
@@ -235,11 +238,82 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
       expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[0] as Uint8Array))).toBe("SNAPSHOT-PLAINTEXT\n");
       expect(new TextDecoder().decode(shareCrypto.decryptShareFrame(key, sent[1] as Uint8Array))).toBe("LIVE-PLAINTEXT\n");
 
-      await handle.close();
       if (childResolve) childResolve();
+      await handle.close();
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("stream fan-out keeps one tmux pipe per target until the last viewer closes", async () => {
+    const share: Share = {
+      target: "neo:1",
+      panes: [],
+      readOnly: true,
+      tokenHash: "hash",
+      expiresAt: Date.now() + 60_000,
+      auth: "token",
+    };
+    const sentA: Array<string | Uint8Array> = [];
+    const sentB: Array<string | Uint8Array> = [];
+    const pipeCalls: unknown[][] = [];
+    const killed: Array<string | number | undefined> = [];
+    const removedTmpDirs: string[] = [];
+    const chunkHandlers: Array<(chunk: Uint8Array) => void> = [];
+    const encoder = new TextEncoder();
+    let childResolve: (() => void) | null = null;
+
+    const deps = {
+      mkdtempSync: () => "/tmp/maw-share-fanout-test",
+      tmpdir: () => "/tmp",
+      join: (...parts: string[]) => parts.join("/"),
+      rmSync: (path: string) => { removedTmpDirs.push(path); },
+      tmux: {
+        capture: async () => "SNAPSHOT\n",
+        pipePane: async (...args: unknown[]) => { pipeCalls.push(args); },
+      },
+      spawnTail: async (_path: string, onChunk: (chunk: Uint8Array) => void) => {
+        chunkHandlers.push(onChunk);
+        return {
+          kill: (signal?: string | number) => { killed.push(signal); },
+          exited: new Promise((resolve) => { childResolve = () => resolve(0); }),
+        };
+      },
+    } as any;
+
+    const first = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sentA.push(data) } as any, deps);
+    const second = await shareStream.attach(share as any, { send: (data: string | Uint8Array) => sentB.push(data) } as any, deps);
+
+    expect(sentA).toEqual(["SNAPSHOT\n"]);
+    expect(sentB).toEqual(["SNAPSHOT\n"]);
+    expect(chunkHandlers).toHaveLength(1);
+    expect(pipeCalls).toHaveLength(1);
+    expect(pipeCalls[0]).toEqual(["neo:1", expect.stringContaining("cat >>"), { onlyIfClosed: true }]);
+
+    chunkHandlers[0]!(encoder.encode("LIVE-1\n"));
+    expect(sentA.at(-1)).toEqual(encoder.encode("LIVE-1\n"));
+    expect(sentB.at(-1)).toEqual(encoder.encode("LIVE-1\n"));
+
+    await first.close();
+    expect(pipeCalls).toHaveLength(1);
+    expect(killed).toEqual([]);
+    expect(removedTmpDirs).toEqual([]);
+
+    chunkHandlers[0]!(encoder.encode("LIVE-2\n"));
+    expect(sentA.map((entry) => entry instanceof Uint8Array ? new TextDecoder().decode(entry) : entry)).toEqual(["SNAPSHOT\n", "LIVE-1\n"]);
+    expect(sentB.map((entry) => entry instanceof Uint8Array ? new TextDecoder().decode(entry) : entry)).toEqual(["SNAPSHOT\n", "LIVE-1\n", "LIVE-2\n"]);
+
+    if (childResolve) childResolve();
+    await second.close();
+    expect(pipeCalls).toEqual([
+      ["neo:1", expect.stringContaining("cat >>"), { onlyIfClosed: true }],
+      ["neo:1"],
+    ]);
+    expect(killed).toContain("SIGTERM");
+    expect(removedTmpDirs).toEqual(["/tmp/maw-share-fanout-test"]);
+
+    const lsof = Bun.spawnSync(["sh", "-lc", "command -v lsof >/dev/null 2>&1 && lsof +D /tmp/maw-share-fanout-test 2>/dev/null || true"]);
+    expect(new TextDecoder().decode(lsof.stdout)).toBe("");
   });
 
   test("active websocket stream closes and tears down tmux pipe when TTL expires", async () => {
@@ -290,7 +364,7 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(expiryTimer).toBeDefined();
 
     expiryTimer!.fn();
-    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    for (let i = 0; i < 30; i += 1) await Promise.resolve();
 
     expect(closed).toEqual([[1008, "share expired"]]);
     expect(pipeCalls.some((call) => call[0] === "neo:1" && call.length === 1)).toBe(true);
