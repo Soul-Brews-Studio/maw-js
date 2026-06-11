@@ -147,7 +147,7 @@ describe("tmux-class fourth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux capture-pane -t 'pane target' -e -p 2>/dev/null | tail -4",
+        cmd: "tmux capture-pane -t 'pane target' -e -p -S -4",
         host: "remote-box",
       },
       {

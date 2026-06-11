@@ -46,4 +46,33 @@ describe("tmux websocket stream (#2048)", () => {
 
     connection.close();
   });
+
+  test("logs pane capture failures and keeps last good capture instead of blanking panes", async () => {
+    const sent: string[] = [];
+    const errors: string[] = [];
+    let fail = false;
+    const ws = { send: (payload: string) => { sent.push(payload); } };
+
+    const connection = createTmuxStreamConnection(ws, {
+      startTimers: false,
+      layoutRows: async () => [],
+      listPanes: async () => [{ id: "%1" }],
+      capturePane: async () => {
+        if (fail) throw new Error("pane disappeared");
+        return "healthy";
+      },
+      onError: (message, error) => errors.push(`${message}: ${error instanceof Error ? error.message : String(error)}`),
+    });
+
+    await connection.sendCapture({ force: true });
+    expect(JSON.parse(sent.at(-1)!).captures).toEqual({ "%1": "healthy" });
+
+    fail = true;
+    await connection.sendCapture({ force: true });
+
+    expect(errors).toEqual(["capture failed for pane %1: pane disappeared"]);
+    expect(JSON.parse(sent.at(-1)!).captures).toEqual({ "%1": "healthy" });
+    connection.close();
+  });
+
 });

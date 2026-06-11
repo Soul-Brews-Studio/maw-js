@@ -235,10 +235,10 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p -S -80");
     });
 
-    test("uses tail for lines <= 50", async () => {
+    test("uses tmux capture directly for lines <= 50 so target errors surface", async () => {
       sshResult = "some output";
       await t.capture("s:0", 30);
-      expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p 2>/dev/null | tail -30");
+      expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p -S -30");
     });
   });
 
@@ -328,7 +328,7 @@ describe("Tmux", () => {
       expect(commands).toEqual([
         "tmux pipe-pane -O -o -t oracles:0.1 'cat > /tmp/out file'",
         "tmux pipe-pane -I -t oracles:0.1 cat",
-        "tmux pipe-pane -O -t oracles:0.1",
+        "tmux pipe-pane -t oracles:0.1",
       ]);
     });
 

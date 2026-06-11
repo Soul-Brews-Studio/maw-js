@@ -162,7 +162,7 @@ describe("Tmux command wrapper coverage", () => {
   test("pane list/info helpers parse optional fields and tolerate failures", async () => {
     const t = new FakeTmux(byCommand({
       "list-panes -a -F #{pane_id}": "%1\n%2\n",
-      "list-panes -a -F #{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}": [
+      "list-panes -a -F #{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}|||#{pane_dead}": [
         "%1|||claude|||s:main.0|||oracle|||123|||/repo|||1715840000|||1|||2|||80|||24|||0|||3|||main|||1|||160|||48|||1|||1",
         "%2|||zsh|||s:shell.1||||||||||||||||||||||||||||||||||||||||||||||||",
       ].join("\n"),
@@ -175,7 +175,7 @@ describe("Tmux command wrapper coverage", () => {
     expect(await t.listPaneIds()).toEqual(new Set(["%1", "%2"]));
     expect(await t.listPanes()).toEqual([
       { id: "%1", command: "claude", target: "s:main.0", title: "oracle", pid: 123, cwd: "/repo", lastActivity: 1715840000, top: 1, left: 2, w: 80, h: 24, paneIdx: 0, winIdx: 3, winName: "main", active: true, window: { w: 160, h: 48, active: true }, attached: true },
-      { id: "%2", command: "zsh", target: "s:shell.1", title: "", pid: undefined, cwd: undefined, lastActivity: undefined, top: 0, left: 0, w: 0, h: 0, paneIdx: 0, winIdx: 0, winName: undefined, active: false, window: { w: 0, h: 0, active: false }, attached: false },
+      { id: "%2", command: "zsh", target: "s:shell.1", title: "", pid: undefined, cwd: undefined, lastActivity: undefined, top: undefined, left: undefined, w: undefined, h: undefined, paneIdx: undefined, winIdx: undefined, winName: undefined, active: false, window: { w: undefined, h: undefined, active: false }, attached: false },
     ]);
     expect(await t.getPaneCommand("s:main.0")).toBe("claude");
     expect(await t.getPaneCommands(["s:0", "s:missing"])).toEqual({ "s:0": "claude" });
@@ -221,7 +221,7 @@ describe("Tmux command wrapper coverage", () => {
       "select-layout -t s:0 tiled",
       "attach-session -r -t s",
       "pipe-pane -O -o -t s:0.1 cat > /tmp/out",
-      "pipe-pane -I -t s:0.1",
+      "pipe-pane -t s:0.1",
       "set-window-option -t s:0 synchronize-panes on",
       "send-keys -t s:0.1 C-c Enter",
       "send-keys -t s:0.1 -l hello world",

@@ -272,22 +272,26 @@ export class Tmux {
   async listPanes(): Promise<TmuxPane[]> {
     try {
       const raw = await this.run("list-panes", "-a", "-F",
-        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}");
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}|||#{pane_dead}");
       const num = (value: string | undefined) => {
+        if (value === undefined || value === "") return undefined;
         const n = Number(value);
         return Number.isFinite(n) ? n : undefined;
       };
       const bool = (value: string | undefined) => value === "1" || value === "true";
-      return raw.split("\n").filter(Boolean).map(line => {
-        const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached] = line.split("|||");
-        return {
+      return raw.split("\n").filter(Boolean).flatMap(line => {
+        const parts = line.split("|||");
+        if (parts.length < 3) return [];
+        const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached, dead] = parts;
+        if (!id?.startsWith("%") || !target || bool(dead)) return [];
+        return [{
           id,
           command,
           target,
           title,
-          pid: pid ? Number(pid) : undefined,
+          pid: num(pid),
           cwd: cwd || undefined,
-          lastActivity: winAct ? Number(winAct) : undefined,
+          lastActivity: num(winAct),
           top: num(top),
           left: num(left),
           w: num(paneW),
@@ -298,7 +302,7 @@ export class Tmux {
           active: bool(paneActive),
           window: { w: num(winW), h: num(winH), active: bool(winActive) },
           attached: bool(attached),
-        };
+        }];
       });
     } catch { return []; }
   }
@@ -346,13 +350,8 @@ export class Tmux {
   }
 
   async capture(target: string, lines = 80): Promise<string> {
-    if (lines > 50) {
-      return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -lines);
-    }
-    // For shorter captures, pipe through tail (needs raw hostExec)
-    const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
-    const cmd = `tmux ${socketFlag}capture-pane -t ${q(target)} -e -p 2>/dev/null | tail -${lines}`;
-    return hostExec(cmd, this.host);
+    const safeLines = Math.max(1, Math.floor(lines));
+    return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -safeLines);
   }
 
   async resizePane(target: string, cols: number, rows: number): Promise<void> {
@@ -415,14 +414,17 @@ export class Tmux {
     /** Only open a new pipe if none exists (`-o`). */
     onlyIfClosed?: boolean;
   } = {}): Promise<void> {
+    if (command === undefined) {
+      await this.run("pipe-pane", "-t", target);
+      return;
+    }
     const args: (string | number)[] = [];
     const input = opts.input === true;
     const output = opts.output !== false || !input;
     if (input) args.push("-I");
     if (output) args.push("-O");
     if (opts.onlyIfClosed) args.push("-o");
-    args.push("-t", target);
-    if (command !== undefined) args.push(command);
+    args.push("-t", target, command);
     await this.run("pipe-pane", ...args);
   }
 

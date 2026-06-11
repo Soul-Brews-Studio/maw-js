@@ -130,7 +130,7 @@ describe("tmux-class isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/maw socket.sock' capture-pane -t sess:oracle.0 -e -p 2>/dev/null | tail -12",
+        cmd: "tmux -S '/tmp/maw socket.sock' capture-pane -t sess:oracle.0 -e -p -S -12",
         host: "remote-box",
       },
       {

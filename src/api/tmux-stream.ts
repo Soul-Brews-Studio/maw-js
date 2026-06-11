@@ -80,8 +80,9 @@ export function createTmuxStreamConnection(ws: StreamWebSocket, deps: TmuxStream
       const entries = await Promise.all(panes.map(async pane => {
         try {
           return [pane.id, await capturePane(pane.id, captureLines)] as const;
-        } catch {
-          return [pane.id, ""] as const;
+        } catch (error) {
+          logStreamError(deps, `capture failed for pane ${pane.id}`, error);
+          return [pane.id, captures[pane.id] ?? ""] as const;
         }
       }));
       for (const [id, text] of entries) {

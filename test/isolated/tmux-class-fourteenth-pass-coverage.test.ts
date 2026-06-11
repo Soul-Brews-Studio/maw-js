@@ -125,7 +125,7 @@ describe("tmux-class fourteenth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/fourteenth pass.sock' capture-pane -t 'alpha pane' -e -p 2>/dev/null | tail -8",
+        cmd: "tmux -S '/tmp/fourteenth pass.sock' capture-pane -t 'alpha pane' -e -p -S -8",
         host: "remote-box",
       },
       {

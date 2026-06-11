@@ -131,7 +131,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/explicit socket.sock' capture-pane -t 'pane target' -e -p 2>/dev/null | tail -50",
+        cmd: "tmux -S '/tmp/explicit socket.sock' capture-pane -t 'pane target' -e -p -S -50",
         host: "remote-box",
       },
       {
