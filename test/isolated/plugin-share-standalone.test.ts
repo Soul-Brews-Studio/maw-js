@@ -102,6 +102,16 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(stream).not.toContain('cmd: ["tail"');
     expect(stream).not.toContain("cat >>");
     expect(stream).not.toContain("mkdtempSync");
+
+    const viewer = readFileSync(join(root, "src/vendor/mpr-plugins/share/viewer.html"), "utf8");
+    expect(viewer).toContain("const wsUrl = () =>");
+    expect(viewer).toContain("resetForFreshSnapshot();");
+    expect(viewer).toContain("term.reset();");
+    expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
+    expect(viewer).toContain("new window.FitAddon.FitAddon()");
+    expect(viewer).toContain('window.addEventListener("resize", fitTerminal)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitTerminal)');
+    expect(viewer).toContain("new ResizeObserver(fitTerminal)");
   });
 
   test("cli share dispatch posts to daemon and daemon serves minted viewer", async () => {

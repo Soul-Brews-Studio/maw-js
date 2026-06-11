@@ -29,6 +29,7 @@
         height: 100%;
       }
     </style>
+    <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />
     <script src="https://unpkg.com/@xterm/xterm/lib/xterm.js"></script>
     <script src="https://unpkg.com/@xterm/addon-fit/lib/addon-fit.js"></script>
   </head>
@@ -78,8 +79,7 @@
         };
 
         const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;
-        const socket = new WebSocket(`${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`);
-        socket.binaryType = "arraybuffer";
+        const wsUrl = () => `${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
 
         const decryptFrame = async (key, data) => {
           if (!key) return typeof data === "string" ? data : new TextDecoder().decode(data);
@@ -93,6 +93,13 @@
 
         let e2eKeyPromise = deriveE2EKey(e2eKey);
 
+        const RECONNECT_BASE_MS = 250;
+        const RECONNECT_MAX_MS = 5_000;
+        let socket = null;
+        let reconnectAttempt = 0;
+        let reconnectTimer = null;
+        let shouldReconnect = true;
+
         const fallback = document.getElementById("fallback");
         const termHost = document.getElementById("term");
         const pre = document.getElementById("ansi-fallback");
@@ -104,6 +111,40 @@
           termHost.style.display = "none";
         };
 
+        let term = null;
+        let fit = null;
+        let resizeObserver = null;
+
+        const resetForFreshSnapshot = () => {
+          if (term) {
+            term.reset();
+            return;
+          }
+          pre.textContent = "";
+        };
+
+        const handleFrame = (event) => {
+          void (async () => {
+            try {
+              const plain = await decryptFrame(await e2eKeyPromise, event.data);
+              if (term) term.write(plain);
+              else writeFallback(plain);
+            } catch {
+              if (term) {
+                fallback.textContent = "Unable to decrypt encrypted share frame.";
+                fallback.style.display = "block";
+              } else {
+                writeFallback("\n[unable to decrypt encrypted share frame]\n");
+              }
+            }
+          })();
+        };
+
+        const fitTerminal = () => {
+          if (!fit) return;
+          try { fit.fit(); } catch { /* resize is advisory */ }
+        };
+
         const initTerminal = () => {
           if (!window.Terminal || !window.FitAddon) {
             fallback.textContent = "xterm.js unavailable; using fallback terminal.";
@@ -111,65 +152,83 @@
             return false;
           }
 
-          const term = new window.Terminal({
+          term = new window.Terminal({
             theme: { background: "#0d0d0d", foreground: "#d1d5db" },
             convertEol: true,
             disableStdin: true,
             cursorBlink: false,
           });
 
-          const fit = new window.FitAddon.FitAddon();
+          fit = new window.FitAddon.FitAddon();
           term.loadAddon(fit);
           term.open(termHost);
-          const resize = () => {
-            try { fit.fit(); } catch { /* resize is advisory */ }
-          };
-          window.addEventListener("resize", resize);
-          resize();
-
-          socket.addEventListener("message", (event) => {
-            void (async () => {
-              try {
-                term.write(await decryptFrame(await e2eKeyPromise, event.data));
-              } catch {
-                fallback.textContent = "Unable to decrypt encrypted share frame.";
-                fallback.style.display = "block";
-              }
-            })();
-          });
+          window.addEventListener("resize", fitTerminal);
+          window.visualViewport?.addEventListener("resize", fitTerminal);
+          if (window.ResizeObserver) {
+            resizeObserver = new ResizeObserver(fitTerminal);
+            resizeObserver.observe(termHost);
+          }
+          requestAnimationFrame(fitTerminal);
+          fitTerminal();
           return true;
         };
 
-        if (!initTerminal()) {
-          socket.addEventListener("message", (event) => {
-            void (async () => {
-              try {
-                writeFallback(await decryptFrame(await e2eKeyPromise, event.data));
-              } catch {
-                writeFallback("\n[unable to decrypt encrypted share frame]\n");
-              }
-            })();
+        initTerminal();
+
+        const connect = () => {
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
+
+          const current = new WebSocket(wsUrl());
+          socket = current;
+          current.binaryType = "arraybuffer";
+
+          current.addEventListener("open", () => {
+            if (socket !== current) return;
+            reconnectAttempt = 0;
+            if (term) fallback.style.display = "none";
+            resetForFreshSnapshot();
+            fitTerminal();
+            try {
+              current.send("ping");
+            } catch {
+              // ignore
+            }
           });
-        }
 
-        socket.addEventListener("open", () => {
-          try {
-            socket.send("ping");
-          } catch {
-            // ignore
-          }
+          current.addEventListener("message", handleFrame);
+
+          current.addEventListener("close", (event) => {
+            if (socket !== current || !shouldReconnect) return;
+            if (event.code === 1008) {
+              shouldReconnect = false;
+              fallback.textContent = event.reason || "Share expired or token rejected.";
+              fallback.style.display = "block";
+              return;
+            }
+            const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (2 ** reconnectAttempt));
+            reconnectAttempt += 1;
+            reconnectTimer = setTimeout(connect, delay);
+          });
+
+          current.addEventListener("error", () => {
+            if (fallback.style.display === "none") {
+              fallback.textContent = "Connection lost; reconnecting…";
+              fallback.style.display = "block";
+            }
+          });
+        };
+
+        window.addEventListener("beforeunload", () => {
+          shouldReconnect = false;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          resizeObserver?.disconnect();
+          socket?.close();
         });
 
-        socket.addEventListener("close", () => {
-          // read-only: nothing to do
-        });
-
-        socket.addEventListener("error", () => {
-          if (fallback.style.display === "none") {
-            fallback.textContent = "Connection error while opening share.";
-            fallback.style.display = "block";
-          }
-        });
+        connect();
       })();
     </script>
   </body>

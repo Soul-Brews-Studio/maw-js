@@ -37,10 +37,25 @@ describe("share hardening", () => {
 
     expect(viewer).toContain("const e2eKey = params.get(\"k\") || \"\";");
     expect(viewer).toContain("const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;");
+    expect(viewer).toContain("const wsUrl = () =>");
     expect(viewer).toContain("?${e2eKey ? \"h\" : \"t\"}=");
     expect(viewer).not.toContain("?${e2eKey ? \"k\" : \"t\"}=");
     expect(viewer).not.toContain("const wsToken = e2eKey || token");
     expect(server).not.toContain('searchParams.get("k")');
+  });
+
+  test("viewer reconnect resets display for fresh snapshot and fits on resize", () => {
+    const viewer = readFileSync(join(import.meta.dir, "../src/vendor/mpr-plugins/share/viewer.html"), "utf8");
+
+    expect(viewer).toContain("const RECONNECT_BASE_MS = 250;");
+    expect(viewer).toContain("reconnectTimer = setTimeout(connect, delay);");
+    expect(viewer).toContain("resetForFreshSnapshot();");
+    expect(viewer).toContain("term.reset();");
+    expect(viewer).toContain("new window.FitAddon.FitAddon()");
+    expect(viewer).toContain('window.addEventListener("resize", fitTerminal)');
+    expect(viewer).toContain('window.visualViewport?.addEventListener("resize", fitTerminal)');
+    expect(viewer).toContain("new ResizeObserver(fitTerminal)");
+    expect(viewer).toContain('<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />');
   });
 
   test("active stream closes itself and websocket when TTL expires", async () => {
