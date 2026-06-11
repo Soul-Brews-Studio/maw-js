@@ -89,14 +89,14 @@ export function verbose(fn: () => void): void {
 }
 
 export function warn(msg: string): void {
-  if (!isQuiet()) process.stderr.write(`⚠ ${msg}\n`);
+  if (!isQuiet() && process.stderr?.write) process.stderr.write(`⚠ ${msg}\n`);
 }
 
 export function info(msg: string): void {
-  if (!isQuiet()) process.stderr.write(`${msg}\n`);
+  if (!isQuiet() && process.stderr?.write) process.stderr.write(`${msg}\n`);
 }
 
 export function error(msg: string): void {
   // Always emit — errors stay visible under --silent for exit code integrity.
-  process.stderr.write(`${msg}\n`);
+  if (process.stderr?.write) process.stderr.write(`${msg}\n`);
 }
