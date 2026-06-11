@@ -5,9 +5,11 @@ import { createOracleHandler } from "./index";
 describe("oracle plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
   let listOpts: any[] = [];
+  let aboutCalls: any[] = [];
 
   beforeEach(() => {
     listOpts = [];
+    aboutCalls = [];
     handler = createOracleHandler({
       cmdOracleList: async (opts: any) => {
         listOpts.push(opts);
@@ -22,7 +24,8 @@ describe("oracle plugin", () => {
       cmdOracleFleet: async (_opts: any) => {
         console.log("Oracle Fleet  (5 oracles)");
       },
-      cmdOracleAbout: async (name: string) => {
+      cmdOracleAbout: async (name: string, opts?: any) => {
+        aboutCalls.push({ name, opts });
         console.log(`Oracle — ${name}`);
       },
       cmdOraclePrune: async () => {
@@ -74,6 +77,12 @@ describe("oracle plugin", () => {
     const result = await handler({ source: "cli", args: ["about", "neo"] });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Oracle — neo");
+  });
+
+  it("cli: about <name> --json forwards json option", async () => {
+    const result = await handler({ source: "cli", args: ["about", "neo", "--json"] });
+    expect(result.ok).toBe(true);
+    expect(aboutCalls[0]).toEqual({ name: "neo", opts: { json: true } });
   });
 
   it("cli: set-nickname dispatches with name + nickname", async () => {

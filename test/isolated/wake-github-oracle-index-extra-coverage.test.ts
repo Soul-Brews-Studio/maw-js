@@ -327,6 +327,7 @@ describe("oracle plugin handler", () => {
       scan: true,
       stale: true,
       path: true,
+      sortBy: undefined,
     }] }]);
   });
 
@@ -406,10 +407,10 @@ describe("oracle plugin handler", () => {
 
     expect(fleetResult.output).toContain("oracle.fleet is deprecated");
     expect(calls).toEqual([
-      { name: "list", args: [{ awake: true, org: "org", json: true, scan: true, stale: true, path: true }] },
+      { name: "list", args: [{ awake: true, org: "org", json: true, scan: true, stale: true, path: true, sortBy: undefined }] },
       { name: "scan", args: [{ json: true, force: true, local: true, remote: true, all: true, verbose: true }] },
       { name: "scanStale", args: [{ json: true, all: true }] },
-      { name: "list", args: [{ awake: true, org: "org", json: undefined, scan: undefined, stale: undefined, path: undefined }] },
+      { name: "list", args: [{ awake: true, org: "org", json: undefined, scan: undefined, stale: undefined, path: undefined, sortBy: undefined }] },
       { name: "prune", args: [{ stale: true, force: true, json: true }] },
       { name: "register", args: ["neo", { json: true }] },
       { name: "setNickname", args: ["neo", "One", { json: true }] },
