@@ -1,5 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import { loadConfigWithProvenance, saveConfig } from "../../../config";
+import { D, loadConfigWithProvenance, saveConfig } from "../../../config";
 
 export const command = {
   name: "config",
@@ -8,6 +8,21 @@ export const command = {
 
 function valueAtPath(root: unknown, keyPath: string): unknown {
   return keyPath.split(".").reduce((node: any, key) => node?.[key], root as any);
+}
+
+function builtInDefaultAtPath(keyPath: string): unknown {
+  return valueAtPath(D, keyPath);
+}
+
+function builtInDefaultEntry(keyPath: string, value: unknown): ConfigProvenanceEntry {
+  return {
+    path: "built-in default",
+    weight: Number.NEGATIVE_INFINITY,
+    scope: "built-in default",
+    isLocal: false,
+    action: "default",
+    value,
+  };
 }
 
 type ConfigProvenanceEntry = {
@@ -108,8 +123,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   if (sub === "explain") {
     const key = args.find((arg, index) => index > 0 && !arg.startsWith("-"));
     if (!key) return { ok: false, error: "usage: maw config explain <key> [--json]" };
-    const entries = provenanceAtPath(loaded.provenance, key);
-    const finalValue = valueAtPath(loaded.config, key);
+    let entries = provenanceAtPath(loaded.provenance, key);
+    let finalValue = valueAtPath(loaded.config, key);
+    if (finalValue === undefined) {
+      const defaultValue = builtInDefaultAtPath(key);
+      if (defaultValue !== undefined) {
+        finalValue = defaultValue;
+        entries = [builtInDefaultEntry(key, defaultValue), ...entries];
+      }
+    }
     if (json) writer(JSON.stringify({ key, finalValue, entries }, null, 2));
     else {
       writer(`key: ${key}`);

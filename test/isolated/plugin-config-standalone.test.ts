@@ -202,6 +202,42 @@ describe("src/commands/plugins/config/index.ts", () => {
     });
   });
 
+  test("explain falls back to built-in defaults when no layer sets maxConcurrentAgents (#2692)", async () => {
+    const originalLimit = loadedConfig.config.limits.maxConcurrentAgents;
+    const originalProvenance = loadedConfig.provenance["limits.maxConcurrentAgents"];
+    delete (loadedConfig.config.limits as Record<string, unknown>).maxConcurrentAgents;
+    delete (loadedConfig.provenance as Record<string, unknown>)["limits.maxConcurrentAgents"];
+    try {
+      const logs: string[] = [];
+      const result = await run(["explain", "limits.maxConcurrentAgents", "--json"], (...parts) => logs.push(parts.map(String).join(" ")));
+
+      const payload = JSON.parse(logs.join("\n"));
+      expect(result.ok).toBe(true);
+      expect(payload.key).toBe("limits.maxConcurrentAgents");
+      expect(payload.finalValue).toBe(40);
+      expect(payload.entries[0]).toEqual({
+        path: "built-in default",
+        weight: null,
+        scope: "built-in default",
+        isLocal: false,
+        action: "default",
+        value: 40,
+      });
+    } finally {
+      loadedConfig.config.limits.maxConcurrentAgents = originalLimit;
+      loadedConfig.provenance["limits.maxConcurrentAgents"] = originalProvenance;
+    }
+  });
+
+  test("explain text output prints the built-in default final value (#2692)", async () => {
+    const logs: string[] = [];
+    const result = await run(["explain", "limits.peerProbeRetries"], (...parts) => logs.push(parts.map(String).join(" ")));
+
+    expect(result.ok).toBe(true);
+    expect(logs.join("\n")).toContain("built-in default default built-in default");
+    expect(logs.join("\n")).toContain("FINAL 2");
+  });
+
   test("usage path for missing explain key", async () => {
     const result = await run(["explain"]);
 
