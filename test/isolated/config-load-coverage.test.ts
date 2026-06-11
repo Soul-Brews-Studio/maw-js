@@ -177,7 +177,8 @@ describe("config load coverage", () => {
       const configFile = join(configDir, "maw.config.json");
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configFile, JSON.stringify({
-        node: "legacy-node",
+        host: "local",
+        node: "local",
         commands: { default: "claude --legacy" },
       }));
 
