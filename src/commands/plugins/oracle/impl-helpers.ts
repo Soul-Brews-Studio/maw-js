@@ -15,21 +15,58 @@ export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: str
   const wantedOracle = `${oracle}-oracle`.toLowerCase();
   const directName = oracle.toLowerCase();
 
-  const oracleCandidates = repos
-    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === wantedOracle);
+  const oracleCandidates = repoCandidatesByBasename(repos, wantedOracle);
   if (oracleCandidates.length > 1) {
-    throw new UserError(`ambiguous oracle short-name '${oracle}' (${oracleCandidates.length} matches): ${oracleCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+    throw ambiguousOracleError(oracle, oracleCandidates);
   }
   if (oracleCandidates.length === 1) return parseRepoPath(oracleCandidates[0]!);
 
-  const directCandidates = repos
-    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === directName);
+  const directCandidates = repoCandidatesByBasename(repos, directName);
   if (directCandidates.length > 1) {
-    throw new UserError(`ambiguous oracle short-name '${oracle}' (${directCandidates.length} matches): ${directCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+    throw ambiguousOracleError(oracle, directCandidates);
   }
   if (directCandidates.length === 1) return parseRepoPath(directCandidates[0]!);
 
   return { parentDir: "", repoName: "", repoPath: "" };
+}
+
+function repoCandidatesByBasename(repos: string[], basename: string): string[] {
+  const seen = new Map<string, string>();
+  for (const repoPath of repos) {
+    if (repoPath.split("/").pop()?.toLowerCase() !== basename) continue;
+    if (isArchiveLikePath(repoPath)) continue;
+    const key = canonicalRepoKey(repoPath);
+    if (!seen.has(key)) seen.set(key, repoPath);
+  }
+  return [...seen.values()];
+}
+
+function isArchiveLikePath(repoPath: string): boolean {
+  const archiveSegments = new Set([
+    "_archive",
+    ".archive",
+    "archive",
+    "archives",
+    "backup",
+    "backups",
+    "snapshot",
+    "snapshots",
+  ]);
+  return repoPath
+    .split("/")
+    .some((segment) => archiveSegments.has(segment.toLowerCase()));
+}
+
+function canonicalRepoKey(repoPath: string): string {
+  const normalized = repoPath.replace(/\\/g, "/").toLowerCase();
+  const marker = "/github.com/";
+  const markerIndex = normalized.lastIndexOf(marker);
+  if (markerIndex >= 0) return normalized.slice(markerIndex + marker.length);
+  return normalized;
+}
+
+function ambiguousOracleError(oracle: string, candidates: string[]): UserError {
+  return new UserError(`ambiguous oracle short-name '${oracle}' (${candidates.length} matches): ${candidates.join(", ")}`);
 }
 
 function parseRepoPath(repoPath: string): { repoPath: string; repoName: string; parentDir: string } {
