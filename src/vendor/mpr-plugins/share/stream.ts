@@ -34,6 +34,8 @@ type TargetBus = {
   consumerPath: string;
   child: ChildProcessLike | null;
   subscribers: Map<symbol, Subscriber>;
+  backlog: Uint8Array[];
+  backlogBytes: number;
   closing: Promise<void> | null;
   deps: StreamDeps;
 };
@@ -49,6 +51,8 @@ async function createTargetBus(target: string, deps: StreamDeps): Promise<Target
     consumerPath,
     child: null,
     subscribers: new Map(),
+    backlog: [],
+    backlogBytes: 0,
     closing: null,
     deps,
   };
@@ -61,6 +65,10 @@ async function createTargetBus(target: string, deps: StreamDeps): Promise<Target
     // viewers subscribe to this per-target fan-out bus instead.
     await deps.tmux.pipePane(target, command, { onlyIfClosed: true });
     bus.child = await deps.spawnTail(consumerPath, (chunk) => {
+      if (bus.subscribers.size === 0) {
+        bufferBacklog(bus, chunk);
+        return;
+      }
       for (const subscriber of bus.subscribers.values()) subscriber.send(chunk);
     });
     return bus;
@@ -112,7 +120,9 @@ export interface ShareStreamHandle {
 }
 
 const DEFAULT_SNAPSHOT_LINES = 120;
-const CLOSE_TIMEOUT_MS = 1_500;
+const CLOSE_TIMEOUT_MS = 50;
+const MAX_BACKLOG_CHUNKS = 64;
+const MAX_BACKLOG_BYTES = 1024 * 1024;
 
 function defaultDeps(): StreamDeps {
   return {
@@ -188,21 +198,39 @@ function nextEncryptedFrame(share: Share, data: string | Uint8Array): string | U
   return encryptShareFrame(share.encryptionKey, data, counter);
 }
 
-async function awaitOrKill(child: ChildProcessLike | null, deps: Pick<StreamDeps, "setTimeout" | "clearTimeout">): Promise<void> {
-  if (!child) return;
-  const timer = deps.setTimeout(() => {}, CLOSE_TIMEOUT_MS);
+function bufferBacklog(bus: TargetBus, chunk: Uint8Array): void {
+  const copy = chunk.slice();
+  bus.backlog.push(copy);
+  bus.backlogBytes += copy.byteLength;
+
+  while (bus.backlog.length > MAX_BACKLOG_CHUNKS || bus.backlogBytes > MAX_BACKLOG_BYTES) {
+    const dropped = bus.backlog.shift();
+    bus.backlogBytes -= dropped?.byteLength ?? 0;
+  }
+}
+
+function drainBacklog(bus: TargetBus): Uint8Array[] {
+  const backlog = bus.backlog.splice(0);
+  bus.backlogBytes = 0;
+  return backlog;
+}
+
+async function waitForExit(child: ChildProcessLike, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    await Promise.race([
-      child.exited,
-      new Promise<void>((resolve) => {
-        deps.setTimeout(() => {
-          resolve();
-        }, CLOSE_TIMEOUT_MS);
+    return await Promise.race([
+      child.exited.then(() => true, () => true),
+      new Promise<boolean>((resolve) => {
+        timer = globalThis.setTimeout(() => resolve(false), ms);
       }),
     ]);
   } finally {
-    deps.clearTimeout(timer);
+    if (timer) globalThis.clearTimeout(timer);
   }
+}
+
+async function awaitOrKill(child: ChildProcessLike | null, _deps: Pick<StreamDeps, "setTimeout" | "clearTimeout">): Promise<void> {
+  if (!child) return;
 
   try {
     child.kill("SIGTERM");
@@ -210,22 +238,15 @@ async function awaitOrKill(child: ChildProcessLike | null, deps: Pick<StreamDeps
     // best effort
   }
 
-  const hardKill = new Promise<void>((resolve) => {
-    deps.setTimeout(() => {
-      resolve();
-    }, 250);
-  });
-  try {
-    await Promise.race([child.exited, hardKill]);
-  } catch {
-    // ignore
-  }
+  if (await waitForExit(child, CLOSE_TIMEOUT_MS)) return;
 
   try {
     child.kill("SIGKILL");
   } catch {
     // ignore
   }
+
+  await waitForExit(child, CLOSE_TIMEOUT_MS);
 }
 
 function normalizePing(message: string): string {
@@ -274,12 +295,13 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
 
   expiryTimer = resolved.setTimeout(() => {
     void (async () => {
-      await close();
+      const closePromise = close();
       try {
         ws.close(1008, "share expired");
       } catch {
         // socket may already be closed
       }
+      await closePromise;
     })();
   }, Math.max(0, share.expiresAt - Date.now()));
 
@@ -297,12 +319,14 @@ export async function attach(share: Share, ws: ServerWebSocket, deps: Partial<St
     if (closed) {
       await detach();
     } else {
-      bus.subscribers.set(subscriberId, {
-        send: (chunk) => {
+      const subscriber = {
+        send: (chunk: string | Uint8Array) => {
           if (closed) return;
           sendSafe(ws, nextEncryptedFrame(share, chunk));
         },
-      });
+      };
+      bus.subscribers.set(subscriberId, subscriber);
+      for (const chunk of drainBacklog(bus)) subscriber.send(chunk);
     }
   } catch (error) {
     await close();
