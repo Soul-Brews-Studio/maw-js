@@ -335,10 +335,17 @@ function stripGitSuffix(name: string): string {
   return name.replace(/\.git$/i, "");
 }
 
-function repoNameFromTarget(target: string, urlRepoName?: string): string {
-  if (urlRepoName?.trim()) return stripGitSuffix(urlRepoName.trim());
-  const cleaned = stripGitSuffix(target.trim().replace(/\/+$/, ""));
+function repoNameFromSlugish(value: string): string {
+  const cleaned = stripGitSuffix(value.trim().replace(/\/+$/, ""))
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/^github\.com\//i, "");
   return cleaned.split("/").filter(Boolean).pop() ?? cleaned;
+}
+
+function repoNameFromTarget(target: string, urlRepoName?: string): string {
+  if (urlRepoName?.trim()) return repoNameFromSlugish(urlRepoName);
+  return repoNameFromSlugish(target);
 }
 
 function detectWakeSessionMode(target: string, opts: Pick<WakeOptions, "sessionMode" | "urlRepoName" | "repoPath">): WakeSession {
@@ -350,8 +357,9 @@ function detectWakeSessionMode(target: string, opts: Pick<WakeOptions, "sessionM
 }
 
 function identityForWakeSession(session: WakeSession, repoName: string, currentIdentity: string): string {
-  if (session.mode === "work") return repoName;
-  return repoName.toLowerCase().endsWith("-oracle") ? repoName.replace(/-oracle$/i, "") : currentIdentity;
+  const normalizedRepoName = repoName.toLowerCase();
+  if (session.mode === "work") return normalizedRepoName;
+  return normalizedRepoName.endsWith("-oracle") ? normalizedRepoName.replace(/-oracle$/i, "") : currentIdentity.toLowerCase();
 }
 
 function mainWindowNameForWakeSession(session: WakeSession, identity: string): string {
@@ -949,7 +957,7 @@ async function resolveWakeFleetSessionRepo(meta: WakeFleetSessionMetadata): Prom
 
 export async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
   const mappedOrFleet = getSessionMap()[oracle] || resolveFleetSession(oracle);
-  const baseName = mappedOrFleet || canonicalSessionName(urlRepoName || oracle);
+  const baseName = mappedOrFleet || canonicalSessionName(repoNameFromTarget(oracle, urlRepoName));
   if (/^\d+-/.test(baseName)) return baseName;
   // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
   // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.

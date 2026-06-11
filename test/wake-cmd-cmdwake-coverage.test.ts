@@ -1507,6 +1507,58 @@ describe("cmdWake main-suite coverage", () => {
     expect(findWorktreesCalls).toEqual([{ parentDir, repoName: "graph-oracle", taskSlug: undefined, scopeStem: undefined }]);
   });
 
+  test("#2734 mixed-case org slug strips host/org before deriving pane and session names", async () => {
+    parseWakeTargetReturn = {
+      oracle: "volt",
+      slug: "Arkkra-Co/volt-oracle",
+    };
+    repoName = "volt-oracle";
+    repoPath = join(parentDir, "Arkkra-Co", repoName);
+    parentDir = join(parentDir, "Arkkra-Co");
+    ghqFindReturn = repoPath;
+    mkdirSync(repoPath, { recursive: true });
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("Arkkra-Co/volt-oracle", { noRehydrate: true, noFleet: true }),
+    );
+
+    expect(result).toBe("01-volt:volt-oracle");
+    expect(ensureClonedCalls).toEqual(["Arkkra-Co/volt-oracle"]);
+    expect(newSessionCalls).toEqual([{ name: "01-volt", opts: { window: "volt-oracle", cwd: repoPath } }]);
+    expect(sendTextCalls[0]?.target).toBe("01-volt:volt-oracle");
+    expect(sendTextCalls[0]?.target).not.toContain("comarkkra");
+    expect(sendTextCalls[0]?.target).not.toContain("github.com");
+  });
+
+  test("#2734 slug-ish urlRepoName strips github.com and org before session naming", async () => {
+    repoName = "volt-oracle";
+    repoPath = join(parentDir, "Arkkra-Co", repoName);
+    parentDir = join(parentDir, "Arkkra-Co");
+    mkdirSync(repoPath, { recursive: true });
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("github.com/Arkkra-Co/volt-oracle", {
+        repoPath,
+        urlRepoName: "github.com/Arkkra-Co/volt-oracle",
+        noRehydrate: true,
+        noFleet: true,
+      }),
+    );
+
+    expect(result).toBe("01-volt:volt-oracle");
+    expect(newSessionCalls).toEqual([{ name: "01-volt", opts: { window: "volt-oracle", cwd: repoPath } }]);
+    expect(sendTextCalls[0]?.target).toBe("01-volt:volt-oracle");
+    expect(sendTextCalls[0]?.target).not.toContain("comarkkra");
+  });
+
   test("incubates missing repos with a github.com prefix and defaults the worktree slug", async () => {
     repoName = "new-tool";
     repoPath = join(parentDir, repoName);
