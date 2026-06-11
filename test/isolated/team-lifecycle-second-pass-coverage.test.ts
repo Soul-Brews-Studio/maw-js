@@ -8,6 +8,29 @@ let killPaneCalls: string[] = [];
 let hostExecCalls: string[] = [];
 let hostExecImpl: (cmd: string) => Promise<void> = async (cmd: string) => { hostExecCalls.push(cmd); };
 
+const teamLifecycleEngineConfig = {
+  host: "localhost",
+  port: 3457,
+  oracleUrl: "http://localhost:47779",
+  env: {},
+  defaultEngine: "claude",
+  commands: { default: "claude", claude: "claude", codex: "codex", omx: "omx" },
+  engines: {
+    claude: {
+      name: "claude",
+      cmd: "claude",
+      processNames: ["claude", "claude-code", "thclaude"],
+      capabilities: ["channels", "resume", "model", "system-prompt-file"],
+      resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
+      model: { flag: "--model", default: "sonnet" },
+    },
+    codex: { name: "codex", cmd: "codex", processNames: ["codex"] },
+    omx: { name: "omx", cmd: "omx", processNames: ["omx", "codex"] },
+  },
+};
+
+const realConfigLoad = await import("../../src/config/load.ts");
+
 const tmuxMock = {
   listPaneIds: async () => paneSnapshots.shift() ?? new Set<string>(),
   killPane: async (paneId: string) => { killPaneCalls.push(paneId); },
@@ -17,6 +40,9 @@ mock.module("maw-js/sdk", () => ({
   tmux: tmuxMock,
   hostExec: async (cmd: string) => hostExecImpl(cmd),
 }));
+mock.module(join(import.meta.dir, "../../src/config/load"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+mock.module(join(import.meta.dir, "../../src/config/load.ts"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+
 
 const helpers = await import("../../src/vendor/mpr-plugins/team/team-helpers");
 const lifecycle = await import("../../src/vendor/mpr-plugins/team/team-lifecycle");
