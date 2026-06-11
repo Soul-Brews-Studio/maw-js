@@ -22,7 +22,7 @@ import { sendKeys } from "./transport/ssh";
 import { getRuntimeVersionLabel } from "./runtime/build-info";
 import { ServeRouteRegistry } from "./serve-route-registry";
 import { ServeWsRegistry } from "./serve-ws-registry";
-import { corsHeaders, handleCorsOptions } from "./serve-cors";
+import { addCorsHeaders, handleCorsOptions } from "./serve-cors";
 import { createViews } from "../vendor/mpr-plugins/serve-views/index.ts";
 import { serve as registerServeWs } from "../vendor/mpr-plugins/serve-ws/index.ts";
 export { createViews };
@@ -432,6 +432,8 @@ export async function startBunGatewayServer(
       return response;
     };
 
+    const addCors = (r: Response) => addCorsHeaders(req, r);
+
     // CORS preflight for all routes
     const corsPreflight = handleCorsOptions(req);
     if (corsPreflight) return logAccess(corsPreflight);
@@ -448,24 +450,16 @@ export async function startBunGatewayServer(
         const authOrLegacyRoute = await api.handle(req.clone());
         if (authOrLegacyRoute.status !== 404) return logAccess(authOrLegacyRoute);
         const servedByPlugin = await serveRoutes.handle(req);
-        return logAccess(servedByPlugin ?? authOrLegacyRoute);
+        return logAccess(servedByPlugin ? addCors(servedByPlugin) : authOrLegacyRoute);
       }
       const servedByPlugin = await serveRoutes.handle(req);
-      if (servedByPlugin) return logAccess(servedByPlugin);
+      if (servedByPlugin) return logAccess(addCors(servedByPlugin));
       return logAccess(await api.handle(req));
     }
     const servedByPlugin = await serveRoutes.handle(req);
-    if (servedByPlugin) return logAccess(servedByPlugin);
+    if (servedByPlugin) return logAccess(addCors(servedByPlugin));
 
     // Plugin-registered fallbacks handle views + static — clone response with CORS headers
-    const addCors = (r: Response) => {
-      const h = corsHeaders(req);
-      return new Response(r.body, {
-        status: r.status,
-        statusText: r.statusText,
-        headers: { ...Object.fromEntries(r.headers.entries()), ...h },
-      });
-    };
     const res = serveRoutes.handleFallback(req, { server });
     if (res instanceof Promise) return logAccess(addCors(await res));
     return logAccess(addCors(res as Response));
