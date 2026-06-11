@@ -500,6 +500,27 @@ export async function startBunGatewayServer(
   };
   const wsConfig = { ...wsHandlers, idleTimeout: cfgTimeout("wsIdleSec"), sendPings: true };
 
+  log.debug(`[serve:debug] running serve lifecycle hooks`);
+  await runServeLifecycleHooks({
+    port,
+    httpUrl: HTTP_URL,
+    wsUrl: WS_URL,
+    hostname,
+    http: serveRoutes,
+    ws: serveWs,
+    engine,
+    log,
+    plugins: serveLifecyclePlugins,
+    reloadPlugins: serveLifecycleReloadPlugins,
+    profile: {
+      views: profileFlag(profile, "views"),
+      apiRouters: profile.apiRouters,
+    },
+  }, undefined, {
+    info: (message) => log.info(message),
+    warn: (message) => log.warn(message),
+  });
+
   let server: ReturnType<typeof Bun.serve>;
   try {
     server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsConfig });
@@ -514,32 +535,6 @@ export async function startBunGatewayServer(
 
   const bindNote = reason ? ` (${reason})` : "";
   log.info(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
-
-  log.debug(`[serve:debug] running serve lifecycle hooks`);
-  try {
-    await runServeLifecycleHooks({
-      port,
-      httpUrl: HTTP_URL,
-      wsUrl: WS_URL,
-      hostname,
-      http: serveRoutes,
-      ws: serveWs,
-      engine,
-      log,
-      plugins: serveLifecyclePlugins,
-      reloadPlugins: serveLifecycleReloadPlugins,
-      profile: {
-        views: profileFlag(profile, "views"),
-        apiRouters: profile.apiRouters,
-      },
-    }, undefined, {
-      info: (message) => log.info(message),
-      warn: (message) => log.warn(message),
-    });
-  } catch (err) {
-    try { server.stop(true); } catch { /* best effort */ }
-    throw err;
-  }
 
   const routeSnapshot = collectServeRouteSnapshot({ http: serveRoutes, ws: serveWs });
   (server as unknown as Record<symbol, ServeRouteSnapshotEntry[]>)[SERVE_ROUTE_SNAPSHOT_SYMBOL] = routeSnapshot;

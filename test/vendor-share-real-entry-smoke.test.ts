@@ -80,6 +80,18 @@ async function waitForNoListener(port: number, timeoutMs = 5_000): Promise<void>
   throw new Error(`listener leak on port ${port}:\n${last}`);
 }
 
+async function waitForTmuxCaptureContains(target: string, expected: string, timeoutMs = 5_000): Promise<void> {
+  const started = Date.now();
+  let last = "";
+  while (Date.now() - started < timeoutMs) {
+    const result = run(["tmux", "capture-pane", "-p", "-t", target], { allowFailure: true, timeout: 2_000 });
+    last = result.stdout.toString() + result.stderr.toString();
+    if (result.success && last.includes(expected)) return;
+    await Bun.sleep(50);
+  }
+  throw new Error(`timed out waiting for tmux capture to contain ${JSON.stringify(expected)}; last=${JSON.stringify(last)}`);
+}
+
 function parseShareUrl(output: string, port: number): { slug: string; secret: string } {
   const raw = output.match(/https?:\/\/\S+/)?.[0];
   if (!raw) throw new Error(`share URL missing from output:\n${output}`);
@@ -175,6 +187,7 @@ describe("share real-entry smoke", () => {
       await Bun.sleep(300);
       target = run(["tmux", "list-panes", "-t", session, "-F", "#{pane_id}"], { timeout: 5_000 }).stdout.toString().trim().split("\n")[0] ?? "";
       if (!target.startsWith("%")) throw new Error(`failed to resolve real smoke pane id for ${session}: ${target || "empty"}`);
+      await waitForTmuxCaptureContains(target, sentinel);
 
       serve = Bun.spawn({
         cmd: ["bun", "src/cli.ts", "serve", String(port), "--force-takeover", "-q"],

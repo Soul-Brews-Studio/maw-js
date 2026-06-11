@@ -84,6 +84,44 @@ async function postControl(port: number, target: string, token: string | undefin
   return await fetch(`http://127.0.0.1:${port}${path}`, { method: "POST", headers, body: raw });
 }
 
+async function waitForPaneTarget(target: string, timeoutMs = 5_000): Promise<void> {
+  const started = Date.now();
+  let last = "";
+  while (Date.now() - started < timeoutMs) {
+    const result = run(["tmux", "display-message", "-p", "-t", target, "#{pane_id}"], { allowFailure: true, timeout: 2_000 });
+    last = result.stdout.toString() + result.stderr.toString();
+    if (result.success && last.trim() === target) return;
+    await Bun.sleep(50);
+  }
+  throw new Error(`timed out waiting for tmux pane target ${target}; last=${JSON.stringify(last)}`);
+}
+
+async function waitForCaptureContains(target: string, needle: string, timeoutMs = 5_000): Promise<string> {
+  const started = Date.now();
+  let capture = "";
+  while (Date.now() - started < timeoutMs) {
+    const result = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-30"], { allowFailure: true, timeout: 2_000 });
+    capture = result.stdout.toString() + result.stderr.toString();
+    if (result.success && capture.includes(needle)) return capture;
+    await Bun.sleep(50);
+  }
+  throw new Error(`timed out waiting for pane ${target} to contain ${JSON.stringify(needle)}\nLast capture:\n${capture}`);
+}
+
+async function expectJsonStatus(response: Response, expected: number, context: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+  } catch {
+    parsed = { raw: text };
+  }
+  if (response.status !== expected) {
+    throw new Error(`${context}: expected HTTP ${expected}, got ${response.status}; body=${text || "<empty>"}`);
+  }
+  return parsed;
+}
+
 describe("serve-control real-entry smoke", () => {
   test("maw share --control gates real pane writes with scoped write token", async () => {
     if (!commandAvailable(["tmux", "-V"])) {
@@ -109,9 +147,10 @@ describe("serve-control real-entry smoke", () => {
     run(["tmux", "kill-session", "-t", session], { allowFailure: true, timeout: 2_000 });
     try {
       run(["tmux", "new-session", "-d", "-x", "106", "-y", "51", "-s", session, "--", "bash", "-lc", `printf 'ready ${sentinel}\\n'; exec bash --noprofile --norc`], { timeout: 5_000 });
-      await Bun.sleep(300);
       target = run(["tmux", "list-panes", "-t", session, "-F", "#{pane_id}"], { timeout: 5_000 }).stdout.toString().trim().split("\n")[0] ?? "";
       if (!target.startsWith("%")) throw new Error(`failed to resolve real smoke pane id for ${session}: ${target || "empty"}`);
+      await waitForPaneTarget(target);
+      await waitForCaptureContains(target, `ready ${sentinel}`);
 
       serve = Bun.spawn({ cmd: ["bun", "src/cli.ts", "serve", String(port), "--force-takeover", "-q"], cwd: repo, env, stdout: "pipe", stderr: "pipe" });
       await waitForHttp(`http://127.0.0.1:${port}/api/identity`);
@@ -120,35 +159,31 @@ describe("serve-control real-entry smoke", () => {
       const { slug, controlToken } = parseControlShareUrl(shareOut, port);
 
       const noToken = await postControl(port, target, undefined, { slug, text: "blocked" });
-      expect(noToken.status).toBe(401);
+      await expectJsonStatus(noToken, 401, "no-token control send");
 
       const badKey = await postControl(port, target, controlToken, { slug, key: "Space" }, "key");
-      expect(badKey.status).toBe(400);
+      await expectJsonStatus(badKey, 400, "disallowed control key");
 
       const typed = ` ${sentinel}-typed `;
+      await waitForPaneTarget(target);
       const send = await postControl(port, target, controlToken, { slug, text: typed, enter: false });
-      expect(send.status).toBe(200);
-      const sendPayload = await send.json();
+      const sendPayload = await expectJsonStatus(send, 200, "control send literal");
       expect(sendPayload).toMatchObject({ ok: true, enter: false });
 
-      await Bun.sleep(300);
-      let capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-20"], { timeout: 5_000 }).stdout.toString();
+      let capture = await waitForCaptureContains(target, typed.trim());
       expect(capture).toContain(typed.trim());
 
+      await waitForPaneTarget(target);
       const cancelDraft = await postControl(port, target, controlToken, { slug, key: "C-c" }, "key");
-      expect(cancelDraft.status).toBe(200);
+      await expectJsonStatus(cancelDraft, 200, "control cancel draft");
+      await waitForPaneTarget(target);
 
       const output = `${sentinel}-executed`;
       const execute = await postControl(port, target, controlToken, { slug, text: `printf '${output}\\n'`, enter: true });
-      expect(execute.status).toBe(200);
-      await expect(execute.json()).resolves.toMatchObject({ ok: true, enter: true });
+      const executePayload = await expectJsonStatus(execute, 200, "control send enter");
+      expect(executePayload).toMatchObject({ ok: true, enter: true });
 
-      const started = Date.now();
-      do {
-        capture = run(["tmux", "capture-pane", "-t", target, "-p", "-S", "-30"], { timeout: 5_000 }).stdout.toString();
-        if (capture.split("\n").some((line) => line.trim() === output)) break;
-        await Bun.sleep(100);
-      } while (Date.now() - started < 5_000);
+      capture = await waitForCaptureContains(target, output);
       expect(capture.split("\n").some((line) => line.trim() === output)).toBe(true);
     } finally {
       if (serve) {

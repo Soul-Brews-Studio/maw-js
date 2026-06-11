@@ -32,6 +32,7 @@ function writeSmokeConfig(home: string): void {
     host: "local",
     commands: { default: "claude", codex: "codex" },
     defaultEngine: "codex",
+    engines: { codex: { cmd: "codex", label: "Codex CLI" } },
     agents: {},
     namedPeers: [],
   }, null, 2) + "\n");

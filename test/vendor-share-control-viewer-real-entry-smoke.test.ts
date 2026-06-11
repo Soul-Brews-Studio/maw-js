@@ -285,10 +285,11 @@ describe("share control viewer real-entry smoke (#2761)", () => {
 
     run(["tmux", "kill-session", "-t", session], { allowFailure: true, timeout: 2_000 });
     try {
-      run(["tmux", "new-session", "-d", "-x", "106", "-y", "51", "-s", session, "--", "bash", "-lc", "exec bash --noprofile --norc"], { timeout: 5_000 });
-      await Bun.sleep(300);
+      const ready = `MAW2765_READY_${process.pid}`;
+      run(["tmux", "new-session", "-d", "-x", "106", "-y", "51", "-s", session, "--", "bash", "-lc", `printf '${ready}\n'; exec bash --noprofile --norc`], { timeout: 5_000 });
       target = run(["tmux", "list-panes", "-t", session, "-F", "#{pane_id}"], { timeout: 5_000 }).stdout.toString().trim().split("\n")[0] ?? "";
       if (!target.startsWith("%")) throw new Error(`failed to resolve real smoke pane id for ${session}: ${target || "empty"}`);
+      await waitForCaptureContains(target, ready);
 
       serve = Bun.spawn({ cmd: ["bun", "src/cli.ts", "serve", String(port), "--force-takeover", "-q"], cwd: repo, env, stdout: "pipe", stderr: "pipe" });
       await waitForHttp(`http://127.0.0.1:${port}/api/identity`);
