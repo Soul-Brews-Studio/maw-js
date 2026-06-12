@@ -46,6 +46,9 @@ describe("serve-maintenance plugin standalone boundary", () => {
         /^\.\.\/\.\.\/core\/message-queue$/,
         /^\.\.\/\.\.\/core\/request-reply$/,
         /^\.\.\/\.\.\/core\/agent-status$/,
+        /^\.\.\/\.\.\/api\/config$/,
+        /^\.\.\/\.\.\/lib\/pair-codes$/,
+        /^\.\.\/\.\.\/api\/pair$/,
       ],
     });
   });
@@ -93,12 +96,15 @@ describe("serve-maintenance plugin standalone boundary", () => {
       messageQueue: { prune: () => { calls.push("message"); } },
       requestReplyStore: { prune: () => { calls.push("request"); throw new Error("ignore"); } },
       agentStatusStore: { prune: () => { calls.push("status"); } },
+      prunePinAttempts: () => { calls.push("pin"); },
+      prunePairCodes: () => { calls.push("codes"); throw new Error("ignore"); },
+      prunePairResults: () => { calls.push("results"); },
     });
 
     expect(timer.intervals).toEqual([60_000]);
     expect(timer.unrefCount).toBe(1);
     timer.handlers[0]();
-    expect(calls).toEqual(["message", "request", "status"]);
+    expect(calls).toEqual(["message", "request", "status", "pin", "codes", "results"]);
   });
 
   test("serve hook starts both maintenance timers", () => {

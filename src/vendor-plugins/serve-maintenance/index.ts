@@ -3,6 +3,9 @@ import { sweepOrphanPtySessions as defaultSweepOrphanPtySessions } from "../../c
 import { messageQueue as defaultMessageQueue } from "../../core/message-queue";
 import { requestReplyStore as defaultRequestReplyStore } from "../../core/request-reply";
 import { agentStatusStore as defaultAgentStatusStore } from "../../core/agent-status";
+import { prunePinAttempts as defaultPrunePinAttempts } from "../../api/config";
+import { prunePairCodes as defaultPrunePairCodes } from "../../lib/pair-codes";
+import { prunePairResults as defaultPrunePairResults } from "../../api/pair";
 
 type ServeLog = {
   info?: (...args: unknown[]) => void;
@@ -24,6 +27,9 @@ type ServeMaintenanceDeps = {
   messageQueue: Prunable;
   requestReplyStore: Prunable;
   agentStatusStore: Prunable;
+  prunePinAttempts: () => unknown;
+  prunePairCodes: () => unknown;
+  prunePairResults: () => unknown;
   setInterval: SetIntervalFn;
 };
 
@@ -33,6 +39,9 @@ const defaultDeps: ServeMaintenanceDeps = {
   messageQueue: defaultMessageQueue,
   requestReplyStore: defaultRequestReplyStore,
   agentStatusStore: defaultAgentStatusStore,
+  prunePinAttempts: defaultPrunePinAttempts,
+  prunePairCodes: defaultPrunePairCodes,
+  prunePairResults: defaultPrunePairResults,
   setInterval: (handler, timeout) => setInterval(handler, timeout) as TimerHandle,
 };
 
@@ -66,6 +75,9 @@ export function startServeMemoryMaintenance(
     try { d.messageQueue.prune(); } catch { /* best effort */ }
     try { d.requestReplyStore.prune(); } catch { /* best effort */ }
     try { d.agentStatusStore.prune(); } catch { /* best effort */ }
+    try { d.prunePinAttempts(); } catch { /* best effort */ }
+    try { d.prunePairCodes(); } catch { /* best effort */ }
+    try { d.prunePairResults(); } catch { /* best effort */ }
   }, 60_000);
   unrefTimer(timer);
   return timer;

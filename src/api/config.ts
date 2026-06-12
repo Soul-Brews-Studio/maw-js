@@ -7,6 +7,32 @@ import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/pa
 
 // Rate limit: max 5 attempts per IP per minute
 const pinAttempts = new Map<string, { count: number; resetAt: number }>();
+export const MAX_PIN_ATTEMPTS_ENTRIES = 1_000;
+
+export function prunePinAttempts(
+  attempts: Map<string, { count: number; resetAt: number }> = pinAttempts,
+  now: number = Date.now(),
+  maxEntries: number = MAX_PIN_ATTEMPTS_ENTRIES,
+): number {
+  let pruned = 0;
+  for (const [key, entry] of attempts) {
+    if (now > entry.resetAt) {
+      attempts.delete(key);
+      pruned++;
+    }
+  }
+  if (attempts.size > maxEntries) {
+    const overflow = attempts.size - maxEntries;
+    const oldest = [...attempts.entries()]
+      .sort(([, a], [, b]) => a.resetAt - b.resetAt)
+      .slice(0, overflow);
+    for (const [key] of oldest) {
+      attempts.delete(key);
+      pruned++;
+    }
+  }
+  return pruned;
+}
 
 export interface ConfigApiDeps {
   readdirSync?: typeof readdirSync;

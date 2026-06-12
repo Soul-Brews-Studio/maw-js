@@ -349,10 +349,27 @@ export class ScoutTransport implements Transport {
 
   private pruneStale(): void {
     const removed = this.state.pruneStale();
+    this.prunePairFailures();
     for (const node of removed) {
       console.log(`[scout] peer gone: ${node}`);
       this.emitPresence(node, "", "offline");
     }
+  }
+
+  private prunePairFailures(): number {
+    const active = new Set<string>();
+    for (const peer of this.state.discoveredPeers.values()) {
+      active.add(peer.node || peer.zid);
+      active.add(peer.zid);
+    }
+    let pruned = 0;
+    for (const key of this.pairFailures.keys()) {
+      if (!active.has(key)) {
+        this.pairFailures.delete(key);
+        pruned++;
+      }
+    }
+    return pruned;
   }
 
   private loadExistingPeers(): void {
