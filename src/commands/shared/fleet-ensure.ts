@@ -39,8 +39,16 @@ function isInside(parent: string, child: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !rel.includes(`..${sep}`));
 }
 
-function repoFromCwd(cwd: string | undefined, ghqRoot: string): string | null {
-  if (!cwd) return null;
+type RepoFromCwdResult =
+  | { repo: string }
+  | { repo: null; reason: string; archiveCopy?: boolean };
+
+function isArchivedSegment(segment: string): boolean {
+  return /^_?\.?archive(?:d)?$/i.test(segment);
+}
+
+function repoFromCwdResult(cwd: string | undefined, ghqRoot: string): RepoFromCwdResult {
+  if (!cwd) return { repo: null, reason: "missing cwd" };
   const resolvedCwd = resolve(cwd);
   const candidates: Array<{ root: string; segments: number }> = [
     { root: resolve(ghqRoot), segments: 3 },
@@ -50,9 +58,27 @@ function repoFromCwd(cwd: string | undefined, ghqRoot: string): string | null {
     if (!isInside(root, resolvedCwd)) continue;
     const parts = relative(root, resolvedCwd).split(sep);
     if (parts.length < segments || parts[0] === "..") continue;
-    return parts.slice(0, segments).join("/");
+    const repoParts = parts.slice(0, segments);
+    if (repoParts.some(isArchivedSegment)) {
+      return {
+        repo: null,
+        archiveCopy: true,
+        reason: `refusing to register archive copy: ${cwd}`,
+      };
+    }
+    // Canonical fleet repo refs come from $(ghq root)/github.com/<org>/<repo>.
+    // A cwd under $(ghq root)/_archive/... can otherwise look like a valid
+    // three-segment ghq repo and poison windows[].repo with _archive/... .
+    if (segments === 3 && repoParts[0] !== "github.com") {
+      return { repo: null, reason: `cwd is outside canonical ghq host root: ${cwd}` };
+    }
+    return { repo: repoParts.join("/") };
   }
-  return null;
+  return { repo: null, reason: `cwd is outside ghq root: ${cwd}` };
+}
+
+function repoFromCwd(cwd: string | undefined, ghqRoot: string): string | null {
+  return repoFromCwdResult(cwd, ghqRoot).repo;
 }
 
 function fleetFileNameForSession(session: string): string {
@@ -92,9 +118,13 @@ export function ensureFleetSessionEntry(
   const entries = (deps.loadFleetEntries ?? loadFleetEntries)(readDirs);
   const existing = entries.find(e => e.session?.name === session || e.file === fleetFileNameForSession(session));
   const ghqRoot = (deps.getGhqRoot ?? getGhqRoot)();
-  const repo = repoFromCwd(input.cwd, ghqRoot);
+  const repoResult = repoFromCwdResult(input.cwd, ghqRoot);
+  const repo = repoResult.repo;
   if (!repo) {
-    return { status: "skipped", reason: input.cwd ? `cwd is outside ghq root: ${input.cwd}` : "missing cwd" };
+    if (repoResult.archiveCopy) {
+      console.warn(`\x1b[33m⚠\x1b[0m ${repoResult.reason}`);
+    }
+    return { status: "skipped", reason: repoResult.reason };
   }
 
   if (existing?.path) {
@@ -131,4 +161,4 @@ export function ensureFleetSessionEntry(
   return { status: "created", file: path, entry: buildEntry(file, path, fleetSession) };
 }
 
-export const _test = { repoFromCwd, isSafeFleetSessionName };
+export const _test = { repoFromCwd, repoFromCwdResult, isSafeFleetSessionName };

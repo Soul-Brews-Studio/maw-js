@@ -52,6 +52,10 @@ function normalizeFleetRepoRef(ref: unknown, source: string): string {
   return `${parsed.org}/${parsed.repo}`;
 }
 
+function warnInvalidFleetRepoRef(message: string): void {
+  console.warn(`[oracle-registry] ${message}`);
+}
+
 function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): void {
   const repos: unknown[] = config.project_repos || [];
   for (const r of repos) {
@@ -64,7 +68,8 @@ function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): voi
   }
   // Also check windows for repo references
   for (const w of config.windows || []) {
-    if (w.repo) {
+    if (!w.repo) continue;
+    try {
       const repoRef = normalizeFleetRepoRef(w.repo, "windows[].repo");
       if (!map.has(repoRef)) {
         map.set(repoRef, {
@@ -73,6 +78,10 @@ function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): voi
           budded_at: config.budded_at || null,
         });
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const windowName = typeof w.name === "string" && w.name ? ` '${w.name}'` : "";
+      warnInvalidFleetRepoRef(`skipping invalid fleet window${windowName}: ${message}`);
     }
   }
 }

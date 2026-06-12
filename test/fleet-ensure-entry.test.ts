@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { ensureFleetSessionEntry, _test } from "../src/commands/shared/fleet-ensure";
 
 function deps(files = new Map<string, string>()) {
@@ -44,6 +44,32 @@ describe("ensureFleetSessionEntry", () => {
       auto_registered: true,
       windows: [{ name: "mawjs-oracle", repo: "github.com/Soul-Brews-Studio/maw-js" }],
     });
+  });
+
+
+  test("refuses to register archive-copy cwd as a fleet repo (#2795)", () => {
+    const h = deps();
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => warnings.push(args.map(String).join(" ")));
+    try {
+      const result = ensureFleetSessionEntry({
+        session: "77-mawjs",
+        window: "mawjs-codex-3",
+        cwd: "/ghq/_archive/oracle-world/nat-2026-06-10/ghq/github.com/Soul-Brews-Studio/maw-js",
+        createdBy: "maw wake",
+      }, h.deps);
+
+      expect(result).toMatchObject({
+        status: "skipped",
+        reason: expect.stringContaining("refusing to register archive copy"),
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(warnings).toEqual([expect.stringContaining("refusing to register archive copy")]);
+    expect(h.writes).toEqual([]);
+    expect(_test.repoFromCwd("/ghq/_archive/oracle-world/nat-2026-06-10/ghq/github.com/Soul-Brews-Studio/maw-js", "/ghq")).toBeNull();
   });
 
   test("updates an existing entry with the initial window instead of duplicating files", () => {

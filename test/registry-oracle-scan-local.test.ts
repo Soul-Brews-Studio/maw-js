@@ -65,6 +65,36 @@ describe("registry-oracle-scan-local", () => {
     expect(readFleetLineage(join(root, "missing")).size).toBe(0);
   });
 
+
+  test("readFleetLineage skips invalid window repo refs and keeps valid fleet visibility (#2795)", () => {
+    const root = tmpRoot("lineage-bad-window");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    writeJson(join(fleetDir, "fleet.json"), {
+      project_repos: ["Soul-Brews-Studio/project-oracle"],
+      windows: [
+        { name: "archived", repo: "_archive/oracle-world/nat-2026-06-10" },
+        { name: "valid", repo: "github.com/Soul-Brews-Studio/live-oracle.git" },
+      ],
+    });
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => warnings.push(args.map(String).join(" ")));
+    try {
+      const lineage = readFleetLineage(fleetDir);
+      expect([...lineage.keys()].sort()).toEqual([
+        "Soul-Brews-Studio/live-oracle",
+        "Soul-Brews-Studio/project-oracle",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(warnings).toEqual([
+      expect.stringContaining("skipping invalid fleet window 'archived': invalid fleet repo reference in windows[].repo: _archive/oracle-world/nat-2026-06-10"),
+    ]);
+  });
+
   test("readFleetLineage fails loud on truncated or malformed fleet JSON", () => {
     const root = tmpRoot("lineage-broken");
     const fleetDir = join(root, "fleet");
