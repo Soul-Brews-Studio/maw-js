@@ -157,7 +157,7 @@ describe.skipIf(SKIP)("plugin install — @peer + consent gate (#644 Phase 3)", 
   const pluginName = "integ-consent-ping";
   const pluginVersion = "1.0.0";
   const myNode = "client-node";
-  const peerNode = "peer-alpha";
+  const peerNode = "alpha";
 
   const prev = {
     pluginsDir: process.env.MAW_PLUGINS_DIR,
@@ -229,6 +229,7 @@ describe.skipIf(SKIP)("plugin install — @peer + consent gate (#644 Phase 3)", 
       pluginName,
       pluginVersion: resolved.version,
       pluginSha256: resolved.peerSha256,
+      identityMismatch: resolved.identityMismatch,
     });
 
     expect(decision.allow).toBe(false);
@@ -279,6 +280,7 @@ describe.skipIf(SKIP)("plugin install — @peer + consent gate (#644 Phase 3)", 
       pluginName,
       pluginVersion: resolved.version,
       pluginSha256: resolved.peerSha256,
+      identityMismatch: resolved.identityMismatch,
     });
     expect(decision.allow).toBe(true);
 

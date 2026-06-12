@@ -27,6 +27,7 @@ type HandlerCall = { fn: string; args: unknown[] };
 type ResolvedPeer = {
   peerName: string;
   peerNode?: string;
+  identityMismatch?: boolean;
   peerUrl: string;
   version: string;
   peerSha256?: string;
@@ -307,6 +308,30 @@ describe("cmdPluginInstall peer source flow", () => {
         ],
       },
     ]);
+  });
+
+  test("refuses identity-mismatched peers before consent or download", async () => {
+    resolvedPeer = {
+      peerName: "white",
+      peerNode: "attacker",
+      identityMismatch: true,
+      peerUrl: "http://white.internal:2700",
+      version: "2.0.0",
+      peerSha256: "sha256:abcdef1234567890",
+      downloadUrl: "http://white.internal:2700/api/plugin/download/ping",
+    };
+    plannedMode = { kind: "peer", src: "ping@white", name: "ping", peer: "white" };
+
+    await expect(cmdPluginInstall(["ping@white"])).rejects.toThrow(
+      /__plugin_install_impl_test_exit__:1/,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr.join("\n")).toContain("peer identity mismatch");
+    expect(stderr.join("\n")).toContain("manifest claimed node: attacker");
+    expect(stderr.join("\n")).toContain("refusing to bind consent/trust");
+    expect(consentCalls).toEqual([]);
+    expect(handlerCalls).toEqual([]);
   });
 
   test("uses local fallback node name and continues when consent allows", async () => {

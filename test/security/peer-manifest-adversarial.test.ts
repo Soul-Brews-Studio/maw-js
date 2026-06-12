@@ -23,6 +23,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { searchPeers } from "../../src/commands/plugins/plugin/search-peers";
+import { resolvePeerInstall } from "../../src/commands/plugins/plugin/install-peer-resolver";
+import { maybeGatePluginInstall } from "../../src/core/consent/gate-plugin-install";
 import type { CurlResponse } from "../../src/core/transport/curl-fetch";
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
@@ -153,6 +155,48 @@ describe("identity swap (peer claims another node's name)", () => {
     } finally {
       console.warn = origWarn;
     }
+  });
+
+  test("resolvePeerInstall surfaces identityMismatch so install can refuse before trust binding", async () => {
+    const resolved = await resolvePeerInstall("example", "white", {
+      searchImpl: async () => ({
+        hits: [{
+          name: "example",
+          version: "1.0.0",
+          peerName: "white",
+          peerNode: "attacker",
+          peerUrl: "http://white:3456",
+          identityMismatch: true,
+        }],
+        queried: 1,
+        responded: 1,
+        errors: [],
+        elapsedMs: 1,
+      }),
+    });
+
+    expect(resolved.peerName).toBe("white");
+    // Preserved only as evidence for the refusal message, not as a trust key.
+    expect(resolved.peerNode).toBe("attacker");
+    expect(resolved.identityMismatch).toBe(true);
+  });
+
+  test("plugin consent gate refuses identityMismatch before claimed peerNode can become trust key", async () => {
+    const decision = await maybeGatePluginInstall({
+      myNode: "m5",
+      peerName: "white",
+      peerNode: "attacker",
+      peerUrl: "http://white:3456",
+      pluginName: "example",
+      pluginVersion: "1.0.0",
+      identityMismatch: true,
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.exitCode).toBe(1);
+    expect(decision.message).toContain("peer identity mismatch");
+    expect(decision.message).toContain("refusing to bind trust");
+    expect(decision.message).toContain("attacker");
   });
 
   test("honest peer (node matches configured name) → no mismatch flag, no warn", async () => {

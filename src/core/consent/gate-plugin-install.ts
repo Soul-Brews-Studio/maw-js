@@ -34,6 +34,11 @@ export interface PluginInstallGateContext {
   pluginVersion: string;
   /** sha256 the peer advertised. Truncated to first 8 hex chars in the summary. */
   pluginSha256?: string | null;
+  /**
+   * Search-time identity check failed; peerNode is attacker-controlled
+   * evidence and must never become the trust key.
+   */
+  identityMismatch?: boolean;
 }
 
 export interface PluginInstallGateDecision {
@@ -53,7 +58,20 @@ export function shortSha(sha?: string | null): string {
 export async function maybeGatePluginInstall(
   ctx: PluginInstallGateContext,
 ): Promise<PluginInstallGateDecision> {
-  const { myNode, peerName, peerNode, peerUrl, pluginName, pluginVersion, pluginSha256 } = ctx;
+  const { myNode, peerName, peerNode, peerUrl, pluginName, pluginVersion, pluginSha256, identityMismatch } = ctx;
+
+  if (identityMismatch) {
+    return {
+      allow: false,
+      exitCode: 1,
+      message: [
+        `\x1b[31m✗ peer identity mismatch\x1b[0m: refusing plugin-install consent`,
+        `  configured peer: ${peerName}  [${peerUrl}]`,
+        peerNode ? `  manifest claimed node: ${peerNode}` : "",
+        `  refusing to bind trust to the claimed peer node`,
+      ].filter(Boolean).join("\n"),
+    };
+  }
 
   // Trust key requires a stable peer node identifier. Fall back to peerName
   // when the peer didn't advertise its node (legacy) so install isn't silently

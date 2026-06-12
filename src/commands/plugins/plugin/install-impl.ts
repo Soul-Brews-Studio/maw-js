@@ -108,6 +108,17 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
         (resolved.peerSha256 ? ` (sha256: ${resolved.peerSha256.slice(0, 12)}…)` : ""),
       );
 
+      if (resolved.identityMismatch) {
+        console.error([
+          `\x1b[31m✗ peer identity mismatch\x1b[0m: refusing plugin install from '${resolved.peerName}'`,
+          `  configured peer: ${resolved.peerName}  [${resolved.peerUrl}]`,
+          resolved.peerNode ? `  manifest claimed node: ${resolved.peerNode}` : "",
+          `  refusing to bind consent/trust to the claimed peer node`,
+          `  retry after fixing namedPeers or the peer manifest identity`,
+        ].filter(Boolean).join("\n"));
+        process.exit(1);
+      }
+
       // #644 Phase 3 — PIN consent before we touch the network for the artifact.
       // Default OFF; opt in via MAW_CONSENT=1. Gate lives here (not in resolver)
       // so the operator sees what the peer advertised BEFORE being asked to
@@ -124,6 +135,7 @@ export async function cmdPluginInstall(args: string[]): Promise<void> {
           pluginName: mode.name,
           pluginVersion: resolved.version,
           pluginSha256: resolved.peerSha256,
+          identityMismatch: resolved.identityMismatch,
         });
         if (!decision.allow) {
           if (decision.message) console.error(decision.message);
