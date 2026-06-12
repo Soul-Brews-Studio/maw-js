@@ -61,6 +61,7 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
       sendKeys: async (target: string, key: string) => { calls.push(["tmuxKeys", target, key]); },
       listPanes: async () => [],
       capture: async (target: string, lines?: number) => { calls.push(["tmuxCapture", target, lines]); return ""; },
+      run: async (...args: string[]) => { calls.push(["tmuxRun", ...args]); return ""; },
     } as any),
     emitMessageLifecycle: (input) => { lifecycle.push(input); },
     writeReceiverInbox: null,

@@ -23,6 +23,7 @@ import {
 } from "./hey-locate-resolution";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
+import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -865,6 +866,29 @@ export async function cmdSend(
   const warnOfflineInboxOnly = (): void => {
     console.warn(`\x1b[33m⚠ target node offline — message written to inbox only, will not be seen until node wakes\x1b[0m`);
   };
+  const notifyQueuedInbox = async (inbox: ReceiverInboxResult | null, target: string, reason: string): Promise<void> => {
+    if (!inbox?.ok) return;
+    const notify = await notifyLiveInboxReceiver(inbox, senderIdentity.display, {
+      listSessions: async () => sessions,
+      tmux: new Tmux(),
+    });
+    if (notify.status !== "sent") {
+      const detail = notify.reason || "unknown notify failure";
+      console.warn(`\x1b[33mwarn\x1b[0m: inbox pane notify skipped for ${inbox.oracle}: ${detail}`);
+      emitMessageFeed({
+        direction: "outbound",
+        state: "queued",
+        channel: "hey",
+        route: "inbox-notify",
+        from: senderIdentity.display,
+        to: query,
+        target: notify.target || target,
+        text: outboundMessage,
+        lastLine: `${reason}; notify skipped: ${detail}`,
+        signed: true,
+      }, config.port || 3456);
+    }
+  };
 
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
@@ -875,7 +899,10 @@ export async function cmdSend(
     const target = await resolveOraclePane(result.target);
     if (opts.inboxOnly) {
       const inbox = await writeReceiverInbox(target);
-      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) return;
+      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) {
+        await notifyQueuedInbox(inbox, target, "--inbox requested; pane injection skipped");
+        return;
+      }
       const reason = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
@@ -885,7 +912,11 @@ export async function cmdSend(
     if (guard.busy) {
       queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
       const inbox = await writeReceiverInbox(target);
-      if (logQueuedInbox(inbox, target, `target '${guard.oracle}' is busy; queued for auto-delivery`)) return;
+      const reason = `target '${guard.oracle}' is busy; queued for auto-delivery`;
+      if (logQueuedInbox(inbox, target, reason)) {
+        await notifyQueuedInbox(inbox, target, reason);
+        return;
+      }
       console.log(`\x1b[33mqueued\x1b[0m target '${guard.oracle}' is busy — will auto-deliver when idle`);
       return;
     }
@@ -898,7 +929,11 @@ export async function cmdSend(
       await sendKeys(target, outboundMessage);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (logQueuedInbox(inbox, target, `tmux delivery failed: ${msg}`)) return;
+      const reason = `tmux delivery failed: ${msg}`;
+      if (logQueuedInbox(inbox, target, reason)) {
+        await notifyQueuedInbox(inbox, target, reason);
+        return;
+      }
       console.error(`\x1b[31merror\x1b[0m: tmux delivery failed for ${target}: ${msg}`);
       process.exit(1);
     }
@@ -1096,12 +1131,21 @@ export async function cmdSend(
   // Try receiver inbox queue before surfacing a local-only resolver miss.
   if (bareResolution.locate?.repoPath) {
     const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
-    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) {
+    const inbox = await writeReceiverInbox(bareResolution.locate.repoPath);
+    if (logQueuedInbox(inbox, query, reason)) {
+      await notifyQueuedInbox(inbox, query, reason);
       warnOfflineInboxOnly();
       return;
     }
     console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
-  } else if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
+  } else {
+    const reason = "target not live; persisted for receiver inbox polling";
+    const inbox = await writeReceiverInbox();
+    if (logQueuedInbox(inbox, query, reason)) {
+      await notifyQueuedInbox(inbox, query, reason);
+      return;
+    }
+  }
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {

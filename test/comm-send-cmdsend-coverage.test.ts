@@ -130,6 +130,7 @@ mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
       tmuxRunCalls.push(args);
       if (args.join(" ") === "display-message -p #S") return "mock-session\n";
       if (args[0] === "list-panes") return "0 claude\n";
+      if (args[0] === "display-message" && args.includes("-t")) return "";
       throw new Error(`unexpected test tmux run: ${args.join(" ")}`);
     }
     async tryRun(...args: string[]) {
@@ -532,6 +533,45 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued" });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
+    expect(sendKeysCalls).toEqual([]);
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "session:oracle",
+      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
+    ]);
+  });
+
+
+  test("same-machine CLI inbox queue gently notifies a live receiver pane (#2789)", async () => {
+    listSessionsReturn = [{ name: "157-noah", windows: [{ index: 0, name: "noah-oracle", active: true }] }];
+    resolveTargetReturn = { type: "local", target: "157-noah:noah-oracle.0" };
+
+    await runCmd(() => cmdSend("m5:noah", "queued for later", false, {
+      inboxOnly: true,
+      receiverInbox: () => ({
+        ok: true,
+        oracle: "noah",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/noah.md",
+        filename: "noah.md",
+      }),
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([{ from: "sender", to: "m5:noah", message: "[test-node:sender] queued for later", route: "inbox" }]);
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "157-noah:noah-oracle",
+      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/noah.md)",
+    ]);
+    expect(warns.join("\n")).not.toContain("notify skipped");
   });
 
   test("--inbox receiver inbox writer failures surface as queue-only errors", async () => {
@@ -593,6 +633,14 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "--inbox requested; pane injection skipped" });
     expect(logs.join("\n")).toContain("busy.md");
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "session:oracle",
+      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/busy.md)",
+    ]);
   });
 
   test("peer delivery marks accepted-only responses queued until delivery is proven", async () => {
@@ -874,7 +922,9 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(receiverWrites).toHaveLength(1);
     expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
     expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
+    expect(warns.join("\n")).toContain("inbox pane notify skipped for renamed: no live tmux pane resolved for inbox receiver 'renamed'");
     expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
+    expect(emitFeedCalls.some((call) => call.data?.route === "inbox-notify" && String(call.data?.lastLine).includes("notify skipped"))).toBe(true);
   });
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
