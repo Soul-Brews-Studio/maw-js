@@ -14,6 +14,7 @@ import { cmdSend } from "../../../commands/shared/comm-send";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
 import {
   classifyMember,
+  memberEngine,
   currentTmuxSession,
   engineCommand,
   knownTeamEngineNames,
@@ -51,6 +52,14 @@ function memberActionKey(member: ClassifiedTeamMember, index: number): string {
   return `${member.windowIdentity}#${index}`;
 }
 
+function displayEngine(item: ClassifiedTeamMember): string {
+  return item.engine ?? "(default)";
+}
+
+function resolvedMemberEngine(item: ClassifiedTeamMember, override: string | undefined, config: MawConfig): string {
+  return memberEngine(item.member, override, config);
+}
+
 export interface TeamUpResult {
   team: string;
   session: string;
@@ -82,7 +91,7 @@ function renderRoster(team: string, session: string, roster: ClassifiedTeamMembe
   const lines = [`team up: ${team} (${session})`, "role\tidentity\tengine\tstate\taction"];
   for (const [index, item] of roster.entries()) {
     const action = actionByMember.get(`${item.windowIdentity}#${index}`)?.action ?? "skip";
-    lines.push(`${item.role}\t${item.windowIdentity}\t${item.engine}\t${item.state}\t${action}`);
+    lines.push(`${item.role}\t${item.windowIdentity}\t${displayEngine(item)}\t${item.state}\t${action}`);
   }
   if (warnings.length) lines.push("", "warnings:", ...warnings.map((warning) => `  - ${warning}`));
   if (tail) lines.push("", tail);
@@ -126,16 +135,16 @@ function channelFlag(channels: boolean): string {
 
 function wakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false): string {
   if (item.member.worktree === false) {
-    return `wakeable ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+    return `wakeable ${memberWakeTarget(repoSlug, item.member)} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
   }
-  return `wakeable --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+  return `wakeable --wt ${item.worktree} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
 }
 
 function freshWakePlan(item: ClassifiedTeamMember, repoSlug: string, session: string, channels = false, prefix = "would fresh wake"): string {
   if (item.member.worktree === false) {
-    return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+    return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
   }
-  return `${prefix} --wt ${item.worktree} -e ${item.engine} --session ${session}${channelFlag(channels)}`;
+  return `${prefix} --wt ${item.worktree} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
 }
 
 function resolvePrimingPrompt(member: TeamCharter["members"][number], repoRoot: string): string | undefined {
@@ -154,11 +163,13 @@ function memberPrimingTarget(session: string, member: TeamCharter["members"][num
 }
 
 
-function validateRosterEngines(roster: ClassifiedTeamMember[], charter: TeamCharter, config: MawConfig): void {
+function validateRosterEngines(roster: ClassifiedTeamMember[], charter: TeamCharter, config: MawConfig, override?: string): void {
   const known = new Set(knownTeamEngineNames(config, charter.engines));
   const bad = roster
-    .filter((item) => !known.has(item.engine) && !charter.engines?.[item.engine])
-    .map((item) => `${item.role}: engine '${item.engine}' not resolvable`);
+    .filter((item) => item.state !== "skipped")
+    .map((item) => ({ item, engine: resolvedMemberEngine(item, override, config) }))
+    .filter(({ engine }) => !known.has(engine) && !charter.engines?.[engine])
+    .map(({ item, engine }) => `${item.role}: engine '${engine}' not resolvable`);
   if (bad.length === 0) return;
   const knownList = [...known].sort().join(", ") || "none";
   throw new UserError(`team up preflight failed: unresolved member engine(s): ${bad.join("; ")} — known: [${knownList}]; define missing engines in config.engines/config.commands or charter.engines before spawning`);
@@ -236,7 +247,6 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
     }
   }
   const roster = charter.members.map((member) => classifyMember(member, panes, session, { engine: opts.engine, currentNode: config.node, only, members: requestedMembers, repoSlug: targetRepoSlug }));
-  validateRosterEngines(roster, charter, config);
   const actions: TeamUpAction[] = [];
 
   if (opts.status) {
@@ -253,22 +263,27 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
     return { team, session, roster, actions, warnings, output };
   }
 
+  validateRosterEngines(roster, charter, config, opts.engine);
+
   if (opts.dryRun) {
     for (const [index, item] of roster.entries()) {
       const memberKey = memberActionKey(item, index);
       if (item.state === "skipped") {
         actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
       } else if (opts.force) {
-        const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
-        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
+        const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+        const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
+        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan({ ...item, engine: launchEngine }, targetRepoSlug, session, memberChannels(charter, item.member), "would force fresh wake"), command });
       } else if (item.state === "live") {
         actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
       } else if (item.state === "dead") {
-        const command = engineCommand(item.engine, { resume: true, engines: charter.engines }, config);
+        const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+        const command = engineCommand(launchEngine, { resume: true, engines: charter.engines }, config);
         actions.push({ role: item.role, memberKey, state: item.state, action: "would relaunch in place with resume", command });
       } else {
-        const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
-        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan(item, targetRepoSlug, session, memberChannels(charter, item.member)), command });
+        const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+        const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
+        actions.push({ role: item.role, memberKey, state: item.state, action: freshWakePlan({ ...item, engine: launchEngine }, targetRepoSlug, session, memberChannels(charter, item.member)), command });
       }
     }
     warnOnPathCollisions(roster, warnings);
@@ -284,19 +299,21 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
     if (item.state === "skipped") {
       actions.push({ role: item.role, memberKey, state: item.state, action: `skip (${item.skipReason ?? "guard"})` });
     } else if (opts.force) {
-      const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
+      const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+      const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
       actions.push({ role: item.role, memberKey, state: item.state, action: "force fresh wake", command });
       launchTasks.push({
         item,
         run: async () => {
           if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
-          await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     } else if (item.state === "live") {
       actions.push({ role: item.role, memberKey, state: item.state, action: "skip live" });
     } else if (item.state === "dead") {
-      const command = engineCommand(item.engine, { resume: true, engines: charter.engines }, config);
+      const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+      const command = engineCommand(launchEngine, { resume: true, engines: charter.engines }, config);
       actions.push({ role: item.role, memberKey, state: item.state, action: "resume in place", command });
       launchTasks.push({
         item,
@@ -306,12 +323,13 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         },
       });
     } else {
-      const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
+      const launchEngine = resolvedMemberEngine(item, opts.engine, config);
+      const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
       actions.push({ role: item.role, memberKey, state: item.state, action: "fresh wake", command });
       launchTasks.push({
         item,
         run: async () => {
-          await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     }

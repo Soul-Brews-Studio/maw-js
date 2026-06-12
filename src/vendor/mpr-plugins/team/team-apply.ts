@@ -14,6 +14,7 @@ import {
   findRepoRoot,
   listPaneSnapshots,
   memberWindowCandidates,
+  memberEngine,
   repoSlugFromRoot,
   resolveCharterPath,
   wakeMember,
@@ -146,10 +147,11 @@ export async function cmdTeamApply(teamOrPath: string, opts: TeamApplyOptions = 
       continue;
     }
     if (item.state === "missing") {
-      const command = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
+      const launchEngine = memberEngine(item.member, undefined, config);
+      const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
       actions.push({ kind: "spawn", role: item.role, state: item.state, action: opts.apply ? "spawn member" : "would spawn member", command });
       if (opts.apply) {
-        await wakeMember(targetRepoSlug, item.member, { engine: item.engine, session, repoPath: repoRoot, channels: item.member.channels === true }, { cmdWakeFn: deps.cmdWakeFn });
+        await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: item.member.channels === true }, { cmdWakeFn: deps.cmdWakeFn });
       }
       continue;
     }
@@ -158,14 +160,15 @@ export async function cmdTeamApply(teamOrPath: string, opts: TeamApplyOptions = 
       continue;
     }
 
-    const expectedCommand = engineCommand(item.engine, { resume: false, engines: charter.engines }, config);
-    if (item.member.engine && item.pane && !engineLooksSame(item.pane.command, expectedCommand, item.engine)) {
+    const launchEngine = memberEngine(item.member, undefined, config);
+    const expectedCommand = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
+    if (item.member.engine && item.pane && !engineLooksSame(item.pane.command, expectedCommand, launchEngine)) {
       actions.push({
         kind: "report",
         role: item.role,
         state: item.state,
         action: "engine changed; not migrated",
-        detail: `live=${item.pane.command} charter=${item.engine}`,
+        detail: `live=${item.pane.command} charter=${launchEngine}`,
       });
     } else {
       actions.push({ kind: "skip", role: item.role, state: item.state, action: "skip live" });

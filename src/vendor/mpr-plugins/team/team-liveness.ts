@@ -28,7 +28,7 @@ export interface TeamSessionSnapshot {
 export interface ClassifiedTeamMember {
   member: TeamCharterMember;
   role: string;
-  engine: string;
+  engine?: string;
   worktree: string;
   windowIdentity: string;
   state: TeamMemberState;
@@ -85,6 +85,16 @@ export function memberWorktree(member: TeamCharterMember): string {
 
 export function memberEngine(member: TeamCharterMember, override?: string, config: MawConfig = loadConfig()): string {
   return override ?? member.engine ?? member.model ?? config.defaultEngine ?? mawSdk.defaultEngineNameForConfig(config);
+}
+
+/**
+ * Classification is read-only liveness/identity work. It must not force a
+ * launch-default lookup, because clean configs intentionally have no default
+ * after #2797. Undefined means "launch default not resolved yet";
+ * actual launch paths call memberEngine(..., config) and keep let-it-error.
+ */
+export function memberEngineForClassification(member: TeamCharterMember, override?: string): string | undefined {
+  return override ?? member.engine ?? member.model;
 }
 
 export function memberMatchesSelector(member: TeamCharterMember, selector: string): boolean {
@@ -165,7 +175,7 @@ export function classifyMember(
 ): ClassifiedTeamMember {
   const role = member.role;
   const windowIdentity = memberWindowIdentity(member);
-  const engine = memberEngine(member, opts.engine);
+  const engine = memberEngineForClassification(member, opts.engine);
   const worktree = memberWorktree(member);
 
   if (isOtherNodeMember(member, opts.currentNode)) {

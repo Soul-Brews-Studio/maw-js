@@ -50,11 +50,8 @@ mock.module(tmuxPath, () => ({
   },
 }));
 
-const testConfig = { commands: { default: "claude", claude: "claude" }, defaultEngine: "claude" } as const;
 const configMock = () => ({
   buildCommand: (oracle: string) => `claude --oracle ${oracle || "default"}`,
-  buildCommandInDir: (oracle: string) => `claude --oracle ${oracle || "default"}`,
-  loadConfig: () => testConfig,
 });
 
 mock.module(configPath, configMock);

@@ -9,8 +9,6 @@ const cwdRoot = mkdtempSync(join(tmpdir(), "maw-team-remove-"));
 const root = () => cwdRoot;
 const charterPath = () => join(root(), ".maw", "teams", "alpha.yaml");
 
-const TEST_CONFIG = { commands: { default: "claude", claude: "claude" }, defaultEngine: "claude" } as any;
-
 const CHARTER = [
   "name: alpha",
   "session: lead-session",
@@ -82,7 +80,7 @@ describe("cmdTeamRemove", () => {
         "lead-session|mawjs-worker|omx|/wt|%2",
       ]),
       cwd: root(),
-      loadConfigFn: () => TEST_CONFIG,
+      loadConfigFn: () => ({}) as any,
       cmdDoneFn: async (windowName, opts = {}) => {
         doneCalls.push({ windowName, opts: opts as Record<string, unknown> });
       },
@@ -104,7 +102,7 @@ describe("cmdTeamRemove", () => {
     await cmdTeamRemove("alpha", "worker", { keepBranch: true }, {
       tmux: fakeTmux(["lead-session|mawjs-worker|omx|/wt|%2"]),
       cwd: root(),
-      loadConfigFn: () => TEST_CONFIG,
+      loadConfigFn: () => ({}) as any,
       cmdDoneFn: async (_w, opts = {}) => { doneCalls.push(opts as Record<string, unknown>); },
       logger: () => {},
     });
@@ -117,7 +115,7 @@ describe("cmdTeamRemove", () => {
     const result = await cmdTeamRemove("alpha", "worker", { dryRun: true }, {
       tmux: fakeTmux(["lead-session|mawjs-worker|omx|/wt|%2"]),
       cwd: root(),
-      loadConfigFn: () => TEST_CONFIG,
+      loadConfigFn: () => ({}) as any,
       cmdDoneFn: async () => { doneCalled = true; },
       logger: () => {},
     });
@@ -142,7 +140,7 @@ describe("cmdTeamRemove", () => {
     const result = await cmdTeamRemove("alpha", "peer", {}, {
       tmux: fakeTmux([]),
       cwd: root(),
-      loadConfigFn: () => TEST_CONFIG,
+      loadConfigFn: () => ({}) as any,
       cmdDoneFn: async () => { doneCalled = true; },
       logger: () => {},
     });
@@ -155,7 +153,7 @@ describe("cmdTeamRemove", () => {
     await expect(cmdTeamRemove("alpha", "ghost", {}, {
       tmux: fakeTmux([]),
       cwd: root(),
-      loadConfigFn: () => TEST_CONFIG,
+      loadConfigFn: () => ({}) as any,
       logger: () => {},
     })).rejects.toThrow("member not found: ghost");
   });

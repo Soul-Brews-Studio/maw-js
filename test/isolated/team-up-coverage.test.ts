@@ -55,8 +55,7 @@ function fakeTmux(lines: string[]) {
   return { tmux, calls };
 }
 
-const config = { defaultEngine: "claude", commands: {
-  default: "claude",
+const config = { commands: {
   claude: "maw run claude",
   "claude-resume": "maw run claude-resume",
   omx: "maw run omx",
