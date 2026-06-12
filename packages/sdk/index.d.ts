@@ -364,6 +364,9 @@ export declare function validateNickname(raw: string): { ok: true; value: string
 export declare function writeNickname(repoPath: string, nickname: string): void;
 export declare function setCachedNickname(name: string, nickname: string): void;
 
+/** Normalize a user, task, or worktree label for wake branch/window names. */
+export declare function sanitizeBranchName(name: string): string;
+
 /** Render numeric buckets as a compact Unicode sparkline. */
 export declare function sparkline(values: number[], hadActivity?: boolean[]): string;
 

@@ -47,6 +47,7 @@ function parseFlags(args: string[], spec: Record<string, unknown>, start = 0) {
 
 const sdkMock = {
   parseFlags,
+  sanitizeBranchName: realSdk.sanitizeBranchName,
   hostExec: async (cmd: string) => { hostExecCalls.push(cmd); return ""; },
   tmux: {
     listPaneIds: async () => new Set<string>(),
@@ -142,6 +143,9 @@ describe("team command plugin standalone boundary (#2336)", () => {
     const sdk = readFileSync(join(root, "src/sdk/index.ts"), "utf8");
     expect(sdk).toContain("parseFlags");
     expect(sdk).toContain("hostExec");
+    expect(sdk).toContain("sanitizeBranchName");
+    expect(realSdk.sanitizeBranchName("Web V2.WT Coder 2")).toBe("web-v2.wt-coder-2");
+    expect(sdkMock.sanitizeBranchName("Web V2.WT Coder 2")).toBe("web-v2.wt-coder-2");
   });
 
   test("create, list, bring, and send paths dispatch through mocked seams", async () => {

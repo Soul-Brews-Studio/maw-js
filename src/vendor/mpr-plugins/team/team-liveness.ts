@@ -163,6 +163,14 @@ export function memberWindowCandidates(member: TeamCharterMember, repoSlug = "")
   if (member.worktree === false) {
     const stem = oracleStemFromRepoSlug(repoSlug || identity);
     candidates.push(stem, `${stem}-oracle`, identity.replace(/-oracle$/i, ""));
+  } else {
+    const worktree = memberWorktree(member);
+    const sanitizedWorktree = mawSdk.sanitizeBranchName(worktree);
+    if (sanitizedWorktree) {
+      candidates.push(sanitizedWorktree);
+      const stem = oracleStemFromRepoSlug(repoSlug);
+      if (stem) candidates.push(`${stem}-${sanitizedWorktree}`);
+    }
   }
   return [...new Set(candidates.filter(Boolean))];
 }

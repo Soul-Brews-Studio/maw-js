@@ -9,6 +9,8 @@ import { tmpdir } from "os";
 // despite green tests. Guard the copy that actually ships.
 import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
+import * as commandTeamLiveness from "../../src/commands/plugins/team/team-liveness";
+import * as vendorTeamLiveness from "../../src/vendor/mpr-plugins/team/team-liveness";
 import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
@@ -488,6 +490,38 @@ members:
     const panes = [{ sessionName: "s", windowName: "repo-coder-10", command: "claude", path: "/x", paneId: "%1" }];
     expect(classifyMember({ role: "coder-1" }, panes, "s").state).toBe("missing");
     expect(classifyMember({ role: "coder-10" }, panes, "s").state).toBe("live");
+  });
+
+
+  test("classifyMember matches wake-produced dot worktree windows (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-web-v2.wt-coder-2", command: "codex", path: "/wt/web-v2.wt-coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2", worktree: "web-v2.wt-coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember keeps explicit member name matching live (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-web-v2.wt-coder-2", command: "codex", path: "/wt/web-v2.wt-coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2", name: "web-v2.wt-coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember keeps role-only wake window matching live (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-2", command: "codex", path: "/wt/coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember does not match absent members through wake candidates (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-2", command: "codex", path: "/wt/coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-3" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("missing");
+  });
+
+  test("classifyMember wake candidates remain anchored for numbered roles (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-10", command: "codex", path: "/wt/coder-10", paneId: "%10" }];
+    expect(classifyMember({ role: "coder-1" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("missing");
+    expect(classifyMember({ role: "coder-10" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("commands team-liveness re-exports the vendor source of truth (#2802)", () => {
+    expect(commandTeamLiveness.classifyMember).toBe(vendorTeamLiveness.classifyMember);
+    expect(commandTeamLiveness.memberWindowCandidates).toBe(vendorTeamLiveness.memberWindowCandidates);
   });
 
   test("status and dry-run are read-only classification modes", async () => {
