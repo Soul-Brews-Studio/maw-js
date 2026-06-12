@@ -6,7 +6,7 @@
   "description": "Share a tmux session/pane as a read-only web stream.",
   "cli": {
     "command": "share",
-    "help": "maw share <session-or-pane> [--read-only] [--control] [--presence] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]",
+    "help": "maw share <session-or-pane> [--read-only] [--control] [--presence] [--chat] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]",
     "flags": {
       "--read-only": "boolean",
       "--ttl": "number",
@@ -14,7 +14,8 @@
       "--auth": "string",
       "--encrypt": "boolean",
       "--control": "boolean",
-      "--presence": "boolean"
+      "--presence": "boolean",
+      "--chat": "boolean"
     }
   },
   "weight": 10,

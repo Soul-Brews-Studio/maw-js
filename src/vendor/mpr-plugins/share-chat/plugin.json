@@ -1,0 +1,18 @@
+{
+  "name": "share-chat",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Opt-in ephemeral web-viewer chat relay for maw share.",
+  "tier": "extra",
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "policy": "fail-fast"
+    }
+  },
+  "weight": 13,
+  "license": "MIT",
+  "schemaVersion": 1
+}
