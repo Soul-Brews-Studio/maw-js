@@ -26,6 +26,7 @@ export interface Share {
   encryptionKeyHash?: string;
   encryptionFrameCounter?: bigint;
   control?: ShareControl;
+  presence?: boolean;
 }
 
 export interface CreateShareOptions {
@@ -36,6 +37,7 @@ export interface CreateShareOptions {
   auth?: ShareAuthKind;
   encrypted?: boolean;
   control?: boolean;
+  presence?: boolean;
 }
 
 export interface CreateShareResult {
@@ -239,6 +241,7 @@ export async function createShare(opts: CreateShareOptions): Promise<CreateShare
     auth,
     encrypted,
     encryptionFrameCounter: 0n,
+    ...(opts.presence === true ? { presence: true } : {}),
   };
   const token = await authHandler.mint(share, slug);
   share.tokenHash = hashToken(token);

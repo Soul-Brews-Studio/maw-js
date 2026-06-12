@@ -99,11 +99,14 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     expect(manifest.cli.command).toBe("share");
     expect(manifest.hooks.serve.handler).toBe("serve");
     expect(manifest.cli.flags["--control"]).toBe("boolean");
+    expect(manifest.cli.flags["--presence"]).toBe("boolean");
 
     const index = readFileSync(join(root, "src/vendor/mpr-plugins/share/index.ts"), "utf8");
     expect(index).toContain("export async function serve");
     expect(index).toContain("export default async function handler");
     expect(index).toContain('"--control": Boolean');
+    expect(index).toContain('"--presence": Boolean');
+    expect(index).toContain("presence: body.presence === true");
     expect(index).toContain("controlToken");
 
     const stream = readFileSync(join(root, "src/vendor/mpr-plugins/share/stream.ts"), "utf8");
@@ -216,6 +219,42 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
         readOnly: true,
         auth: "token",
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+
+  test("share --presence posts daemon flag and exposes read-only metadata", async () => {
+    const { httpRoutes } = await makeServeHarness();
+    const createRoute = httpRoutes.find((route) => route.method === "POST" && route.path === "/api/share")!;
+    const metadataRoute = httpRoutes.find((route) => route.method === "GET" && route.path === "/api/share/:slug")!;
+    const originalFetch = globalThis.fetch;
+    const postedBodies: unknown[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      postedBodies.push(await req.clone().json());
+      return createRoute.handler(req);
+    }) as typeof fetch;
+
+    try {
+      const result = await shareHandler({
+        source: "cli",
+        args: ["neo:1", "--presence", "--ttl", "42", "--port", "4567"],
+      } as any);
+
+      expect(result.ok).toBe(true);
+      expect(postedBodies).toEqual([{ target: "neo:1:resolved", readOnly: true, ttl: 42, auth: "token", presence: true }]);
+      const { slug, token } = parseShareOutput(result.output);
+      const share = shareRuntimeImpl.getShare(slug)!;
+      expect(share.presence).toBe(true);
+      expect(share.readOnly).toBe(true);
+      expect(share.control).toBeUndefined();
+
+      const metadata = await metadataRoute.handler(new Request(`http://127.0.0.1:4567/api/share/${slug}?token=${encodeURIComponent(token)}`));
+      expect(metadata.status).toBe(200);
+      await expect(metadata.json()).resolves.toMatchObject({ presence: true, readOnly: true });
     } finally {
       globalThis.fetch = originalFetch;
     }

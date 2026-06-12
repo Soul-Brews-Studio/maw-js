@@ -14,7 +14,7 @@ export const command = {
   description: "Share a live read-only tmux session/pane in a browser via a temporary link.",
 };
 
-const SHARE_USAGE = "usage: maw share <session-or-pane> [additional-pane ...] [--read-only] [--control] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]";
+const SHARE_USAGE = "usage: maw share <session-or-pane> [additional-pane ...] [--read-only] [--control] [--presence] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]";
 const DEFAULT_TTL_SECONDS = 3600;
 const DEFAULT_READ_ONLY = true;
 
@@ -38,6 +38,7 @@ type ShareMetadata = {
   expiresAt: number;
   auth: string;
   control?: boolean;
+  presence?: boolean;
 };
 
 type CreateShareRequest = {
@@ -48,6 +49,7 @@ type CreateShareRequest = {
   auth?: unknown;
   encrypted?: unknown;
   control?: unknown;
+  presence?: unknown;
 };
 
 const viewerHtml = (() => {
@@ -157,6 +159,7 @@ async function routeCreateShare(req: Request): Promise<Response> {
       auth: resolveAuthFlag(body.auth),
       encrypted: body.encrypted === true || body.auth === "encrypted",
       control: body.control === true,
+      presence: body.presence === true,
     });
     const payload = {
       slug: created.slug,
@@ -219,6 +222,7 @@ async function routeShareMetadata(req: Request): Promise<Response> {
     expiresAt: share.expiresAt,
     auth: share.auth,
     ...(share.control ? { control: true } : {}),
+    ...(share.presence ? { presence: true } : {}),
   };
 
   return new Response(JSON.stringify(payload), {
@@ -371,6 +375,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--auth": String,
       "--encrypt": Boolean,
       "--control": Boolean,
+      "--presence": Boolean,
     }, 0);
 
     const targets = flags._;
@@ -391,6 +396,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const hit = hits[0]!.hit!;
 
     const control = flags["--control"] === true;
+    const presence = flags["--presence"] === true;
     const readOnly = control ? false : (flags["--read-only"] === undefined ? DEFAULT_READ_ONLY : Boolean(flags["--read-only"]));
     const ttl = typeof flags["--ttl"] === "number" && Number.isFinite(flags["--ttl"]) ? flags["--ttl"] : DEFAULT_TTL_SECONDS;
     const encrypted = flags["--encrypt"] === true || flags["--auth"] === "encrypted";
@@ -403,6 +409,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       ttl,
       auth,
       ...(control ? { control: true } : {}),
+      ...(presence ? { presence: true } : {}),
     };
     if (encrypted) request.encrypted = true;
 
