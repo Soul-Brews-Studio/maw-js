@@ -217,15 +217,28 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       cmdTeamTaskAssign(team, id, agent);
 
     } else if (sub === "wtf") {
-      const { cmdTeamWtf } = await import("./team-wtf");
       const flags = parseFlags(args, {
         "--json": Boolean,
         "--session": String,
+        "--fix": Boolean,
+        "--dry-run": Boolean,
+        "--confirm": String,
       }, 1);
-      await cmdTeamWtf(flags._[0] as string | undefined, {
-        json: Boolean(flags["--json"]),
-        session: flags["--session"] as string | undefined,
-      });
+      if (flags["--fix"]) {
+        const { cmdTeamWtfFix } = await import("./team-wtf-fix");
+        await cmdTeamWtfFix(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+          dryRun: Boolean(flags["--dry-run"]),
+          confirm: flags["--confirm"] as string | undefined,
+        });
+      } else {
+        const { cmdTeamWtf } = await import("./team-wtf");
+        await cmdTeamWtf(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+        });
+      }
 
     } else if (sub === "status") {
       // maw team status [team-name]

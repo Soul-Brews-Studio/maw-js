@@ -27,6 +27,7 @@ import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { cmdPromote } from "../commands/shared/promote-cmd";
 import { cmdTeamWtf } from "../commands/plugins/team/team-wtf";
+import { cmdTeamWtfFix } from "../commands/plugins/team/team-wtf-fix";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
@@ -322,6 +323,7 @@ export interface TopAliasHandlerDeps {
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
   cmdPromote?: (argv: string[]) => MaybePromise;
   cmdTeamWtf?: (teamArg?: string, opts?: { json?: boolean; session?: string }) => MaybePromise;
+  cmdTeamWtfFix?: (teamArg?: string, opts?: { json?: boolean; session?: string; dryRun?: boolean; confirm?: string }) => MaybePromise;
   loadConfig?: () => { commands?: Record<string, unknown> };
   log?: (line: string) => void;
   error?: (line: string) => void;
@@ -345,6 +347,7 @@ export async function invokeDirectHandler(
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
   const directCmdPromote = deps.cmdPromote ?? cmdPromote;
   const directCmdTeamWtf = deps.cmdTeamWtf ?? cmdTeamWtf;
+  const directCmdTeamWtfFix = deps.cmdTeamWtfFix ?? cmdTeamWtfFix;
   const log = deps.log ?? console.log;
   const error = deps.error ?? console.error;
 
@@ -581,11 +584,20 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdTeamWtf") {
-    const flags = parseFlags(argv, { "--json": Boolean, "--session": String }, 0);
-    await directCmdTeamWtf(flags._[0] as string | undefined, {
-      json: Boolean(flags["--json"]),
-      session: flags["--session"] as string | undefined,
-    });
+    const flags = parseFlags(argv, { "--json": Boolean, "--session": String, "--fix": Boolean, "--dry-run": Boolean, "--confirm": String }, 0);
+    if (flags["--fix"]) {
+      await directCmdTeamWtfFix(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+        dryRun: Boolean(flags["--dry-run"]),
+        confirm: flags["--confirm"] as string | undefined,
+      });
+    } else {
+      await directCmdTeamWtf(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+      });
+    }
     return;
   }
 

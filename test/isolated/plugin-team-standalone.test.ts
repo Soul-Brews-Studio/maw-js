@@ -96,6 +96,9 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-apply.ts
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-wtf.ts"), () => ({
   cmdTeamWtf: async (...args: unknown[]) => calls.push({ name: "wtf", args }),
 }));
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-wtf-fix.ts"), () => ({
+  cmdTeamWtfFix: async (...args: unknown[]) => calls.push({ name: "wtf-fix", args }),
+}));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/task-ops.ts"), () => ({
   cmdTeamTaskAdd: (...args: unknown[]) => calls.push({ name: "task-add", args }),
   cmdTeamTaskList: (...args: unknown[]) => calls.push({ name: "task-list", args }),
@@ -121,7 +124,7 @@ describe("team command plugin standalone boundary (#2336)", () => {
   test("entrypoint and touched team-up files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "team",
-      files: ["index.ts", "team-liveness.ts", "team-wtf.ts", "team-up.ts", "team-apply.ts"],
+      files: ["index.ts", "team-liveness.ts", "team-wtf.ts", "team-wtf-fix.ts", "team-up.ts", "team-apply.ts"],
       allowRelative: [
         "../../../core/transport/tmux",
         "../../../core/agent-detect",
@@ -138,7 +141,7 @@ describe("team command plugin standalone boundary (#2336)", () => {
 
     expect(command).toMatchObject({ name: "team" });
     expect(imports).toContain("maw-js/sdk");
-    expect(imports).toEqual(expect.arrayContaining(["./team-up", "./team-apply", "./team-wtf", "../../../commands/shared/wake-cmd"]));
+    expect(imports).toEqual(expect.arrayContaining(["./team-up", "./team-apply", "./team-wtf", "./team-wtf-fix", "../../../commands/shared/wake-cmd"]));
     const teamUp = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-up.ts"), "utf8");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => task.run()))");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
@@ -200,6 +203,12 @@ describe("team command plugin standalone boundary (#2336)", () => {
     expect(calls.pop()).toEqual({
       name: "wtf",
       args: ["avengers", { json: true, session: "alpha" }],
+    });
+
+    await teamHandler({ source: "cli", args: ["wtf", "avengers", "--fix", "--dry-run", "--confirm", "confirm", "--session", "alpha"] } as any);
+    expect(calls.pop()).toEqual({
+      name: "wtf-fix",
+      args: ["avengers", { json: false, session: "alpha", dryRun: true, confirm: "confirm" }],
     });
   });
 
