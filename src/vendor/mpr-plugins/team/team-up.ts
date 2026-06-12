@@ -25,6 +25,7 @@ import {
   memberWakeTarget,
   memberWindowIdentity,
   wakeMember,
+  isCodexLikeTeamEngine,
   type ClassifiedTeamMember,
 } from "./team-liveness";
 
@@ -163,6 +164,17 @@ function memberPrimingTarget(session: string, member: TeamCharter["members"][num
 }
 
 
+
+function validateRosterWorktreeIsolation(roster: ClassifiedTeamMember[], config: MawConfig, override?: string): void {
+  const bad = roster
+    .filter((item) => item.state !== "skipped" && item.member.worktree === false)
+    .map((item) => ({ item, engine: resolvedMemberEngine(item, override, config) }))
+    .filter(({ engine }) => isCodexLikeTeamEngine(engine, config))
+    .map(({ item, engine }) => `${item.role}: engine '${engine}' cannot use worktree:false`);
+  if (bad.length === 0) return;
+  throw new UserError(`team up preflight failed: codex-like members must run in isolated worktrees (#2764): ${bad.join("; ")} — remove worktree:false or set worktree:<name>`);
+}
+
 function validateRosterEngines(roster: ClassifiedTeamMember[], charter: TeamCharter, config: MawConfig, override?: string): void {
   const known = new Set(knownTeamEngineNames(config, charter.engines));
   const bad = roster
@@ -264,6 +276,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   }
 
   validateRosterEngines(roster, charter, config, opts.engine);
+  validateRosterWorktreeIsolation(roster, config, opts.engine);
 
   if (opts.dryRun) {
     for (const [index, item] of roster.entries()) {

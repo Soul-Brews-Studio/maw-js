@@ -124,14 +124,18 @@ describe("team command plugin standalone boundary (#2336)", () => {
   test("entrypoint and touched team-up files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "team",
-      files: ["index.ts", "team-liveness.ts", "team-wtf.ts", "team-wtf-fix.ts", "team-up.ts", "team-apply.ts"],
+      files: ["index.ts", "team-liveness.ts", "team-lifecycle.ts", "team-wtf.ts", "team-wtf-fix.ts", "team-up.ts", "team-apply.ts"],
+      allowMawJs: ["maw-js/core/fleet/validate"],
       allowRelative: [
         "../../../core/transport/tmux",
         "../../../core/agent-detect",
         "../../../config/load",
         "../../../config/types",
         "../../../config/engine-registry",
+        "../../../config/command",
         "../../../commands/shared/wake-cmd",
+        "../../../commands/shared/wake-session",
+        "../../../core/fleet/parent-session",
         "../../../commands/shared/comm-send",
         "../../../core/util/user-error",
         "../done/impl",
@@ -146,8 +150,13 @@ describe("team command plugin standalone boundary (#2336)", () => {
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => task.run()))");
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
     expect(teamUp).toContain("validateRosterEngines(roster, charter, config, opts.engine)");
+    expect(teamUp).toContain("validateRosterWorktreeIsolation(roster, config, opts.engine)");
+    const teamLifecycle = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-lifecycle.ts"), "utf8");
+    expect(teamLifecycle).toContain("assertTeamSpawnWorktreeIsolation");
+    expect(teamLifecycle).toContain("requires --worktree/--cwd");
     const teamLiveness = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-liveness.ts"), "utf8");
     expect(teamLiveness).toContain("#{pane_pid}");
+    expect(teamLiveness).toContain("isCodexLikeTeamEngine");
     const teamWtf = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-wtf.ts"), "utf8");
     expect(teamWtf).toContain("DoctorCheck[]");
     expect(teamWtf).toContain("processSampleCount");
@@ -296,7 +305,7 @@ describe("team command plugin standalone boundary (#2336)", () => {
     const previousCwd = process.cwd();
     try {
       process.chdir(cwd);
-      await lifecycle.cmdTeamSpawn("avengers", "builder");
+      await lifecycle.cmdTeamSpawn("avengers", "builder", { cwd: join(tmp, "builder-wt") });
 
       const toolConfig = JSON.parse(readFileSync(join(teamsDir, "avengers", "config.json"), "utf8"));
       expect(toolConfig.members).toEqual([{ name: "builder", engine: "codex", model: "gpt-5.5" }]);

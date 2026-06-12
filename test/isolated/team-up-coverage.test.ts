@@ -493,6 +493,27 @@ members:
   });
 
 
+
+  test("team up preflight rejects codex-like members pinned to shared checkout with worktree:false (#2764)", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "shared-codex.yaml"), `
+name: shared-codex
+session: charter-session
+members:
+  - role: codex-main
+    engine: codex
+    worktree: false
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+
+    await expect(cmdTeamUp("shared-codex", { dryRun: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      logger: () => {},
+    })).rejects.toThrow("codex-like members must run in isolated worktrees");
+  });
+
   test("classifyMember matches wake-produced dot worktree windows (#2802)", () => {
     const panes = [{ sessionName: "s", windowName: "web-v2-web-v2.wt-coder-2", command: "codex", path: "/wt/web-v2.wt-coder-2", paneId: "%2" }];
     expect(classifyMember({ role: "coder-2", worktree: "web-v2.wt-coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");

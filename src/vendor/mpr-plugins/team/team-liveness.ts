@@ -100,6 +100,18 @@ export function memberEngineForClassification(member: TeamCharterMember, overrid
   return override ?? member.engine ?? member.model;
 }
 
+export function isCodexLikeTeamEngine(engine: string, config: MawConfig = loadConfig()): boolean {
+  try {
+    const resolved = mawSdk.resolveEngine(engine, config) as { name?: string; cmd?: string; processNames?: string[] };
+    const haystack = [engine, resolved.name, resolved.cmd, ...(resolved.processNames ?? [])]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ");
+    return /(^|[\s/_-])(codex|omx)([\s/_-]|$)/i.test(haystack);
+  } catch {
+    return /^(codex|omx)$/i.test(engine);
+  }
+}
+
 export function memberMatchesSelector(member: TeamCharterMember, selector: string): boolean {
   const wanted = selector.trim();
   if (!wanted) return false;

@@ -220,11 +220,14 @@ describe("team-lifecycle coverage", () => {
   test("spawn can render a non-Claude engine through buildCommandFromConfig", async () => {
     lifecycle.cmdTeamCreate("qa-team");
 
-    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" });
+    await expect(lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" })).rejects.toThrow("requires --worktree/--cwd");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex", cwd: "/tmp/codexer-wt" });
 
     const output = logs.join("\n");
     expect(output).toContain("engine: codex");
     expect(output).toContain("Run:");
+    expect(output).toContain("cd '/tmp/codexer-wt' && ");
     expect(output).toContain("codex");
     expect(output).not.toContain("--model sonnet");
     expect(output).not.toContain("--system-prompt-file");
