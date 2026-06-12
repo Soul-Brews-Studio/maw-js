@@ -103,7 +103,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
     `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
   cfgTimeout: () => 0,
   cfgLimit: () => 0,
-  loadConfig: () => ({ node: "m5", agents: { neo: "m5" } }),
+  loadConfig: () => ({ node: "m5", agents: { neo: "m5" }, commands: { default: "claude" } }),
   saveConfig: () => {},
 }));
 

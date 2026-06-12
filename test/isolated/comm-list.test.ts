@@ -204,8 +204,13 @@ mock.module(
   join(import.meta.dir, "../../src/config"),
   () => ({
     ..._rConfig,
-    loadConfig: (...args: unknown[]) =>
-      mockActive ? configOverride : (realLoadConfig as (...a: unknown[]) => unknown)(...args),
+    loadConfig: (...args: unknown[]) => {
+      if (!mockActive) return (realLoadConfig as (...a: unknown[]) => unknown)(...args);
+      return {
+        ...configOverride,
+        commands: { default: "claude", ...((configOverride.commands as Record<string, string> | undefined) ?? {}) },
+      };
+    },
     cfgLimit: (...args: unknown[]) => {
       if (!mockActive) return (realCfgLimit as (...a: unknown[]) => number)(...args);
       const [key] = args as [string];
@@ -290,6 +295,9 @@ const origExit = process.exit;
 const origQuiet = process.env.MAW_QUIET;
 const origDebug = process.env.MAW_DEBUG;
 const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 let outs: string[] = [];
 let errs: string[] = [];
@@ -341,6 +349,9 @@ beforeEach(() => {
   delete process.env.MAW_QUIET;
   delete process.env.MAW_DEBUG;
   process.env.CLAUDE_AGENT_NAME = "test-oracle";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   childProcess.execSync = ((command: string, ...rest: unknown[]) => {
     if (!mockActive) return realExecSync(command, ...(rest as [unknown]));
     for (const response of execSyncResponses) {
@@ -358,6 +369,12 @@ afterEach(() => {
   if (origDebug === undefined) delete process.env.MAW_DEBUG; else process.env.MAW_DEBUG = origDebug;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
   childProcess.execSync = realExecSync;
 });
 

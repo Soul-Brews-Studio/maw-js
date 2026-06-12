@@ -17,7 +17,7 @@ type ResolvedTarget =
   | { type: "error"; detail: string; hint?: string }
   | null;
 
-let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [], commands: { default: "claude" } };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let captureResponses: string[];
@@ -103,6 +103,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
@@ -137,7 +140,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
   captureResponses = ["❯ "];
@@ -150,11 +153,20 @@ beforeEach(() => {
   ghqFindCalls = [];
   fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
 });
 
 afterEach(() => {
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 
 afterAll(() => {

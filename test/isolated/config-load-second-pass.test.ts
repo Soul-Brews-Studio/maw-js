@@ -232,8 +232,6 @@ describe("config load second pass coverage", () => {
       port: 3456,
       oracleUrl: "http://localhost:47779",
       env: {},
-      commands: { default: "claude" },
-      defaultEngine: "claude",
       sessions: {},
     });
     expect(validateCalls).toBe(0);

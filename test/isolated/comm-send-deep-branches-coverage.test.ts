@@ -22,7 +22,7 @@ type ReceiverInboxResult =
   | { ok: false; reason: string }
   | null;
 
-let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [] };
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [], commands: { default: "claude" } };
 let listSessionsReturn: any[];
 let listSessionsCalls: number;
 let resolveTargetReturn: ResolvedTarget;
@@ -166,6 +166,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 const origConsent = process.env.MAW_CONSENT;
 const origAclBypass = process.env.MAW_ACL_BYPASS;
 
@@ -202,7 +205,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   listSessionsCalls = 0;
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
@@ -235,6 +238,9 @@ beforeEach(() => {
   sleepCalls = [];
   tmuxPaneList = "0 claude\n";
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
 });
@@ -242,6 +248,12 @@ beforeEach(() => {
 afterEach(() => {
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
   if (origConsent === undefined) delete process.env.MAW_CONSENT;
   else process.env.MAW_CONSENT = origConsent;
   if (origAclBypass === undefined) delete process.env.MAW_ACL_BYPASS;

@@ -57,7 +57,7 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
 
 mock.module(join(srcRoot, "src/config"), () => ({
   ..._rConfig,
-  loadConfig: () => mockActive ? ({ node: "test-node", oracle: "sender", port: 3456, namedPeers: [] }) : realConfig.loadConfig(),
+  loadConfig: () => mockActive ? ({ node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } }) : realConfig.loadConfig(),
   cfgLimit: (...args: Parameters<typeof realConfig.cfgLimit>) => mockActive ? 120 : realConfig.cfgLimit(...args),
 }));
 
@@ -88,6 +88,9 @@ const origExit = process.exit;
 const origLog = console.log;
 const origErr = console.error;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 const { cmdSend } = await import("../src/commands/shared/comm-send");
 
@@ -119,6 +122,9 @@ async function runCmd() {
 beforeEach(() => {
   mockActive = true;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   sendKeysShouldThrow = false;
   order = [];
   logs = [];
@@ -133,6 +139,12 @@ afterEach(() => {
   mockActive = false;
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 
 afterAll(() => {

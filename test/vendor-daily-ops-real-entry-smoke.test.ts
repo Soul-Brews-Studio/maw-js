@@ -46,6 +46,9 @@ function smokeEnv(home: string): Record<string, string | undefined> {
     MAW_STATE_DIR: join(home, "state"),
     MAW_CONFIG_DIR: join(home, "config"),
     MAW_DISABLE_UPDATE_CHECK: "1",
+    SSH_CLIENT: undefined,
+    SSH_CONNECTION: undefined,
+    SSH_TTY: undefined,
   };
 }
 

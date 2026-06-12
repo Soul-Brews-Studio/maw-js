@@ -74,6 +74,9 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => (
 const origSleep = Bun.sleep.bind(Bun);
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async () => {};
 const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 const { cmdSend } = await import("../../src/commands/shared/comm-send");
 
@@ -108,6 +111,9 @@ beforeEach(() => {
   curlFetchHandler = () => ({ ok: false, status: 500, data: {} });
   resolveTargetReturn = { type: "peer", target: "hojo", node: "phaith", peerUrl: "http://phaith:3456" };
   process.env.CLAUDE_AGENT_NAME = "test-sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   process.env.MAW_QUIET = "1";
 });
 
@@ -116,6 +122,12 @@ afterEach(() => {
   delete process.env.MAW_QUIET;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 afterAll(() => {
   mockActive = false;

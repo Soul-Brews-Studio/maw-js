@@ -30,6 +30,9 @@ let cmdWakeCalls: Array<{ oracle: string; opts: unknown }> = [];
 let listSessionsCallCount = 0;
 let listSessionsAfterWake: Array<{ name: string; windows: { index: number; name: string; active: boolean }[] }> | null = null;
 let previousAgentName: string | undefined;
+let previousSshClient: string | undefined;
+let previousSshConnection: string | undefined;
+let previousSshTty: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -56,7 +59,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/config"), () => {
   const { mockConfigModule } = require("../helpers/mock-config");
-  return mockConfigModule(() => ({ node: "test-node", port: 3456 }));
+  return mockConfigModule(() => ({ node: "test-node", port: 3456, commands: { default: "claude" } }));
 });
 
 mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({
@@ -141,7 +144,13 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 
 beforeEach(() => {
   previousAgentName = process.env.CLAUDE_AGENT_NAME;
+  previousSshClient = process.env.SSH_CLIENT;
+  previousSshConnection = process.env.SSH_CONNECTION;
+  previousSshTty = process.env.SSH_TTY;
   process.env.CLAUDE_AGENT_NAME = "test-node";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   mockActive = true;
   sendKeysCalls = [];
   cmdWakeCalls = [];
@@ -158,6 +167,12 @@ afterEach(() => {
   delete process.env.MAW_QUIET;
   if (previousAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = previousAgentName;
+  if (previousSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = previousSshClient;
+  if (previousSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = previousSshConnection;
+  if (previousSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = previousSshTty;
 });
 afterAll(() => {
   mockActive = false;

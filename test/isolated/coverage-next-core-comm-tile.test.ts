@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mockConfigModule } from "../helpers/mock-config";
 
-let configValue: Record<string, any> = {};
+let configValue: Record<string, any> = { commands: { default: "claude" } };
 let sessionsReturn: any[] = [];
 let resolveTargetReturn: any = null;
 let paneCommand = "claude";
@@ -104,6 +104,9 @@ const tileImpl = await import("../../src/commands/plugins/tile/impl.ts?coverage-
 const original = {
   agentName: process.env.CLAUDE_AGENT_NAME,
   pane: process.env.TMUX_PANE,
+  sshClient: process.env.SSH_CLIENT,
+  sshConnection: process.env.SSH_CONNECTION,
+  sshTty: process.env.SSH_TTY,
   log: console.log,
   error: console.error,
   exit: process.exit,
@@ -137,6 +140,9 @@ beforeEach(() => {
   logs = [];
   errors = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   process.env.TMUX_PANE = "%lead";
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
   console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
@@ -146,6 +152,9 @@ beforeEach(() => {
 afterEach(() => {
   if (original.agentName === undefined) delete process.env.CLAUDE_AGENT_NAME; else process.env.CLAUDE_AGENT_NAME = original.agentName;
   if (original.pane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = original.pane;
+  if (original.sshClient === undefined) delete process.env.SSH_CLIENT; else process.env.SSH_CLIENT = original.sshClient;
+  if (original.sshConnection === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = original.sshConnection;
+  if (original.sshTty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = original.sshTty;
   console.log = original.log;
   console.error = original.error;
   process.exit = original.exit;

@@ -196,7 +196,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
   },
   cfgTimeout: () => 0,
   cfgLimit: () => 0,
-  loadConfig: () => ({ node: "m5", agents: configAgents }),
+  loadConfig: () => ({ node: "m5", agents: configAgents, commands: { default: "claude" } }),
   saveConfig: (patch: any) => {
     savedConfigs.push(patch);
   },

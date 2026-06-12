@@ -175,7 +175,7 @@ mock.module(join(import.meta.dir, "../../src/config"), () => ({
   ..._rConfig,
   buildCommandInDir: (windowName: string, cwd: string, engine?: string) => mockActive ? `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}` : realConfig.buildCommandInDir(windowName, cwd, engine),
   cfgTimeout: (key: any) => mockActive ? 0 : realConfig.cfgTimeout(key),
-  loadConfig: () => mockActive ? { node: "m5", agents: { mawjs: "m5" } } : realConfig.loadConfig(),
+  loadConfig: () => mockActive ? { node: "m5", agents: { mawjs: "m5" }, commands: { default: "claude" } } : realConfig.loadConfig(),
   saveConfig: (patch: any) => mockActive ? undefined : realConfig.saveConfig(patch),
 }));
 

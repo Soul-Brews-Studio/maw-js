@@ -24,6 +24,9 @@ let curlFetchUrl = "";
 const _rSdk = await import("../../src/sdk");
 const { resolveTarget } = await import("../../src/core/routing");
 const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 // ─── Module mocks (must be before any imports of the modules under test) ─────
 
@@ -33,6 +36,7 @@ import { mockSshModule } from "../helpers/mock-ssh";
 mock.module(join(import.meta.dir, "../../src/config"), () => mockConfigModule(() => ({
   node: "white",
   port: 3456,
+  commands: { default: "claude" },
   namedPeers: [{ name: "mba", url: "http://mba.wg:3457" }],
   agents: { homekeeper: "mba" },
   sessions: {},
@@ -147,6 +151,9 @@ describe("local-first routing (#411)", () => {
 
     process.env.MAW_QUIET = "1";
     process.env.CLAUDE_AGENT_NAME = "test-sender";
+    delete process.env.SSH_CLIENT;
+    delete process.env.SSH_CONNECTION;
+    delete process.env.SSH_TTY;
   });
 
   afterEach(() => {
@@ -156,6 +163,12 @@ describe("local-first routing (#411)", () => {
     delete process.env.MAW_QUIET;
     if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
     else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+    if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+    else process.env.SSH_CLIENT = origSshClient;
+    if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+    else process.env.SSH_CONNECTION = origSshConnection;
+    if (origSshTty === undefined) delete process.env.SSH_TTY;
+    else process.env.SSH_TTY = origSshTty;
   });
 
   // ── Case 1: local hit ──────────────────────────────────────────────────────
