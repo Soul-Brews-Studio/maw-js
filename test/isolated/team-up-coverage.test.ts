@@ -388,10 +388,12 @@ agents:
     ]);
   });
 
-  test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {
+  test("team up wakes charter.project worktrees from the project repo while priming charter-local prompts (#2798)", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-"));
-    dirs.push(root);
+    const projectRoot = mkdtempSync(join(tmpdir(), "maw-target-project-"));
+    dirs.push(root, projectRoot);
     mkdirSync(join(root, ".git"));
+    mkdirSync(join(projectRoot, ".git"));
     mkdirSync(join(root, ".maw"), { recursive: true });
     mkdirSync(join(root, "prompts"), { recursive: true });
     writeFileSync(join(root, "prompts", "claude48.md"), "file prompt\n", "utf-8");
@@ -418,18 +420,46 @@ agents:
       loadConfigFn: () => ({ ...config, node: "m5" }),
       cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
       cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      ghqFindFn: async (suffix: string) => suffix === "/soul-brews-studio/maw-js" ? projectRoot : null,
       sleep: async () => {},
       logger: () => {},
     });
 
     expect(wakes).toEqual([
-      ["soul-brews-studio/maw-js", { wt: "codex", engine: "omx", session: "charter-session", repoPath: root, channels: true }],
-      ["soul-brews-studio/maw-js", { wt: "claude48", engine: "claude48", session: "charter-session", repoPath: root, channels: true }],
+      ["soul-brews-studio/maw-js", { wt: "codex", engine: "omx", session: "charter-session", repoPath: projectRoot, channels: true }],
+      ["soul-brews-studio/maw-js", { wt: "claude48", engine: "claude48", session: "charter-session", repoPath: projectRoot, channels: true }],
     ]);
     expect(sends).toEqual([
       ["charter-session:codex", "inline prompt", false, { currentSession: "charter-session" }],
       ["charter-session:claude48", "file prompt", false, { currentSession: "charter-session" }],
     ]);
+  });
+
+  test("team up errors loudly when charter.project is not cloned for worktree creation (#2798)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-missing-project-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+project: soul-brews-studio/missing-project
+agents:
+  codex:
+    engine: omx
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+    const wakes: any[] = [];
+
+    await expect(cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      ghqFindFn: async () => null,
+      sleep: async () => {},
+      logger: () => {},
+    })).rejects.toThrow("charter.project 'soul-brews-studio/missing-project' is not cloned under ghq");
+    expect(wakes).toEqual([]);
   });
 
   test("semantic role adopts live window by charter member name", async () => {

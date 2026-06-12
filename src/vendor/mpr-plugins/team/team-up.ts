@@ -3,9 +3,10 @@
 // Paths differ from the core copy: charter is a sibling here, and commands/shared
 // is three levels up (vendored dir is src/vendor/mpr-plugins/team).
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { basename, resolve } from "path";
 import { readTeamCharter, type TeamCharter } from "./team-charter";
 import { loadConfig } from "../../../config/load";
+import { ghqFind } from "maw-js/sdk";
 import type { MawConfig } from "../../../config/types";
 import { Tmux } from "../../../core/transport/tmux";
 import type { WakeOptions } from "../../../commands/shared/wake-cmd";
@@ -81,6 +82,8 @@ export interface TeamUpDeps {
   sleep?: (ms: number) => Promise<void>;
   repoRoot?: string;
   repoSlug?: string;
+  projectRepoRoot?: string;
+  ghqFindFn?: typeof ghqFind;
   logger?: (line: string) => void;
 }
 
@@ -146,6 +149,30 @@ function freshWakePlan(item: ClassifiedTeamMember, repoSlug: string, session: st
     return `${prefix} ${memberWakeTarget(repoSlug, item.member)} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
   }
   return `${prefix} --wt ${item.worktree} -e ${displayEngine(item)} --session ${session}${channelFlag(channels)}`;
+}
+
+
+function normalizeProjectSlug(project: string): string {
+  return project
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+async function resolveProjectRepoRoot(project: string, deps: Pick<TeamUpDeps, "projectRepoRoot" | "ghqFindFn"> = {}): Promise<string> {
+  if (deps.projectRepoRoot) return deps.projectRepoRoot;
+  const slug = normalizeProjectSlug(project);
+  if (!slug) throw new UserError(`charter.project is empty; cannot resolve team worktree base`);
+  const find = deps.ghqFindFn ?? ghqFind;
+  const candidates = [`/${slug}`];
+  for (const candidate of candidates) {
+    const hit = await find(candidate);
+    if (hit) return hit;
+  }
+  const repoName = basename(slug);
+  throw new UserError(`charter.project '${project}' is not cloned under ghq; cannot create team worktrees. Run: ghq get github.com/${slug.includes("/") ? slug : repoName}`);
 }
 
 function resolvePrimingPrompt(member: TeamCharter["members"][number], repoRoot: string): string | undefined {
@@ -234,9 +261,14 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   const read = deps.readTeamCharterFn ?? ((path: string) => quickCount !== undefined ? quickCharter(quickCount, { name: team, engine: opts.engine, session: opts.session }) : readTeamCharter(path));
   const charter: TeamCharter = read(charterPath as string);
   const tmux = deps.tmux ?? new Tmux();
-  const repoRoot = deps.repoRoot ?? findRepoRoot(cwd);
-  const repoSlug = deps.repoSlug ?? repoSlugFromRoot(repoRoot);
-  const targetRepoSlug = charter.project ?? repoSlug;
+  const callerRepoRoot = deps.repoRoot ?? findRepoRoot(cwd);
+  const repoSlug = deps.repoSlug ?? repoSlugFromRoot(callerRepoRoot);
+  const targetRepoSlug = charter.project ? normalizeProjectSlug(charter.project) : repoSlug;
+  let worktreeRepoRootPromise: Promise<string> | undefined;
+  const getWorktreeRepoRoot = () => {
+    worktreeRepoRootPromise ??= charter.project ? resolveProjectRepoRoot(charter.project, deps) : Promise.resolve(callerRepoRoot);
+    return worktreeRepoRootPromise;
+  };
   const currentSession = await currentTmuxSession(tmux).catch(() => "");
   const session = opts.session?.trim() || charter.session || currentSession;
   if (!session) throw new Error(`session required: pass --session <name> when running team up outside tmux and charter.session is omitted`);
@@ -319,7 +351,8 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         item,
         run: async () => {
           if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
-          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          const repoPath = await getWorktreeRepoRoot();
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     } else if (item.state === "live") {
@@ -342,7 +375,8 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
       launchTasks.push({
         item,
         run: async () => {
-          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          const repoPath = await getWorktreeRepoRoot();
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     }
@@ -351,7 +385,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   if (launchTasks.length > 0) {
     await Promise.all(launchTasks.map((task) => waitForNonShell(task.item.member, session, tmux, sleep, targetRepoSlug)));
     await sleep(promptDelayMs(charter));
-    await Promise.all(launchTasks.map((task) => primeMember(task.item.member, session, repoRoot, deps, warnings)));
+    await Promise.all(launchTasks.map((task) => primeMember(task.item.member, session, callerRepoRoot, deps, warnings)));
   }
 
   const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);

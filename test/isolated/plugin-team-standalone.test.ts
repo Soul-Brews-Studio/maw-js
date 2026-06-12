@@ -151,6 +151,10 @@ describe("team command plugin standalone boundary (#2336)", () => {
     expect(teamUp).toContain("Promise.all(launchTasks.map((task) => waitForNonShell");
     expect(teamUp).toContain("validateRosterEngines(roster, charter, config, opts.engine)");
     expect(teamUp).toContain("validateRosterWorktreeIsolation(roster, config, opts.engine)");
+    expect(teamUp).toContain("resolveProjectRepoRoot");
+    expect(teamUp).toContain("ghqFind");
+    expect(teamUp).toContain("repoPath = await getWorktreeRepoRoot()");
+    expect(teamUp).toContain("primeMember(task.item.member, session, callerRepoRoot");
     const teamLifecycle = readFileSync(join(root, "src/vendor/mpr-plugins/team/team-lifecycle.ts"), "utf8");
     expect(teamLifecycle).toContain("assertTeamSpawnWorktreeIsolation");
     expect(teamLifecycle).toContain("requires --worktree/--cwd");
