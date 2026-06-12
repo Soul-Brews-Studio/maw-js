@@ -96,7 +96,15 @@ describe("/api/send queued inbox live notification (#2057)", () => {
     ));
 
     expect(await json(res)).toMatchObject({ ok: true, source: "inbox", state: "queued" });
-    expect(h.calls).toEqual([[
+    expect(h.calls).toContainEqual([
+      "tmux.run",
+      "set-option",
+      "-t",
+      "50-atlas",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:1#[default]",
+    ]);
+    expect(h.calls.at(-1)).toEqual([
       "tmux.run",
       "display-message",
       "-d",
@@ -104,7 +112,7 @@ describe("/api/send queued inbox live notification (#2057)", () => {
       "-t",
       "50-atlas:atlas-oracle",
       "📬 inbox +1 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
-    ]]);
+    ]);
   });
 
   test("uses actual unread total in the gentle tmux status ping (#2792)", async () => {
@@ -116,6 +124,14 @@ describe("/api/send queued inbox live notification (#2057)", () => {
     ));
 
     expect(await json(res)).toMatchObject({ ok: true, source: "inbox", state: "queued" });
+    expect(h.calls).toContainEqual([
+      "tmux.run",
+      "set-option",
+      "-t",
+      "50-atlas",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:24#[default]",
+    ]);
     expect(h.calls.at(-1)).toEqual([
       "tmux.run",
       "display-message",

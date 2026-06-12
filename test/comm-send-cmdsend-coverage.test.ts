@@ -144,6 +144,8 @@ mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
       tmuxRunCalls.push(args);
       if (args.join(" ") === "display-message -p #S") return "mock-session\n";
       if (args[0] === "list-panes") return "0 claude\n";
+      if (args[0] === "show-option") return "";
+      if (args[0] === "set-option") return "";
       if (args[0] === "display-message" && args.includes("-t")) return "";
       throw new Error(`unexpected test tmux run: ${args.join(" ")}`);
     }
@@ -552,6 +554,13 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
     expect(sendKeysCalls).toEqual([]);
     expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "session",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:1#[default]",
+    ]);
+    expect(tmuxRunCalls).toContainEqual([
       "display-message",
       "-d",
       "5000",
@@ -581,6 +590,13 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "m5:noah", message: "[test-node:sender] queued for later", route: "inbox" }]);
+    expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "157-noah",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:24#[default]",
+    ]);
     expect(tmuxRunCalls).toContainEqual([
       "display-message",
       "-d",
@@ -652,6 +668,13 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "--inbox requested; pane injection skipped" });
     expect(logs.join("\n")).toContain("busy.md");
+    expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "session",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:2#[default]",
+    ]);
     expect(tmuxRunCalls).toContainEqual([
       "display-message",
       "-d",

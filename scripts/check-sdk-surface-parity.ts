@@ -39,6 +39,10 @@ const REVIEWED_PUBLIC_EXPORTS = new Set([
   "FleetWindow",
   "HandlersFor",
   "Identity",
+  // Public return shape for the persistent inbox status-line badge helper;
+  // external plugins can branch on set/cleared/unchanged/failed without
+  // importing repo-internal tmux decoration code.
+  "InboxStatusBadgeResult",
   "LifecycleRunSummary",
   "LoadConfigOptions",
   "LoadedConfigWithProvenance",

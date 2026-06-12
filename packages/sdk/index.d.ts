@@ -378,6 +378,16 @@ export declare function cmdPeek(query?: string): Promise<void>;
 /** Resolve a local target using the same session/window resolver as maw peek. */
 export declare function resolvePeekTarget(query: string): Promise<string | null>;
 
+export interface InboxStatusBadgeResult {
+  status: "set" | "cleared" | "unchanged" | "failed";
+  session: string;
+  unread: number;
+  reason?: string;
+}
+
+/** Set or clear the persistent tmux status-line unread inbox badge. */
+export declare function updateInboxStatusBadge(target: string, unread: number): Promise<InboxStatusBadgeResult>;
+
 /** Send a message to an oracle/window target. */
 export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;
 export declare function resolveOraclePane(target: string): Promise<string>;

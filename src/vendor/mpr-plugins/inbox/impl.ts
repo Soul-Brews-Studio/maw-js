@@ -8,7 +8,10 @@ import {
   loadFleetEntries,
   loadPending,
   loadPendingById,
+  updateInboxStatusBadge,
   updatePending,
+  hostExec,
+  tmuxCmd,
   type PendingMessage,
 } from "maw-js/sdk";
 
@@ -628,8 +631,25 @@ export function loadInboxMessages(inboxDir: string): InboxMessage[] {
   return messages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 }
 
+
+function countUnreadMessages(messages: InboxMessage[]): number {
+  return messages.filter((msg) => !msg.frontmatter.read).length;
+}
+
+async function refreshCurrentInboxStatusBadge(messages: InboxMessage[]): Promise<void> {
+  if (!process.env.TMUX) return;
+  try {
+    const session = (await hostExec(`${tmuxCmd()} display-message -p '#S'`)).trim();
+    if (!session) return;
+    await updateInboxStatusBadge(session, countUnreadMessages(messages));
+  } catch {
+    // Badge refresh is advisory UI; inbox reads/listing must stay reliable.
+  }
+}
 export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?: number } = {}) {
-  let msgs = loadInboxMessages(resolveInboxDir());
+  const inboxDir = resolveInboxDir();
+  let msgs = loadInboxMessages(inboxDir);
+  await refreshCurrentInboxStatusBadge(msgs);
   if (opts.unread) msgs = msgs.filter(m => !m.frontmatter.read);
   if (opts.from) msgs = msgs.filter(m => m.frontmatter.from === opts.from);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
@@ -679,12 +699,14 @@ export async function cmdInboxMarkRead(id: string) {
     return;
   }
   writeFileSync(msg.path, updated);
+  await refreshCurrentInboxStatusBadge(loadInboxMessages(resolveInboxDir()));
   console.log(`\x1b[32m✓\x1b[0m marked read: ${msg.filename}`);
 }
 
 // Legacy write shim — used by the oracle inbox skill
 export async function cmdInboxRead(target?: string) {
   const msgs = loadInboxMessages(resolveInboxDir());
+  await refreshCurrentInboxStatusBadge(msgs);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
   const n = target ? parseInt(target) : NaN;
   const msg = !target ? msgs[0]

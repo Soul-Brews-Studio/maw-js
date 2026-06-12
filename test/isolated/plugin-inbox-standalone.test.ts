@@ -15,6 +15,8 @@ let deleted: string[] = [];
 let updated: Array<{ id: string; patch: any }> = [];
 let sent: Array<{ target: string; message: string; force?: boolean }> = [];
 let ghqCalls: string[] = [];
+let statusBadgeCalls: Array<{ target: string; unread: number }> = [];
+let hostExecCalls: string[] = [];
 
 const sdkMock = {
   loadConfig: () => ({ psiPath, node: "codex-5", oracle: "codex-5" }),
@@ -48,6 +50,15 @@ const sdkMock = {
   TTL_MS: 30 * 24 * 60 * 60 * 1000,
   cmdSend: async (target: string, message: string, force?: boolean) => {
     sent.push({ target, message, force });
+  },
+  tmuxCmd: () => "tmux",
+  hostExec: async (cmd: string) => {
+    hostExecCalls.push(cmd);
+    return "mock-session\n";
+  },
+  updateInboxStatusBadge: async (target: string, unread: number) => {
+    statusBadgeCalls.push({ target, unread });
+    return { status: unread > 0 ? "set" : "cleared", session: target, unread };
   },
 };
 
@@ -90,6 +101,8 @@ beforeEach(() => {
   updated = [];
   sent = [];
   ghqCalls = [];
+  statusBadgeCalls = [];
+  hostExecCalls = [];
 });
 
 describe("inbox plugin standalone boundary (#2329)", () => {
@@ -162,13 +175,28 @@ describe("inbox plugin standalone boundary (#2329)", () => {
       "missing read flag",
     ].join("\n"));
 
-    await cmdInboxMarkRead("compact");
-    await cmdInboxMarkRead("missing");
+    const prevTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-test/default,123,0";
+    try {
+      await cmdInboxMarkRead("compact");
+      await cmdInboxMarkRead("missing");
+    } finally {
+      if (prevTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = prevTmux;
+    }
 
     expect(readFileSync(compact, "utf8")).toContain("read: true");
     expect(readFileSync(compact, "utf8")).toContain("readAt:");
     expect(readFileSync(missing, "utf8")).toContain("read: true");
     expect(readFileSync(missing, "utf8")).toContain("readAt:");
+    expect(hostExecCalls).toEqual([
+      "tmux display-message -p '#S'",
+      "tmux display-message -p '#S'",
+    ]);
+    expect(statusBadgeCalls).toEqual([
+      { target: "mock-session", unread: 1 },
+      { target: "mock-session", unread: 0 },
+    ]);
   });
 
   test("local inbox write and relative time are non-destructive and deterministic", async () => {

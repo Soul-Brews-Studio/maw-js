@@ -68,6 +68,7 @@ export { sparkline } from "../../src/lib/sparkline";
 // ─── src/commands/shared/comm ────────────────────────────────────────────────
 // Federation-aware communication helpers used by small command plugins.
 export { cmdPeek, cmdSend, resolvePeekTarget } from "../../src/commands/shared/comm";
+export { updateInboxStatusBadge } from "../../src/commands/shared/inbox-status-badge";
 export { resolveOraclePane } from "../../src/commands/shared/comm-send";
 export {
   deletePending,

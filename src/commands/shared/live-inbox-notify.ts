@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Session } from "../../core/transport/ssh";
 import type { ReceiverInboxResult } from "./receiver-inbox";
+import { updateInboxStatusBadge } from "./inbox-status-badge";
 
 export type LiveInboxNotifyStatus = "sent" | "not-live" | "failed";
 
@@ -107,6 +108,11 @@ export async function notifyLiveInboxReceiver(
     const reason = error instanceof Error ? error.message : String(error);
     return { status: "failed", target, reason: `count unread inbox failed for ${inbox.inboxDir}: ${reason}` };
   }
+
+  // Badge is stronger Layer-2 awareness, but advisory: do not drop the
+  // durable inbox write or transient status ping if tmux status-right cannot
+  // be decorated in this environment.
+  await updateInboxStatusBadge(target, unreadCount, { tmux: deps.tmux });
 
   const message = formatInboxNotification(inbox, from, unreadCount);
   try {
