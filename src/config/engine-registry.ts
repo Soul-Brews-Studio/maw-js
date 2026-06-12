@@ -92,9 +92,9 @@ export function enginePatternKeysForConfig(config: Partial<MawConfig> = {}): str
 }
 
 export function defaultEngineNameForConfig(config: Partial<MawConfig> = {}): string {
-  return (config.engines?.default || config.commands?.default)
-    ? "default"
-    : (config.defaultEngine ?? "claude");
+  if (config.engines?.default || config.commands?.default) return "default";
+  if (config.defaultEngine) return config.defaultEngine;
+  throw new UserError("no default engine configured");
 }
 
 export function isClaudeLikeEngine(name: string | undefined, config: Partial<MawConfig> = {}): boolean {

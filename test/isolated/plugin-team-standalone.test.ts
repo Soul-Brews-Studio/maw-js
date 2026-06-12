@@ -327,7 +327,7 @@ agents:
     expect(memberEngine({ role: "builder", engine: "aider" } as any, undefined, { defaultEngine: "codex" } as any)).toBe("aider");
     expect(memberEngine({ role: "builder", engine: "aider" } as any, "thclaws", { defaultEngine: "codex" } as any)).toBe("thclaws");
     expect(memberEngine({ role: "builder" } as any, undefined, { commands: { default: "codex --legacy" } } as any)).toBe("default");
-    expect(memberEngine({ role: "builder" } as any, undefined, {} as any)).toBe("claude");
+    expect(() => memberEngine({ role: "builder" } as any, undefined, {} as any)).toThrow(/no default engine configured/);
     expect(resolveCharterEngineCommand("opus48", { opus48: ["claude --model opus", ["--dangerously-skip-permissions"]] })).toBe("claude --model opus --dangerously-skip-permissions");
   });
 

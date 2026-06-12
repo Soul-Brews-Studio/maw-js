@@ -36,6 +36,7 @@ describe("init plugin standalone boundary (#2316/#2708)", () => {
       codex: { name: "codex", cmd: "codex" },
       omx: { name: "omx", cmd: "omx" },
     });
+    expect(config.defaultEngine).toBe("claude");
     expect(config.commands).toEqual({});
   });
 

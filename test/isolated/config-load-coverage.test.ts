@@ -170,8 +170,8 @@ describe("config load coverage", () => {
   });
 
 
-  test("loadConfig backfills ENGINE_SEED into existing configs without config.engines", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "maw-config-engine-seed-"));
+  test("loadConfig preserves legacy commands without backfilling ENGINE_SEED", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "maw-config-no-engine-seed-"));
     try {
       const configDir = join(sandbox, "config");
       const configFile = join(configDir, "maw.config.json");
@@ -179,31 +179,34 @@ describe("config load coverage", () => {
       writeFileSync(configFile, JSON.stringify({
         host: "local",
         node: "local",
-        commands: { default: "claude --legacy" },
+        commands: { default: "claude --legacy", omx: "OMX_AUTO_UPDATE=0 omx --yolo --direct" },
       }));
 
       const script = `
         const { readFileSync } = await import("fs");
         const { CONFIG_FILE } = await import("${process.cwd()}/src/core/paths.ts");
         const { loadConfig } = await import("${process.cwd()}/src/config/load.ts");
+        const { buildCommandInDir } = await import("${process.cwd()}/src/config/command.ts");
         const config = loadConfig();
         const persisted = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
         console.log("RESULT:" + JSON.stringify({
-          commandDefault: config.commands.default,
+          commandDefault: config.commands?.default,
+          explicitOmxCommand: buildCommandInDir("x", process.cwd(), { engine: "omx" }),
           engineKeys: Object.keys(config.engines ?? {}).sort(),
-          persistedEngineKeys: Object.keys(persisted.engines ?? {}).sort(),
-          persistedOmx: persisted.engines?.omx?.cmd,
+          hasPersistedEngines: Object.prototype.hasOwnProperty.call(persisted, "engines"),
+          persistedOmx: persisted.engines?.omx?.cmd ?? null,
         }));
       `;
 
       const result = runConfigChild(script, { MAW_HOME: sandbox });
       expect(result.code).toBe(0);
-      expect(result.stderr).toContain("config.engines missing — seeded built-in engine definitions into config.engines (#2708)");
+      expect(result.stderr).not.toContain("config.engines missing — seeded built-in engine definitions into config.engines (#2708)");
       const payload = parseJsonLine(result.stdout, "RESULT:") as Record<string, any>;
       expect(payload.commandDefault).toBe("claude --legacy");
-      expect(payload.engineKeys).toEqual(expect.arrayContaining(["claude", "codex", "omx"]));
-      expect(payload.persistedEngineKeys).toEqual(expect.arrayContaining(["claude", "codex", "omx"]));
-      expect(payload.persistedOmx).toBe("omx");
+      expect(payload.explicitOmxCommand).toBe("OMX_AUTO_UPDATE=0 omx --yolo --direct");
+      expect(payload.engineKeys).toEqual([]);
+      expect(payload.hasPersistedEngines).toBe(false);
+      expect(payload.persistedOmx).toBeNull();
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
     }

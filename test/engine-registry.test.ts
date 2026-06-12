@@ -78,6 +78,7 @@ describe("generic engine registry (#1960 P1)", () => {
     expect(defaultEngineNameForConfig({ engines: { default: { name: "default", cmd: "codex --typed" } } } as any)).toBe("default");
     expect(defaultEngineNameForConfig({ commands: { default: "claude --legacy" } } as any)).toBe("default");
     expect(defaultEngineNameForConfig({ defaultEngine: "codex" } as any)).toBe("codex");
+    expect(() => defaultEngineNameForConfig({} as any)).toThrow(/no default engine configured/);
 
     expect(() => isClaudeLikeEngine("claude", {} as any)).toThrow(/engine 'claude' not resolvable/);
     expect(isClaudeLikeEngine("claude", { engines: { claude: ENGINE_SEED.claude } } as any)).toBe(true);

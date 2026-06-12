@@ -362,6 +362,7 @@ describe("init write-config extra isolated coverage", () => {
         codex: expect.objectContaining({ name: "codex", cmd: "codex" }),
         omx: expect.objectContaining({ name: "omx", cmd: "omx" }),
       },
+      defaultEngine: "claude",
       commands: {},
       sessions: {},
     });

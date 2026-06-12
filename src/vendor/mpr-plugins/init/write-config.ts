@@ -100,6 +100,7 @@ export function buildConfig(input: BuildConfigInput): Partial<MawConfig> {
     oracleUrl: DEFAULT_ORACLE_URL,
     env,
     engines: { ...ENGINE_SEED },
+    defaultEngine: "claude",
     commands: {},
     sessions: {},
   };
