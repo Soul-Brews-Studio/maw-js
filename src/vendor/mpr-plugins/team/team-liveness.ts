@@ -18,6 +18,9 @@ export interface TeamPaneSnapshot {
   command: string;
   path: string;
   paneId: string;
+  panePid?: string;
+  sessionId?: string;
+  windowId?: string;
 }
 
 export interface TeamSessionSnapshot {
@@ -133,10 +136,10 @@ export function resolveCharterPath(team: string, cwd = process.cwd(), configNode
 }
 
 export async function listPaneSnapshots(tmux: Pick<Tmux, "run"> = new Tmux()): Promise<TeamPaneSnapshot[]> {
-  const raw = await tmux.run("list-panes", "-a", "-F", "#{session_name}|#{window_name}|#{pane_current_command}|#{pane_current_path}|#{pane_id}");
+  const raw = await tmux.run("list-panes", "-a", "-F", "#{session_name}|#{window_name}|#{pane_current_command}|#{pane_current_path}|#{pane_id}|#{pane_pid}|#{session_id}|#{window_id}");
   return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [sessionName = "", windowName = "", command = "", path = "", paneId = ""] = line.split("|");
-    return { sessionName, windowName, command, path, paneId };
+    const [sessionName = "", windowName = "", command = "", path = "", paneId = "", panePid = "", sessionId = "", windowId = ""] = line.split("|");
+    return { sessionName, windowName, command, path, paneId, panePid, sessionId, windowId };
   });
 }
 

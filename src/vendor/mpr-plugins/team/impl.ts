@@ -115,3 +115,5 @@ export async function cmdTeamList(opts: { all?: boolean } = {}) {
 
   console.log();
 }
+
+export { cmdTeamWtf, inspectTeamWtf, sampleProcessMap, parsePs } from "./team-wtf";

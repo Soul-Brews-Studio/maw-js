@@ -216,6 +216,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
 
+    } else if (sub === "wtf") {
+      const { cmdTeamWtf } = await import("./team-wtf");
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--session": String,
+      }, 1);
+      await cmdTeamWtf(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+      });
+
     } else if (sub === "status") {
       // maw team status [team-name]
       const { cmdTeamStatus } = await import("./team-status");

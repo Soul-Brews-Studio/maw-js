@@ -26,6 +26,7 @@ import { activeDurationArg, cmdTmuxLayout, cmdTmuxLs, parseActiveDurationSeconds
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { cmdPromote } from "../commands/shared/promote-cmd";
+import { cmdTeamWtf } from "../commands/plugins/team/team-wtf";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
@@ -58,6 +59,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   new: "Create a plain tmux workspace session",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   snapshots: "List and inspect fleet recovery snapshots",
+  wtf: "Read-only team drift doctor for the current tmux team",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -94,6 +96,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
   snapshots: ["fleet", "snapshots"],
+  wtf: { kind: "direct", handler: "../commands/plugins/team/team-wtf:cmdTeamWtf" },
 };
 
 /**
@@ -318,6 +321,7 @@ export interface TopAliasHandlerDeps {
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
   cmdPromote?: (argv: string[]) => MaybePromise;
+  cmdTeamWtf?: (teamArg?: string, opts?: { json?: boolean; session?: string }) => MaybePromise;
   loadConfig?: () => { commands?: Record<string, unknown> };
   log?: (line: string) => void;
   error?: (line: string) => void;
@@ -340,6 +344,7 @@ export async function invokeDirectHandler(
   const directCmdNew = deps.cmdNew ?? cmdNew;
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
   const directCmdPromote = deps.cmdPromote ?? cmdPromote;
+  const directCmdTeamWtf = deps.cmdTeamWtf ?? cmdTeamWtf;
   const log = deps.log ?? console.log;
   const error = deps.error ?? console.error;
 
@@ -572,6 +577,15 @@ export async function invokeDirectHandler(
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     await directCmdPreflight({ fix: !!flags["--fix"] });
+    return;
+  }
+
+  if (exportName === "cmdTeamWtf") {
+    const flags = parseFlags(argv, { "--json": Boolean, "--session": String }, 0);
+    await directCmdTeamWtf(flags._[0] as string | undefined, {
+      json: Boolean(flags["--json"]),
+      session: flags["--session"] as string | undefined,
+    });
     return;
   }
 

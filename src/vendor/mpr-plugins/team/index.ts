@@ -257,6 +257,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
 
+    } else if (sub === "wtf") {
+      const { cmdTeamWtf } = await import("./team-wtf");
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--session": String,
+      }, 1);
+      await cmdTeamWtf(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+      });
+
     } else if (sub === "status") {
       // maw team status [team-name]
       const { cmdTeamStatus } = await import("./team-status");
@@ -470,7 +481,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|apply|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|apply|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|wtf|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
