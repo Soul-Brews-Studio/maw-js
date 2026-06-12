@@ -12,8 +12,9 @@
  * vendored copy is the canonical location for the helper logic; the plugin
  * (if it survives at all) becomes a thin CLI dispatcher.
  *
- * Forgiving load semantics — missing file, corrupt JSON, or wrong shape
- * all fall back to `[]` rather than throwing. Atomic writes via tmp +
+ * Fail-loud load semantics — missing file falls back to `[]`, but corrupt
+ * JSON or wrong shape is warned and moved aside before returning `[]`.
+ * Atomic writes via tmp +
  * rename(2). No file lock — Phase 1 / Phase 2 trust adds are operator-driven
  * and racing writers aren't a realistic workload.
  */
@@ -51,18 +52,40 @@ function readableTrustPath(): string | null {
   return null;
 }
 
+function corruptTrustPath(path: string, attempt = 0): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const candidate = `${path}.corrupt-${stamp}${attempt ? `-${attempt}` : ""}`;
+  return existsSync(candidate) ? corruptTrustPath(path, attempt + 1) : candidate;
+}
+
+function quarantineCorruptTrust(path: string, reason: string): void {
+  const dest = corruptTrustPath(path);
+  try {
+    renameSync(path, dest);
+    console.warn(`[trust-store] trust store at ${path} is corrupt/unreadable (${reason}); moved aside to ${dest}; starting with empty trust`);
+  } catch (error) {
+    const moveReason = error instanceof Error ? error.message : String(error);
+    console.warn(`[trust-store] trust store at ${path} is corrupt/unreadable (${reason}); failed to move aside (${moveReason}); starting with empty trust`);
+  }
+}
+
 export function loadTrust(): TrustListOnDisk {
   const path = readableTrustPath();
   if (!path) return [];
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    quarantineCorruptTrust(path, reason);
     return [];
   }
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      quarantineCorruptTrust(path, "invalid shape: expected array");
+      return [];
+    }
     return parsed.filter(
       (e: any): e is TrustEntryOnDisk =>
         e &&
@@ -70,7 +93,9 @@ export function loadTrust(): TrustListOnDisk {
         typeof e.target === "string" &&
         typeof e.addedAt === "string",
     );
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    quarantineCorruptTrust(path, reason);
     return [];
   }
 }

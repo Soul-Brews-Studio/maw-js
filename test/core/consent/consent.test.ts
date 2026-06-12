@@ -5,7 +5,7 @@
  * so the suite never touches the real ~/.maw/{trust,consent-pending}.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -113,21 +113,60 @@ describe("trust store", () => {
     expect(trustKey("a", "b", "hey")).toBe("a→b:hey");
   });
 
-  it("survives missing file (fresh install)", () => {
-    expect(listTrust()).toEqual([]);
+  it("survives missing file (fresh install) without warning", () => {
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      expect(listTrust()).toEqual([]);
+      expect(warnings).toEqual([]);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
-  it("survives corrupt file (bad JSON)", async () => {
-    writeFileSync(process.env.CONSENT_TRUST_FILE!, "{not json");
-    expect(listTrust()).toEqual([]);
-    // Should still accept new writes after a corrupt read
-    recordTrust({ from: "x", to: "y", action: "hey", approvedAt: "z", approvedBy: "human", requestId: null });
-    expect(isTrusted("x", "y", "hey")).toBe(true);
+  it("warns, preserves, and recovers from corrupt file (bad JSON)", async () => {
+    const path = process.env.CONSENT_TRUST_FILE!;
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      writeFileSync(path, "{not json");
+      expect(listTrust()).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+      const corrupt = readdirSync(workdir).filter(f => f.startsWith("trust.json.corrupt-"));
+      expect(corrupt).toHaveLength(1);
+      expect(readFileSync(join(workdir, corrupt[0]!), "utf-8")).toBe("{not json");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("corrupt/unreadable");
+      expect(warnings[0]).toContain("moved aside");
+      // Should still accept new writes after a corrupt read, without overwriting the corrupt copy.
+      recordTrust({ from: "x", to: "y", action: "hey", approvedAt: "z", approvedBy: "human", requestId: null });
+      expect(isTrusted("x", "y", "hey")).toBe(true);
+      expect(readFileSync(join(workdir, corrupt[0]!), "utf-8")).toBe("{not json");
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
-  it("survives wrong-shape file (peers:[] instead of peers:{})", async () => {
-    writeFileSync(process.env.CONSENT_TRUST_FILE!, JSON.stringify({ version: 1, trust: [] }));
-    expect(listTrust()).toEqual([]);
+  it("warns and preserves wrong-shape file (peers:[] instead of peers:{})", async () => {
+    const path = process.env.CONSENT_TRUST_FILE!;
+    const body = JSON.stringify({ version: 1, trust: [] });
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      writeFileSync(path, body);
+      expect(listTrust()).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+      const corrupt = readdirSync(workdir).filter(f => f.startsWith("trust.json.corrupt-"));
+      expect(corrupt).toHaveLength(1);
+      expect(readFileSync(join(workdir, corrupt[0]!), "utf-8")).toBe(body);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("invalid shape");
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
   it("reads legacy config trust and migrates the next write to state", () => {
