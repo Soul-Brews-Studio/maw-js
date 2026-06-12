@@ -1,3 +1,5 @@
+import { existsSync, readdirSync, readFileSync } from "fs";
+import { join } from "path";
 import type { Session } from "../../core/transport/ssh";
 import type { ReceiverInboxResult } from "./receiver-inbox";
 
@@ -13,6 +15,7 @@ export interface LiveInboxNotifyResult {
 export interface LiveInboxNotifyDeps {
   listSessions: () => Promise<Session[]>;
   tmux: { run: (...args: string[]) => Promise<string> };
+  countUnread?: (inboxDir: string) => number | Promise<number>;
 }
 
 function normalizeInboxTargetName(value: string | undefined): string {
@@ -50,9 +53,33 @@ export function resolveLiveInboxNotificationTarget(oracle: string, sessions: Ses
   return null;
 }
 
+function isUnreadInboxFile(content: string): boolean {
+  return /^read:\s*false\s*$/im.test(content);
+}
+
 /** @internal exported for tests. */
-export function formatInboxNotification(inbox: Extract<ReceiverInboxResult, { ok: true }>, from: string): string {
-  return `📬 inbox +1 from ${from} — ว่างแล้วค่อย maw inbox (ψ/inbox/${inbox.filename})`;
+export function countUnreadInboxFiles(inboxDir: string): number {
+  if (!existsSync(inboxDir)) throw new Error(`inbox dir not found: ${inboxDir}`);
+  let count = 0;
+  for (const name of readdirSync(inboxDir)) {
+    if (!name.endsWith(".md")) continue;
+    try {
+      if (isUnreadInboxFile(readFileSync(join(inboxDir, name), "utf8"))) count += 1;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`read inbox file failed: ${name}: ${reason}`);
+    }
+  }
+  return count;
+}
+
+/** @internal exported for tests. */
+export function formatInboxNotification(
+  inbox: Extract<ReceiverInboxResult, { ok: true }>,
+  from: string,
+  unreadCount: number,
+): string {
+  return `📬 inbox +${unreadCount} from ${from} — ว่างแล้วค่อย maw inbox (ψ/inbox/${inbox.filename})`;
 }
 
 export async function notifyLiveInboxReceiver(
@@ -73,7 +100,15 @@ export async function notifyLiveInboxReceiver(
   const target = resolveLiveInboxNotificationTarget(inbox.oracle, sessions);
   if (!target) return { status: "not-live", reason: `no live tmux pane resolved for inbox receiver '${inbox.oracle}'` };
 
-  const message = formatInboxNotification(inbox, from);
+  let unreadCount: number;
+  try {
+    unreadCount = await (deps.countUnread ?? countUnreadInboxFiles)(inbox.inboxDir);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { status: "failed", target, reason: `count unread inbox failed for ${inbox.inboxDir}: ${reason}` };
+  }
+
+  const message = formatInboxNotification(inbox, from, unreadCount);
   try {
     // Awareness only: tmux status message, not send-keys into the agent input.
     await deps.tmux.run("display-message", "-d", "5000", "-t", target, message);

@@ -15,7 +15,7 @@ import { Tmux } from "../core/transport/tmux";
 import { pushFeedEvent } from "./feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../lib/message-events";
 import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInboxWriter } from "../commands/shared/receiver-inbox";
-import { notifyLiveInboxReceiver } from "../commands/shared/live-inbox-notify";
+import { notifyLiveInboxReceiver, type LiveInboxNotifyDeps } from "../commands/shared/live-inbox-notify";
 export { formatInboxNotification, resolveLiveInboxNotificationTarget } from "../commands/shared/live-inbox-notify";
 import { checkBusyGuard, queueForDispatch } from "../core/agent-status-guard";
 import type { Session } from "../core/transport/ssh";
@@ -52,6 +52,7 @@ export interface SessionsApiDeps {
   shouldAutoWake?: (target: string, opts: AutoWakeOpts) => AutoWakeDecision | Promise<AutoWakeDecision>;
   cmdWake?: (target: string, opts: { noAttach: boolean; task?: string }) => Promise<unknown>;
   cmdSleepOne?: (target: string) => Promise<unknown>;
+  countUnreadInbox?: LiveInboxNotifyDeps["countUnread"];
 }
 
 function defaults(deps: SessionsApiDeps) {
@@ -378,6 +379,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
         const notify = await notifyLiveInboxReceiver(inbox, messageFrom, {
           listSessions: d.listSessions,
           tmux: d.createTmux(),
+          countUnread: deps.countUnreadInbox,
         });
         if (notify.status !== "sent") {
           const detail = notify.reason || "unknown notify failure";

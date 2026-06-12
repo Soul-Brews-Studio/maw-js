@@ -6,6 +6,8 @@
  * the real modules so later tests do not inherit fake behavior.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 let mockActive = false;
@@ -99,6 +101,18 @@ let ghqFindCalls: string[];
 let ghqListCalls: number;
 let fleetLoadCalls: number;
 let tmuxRunCalls: string[][];
+let tempDirs: string[];
+
+function createUnreadInbox(unreadCount: number, filename: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "maw-inbox-count-"));
+  tempDirs.push(dir);
+  writeFileSync(join(dir, filename), `---\nread: false\n---\n\nlatest\n`);
+  for (let i = 1; i < unreadCount; i += 1) {
+    writeFileSync(join(dir, `older-${i}.md`), `---\nread: false\n---\n\nolder ${i}\n`);
+  }
+  writeFileSync(join(dir, "already-read.md"), `---\nread: true\n---\n\nread\n`);
+  return dir;
+}
 
 mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
   ..._rGhq,
@@ -360,6 +374,7 @@ beforeEach(() => {
   ghqListCalls = 0;
   fleetLoadCalls = 0;
   tmuxRunCalls = [];
+  tempDirs = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
   process.env.MAW_TEST_MODE = "1";
   delete process.env.MAW_CONSENT;
@@ -390,6 +405,7 @@ afterEach(() => {
   else process.env.SSH_TTY = origSshTty;
   if (origTmux === undefined) delete process.env.TMUX;
   else process.env.TMUX = origTmux;
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 });
 
 afterAll(() => {
@@ -515,14 +531,15 @@ describe("cmdSend — delivery branch coverage", () => {
 
   test("--inbox queues to receiver inbox without pane injection", async () => {
     getPaneCommandReturn = "zsh";
+    const inboxDir = createUnreadInbox(1, "msg.md");
 
     await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
       inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
-        inboxDir: "/repo/ψ/inbox",
-        path: "/repo/ψ/inbox/msg.md",
+        inboxDir,
+        path: join(inboxDir, "msg.md"),
         filename: "msg.md",
       }),
     }));
@@ -548,14 +565,15 @@ describe("cmdSend — delivery branch coverage", () => {
   test("same-machine CLI inbox queue gently notifies a live receiver pane (#2789)", async () => {
     listSessionsReturn = [{ name: "157-noah", windows: [{ index: 0, name: "noah-oracle", active: true }] }];
     resolveTargetReturn = { type: "local", target: "157-noah:noah-oracle.0" };
+    const inboxDir = createUnreadInbox(24, "noah.md");
 
     await runCmd(() => cmdSend("m5:noah", "queued for later", false, {
       inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "noah",
-        inboxDir: "/repo/ψ/inbox",
-        path: "/repo/ψ/inbox/noah.md",
+        inboxDir,
+        path: join(inboxDir, "noah.md"),
         filename: "noah.md",
       }),
     }));
@@ -569,7 +587,7 @@ describe("cmdSend — delivery branch coverage", () => {
       "5000",
       "-t",
       "157-noah:noah-oracle",
-      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/noah.md)",
+      "📬 inbox +24 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/noah.md)",
     ]);
     expect(warns.join("\n")).not.toContain("notify skipped");
   });
@@ -615,14 +633,15 @@ describe("cmdSend — delivery branch coverage", () => {
 
   test("--inbox queues to receiver inbox when the pane is busy", async () => {
     captureResponses = ["❯ draft one", "❯ draft two"];
+    const inboxDir = createUnreadInbox(2, "busy.md");
 
     await runCmd(() => cmdSend("local:session:oracle", "queued while busy", false, {
       inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
-        inboxDir: "/repo/ψ/inbox",
-        path: "/repo/ψ/inbox/busy.md",
+        inboxDir,
+        path: join(inboxDir, "busy.md"),
         filename: "busy.md",
       }),
     }));
@@ -639,7 +658,7 @@ describe("cmdSend — delivery branch coverage", () => {
       "5000",
       "-t",
       "session:oracle",
-      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/busy.md)",
+      "📬 inbox +2 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/busy.md)",
     ]);
   });
 

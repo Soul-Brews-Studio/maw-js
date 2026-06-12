@@ -53,6 +53,7 @@ function harness(overrides: Partial<SessionsApiDeps> = {}) {
       run: async (...args: string[]) => { calls.push(["tmux.run", ...args]); return ""; },
     }) as any,
     emitMessageLifecycle: (input: any) => { lifecycleCalls.push(input); },
+    countUnreadInbox: () => 1,
     writeReceiverInbox: () => ({
       ok: true,
       oracle: "atlas",
@@ -106,6 +107,26 @@ describe("/api/send queued inbox live notification (#2057)", () => {
     ]]);
   });
 
+  test("uses actual unread total in the gentle tmux status ping (#2792)", async () => {
+    const h = harness({ countUnreadInbox: () => 24 });
+
+    const res = await h.app.handle(postSend(
+      { target: "atlas", text: "reply body" },
+      { "x-maw-from": "mawjs:m5" },
+    ));
+
+    expect(await json(res)).toMatchObject({ ok: true, source: "inbox", state: "queued" });
+    expect(h.calls.at(-1)).toEqual([
+      "tmux.run",
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "50-atlas:atlas-oracle",
+      "📬 inbox +24 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
+    ]);
+  });
+
   test("keeps inbox-only fallback when receiver has no live session", async () => {
     const h = harness({ listSessions: async () => [] });
 
@@ -121,7 +142,7 @@ describe("/api/send queued inbox live notification (#2057)", () => {
   });
 
   test("formats concise inbox notification text", () => {
-    expect(formatInboxNotification({ ok: true, oracle: "atlas", inboxDir: "/x", path: "/x/msg.md", filename: "msg.md" }, "m5:mawjs"))
-      .toBe("📬 inbox +1 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)");
+    expect(formatInboxNotification({ ok: true, oracle: "atlas", inboxDir: "/x", path: "/x/msg.md", filename: "msg.md" }, "m5:mawjs", 7))
+      .toBe("📬 inbox +7 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)");
   });
 });

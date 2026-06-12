@@ -64,6 +64,7 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
       run: async (...args: string[]) => { calls.push(["tmuxRun", ...args]); return ""; },
     } as any),
     emitMessageLifecycle: (input) => { lifecycle.push(input); },
+    countUnreadInbox: () => 1,
     writeReceiverInbox: null,
     sleep: async (ms: number) => { calls.push(["sleep", ms]); },
     shouldAutoWake: () => ({ wake: false, reason: "policy" }),
