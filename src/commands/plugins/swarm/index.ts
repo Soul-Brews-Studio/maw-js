@@ -20,6 +20,39 @@ function unknownFlagMessage(flag: string): string {
   return `unknown flag for swarm: ${flag} (supported: ${SUPPORTED_FLAGS.join(", ")})`;
 }
 
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function resolveLiveAnchorPane(
+  envPane: string,
+  hostExec: (cmd: string) => Promise<string>,
+): Promise<string> {
+  const candidate = envPane.trim();
+  if (!candidate) return "";
+
+  try {
+    const resolved = (await hostExec(
+      `tmux display-message -p -t ${shellArg(candidate)} '#{pane_id}'`,
+    )).trim();
+    if (resolved.startsWith("%")) return resolved;
+  } catch {
+    // $TMUX_PANE can be stale when maw swarm is injected through maw run,
+    // especially on WSL/headless paths. Fall through to the tmux current pane
+    // context rather than handing the stale %N to split-window.
+  }
+
+  try {
+    const resolved = (await hostExec("tmux display-message -p '#{pane_id}'")).trim();
+    if (resolved.startsWith("%")) return resolved;
+  } catch {
+    // Splitting without an explicit target is safer than crashing on a known
+    // stale pane id; tmux can still use its current command context.
+  }
+
+  return "";
+}
+
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
@@ -89,7 +122,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const { homedir } = await import("os");
     const { prefixCommandWithSpawnSessionEnv } = await import("../../../core/fleet/parent-session");
 
-    const anchor = process.env.TMUX_PANE ?? "";
+    const anchor = await resolveLiveAnchorPane(process.env.TMUX_PANE ?? "", hostExec);
     const teamName = "swarm";
     const teamsDir = join(homedir(), ".claude/teams");
     const teamDir = join(teamsDir, teamName);
@@ -123,7 +156,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     // Phase 1: Split all panes (empty shells) — no agents yet
     const spawned: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor; paneId: string }[] = [];
     for (const agent of paneIds) {
-      const targetFlag = anchor ? `-t '${anchor}' ` : "";
+      const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       let paneId = "";
       await withPaneLock(async () => {
         paneId = (await hostExec(

@@ -53,6 +53,8 @@ let configCommands: Record<string, string> = {};
 let splitCounter = 0;
 let sendKeysCounter = 0;
 let failOnSendKeysNumber: number | undefined;
+let currentPaneId = "%leader";
+let stalePaneTargets = new Set<string>();
 
 const swarmEngineSeed = {
   claude: {
@@ -87,6 +89,11 @@ mock.module("os", () => ({
 mock.module(at("../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     calls.hostExec.push(cmd);
+    if (cmd.includes("tmux display-message") && cmd.includes("#{pane_id}")) {
+      const target = cmd.match(/-t '([^']+)'/)?.[1];
+      if (target && stalePaneTargets.has(target)) throw new Error(`can't find pane: ${target}`);
+      return `${target || currentPaneId}\n`;
+    }
     if (cmd.includes("tmux split-window")) return `%pane${++splitCounter}\n`;
     if (cmd.includes("tmux send-keys")) {
       sendKeysCounter += 1;
@@ -173,6 +180,8 @@ beforeEach(() => {
   splitCounter = 0;
   sendKeysCounter = 0;
   failOnSendKeysNumber = undefined;
+  currentPaneId = "%leader";
+  stalePaneTargets = new Set<string>();
   process.env.TMUX = "/tmp/tmux-coverage";
   process.env.TMUX_PANE = "%leader";
   console.log = originalLog;
@@ -283,6 +292,25 @@ describe("swarm index handler isolated coverage", () => {
       { name: "claude-2", agentId: "claude-2@swarm", tmuxPaneId: "%pane2", color: "green", model: "claude" },
       { name: "claude-3", agentId: "claude-3@swarm", tmuxPaneId: "%pane3", color: "yellow", model: "claude" },
     ]);
+  });
+
+  test("falls back from stale TMUX_PANE to the live current pane before splitting", async () => {
+    process.env.TMUX_PANE = "%stale";
+    currentPaneId = "%live";
+    stalePaneTargets.add("%stale");
+
+    const result = await run(["claude", "codex"]);
+
+    expect(result.ok).toBe(true);
+    expect(calls.hostExec).toContain("tmux display-message -p -t '%stale' '#{pane_id}'");
+    expect(calls.hostExec).toContain("tmux display-message -p '#{pane_id}'");
+    expect(calls.hostExec.some((cmd) => cmd.includes("tmux split-window -t '%stale'"))).toBe(false);
+    expect(calls.hostExec.filter((cmd) => cmd.includes("tmux split-window"))).toEqual([
+      "tmux split-window -t '%live' -h -P -F '#{pane_id}' 'exec zsh -li'",
+      "tmux split-window -t '%live' -h -P -F '#{pane_id}' 'exec zsh -li'",
+    ]);
+    expect(calls.applyTeamLayout).toEqual([["window-1", "%live"]]);
+    expect(calls.saveLayoutSnapshot).toEqual([["swarm", "%live"]]);
   });
 
   test("ignores non-cli args and skips layout selection when there is no anchor and --tiled is absent", async () => {
