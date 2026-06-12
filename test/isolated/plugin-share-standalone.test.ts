@@ -102,6 +102,10 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
 
     const index = readFileSync(join(root, "src/vendor/mpr-plugins/share/index.ts"), "utf8");
     expect(index).toContain("export async function serve");
+    expect(index).toContain("export function setShareWsDepsForTests");
+    expect(index).toContain("closing: false");
+    expect(index).toContain("await handle.close()");
+    expect(index).toContain("void state.handle?.close()");
     expect(index).toContain("export default async function handler");
     expect(index).toContain('"--control": Boolean');
     expect(index).toContain("controlToken");
@@ -159,6 +163,57 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
 
     const readonly = await shareImpl.createShare({ target: "%read", readOnly: true });
     expect(shareImpl.verifyShareControlToken(readonly.slug, "%read", created.controlToken!)).toMatchObject({ ok: false, reason: "share_read_only", status: 403 });
+  });
+
+
+  test("websocket close before attach resolves tears down the late stream handle", async () => {
+    let resolveAttach: ((handle: any) => void) | null = null;
+    let handleCloseCalls = 0;
+    const restore = sharePlugin.setShareWsDepsForTests({
+      attach: async () => new Promise((resolve) => {
+        resolveAttach = resolve;
+      }),
+    });
+
+    try {
+      const { httpRoutes, wsRoutes } = await makeServeHarness();
+      const createRoute = httpRoutes.find((entry) => entry.method === "POST" && entry.path === "/api/share")!;
+      const createRes = await createRoute.handler(new Request("http://local/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: "%race", ttl: 60 }),
+      }));
+      expect(createRes.status).toBe(200);
+      const created = await createRes.json() as { slug: string; token: string };
+      const route = wsRoutes.find((entry) => entry.path === "/ws/share/:slug")!;
+      const sent: string[] = [];
+      const closes: Array<[number, string | undefined]> = [];
+      const ws = {
+        data: { params: { slug: created.slug }, shareSlug: created.slug, shareToken: created.token },
+        send: (data: string) => sent.push(data),
+        close: (code: number, reason?: string) => closes.push([code, reason]),
+      };
+
+      (route.handlers.open as (ws: any) => void)(ws);
+      for (let i = 0; i < 10 && !resolveAttach; i += 1) await Promise.resolve();
+      expect(resolveAttach).toBeFunction();
+
+      (route.handlers.close as (ws: any) => void)(ws);
+      resolveAttach!({
+        onMessage: () => undefined,
+        close: async () => {
+          handleCloseCalls += 1;
+        },
+      });
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+
+      expect(handleCloseCalls).toBe(1);
+      expect(closes).toEqual([]);
+      (route.handlers.message as (ws: any, message: unknown) => void)(ws, "ping");
+      expect(sent).toEqual([]);
+    } finally {
+      restore();
+    }
   });
 
   test("stream default deps preserve real Tmux prototype methods", () => {

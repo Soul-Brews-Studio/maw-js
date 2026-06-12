@@ -28,8 +28,24 @@ type ShareWsData = ServeWsData & {
 
 type ShareOpenState = {
   slug: string;
-  handle: ShareStreamHandle;
+  handle: ShareStreamHandle | null;
+  closing: boolean;
 };
+
+type ShareWsDeps = {
+  verifyShare: typeof verifyShare;
+  attach: typeof attach;
+};
+
+let shareWsDeps: ShareWsDeps = { verifyShare, attach };
+
+export function setShareWsDepsForTests(next: Partial<ShareWsDeps>): () => void {
+  const previous = shareWsDeps;
+  shareWsDeps = { ...shareWsDeps, ...next };
+  return () => {
+    shareWsDeps = previous;
+  };
+}
 
 type ShareMetadata = {
   target: string;
@@ -111,16 +127,51 @@ async function openShareWebSocket(
   }
 
   const share = getShare(slug);
-  if (!share || !(await verifyShare(slug, token))) {
+  if (!share) {
+    ws.close(1008, "invalid or expired share token");
+    return;
+  }
+
+  states.set(ws, { slug, handle: null, closing: false });
+
+  let verified: boolean;
+  try {
+    verified = await shareWsDeps.verifyShare(slug, token);
+  } catch (error: unknown) {
+    const state = states.get(ws);
+    states.delete(ws);
+    if (!state?.closing) {
+      ws.close(1011, error instanceof Error ? error.message : "share token verification failed");
+    }
+    return;
+  }
+
+  const verifiedState = states.get(ws);
+  if (!verifiedState || verifiedState.closing) {
+    states.delete(ws);
+    return;
+  }
+  if (!verified) {
+    states.delete(ws);
     ws.close(1008, "invalid or expired share token");
     return;
   }
 
   try {
-    const handle = await attach(share, ws);
-    states.set(ws, { slug, handle });
+    const handle = await shareWsDeps.attach(share, ws);
+    const attachedState = states.get(ws);
+    if (!attachedState || attachedState.closing) {
+      states.delete(ws);
+      await handle.close();
+      return;
+    }
+    attachedState.handle = handle;
   } catch (error: unknown) {
-    ws.close(1011, error instanceof Error ? error.message : "share stream failed");
+    const state = states.get(ws);
+    states.delete(ws);
+    if (!state?.closing) {
+      ws.close(1011, error instanceof Error ? error.message : "share stream failed");
+    }
   }
 }
 
@@ -266,14 +317,15 @@ export async function serve(ctx: ServeHookContext): Promise<{ ok: true } | { ok:
         ws.send("pong");
         return;
       }
-      if (!state) return;
+      if (!state?.handle) return;
       state.handle.onMessage(message);
     },
     close: (ws) => {
       const state = openStreams.get(ws);
       if (!state) return;
-      void state.handle.close();
+      state.closing = true;
       openStreams.delete(ws);
+      void state.handle?.close();
     },
   });
 

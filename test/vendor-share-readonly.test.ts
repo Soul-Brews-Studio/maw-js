@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { __resetShareStreamBusesForTests, __resolveShareStreamDepsForTests, attach } from "../src/vendor/mpr-plugins/share/stream";
-import type { Share } from "../src/vendor/mpr-plugins/share/impl";
+import { serve, setShareWsDepsForTests } from "../src/vendor/mpr-plugins/share/index";
+import { clearShareRegistry, createShare, type Share } from "../src/vendor/mpr-plugins/share/impl";
+import { __resetShareStreamBusesForTests, __resolveShareStreamDepsForTests, attach, type ShareStreamHandle } from "../src/vendor/mpr-plugins/share/stream";
 
 type WsMessage = string | Uint8Array;
 type FakeWs = {
@@ -36,12 +37,81 @@ describe("share readonly stream", () => {
   let captures: string[] = [];
   let sendKeysCalls: number = 0;
 
+  let restoreShareWsDeps: (() => void) | null = null;
+
   beforeEach(() => {
+    restoreShareWsDeps?.();
+    restoreShareWsDeps = null;
+    clearShareRegistry();
     __resetShareStreamBusesForTests();
     killCalls = [];
     pipeCalls = [];
     captures = [];
     sendKeysCalls = 0;
+  });
+
+  afterEach(() => {
+    restoreShareWsDeps?.();
+    restoreShareWsDeps = null;
+    clearShareRegistry();
+  });
+
+
+  test("websocket close before attach resolves closes late stream handle", async () => {
+    const share = await createShare({ target: "session:0", ttl: 60 });
+    let resolveAttach: ((handle: ShareStreamHandle) => void) | null = null;
+    let handleCloseCalls = 0;
+    const lateHandle: ShareStreamHandle = {
+      onMessage: () => undefined,
+      close: async () => {
+        handleCloseCalls += 1;
+      },
+    };
+
+    restoreShareWsDeps = setShareWsDepsForTests({
+      attach: async () => new Promise<ShareStreamHandle>((resolve) => {
+        resolveAttach = resolve;
+      }),
+    });
+
+    let handlers: {
+      open: (ws: any) => void;
+      message: (ws: any, message: unknown) => void;
+      close: (ws: any) => void;
+    } | null = null;
+
+    await serve({
+      http: {
+        route: () => undefined,
+      },
+      ws: {
+        route: (_path: string, _data: unknown, next: typeof handlers) => {
+          handlers = next;
+        },
+      },
+    } as any);
+
+    const sent: string[] = [];
+    const closes: Array<[number, string | undefined]> = [];
+    const ws = {
+      data: { params: { slug: share.slug }, shareSlug: share.slug, shareToken: share.token },
+      send: (data: string) => sent.push(data),
+      close: (code: number, reason?: string) => closes.push([code, reason]),
+    };
+
+    handlers!.open(ws);
+    for (let i = 0; i < 10 && !resolveAttach; i += 1) await Promise.resolve();
+    expect(resolveAttach).toBeFunction();
+    handlers!.close(ws);
+
+    resolveAttach!(lateHandle);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+
+    expect(handleCloseCalls).toBe(1);
+    expect(closes).toEqual([]);
+
+    handlers!.message(ws, "ping");
+    expect(sent).toEqual([]);
   });
 
   test("default stream deps preserve real Tmux prototype methods", () => {
