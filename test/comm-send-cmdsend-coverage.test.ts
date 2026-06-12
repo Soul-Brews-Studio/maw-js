@@ -23,6 +23,9 @@ const _rTrustStore = await import("../src/lib/trust-store");
 const _rConsentGate = await import("../src/core/consent/gate");
 const _rEventHooks = await import("../src/plugin/event-hooks");
 const _rFindWindow = await import("../src/core/runtime/find-window");
+const _rGhq = await import("../src/core/ghq");
+const _rFleetLoad = await import("../src/commands/shared/fleet-load");
+const _rTmux = await import("../src/core/transport/tmux");
 const realSdk = {
   listSessions: _rSdk.listSessions,
   capture: _rSdk.capture,
@@ -45,6 +48,8 @@ const realQueueStore = { savePending: _rQueueStore.savePending };
 const realTrustStore = { cmdAdd: _rTrustStore.cmdAdd };
 const realConsentGate = { maybeGateConsent: _rConsentGate.maybeGateConsent };
 const realEventHooks = { runPluginEventHooks: _rEventHooks.runPluginEventHooks };
+const realGhq = { ghqFind: _rGhq.ghqFind, ghqList: _rGhq.ghqList };
+const realFleetLoad = { loadFleetEntries: _rFleetLoad.loadFleetEntries };
 
 type Session = { name: string; windows: Array<{ index: number; name: string; active: boolean }> };
 type ResolvedTarget =
@@ -90,6 +95,51 @@ let trustAddCalls: Array<{ sender: string; target: string }>;
 let trustAddError: Error | null;
 let consentDecision: { allow: boolean; message?: string; exitCode?: number };
 let transportEventCalls: Array<{ eventName: string; payload: unknown }>;
+let ghqFindCalls: string[];
+let ghqListCalls: number;
+let fleetLoadCalls: number;
+let tmuxRunCalls: string[][];
+
+mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
+  ..._rGhq,
+  ghqFind: async (suffix: string) => {
+    if (!mockActive) return realGhq.ghqFind(suffix);
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => {
+    if (!mockActive) return realGhq.ghqList();
+    ghqListCalls += 1;
+    return [];
+  },
+}));
+
+mock.module(join(import.meta.dir, "../src/commands/shared/fleet-load"), () => ({
+  ..._rFleetLoad,
+  loadFleetEntries: () => {
+    if (!mockActive) return realFleetLoad.loadFleetEntries();
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
+
+mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
+  class MockTmux extends _rTmux.Tmux {
+    async run(...args: string[]) {
+      if (!mockActive) return super.run(...args);
+      tmuxRunCalls.push(args);
+      if (args.join(" ") === "display-message -p #S") return "mock-session\n";
+      if (args[0] === "list-panes") return "0 claude\n";
+      throw new Error(`unexpected test tmux run: ${args.join(" ")}`);
+    }
+    async tryRun(...args: string[]) {
+      if (!mockActive) return super.tryRun(...args);
+      tmuxRunCalls.push(args);
+      return "";
+    }
+  }
+  return { ..._rTmux, Tmux: MockTmux, tmux: new MockTmux() };
+});
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
@@ -231,6 +281,7 @@ const origMawSender = process.env.MAW_SENDER;
 const origSshClient = process.env.SSH_CLIENT;
 const origSshConnection = process.env.SSH_CONNECTION;
 const origSshTty = process.env.SSH_TTY;
+const origTmux = process.env.TMUX;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   if (mockActive) sleepCalls.push(ms);
@@ -243,10 +294,6 @@ let exitCode: number | undefined;
 let errs: string[];
 let logs: string[];
 let warns: string[];
-
-// These locate/manifest fallback cases exercise intentionally slow negative-path
-// waits; under isolated shard load the default 5s per-test cap flakes.
-const COMM_SEND_LOCATE_TIMEOUT_MS = 10_000;
 
 async function runCmd(fn: () => Promise<unknown>) {
   exitCode = undefined;
@@ -308,6 +355,10 @@ beforeEach(() => {
   trustAddError = null;
   consentDecision = { allow: true };
   transportEventCalls = [];
+  ghqFindCalls = [];
+  ghqListCalls = 0;
+  fleetLoadCalls = 0;
+  tmuxRunCalls = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
   process.env.MAW_TEST_MODE = "1";
   delete process.env.MAW_CONSENT;
@@ -336,6 +387,8 @@ afterEach(() => {
   else process.env.SSH_CONNECTION = origSshConnection;
   if (origSshTty === undefined) delete process.env.SSH_TTY;
   else process.env.SSH_TTY = origSshTty;
+  if (origTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = origTmux;
 });
 
 afterAll(() => {
@@ -799,7 +852,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBe(1);
     expect(curlFetchCalls).toEqual([]);
     expect(errs.join("\n")).toContain("not found locally");
-  }, COMM_SEND_LOCATE_TIMEOUT_MS);
+  });
 
 
 
@@ -822,7 +875,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
     expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
     expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
-  }, COMM_SEND_LOCATE_TIMEOUT_MS);
+  });
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
     listSessionsReturn = [{ name: "77-renamed", windows: [{ index: 0, name: "renamed-oracle", active: true, cwd: "/tmp/renamed-oracle" } as any] }];
@@ -834,7 +887,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBeUndefined();
     expect(curlFetchCalls).toEqual([]);
     expect(sendKeysCalls).toEqual([{ target: "77-renamed:renamed-oracle", text: "[test-node:sender] hello" }]);
-  }, COMM_SEND_LOCATE_TIMEOUT_MS);
+  });
 
   test("bare manifest cross-node hit does not silently route to peer (#2056)", async () => {
     config.namedPeers = [{ name: "remote", url: "http://remote:3456" }];
@@ -848,7 +901,30 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(curlFetchCalls).toEqual([]);
     expect(warns.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
     expect(errs.join("\n")).toContain("found but no active session");
-  }, COMM_SEND_LOCATE_TIMEOUT_MS);
+  });
+
+  test("bare locate coverage remains hermetic when TMUX is inherited (#2785)", async () => {
+    process.env.TMUX = "/tmp/tmux-test/default,123,0";
+    listSessionsReturn = [];
+    resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
+    manifestEntries = [{ name: "renamed", localPath: "/tmp/renamed-oracle", node: "test-node", sources: ["oracles.json"] }];
+
+    const receiverWrites: any[] = [];
+
+    await runCmd(() => cmdSend("renamed", "hello", false, {
+      receiverInbox: async (input: any) => {
+        receiverWrites.push(input);
+        return { ok: true, oracle: "renamed", inboxDir: "/tmp/renamed-oracle/ψ/inbox", path: "/tmp/renamed-oracle/ψ/inbox/msg.md", filename: "msg.md" };
+      },
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(receiverWrites).toHaveLength(1);
+    expect(ghqFindCalls).toEqual(["/renamed-oracle", "/renamed"]);
+    expect(fleetLoadCalls).toBe(1);
+    expect(tmuxRunCalls).toEqual([["display-message", "-p", "#S"]]);
+    expect(curlFetchCalls).toEqual([]);
+  });
 
   test("bare peer aliases are allowed as explicit federation targets (#1940)", async () => {
     config.namedPeers = [{

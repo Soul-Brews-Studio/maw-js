@@ -10,6 +10,8 @@ import { join } from "path";
 import { AmbiguousMatchError } from "../../src/core/runtime/find-window";
 
 const srcRoot = join(import.meta.dir, "../..");
+const realGhqModule = await import("../../src/core/ghq");
+const realFleetLoadModule = await import("../../src/commands/shared/fleet-load");
 const realSdk = await import("../../src/sdk");
 
 type ResolvedTarget =
@@ -56,6 +58,25 @@ let scopes: any[];
 let aclDecision: "allow" | "queue";
 let savePendingCalls: any[];
 let consentDecision: { allow: boolean; message?: string; exitCode?: number };
+let ghqFindCalls: string[];
+let fleetLoadCalls: number;
+mock.module(join(srcRoot, "src/core/ghq"), () => ({
+  ...realGhqModule,
+  ghqFind: async (suffix: string) => {
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => [],
+}));
+
+mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
+  ...realFleetLoadModule,
+  loadFleetEntries: () => {
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
+
 mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   class MockTmux {
     async run() { return "0 claude\n"; }
@@ -99,6 +120,10 @@ mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   emitFeed: (event: string, oracle: string, host: string, message: string, port: number, data: any) => {
     emitFeedCalls.push({ event, oracle, host, message, port, data });
   },
+}));
+
+mock.module(join(srcRoot, "src/plugin/event-hooks"), () => ({
+  runPluginEventHooks: async () => ({ eventName: "test", matched: 0, invoked: 0, skipped: 0, failed: 0 }),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
@@ -215,6 +240,8 @@ beforeEach(() => {
   aclDecision = "allow";
   savePendingCalls = [];
   consentDecision = { allow: true };
+  ghqFindCalls = [];
+  fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;

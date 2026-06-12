@@ -3,7 +3,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const realSdk = await import("../../src/sdk/index.ts");
-afterAll(() => { mock.restore(); });
+afterAll(() => {
+  mock.restore();
+  if (origMawTeam === undefined) delete process.env.MAW_TEAM;
+  else process.env.MAW_TEAM = origMawTeam;
+  if (origTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = origTmux;
+});
 
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
 import { isUserError } from "../../src/core/util/user-error";
@@ -13,6 +19,8 @@ const root = join(import.meta.dir, "../..");
 let calls: Array<{ name: string; args: unknown[] }> = [];
 let targets: string[] = [];
 let hostExecCalls: string[] = [];
+const origMawTeam = process.env.MAW_TEAM;
+const origTmux = process.env.TMUX;
 
 function record(name: string, value?: unknown) {
   calls.push({ name, args: value === undefined ? [] : [value] });
@@ -101,7 +109,8 @@ beforeEach(() => {
   calls = [];
   targets = [];
   hostExecCalls = [];
-  delete process.env.MAW_TEAM;
+  process.env.MAW_TEAM = "default";
+  delete process.env.TMUX;
 });
 
 describe("team command plugin standalone boundary (#2336)", () => {
@@ -261,16 +270,15 @@ describe("team command plugin standalone boundary (#2336)", () => {
     try {
       process.chdir(cwd);
       await lifecycle.cmdTeamSpawn("avengers", "builder");
+
+      const toolConfig = JSON.parse(readFileSync(join(teamsDir, "avengers", "config.json"), "utf8"));
+      expect(toolConfig.members).toEqual([{ name: "builder", engine: "codex", model: "gpt-5.5" }]);
+      const prompt = readFileSync(join(psi, "memory", "mailbox", "teams", "avengers", "builder-spawn-prompt.md"), "utf8");
+      expect(prompt).toContain("You are 'builder' on team 'avengers'.");
     } finally {
       process.chdir(previousCwd);
+      rmSync(tmp, { recursive: true, force: true });
     }
-
-    const toolConfig = JSON.parse(readFileSync(join(teamsDir, "avengers", "config.json"), "utf8"));
-    expect(toolConfig.members).toEqual([{ name: "builder", engine: "codex", model: "gpt-5.5" }]);
-    const prompt = readFileSync(join(psi, "memory", "mailbox", "teams", "avengers", "builder-spawn-prompt.md"), "utf8");
-    expect(prompt).toContain("You are 'builder' on team 'avengers'.");
-
-    rmSync(tmp, { recursive: true, force: true });
   });
 
   test("team charter standalone parser applies defaults block inheritance", async () => {

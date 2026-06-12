@@ -8,6 +8,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { join } from "path";
 
 const srcRoot = join(import.meta.dir, "../..");
+const realGhqModule = await import("../../src/core/ghq");
+const realFleetLoadModule = await import("../../src/commands/shared/fleet-load");
 
 type ResolvedTarget =
   | { type: "local" | "self-node"; target: string }
@@ -25,6 +27,25 @@ let curlFetchCalls: Array<{ url: string; options: any }>;
 let runHookCalls: Array<{ name: string; payload: any }>;
 let defaultInboxCalls: any[];
 let sleepCalls: number[];
+let ghqFindCalls: string[];
+let fleetLoadCalls: number;
+
+mock.module(join(srcRoot, "src/core/ghq"), () => ({
+  ...realGhqModule,
+  ghqFind: async (suffix: string) => {
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => [],
+}));
+
+mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
+  ...realFleetLoadModule,
+  loadFleetEntries: () => {
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
 
 mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   class MockTmux {
@@ -34,7 +55,7 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
+const sdkMock = {
   listSessions: async () => listSessionsReturn,
   capture: async () => captureResponses.shift() ?? "",
   sendKeys: async (target: string, text: string) => {
@@ -51,7 +72,10 @@ mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   runHook: async (name: string, payload: any) => {
     runHookCalls.push({ name, payload });
   },
-}));
+};
+
+mock.module(join(srcRoot, "src/sdk"), () => sdkMock);
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => sdkMock);
 
 mock.module(join(srcRoot, "src/config"), () => ({
   loadConfig: () => config,
@@ -61,6 +85,10 @@ mock.module(join(srcRoot, "src/config"), () => ({
 mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   logMessage: () => {},
   emitFeed: () => {},
+}));
+
+mock.module(join(srcRoot, "src/plugin/event-hooks"), () => ({
+  runPluginEventHooks: async () => ({ eventName: "test", matched: 0, invoked: 0, skipped: 0, failed: 0 }),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
@@ -119,6 +147,8 @@ beforeEach(() => {
   runHookCalls = [];
   defaultInboxCalls = [];
   sleepCalls = [];
+  ghqFindCalls = [];
+  fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
 });
 
