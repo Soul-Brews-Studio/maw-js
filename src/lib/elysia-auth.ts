@@ -292,12 +292,14 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     // pass-through so fresh single-node installs work unchanged.
     if (!token) return;
 
-    // #804 Step 4: when the request carries `x-maw-from`, the from-signing
-    // layer owns the `x-maw-signature` slot and is verified by
-    // `fromSigningAuth` (mounted alongside this plugin). Defer to it — the
-    // fleet HMAC layer would otherwise reject the from-sig as a malformed
-    // HMAC since it's keyed on `peerKey`, not `federationToken`.
-    if (request.headers.get("x-maw-from")) return;
+    // #2776 / Option A: `x-maw-from` is peer-continuity identity, not fleet
+    // admission. When a receiver has `federationToken` configured, every
+    // protected non-loopback federation write must still pass the shared-token
+    // HMAC below. Current v3 senders stack both signatures on separate slots:
+    //   - x-maw-signature    : fleet token HMAC
+    //   - x-maw-signature-v3 : per-peer from-signing HMAC
+    // Let `fromSigningAuth` run after this layer to verify/record peer
+    // continuity, but do not let a self-signed unknown peer skip token HMAC.
 
     // Check for HMAC signature
     const sig = request.headers.get("x-maw-signature");
