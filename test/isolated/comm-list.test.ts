@@ -298,6 +298,7 @@ const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 const origSshClient = process.env.SSH_CLIENT;
 const origSshConnection = process.env.SSH_CONNECTION;
 const origSshTty = process.env.SSH_TTY;
+const origTmux = process.env.TMUX;
 
 let outs: string[] = [];
 let errs: string[] = [];
@@ -352,6 +353,7 @@ beforeEach(() => {
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
   delete process.env.SSH_TTY;
+  delete process.env.TMUX;
   childProcess.execSync = ((command: string, ...rest: unknown[]) => {
     if (!mockActive) return realExecSync(command, ...(rest as [unknown]));
     for (const response of execSyncResponses) {
@@ -375,6 +377,8 @@ afterEach(() => {
   else process.env.SSH_CONNECTION = origSshConnection;
   if (origSshTty === undefined) delete process.env.SSH_TTY;
   else process.env.SSH_TTY = origSshTty;
+  if (origTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = origTmux;
   childProcess.execSync = realExecSync;
 });
 
@@ -757,13 +761,23 @@ describe("resolveMyName", () => {
 
   test("tmux session name is stripped to the bare oracle name", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, result: "08-mawjs\n" }];
     const out = resolveMyName({ node: "ignored" } as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("mawjs");
   });
 
+  test("outside tmux does not trust tmux server current session", () => {
+    delete process.env.CLAUDE_AGENT_NAME;
+    delete process.env.TMUX;
+    execSyncResponses = [{ match: /tmux display-message/, result: "05-nari\n" }];
+    const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("white");
+  });
+
   test("no CLAUDE_AGENT_NAME, no tmux session → config.node fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("white");
@@ -771,6 +785,7 @@ describe("resolveMyName", () => {
 
   test("no CLAUDE_AGENT_NAME and no config.node → 'cli' fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({} as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("cli");

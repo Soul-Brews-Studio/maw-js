@@ -77,15 +77,19 @@ export async function resolveOraclePane(
   }
 }
 
-/** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux pane. */
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
-  // Try tmux session name: "08-mawjs" → "mawjs"
-  try {
-    const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-    if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
-  } catch {}
+  // Only trust tmux when this process is actually running inside a tmux pane.
+  // Outside tmux, `tmux display-message` can still succeed by reporting the
+  // server's current/last-active session, which misattributes sender envelopes.
+  if (process.env.TMUX) {
+    try {
+      const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
+    } catch {}
+  }
   return config.node || "cli";
 }
 
