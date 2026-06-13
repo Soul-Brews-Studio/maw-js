@@ -177,6 +177,28 @@ jobs:
     expect((await handleScheduler({ source: "cli", args: ["start"], flags: {}, matchedName: "scheduler" }, { paths })).output).toContain("enabled");
   });
 
+  test("CLI status with writer does not also return buffered duplicate output (#2822)", async () => {
+    const { paths } = tempRoot();
+    writeJobs(paths.jobsFile, `
+jobs:
+  - name: codex-monitor
+    every: 2m
+    target: mawjs-oracle
+    prompt: /codex-monitor
+`);
+    const written: string[] = [];
+    const result = await handleScheduler({
+      source: "cli",
+      args: ["status"],
+      flags: {},
+      matchedName: "scheduler",
+      writer: (...args) => written.push(args.map(String).join(" ")),
+    }, { paths });
+    expect(result).toEqual({ ok: true, output: undefined });
+    expect(written.filter((line) => line.includes("codex-monitor"))).toHaveLength(1);
+    expect(written.join("\n").match(/codex-monitor/g)).toHaveLength(1);
+  });
+
   test("loadJobs returns empty config when jobs.yaml is absent", () => {
     const { paths } = tempRoot();
     expect(loadJobs(paths.jobsFile)).toEqual({ jobs: [] });

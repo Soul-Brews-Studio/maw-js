@@ -48,7 +48,15 @@ async function runJobNow(job: SchedulerJob, stateFile: string, deps: SchedulerCl
 
 export async function handleScheduler(ctx: InvokeContext, deps: SchedulerCliDeps = {}): Promise<InvokeResult> {
   const logs: string[] = [];
-  const write = (...args: unknown[]) => ctx.writer?.(...args) ?? logs.push(args.map(String).join(" "));
+  let wroteToWriter = false;
+  const write = (...args: unknown[]) => {
+    if (ctx.writer) {
+      wroteToWriter = true;
+      ctx.writer(...args);
+      return;
+    }
+    logs.push(args.map(String).join(" "));
+  };
   const args = argsFrom(ctx);
   const sub = args[0] ?? "status";
   const paths = deps.paths ?? schedulerPaths(deps.cwd ?? process.cwd());
@@ -88,9 +96,9 @@ export async function handleScheduler(ctx: InvokeContext, deps: SchedulerCliDeps
     } else {
       return { ok: false, error: `unknown scheduler subcommand: ${sub}\nusage: maw scheduler <start|stop|status|list|run> [--name <job>] [--json]` };
     }
-    return { ok: true, output: logs.join("\n") || undefined };
+    return { ok: true, output: wroteToWriter ? undefined : logs.join("\n") || undefined };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), output: logs.join("\n") || undefined };
+    return { ok: false, error: err instanceof Error ? err.message : String(err), output: wroteToWriter ? undefined : logs.join("\n") || undefined };
   }
 }
 
