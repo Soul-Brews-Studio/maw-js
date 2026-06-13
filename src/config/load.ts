@@ -39,7 +39,6 @@ const DEFAULTS: Pick<MawConfig, "host" | "port" | "oracleUrl" | "env" | "session
 let warnedGhqRoot = false;
 let warnedHostMigrated = false;
 let warnedHostNodeConflated = false;
-let loadedConfigPrinted = false;
 
 let cached: MawConfig | null = null;
 let cachedKey = "";
@@ -540,8 +539,9 @@ export function loadConfig(opts: LoadConfigOptions = {}): MawConfig {
   }
   // One-shot startup summary — fires unless --quiet/--silent (verbose-by-default).
   verbose(() => {
-    if (loadedConfigPrinted) return;
-    loadedConfigPrinted = true;
+    const BANNER_KEY = Symbol.for("maw:loadedConfigPrinted");
+    if ((process as any)[BANNER_KEY]) return;
+    (process as any)[BANNER_KEY] = true;
     const nT = cached!.triggers?.length ?? 0;
     const nP = cached!.pluginSources?.length ?? 0;
     const nPeers = (cached!.peers?.length ?? 0) + (cached!.namedPeers?.length ?? 0);
@@ -570,7 +570,7 @@ export function resetConfig() {
   warnedGhqRoot = false;
   warnedHostMigrated = false;
   warnedHostNodeConflated = false;
-  loadedConfigPrinted = false;
+  delete (process as any)[Symbol.for("maw:loadedConfigPrinted")];
 }
 
 /**
