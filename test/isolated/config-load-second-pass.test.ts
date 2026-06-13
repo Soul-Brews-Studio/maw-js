@@ -172,6 +172,29 @@ describe("config load second pass coverage", () => {
     expect(stderrWrites.filter((line) => line.includes("config.ghqRoot is deprecated"))).toHaveLength(2);
   });
 
+  test("loaded config banner is one-shot across default and cwd loads until reset (#2825)", () => {
+    rawConfigText = JSON.stringify({ unused: true });
+    validatedConfig = {
+      triggers: [{ id: "t1" }],
+      pluginSources: [{ name: "plugins-a" }],
+      peers: [{ name: "peer-a" }],
+    };
+
+    config.loadConfig();
+    config.loadConfig({ cwd: "/tmp/alternate-cwd" });
+
+    expect(infoMessages).toEqual([
+      "loaded config: 1 trigger, 1 declared plugin, 1 peer",
+    ]);
+
+    config.resetConfig();
+    config.loadConfig();
+    expect(infoMessages).toEqual([
+      "loaded config: 1 trigger, 1 declared plugin, 1 peer",
+      "loaded config: 1 trigger, 1 declared plugin, 1 peer",
+    ]);
+  });
+
   test("bind-address migration preserves an existing bind and ignores empty fleet merge results", () => {
     verboseEnabled = false;
     rawConfigText = JSON.stringify({ host: "127.0.0.1" });
