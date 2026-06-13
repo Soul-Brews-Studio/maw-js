@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync, lstatSync, existsSync } from "fs";
+import { execFileSync } from "child_process";
 import { join } from "path";
 import { tmpdir } from "os";
 import { collectStandardPlugins, inspectStandardPluginHealth, installStandardPlugins, STANDARD_PLUGIN_MIN_COUNT } from "../src/commands/shared/standard-plugins";
@@ -64,6 +65,61 @@ describe("standard plugin bootstrap", () => {
     expect(result.skipped).toBe(1);
     expect(existsSync(join(pluginDir, "standard-00", "plugin.json"))).toBe(true);
     expect(readlinkSync(join(pluginDir, "standard-00")).startsWith("/")).toBe(false);
+  });
+
+
+  test("fetches standard plugin source with git clone instead of bun add", async () => {
+    const originalUrl = process.env.MAW_STANDARD_PLUGIN_GIT_URL;
+    const originalCache = process.env.MAW_STANDARD_PLUGIN_CACHE_DIR;
+    const originalSource = process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
+    const originalPath = process.env.MAW_JS_PATH;
+    const ref = "v0.0.0-fetch";
+    const gitRoot = join(root, "remote-maw-js");
+    const fetchedPluginDir = join(root, "fetched-plugins");
+    const cacheDir = join(root, "source-cache");
+    const logs: string[] = [];
+    try {
+      mkdirSync(join(gitRoot, "src", "vendor", "mpr-plugins"), { recursive: true });
+      mkdirSync(join(gitRoot, "packages", "sdk"), { recursive: true });
+      writeFileSync(join(gitRoot, "package.json"), JSON.stringify({
+        name: "maw-js",
+        version: "0.0.0-fetch",
+        dependencies: { "@maw-js/sdk": "workspace:*" },
+        workspaces: ["packages/*"],
+      }, null, 2));
+      writeFileSync(join(gitRoot, "packages", "sdk", "package.json"), JSON.stringify({ name: "@maw-js/sdk", version: "0.0.0-fetch" }));
+      for (let i = 0; i < STANDARD_PLUGIN_MIN_COUNT; i++) {
+        const name = `fetched-${String(i).padStart(2, "0")}`;
+        const dir = join(gitRoot, "src", "vendor", "mpr-plugins", name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name, version: "1.0.0", sdk: "^1.0.0" }));
+        writeFileSync(join(dir, "index.ts"), "export default async () => ({ ok: true });\n");
+      }
+      execFileSync("git", ["init", "-q"], { cwd: gitRoot });
+      execFileSync("git", ["add", "."], { cwd: gitRoot });
+      execFileSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "seed workspace repo"], { cwd: gitRoot });
+      execFileSync("git", ["tag", ref], { cwd: gitRoot });
+
+      process.env.MAW_STANDARD_PLUGIN_GIT_URL = `file://${gitRoot}`;
+      process.env.MAW_STANDARD_PLUGIN_CACHE_DIR = cacheDir;
+      delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
+      delete process.env.MAW_JS_PATH;
+
+      const result = await installStandardPlugins({ pluginDir: fetchedPluginDir, ref, log: (line) => logs.push(line) });
+
+      expect(result.sourceRoot).toContain(cacheDir);
+      expect(result.installed).toBe(STANDARD_PLUGIN_MIN_COUNT);
+      expect(inspectStandardPluginHealth(fetchedPluginDir).status).toBe("ok");
+      expect(existsSync(join(fetchedPluginDir, "fetched-00", "plugin.json"))).toBe(true);
+      const logText = logs.join("\n");
+      expect(logText).toContain("git clone --depth 1");
+      expect(logText).not.toContain("bun add -g");
+    } finally {
+      if (originalUrl === undefined) delete process.env.MAW_STANDARD_PLUGIN_GIT_URL; else process.env.MAW_STANDARD_PLUGIN_GIT_URL = originalUrl;
+      if (originalCache === undefined) delete process.env.MAW_STANDARD_PLUGIN_CACHE_DIR; else process.env.MAW_STANDARD_PLUGIN_CACHE_DIR = originalCache;
+      if (originalSource === undefined) delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT; else process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = originalSource;
+      if (originalPath === undefined) delete process.env.MAW_JS_PATH; else process.env.MAW_JS_PATH = originalPath;
+    }
   });
 
   test("health flags missing and low plugin directories", () => {
