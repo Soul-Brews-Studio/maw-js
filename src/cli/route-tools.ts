@@ -10,7 +10,7 @@ import { mawDataPath } from "../core/xdg";
 // `maw plugin list --help` / `maw agents --help` from running real work.
 const CORE_HELP: Record<string, string> = {
   plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name...>|disable <name>] [--json] [--all] [-v|--verbose] [--core|--standard|--extra|--api] [--force]",
-  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]\n  ls: compact by default; use -v for full table; filters: --core --standard --extra --api",
+  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]\n  install --standard: bootstrap standard plugins from a bare binary\n  ls: compact by default; use -v for full table; filters: --core --standard --extra --api",
   artifacts: "usage: maw artifacts [ls|get] [team] [task-id] [--json]",
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
@@ -247,6 +247,26 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
   }
   if (cmd === "plugin") {
     const sub = args[1]?.toLowerCase();
+    if (sub === "install" && (args.includes("--standard") || args[2] === "standard")) {
+      const { parseFlags } = await import("./parse-args");
+      const { installStandardPlugins } = await import("../commands/shared/standard-plugins");
+      const flags = parseFlags(args, {
+        "--standard": Boolean,
+        "--force": Boolean,
+        "--dry-run": Boolean,
+        "--source-root": String,
+        "--ref": String,
+      }, 1);
+      const unsupported = (flags._ as string[]).filter((arg) => arg !== "install" && arg !== "standard");
+      if (unsupported.length > 0) throw new UserError(`plugin install --standard: unexpected argument ${unsupported[0]}`);
+      await installStandardPlugins({
+        force: Boolean(flags["--force"]),
+        dryRun: Boolean(flags["--dry-run"]),
+        sourceRoot: flags["--source-root"] as string | undefined,
+        ref: flags["--ref"] as string | undefined,
+      });
+      return true;
+    }
     // "maw plugin init|build|install|search|registry|pin|unpin|dev" →
     // forward to the plugin-lifecycle plugin (marketplace pipeline).
     const lifecycleSubs = new Set(["init", "build", "install", "search", "registry", "pin", "unpin", "dev"]);

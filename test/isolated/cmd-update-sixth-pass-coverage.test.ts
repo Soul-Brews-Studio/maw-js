@@ -233,6 +233,7 @@ describe("cmd-update sixth-pass retry cleanup coverage", () => {
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "main"],
     ]);
     expect(execSyncCalls).toContain("maw --version");
     expect(res.stderr).toContain("first install attempt failed");

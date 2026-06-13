@@ -16,6 +16,7 @@ interface HarnessOptions {
   paneInfos?: Record<string, { command: string; cwd?: string }>;
   config?: Partial<MawConfig>;
   agentCommands?: Set<string>;
+  standardPluginMinimum?: number;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -71,6 +72,7 @@ function makeHarness(options: HarnessOptions = {}) {
       },
     },
     log: (...args: unknown[]) => { logs.push(args.map(String).join(" ")); },
+    standardPluginMinimum: options.standardPluginMinimum ?? 0,
   });
 
   async function run(fix = false) {
@@ -148,6 +150,24 @@ describe("cmdPreflight", () => {
     expect(text).toContain("sessions: 1 (1 agents alive)");
     expect(text).toContain("config: node=m5, engines=[codex]");
     expect(text).toContain("4 pass, 0 fail");
+  });
+
+
+  test("suspiciously low standard plugin count is not green", async () => {
+    const h = makeHarness({
+      entries: ["paperclip-assign"],
+      symlinks: { "paperclip-assign": false },
+      exists: { "paperclip-assign": true },
+      config: {},
+      standardPluginMinimum: 50,
+    });
+
+    await h.run(false);
+
+    const text = out(h.logs);
+    expect(text).toContain("standard plugins low: 1 loaded");
+    expect(text).toContain("maw plugin install --standard");
+    expect(text).toContain("2 pass, 1 fail");
   });
 
   test("missing plugin directory and no sessions produce fail-soft summary", async () => {

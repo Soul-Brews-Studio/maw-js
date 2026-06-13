@@ -290,6 +290,7 @@ describe("cmd-update runtime coverage", () => {
       ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
       ["chmod", "+x", mawBin],
       ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "v26.5.16-alpha.1053"],
     ]);
     expect(execSyncCalls).toContain(`cd ${cloneDir} && bun link`);
     expect(execSyncCalls).toContain(`cd ${join(homeDir, ".maw", "oracle-plugins")} && bun link maw`);

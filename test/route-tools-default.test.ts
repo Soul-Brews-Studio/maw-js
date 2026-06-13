@@ -218,6 +218,37 @@ describe("routeTools default-suite seams", () => {
     expect(h.calls.audits).toEqual([["5"]]);
   });
 
+  test("plugin install --standard is handled as a bare-binary core bootstrap", async () => {
+    const h = harness({ lifecycleExists: "none" });
+    const original = process.env.MAW_PLUGINS_DIR;
+    const originalSource = process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
+    const root = await import("fs").then(({ mkdtempSync }) => mkdtempSync("/tmp/maw-route-standard-"));
+    try {
+      const { mkdirSync, writeFileSync, rmSync, readdirSync } = await import("fs");
+      const { join } = await import("path");
+      const sourceRoot = join(root, "maw-js");
+      const pluginDir = join(root, "plugins");
+      mkdirSync(join(sourceRoot, "src", "vendor", "mpr-plugins"), { recursive: true });
+      writeFileSync(join(sourceRoot, "package.json"), JSON.stringify({ name: "maw-js" }));
+      for (let i = 0; i < 50; i++) {
+        const name = `std-${i}`;
+        const dir = join(sourceRoot, "src", "vendor", "mpr-plugins", name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name, version: "1.0.0", sdk: "^1.0.0" }));
+        writeFileSync(join(dir, "index.ts"), "export default async () => ({ ok: true });\n");
+      }
+      process.env.MAW_PLUGINS_DIR = pluginDir;
+      process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = sourceRoot;
+      expect(await routeToolsWithDeps("plugin", ["plugin", "install", "--standard"], h.deps)).toBe(true);
+      expect(readdirSync(pluginDir).length).toBe(50);
+      expect(h.calls.invokes).toEqual([]);
+      rmSync(root, { recursive: true, force: true });
+    } finally {
+      if (original === undefined) delete process.env.MAW_PLUGINS_DIR; else process.env.MAW_PLUGINS_DIR = original;
+      if (originalSource === undefined) delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT; else process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = originalSource;
+    }
+  });
+
   test("plugin lifecycle dispatch uses dev/home candidates, logs output, and fails loudly", async () => {
     const dev = harness({ lifecycleExists: "dev" });
     expect(await routeToolsWithDeps("plugin", ["plugin", "install", "demo"], dev.deps)).toBe(true);

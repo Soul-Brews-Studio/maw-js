@@ -247,6 +247,14 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       } else {
         console.error(`  run 'maw --help' to see available commands`);
       }
+      try {
+        const { inspectStandardPluginHealth, standardPluginHealthMessage, formatStandardPluginHint } = await import("../commands/shared/standard-plugins");
+        const msg = standardPluginHealthMessage(inspectStandardPluginHealth());
+        if (msg) {
+          console.error(`  ${msg}`);
+          console.error(`  ${formatStandardPluginHint()}`);
+        }
+      } catch {}
       // UserError: output already printed above; top-level catch just
       // exits 1 without bun's default stack trace (alpha.66 polish).
       throw new UserError(`unknown command: ${args[0]}`);

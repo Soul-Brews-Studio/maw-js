@@ -2,6 +2,7 @@ import { listSessions, getPaneInfos, isAgentCommand } from "../../sdk";
 import { buildCommandInDir, loadConfig } from "../../config";
 import { Tmux } from "../../core/transport/tmux";
 import { enginePatternKeysForConfig } from "../../config/engine-registry";
+import { STANDARD_PLUGIN_MIN_COUNT, standardPluginHealthMessage } from "./standard-plugins";
 
 export interface PreflightFs {
   readdirSync: typeof import("fs").readdirSync;
@@ -23,6 +24,7 @@ export interface PreflightDeps {
   loadConfig: typeof loadConfig;
   tmux: Pick<Tmux, "sendText">;
   log: (...args: unknown[]) => void;
+  standardPluginMinimum: number;
 }
 
 export function preflightDeps(overrides: Partial<PreflightDeps> = {}): PreflightDeps {
@@ -31,7 +33,7 @@ export function preflightDeps(overrides: Partial<PreflightDeps> = {}): Preflight
     packageVersion: () => require("../../../package.json").version,
     pluginDir: () => {
       const { mawDataPath } = require("../../core/xdg") as typeof import("../../core/xdg");
-      return mawDataPath("plugins");
+      return process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
     },
     fs: async () => await import("fs"),
     join: (...parts: string[]) => {
@@ -45,6 +47,7 @@ export function preflightDeps(overrides: Partial<PreflightDeps> = {}): Preflight
     loadConfig,
     tmux: new Tmux(),
     log: (...args: unknown[]) => console.log(...args),
+    standardPluginMinimum: STANDARD_PLUGIN_MIN_COUNT,
     ...overrides,
   };
 }
@@ -72,14 +75,30 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}, deps: Partial<P
       const p = io.join(pluginDir, e);
       try { if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(e); } catch {}
     }
-    if (broken.length > 0) {
-      if (opts.fix) {
-        for (const b of broken) { try { unlinkSync(io.join(pluginDir, b)); fixed++; } catch {} }
-        io.log(`  \x1b[33m⚠\x1b[0m plugins: ${entries.length} loaded, ${broken.length} broken symlinks fixed`);
-      } else {
-        io.log(`  \x1b[31m✗\x1b[0m plugins: ${entries.length} loaded, ${broken.length} broken symlinks`);
+    const count = entries.length - broken.length;
+    const health = {
+      pluginDir,
+      count,
+      broken,
+      status: count === 0 ? "missing" as const : count < io.standardPluginMinimum ? "low" as const : "ok" as const,
+      minExpected: io.standardPluginMinimum,
+    };
+    const healthMessage = standardPluginHealthMessage(health);
+    if (broken.length > 0 && opts.fix) {
+      for (const b of broken) { try { unlinkSync(io.join(pluginDir, b)); fixed++; } catch {} }
+      io.log(`  \x1b[33m⚠\x1b[0m plugins: ${entries.length} loaded, ${broken.length} broken symlinks fixed`);
+      if (count < io.standardPluginMinimum) {
+        io.log(`      ${healthMessage}`);
+        io.log(`      run: maw plugin install --standard`);
         fail++;
       }
+    } else if (broken.length > 0) {
+      io.log(`  \x1b[31m✗\x1b[0m plugins: ${entries.length} loaded, ${broken.length} broken symlinks`);
+      fail++;
+    } else if (healthMessage) {
+      io.log(`  \x1b[31m✗\x1b[0m plugins: ${healthMessage}`);
+      io.log(`      run: maw plugin install --standard`);
+      fail++;
     } else {
       io.log(`  \x1b[32m✓\x1b[0m plugins: ${entries.length} loaded, 0 broken`);
       pass++;

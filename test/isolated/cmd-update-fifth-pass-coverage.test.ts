@@ -339,6 +339,7 @@ describe("cmd-update fifth-pass runtime branches", () => {
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "main"],
     ]);
     const crashStashes = _fs.readdirSync(dirname(mawBin)).filter((entry) => entry.startsWith("maw.prev.crash."));
     expect(crashStashes).toHaveLength(1);
@@ -361,6 +362,7 @@ describe("cmd-update fifth-pass runtime branches", () => {
       ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
       ["chmod", "+x", mawBin],
       ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "v26.5.16-alpha.1053"],
     ]);
     expect(res.stderr).not.toContain("first install attempt failed");
     expect(res.stdout).toContain("installed release binary");
@@ -404,6 +406,7 @@ describe("cmd-update fifth-pass runtime branches", () => {
     expect(res.code).toBeUndefined();
     expect(spawnCalls).toEqual([
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["maw", "plugin", "install", "--standard", "--ref", "main"],
     ]);
     expect(execSyncCalls).toContain("maw --version");
     expect(res.stdout).toContain("✅ done");

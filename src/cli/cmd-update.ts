@@ -100,6 +100,20 @@ export function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { 
   return { healed, pruned };
 }
 
+
+/** @internal exported for default-run coverage tests. */
+export async function installStandardPluginsAfterUpdate(ref: string): Promise<void> {
+  console.log(`\n  🔌 ensuring standard plugins`);
+  const proc = Bun.spawn(["maw", "plugin", "install", "--standard", "--ref", ref], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`\x1b[31merror\x1b[0m: standard plugin bootstrap failed after update`);
+    process.exit(code);
+  }
+}
+
 export async function runUpdate(args: string[]): Promise<void> {
   const { repository } = require("../../package.json");
   // args[0] is "update"; first non-flag positional is the ref.
@@ -432,6 +446,8 @@ export async function runUpdate(args: string[]): Promise<void> {
         }
       }
     } catch {}
+
+    await installStandardPluginsAfterUpdate(ref);
 
     // Arrow confirmation — "before → after" mirrors the header but with the
     // actual resolved version (in case ref was 'main' or channel shortcut).
