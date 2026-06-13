@@ -4,9 +4,18 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mockConfigModule } from "../helpers/mock-config";
 
+const originalEnv = {
+  cli: process.env.MAW_CLI,
+  ui: process.env.MAW_UI_DIR,
+  gateway: process.env.MAW_GATEWAY,
+};
 const uiDir = mkdtempSync(join(tmpdir(), "maw-ui-present-core-server-"));
 process.env.MAW_UI_DIR = uiDir;
 delete process.env.MAW_CLI;
+// Keep this auto-start assertion focused on server.ts's MAW_CLI guard.
+// Ambient gateway overrides can route startup through the Rust sidecar and
+// make Bun.serve counting an unrelated assertion.
+delete process.env.MAW_GATEWAY;
 
 let config: Record<string, any> = {};
 let serveCalls: any[] = [];
@@ -151,8 +160,7 @@ const original = {
   log: console.log,
   warn: console.warn,
   error: console.error,
-  cli: process.env.MAW_CLI,
-  ui: process.env.MAW_UI_DIR,
+  ...originalEnv,
 };
 
 Bun.serve = ((opts: any) => {
@@ -171,10 +179,21 @@ console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); }
 console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
 console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
 
+async function waitForAutoStartServeCall(): Promise<void> {
+  // #2829: server.ts auto-start performs several awaited setup phases before
+  // Bun.serve is reached. Two microtask flushes passed locally but were too
+  // short on Ubuntu release runners, leaving this test to sample count=0 even
+  // though product auto-start was still progressing. Poll the mocked Bun.serve
+  // seam instead of relying on scheduler-specific timing.
+  const deadline = Date.now() + 1_000;
+  while (serveCalls.length === 0 && Date.now() < deadline) {
+    await Bun.sleep(1);
+  }
+}
+
 const serverModule = await import("../../src/core/server.ts?core-server-more-coverage-2");
 const { startServer, views } = serverModule;
-await Promise.resolve();
-await Promise.resolve();
+await waitForAutoStartServeCall();
 const autoStartServeCount = serveCalls.length;
 const autoStartLogs = [...logs];
 
@@ -364,5 +383,6 @@ afterAll(() => {
   console.error = original.error;
   if (original.cli === undefined) delete process.env.MAW_CLI; else process.env.MAW_CLI = original.cli;
   if (original.ui === undefined) delete process.env.MAW_UI_DIR; else process.env.MAW_UI_DIR = original.ui;
+  if (original.gateway === undefined) delete process.env.MAW_GATEWAY; else process.env.MAW_GATEWAY = original.gateway;
   rmSync(uiDir, { recursive: true, force: true });
 });
