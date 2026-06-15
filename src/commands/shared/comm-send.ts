@@ -79,11 +79,17 @@ export async function resolveOraclePane(
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
-  // Try tmux session name: "08-mawjs" → "mawjs"
-  try {
-    const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-    if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
-  } catch {}
+  // Only trust the tmux session name when we are actually inside a tmux client.
+  // Outside tmux ($TMUX unset), `display-message` resolves the most-recent
+  // attached session and returns a name instead of throwing — so the try/catch
+  // below would never fire and the sender would be mis-tagged as a stray session
+  // (e.g. "05-eq3"). Guard on $TMUX so the off-tmux path falls through to config.node.
+  if (process.env.TMUX) {
+    try {
+      const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");  // "08-mawjs" → "mawjs"
+    } catch {}
+  }
   return config.node || "cli";
 }
 
