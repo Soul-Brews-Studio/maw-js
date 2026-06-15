@@ -11,7 +11,7 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleetEntries: () => fleetEntries,
 }));
 
-const { configureFleet, generateClaudeMd, initVault, writeBirthNote } = await import("../../src/vendor/mpr-plugins/bud/bud-init.ts?bud-init-coverage");
+const { configureFleet, generateClaudeMd, generateClaudeSettings, initVault, writeBirthNote } = await import("../../src/vendor/mpr-plugins/bud/bud-init.ts?bud-init-coverage");
 
 const captureLogs = (fn: () => unknown) => {
   const logs: string[] = [];
@@ -53,6 +53,31 @@ describe("bud init helper coverage", () => {
     const note = readFileSync(join(psiDir as string, "memory", "learnings", readdirSync(join(psiDir as string, "memory", "learnings"))[0]), "utf-8");
     expect(note).toContain("# Why sprout was born");
     expect(note).toContain("Root oracle — no parent");
+  });
+
+  test("generateClaudeSettings writes a portable $HOME hook path, not the bud-time absolute path", () => {
+    const { logs } = captureLogs(() => generateClaudeSettings(repoDir));
+    const settingsPath = join(repoDir, ".claude", "settings.json");
+    expect(existsSync(settingsPath)).toBe(true);
+
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const startCmd = settings.hooks.SessionStart[0].hooks[0].command as string;
+    const stopCmd = settings.hooks.Stop[0].hooks[0].command as string;
+
+    // Literal $HOME — expands at runtime on whatever host runs the budded repo.
+    expect(startCmd).toBe("CLAUDE_HOOK_EVENT=SessionStart $HOME/.config/maw/hooks/status-reporter.sh");
+    expect(stopCmd).toBe("CLAUDE_HOOK_EVENT=Stop $HOME/.config/maw/hooks/status-reporter.sh");
+    // Must NOT bake the bud machine's resolved home dir into the committed file.
+    expect(startCmd).not.toContain(process.env.HOME as string);
+    expect(logs.join("\n")).toContain(".claude/settings.json + status hooks");
+  });
+
+  test("generateClaudeSettings is idempotent — preserves an existing settings.json", () => {
+    mkdirSync(join(repoDir, ".claude"), { recursive: true });
+    writeFileSync(join(repoDir, ".claude", "settings.json"), '{"keep":true}\n');
+    const { logs } = captureLogs(() => generateClaudeSettings(repoDir));
+    expect(JSON.parse(readFileSync(join(repoDir, ".claude", "settings.json"), "utf-8"))).toEqual({ keep: true });
+    expect(logs.join("\n")).toContain(".claude/settings.json exists");
   });
 
   test("generateClaudeMd writes parent/root variants and preserves existing files", () => {
