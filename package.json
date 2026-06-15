@@ -1,10 +1,6 @@
 {
   "name": "maw-js",
-<<<<<<< HEAD
   "version": "26.6.6-alpha.1615",
-=======
-  "version": "26.6.6-alpha.1615",
->>>>>>> e3609b00 (bump: v26.6.6-alpha.1615)
   "license": "BUSL-1.1",
   "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
