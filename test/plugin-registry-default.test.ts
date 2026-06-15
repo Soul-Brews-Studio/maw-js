@@ -138,17 +138,15 @@ describe("discoverPackages default-suite coverage", () => {
     }));
 
     expect(discovered.map((p) => p.name).sort()).toEqual(["global-only", "global-shared", "local-only", "local-shared"]);
-    expect(discovered.find((p) => p.name === "global-shared")).toEqual({
-      name: "global-shared",
-      dir: join(pluginsDir, "global-shared"),
-      weight: 10,
-    });
+    expect(discovered.find((p) => p.name === "global-shared")?.name).toBe("global-shared");
+    expect(discovered.find((p) => p.name === "global-shared")?.dir.endsWith("/apps/bot/.maw/plugins/global-shared")).toBe(true);
+    expect(discovered.find((p) => p.name === "global-shared")?.weight).toBe(1);
     const localShared = discovered.find((p) => p.name === "local-shared");
     expect(localShared?.weight).toBe(5);
     expect(localShared?.dir.endsWith("/apps/bot/.maw/plugins/local-shared")).toBe(true);
   });
 
-  test("global plugins win on name collisions against repo-local plugins", () => {
+  test("local plugins win on name collisions against ancestor and global plugins", () => {
     const project = join(testRoot, "workspace", "pkg");
     const localPlugins = join(project, ".maw", "plugins");
     const cwd = join(project, "src");
@@ -161,8 +159,44 @@ describe("discoverPackages default-suite coverage", () => {
     resetDiscoverCache();
 
     const discovered = discoverPackages().find((p) => p.manifest.name === "shared-name");
-    expect(discovered?.dir).toBe(join(pluginsDir, "shared-name"));
-    expect(discovered?.manifest.weight).toBe(10);
+    expect(discovered?.dir.endsWith("/workspace/pkg/.maw/plugins/shared-name")).toBe(true);
+    expect(discovered?.manifest.weight).toBe(1);
+  });
+
+  test("warns when a later scanned plugin shadows an already loaded name", () => {
+    const project = join(testRoot, "workspace", "pkg");
+    const localPlugins = join(project, ".maw", "plugins");
+    const cwd = join(project, "src");
+    mkdirSync(cwd, { recursive: true });
+
+    const ignoredDir = writeEntryPlugin(pluginsDir, "shadowed-plugin", { weight: 10 });
+    const winnerDir = writeEntryPlugin(localPlugins, "shadowed-plugin", { weight: 1 });
+
+    process.chdir(cwd);
+    resetDiscoverCache();
+
+    const stderr: string[] = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const discovered = discoverPackages().filter((p) => p.manifest.name === "shadowed-plugin");
+      expect(discovered).toHaveLength(1);
+      expect(discovered[0].dir.endsWith("/workspace/pkg/.maw/plugins/shadowed-plugin")).toBe(true);
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const warning = stderr.join("");
+    expect(warning).toContain(`plugin 'shadowed-plugin' shadowed: using `);
+    expect(warning).toContain("workspace/pkg/.maw/plugins/shadowed-plugin");
+    const localShadowIndex = warning.indexOf("workspace/pkg/.maw/plugins/shadowed-plugin");
+    const globalShadowIndex = warning.indexOf("/plugins/shadowed-plugin");
+    expect(localShadowIndex).toBeGreaterThan(-1);
+    expect(globalShadowIndex).toBeGreaterThan(-1);
+    expect(localShadowIndex).toBeLessThan(globalShadowIndex);
   });
 
   test("memoizes default discovery until resetDiscoverCache is called", () => {
@@ -240,6 +274,29 @@ describe("discoverPackages default-suite coverage", () => {
     expect(warningText).toContain("plugin 'registry-unbuilt' is unbuilt");
     expect(warningText).toContain("plugin 'registry-missing-artifact' artifact missing");
     expect(warningText).toContain("plugin 'registry-hash-mismatch' artifact hash mismatch");
+  });
+
+  test("applies .overrides.json from every scanned plugin directory", () => {
+    const localPlugins = join(testRoot, "local-plugins");
+    writeEntryPlugin(pluginsDir, "global-weighted", { weight: 40 });
+    writeEntryPlugin(localPlugins, "local-weighted", { weight: 50 });
+
+    writeFileSync(join(pluginsDir, ".overrides.json"), JSON.stringify({
+      "global-weighted": 30,
+    }));
+    writeFileSync(join(localPlugins, ".overrides.json"), JSON.stringify({
+      "local-weighted": 1,
+    }));
+
+    const discovered = discoverPackages({
+      scanDirs: () => [pluginsDir, localPlugins],
+      loadConfig: () => ({ disabledPlugins: [] }),
+    }).map((p) => [p.manifest.name, p.manifest.weight] as const);
+
+    expect(discovered).toEqual([
+      ["local-weighted", 1],
+      ["global-weighted", 30],
+    ]);
   });
 
   test("applies injected active profile filters after defaulting missing tiers to core", () => {

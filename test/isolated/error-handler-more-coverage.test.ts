@@ -10,11 +10,16 @@ import { UserError } from "../../src/core/util/user-error";
 
 const originalExit = process.exit;
 const originalError = console.error;
+const originalStderrWrite = process.stderr.write;
 const stderr: string[] = [];
 
 beforeEach(() => {
   stderr.length = 0;
   console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
+  process.stderr.write = ((chunk: unknown) => {
+    stderr.push(String(chunk).replace(/\n$/, ""));
+    return true;
+  }) as typeof process.stderr.write;
   process.exit = ((code?: string | number | null | undefined) => {
     throw new Error(`__exit__:${code ?? 0}`);
   }) as typeof process.exit;
@@ -23,13 +28,14 @@ beforeEach(() => {
 afterEach(() => {
   process.exit = originalExit;
   console.error = originalError;
+  process.stderr.write = originalStderrWrite;
 });
 
 describe("handleTopLevelError", () => {
-  test("exits silently for user-facing UserError failures", () => {
+  test("prints user-facing UserError messages without a stack trace", () => {
     expect(() => handleTopLevelError(new UserError("bad input"), ["wake"])).toThrow("__exit__:1");
 
-    expect(stderr).toEqual([]);
+    expect(stderr).toEqual(["bad input"]);
   });
 
   test("renders ambiguous tmux matches with actionable context", () => {

@@ -52,6 +52,8 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () => ({
   attachToSession: async () => {},
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: () => undefined,
+  writeWorktreeEngineFile: () => {},
   ensureSessionRunning: async () => 0,
   createWorktree: async () => { throw new Error("createWorktree should not run"); },
 }));

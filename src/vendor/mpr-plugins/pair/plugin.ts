@@ -1,0 +1,19 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "pair",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Bluetooth-style federation pairing — ephemeral code handshake (#573, facet 3 of #565).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "pair",
+    "aliases": [],
+    "help": "maw pair | maw pair accept <code> [--at <url>] — ephemeral federation pairing"
+  },
+  "weight": 30,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

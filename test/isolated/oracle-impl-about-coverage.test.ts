@@ -21,6 +21,7 @@ let sessions: Session[] = [];
 let detectedSession: string | null = null;
 let resolveResult: ResolveOracleResult = { repoPath: null, repoName: "", parentDir: null };
 let worktrees: Array<{ name: string; path: string }> = [];
+let cache: any = null;
 let captureByTarget = new Map<string, string | Error>();
 let resolveCalls: string[] = [];
 let detectCalls: string[] = [];
@@ -55,6 +56,7 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
     if (value instanceof Error) throw value;
     return value ?? "";
   },
+  readCache: () => cache,
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake"), () => ({
@@ -100,6 +102,7 @@ beforeEach(() => {
   detectedSession = null;
   resolveResult = { repoPath: null, repoName: "", parentDir: null };
   worktrees = [];
+  cache = null;
   captureByTarget = new Map();
   resolveCalls = [];
   detectCalls = [];
@@ -177,6 +180,73 @@ describe("oracle about impl isolated coverage", () => {
       { target: "mawjs-live:1", lines: 3 },
       { target: "mawjs-live:2", lines: 3 },
     ]);
+  });
+
+
+
+  test("prints JSON without ANSI for machine consumers (#2688)", async () => {
+    resolveResult = {
+      repoPath: "/repo/mawjs",
+      repoName: "mawjs",
+      parentDir: "/repo",
+    };
+    detectedSession = "mawjs-live";
+    sessions = [
+      {
+        name: "mawjs-live",
+        windows: [{ index: 0, name: "mawjs-oracle" }],
+      },
+    ];
+    worktrees = [{ name: "main", path: "/repo/mawjs" }];
+    writeFleet("mawjs.json", [{ name: "mawjs-oracle" }]);
+
+    await cmdOracleAbout("mawjs", { json: true });
+
+    const raw = output();
+    expect(raw).not.toMatch(/\x1B\[/);
+    const record = JSON.parse(raw);
+    expect(record).toEqual({
+      name: "mawjs",
+      repoPath: "/repo/mawjs",
+      repoName: "mawjs",
+      session: "mawjs-live",
+      windows: [{ index: 0, name: "mawjs-oracle" }],
+      worktrees: [{ name: "main", path: "/repo/mawjs" }],
+      fleetFile: "mawjs.json",
+      fleetWindowCount: 1,
+    });
+    expect(captureCalls).toEqual([]);
+  });
+
+  test("falls back to oracles.json local_path when live resolution misses (#2689)", async () => {
+    cache = {
+      schema: 1,
+      local_scanned_at: new Date().toISOString(),
+      ghq_root: "/repo",
+      oracles: [
+        {
+          org: "Soul-Brews-Studio",
+          repo: "scanned-oracle",
+          name: "scanned",
+          local_path: "/repo/scanned-oracle",
+          has_psi: true,
+          has_fleet_config: false,
+          budded_from: null,
+          budded_at: null,
+          federation_node: "local",
+          detected_at: new Date().toISOString(),
+        },
+      ],
+    };
+    worktrees = [{ name: "wt", path: "/repo/scanned-oracle-wt" }];
+
+    await cmdOracleAbout("scanned");
+
+    const plain = stripAnsi(output());
+    expect(plain).toContain("Repo:      /repo/scanned-oracle");
+    expect(plain).not.toContain("Repo:      (not found)");
+    expect(plain).toContain("Worktrees: 1");
+    expect(findWorktreeCalls).toEqual([{ parentDir: "/repo", repoName: "scanned-oracle" }]);
   });
 
   test("uses fleet membership as a valid oracle signal even without repo or session", async () => {

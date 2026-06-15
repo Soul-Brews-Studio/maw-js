@@ -73,7 +73,32 @@ mock.module("child_process", () => ({
 
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => hostExecImpl(cmd),
+  ghqFind: async () => ghqPath,
   FLEET_DIR: join(tmpRoot || tmpdir(), "fleet"),
+  getGhqRoot: () => ghqRoot,
+  fleetLoadDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
+  ensureCloned: async (slug: string) => { hostExecCalls.push(`ensureCloned:${slug}`); },
+  parseWakeTarget: (value: string) => value.includes("/") ? { oracle: value.split("/").pop()?.replace(/-oracle$/, "") ?? value, slug: value } : null,
+  shouldAutoWake: (name: string, ctx: unknown) => ({ wake: shouldWake, reason: `skip ${name} ${JSON.stringify(ctx)}` }),
+  loadFleetCore: () => [],
+  loadFleetEntries: () => fleetEntries,
+  fleetLoadDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
+  ghqFind: async () => null,
+  shouldAutoWake: (name: string, ctx: unknown) => ({ wake: shouldWake, reason: `skip ${name} ${JSON.stringify(ctx)}` }),
+  cmdWake: async (...args: unknown[]) => { wakeCalls.push(args); },
+  fetchIssuePrompt: async (issue: number, slug: string) => `issue ${issue} for ${slug}`,
+  parseWakeTarget: (value: string) => value.includes("/") ? { oracle: value.split("/").pop()?.replace(/-oracle$/, "") ?? value, slug: value } : null,
+  ensureCloned: async (slug: string) => { hostExecCalls.push(`ensureCloned:${slug}`); },
+  cmdSplit: async () => { if (splitThrows) throw new Error("split nope child"); },
+  setCachedNickname: () => {},
+  validateNickname: () => {},
+  writeNickname: () => {},
+  loadConfig: () => ({}),
+  normalizeTarget: (target: string) => target,
+  writeSignal: async () => undefined,
+  assertValidOracleName: () => undefined,
+  mawStatePath: (...parts: string[]) => join(tmpRoot || tmpdir(), ".maw", "state", ...parts),
+  legacyMawPath: (...parts: string[]) => join(tmpRoot || tmpdir(), ".maw", ...parts),
 }));
 mock.module("maw-js/config/ghq-root", () => ({ getGhqRoot: () => ghqRoot }));
 mock.module("maw-js/commands/shared/wake", () => ({
@@ -86,10 +111,21 @@ mock.module("maw-js/commands/shared/should-auto-wake", () => ({
 mock.module("maw-js/commands/shared/wake-target", () => ({
   parseWakeTarget: (value: string) => value.includes("/") ? { oracle: value.split("/").pop()?.replace(/-oracle$/, "") ?? value, slug: value } : null,
   ensureCloned: async (slug: string) => { hostExecCalls.push(`ensureCloned:${slug}`); },
+  cmdSplit: async () => { if (splitThrows) throw new Error("split nope child"); },
+  setCachedNickname: () => {},
+  validateNickname: () => {},
+  writeNickname: () => {},
+  loadConfig: () => ({}),
+  normalizeTarget: (target: string) => target,
+  writeSignal: async () => undefined,
+  assertValidOracleName: () => undefined,
+  mawStatePath: (...parts: string[]) => join(tmpRoot || tmpdir(), ".maw", "state", ...parts),
+  legacyMawPath: (...parts: string[]) => join(tmpRoot || tmpdir(), ".maw", ...parts),
 }));
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   fleetDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
   loadFleetEntries: () => fleetEntries,
+  fleetLoadDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
   loadFleet: () => [],
 }));
 mock.module(join(budRoot, "internal/soul-sync-impl"), () => ({
@@ -130,6 +166,7 @@ mock.module(join(budRoot, "smart-default-org"), () => ({
 mock.module(join(budRoot, "bud-repo"), () => ({ ensureBudRepo: async (_slug: string, predicted: string) => predicted }));
 mock.module(join(budRoot, "bud-init"), () => ({
   initVault: (repoPath: string) => { const psi = join(repoPath, "ψ"); mkdirSync(psi, { recursive: true }); return psi; },
+  generateClaudeSettings: (...args: unknown[]) => { hostExecCalls?.push?.(`generateClaudeSettings:${JSON.stringify(args)}`); },
   generateClaudeMd: (...args: unknown[]) => { hostExecCalls.push(`generateClaudeMd:${JSON.stringify(args)}`); },
   configureFleet: (name: string) => join(tmpRoot, `${name}.json`),
   writeBirthNote: (...args: unknown[]) => { hostExecCalls.push(`writeBirthNote:${JSON.stringify(args)}`); },

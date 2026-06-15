@@ -134,6 +134,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
   buildCommandInDir: (windowName: string, cwd: string, engine?: string) =>
     `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
   cfgTimeout: () => 0,
+  cfgLimit: () => 0,
   loadConfig: () => ({ node: "m5", agents: configAgents }),
   saveConfig: (patch: any) => { savedConfigs.push(patch); },
 }));
@@ -162,6 +163,8 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   attachToSession: async (session: string) => { attachCalls.push(session); },
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: () => undefined,
+  writeWorktreeEngineFile: () => {},
   waitForEngine: async () => {},
   ensureSessionRunning: async () => ensureSessionRunningReturn,
   createWorktree: async (...args: any[]) => {
@@ -193,6 +196,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   latestSnapshot: () => snapshotReturn,
+  listSnapshots: () => snapshotReturn ? [{ file: "latest.json", timestamp: snapshotReturn.timestamp ?? "latest" }] : [],
   loadSnapshot: () => snapshotReturn,
 }));
 
@@ -329,7 +333,7 @@ describe("wake-cmd eleventh-pass isolated coverage", () => {
     expect(snapshots).toEqual(["wake"]);
     const text = plain();
     expect(text).toContain("created session '10-neo'");
-    expect(text).toContain("team 'neo' auto-created");
+    expect(text).not.toContain("team 'neo' auto-created");
     expect(text).toContain("snapshot restore: 1 window");
     expect(text).toContain("2 window(s) reordered");
   });

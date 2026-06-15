@@ -9,7 +9,7 @@ export type Filter = (event: FeedEvent) => FeedEvent;
 export type Handler = (event: Readonly<FeedEvent>) => void | Promise<void>;
 export type Late = (event: Readonly<FeedEvent>) => void;
 export type MawPlugin = (hooks: MawHooks) => void | (() => void);
-export type PluginScope = "builtin" | "user";
+export type PluginScope = "builtin" | "user" | "project";
 
 export interface Scoped<T> { fn: T; scope: PluginScope; name?: string; }
 

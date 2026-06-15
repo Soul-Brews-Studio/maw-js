@@ -263,7 +263,14 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
       reader,
     });
     reader.emit("end");
-    await expect(picked).resolves.toBeNull();
+    await expect(picked).resolves.toMatchObject({
+      owner: "o",
+      repo: "r-oracle",
+      path: undefined,
+      lastActivityMs: 0,
+      hasLiveSession: false,
+      recommended: true,
+    });
     await expect(coreResolve.pickOracle([{ owner: "o", repo: "r-oracle" }], {
       stream: { write: () => true } as any,
       reader: { on: () => { throw new Error("tty gone"); }, resume: () => {} } as any,
@@ -398,7 +405,7 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
       fleetEntry("02-beta.json", 2, "beta", "02-beta"),
       fleetEntry("02-alpha.json", 2, "alpha", "02-alpha"),
       fleetEntry("99-overview.json", 99, "overview", "99-overview"),
-    ], { running: ["alpha", "02-beta"] });
+    ], { running: ["02-alpha", "02-beta"] });
     await fleetManage.cmdFleetRenumber(conflict.deps);
     expect(conflict.writes.map(([path]) => path)).toEqual(["/fleet/.tmp-01-alpha.json"]);
     expect(conflict.localLogs.join("\n")).toContain("02-alpha.json");

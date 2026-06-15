@@ -29,7 +29,7 @@ const originalSpawn = Bun.spawn;
 let spawnQueue: Array<{ stdout?: string; code?: number } | Error> = [];
 
 const engine = await import("../../src/core/runtime/triggers-engine.ts?runtime-triggers-extra");
-const { fire, getTriggers, getTriggerHistory, idleTimers, agentPrevState } = engine;
+const { fire, getTriggers, getTriggerHistory, idleTimers, agentPrevState, sweepStaleAgentState, STALE_AGENT_STATE_MS } = engine;
 
 function mockSpawn() {
   Bun.spawn = ((cmd: string[]) => {
@@ -64,6 +64,23 @@ describe("runtime trigger engine", () => {
     expect(getTriggers()).toEqual(triggers);
     expect(idleTimers.get("oracle")).toBe(123);
     expect(agentPrevState.get("oracle")).toBe("busy");
+  });
+
+
+  test("sweepStaleAgentState prunes agents absent from feed events for over one hour", () => {
+    const now = 1_779_100_000_000;
+    idleTimers.set("stale-busy", now - STALE_AGENT_STATE_MS - 1);
+    agentPrevState.set("stale-busy", "busy");
+    idleTimers.set("fresh-idle", now - STALE_AGENT_STATE_MS);
+    agentPrevState.set("fresh-idle", "idle");
+    agentPrevState.set("orphan-state", "idle");
+
+    expect(sweepStaleAgentState(now)).toEqual(["stale-busy", "orphan-state"]);
+    expect(idleTimers.has("stale-busy")).toBe(false);
+    expect(agentPrevState.has("stale-busy")).toBe(false);
+    expect(idleTimers.has("fresh-idle")).toBe(true);
+    expect(agentPrevState.get("fresh-idle")).toBe("idle");
+    expect(agentPrevState.has("orphan-state")).toBe(false);
   });
 
   test("fires matching triggers with template expansion, audit history, and once removal", async () => {

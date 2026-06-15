@@ -63,6 +63,31 @@ mock.module("maw-js/commands/shared/comm", () => ({
   cmdPeek: async (target?: string) => record("peek", target),
 }));
 
+const sdkMock = {
+  cmdPeek: async (target?: string) => record("peek", target),
+  cmdSleep: async () => record("stop", undefined),
+  listSessions: async () => [],
+  hostExec: async () => "",
+  tmuxCmd: () => "tmux-test",
+  curlFetch: async () => ({ ok: true, data: {} }),
+  saveTabOrder: async () => undefined,
+  takeSnapshot: async () => undefined,
+  FLEET_DIR: "/tmp/maw-vendor-more-fleet",
+  tmux: {
+    run: async () => "",
+    sendKeysLiteral: async () => undefined,
+    sendKeys: async () => undefined,
+    listWindows: async () => [],
+    killWindow: async () => undefined,
+  },
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => sdkMock);
+
 mock.module(prImplPath, () => ({
   cmdPr: async (window?: string) => record("pr", window),
 }));

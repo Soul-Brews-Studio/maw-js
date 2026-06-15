@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  cwdWorkHint,
   resolveFromWorktrees,
   resolveLocalOracleRepoName,
   sanitizeBranchName,
@@ -9,6 +10,18 @@ import type { WorktreeInfo } from "../src/core/fleet/worktrees-scan";
 // Default coverage command only collects test/*.test.ts. Keep these tests free
 // of Bun module mocks: the colocated resolver suite mocks sdk/config globally,
 // which can pollute unrelated default-run suites when CI test ordering changes.
+
+describe("cwdWorkHint (#2679) — pure hint helper", () => {
+  it("suggests maw work with the cwd repo basename when inside a git repo", () => {
+    expect(cwdWorkHint("/tmp/ignored/subdir", "/opt/Code/github.com/Soul-Brews-Studio/maw-js")).toContain("maw work");
+    expect(cwdWorkHint("/tmp/ignored/subdir", "/opt/Code/github.com/Soul-Brews-Studio/maw-js")).toContain("maw-js");
+  });
+
+  it("returns null when cwd is not inside a git repo", () => {
+    expect(cwdWorkHint("/tmp/not-a-repo", null)).toBeNull();
+    expect(cwdWorkHint("/tmp/not-a-repo", "")).toBeNull();
+  });
+});
 
 describe("sanitizeBranchName (#823 Bug A) — default coverage", () => {
   it("strips all leading and trailing dash/dot runs", () => {

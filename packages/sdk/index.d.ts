@@ -52,10 +52,111 @@ export interface FeedEvent {
   timestamp: string;
   oracle: string;
   host: string;
-  event: string;
+  event: FeedEventType;
   project: string;
   sessionId: string;
   message: string;
+  ts: number;
+  data?: unknown;
+}
+
+export type FeedEventType =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "PostToolUseFailure"
+  | "UserPromptSubmit"
+  | "SubagentStart"
+  | "SubagentStop"
+  | "TaskCompleted"
+  | "SessionEnd"
+  | "SessionStart"
+  | "Stop"
+  | "Notification"
+  | "MessageSend"
+  | "MessageDeliver"
+  | "MessageFail"
+  | "WormholeRequest"
+  | "WormholeFail"
+  | "PluginHook"
+  | "PluginFilter"
+  | "PluginLoad"
+  | "PluginError";
+
+/** Where a message should be delivered. */
+export interface TransportTarget {
+  oracle: string;
+  host?: string;
+  tmuxTarget?: string;
+}
+
+/** Failure reasons for transport send attempts. */
+export type TransportFailureReason =
+  | "timeout"
+  | "unreachable"
+  | "auth"
+  | "rate_limit"
+  | "rejected"
+  | "parse_error"
+  | "unknown";
+
+/** Result of a transport send attempt. */
+export interface TransportResult {
+  ok: boolean;
+  via: string;
+  reason?: TransportFailureReason;
+  retryable: boolean;
+}
+
+/** Event-name → payload registry for plugin event hooks. */
+export interface PluginEventMap {
+  "transport:before_send": {
+    target: TransportTarget;
+    message: string;
+    from: string;
+  };
+  "transport:after_send": {
+    target: TransportTarget;
+    message: string;
+    from: string;
+    result: TransportResult;
+    via: string;
+  };
+  "transport:receive": {
+    from: string;
+    body: string;
+    transport: string;
+    timestamp: number;
+  };
+  "session:start": {
+    oracle: string;
+    session: string;
+    repoPath: string;
+  };
+  "session:end": {
+    oracle: string;
+    session: string;
+    window: string;
+  };
+  "feed:message_send": {
+    from: string;
+    to: string;
+    body: string;
+    channel: string;
+  };
+  "feed:status_change": {
+    oracle: string;
+    pane: string;
+    from: string;
+    to: string;
+  };
+  "serve:start": {
+    port: number;
+    hostname: string;
+  };
+  "serve:plugin_loaded": {
+    name: string;
+    phase: string;
+  };
 }
 
 export interface PluginInfo {
@@ -66,6 +167,64 @@ export interface PluginInfo {
   events: number;
   errors: number;
 }
+
+// --- plugin manifest helpers (definePlugin) ---
+
+export interface PluginManifestInput {
+  /** Plugin name (must match plugin.json name). */
+  name: string;
+  /** Optional plugin hooks, currently used for typed event handlers. */
+  hooks?: {
+    on?: readonly string[];
+    [key: string]: unknown;
+  };
+  /** Exports list consumed by module-loader consumers. */
+  module: {
+    exports: readonly string[];
+    path: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export type EventToHandlerName<E extends string> =
+  E extends `${infer Scope}:${infer Action}`
+    ? `on${Capitalize<Lowercase<Scope>>}${PascalFromSnake<Action>}`
+    : `on${Capitalize<Lowercase<E>>}`;
+
+type PascalFromSnake<T extends string> = T extends `${infer Head}_${infer Rest}`
+  ? `${Capitalize<Lowercase<Head>>}${PascalFromSnake<Rest>}`
+  : T extends `${infer Head}-${infer Rest}`
+    ? `${Capitalize<Lowercase<Head>>}${PascalFromSnake<Rest>}`
+    : Capitalize<Lowercase<T>>;
+
+/** Derive the typed handler map from hook event names. */
+export type HandlersFor<Events extends readonly string[]> = {
+  [Event in Events[number] as EventToHandlerName<Event>]:
+    Event extends keyof PluginEventMap
+      ? (event: PluginEventMap[Event]) => void | Promise<void>
+      : (event: unknown) => void | Promise<void>;
+};
+
+type ManifestHookEvents<T extends PluginManifestInput> =
+  T extends { hooks: { on: infer HookEvents } }
+    ? HookEvents extends readonly string[]
+      ? HookEvents
+      : []
+    : [];
+
+/** Validate `module.exports` contains all required typed handler names. */
+export type ValidateExports<T extends PluginManifestInput> =
+  keyof HandlersFor<ManifestHookEvents<T>> extends T["module"]["exports"][number]
+    ? T
+    : never;
+
+export type DefinedPlugin<T extends PluginManifestInput> =
+  ValidateExports<T> & {
+    implement(handlers: HandlersFor<ManifestHookEvents<T>>): ValidateExports<T> & HandlersFor<ManifestHookEvents<T>>;
+  };
+
+export declare function definePlugin<const T extends PluginManifestInput>(manifest: ValidateExports<T>): DefinedPlugin<T>;
 
 // --- Print helpers ---
 
@@ -192,6 +351,81 @@ export declare function parseFlags<T extends Record<string, unknown>>(
   skip?: number,
 ): { [key: string]: unknown; _: string[] };
 
+/** User-facing command error marker. */
+export declare class UserError extends Error {
+  readonly isUserError: true;
+}
+
+/** True when an error was raised for user-facing command feedback. */
+export declare function isUserError(e: unknown): e is UserError;
+export declare function assertValidOracleName(name: string): void;
+export declare function writeSignal(parentRoot: string, budName: string, payload: { kind: "info" | "alert" | "pattern"; message: string; context?: Record<string, unknown> }): string;
+export declare function validateNickname(raw: string): { ok: true; value: string } | { ok: false; error: string };
+export declare function writeNickname(repoPath: string, nickname: string): void;
+export declare function setCachedNickname(name: string, nickname: string): void;
+
+/** Normalize a user, task, or worktree label for wake branch/window names. */
+export declare function sanitizeBranchName(name: string): string;
+
+/** Render numeric buckets as a compact Unicode sparkline. */
+export declare function sparkline(values: number[], hadActivity?: boolean[]): string;
+
+// --- src/commands/shared/comm ---
+
+/** Peek/capture a target session or window and print the result. */
+export declare function cmdPeek(query?: string): Promise<void>;
+
+/** Resolve a local target using the same session/window resolver as maw peek. */
+export declare function resolvePeekTarget(query: string): Promise<string | null>;
+
+export interface InboxStatusBadgeResult {
+  status: "set" | "cleared" | "unchanged" | "failed";
+  session: string;
+  unread: number;
+  reason?: string;
+}
+
+/** Set or clear the persistent tmux status-line unread inbox badge. */
+export declare function updateInboxStatusBadge(target: string, unread: number): Promise<InboxStatusBadgeResult>;
+
+/** Send a message to an oracle/window target. */
+export declare function cmdSend(target: string, message: string, force?: boolean): Promise<void>;
+export declare function resolveOraclePane(target: string): Promise<string>;
+
+export interface PendingMessage {
+  id: string;
+  sender: string;
+  target: string;
+  message: string;
+  sentAt: string;
+  status: "pending" | "approved" | "rejected";
+  query?: string;
+}
+export declare const TTL_MS: number;
+export declare function pendingDir(): string;
+export declare function pendingPath(id: string): string;
+export declare function isExpired(msg: PendingMessage, now?: Date): boolean;
+export declare function savePending(input: { sender: string; target: string; message: string; query?: string }): PendingMessage;
+export declare function loadPending(): PendingMessage[];
+export declare function loadPendingById(id: string): PendingMessage | null;
+export declare function updatePending(id: string, patch: Partial<PendingMessage>): PendingMessage;
+export declare function deletePending(id: string): boolean;
+export declare function cmdSplit(target: string, opts?: Record<string, unknown>): Promise<void>;
+export interface AgentRow {
+  node: string;
+  session: string;
+  window: string;
+  oracle: string;
+  state: "active" | "idle";
+  pid: number | null;
+}
+export declare function buildAgentRows(
+  panes: Array<{ command: string; target: string; pid?: number }>,
+  windowNames: Map<string, string>,
+  nodeName: string,
+  opts?: { all?: boolean },
+): AgentRow[];
+
 // --- src/config ---
 
 /** Loaded operator config — opaque to plugins; consume via `cfg*` accessors. */
@@ -202,6 +436,41 @@ export interface MawConfig {
 /** Read the merged operator config (file + env overrides). */
 export declare function loadConfig(): MawConfig;
 
+/** Source file discovered while building operator config. */
+export interface ConfigSource {
+  path: string;
+  weight: number;
+  isLocal: boolean;
+  scope: string;
+  scopeRank: number;
+  depth: number;
+  mtimeMs: number;
+}
+
+export interface ConfigProvenanceEntry {
+  path: string;
+  scope: string;
+  weight: number;
+  isLocal: boolean;
+  action: string;
+  value: unknown;
+}
+
+/** Config loaded with provenance details and warnings. */
+export interface LoadedConfigWithProvenance {
+  config: MawConfig;
+  sources: ConfigSource[];
+  provenance: Record<string, ConfigProvenanceEntry[]>;
+  warnings: string[];
+}
+
+export interface LoadConfigOptions {
+  cwd?: string;
+}
+
+/** Read merged config plus merge provenance and warnings. */
+export declare function loadConfigWithProvenance(opts?: LoadConfigOptions): LoadedConfigWithProvenance;
+
 /** Look up a named timeout (ms). Throws on unknown key. */
 export declare function cfgTimeout(key: string): number;
 
@@ -210,6 +479,9 @@ export declare function buildCommand(agentName: string): string;
 
 /** Build the agent command line, anchored to a specific cwd. */
 export declare function buildCommandInDir(agentName: string, cwd: string): string;
+
+/** Resolve the bare ghq root without the github.com host suffix. */
+export declare function getGhqRoot(): string;
 
 // --- src/core/matcher/resolve-target ---
 
@@ -305,6 +577,15 @@ export declare function tlink(url: string, text?: string): string;
 // --- src/lib/profile-loader ---
 
 /** Profile shape (mirrors src/lib/schemas.ts Profile/TProfile). */
+
+export interface TScope {
+  name: string;
+  members: string[];
+  created: string;
+  ttl: string | null;
+  lead?: string;
+}
+
 export interface TProfile {
   name: string;
   plugins?: string[];
@@ -334,6 +615,81 @@ export declare function importPluginSymbol<T = unknown>(
   pluginName: string,
   symbolName: string,
 ): Promise<T>;
+
+
+// --- src/core/agent-detect ---
+
+/** Return true when a tmux pane command appears to be an agent runtime. */
+export declare function isAgentCommand(cmd: string | null | undefined): boolean;
+
+// --- src/lib/oracle-members ---
+
+export interface OracleMember {
+  oracle: string;
+  role: string;
+  addedAt: string;
+}
+
+export interface OracleTeamRegistry {
+  name: string;
+  members: OracleMember[];
+  createdAt: string;
+  excludeSelf?: boolean;
+}
+
+export declare function loadOracleRegistry(teamName: string): OracleTeamRegistry | null;
+export declare function filterMembers(
+  members: OracleMember[],
+  excludeSelf: boolean | undefined,
+  currentOracle?: string,
+): string[];
+export declare function getOracleMembers(teamName: string, currentOracle?: string): string[];
+
+// --- src/core/fleet/fleet-load-core ---
+
+export interface FleetWindow {
+  name: string;
+  repo: string;
+}
+
+export interface FleetSession {
+  name: string;
+  windows: FleetWindow[];
+  skip_command?: boolean;
+  sync_peers?: string[];
+  budded_from?: string;
+  project_repos?: string[];
+}
+
+export interface FleetEntry {
+  file: string;
+  path?: string;
+  num: number;
+  groupName: string;
+  session: FleetSession;
+}
+
+export interface DisabledFleetEntry {
+  file: string;
+  path: string;
+  num: number;
+  groupName: string;
+  session?: FleetSession;
+  error?: unknown;
+}
+
+export declare function fleetLoadDirsForRead(legacyFleetDir?: string): string[];
+export declare function fleetLoadDirForWrite(): string;
+export declare function loadFleetCore(dirs?: string[]): FleetSession[];
+export declare function countDisabledFleetFilesCore(dirs?: string[]): number;
+export declare function loadDisabledFleetEntriesCore(dirs?: string[]): DisabledFleetEntry[];
+export declare function loadFleetEntries(dirs?: string[]): FleetEntry[];
+
+/** Stop all configured fleet sessions. */
+export declare function cmdSleep(): Promise<void>;
+/** Wake all configured fleet sessions. */
+export declare function cmdWakeAll(opts?: { kill?: boolean; all?: boolean; resume?: boolean }): Promise<void>;
+export declare function detectSession(oracle: string, urlRepoName?: string): Promise<string | null>;
 
 // --- src/lib/artifacts ---
 
@@ -406,3 +762,210 @@ export declare function getArtifact(
 
 /** Get the artifact directory path (for agents to write into). */
 export declare function artifactDir(team: string, taskId: string): string;
+
+
+export interface SleepLifecycleContextInput {
+  oracle: string;
+  session: string;
+  window: string;
+  target: string;
+}
+
+export interface LifecycleRunSummary {
+  phase: "wake" | "sleep" | "serve";
+  ran: number;
+  skipped: number;
+  failed: number;
+}
+
+export declare function runSleepLifecycleHooks(context: SleepLifecycleContextInput): Promise<LifecycleRunSummary>;
+
+// --- src/core/xdg ---
+
+export declare function legacyMawPath(...parts: string[]): string;
+export declare function isMawXdgEnabled(): boolean;
+export declare function mawConfigDir(): string;
+export declare function mawRuntimeHomeDir(): string;
+export declare function mawDataDir(): string;
+export declare function mawStateDir(): string;
+export declare function mawCacheDir(): string;
+export declare function mawConfigPath(...parts: string[]): string;
+export declare function mawDataPath(...parts: string[]): string;
+export declare function mawMessageLogPath(): string;
+export declare function legacyOracleMessageLogPath(): string;
+export declare function mawMessageLogCandidatePaths(): string[];
+export declare function legacyOracleHookConfigPath(): string;
+export declare function mawHookConfigCandidatePaths(): string[];
+export declare function mawStatePath(...parts: string[]): string;
+export declare function mawCachePath(...parts: string[]): string;
+
+// --- src/lib/message-events ---
+
+export type MessageDirection = "outbound" | "inbound" | "forwarded";
+export type MessageState = "queued" | "delivered" | "failed";
+export type MessageChannel = "hey" | "send" | "api-send" | "plugin";
+export type MessageRoute = "local" | "peer" | "discovery" | "self-node" | "team" | string;
+
+export interface MessageLifecycleData {
+  id: string;
+  ts: string;
+  direction: MessageDirection;
+  state: MessageState;
+  channel: MessageChannel;
+  route: MessageRoute;
+  from: string;
+  to: string;
+  target?: string;
+  peerUrl?: string;
+  text: string;
+  error?: string;
+  lastLine?: string;
+  signed?: boolean;
+}
+
+export type MessageLifecycleInput = Omit<MessageLifecycleData, "id" | "ts"> & {
+  id?: string;
+  ts?: string | number | Date;
+};
+
+export declare function buildMessageLifecycleData(input: MessageLifecycleInput): MessageLifecycleData;
+export declare function buildMessageLifecycleFeedEvent(input: MessageLifecycleInput): FeedEvent;
+export declare function isMessageLifecycleData(value: unknown): value is MessageLifecycleData;
+
+// --- src/commands/shared/channel-loader ---
+
+export interface ChannelPlugin {
+  id: string;
+  env?: Record<string, string>;
+}
+
+export interface OracleChannelConfig {
+  plugins: ChannelPlugin[];
+  token_source?: string;
+  permissionMode?: "skip" | "relay";
+}
+
+export declare function loadOracleChannels(oracleStem: string): OracleChannelConfig | null;
+export declare function saveOracleChannels(oracleStem: string, config: OracleChannelConfig): void;
+export declare function listAllOracleChannels(): Array<{ oracle: string; plugins: ChannelPlugin[] }>;
+export declare function loadRepoChannels(repoPath: string): OracleChannelConfig | null;
+export declare function saveRepoChannels(repoPath: string, config: OracleChannelConfig): void;
+export declare function getChannelEnv(
+  oracleStem: string,
+  fleetEnvOverride?: Record<string, string>,
+  repoPath?: string,
+): Record<string, string>;
+
+// --- src/commands/shared/scan-signals ---
+
+export type SignalKind = "info" | "alert" | "pattern";
+
+export interface Signal {
+  timestamp: string;
+  bud: string;
+  kind: SignalKind;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+export interface ScannedSignal extends Signal {
+  file: string;
+}
+
+export declare function scanSignals(root: string, opts?: { days?: number }): ScannedSignal[];
+
+// --- src/commands/shared/wake ---
+
+export declare function fetchIssuePrompt(num: number, repo?: string): Promise<string>;
+export declare function cmdWake(oracle: string, opts: Record<string, unknown>): Promise<string>;
+export interface ParsedWakeTarget { oracle: string; slug: string; issueNum?: number }
+export declare function parseWakeTarget(target: string): ParsedWakeTarget | null;
+export declare function ensureCloned(slug: string): Promise<void>;
+export interface ShouldAutoWakeDecision { wake: boolean; reason: string }
+export declare function shouldAutoWake(oracle: string, opts: Record<string, unknown>): ShouldAutoWakeDecision;
+
+// --- src/commands/shared/pulse ---
+
+export declare function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: string; wt?: string }): Promise<void>;
+export declare function cmdPulseLs(opts?: { sync?: boolean }): Promise<void>;
+// --- SDK parity exports used by repo-vendored plugins (#2750) ---
+
+export interface InvokeContext {
+  source: "cli" | "api" | "peer";
+  args: string[] | Record<string, unknown>;
+}
+
+export interface InvokeResult {
+  ok: boolean;
+  output?: string;
+  error?: string;
+}
+
+export interface OracleEntry {
+  name: string;
+  repo?: string;
+  path?: string;
+  host?: string;
+  session?: string;
+  window?: string;
+  [key: string]: unknown;
+}
+
+export interface OracleManifestEntry {
+  name: string;
+  path?: string;
+  repo?: string;
+  host?: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export declare class SshAttachError extends Error {
+  code: string;
+  constructor(message: string, code?: string);
+}
+
+export declare const C: Record<string, string>;
+export declare function hostExec(host: string | undefined, command: string, opts?: Record<string, unknown>): Promise<string>;
+export declare function listSessions(host?: string): Promise<Session[]>;
+export declare function capture(target: string, lines?: number, host?: string): Promise<string>;
+export declare function sendKeys(target: string, keys: string | string[], host?: string): Promise<void>;
+export declare function getPaneCommand(target: string, host?: string): Promise<string>;
+export declare function tmuxCmd(): string;
+export declare function resolveSocket(): string | undefined;
+export declare function withPaneLock<T>(fn: () => Promise<T>): Promise<T>;
+export declare function attachRemoteSession(opts: Record<string, unknown>): void;
+export declare function curlFetch(url: string, opts?: Record<string, unknown>): Promise<{ ok: boolean; status: number; statusText?: string; text(): Promise<string>; json<T = unknown>(): Promise<T> }>;
+export declare function getFederationStatus(): Promise<FederationStatus> | FederationStatus;
+export declare function getTransportRouter(): unknown;
+export declare function resolveTarget(target: string, opts?: Record<string, unknown>): Promise<unknown> | unknown;
+export declare function resolveFleetWindowSessionTarget<T extends { name: string }>(target: string, items: readonly T[]): ResolveResult<T>;
+export declare function isInfrastructureChannelSessionName(name: string): boolean;
+export declare function findWindow(sessions: Session[], query: string, currentSession?: string): string | null;
+export declare function checkBusyGuard(target: string): Promise<unknown>;
+export declare function defaultEngineNameForConfig(config?: Partial<MawConfig>): string;
+export declare function resolveEngine(name: string, config?: Partial<MawConfig>): unknown;
+export declare function matchesEngineIdlePrompt(text: string, engine?: string): boolean;
+export declare function runHook(name: string, payload?: unknown): Promise<unknown>;
+export declare function getTriggers(): unknown[];
+export declare function getTriggerHistory(): unknown[];
+export declare function fire(event: unknown, ctx?: Record<string, unknown>): Promise<unknown[]>;
+export declare function scanWorktrees(deps?: Record<string, unknown>): Promise<unknown[]>;
+export declare function cleanupWorktree(wtPath: string): Promise<string[]>;
+export declare function saveTabOrder(session: string): Promise<void>;
+export declare function takeSnapshot(trigger: string, retentionPolicy?: Record<string, unknown>): Promise<string>;
+export declare function findWorktrees(root?: string): Promise<string[]>;
+export declare function ghqList(): Promise<string[]>;
+export declare function loadManifestCached(opts?: Record<string, unknown>): Promise<OracleManifestEntry[]> | OracleManifestEntry[];
+export declare function invalidateManifest(): void;
+export declare function saveConfig(config: Partial<MawConfig>): void;
+export declare function cmdWorkspaceCreate(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceJoin(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceShare(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceUnshare(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceLs(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceAgents(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceInvite(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceLeave(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+export declare function cmdWorkspaceStatus(args?: string[], opts?: Record<string, unknown>): Promise<unknown>;
+

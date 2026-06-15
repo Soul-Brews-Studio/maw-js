@@ -1,0 +1,14 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "session",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Alias for `maw whoami` — print the current tmux session name.",
+  "cli": {
+    "command": "session",
+    "help": "maw session — alias for `maw whoami`"
+  },
+  "weight": 10
+} as const);

@@ -1,3 +1,4 @@
+import { matchesAgentProcessName } from "../../../core/agent-detect";
 /**
  * Safety gates for maw tmux verbs that mutate pane state (send, kill).
  * Centralized so `send` and `kill` share the same refuse/confirm logic.
@@ -58,17 +59,18 @@ export function checkDestructive(cmd: string): DestructiveCheck {
  */
 export function isClaudeLikePane(paneCurrentCommand: string | undefined): boolean {
   if (!paneCurrentCommand) return false;
-  const cmd = paneCurrentCommand.toLowerCase();
-  if (cmd.includes("claude")) return true;
+  const cmd = paneCurrentCommand.toLowerCase().trim();
+  if (matchesAgentProcessName(cmd)) return true;
   // Claude Code with bun often shows as "2.1.111" etc. — version-y pattern.
-  if (/^\d+\.\d+\.\d+$/.test(cmd.trim())) return true;
+  if (/^\d+\.\d+\.\d+$/.test(cmd)) return true;
   return false;
 }
 
 /**
  * Fleet session protection (shared with kill). A session whose name
  * matches a known fleet stem OR ends in `-view` must never be killed
- * without --force.
+ * as a whole session without --force. Window/pane-level kills inside the
+ * session remain allowed so one stuck fleet window can be cleaned up.
  */
 export function isFleetOrViewSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
   if (fleetSessions.has(sessionName)) return true;

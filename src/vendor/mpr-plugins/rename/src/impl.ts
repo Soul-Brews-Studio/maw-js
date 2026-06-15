@@ -4,11 +4,24 @@
  * Rename a window in the current tmux session, auto-prefixing with the
  * oracle name extracted from the session.
  *
- * Tmux is invoked via `node:child_process.spawnSync` (bg-pattern shipped
- * in maw-bg) — the public `@maw-js/sdk` doesn't expose tmux directly
- * (see Soul-Brews-Studio/maw-js#855).
+ * Uses Bun-native spawnSync for non-core tmux execution, with a small
+ * status/codec compatibility layer for test seams.
  */
-import { spawnSync } from "node:child_process";
+
+type SpawnResult = {
+  exitCode?: number | null;
+  status?: number | null;
+  stdout?: string | Uint8Array | ArrayBuffer | null;
+  stderr?: string | Uint8Array | ArrayBuffer | null;
+};
+
+function decodeOutput(value: SpawnResult["stdout"] | SpawnResult["stderr"]): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(value));
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value);
+  return "";
+}
 
 export interface TmuxWindow {
   index: number;
@@ -16,12 +29,16 @@ export interface TmuxWindow {
 }
 
 function tmuxRun(...args: string[]): string {
-  const r = spawnSync("tmux", args, { encoding: "utf8" });
-  if (r.status !== 0) {
-    const err = (r.stderr || "").trim() || `tmux ${args[0]} failed (exit ${r.status})`;
+  const r: SpawnResult = Bun.spawnSync(["tmux", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const exitCode = r.exitCode ?? r.status ?? 1;
+  if (exitCode !== 0) {
+    const err = decodeOutput(r.stderr).trim() || `tmux ${args[0]} failed (exit ${exitCode})`;
     throw new Error(err);
   }
-  return (r.stdout || "").trim();
+  return decodeOutput(r.stdout).trim();
 }
 
 function listWindows(session: string): TmuxWindow[] {

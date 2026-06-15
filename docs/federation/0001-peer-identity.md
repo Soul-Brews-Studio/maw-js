@@ -152,5 +152,6 @@ Steps 1–3 are independent and can ship in any order. Step 4 is the load-bearin
 - [#795](https://github.com/Soul-Brews-Studio/maw-js/issues/795) — Schema drift between deployed peers (motivates capability discovery)
 - [#798](https://github.com/Soul-Brews-Studio/maw-js/issues/798) — `/api/wake` unauth (informs threat model)
 - `docs/rfcs/629-peer-identity.md` — Earlier draft RFC (superseded by this ADR)
+- `docs/rfcs/2784-federation-hardening-roadmap.md` — Follow-up hardening roadmap for from-signature enforcement, per-peer admission keys, and durable delivery
 - `docs/federation/consent-design.md` — Companion spec (PIN consent primitive)
 - `src/lib/federation-auth.ts` — Existing HMAC implementation (the code this ADR augments)

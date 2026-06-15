@@ -16,7 +16,19 @@ import { getPeerKey } from "../lib/peer-key";
 import { signAutoPairProof, type AutoPairIdentity } from "../transports/scout-pair-proof";
 
 const DEFAULT_TTL_MS = 120_000;
+export const PAIR_RESULT_TTL_MS = DEFAULT_TTL_MS;
 const results = new Map<string, { consumedAt: number; remoteNode: string; remoteUrl: string }>();
+
+export function prunePairResults(now: number = Date.now(), ttlMs: number = PAIR_RESULT_TTL_MS): number {
+  let pruned = 0;
+  for (const [code, rec] of results) {
+    if (now - rec.consumedAt > ttlMs) {
+      results.delete(code);
+      pruned++;
+    }
+  }
+  return pruned;
+}
 
 export interface PairApiDeps {
   loadConfig: typeof loadConfig;
@@ -58,6 +70,10 @@ export function _resetResults(): void {
   results.clear();
   recentHellos.clear();
 }
+export function _injectResult(code: string, rec: { consumedAt: number; remoteNode: string; remoteUrl: string }): void {
+  results.set(normalize(code), rec);
+}
+export function _resultSize(): number { return results.size; }
 
 export function createPairApi(deps: PairApiDeps = {
   loadConfig,

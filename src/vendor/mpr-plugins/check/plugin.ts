@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "check",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Audit installed prep tools (ghq, gh, git, tmux, bun, uv, uvx)",
+  "cli": {
+    "command": "check",
+    "help": "maw check [tools]   — audit installed prep tools",
+    "flags": {}
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

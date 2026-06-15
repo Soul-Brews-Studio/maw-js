@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs"
 import { join } from "path";
 import { tmpdir } from "os";
 import type { LoadedPlugin } from "../src/plugin/types";
-import { runLifecycleHooks, runServeLifecycleHooks, runSleepLifecycleHooks, runWakeLifecycleHooks } from "../src/plugin/lifecycle";
+import {
+  runLifecycleHooks,
+  runServeLifecycleHooks,
+  runSleepLifecycleHooks,
+  runTransportLifecycleHooks,
+  runWakeLifecycleHooks,
+} from "../src/plugin/lifecycle";
 
 const tempDirs: string[] = [];
 
@@ -78,6 +84,25 @@ describe("plugin lifecycle hooks (#1576)", () => {
     ]);
   });
 
+  test("verbose lifecycle summary includes successful plugin names", async () => {
+    makeLog();
+    const plugins = [
+      makePlugin("later", { weight: 20 }),
+      makePlugin("earlier", { weight: 5 }),
+    ];
+    const info: string[] = [];
+
+    const summary = await runLifecycleHooks(
+      "wake",
+      { oracle: "mawjs", session: "47-mawjs" },
+      () => plugins,
+      { info: (message) => info.push(message), warn: () => {} },
+    );
+
+    expect(summary).toEqual({ phase: "wake", ran: 2, skipped: 0, failed: 0 });
+    expect(info).toEqual(["\x1b[36m↻\x1b[0m plugin lifecycle wake: 2 hooks (earlier, later)"]);
+  });
+
   test("hooks.wake.script + handler runs the declared module export", async () => {
     const log = makeLog();
     const plugin = makePlugin("scripted", {
@@ -133,6 +158,60 @@ describe("plugin lifecycle hooks (#1576)", () => {
 
     expect(summary).toEqual({ phase: "serve", ran: 1, skipped: 0, failed: 0 });
     expect(readFileSync(log, "utf8")).toBe("serve|server|4567|http://localhost:4567|ws://localhost:4567/ws|127.0.0.1\n");
+  });
+
+
+  test("serve hooks receive plugin-scoped route registrars", async () => {
+    const plugin = makePlugin("route-owner", {
+      hook: { serve: { script: "serve.ts", handler: "onServe" } },
+      files: {
+        "index.ts": "",
+        "serve.ts": `export function onServe(ctx) { ctx.http.route("GET", "/api/owned", () => new Response(ctx.plugin.name)); ctx.http.fallback("owned-fallback", () => new Response(ctx.plugin.name)); }\n`,
+      },
+    });
+    const scoped: Array<{ name: string; dir?: string }> = [];
+    const routes: string[] = [];
+    const fallbacks: string[] = [];
+    const http = {
+      route: () => { throw new Error("unscoped route should not be used"); },
+      fallback: () => { throw new Error("unscoped fallback should not be used"); },
+      forPlugin(owner: { name: string; dir?: string }) {
+        scoped.push(owner);
+        return {
+          route: (method: string, path: string) => routes.push(`${owner.name}:${method} ${path}`),
+          fallback: (id: string) => fallbacks.push(`${owner.name}:${id}`),
+        };
+      },
+    };
+
+    const summary = await runServeLifecycleHooks(
+      { port: 4567, httpUrl: "http://localhost:4567", wsUrl: "ws://localhost:4567/ws", hostname: "127.0.0.1", http: http as any },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "serve", ran: 1, skipped: 0, failed: 0 });
+    expect(scoped).toEqual([{ name: "route-owner", dir: plugin.dir }]);
+    expect(routes).toEqual(["route-owner:GET /api/owned"]);
+    expect(fallbacks).toEqual(["route-owner:owned-fallback"]);
+  });
+
+  test("transport hooks run on new transport lifecycle", async () => {
+    const log = makeLog();
+    const plugin = makePlugin("router", {
+      hook: { transport: { script: "transport.ts", handler: "onTransport" } },
+      files: {
+        "index.ts": "export function serve() { throw new Error('entry should not run') }\n",
+        "transport.ts": `export function onTransport(ctx) { const fs = require(\"fs\"); fs.appendFileSync(process.env.MAW_LIFECYCLE_LOG, [ctx.phase, ctx.plugin.name, ctx.router ? 'router-ok' : 'missing-router', ctx.config.node || ''].join(":") + \"\\n\"); }\n`,
+      },
+    });
+
+    const summary = await runTransportLifecycleHooks(
+      { router: { connectAll: async () => {} } as any, config: { node: "test-node" } as any },
+      () => [plugin],
+    );
+
+    expect(summary).toEqual({ phase: "transport", ran: 1, skipped: 0, failed: 0 });
+    expect(readFileSync(log, "utf8")).toBe("transport:router:router-ok:test-node\n");
   });
 
   test("best-effort failures continue, fail-fast failures throw clearly", async () => {

@@ -5,8 +5,12 @@
  * this file runs only under scripts/test-isolated.sh and keeps all dependencies
  * mocked at the module boundary.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+
+
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
 
 const attachRoot = join(import.meta.dir, "../../src/vendor/mpr-plugins/attach");
 
@@ -48,13 +52,34 @@ const original = {
 const listSessions = async () => sessions;
 const loadFleet = () => fleet;
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
+  getGhqRoot: () => "/tmp/ghq",
+  hostExec: async () => "",
+  capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  resolveTarget: () => null,
+  curlFetch: async () => ({ ok: false }),
+  findPeerForTarget: async () => null,
   listSessions,
-}));
-
-mock.module("maw-js/commands/shared/fleet-load", () => ({
-  loadFleet,
-}));
+  loadFleetCore: loadFleet,
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
+  tmux: { listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
+  UserError: class UserError extends Error { readonly isUserError = true; },
+});
+mock.module("maw-js/sdk", sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
 
 mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
   cmdTmuxAttach: (target: string) => {
@@ -131,6 +156,10 @@ afterEach(() => {
   console.error = original.error;
   Bun.spawn = original.spawn;
   Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: original.stdinIsTTY });
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe("attach impl command routing", () => {

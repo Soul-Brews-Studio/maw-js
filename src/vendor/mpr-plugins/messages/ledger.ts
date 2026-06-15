@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
-import type { MessageDirection, MessageLifecycleData, MessageState } from "maw-js/lib/message-events";
-import { mawConfigPath, mawDataPath } from "../../../core/xdg";
+import { mawConfigPath, mawDataPath, type MessageDirection, type MessageLifecycleData, type MessageState } from "@maw-js/sdk";
+import { resolveMessageRetentionPolicy, type RetentionPolicy } from "./retention";
 
 export interface MessageLedgerQuery {
   limit?: number;
@@ -19,6 +19,18 @@ export interface MessageLedgerRow extends MessageLifecycleData {
   error?: string;
   signed?: boolean;
 }
+
+export interface MessageLedgerRetentionPolicy {
+  maxMessages?: number;
+}
+
+export interface MessageLedgerRetentionSummary {
+  retained: number;
+  removed: number;
+  policy: { keepLast: number; maxAgeDays: number };
+}
+
+export const DEFAULT_MAX_MESSAGES = 50_000;
 
 export function messageLedgerDbPath(): string {
   return mawDataPath("message-ledger.sqlite");
@@ -45,6 +57,43 @@ function openDb(): Database {
   return db;
 }
 
+function positiveInt(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+export function resolveMessageLedgerRetentionPolicy(policy: MessageLedgerRetentionPolicy = {}): { maxMessages: number } {
+  return {
+    maxMessages: positiveInt(policy.maxMessages)
+      ?? positiveInt(process.env.MAW_MESSAGE_LEDGER_MAX_MESSAGES)
+      ?? DEFAULT_MAX_MESSAGES,
+  };
+}
+
+function messageCount(db: Database): number {
+  const row = db.query("SELECT COUNT(*) AS count FROM messages").get() as { count?: number | bigint } | null;
+  return Number(row?.count ?? 0);
+}
+
+function pruneMessageLedgerDb(db: Database, policy: MessageLedgerRetentionPolicy = {}): number {
+  const { maxMessages } = resolveMessageLedgerRetentionPolicy(policy);
+  const before = messageCount(db);
+  if (before <= maxMessages) return 0;
+  db.query("DELETE FROM messages WHERE rowid NOT IN (SELECT rowid FROM messages ORDER BY ts DESC, rowid DESC LIMIT $limit)").run({
+    $limit: maxMessages,
+  });
+  return before - messageCount(db);
+}
+
+export function pruneMessageLedger(policy: MessageLedgerRetentionPolicy = {}): number {
+  const db = openDb();
+  try {
+    return pruneMessageLedgerDb(db, policy);
+  } finally {
+    db.close();
+  }
+}
+
 export function recordMessageLedgerEvent(event: MessageLifecycleData): void {
   const db = openDb();
   try {
@@ -64,8 +113,26 @@ export function recordMessageLedgerEvent(event: MessageLifecycleData): void {
       $lastLine: event.lastLine ?? null,
       $signed: event.signed ? 1 : 0,
     });
+    pruneMessageLedgerEvents({}, db);
+
   } finally {
     db.close();
+  }
+}
+
+export function pruneMessageLedgerEvents(policy: RetentionPolicy = {}, dbOverride?: Database): MessageLedgerRetentionSummary {
+  const db = dbOverride ?? openDb();
+  try {
+    const resolved = resolveMessageRetentionPolicy(policy);
+    const now = policy.now ?? new Date();
+    const cutoff = new Date(now.getTime() - resolved.maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
+    const before = Number((db.query("SELECT COUNT(*) AS count FROM messages").get() as any)?.count || 0);
+    db.query("DELETE FROM messages WHERE ts < $cutoff AND id NOT IN (SELECT id FROM messages ORDER BY ts DESC LIMIT $keepLast)").run({ $cutoff: cutoff, $keepLast: resolved.keepLast });
+    db.query("DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY ts DESC LIMIT $keepLast)").run({ $keepLast: resolved.keepLast });
+    const retained = Number((db.query("SELECT COUNT(*) AS count FROM messages").get() as any)?.count || 0);
+    return { retained, removed: Math.max(0, before - retained), policy: resolved };
+  } finally {
+    if (!dbOverride) db.close();
   }
 }
 

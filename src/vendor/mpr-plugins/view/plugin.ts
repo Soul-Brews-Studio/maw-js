@@ -1,0 +1,32 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "view",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Create or attach to an agent tmux view, optionally with a read-only tmux client.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "view",
+    "aliases": [
+      "create-view",
+      "attach",
+      "a"
+    ],
+    "help": "maw view <agent> [window] [--clean] [--kill] [--readonly|-r] [--split[=<anchor>]] [--wake|--no-wake] — attach to an agent view",
+    "flags": {
+      "--clean": "boolean",
+      "--kill": "boolean",
+      "--readonly": "boolean",
+      "--read-only": "boolean",
+      "-r": "boolean",
+      "--split": "string",
+      "--wake": "boolean",
+      "--no-wake": "boolean"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

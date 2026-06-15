@@ -6,10 +6,12 @@
   "description": "Immediately kill a tmux session, window, or pane; use sleep for graceful single-agent shutdown or done for finished worktrees.",
   "cli": {
     "command": "kill",
-    "help": "maw kill <target>[:window] [--pane N] [--peer <alias>] — immediate tmux kill; see maw sleep for graceful stop and maw done for worktree cleanup",
+    "help": "maw kill <target>[:window] [--pane N] [--index N|--all] [--peer <alias>] \u2014 immediate tmux kill; see maw sleep for graceful stop and maw done for worktree cleanup",
     "flags": {
       "--pane": "number",
-      "--peer": "string"
+      "--peer": "string",
+      "--index": "number",
+      "--all": "boolean"
     }
   },
   "api": {

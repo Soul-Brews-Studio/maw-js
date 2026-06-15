@@ -161,7 +161,7 @@ describe("scanWorktrees default-suite coverage", () => {
     });
   });
 
-  test("logs ambiguous window matches and leaves the worktree stale", async () => {
+  test("global scope skips ambiguous matches and leaves the worktree stale (#2392)", async () => {
     const path = wtPath("Org", "shared-oracle", "1-tile");
     const errors: string[] = [];
 
@@ -176,9 +176,6 @@ describe("scanWorktrees default-suite coverage", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ path, status: "stale", tmuxWindow: undefined });
-    expect(errors.join("\n")).toContain("'tile' is ambiguous");
-    expect(errors.join("\n")).toContain("alpha-tile");
-    expect(errors.join("\n")).toContain("beta-tile");
   });
 
   test("loads fleet metadata from XDG state dirs before legacy fleet dirs", async () => {

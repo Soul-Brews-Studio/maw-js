@@ -1,5 +1,4 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { parseFlags } from "maw-js/cli/parse-args";
+import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
 
 export const command = {
   name: "pulse",
@@ -42,14 +41,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           error: 'usage: maw pulse add "task title" --oracle <name> [--wt <repo>]',
         };
       }
-      const { cmdPulseAdd } = await import("maw-js/commands/shared/pulse");
+      const { cmdPulseAdd } = await import("maw-js/sdk");
       await cmdPulseAdd(title, pulseOpts);
     } else if (subcmd === "ls" || subcmd === "list") {
       const sync = args.includes("--sync");
-      const { cmdPulseLs } = await import("maw-js/commands/shared/pulse");
+      const { cmdPulseLs } = await import("maw-js/sdk");
       await cmdPulseLs({ sync });
     } else if (subcmd === "cleanup" || subcmd === "clean") {
-      const { scanWorktrees, cleanupWorktree } = await import("maw-js/worktrees");
+      const { scanWorktrees, cleanupWorktree } = await import("maw-js/sdk");
       const worktrees = await scanWorktrees();
       const stale = worktrees.filter(wt => wt.status !== "active");
       if (!stale.length) {

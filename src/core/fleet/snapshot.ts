@@ -15,10 +15,10 @@
  *   maw fleet restore            — show latest snapshot
  *   maw fleet restore <timestamp> — show specific snapshot
  *
- * Keeps last 48 snapshots (prunes oldest on write).
+ * Applies retention on write: keep newest snapshots and prune old files.
  */
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, statSync } from "fs";
 import { join } from "path";
 import { mawConfigPath, mawStatePath } from "../xdg";
 import { listSessions } from "../transport/ssh";
@@ -41,7 +41,8 @@ function candidateSnapshotDirs(): string[] {
 export const SNAPSHOT_DIR = snapshotDir();
 mkdirSync(SNAPSHOT_DIR, { recursive: true });
 
-const MAX_SNAPSHOTS = 720; // ~1 month at 1 snapshot/hour
+const DEFAULT_KEEP_LAST = 240;
+const DEFAULT_MAX_AGE_DAYS = 14;
 
 export interface SnapshotWindow {
   name: string;
@@ -60,8 +61,43 @@ export interface Snapshot {
   sessions: SnapshotSession[];
 }
 
+export interface SnapshotRetentionPolicy {
+  keepLast?: number;
+  maxAgeDays?: number;
+  dryRun?: boolean;
+  now?: Date;
+}
+
+export interface SnapshotRetentionSummary {
+  retained: number;
+  removed: number;
+  wouldRemove: number;
+  policy: { keepLast: number; maxAgeDays: number };
+  removedFiles: string[];
+}
+
+function positiveInt(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+export function resolveSnapshotRetentionPolicy(policy: SnapshotRetentionPolicy = {}): { keepLast: number; maxAgeDays: number } {
+  const config = (() => {
+    try { return loadConfig().snapshotRetention || {}; } catch { return {}; }
+  })();
+  const keepLast = positiveInt(policy.keepLast)
+    ?? positiveInt(process.env.MAW_SNAPSHOT_KEEP_LAST)
+    ?? positiveInt((config as any).keepLast)
+    ?? DEFAULT_KEEP_LAST;
+  const maxAgeDays = positiveInt(policy.maxAgeDays)
+    ?? positiveInt(process.env.MAW_SNAPSHOT_MAX_AGE_DAYS)
+    ?? positiveInt((config as any).maxAgeDays)
+    ?? DEFAULT_MAX_AGE_DAYS;
+  return { keepLast, maxAgeDays };
+}
+
 /** Take a snapshot of all current tmux sessions */
-export async function takeSnapshot(trigger: string): Promise<string> {
+export async function takeSnapshot(trigger: string, retentionPolicy: SnapshotRetentionPolicy = {}): Promise<string> {
   const sessions = await listSessions();
 
   const config = loadConfig();
@@ -87,7 +123,7 @@ export async function takeSnapshot(trigger: string): Promise<string> {
   writeFileSync(filepath, JSON.stringify(snapshot, null, 2) + "\n");
 
   // Prune old snapshots
-  pruneSnapshots();
+  pruneSnapshots(retentionPolicy);
 
   return filepath;
 }
@@ -156,14 +192,49 @@ export function latestSnapshot(): Snapshot | null {
   }
 }
 
-/** Prune old snapshots, keep MAX_SNAPSHOTS newest */
-function pruneSnapshots() {
+function snapshotTimeMs(dir: string, file: string): number {
+  try {
+    const data: Snapshot = JSON.parse(readFileSync(join(dir, file), "utf-8"));
+    const parsed = Date.parse(data.timestamp);
+    if (Number.isFinite(parsed)) return parsed;
+  } catch { /* fall back to filename/stat */ }
+
+  const match = file.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
+  if (match) {
+    const [, y, mo, d, h, mi, se] = match;
+    const parsed = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se)).getTime();
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  try { return statSync(join(dir, file)).mtimeMs; } catch { return 0; }
+}
+
+/** Prune snapshots by count and age. Defaults prevent unbounded growth (#2146). */
+export function pruneSnapshots(policy: SnapshotRetentionPolicy = {}): SnapshotRetentionSummary {
+  const resolved = resolveSnapshotRetentionPolicy(policy);
+  const nowMs = (policy.now ?? new Date()).getTime();
+  const maxAgeMs = resolved.maxAgeDays * 24 * 60 * 60 * 1000;
   const files = readdirSync(SNAPSHOT_DIR)
     .filter(f => f.endsWith(".json"))
-    .sort();
+    .map(file => ({ file, timeMs: snapshotTimeMs(SNAPSHOT_DIR, file) }))
+    .sort((a, b) => b.timeMs - a.timeMs || b.file.localeCompare(a.file));
 
-  while (files.length > MAX_SNAPSHOTS) {
-    const oldest = files.shift()!;
-    try { unlinkSync(join(SNAPSHOT_DIR, oldest)); } catch {}
+  const toRemove = files.filter((entry, index) => {
+    if (index >= resolved.keepLast) return true;
+    return Number.isFinite(entry.timeMs) && nowMs - entry.timeMs > maxAgeMs;
+  });
+
+  if (!policy.dryRun) {
+    for (const { file } of toRemove) {
+      try { unlinkSync(join(SNAPSHOT_DIR, file)); } catch {}
+    }
   }
+
+  return {
+    retained: files.length - toRemove.length,
+    removed: policy.dryRun ? 0 : toRemove.length,
+    wouldRemove: policy.dryRun ? toRemove.length : 0,
+    policy: resolved,
+    removedFiles: toRemove.map(f => f.file),
+  };
 }

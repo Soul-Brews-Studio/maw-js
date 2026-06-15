@@ -268,6 +268,7 @@ interface AnnotatedPane {
     active?: boolean;
   };
   attached?: boolean;
+  attachedClients?: number;
 }
 
 export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
@@ -595,6 +596,7 @@ async function collectTmuxLsState(opts: TmuxLsOpts = {}): Promise<TmuxLsState> {
       active: p.active,
       window: p.window,
       attached: p.attached,
+      ...(p.attachedClients !== undefined ? { attachedClients: p.attachedClients } : {}),
     };
   });
 
@@ -981,16 +983,16 @@ export async function cmdTmuxSplit(target: string, opts: TmuxSplitOpts = {}): Pr
 }
 
 export interface TmuxKillOpts {
-  /** Bypass fleet/view session refusal. Required to kill a live oracle pane/session. */
+  /** Bypass fleet/view session refusal. Required to kill a live oracle session. */
   force?: boolean;
-  /** Kill the entire session (not just the pane). */
+  /** Kill the entire session (not just the pane/window target). */
   session?: boolean;
 }
 
 /**
  * Kill a target pane or session. Wraps `tmux kill-pane -t` or
- * `tmux kill-session -t`. Refuses fleet/view sessions by default
- * (Bug F class — never accidentally kill live oracles).
+ * `tmux kill-session -t`. Refuses whole fleet/view session kills by default
+ * (Bug F class — never accidentally kill all live oracle windows).
  */
 export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Promise<void> {
   const hit = resolveTmuxTarget(target);
@@ -1025,8 +1027,8 @@ export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Prom
     }
   } catch { /* no fleet dir */ }
 
-  if (isFleetOrViewSession(session, fleetSessions) && !opts.force) {
-    throw new Error(`refusing to kill: session '${session}' is fleet or view.\n  killing would terminate a live oracle (or its mirror).\n  pass --force to override (you really want to kill a fleet session)`);
+  if (opts.session && isFleetOrViewSession(session, fleetSessions) && !opts.force) {
+    throw new Error(`refusing to kill: session '${session}' is fleet or view.\n  killing the whole session would terminate live oracle windows (or a mirror).\n  pass --force to override (you really want to kill a fleet session)`);
   }
 
   const tmuxCmd = opts.session

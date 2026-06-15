@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, copyFileSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { loadFleetCore as loadFleet } from "maw-js/sdk";
 
 const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces", "memory/collaborations"];
 

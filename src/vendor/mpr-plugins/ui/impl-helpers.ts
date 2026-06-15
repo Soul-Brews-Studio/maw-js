@@ -26,6 +26,7 @@ export interface UiOptions {
   dev?: boolean;
   threeD?: boolean;
   install?: boolean;
+  installSource?: boolean;
   installVersion?: string;
   /** Positional subcommand: "install" | "status" */
   subcommand?: "install" | "status";

@@ -123,6 +123,15 @@ function fastPollingClock() {
   Bun.sleep = (async () => undefined) as typeof Bun.sleep;
 }
 
+async function waitUntil(predicate: () => boolean, label: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
 beforeEach(() => {
   tmpHome = mkdtempSync(join(tmpdir(), "maw-messages-slice-"));
   process.env.MAW_HOME = tmpHome;
@@ -600,23 +609,23 @@ describe("messages plugin coverage slice", () => {
 
     try {
       let pendingError: unknown;
+      let pendingResolved = false;
       void messagesHandler({
         source: "cli",
         args: ["serve", "--engine", `http://127.0.0.1:${engine.port}`, "--port", "45678"],
+      }).then(() => {
+        pendingResolved = true;
       }).catch((err) => {
         pendingError = err;
       });
 
-      for (let i = 0; i < 20 && !registered && !pendingError; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
+      await waitUntil(() => Boolean(registered) || Boolean(pendingError) || pendingResolved, "foreground messages registration");
       expect(pendingError).toBeUndefined();
+      expect(pendingResolved).toBe(false);
       expect(registered).toMatchObject({ plugin: "messages", upstream: "http://127.0.0.1:45678" });
       expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
       callbacks.SIGTERM();
-      for (let i = 0; i < 20 && stopped.length === 0; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
+      await waitUntil(() => stopped.length > 0, "foreground messages shutdown");
       expect(stopped).toEqual([true]);
       expect(exits).toEqual([0]);
     } finally {

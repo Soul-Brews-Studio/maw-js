@@ -1,4 +1,4 @@
-import { hostExec } from "maw-js/core/transport/ssh";
+import { hostExec } from "maw-js/sdk";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -6,16 +6,9 @@ import { cmdReunion } from "./internal/reunion-impl";
 import { cmdSoulSync } from "./internal/soul-sync-impl";
 import type { DoneOpts } from "./impl";
 import { mawDataPath } from "../../../core/xdg";
+import { inferRetrospectiveCommand } from "./retrospective-command";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
-
-type RetrospectiveCommand = "/rrr" | "$rrr";
-
-const NON_CLAUDE_ENGINES = /\b(omx|codex|aider|opencode|oh-my-codex)\b/i;
-
-function inferRetrospectiveCommand(paneCurrentCommand: string): RetrospectiveCommand {
-  return NON_CLAUDE_ENGINES.test(paneCurrentCommand || "") ? "$rrr" : "/rrr";
-}
 
 /** Signal parent oracle inbox that a worktree window is done (#81). */
 export async function signalParentInbox(
@@ -58,7 +51,11 @@ export async function autoSave(
   const retrospectiveCommand = inferRetrospectiveCommand(paneCurrentCommand);
 
   if (opts.dryRun) {
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
+    if (retrospectiveCommand) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
+    } else {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would skip retro (no retrospective command for this engine)`);
+    }
     if (paneCwd) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
@@ -68,14 +65,19 @@ export async function autoSave(
     return;
   }
 
-  // Send a retrospective command aligned with the panel's engine.
-  console.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
-  try {
-    await tmux.sendText(target, retrospectiveCommand);
-    await new Promise(r => setTimeout(r, 10_000));
-    console.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
-  } catch {
-    console.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
+  // Send a retrospective command aligned with the panel's engine; skip when the
+  // engine has no retrospective command (codex/aider/opencode).
+  if (retrospectiveCommand) {
+    console.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
+    try {
+      await tmux.sendText(target, retrospectiveCommand);
+      await new Promise(r => setTimeout(r, 10_000));
+      console.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
+    } catch {
+      console.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
+    }
+  } else {
+    console.log(`  \x1b[90m○\x1b[0m no retrospective command for this engine — skipping retro`);
   }
 
   // Git auto-save in pane's cwd

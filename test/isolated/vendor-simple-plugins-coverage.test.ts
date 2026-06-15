@@ -88,6 +88,16 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR: fleetDir,
+  loadFleetEntries: loadTestFleetEntries,
+  detectSession: async (name: string) => {
+    detectCalls.push(name);
+    return detectedSession;
+  },
+  findWorktrees: async (parentDir: string, repoName: string) => {
+    findWorktreeCalls.push({ parentDir, repoName });
+    return worktrees;
+  },
+  UserError: class UserError extends Error {},
   listSessions: async () => sessions,
   capture: async (target: string, lines: number) => {
     captureCalls.push({ target, lines });
@@ -461,7 +471,7 @@ describe("vendor kill/index handler coverage", () => {
 
     await expect(killHandler(makeCtx("cli", ["--help"]))).resolves.toEqual({
       ok: false,
-      error: "usage: maw kill <target>[:window] [--pane N] [--peer <alias>]  (see: maw sleep for graceful stop, maw done for worktrees)",
+      error: "usage: maw kill <target>[:window] [--pane N] [--index N|--all] [--peer <alias>]  (see: maw sleep for graceful stop, maw done for worktrees)",
     });
 
     await expect(killHandler(makeCtx("cli", ["--pane"]))).resolves.toEqual({
@@ -483,13 +493,25 @@ describe("vendor kill/index handler coverage", () => {
       ok: true,
       output: "killed mawjs:1 pane 2",
     });
-    expect(killCalls.at(-1)).toEqual({ target: "mawjs:1", opts: { pane: 2 } });
+    expect(killCalls.at(-1)).toEqual({ target: "mawjs:1", opts: { pane: 2, index: undefined, all: false } });
+
+    await expect(killHandler(makeCtx("cli", ["mawjs:codex", "--index", "5"]))).resolves.toEqual({
+      ok: true,
+      output: "killed mawjs:codex",
+    });
+    expect(killCalls.at(-1)).toEqual({ target: "mawjs:codex", opts: { pane: undefined, index: 5, all: false } });
+
+    await expect(killHandler(makeCtx("cli", ["mawjs:codex", "--all"]))).resolves.toEqual({
+      ok: true,
+      output: "killed mawjs:codex",
+    });
+    expect(killCalls.at(-1)).toEqual({ target: "mawjs:codex", opts: { pane: undefined, index: undefined, all: true } });
 
     await expect(killHandler(makeCtx("api", { target: "tile", pane: 1 }))).resolves.toEqual({
       ok: true,
       output: "killed tile pane 1",
     });
-    expect(killCalls.at(-1)).toEqual({ target: "tile", opts: { pane: 1 } });
+    expect(killCalls.at(-1)).toEqual({ target: "tile", opts: { pane: 1, index: undefined, all: undefined } });
 
     await expect(killHandler(makeCtx("api", {}))).resolves.toEqual({
       ok: false,

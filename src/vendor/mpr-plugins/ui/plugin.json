@@ -7,7 +7,15 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "ui",
-    "help": "maw ui [args] — open or manage the maw web UI"
+    "help": "maw ui [args] — open or manage the maw web UI",
+    "flags": {
+      "--install": "boolean",
+      "--source": "boolean",
+      "--tunnel": "boolean",
+      "--dev": "boolean",
+      "--3d": "boolean",
+      "--version": "string"
+    }
   },
   "weight": 10,
   "license": "MIT",

@@ -13,6 +13,7 @@ export interface AgentStatusEntry {
 }
 
 const IDLE_TTL = 120_000; // 120s — no activity → idle
+const ACTIVE_STATUS_MAX_AGE = 48 * 60 * 60_000; // 48h — even busy/ready entries eventually expire
 
 /**
  * In-memory agent status store.
@@ -92,6 +93,22 @@ export class AgentStatusStore {
   remove(oracle: string) {
     this.clearTimer(oracle);
     this.store.delete(oracle);
+  }
+
+  /** Prune stale statuses so long-lived maw serve processes do not retain old oracle names forever. */
+  prune(maxAge = 24 * 60 * 60_000): number {
+    const now = Date.now();
+    const cutoff = now - maxAge;
+    const activeCutoff = now - ACTIVE_STATUS_MAX_AGE;
+    let removed = 0;
+    for (const [oracle, entry] of this.store) {
+      const isActiveStatus = entry.status === "busy" || entry.status === "ready";
+      const expiresAt = isActiveStatus ? activeCutoff : cutoff;
+      if (entry.updatedAt >= expiresAt) continue;
+      this.remove(oracle);
+      removed++;
+    }
+    return removed;
   }
 
   private clearTimer(oracle: string) {

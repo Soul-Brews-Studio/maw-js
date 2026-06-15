@@ -24,6 +24,24 @@ const MAX_SUBMIT_ATTEMPTS = 4;
 /** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
+function pendingInputNeedles(sentText: string): string[] {
+  const normalized = sentText.replace(/\r/g, "").trim();
+  if (!normalized) return [];
+
+  const needles = new Set<string>();
+  const compact = normalized.replace(/\s+/g, " ").trim();
+  if (compact) needles.add(compact.slice(0, 40));
+
+  const lastLine = normalized
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean)
+    .at(-1);
+  if (lastLine) needles.add(lastLine.slice(0, 40));
+
+  return [...needles].filter(Boolean);
+}
+
 function isTmuxNoServerError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /no server/i.test(message) || /failed to connect to server/i.test(message);
@@ -254,22 +272,27 @@ export class Tmux {
   async listPanes(): Promise<TmuxPane[]> {
     try {
       const raw = await this.run("list-panes", "-a", "-F",
-        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}");
+        "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}|||#{pane_dead}");
       const num = (value: string | undefined) => {
+        if (value === undefined || value === "") return undefined;
         const n = Number(value);
         return Number.isFinite(n) ? n : undefined;
       };
       const bool = (value: string | undefined) => value === "1" || value === "true";
-      return raw.split("\n").filter(Boolean).map(line => {
-        const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached] = line.split("|||");
-        return {
+      return raw.split("\n").filter(Boolean).flatMap(line => {
+        const parts = line.split("|||");
+        if (parts.length < 3) return [];
+        const [id, command, target, title, pid, cwd, winAct, top, left, paneW, paneH, paneIdx, winIdx, winName, paneActive, winW, winH, winActive, attached, dead] = parts;
+        if (!id?.startsWith("%") || !target || bool(dead)) return [];
+        const attachedClients = num(attached) ?? 0;
+        return [{
           id,
           command,
           target,
           title,
-          pid: pid ? Number(pid) : undefined,
+          pid: num(pid),
           cwd: cwd || undefined,
-          lastActivity: winAct ? Number(winAct) : undefined,
+          lastActivity: num(winAct),
           top: num(top),
           left: num(left),
           w: num(paneW),
@@ -279,8 +302,9 @@ export class Tmux {
           winName: winName || undefined,
           active: bool(paneActive),
           window: { w: num(winW), h: num(winH), active: bool(winActive) },
-          attached: bool(attached),
-        };
+          attached: attachedClients > 0,
+          ...(attachedClients > 1 ? { attachedClients } : {}),
+        }];
       });
     } catch { return []; }
   }
@@ -328,13 +352,8 @@ export class Tmux {
   }
 
   async capture(target: string, lines = 80): Promise<string> {
-    if (lines > 50) {
-      return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -lines);
-    }
-    // For shorter captures, pipe through tail (needs raw hostExec)
-    const socketFlag = this.socket ? `-S ${q(this.socket)} ` : "";
-    const cmd = `tmux ${socketFlag}capture-pane -t ${q(target)} -e -p 2>/dev/null | tail -${lines}`;
-    return hostExec(cmd, this.host);
+    const safeLines = Math.max(1, Math.floor(lines));
+    return this.run("capture-pane", "-t", target, "-e", "-p", "-S", -safeLines);
   }
 
   async resizePane(target: string, cols: number, rows: number): Promise<void> {
@@ -354,9 +373,11 @@ export class Tmux {
     command?: string;
     printFormat?: string;
     direction?: "horizontal" | "vertical";
+    fullWindow?: boolean;
   } = {}): Promise<string> {
     const args: (string | number)[] = [];
     if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
+    if (opts.fullWindow) args.push("-f");
     if (opts.direction === "horizontal") args.push("-h");
     if (opts.direction === "vertical") args.push("-v");
     if (target) args.push("-t", target);
@@ -395,14 +416,17 @@ export class Tmux {
     /** Only open a new pipe if none exists (`-o`). */
     onlyIfClosed?: boolean;
   } = {}): Promise<void> {
+    if (command === undefined) {
+      await this.run("pipe-pane", "-t", target);
+      return;
+    }
     const args: (string | number)[] = [];
     const input = opts.input === true;
     const output = opts.output !== false || !input;
     if (input) args.push("-I");
     if (output) args.push("-O");
     if (opts.onlyIfClosed) args.push("-o");
-    args.push("-t", target);
-    if (command !== undefined) args.push(command);
+    args.push("-t", target, command);
     await this.run("pipe-pane", ...args);
   }
 
@@ -489,7 +513,7 @@ export class Tmux {
       await this.sendKeysLiteral(target, text);
     }
     await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
-    await this.submitWithConfirm(target);
+    await this.submitWithConfirm(target, text);
   }
 
   /**
@@ -497,11 +521,11 @@ export class Tmux {
    * the Enter while input is still pending — see sendText for the #6 race.
    * @internal — exported behavior is exercised via sendText in tests.
    */
-  private async submitWithConfirm(target: string): Promise<void> {
+  private async submitWithConfirm(target: string, sentText: string): Promise<void> {
     for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
       await this.sendKeys(target, "Enter");
       await new Promise(r => setTimeout(r, SUBMIT_CONFIRM_MS));
-      if (!(await this.paneInputPending(target))) return; // submitted — done
+      if (!(await this.paneInputPending(target, sentText))) return; // submitted — done
     }
     // Exhausted every retry and the input line still looks non-empty. The
     // caller has no visibility into tmux pane state, so warn loudly — a
@@ -512,20 +536,25 @@ export class Tmux {
   }
 
   /**
-   * True when the pane's prompt line still holds un-submitted input.
-   * Mirrors checkPaneIdle (comm-send.ts #405) but inlined here to avoid a
-   * circular import — comm-send.ts already imports Tmux. A read failure
-   * returns false (assume submitted) so a flaky capture can't spin the retry
-   * loop.
+   * True when the pane's input line still holds the text we just sent. Prefer
+   * sent-text visibility over prompt markers so submit confirmation works for
+   * any engine prompt. A prompt-marker fallback, including Codex's U+203A `›`,
+   * keeps legacy detection working when panes transform or truncate the text.
+   * A read failure returns false (assume submitted) so a flaky capture can't
+   * spin the retry loop.
    */
-  private async paneInputPending(target: string): Promise<boolean> {
+  private async paneInputPending(target: string, sentText: string): Promise<boolean> {
     try {
       const content = await this.capture(target, 5);
       const lines = content.split("\n").filter(l => l.trim());
       const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
-      // Prompt marker followed by non-whitespace → user/command text still
-      // sitting on the input line, i.e. Enter has not submitted it yet.
-      return /[#$%>❯»]\s+\S/.test(last);
+      const sentNeedles = pendingInputNeedles(sentText);
+      if (sentNeedles.some(needle => last.includes(needle))) return true;
+
+      // Fallback: prompt marker followed by non-whitespace → user/command text
+      // still sitting on the input line. Includes Codex `›` for immediate #2380
+      // relief while sent-text detection handles unknown future engines.
+      return /[#$%>❯»›]\s+\S/.test(last);
     } catch {
       return false;
     }

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join, resolve } from "path";
 
 const realFs = await import("fs");
-const realSdk = await import("../../src/sdk");
 
 const repoRoot = process.cwd();
 const ghqRoot = resolve(repoRoot, "../../../..");
@@ -54,8 +53,8 @@ await mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleet: () => mockedFleet,
 }));
 
-await mock.module("maw-js/sdk", () => ({
-  ...realSdk,
+const sdkMock = {
+  getGhqRoot: () => mockedGhqRoot,
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
 
@@ -75,7 +74,15 @@ await mock.module("maw-js/sdk", () => ({
 
     throw new Error(`unexpected hostExec command: ${command}`);
   },
-}));
+  loadFleetCore: () => mockedFleet,
+  loadFleetEntries: () => [],
+};
+await mock.module("maw-js/sdk", () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
+await mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+await mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, () => sdkMock);
 
 const { cmdFind } = await import("../../src/vendor/mpr-plugins/find/impl.ts?find-impl-coverage");
 

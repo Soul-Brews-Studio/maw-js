@@ -24,6 +24,20 @@ function isValidPeerSession(item: unknown): item is Session {
 let aggregatedCache: { peers: (Session & { source?: string })[]; ts: number } | null = null;
 const CACHE_TTL = 30_000;
 
+/** TTL cache for federation status (#2547) — avoids 20s+ serial probes on every call */
+let federationStatusCache: { result: Awaited<ReturnType<typeof getFederationStatus>>; ts: number } | null = null;
+const FED_CACHE_TTL = 10_000;
+
+/** Per-peer backoff tracker: URL → { failures, nextProbeAfter } */
+const peerBackoff = new Map<string, { failures: number; nextProbeAfter: number }>();
+const BACKOFF_BASE = 5_000;
+const BACKOFF_MAX = 60_000;
+
+export function resetPeerCaches() {
+  federationStatusCache = null;
+  peerBackoff.clear();
+}
+
 export interface PeerStatus {
   url: string;
   peerName?: string;
@@ -236,6 +250,10 @@ export async function getFederationStatus(options: FederationStatusOptions = {})
     uptimeSeconds: number;
   };
 }> {
+  if (!options.peers && !options.config && federationStatusCache && Date.now() - federationStatusCache.ts < FED_CACHE_TTL) {
+    return federationStatusCache.result;
+  }
+
   const config = options.config ?? loadConfig();
   const peerInputs = options.peers ?? getPeers().map((url) => ({ url }));
   const peers = peerInputs.map((peer) => peer.url);
@@ -249,7 +267,17 @@ export async function getFederationStatus(options: FederationStatusOptions = {})
   const [localProbe, rawStatuses] = await Promise.all([
     checkPeerReachable(localUrl),
     Promise.all(peers.map(async (url) => {
+      const bo = peerBackoff.get(url);
+      if (bo && Date.now() < bo.nextProbeAfter) {
+        return { url, peerName: peerNameByUrl.get(url), reachable: false, latency: 0, node: undefined, agents: undefined, clockDeltaMs: undefined };
+      }
       const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
+      if (reachable) {
+        peerBackoff.delete(url);
+      } else {
+        const prev = bo?.failures ?? 0;
+        peerBackoff.set(url, { failures: prev + 1, nextProbeAfter: Date.now() + Math.min(BACKOFF_BASE * 2 ** prev, BACKOFF_MAX) });
+      }
       return { url, peerName: peerNameByUrl.get(url), reachable, latency, node, agents, clockDeltaMs };
     })),
   ]);
@@ -267,7 +295,7 @@ export async function getFederationStatus(options: FederationStatusOptions = {})
   const statuses = [...byNode.values()];
   const reachablePeers = statuses.filter(s => s.reachable).length;
 
-  return {
+  const result = {
     localUrl,
     localReachable: localProbe.reachable,
     localLatency: localProbe.latency,
@@ -280,6 +308,10 @@ export async function getFederationStatus(options: FederationStatusOptions = {})
       uptimeSeconds: Math.floor(process.uptime()),
     },
   };
+  if (!options.peers && !options.config) {
+    federationStatusCache = { result, ts: Date.now() };
+  }
+  return result;
 }
 
 /**

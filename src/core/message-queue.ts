@@ -14,6 +14,9 @@ export interface QueuedMessage {
 
 let nextId = 1;
 
+const DEFAULT_TERMINAL_PRUNE_MAX_AGE_MS = 3_600_000;
+const DEFAULT_ACTIVE_PRUNE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export class MessageQueue {
   private queue: QueuedMessage[] = [];
 
@@ -64,12 +67,19 @@ export class MessageQueue {
     return [...this.queue];
   }
 
-  /** Prune delivered/failed messages older than maxAge ms. */
-  prune(maxAge = 3_600_000) {
-    const cutoff = Date.now() - maxAge;
-    this.queue = this.queue.filter(m =>
-      m.status === "pending" || m.status === "delivering" || m.queuedAt > cutoff
-    );
+  /** Prune terminal messages by maxAge and stuck active messages after 24h by default. */
+  prune(maxAge = DEFAULT_TERMINAL_PRUNE_MAX_AGE_MS, activeMaxAge = DEFAULT_ACTIVE_PRUNE_MAX_AGE_MS) {
+    const now = Date.now();
+    const terminalCutoff = now - maxAge;
+    const activeCutoff = now - activeMaxAge;
+
+    this.queue = this.queue.filter(m => {
+      if (m.status === "pending" || m.status === "delivering") {
+        return m.queuedAt > activeCutoff;
+      }
+
+      return m.queuedAt > terminalCutoff;
+    });
   }
 
   get size(): number {

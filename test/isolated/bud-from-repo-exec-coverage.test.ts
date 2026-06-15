@@ -27,23 +27,15 @@ const originalTmux = process.env.TMUX;
 
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR: fleetDir,
+  fleetLoadDirForWrite: () => fleetDir,
+  getGhqRoot: () => ghqRoot,
+  ghqFind: async () => null,
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (failHostExec) throw new Error("git offline");
   },
-}));
-
-mock.module("maw-js/config/ghq-root", () => ({
-  getGhqRoot: () => ghqRoot,
-}));
-
-mock.module("maw-js/commands/shared/fleet-load", () => ({
-  fleetDirForWrite: () => fleetDir,
   loadFleetEntries: () => fleetEntries,
-  loadFleet: () => [],
-}));
-
-mock.module("maw-js/commands/shared/wake", () => ({
+  loadFleetCore: () => [],
   cmdWake: async (name: string, opts: Record<string, unknown>) => {
     wakeCalls.push({ name, opts });
     if (failWake) throw new Error("tmux refused");
@@ -52,19 +44,15 @@ mock.module("maw-js/commands/shared/wake", () => ({
     issuePromptCalls.push({ issue, repo });
     return `issue ${issue} from ${repo}`;
   },
-}));
-
-mock.module("maw-js/commands/shared/should-auto-wake", () => ({
   shouldAutoWake: (name: string, opts: Record<string, unknown>) => {
     shouldAutoWakeCalls.push({ name, opts });
     return wakeDecision;
   },
-}));
-
-mock.module("maw-js/commands/shared/wake-target", () => ({
-  parseWakeTarget: () => null,
   ensureCloned: async (repo: string) => {
     ensureClonedCalls.push(repo);
+  },
+  cmdSplit: async (name: string) => {
+    splitCalls.push(name);
   },
 }));
 
@@ -78,11 +66,6 @@ mock.module(join(root, "src/vendor/mpr-plugins/bud/internal/soul-sync-impl"), ()
   },
 }));
 
-mock.module(join(root, "src/vendor/mpr-plugins/split/impl"), () => ({
-  cmdSplit: async (name: string) => {
-    splitCalls.push(name);
-  },
-}));
 
 const {
   applyFromRepoInjection,

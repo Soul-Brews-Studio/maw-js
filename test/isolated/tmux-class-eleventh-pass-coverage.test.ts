@@ -72,7 +72,7 @@ describe("tmux-class eleventh-pass isolated coverage", () => {
 
     expect(hostExecCalls).toEqual([
       { cmd: "tmux display-message 'hello world'", host: "remote-box" },
-      { cmd: "tmux capture-pane -t session:win.0 -e -p 2>/dev/null | tail -7", host: "remote-box" },
+      { cmd: "tmux capture-pane -t session:win.0 -e -p -S -7", host: "remote-box" },
       { cmd: "printf '%s' 'don'\\''t quote twice' | tmux load-buffer -", host: "remote-box" },
     ]);
   });

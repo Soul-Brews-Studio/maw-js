@@ -26,23 +26,62 @@ interface FleetLineage {
 }
 
 
+function isLikelyHostName(segment: string): boolean {
+  if (segment === "github.com") return true;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(segment);
+}
+
+function isArchivedSegment(segment: string): boolean {
+  return /^_?\.?archive(?:d)?$/i.test(segment);
+}
+
+function normalizeFleetRepoRef(ref: unknown, source: string): string {
+  if (typeof ref !== "string") {
+    throw new Error(`invalid fleet repo reference in ${source}: expected string, got ${typeof ref}`);
+  }
+  const normalized = ref
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/\.git$/i, "")
+    .replace(/^github\.com\//i, "");
+  const parsed = parseFleetRepoSlug(normalized);
+  if (!parsed) {
+    throw new Error(`invalid fleet repo reference in ${source}: ${ref}`);
+  }
+  return `${parsed.org}/${parsed.repo}`;
+}
+
+function warnInvalidFleetRepoRef(message: string): void {
+  console.warn(`[oracle-registry] ${message}`);
+}
+
 function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): void {
-  const repos: string[] = config.project_repos || [];
+  const repos: unknown[] = config.project_repos || [];
   for (const r of repos) {
-    map.set(r, {
-      repo: r,
+    const repoRef = normalizeFleetRepoRef(r, "project_repos");
+    map.set(repoRef, {
+      repo: repoRef,
       budded_from: config.budded_from || null,
       budded_at: config.budded_at || null,
     });
   }
   // Also check windows for repo references
   for (const w of config.windows || []) {
-    if (w.repo && !map.has(w.repo)) {
-      map.set(w.repo, {
-        repo: w.repo,
-        budded_from: config.budded_from || null,
-        budded_at: config.budded_at || null,
-      });
+    if (!w.repo) continue;
+    try {
+      const repoRef = normalizeFleetRepoRef(w.repo, "windows[].repo");
+      if (!map.has(repoRef)) {
+        map.set(repoRef, {
+          repo: repoRef,
+          budded_from: config.budded_from || null,
+          budded_at: config.budded_at || null,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const windowName = typeof w.name === "string" && w.name ? ` '${w.name}'` : "";
+      warnInvalidFleetRepoRef(`skipping invalid fleet window${windowName}: ${message}`);
     }
   }
 }
@@ -53,15 +92,25 @@ export function readFleetLineage(fleetDir?: string | string[]): Map<string, Flee
   const seenFiles = new Set<string>();
   const dirs = Array.isArray(fleetDir) ? fleetDir : fleetDir ? [fleetDir] : fleetDirsForRead();
   for (const dir of dirs) {
+    let files: string[];
     try {
-      for (const file of readdirSync(dir).filter(f => f.endsWith(".json")).sort()) {
-        if (seenFiles.has(file)) continue;
-        seenFiles.add(file);
-        try {
-          addFleetLineageConfig(map, JSON.parse(readFileSync(join(dir, file), "utf-8")));
-        } catch { /* invalid fleet file, skip */ }
+      files = readdirSync(dir).filter(f => f.endsWith(".json")).sort();
+    } catch {
+      // Missing/unreadable fleet dirs are optional read locations; malformed
+      // files inside a readable dir are not optional and must fail loud.
+      continue;
+    }
+    for (const file of files) {
+      if (seenFiles.has(file)) continue;
+      seenFiles.add(file);
+      const path = join(dir, file);
+      try {
+        addFleetLineageConfig(map, JSON.parse(readFileSync(path, "utf-8")));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`invalid fleet lineage JSON ${path}: ${message}`);
       }
-    } catch { /* fleet dir may not exist */ }
+    }
   }
   return map;
 }
@@ -80,6 +129,15 @@ interface ScanLocalDeps {
   ghqRoot?: string;
   now?: string;
   fleetLineage?: Map<string, FleetLineage>;
+}
+
+function parseFleetRepoSlug(key: string): { org: string; repo: string } | null {
+  const parts = key.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [org, repo] = parts;
+  if (!org || !repo) return null;
+  if (isLikelyHostName(org) || isArchivedSegment(org) || isArchivedSegment(repo)) return null;
+  return { org, repo };
 }
 
 /**
@@ -105,6 +163,10 @@ export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry
   // Walk reposRoot: <reposRoot>/<org>/<repo>/
   try {
     for (const org of readdirSync(reposRoot)) {
+      if (isLikelyHostName(org) || isArchivedSegment(org)) {
+        if (verbose) console.log(`  \x1b[90m  ⏭ skipping non-repo org segment: ${org}\x1b[0m`);
+        continue;
+      }
       const orgPath = join(reposRoot, org);
       try {
         if (!statSync(orgPath).isDirectory()) continue;
@@ -114,6 +176,7 @@ export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry
       let oracleCount = 0;
 
       for (const repo of readdirSync(orgPath)) {
+        if (isArchivedSegment(repo)) continue;
         const repoPath = join(orgPath, repo);
         try {
           if (!statSync(repoPath).isDirectory()) continue;
@@ -188,8 +251,9 @@ export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry
   let fleetOnly = 0;
   for (const [key, lineage] of fleetLineage) {
     if (!seen.has(key)) {
-      const [org, repo] = key.split("/");
-      if (org && repo) {
+      const parsed = parseFleetRepoSlug(key);
+      if (parsed) {
+        const { org, repo } = parsed;
         fleetOnly++;
         if (verbose) {
           console.log(`  \x1b[90m  + ${key}\x1b[0m [\x1b[36mfleet-only\x1b[0m] (not cloned)`);

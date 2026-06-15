@@ -26,12 +26,15 @@ import { activeDurationArg, cmdTmuxLayout, cmdTmuxLs, parseActiveDurationSeconds
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { cmdPromote } from "../commands/shared/promote-cmd";
+import { cmdTeamWtf } from "../commands/plugins/team/team-wtf";
+import { cmdTeamWtfFix } from "../commands/plugins/team/team-wtf-fix";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
 import { lsFederated } from "../vendor/mpr-plugins/ls/internal/peer-call";
+import { engineNamesForConfig } from "../config/engine-registry";
 
-export type DirectHandler = { kind: "direct"; handler: string };
+export type DirectHandler = { kind: "direct"; handler: string; argv?: string[] };
 export type AliasResolution =
   | { kind: "argv"; argv: string[] }
   | { kind: "direct"; handler: string; argv: string[] };
@@ -53,9 +56,11 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
+  work: "Alias for `wake --work .` from cwd (derive oracle)",
   new: "Create a plain tmux workspace session",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   snapshots: "List and inspect fleet recovery snapshots",
+  wtf: "Read-only team drift doctor for the current tmux team",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -86,11 +91,13 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
   awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
+  work: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake", argv: ["--work", "."] },
   new: { kind: "direct", handler: "./cmd-new:cmdNew" },
   promote: { kind: "direct", handler: "../commands/shared/promote-cmd:cmdPromote" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
   snapshots: ["fleet", "snapshots"],
+  wtf: { kind: "direct", handler: "../commands/plugins/team/team-wtf:cmdTeamWtf" },
 };
 
 /**
@@ -112,7 +119,7 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   if (Array.isArray(entry)) return { kind: "argv", argv: [...entry, ...args.slice(1)] };
 
   // Direct-handler: pass the rest of argv (everything after the verb) as-is.
-  return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
+  return { kind: "direct", handler: entry.handler, argv: [...(entry.argv ?? []), ...args.slice(1)] };
 }
 
 export function parseBringArgs(
@@ -168,13 +175,15 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--work|--oracle] [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--no-fleet] [--split] [--wait] [--parent-session-id <id>] [--session-id <id>] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
   } else {
     write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
   }
+  write("  --work/--oracle overrides suffix-based mode detection; work mode uses repo identity and keeps ψ/ local.");
+  write("  --wait waits for the engine process after bootstrap; default wake returns immediately after sending it.");
   write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
   write("  --layout selects new worktree filesystem layout: nested (default repo/agents/N-X) or legacy (.wt-N-X).");
@@ -313,6 +322,8 @@ export interface TopAliasHandlerDeps {
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
   cmdPromote?: (argv: string[]) => MaybePromise;
+  cmdTeamWtf?: (teamArg?: string, opts?: { json?: boolean; session?: string }) => MaybePromise;
+  cmdTeamWtfFix?: (teamArg?: string, opts?: { json?: boolean; session?: string; dryRun?: boolean; confirm?: string }) => MaybePromise;
   loadConfig?: () => { commands?: Record<string, unknown> };
   log?: (line: string) => void;
   error?: (line: string) => void;
@@ -335,6 +346,8 @@ export async function invokeDirectHandler(
   const directCmdNew = deps.cmdNew ?? cmdNew;
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
   const directCmdPromote = deps.cmdPromote ?? cmdPromote;
+  const directCmdTeamWtf = deps.cmdTeamWtf ?? cmdTeamWtf;
+  const directCmdTeamWtfFix = deps.cmdTeamWtfFix ?? cmdTeamWtfFix;
   const log = deps.log ?? console.log;
   const error = deps.error ?? console.error;
 
@@ -437,8 +450,12 @@ export async function invokeDirectHandler(
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
       "--parent": String,
+      "--work": Boolean,
+      "--oracle": Boolean,
       "--parent-session-id": String,
       "--session-id": String,
+      "--wait": Boolean,
+      "--wait-engine": "--wait",
     }, 0);
 
     const positional = flags._;
@@ -474,7 +491,12 @@ export async function invokeDirectHandler(
       fromSnapshot?: boolean;
       snapshotId?: string;
       layout?: "nested" | "legacy";
+      sessionMode?: "oracle" | "work";
+      wait?: boolean;
     } = {};
+    if (flags["--work"] && flags["--oracle"]) throw new UserError("wake: choose only one of --work or --oracle");
+    if (flags["--work"]) opts.sessionMode = "work";
+    if (flags["--oracle"]) opts.sessionMode = "oracle";
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
     if (flags["--layout"]) {
@@ -509,14 +531,15 @@ export async function invokeDirectHandler(
       opts.parentSessionId = (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined);
     }
     if (flags["--session-id"]) opts.sessionId = flags["--session-id"] as string;
+    if (flags["--wait"]) opts.wait = true;
 
-    // Shorthand: --codex, --gemini etc. → engine from config.commands
+    // Shorthand: --codex, --gemini etc. → engine from config.engines/legacy commands.
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
     if (!opts.engine) {
       const loadConfig = deps.loadConfig ?? (await import("../config")).loadConfig;
-      const commands = loadConfig().commands || {};
+      const engineNames = new Set(engineNamesForConfig(loadConfig()));
       for (const arg of (flags._ as string[])) {
-        if (arg.startsWith("--") && commands[arg.slice(2)]) {
+        if (arg.startsWith("--") && engineNames.has(arg.slice(2))) {
           opts.engine = arg.slice(2);
           break;
         }
@@ -557,6 +580,24 @@ export async function invokeDirectHandler(
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     await directCmdPreflight({ fix: !!flags["--fix"] });
+    return;
+  }
+
+  if (exportName === "cmdTeamWtf") {
+    const flags = parseFlags(argv, { "--json": Boolean, "--session": String, "--fix": Boolean, "--dry-run": Boolean, "--confirm": String }, 0);
+    if (flags["--fix"]) {
+      await directCmdTeamWtfFix(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+        dryRun: Boolean(flags["--dry-run"]),
+        confirm: flags["--confirm"] as string | undefined,
+      });
+    } else {
+      await directCmdTeamWtf(flags._[0] as string | undefined, {
+        json: Boolean(flags["--json"]),
+        session: flags["--session"] as string | undefined,
+      });
+    }
     return;
   }
 

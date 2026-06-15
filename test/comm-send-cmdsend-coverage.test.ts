@@ -6,6 +6,8 @@
  * the real modules so later tests do not inherit fake behavior.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 let mockActive = false;
@@ -21,7 +23,11 @@ const _rScopeAcl = await import("../src/commands/shared/scope-acl");
 const _rQueueStore = await import("../src/commands/shared/queue-store");
 const _rTrustStore = await import("../src/lib/trust-store");
 const _rConsentGate = await import("../src/core/consent/gate");
+const _rEventHooks = await import("../src/plugin/event-hooks");
 const _rFindWindow = await import("../src/core/runtime/find-window");
+const _rGhq = await import("../src/core/ghq");
+const _rFleetLoad = await import("../src/commands/shared/fleet-load");
+const _rTmux = await import("../src/core/transport/tmux");
 const realSdk = {
   listSessions: _rSdk.listSessions,
   capture: _rSdk.capture,
@@ -43,6 +49,9 @@ const realScopeAcl = { loadAllScopes: _rScopeAcl.loadAllScopes, evaluateAclFromD
 const realQueueStore = { savePending: _rQueueStore.savePending };
 const realTrustStore = { cmdAdd: _rTrustStore.cmdAdd };
 const realConsentGate = { maybeGateConsent: _rConsentGate.maybeGateConsent };
+const realEventHooks = { runPluginEventHooks: _rEventHooks.runPluginEventHooks };
+const realGhq = { ghqFind: _rGhq.ghqFind, ghqList: _rGhq.ghqList };
+const realFleetLoad = { loadFleetEntries: _rFleetLoad.loadFleetEntries };
 
 type Session = { name: string; windows: Array<{ index: number; name: string; active: boolean }> };
 type ResolvedTarget =
@@ -60,6 +69,7 @@ let listSessionsReturn: Session[];
 let resolveTargetReturn: ResolvedTarget;
 let resolveTargetError: Error | null;
 let resolveTargetCalls: string[];
+let resolveTargetArgCalls: Parameters<typeof _rSdk.resolveTarget>[];
 let resolveTargetHandler: ((query: string) => ResolvedTarget) | null;
 let findPeerUrl: string | null;
 let getPaneCommandReturn: string;
@@ -86,6 +96,67 @@ let savePendingCalls: any[];
 let trustAddCalls: Array<{ sender: string; target: string }>;
 let trustAddError: Error | null;
 let consentDecision: { allow: boolean; message?: string; exitCode?: number };
+let transportEventCalls: Array<{ eventName: string; payload: unknown }>;
+let ghqFindCalls: string[];
+let ghqListCalls: number;
+let fleetLoadCalls: number;
+let tmuxRunCalls: string[][];
+let tempDirs: string[];
+
+function createUnreadInbox(unreadCount: number, filename: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "maw-inbox-count-"));
+  tempDirs.push(dir);
+  writeFileSync(join(dir, filename), `---\nread: false\n---\n\nlatest\n`);
+  for (let i = 1; i < unreadCount; i += 1) {
+    writeFileSync(join(dir, `older-${i}.md`), `---\nread: false\n---\n\nolder ${i}\n`);
+  }
+  writeFileSync(join(dir, "already-read.md"), `---\nread: true\n---\n\nread\n`);
+  return dir;
+}
+
+mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
+  ..._rGhq,
+  ghqFind: async (suffix: string) => {
+    if (!mockActive) return realGhq.ghqFind(suffix);
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => {
+    if (!mockActive) return realGhq.ghqList();
+    ghqListCalls += 1;
+    return [];
+  },
+}));
+
+mock.module(join(import.meta.dir, "../src/commands/shared/fleet-load"), () => ({
+  ..._rFleetLoad,
+  loadFleetEntries: () => {
+    if (!mockActive) return realFleetLoad.loadFleetEntries();
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
+
+mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
+  class MockTmux extends _rTmux.Tmux {
+    async run(...args: string[]) {
+      if (!mockActive) return super.run(...args);
+      tmuxRunCalls.push(args);
+      if (args.join(" ") === "display-message -p #S") return "mock-session\n";
+      if (args[0] === "list-panes") return "0 claude\n";
+      if (args[0] === "show-option") return "";
+      if (args[0] === "set-option") return "";
+      if (args[0] === "display-message" && args.includes("-t")) return "";
+      throw new Error(`unexpected test tmux run: ${args.join(" ")}`);
+    }
+    async tryRun(...args: string[]) {
+      if (!mockActive) return super.tryRun(...args);
+      tmuxRunCalls.push(args);
+      return "";
+    }
+  }
+  return { ..._rTmux, Tmux: MockTmux, tmux: new MockTmux() };
+});
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
@@ -108,6 +179,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   resolveTarget: (...args: Parameters<typeof _rSdk.resolveTarget>) => {
     if (!mockActive) return realSdk.resolveTarget(...args);
     resolveTargetCalls.push(args[0]);
+    resolveTargetArgCalls.push(args);
     if (resolveTargetError) throw resolveTargetError;
     if (resolveTargetHandler) return resolveTargetHandler(args[0]);
     return resolveTargetReturn as ReturnType<typeof _rSdk.resolveTarget>;
@@ -205,6 +277,16 @@ mock.module(join(import.meta.dir, "../src/core/consent/gate"), () => ({
   maybeGateConsent: async (...args: Parameters<typeof realConsentGate.maybeGateConsent>) => mockActive ? consentDecision : realConsentGate.maybeGateConsent(...args),
 }));
 
+mock.module(join(import.meta.dir, "../src/plugin/event-hooks"), () => ({
+  ..._rEventHooks,
+  runPluginEventHooks: async (...args: Parameters<typeof realEventHooks.runPluginEventHooks>) => {
+    if (!mockActive) return realEventHooks.runPluginEventHooks(...args);
+    const [eventName, payload] = args;
+    transportEventCalls.push({ eventName, payload });
+    return { eventName, matched: 0, invoked: 0, skipped: 0, failed: 0 };
+  },
+}));
+
 const origSleep = Bun.sleep.bind(Bun);
 const origExit = process.exit;
 const origErr = console.error;
@@ -216,6 +298,7 @@ const origMawSender = process.env.MAW_SENDER;
 const origSshClient = process.env.SSH_CLIENT;
 const origSshConnection = process.env.SSH_CONNECTION;
 const origSshTty = process.env.SSH_TTY;
+const origTmux = process.env.TMUX;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   if (mockActive) sleepCalls.push(ms);
@@ -261,6 +344,7 @@ beforeEach(() => {
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
   resolveTargetError = null;
   resolveTargetCalls = [];
+  resolveTargetArgCalls = [];
   resolveTargetHandler = null;
   findPeerUrl = null;
   getPaneCommandReturn = "claude";
@@ -287,6 +371,12 @@ beforeEach(() => {
   trustAddCalls = [];
   trustAddError = null;
   consentDecision = { allow: true };
+  transportEventCalls = [];
+  ghqFindCalls = [];
+  ghqListCalls = 0;
+  fleetLoadCalls = 0;
+  tmuxRunCalls = [];
+  tempDirs = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
   process.env.MAW_TEST_MODE = "1";
   delete process.env.MAW_CONSENT;
@@ -315,6 +405,9 @@ afterEach(() => {
   else process.env.SSH_CONNECTION = origSshConnection;
   if (origSshTty === undefined) delete process.env.SSH_TTY;
   else process.env.SSH_TTY = origSshTty;
+  if (origTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = origTmux;
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 });
 
 afterAll(() => {
@@ -327,6 +420,17 @@ afterAll(() => {
 });
 
 describe("cmdSend — delivery branch coverage", () => {
+  test("caller-supplied currentSession scopes target resolution", async () => {
+    captureResponses = ["accepted"];
+
+    await runCmd(() => cmdSend("codex-1", "hello", false, { currentSession: "89-mawjs", receiverInbox: false }));
+
+    expect(exitCode).toBeUndefined();
+    expect(resolveTargetArgCalls[0]?.[0]).toBe("codex-1");
+    expect(resolveTargetArgCalls[0]?.[3]).toBe("89-mawjs");
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
+  });
+
   test("local delivery signs, sends, logs, hooks, captures last line, and emits feed", async () => {
     captureResponses = ["accepted"];
     await runCmd(() => cmdSend("local:session:oracle", "hello"));
@@ -337,6 +441,23 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] hello", route: "local" }]);
     expect(captureCalls.map(c => c.lines)).toEqual([3]);
     expect(emitFeedCalls[0].data.route).toBe("local");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "local",
+        to: "local:session:oracle",
+        from: "test-node:sender",
+        via: "tmux",
+        message: "[test-node:sender] hello",
+        result: {
+          ok: true,
+          state: "local",
+          route: "local",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("delivered");
     expect(logs.join("\n")).toContain("accepted");
   });
@@ -412,14 +533,15 @@ describe("cmdSend — delivery branch coverage", () => {
 
   test("--inbox queues to receiver inbox without pane injection", async () => {
     getPaneCommandReturn = "zsh";
+    const inboxDir = createUnreadInbox(1, "msg.md");
 
     await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
       inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
-        inboxDir: "/repo/ψ/inbox",
-        path: "/repo/ψ/inbox/msg.md",
+        inboxDir,
+        path: join(inboxDir, "msg.md"),
         filename: "msg.md",
       }),
     }));
@@ -430,6 +552,60 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued" });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
+    expect(sendKeysCalls).toEqual([]);
+    expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "session",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:1#[default]",
+    ]);
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "session:oracle",
+      "📬 inbox +1 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
+    ]);
+  });
+
+
+  test("same-machine CLI inbox queue gently notifies a live receiver pane (#2789)", async () => {
+    listSessionsReturn = [{ name: "157-noah", windows: [{ index: 0, name: "noah-oracle", active: true }] }];
+    resolveTargetReturn = { type: "local", target: "157-noah:noah-oracle.0" };
+    const inboxDir = createUnreadInbox(24, "noah.md");
+
+    await runCmd(() => cmdSend("m5:noah", "queued for later", false, {
+      inboxOnly: true,
+      receiverInbox: () => ({
+        ok: true,
+        oracle: "noah",
+        inboxDir,
+        path: join(inboxDir, "noah.md"),
+        filename: "noah.md",
+      }),
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([{ from: "sender", to: "m5:noah", message: "[test-node:sender] queued for later", route: "inbox" }]);
+    expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "157-noah",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:24#[default]",
+    ]);
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "157-noah:noah-oracle",
+      "📬 inbox +24 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/noah.md)",
+    ]);
+    expect(warns.join("\n")).not.toContain("notify skipped");
   });
 
   test("--inbox receiver inbox writer failures surface as queue-only errors", async () => {
@@ -473,14 +649,15 @@ describe("cmdSend — delivery branch coverage", () => {
 
   test("--inbox queues to receiver inbox when the pane is busy", async () => {
     captureResponses = ["❯ draft one", "❯ draft two"];
+    const inboxDir = createUnreadInbox(2, "busy.md");
 
     await runCmd(() => cmdSend("local:session:oracle", "queued while busy", false, {
       inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
-        inboxDir: "/repo/ψ/inbox",
-        path: "/repo/ψ/inbox/busy.md",
+        inboxDir,
+        path: join(inboxDir, "busy.md"),
         filename: "busy.md",
       }),
     }));
@@ -491,6 +668,21 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "--inbox requested; pane injection skipped" });
     expect(logs.join("\n")).toContain("busy.md");
+    expect(tmuxRunCalls).toContainEqual([
+      "set-option",
+      "-t",
+      "session",
+      "status-right",
+      "#[fg=colour220,bold]📬 inbox:2#[default]",
+    ]);
+    expect(tmuxRunCalls).toContainEqual([
+      "display-message",
+      "-d",
+      "5000",
+      "-t",
+      "session:oracle",
+      "📬 inbox +2 from test-node:sender — ว่างแล้วค่อย maw inbox (ψ/inbox/busy.md)",
+    ]);
   });
 
   test("peer delivery marks accepted-only responses queued until delivery is proven", async () => {
@@ -507,6 +699,28 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("peer:remote");
     expect(emitFeedCalls[0].data.route).toBe("peer");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "peer",
+        node: "remote",
+        target: "oracle",
+        peerUrl: "http://remote:3456",
+        to: "remote:session:oracle",
+        from: "test-node:sender",
+        via: "http",
+        message: "[test-node:sender] ping",
+        result: {
+          ok: false,
+          state: "queued",
+          target: "remote-session:oracle.0",
+          peerUrl: "http://remote:3456",
+          lastLine: "remote ack",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).not.toContain("delivered");
     expect(runHookCalls[0].name).toBe("after_send");
@@ -548,6 +762,28 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("discovery");
     expect(emitFeedCalls[0].data.route).toBe("discovery");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(transportEventCalls).toHaveLength(1);
+    expect(transportEventCalls[0]).toMatchObject({
+      eventName: "transport:after_send",
+      payload: {
+        event: "transport:after_send",
+        route: "discovery",
+        node: "path/target",
+        target: "found:0",
+        peerUrl: "http://discovered:3456",
+        to: "path/target",
+        from: "test-node:sender",
+        via: "discovery",
+        message: "[test-node:sender] hello",
+        result: {
+          ok: false,
+          state: "queued",
+          target: "found:0",
+          peerUrl: "http://discovered:3456",
+          lastLine: "found ack",
+        },
+      },
+    });
     expect(logs.join("\n")).toContain("queued");
     expect(logs.join("\n")).not.toContain("delivered");
   });
@@ -728,6 +964,9 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(receiverWrites).toHaveLength(1);
     expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
     expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
+    expect(warns.join("\n")).toContain("inbox pane notify skipped for renamed: no live tmux pane resolved for inbox receiver 'renamed'");
+    expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
+    expect(emitFeedCalls.some((call) => call.data?.route === "inbox-notify" && String(call.data?.lastLine).includes("notify skipped"))).toBe(true);
   });
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
@@ -754,6 +993,29 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(curlFetchCalls).toEqual([]);
     expect(warns.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
     expect(errs.join("\n")).toContain("found but no active session");
+  });
+
+  test("bare locate coverage remains hermetic when TMUX is inherited (#2785)", async () => {
+    process.env.TMUX = "/tmp/tmux-test/default,123,0";
+    listSessionsReturn = [];
+    resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
+    manifestEntries = [{ name: "renamed", localPath: "/tmp/renamed-oracle", node: "test-node", sources: ["oracles.json"] }];
+
+    const receiverWrites: any[] = [];
+
+    await runCmd(() => cmdSend("renamed", "hello", false, {
+      receiverInbox: async (input: any) => {
+        receiverWrites.push(input);
+        return { ok: true, oracle: "renamed", inboxDir: "/tmp/renamed-oracle/ψ/inbox", path: "/tmp/renamed-oracle/ψ/inbox/msg.md", filename: "msg.md" };
+      },
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(receiverWrites).toHaveLength(1);
+    expect(ghqFindCalls).toEqual(["/renamed-oracle", "/renamed"]);
+    expect(fleetLoadCalls).toBe(1);
+    expect(tmuxRunCalls).toEqual([["display-message", "-p", "#S"]]);
+    expect(curlFetchCalls).toEqual([]);
   });
 
   test("bare peer aliases are allowed as explicit federation targets (#1940)", async () => {

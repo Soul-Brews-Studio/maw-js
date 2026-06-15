@@ -121,7 +121,7 @@ describe("tmux-class seventh-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux capture-pane -t 'alpha pane' -e -p 2>/dev/null | tail -3",
+        cmd: "tmux capture-pane -t 'alpha pane' -e -p -S -3",
         host: "remote-box",
       },
       {

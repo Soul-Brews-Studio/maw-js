@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { mockConfigModule } from "../helpers/mock-config";
 
 const implPath = import.meta.resolve("../../src/vendor/mpr-plugins/zenoh-scout/impl");
-const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
+const discoveredPath = "maw-js/commands/shared/discovered-peers-client";
 const realZenohImpl = await import("../../src/vendor/mpr-plugins/zenoh-scout/impl");
-const realDiscovered = await import("../../src/vendor/mpr-plugins/peers/discovered");
+const realDiscovered = await import("../../src/commands/shared/discovered-peers-client");
 
 let loadConfigValue: Record<string, unknown> = {};
 let loadConfigError: Error | null = null;

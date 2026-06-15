@@ -1,0 +1,26 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "about",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Show information about an oracle (session, repo, windows).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "about",
+    "aliases": [
+      "info"
+    ],
+    "help": "maw about <oracle> — show oracle info"
+  },
+  "api": {
+    "path": "/api/about",
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

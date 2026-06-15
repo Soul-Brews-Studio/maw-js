@@ -56,6 +56,13 @@ function fromAuthApp(): Elysia {
     .get("/sessions", () => ({ ok: true, route: "sessions" }));
 }
 
+function fullAuthSendApp(): Elysia {
+  return new Elysia({ prefix: "/api" })
+    .use(federationAuth)
+    .use(fromSigningAuth)
+    .post("/send", () => ({ ok: true, route: "send" }));
+}
+
 function fullAuthPaneKeysApp(): Elysia {
   return new Elysia({ prefix: "/api" })
     .use(federationAuth)
@@ -192,10 +199,23 @@ describe("federationAuth — HMAC success and error branches", () => {
     expect(await res.json()).toMatchObject({ ok: true, route: "download" });
   });
 
-  test("x-maw-from lets HMAC layer defer instead of rejecting the from-signature slot", async () => {
+  test("#2776: x-maw-from no longer skips token HMAC when federationToken is configured", async () => {
     const res = await hmacApp().handle(new Request("http://localhost/api/send", {
       method: "POST",
-      headers: { "x-maw-from": "oracle:peer-node", "x-maw-signature": "not-a-fleet-hmac" },
+      headers: fromSignatureHeaders({ body: "{}" }),
+      body: "{}",
+    }));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: "federation auth required", reason: "missing_signature" });
+  });
+
+  test("no federationToken configured keeps single-node passthrough even with x-maw-from", async () => {
+    configState = { node: "local" };
+
+    const res = await hmacApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      headers: fromSignatureHeaders({ body: "{}" }),
       body: "{}",
     }));
 
@@ -249,16 +269,68 @@ describe("fromSigningAuth — per-peer continuity branches", () => {
     expect(await res.json()).toMatchObject({ ok: true, route: "send" });
   });
 
-  test("/api/pane-keys accepts current v3 from-signing headers even with fleet-HMAC signature noise (#1859)", async () => {
+  test("#2776 proof: self-signed unknown peer without fleet token is rejected before protected action", async () => {
+    const body = JSON.stringify({ hello: "attacker" });
+    const res = await fullAuthSendApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...fromSignatureHeaders({ body, secret: "attacker-owned-key" }),
+      },
+      body,
+    }));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: "federation auth required", reason: "missing_signature" });
+  });
+
+  test("#2776 legit fleet member with token HMAC plus uncached v3 from-signature passes TOFU bootstrap", async () => {
+    const body = JSON.stringify({ hello: "legit-tofu" });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const res = await fullAuthSendApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...signedHeaders("POST", "/api/send", timestamp),
+        ...fromSignatureHeaders({ body, timestamp }),
+      },
+      body,
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, route: "send" });
+  });
+
+  test("#2776 cached peer with unsigned from-address remains refused by O6 row 3", async () => {
+    peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
+    const res = await fromAuthApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      headers: {
+        "x-maw-from": "oracle:peer-node",
+      },
+      body: "{}",
+    }));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({
+      error: "from-signing failed",
+      kind: "refuse-unsigned",
+      reason: "cache-no-sig",
+      from: "oracle:peer-node",
+    });
+  });
+
+  test("/api/pane-keys accepts current v3 from-signing headers stacked with fleet-HMAC (#1859, #2776)", async () => {
     peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
     const body = JSON.stringify({ target: "origin_discord:0", text: "test", enter: true });
+    const timestamp = Math.floor(Date.now() / 1000);
 
     const res = await fullAuthPaneKeysApp().handle(new Request("http://localhost/api/pane-keys", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-maw-signature": "0".repeat(64),
-        ...fromSignatureHeaders({ path: "/api/pane-keys", body }),
+        ...signedHeaders("POST", "/api/pane-keys", timestamp),
+        ...fromSignatureHeaders({ path: "/api/pane-keys", body, timestamp }),
       },
       body,
     }));

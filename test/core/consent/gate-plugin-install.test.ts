@@ -60,6 +60,32 @@ describe("shortSha", () => {
 });
 
 describe("maybeGatePluginInstall", () => {
+  it("refuses identity-mismatched peers before checking trust or requesting consent", async () => {
+    recordTrust({
+      from: "me",
+      to: "attacker",
+      action: "plugin-install",
+      approvedAt: new Date().toISOString(),
+      approvedBy: "human",
+      requestId: null,
+    });
+
+    const d = await maybeGatePluginInstall({
+      myNode: "me",
+      peerName: "white",
+      peerNode: "attacker",
+      peerUrl: "http://white:3456",
+      pluginName: "ping",
+      pluginVersion: "1.0.0",
+      identityMismatch: true,
+    });
+
+    expect(d.allow).toBe(false);
+    expect(d.exitCode).toBe(1);
+    expect(d.message).toContain("peer identity mismatch");
+    expect(d.message).toContain("refusing to bind trust");
+  });
+
   it("allows when peer is already trusted for plugin-install", async () => {
     recordTrust({
       from: "neo", to: "white", action: "plugin-install",

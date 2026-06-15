@@ -22,6 +22,8 @@ import {
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
+import { runPluginEventHooks } from "../../plugin/event-hooks";
+import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -75,22 +77,30 @@ export async function resolveOraclePane(
   }
 }
 
-/** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux pane. */
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
-  // Only trust the tmux session name when we are actually inside a tmux client.
-  // Outside tmux ($TMUX unset), `display-message` resolves the most-recent
-  // attached session and returns a name instead of throwing — so the try/catch
-  // below would never fire and the sender would be mis-tagged as a stray session
-  // (e.g. "05-eq3"). Guard on $TMUX so the off-tmux path falls through to config.node.
+  // Only trust tmux when this process is actually running inside a tmux pane.
+  // Outside tmux, `tmux display-message` can still succeed by reporting the
+  // server's current/last-active session, which misattributes sender envelopes.
   if (process.env.TMUX) {
     try {
       const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");  // "08-mawjs" → "mawjs"
+      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
     } catch {}
   }
   return config.node || "cli";
+}
+
+async function currentTmuxSessionName(): Promise<string | undefined> {
+  if (!process.env.TMUX) return undefined;
+  try {
+    const session = (await new Tmux().run("display-message", "-p", "#S")).trim();
+    return session || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface SenderIdentity {
@@ -386,11 +396,12 @@ async function resolveBareLocalTarget(
   query: string,
   config: ReturnType<typeof loadConfig>,
   sessions: Awaited<ReturnType<typeof listSessions>>,
+  currentSession?: string,
 ): Promise<{ result: ReturnType<typeof resolveTarget> | null; locate: HeyLocateResolution | null }> {
   if (!isBareLocalHeyTarget(query)) return { result: null, locate: null };
 
   try {
-    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions), config);
+    const localResult = normalizeBareLocalResult(query, resolveTarget(query, config, sessions, currentSession), config);
     if (localResult) return { result: localResult, locate: null };
   } catch (e) {
     if (e instanceof AmbiguousMatchError) {
@@ -421,12 +432,15 @@ async function resolveBareLocalTarget(
  *   into the live pane. Normal sends now always inject by default.
  * - `from` (#1889): explicit user-facing sender override, `<node>:<oracle>`,
  *   used for SSH relays where auto local identity would impersonate the host.
+ * - `currentSession` (#2134): caller-known tmux session used to scope bare
+ *   target resolution before cross-session matching.
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
   inboxOnly?: boolean;
   from?: string;
+  currentSession?: string;
   receiverInbox?: ReceiverInboxWriter | false;
   /**
    * #1907 — opt out of post-send verify-submit retry. Default behaviour
@@ -556,23 +570,35 @@ export async function cmdSend(
 
     // Fan-out sends individually. cmdSend calls process.exit on failure,
     // so we override it temporarily to keep iterating (#627 resilient fan-out).
+    // The override must still abort the nested cmdSend call; returning from
+    // process.exit lets fail paths continue through code that assumes `never`,
+    // which can leave subprocess/async work alive under isolated shard load.
+    class TeamMemberExitError extends Error {
+      readonly code: number;
+      constructor(code?: number) {
+        super("team member send exited");
+        this.name = "TeamMemberExitError";
+        this.code = code ?? 0;
+      }
+    }
     const origExit = process.exit;
     for (const member of members) {
       const routedMember = resolveTeamWorkspaceMemberTarget(teamName, member, sessions) ?? member;
-      let memberFailed = false;
       process.exit = ((code?: number) => {
-        memberFailed = true;
+        throw new TeamMemberExitError(code);
       }) as never;
       try {
         await cmdSend(routedMember, message, force, opts);
-        if (!memberFailed) delivered++;
-        else failed++;
+        delivered++;
       } catch (e: any) {
         failed++;
-        console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
+        if (!(e instanceof TeamMemberExitError)) {
+          console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
+        }
+      } finally {
+        process.exit = origExit;
       }
     }
-    process.exit = origExit;
 
     console.log(`\x1b[36m⚡\x1b[0m fan-out complete: ${delivered} delivered, ${failed} failed`);
     return;
@@ -592,7 +618,8 @@ export async function cmdSend(
   }
 
   let sessions = await listSessions();
-  let bareResolution = await resolveBareLocalTarget(query, config, sessions);
+  const currentSession = opts.currentSession?.trim() || await currentTmuxSessionName();
+  let bareResolution = await resolveBareLocalTarget(query, config, sessions, currentSession);
 
   // --- #736 Phase 1.2 + #791: auto-wake fleet-known targets (parity with maw view) ---
   // Mirrors view/impl.ts:107 — if the user's hey target is fleet-known but
@@ -644,7 +671,7 @@ export async function cmdSend(
           await cmdWake(bareAgent, {});
           // Refresh after wake — resolver needs the new tmux session visible.
           sessions = await listSessions();
-          bareResolution = await resolveBareLocalTarget(query, config, sessions);
+          bareResolution = await resolveBareLocalTarget(query, config, sessions, currentSession);
         }
       } catch { /* fleet/wake best-effort — fall through to existing error path */ }
     } else if (targetNode && bareAgent && !isCanonical) {
@@ -700,7 +727,7 @@ export async function cmdSend(
   const result = bareResolution.result ?? (
     isBareLocalHeyTarget(query)
       ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
-      : resolveTarget(query, config, sessions)
+      : resolveTarget(query, config, sessions, currentSession)
   );
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
@@ -840,6 +867,32 @@ export async function cmdSend(
     console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
     return true;
   };
+  const warnOfflineInboxOnly = (): void => {
+    console.warn(`\x1b[33m⚠ target node offline — message written to inbox only, will not be seen until node wakes\x1b[0m`);
+  };
+  const notifyQueuedInbox = async (inbox: ReceiverInboxResult | null, target: string, reason: string): Promise<void> => {
+    if (!inbox?.ok) return;
+    const notify = await notifyLiveInboxReceiver(inbox, senderIdentity.display, {
+      listSessions: async () => sessions,
+      tmux: new Tmux(),
+    });
+    if (notify.status !== "sent") {
+      const detail = notify.reason || "unknown notify failure";
+      console.warn(`\x1b[33mwarn\x1b[0m: inbox pane notify skipped for ${inbox.oracle}: ${detail}`);
+      emitMessageFeed({
+        direction: "outbound",
+        state: "queued",
+        channel: "hey",
+        route: "inbox-notify",
+        from: senderIdentity.display,
+        to: query,
+        target: notify.target || target,
+        text: outboundMessage,
+        lastLine: `${reason}; notify skipped: ${detail}`,
+        signed: true,
+      }, config.port || 3456);
+    }
+  };
 
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
@@ -850,7 +903,10 @@ export async function cmdSend(
     const target = await resolveOraclePane(result.target);
     if (opts.inboxOnly) {
       const inbox = await writeReceiverInbox(target);
-      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) return;
+      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) {
+        await notifyQueuedInbox(inbox, target, "--inbox requested; pane injection skipped");
+        return;
+      }
       const reason = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
@@ -860,7 +916,11 @@ export async function cmdSend(
     if (guard.busy) {
       queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
       const inbox = await writeReceiverInbox(target);
-      if (logQueuedInbox(inbox, target, `target '${guard.oracle}' is busy; queued for auto-delivery`)) return;
+      const reason = `target '${guard.oracle}' is busy; queued for auto-delivery`;
+      if (logQueuedInbox(inbox, target, reason)) {
+        await notifyQueuedInbox(inbox, target, reason);
+        return;
+      }
       console.log(`\x1b[33mqueued\x1b[0m target '${guard.oracle}' is busy — will auto-deliver when idle`);
       return;
     }
@@ -873,7 +933,11 @@ export async function cmdSend(
       await sendKeys(target, outboundMessage);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (logQueuedInbox(inbox, target, `tmux delivery failed: ${msg}`)) return;
+      const reason = `tmux delivery failed: ${msg}`;
+      if (logQueuedInbox(inbox, target, reason)) {
+        await notifyQueuedInbox(inbox, target, reason);
+        return;
+      }
       console.error(`\x1b[31merror\x1b[0m: tmux delivery failed for ${target}: ${msg}`);
       process.exit(1);
     }
@@ -909,6 +973,20 @@ export async function cmdSend(
     }, config.port || 3456);
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+    await runPluginEventHooks("transport:after_send", {
+      event: "transport:after_send",
+      route: "local",
+      target,
+      to: query,
+      from: senderIdentity.display,
+      result: {
+        ok: true,
+        state: "local",
+        route: "local",
+      },
+      via: "tmux",
+      message: outboundMessage,
+    });
     // #1980: warn on silent misdelivery to a window that isn't the named oracle.
     const mismatch = detectWindowMismatch(query, result.target, sessions);
     if (mismatch) console.log(`  \x1b[33m⚠\x1b[0m ${mismatch}`);
@@ -943,6 +1021,24 @@ export async function cmdSend(
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       // #1980: surface the receiving node's misdelivery warning, if any.
       if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
+      await runPluginEventHooks("transport:after_send", {
+        event: "transport:after_send",
+        route: "peer",
+        node: result.node,
+        target: result.target,
+        peerUrl: result.peerUrl,
+        to: query,
+        from: senderIdentity.display,
+        result: {
+          ok: state === "delivered",
+          state,
+          target: res.data.target || result.target,
+          peerUrl: result.peerUrl,
+          lastLine: res.data.lastLine,
+        },
+        via: "http",
+        message: outboundMessage,
+      });
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
@@ -994,6 +1090,24 @@ export async function cmdSend(
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
       console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
+      await runPluginEventHooks("transport:after_send", {
+        event: "transport:after_send",
+        route: "discovery",
+        node: query.split(":")[0] ?? null,
+        target: res.data.target || query,
+        peerUrl,
+        to: query,
+        from: senderIdentity.display,
+        result: {
+          ok: state === "delivered",
+          state,
+          target: res.data.target || query,
+          peerUrl,
+          lastLine: res.data.lastLine,
+        },
+        via: "discovery",
+        message: outboundMessage,
+      });
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
@@ -1021,9 +1135,21 @@ export async function cmdSend(
   // Try receiver inbox queue before surfacing a local-only resolver miss.
   if (bareResolution.locate?.repoPath) {
     const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
-    if (logQueuedInbox(await writeReceiverInbox(bareResolution.locate.repoPath), query, reason)) return;
+    const inbox = await writeReceiverInbox(bareResolution.locate.repoPath);
+    if (logQueuedInbox(inbox, query, reason)) {
+      await notifyQueuedInbox(inbox, query, reason);
+      warnOfflineInboxOnly();
+      return;
+    }
     console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
-  } else if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
+  } else {
+    const reason = "target not live; persisted for receiver inbox polling";
+    const inbox = await writeReceiverInbox();
+    if (logQueuedInbox(inbox, query, reason)) {
+      await notifyQueuedInbox(inbox, query, reason);
+      return;
+    }
+  }
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {

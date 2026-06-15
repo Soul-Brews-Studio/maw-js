@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { isUserError } from "../src/core/util/user-error";
 
 const { doLs, doInfo } = await import("../src/commands/shared/plugins-ls-info");
 
@@ -197,20 +198,17 @@ describe("plugin ls/info default-suite seams", () => {
     expect(wasmMissingResult.out).toContain("wasm:");
     expect(wasmMissingResult.err).toContain("wasm file missing");
 
-    const originalExit = process.exit;
-    let exitCode: string | number | null | undefined = null;
-    process.exit = ((code?: string | number | null) => {
-      exitCode = code;
-      throw new Error("exit");
-    }) as never;
-    try {
-      const notFound = capture(() => {
-        expect(() => doInfo("ghost", () => [])).toThrow("exit");
-      });
-      expect(notFound.err).toContain("plugin not found: ghost");
-      expect(exitCode).toBe(1);
-    } finally {
-      process.exit = originalExit;
-    }
+    let thrown: unknown;
+    const notFound = capture(() => {
+      try {
+        doInfo("ghost", () => []);
+      } catch (err) {
+        thrown = err;
+      }
+    });
+
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toBe("plugin not found: ghost");
+    expect(notFound.err).toBe("");
   });
 });

@@ -1,0 +1,26 @@
+{
+  "name": "scheduler",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "File-based job scheduler — dispatch maw hey on a timer",
+  "cli": {
+    "command": "scheduler",
+    "help": "maw scheduler <start|stop|status|list|run> [--name <job>] [--json] [--dry-run]",
+    "flags": {
+      "--name": "string",
+      "--json": "boolean",
+      "--dry-run": "boolean"
+    }
+  },
+  "hooks": {
+    "serve": {
+      "script": "./daemon.ts",
+      "handler": "serve",
+      "ensures": ["serve:scheduler"],
+      "policy": "fail-fast"
+    }
+  },
+  "weight": 50,
+  "tier": "standard"
+}

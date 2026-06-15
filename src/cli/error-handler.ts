@@ -5,8 +5,9 @@ import { renderAmbiguousMatch } from "../core/util/render-ambiguous";
 /**
  * Top-level error handler for `main()`. Always exits — never returns.
  *
- * - UserError: output already printed at throw site, exit 1 silently
- *   (no bun stack trace).
+ * - UserError: print its message without a bun stack trace, then exit 1.
+ *   Some call sites throw UserError directly; keeping it silent hides the
+ *   actionable reason (for example wake concurrency refusals).
  * - AmbiguousMatchError: escapes from findWindow via resolver chains
  *   (cmdSend, cmdPeek, talk-to, view, etc.). Render as actionable CLI
  *   output instead of a minified stack trace.
@@ -14,6 +15,7 @@ import { renderAmbiguousMatch } from "../core/util/render-ambiguous";
  */
 export function handleTopLevelError(e: unknown, args: string[]): never {
   if (isUserError(e)) {
+    if (e.message) process.stderr.write(`${e.message}\n`);
     process.exit(1);
   }
   if (e instanceof AmbiguousMatchError) {

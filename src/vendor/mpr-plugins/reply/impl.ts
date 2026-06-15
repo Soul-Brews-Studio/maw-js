@@ -1,9 +1,10 @@
+import { UserError } from "maw-js/sdk";
 const MAW_PORT = process.env.MAW_PORT || "3456";
 const MAW_URL = `http://localhost:${MAW_PORT}`;
 
 export async function cmdReply(correlationId: string, reply: string, data?: unknown) {
   if (!correlationId || !reply) {
-    throw new Error("usage: maw reply <correlationId> <message>");
+    throw new UserError("usage: maw reply <correlationId> <message>");
   }
 
   const res = await fetch(`${MAW_URL}/api/reply/${correlationId}`, {

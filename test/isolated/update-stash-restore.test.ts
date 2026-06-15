@@ -38,12 +38,28 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     expect(cmdUpdateSrc).toMatch(/const\s+STASH\s*=\s*`\$\{BIN\}\.prev`/);
   });
 
+  // ── Release/bun install order ─────────────────────────────────────────
+  it("release tags try curl binary before bun fallback", () => {
+    const releaseGuardIdx = cmdUpdateSrc.indexOf("if (isReleaseTag)");
+    const curlIdx = cmdUpdateSrc.indexOf('Bun.spawn(["curl", "-fsSL", "-o", BIN, releaseUrl]');
+    const fallbackIdx = cmdUpdateSrc.indexOf("// Fallback: bun add -g");
+    const bunAddIdx = cmdUpdateSrc.indexOf('Bun.spawn(["bun", "add", "-g"');
+
+    expect(cmdUpdateSrc).toContain("const isReleaseTag = /^v\\d+\\.\\d+\\.\\d+/.test(ref);");
+    expect(releaseGuardIdx).toBeGreaterThan(-1);
+    expect(curlIdx).toBeGreaterThan(releaseGuardIdx);
+    expect(fallbackIdx).toBeGreaterThan(curlIdx);
+    expect(bunAddIdx).toBeGreaterThan(fallbackIdx);
+  });
+
   // ── Case 1: happy-path short-circuit ──────────────────────────────────
-  it("case 1 — first install success gates out of fallback (only retry after installCode !== 0)", () => {
-    // The stash/remove/retry block must be inside an `if (installCode !== 0)` guard,
-    // so a first-attempt success skips all stash machinery.
+  it("case 1 — successful install gates out of bun cleanup fallback", () => {
+    // The stash/remove/retry block must be inside the bun fallback's
+    // `if (installCode !== 0)` guard. For release tags, curl is tried first;
+    // if curl succeeds, this whole bun fallback block is skipped. For branch
+    // refs, a first-attempt bun success skips all stash machinery.
     expect(cmdUpdateSrc).toMatch(
-      /let\s+installCode\s*=\s*await\s+spawnInstall\(\)\.exited\s*;[\s\S]*?if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{/,
+      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?const\s+spawnInstall\s*=[\s\S]*?installCode\s*=\s*await\s+spawnInstall\(\)\.exited\s*;[\s\S]*?if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{/,
     );
   });
 
@@ -64,19 +80,15 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     );
     // Retry spawnInstall sits OUTSIDE the existsSync(BIN) branch and AFTER the
     // try/execSync bun-remove line, so a missing BIN does not short-circuit it.
-    // `let installCode = ...` is the FIRST call; the retry re-assigns without `let`.
-    const retryIdx = cmdUpdateSrc.lastIndexOf(
+    const fallbackGuardIdx = cmdUpdateSrc.indexOf("if (installCode !== 0)");
+    const stashBlockIdx = cmdUpdateSrc.indexOf("renameSync(BIN, STASH)");
+    const retryIdx = cmdUpdateSrc.indexOf(
       "installCode = await spawnInstall().exited",
+      stashBlockIdx,
     );
-    const firstIdx = cmdUpdateSrc.indexOf(
-      "let installCode = await spawnInstall().exited",
-    );
-    const stashBlockEnd = cmdUpdateSrc.indexOf(
-      "/* stash best-effort */",
-    );
-    expect(firstIdx).toBeGreaterThan(-1);
-    expect(stashBlockEnd).toBeGreaterThan(firstIdx);
-    expect(retryIdx).toBeGreaterThan(stashBlockEnd);
+    expect(fallbackGuardIdx).toBeGreaterThan(-1);
+    expect(stashBlockIdx).toBeGreaterThan(fallbackGuardIdx);
+    expect(retryIdx).toBeGreaterThan(stashBlockIdx);
   });
 
   // ── Case 4: prior .prev ROTATE (#968 — auto-recover, don't block) ─────
@@ -119,21 +131,22 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
     );
   });
 
-  // ── Case 6: retry fails → restore pkg dir + bin, warn ─────────────────
-  it("case 6 — retry failure restores the package dir then STASH → BIN and warns", () => {
+  // ── Case 6: retry fails → restore pkg dir + bin ────────────────────────
+  it("case 6 — retry failure restores the package dir then STASH → BIN", () => {
     // Restructured (crash-loop fix): guard is now plain `if (installCode !== 0)`;
     // restorePkgStash() runs FIRST so the stashed bin symlink resolves again,
-    // THEN the bin is moved back.
+    // THEN restoreBinStash() moves STASH back to BIN.
     expect(cmdUpdateSrc).toMatch(
-      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?restorePkgStash\(\)\s*;[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
+      /if\s*\(\s*installCode\s*!==\s*0\s*\)\s*\{[\s\S]*?restorePkgStash\(\)\s*;[\s\S]*?restoreBinStash\(\)\s*;/,
     );
-    expect(cmdUpdateSrc).toContain("restored previous maw binary from stash");
+    expect(cmdUpdateSrc).toMatch(
+      /const\s+restoreBinStash\s*=\s*\(\)\s*=>\s*\{[\s\S]*?renameSync\(STASH\s*,\s*BIN\)/,
+    );
   });
 
-  it("case 6b — error path on failed restore logs 'failed to restore stash'", () => {
-    // If the restore rename itself throws, we still surface the error so the user
-    // knows manual recovery is needed.
-    expect(cmdUpdateSrc).toMatch(/failed to restore stash/);
+  it("case 6b — terminal failure prints manual recovery guidance", () => {
+    expect(cmdUpdateSrc).toContain("install failed — previous maw restored from stash (if available)");
+    expect(cmdUpdateSrc).toContain("Manual recovery");
   });
 
   // ── Case 8: maw-js package dir is stashed by RENAME, not rm ───────────
@@ -161,10 +174,9 @@ describe("cmd-update stash+restore — source invariants (#551)", () => {
 
   // ── Case 7: rename throws → best-effort, doesn't block retry ──────────
   it("case 7 — stash rename is wrapped in try/catch (best-effort)", () => {
-    // The stash attempt is inside try { ... } catch { /* stash best-effort */ }.
     // A permission error on rename must not block the retry that follows.
     expect(cmdUpdateSrc).toMatch(
-      /try\s*\{[\s\S]*?renameSync\(BIN\s*,\s*STASH\)[\s\S]*?\}\s*catch\s*\{\s*\/\*\s*stash best-effort\s*\*\/\s*\}/,
+      /try\s*\{\s*if\s*\(existsSync\(BIN\)\)\s*\{\s*renameSync\(BIN\s*,\s*STASH\);\s*stashed\s*=\s*true;\s*\}\s*\}\s*catch\s*\{\s*\}/,
     );
   });
 

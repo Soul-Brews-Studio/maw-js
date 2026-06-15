@@ -30,7 +30,7 @@ type ReceiverInboxResult =
   | { ok: true; oracle: string; inboxDir: string; path: string; filename: string }
   | { ok: false; reason: string };
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [], commands: { default: "claude" } };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let findPeerUrl: string | null;
@@ -65,10 +65,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => listSessionsReturn,
   capture: async () => {
     const next = captureResponses.shift();
@@ -122,6 +122,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async () => {};
 
@@ -161,7 +164,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", host: "localhost", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", host: "localhost", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = null;
   findPeerUrl = null;
@@ -178,6 +181,9 @@ beforeEach(() => {
   childExecValue = "08-mawjs\n";
   childExecThrows = false;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
 });
@@ -189,6 +195,12 @@ afterAll(() => {
   (process as unknown as { exit: typeof origExit }).exit = origExit;
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 
 describe("comm-send helpers", () => {

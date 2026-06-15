@@ -201,16 +201,17 @@ describe("coverage core shared helpers", () => {
     expect(wakeTarget.parseWakeTarget("neo")).toBeNull();
   });
 
-  test("ensureCloned skips existing ghq hits and degrades on clone failure", async () => {
+  test("ensureCloned skips existing ghq hits and fails loud on clone failure", async () => {
     ghqHit = "/gh/Soul-Brews-Studio/neo-oracle";
     await wakeTarget.ensureCloned("Soul-Brews-Studio/neo-oracle");
     expect(hostExecCalls).toEqual([]);
 
     ghqHit = "";
     hostExecShouldReject = true;
-    await wakeTarget.ensureCloned("Soul-Brews-Studio/missing-oracle");
+    await expect(wakeTarget.ensureCloned("Soul-Brews-Studio/missing-oracle")).rejects.toThrow(
+      "ghq get failed for Soul-Brews-Studio/missing-oracle",
+    );
     expect(hostExecCalls).toEqual(["ghq get github.com/Soul-Brews-Studio/missing-oracle"]);
-    expect(logs.join("\n")).toContain("clone failed");
   });
 
   test("PID lock signal handlers remove the lock file before exiting", () => {
@@ -247,7 +248,14 @@ describe("coverage core shared helpers", () => {
     reader.write("2\nignored");
     const selected = await selectedPromise;
 
-    expect(selected).toEqual({ owner: "two", repo: "beta-oracle", path: "/gh/two/beta-oracle" });
+    expect(selected).toMatchObject({
+      owner: "two",
+      repo: "beta-oracle",
+      path: "/gh/two/beta-oracle",
+      hasLiveSession: false,
+      lastActivityMs: 0,
+      recommended: false,
+    });
     expect(writes.join("")).toContain("Select [1-2]");
     expect((reader as EventEmitter).listenerCount("data")).toBe(0);
     expect((reader as EventEmitter).listenerCount("end")).toBe(0);

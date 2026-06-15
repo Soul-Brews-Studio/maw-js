@@ -4,7 +4,6 @@ import { join } from "path";
 const srcRoot = join(import.meta.dir, "../..");
 const calls: string[] = [];
 let config: any = {};
-let workspaces: any[] = [];
 
 class FakeRouter {
   registered: Array<{ name: string }> = [];
@@ -40,21 +39,14 @@ function fakeTransport(name: string) {
 mock.module(join(srcRoot, "src/config"), () => ({ loadConfig: () => config }));
 mock.module(join(srcRoot, "src/core/transport/transport"), () => ({ TransportRouter: FakeRouter }));
 mock.module(join(srcRoot, "src/transports/tmux"), () => ({ TmuxTransport: fakeTransport("tmux") }));
-mock.module(join(srcRoot, "src/transports/hub"), () => ({
-  loadWorkspaceConfigs: () => workspaces,
-  HubTransport: fakeTransport("hub"),
-}));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
-mock.module(join(srcRoot, "src/transports/zenoh-scout"), () => ({ ZenohScoutTransport: fakeTransport("zenoh-scout") }));
+mock.module(join(srcRoot, "src/plugin/registry"), () => ({
+  importPluginSymbol: async () => (cfg: any) => new (fakeTransport("zenoh-scout"))({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
+}));
 mock.module(join(srcRoot, "src/transports/zenoh"), () => ({ ZenohTransport: fakeTransport("zenoh") }));
 mock.module(join(srcRoot, "src/transports/zenoh.ts"), () => ({ ZenohTransport: fakeTransport("zenoh") }));
-mock.module(join(srcRoot, "src/vendor/mpr-plugins/zenoh-scout/impl"), () => ({
-  readZenohScoutConfig: (cfg: any) => ({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
-}));
 
 const transports = await import("../../src/transports/index");
 
@@ -62,7 +54,6 @@ afterEach(() => {
   transports.resetTransportRouter();
   calls.length = 0;
   config = {};
-  workspaces = [];
 });
 
 describe("transport router coverage", () => {
@@ -80,7 +71,7 @@ describe("transport router coverage", () => {
 
     const minimal = transports.createTransportRouter() as unknown as FakeRouter;
     expect(transports.getTransportRouter()).toBe(minimal);
-    expect(minimal.registered.map((t) => t.name)).toEqual(["tmux", "nanoclaw", "lora"]);
+    expect(minimal.registered.map((t) => t.name)).toEqual(["tmux", "nanoclaw"]);
     expect(calls).toContain("connect:tmux");
 
     transports.resetTransportRouter();
@@ -96,22 +87,17 @@ describe("transport router coverage", () => {
       discovery: { transport: "both" },
       zenoh: { locator: "ws/127.0.0.1:7447", scout: { locator: "memory" } },
     };
-    workspaces = [{ id: "workspace" }];
-
     const optional = transports.createTransportRouter() as unknown as FakeRouter;
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(optional.registered.map((t) => t.name)).toEqual([
       "tmux",
-      "hub",
       "scout",
       "zenoh-scout",
       "http",
       "nanoclaw",
-      "lora",
       "zenoh",
     ]);
-    expect(calls).toContain("construct:hub:1");
     expect(calls).toContain("construct:http:1");
   });
 });

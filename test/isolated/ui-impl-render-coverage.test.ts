@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let distInstalled = false;
 let srcDir: string | null = null;
 let resolvedPeers = new Map<string, string | null>();
-let installCalls: Array<string | undefined> = [];
+let installCalls: Array<{ version: string | undefined; source?: boolean }> = [];
 let statusCalls = 0;
 let logs: string[] = [];
 
@@ -30,7 +30,7 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/ui/impl-helpers.ts
 }));
 
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/ui/ui-install.ts"), () => ({
-  cmdUiInstall: async (version?: string) => { installCalls.push(version); },
+  cmdUiInstall: async (version?: string, options?: { source?: boolean }) => { installCalls.push({ version, source: options?.source }); },
   cmdUiStatus: async () => { statusCalls += 1; },
 }));
 
@@ -60,6 +60,7 @@ describe("ui impl render coverage", () => {
     expect(parseUiArgs(["install", "--version", "v1.2.3", "ignored-peer"])).toEqual({
       peer: "ignored-peer",
       install: undefined,
+      installSource: undefined,
       tunnel: undefined,
       dev: undefined,
       threeD: undefined,
@@ -133,12 +134,12 @@ describe("ui impl render coverage", () => {
   });
 
   test("cmdUi dispatches install/status modules or logs rendered output", async () => {
-    await cmdUi(["install", "--version", "v9.9.9"]);
+    await cmdUi(["install", "--version", "v9.9.9", "--source"]);
     await cmdUi(["--install", "legacy-version"]);
     await cmdUi(["status"]);
     await cmdUi(["--3d"]);
 
-    expect(installCalls).toEqual(["v9.9.9", "legacy-version"]);
+    expect(installCalls).toEqual([{ version: "v9.9.9", source: true }, { version: "legacy-version", source: undefined }]);
     expect(statusCalls).toBe(1);
     expect(logs).toEqual(["http://localhost:5173/federation.html"]);
   });

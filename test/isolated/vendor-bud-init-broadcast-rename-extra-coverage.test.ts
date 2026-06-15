@@ -49,6 +49,12 @@ let logs: string[] = [];
 let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
+const originalBunSpawnSync = Bun.spawnSync;
+Bun.spawnSync = ((_cmd: string[], _opts?: unknown) => {
+  const [, ...args] = Array.isArray(_cmd) ? _cmd : [String(_cmd)];
+  spawnCalls.push(args);
+  return spawnResponses.shift() ?? { status: 0, stdout: "", stderr: "" };
+}) as typeof Bun.spawnSync;
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => config,
@@ -81,6 +87,21 @@ mock.module("maw-js/sdk", () => ({
     if (hostExecError) throw hostExecError;
     return hostExecResult;
   },
+  getGhqRoot: () => ghqRoot,
+  loadConfig: () => config,
+  normalizeTarget: () => normalizedTarget,
+  assertValidOracleName: () => {
+    if (validateOracleError) throw validateOracleError;
+  },
+  parseWakeTarget: () => parseWakeTargetResult,
+  ensureCloned: async (slug: string) => { ensureClonedCalls.push(slug); },
+  validateNickname: (value: string) => { validateNicknameCalls.push(value); return validateNicknameResult; },
+  writeNickname: (...args: any[]) => { writeNicknameCalls.push(args); },
+  setCachedNickname: (...args: any[]) => { setCachedNicknameCalls.push(args); },
+  writeSignal: (...args: any[]) => { writeSignalCalls.push(args); },
+  isAgentCommand: (cmd: string | null | undefined) => /claude|codex|thclaws|thclaude/i.test((cmd ?? "").trim()) || /^node$/i.test((cmd ?? "").trim()) || /^\d+\.\d+\.\d+$/.test((cmd ?? "").trim()),
+  loadOracleRegistry: () => null,
+  loadFleetEntries: () => [{ groupName: "neo", file: "01-neo.json", session: { name: "01-neo" } }],
   tmux: {
     run: async (...args: string[]) => {
       tmuxRunCalls.push(args);
@@ -117,6 +138,7 @@ mock.module(join(srcRoot, "vendor/mpr-plugins/bud/bud-init"), () => ({
     initVaultCalls.push(repoPath);
     return initVaultResult;
   },
+  generateClaudeSettings: (...args: unknown[]) => { hostExecCalls?.push?.(`generateClaudeSettings:${JSON.stringify(args)}`); },
   generateClaudeMd: (...args: any[]) => {
     generateClaudeMdCalls.push(args);
   },
@@ -151,13 +173,6 @@ mock.module("maw-js/core/fleet/nicknames", () => ({
   },
   setCachedNickname: (...args: any[]) => {
     setCachedNicknameCalls.push(args);
-  },
-}));
-
-mock.module("node:child_process", () => ({
-  spawnSync: (_cmd: string, args: string[]) => {
-    spawnCalls.push(args);
-    return spawnResponses.shift() ?? { status: 0, stdout: "", stderr: "" };
   },
 }));
 
@@ -236,6 +251,7 @@ beforeEach(() => {
 afterAll(() => {
   console.log = originalLog;
   console.error = originalError;
+  Bun.spawnSync = originalBunSpawnSync;
 });
 
 describe("bud impl extra isolated coverage", () => {
@@ -335,13 +351,19 @@ describe("bud impl extra isolated coverage", () => {
 
 describe("init write-config extra isolated coverage", () => {
   test("buildConfig writes local host defaults, optional token/ghqRoot, and federation peers only when enabled", () => {
-    expect(buildConfig({ node: "white" })).toEqual({
+    expect(buildConfig({ node: "white" })).toMatchObject({
       host: "local",
       node: "white",
       port: 3456,
       oracleUrl: "http://localhost:47779",
       env: {},
-      commands: { default: "claude --dangerously-skip-permissions --continue" },
+      engines: {
+        claude: expect.objectContaining({ name: "claude", cmd: "claude" }),
+        codex: expect.objectContaining({ name: "codex", cmd: "codex" }),
+        omx: expect.objectContaining({ name: "omx", cmd: "omx" }),
+      },
+      defaultEngine: "claude",
+      commands: {},
       sessions: {},
     });
 

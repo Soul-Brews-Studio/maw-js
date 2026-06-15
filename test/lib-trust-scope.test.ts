@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { scopePath, scopesDir } from "../src/lib/scope-paths";
@@ -79,27 +79,64 @@ describe("trust store helpers", () => {
     expect(trustPath()).toBe(join(tempRoot, "state-root", "trust.json"));
   });
 
-  test("loadTrust is forgiving for missing files, wrong shape, and corrupt JSON", () => {
+  test("loadTrust is quiet for missing files", () => {
+    process.env.MAW_CONFIG_DIR = join(tempRoot, "config");
+    process.env.MAW_STATE_DIR = join(tempRoot, "state");
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      expect(loadTrust()).toEqual([]);
+      expect(warnings).toEqual([]);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("loadTrust warns and preserves wrong-shape or corrupt JSON", () => {
     process.env.MAW_CONFIG_DIR = join(tempRoot, "config");
     process.env.MAW_STATE_DIR = join(tempRoot, "state");
     mkdirSync(process.env.MAW_STATE_DIR, { recursive: true });
     const path = trustPath();
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      writeFileSync(path, JSON.stringify({ sender: "a" }));
+      expect(loadTrust()).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+      let corrupt = readdirSync(process.env.MAW_STATE_DIR).filter(f => f.startsWith("trust.json.corrupt-"));
+      expect(corrupt).toHaveLength(1);
+      expect(readFileSync(join(process.env.MAW_STATE_DIR, corrupt[0]!), "utf-8")).toBe(JSON.stringify({ sender: "a" }));
 
-    expect(loadTrust()).toEqual([]);
-
-    writeFileSync(path, JSON.stringify({ sender: "a" }));
-    expect(loadTrust()).toEqual([]);
-
-    writeFileSync(path, "not-json");
-    expect(loadTrust()).toEqual([]);
+      writeFileSync(path, "not-json");
+      expect(loadTrust()).toEqual([]);
+      corrupt = readdirSync(process.env.MAW_STATE_DIR).filter(f => f.startsWith("trust.json.corrupt-"));
+      expect(corrupt).toHaveLength(2);
+      expect(corrupt.some(f => readFileSync(join(process.env.MAW_STATE_DIR!, f), "utf-8") === "not-json")).toBe(true);
+      expect(warnings).toHaveLength(2);
+      expect(warnings.every(w => w.includes("trust store") && w.includes("moved aside"))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
-  test("loadTrust returns [] when the trust path exists but cannot be read as a file", () => {
+  test("loadTrust warns and preserves unreadable trust path", () => {
     process.env.MAW_CONFIG_DIR = join(tempRoot, "config");
     process.env.MAW_STATE_DIR = join(tempRoot, "state");
     mkdirSync(trustPath(), { recursive: true });
-
-    expect(loadTrust()).toEqual([]);
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      expect(loadTrust()).toEqual([]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("corrupt/unreadable");
+      expect(existsSync(trustPath())).toBe(false);
+      expect(readdirSync(process.env.MAW_STATE_DIR).some(f => f.startsWith("trust.json.corrupt-"))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
   test("loadTrust filters invalid entries and keeps valid entries", () => {

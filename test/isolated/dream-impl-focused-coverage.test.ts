@@ -23,6 +23,16 @@ const original = {
 
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => fakeHostExec(cmd),
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => [
+    {
+      name: "focused-session",
+      windows: [
+        { name: "main", repo: "Soul-Brews-Studio/focus-oracle" },
+        { name: "missing", repo: "Soul-Brews-Studio/missing-oracle" },
+      ],
+    },
+  ],
 }));
 
 mock.module("maw-js/config/ghq-root", () => ({

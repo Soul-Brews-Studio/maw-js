@@ -3,10 +3,19 @@
  * @maw-test-isolate
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
-import { tmpdir } from "os";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+
+// Reset leaked mocks before importing audit helpers or real node modules.
+mock.restore();
+
+const realFs = await import("node:fs");
+const realOs = await import("node:os");
+const { existsSync, mkdtempSync, readFileSync, rmSync } = realFs;
+const { tmpdir } = realOs;
+
+mock.module("fs", () => realFs);
+mock.module("os", () => realOs);
 
 const mawConfigDir = mkdtempSync(join(tmpdir(), "maw-audit-config-"));
 const mawStateDir = mkdtempSync(join(tmpdir(), "maw-audit-state-"));

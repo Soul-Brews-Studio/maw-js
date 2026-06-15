@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { UserError } from "../core/util/user-error";
+import { normalizeGateway, type GatewayKind } from "../core/gateway";
 import { mawDataPath } from "../core/xdg";
 
 // #388.1 — core-route usage strings for --help intercept. These routes don't
@@ -9,14 +10,16 @@ import { mawDataPath } from "../core/xdg";
 // `maw plugin list --help` / `maw agents --help` from running real work.
 const CORE_HELP: Record<string, string> = {
   plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name...>|disable <name>] [--json] [--all] [-v|--verbose] [--core|--standard|--extra|--api] [--force]",
-  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]\n  ls: compact by default; use -v for full table; filters: --core --standard --extra --api",
+  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]\n  install --standard: bootstrap standard plugins from a bare binary\n  ls: compact by default; use -v for full table; filters: --core --standard --extra --api",
   artifacts: "usage: maw artifacts [ls|get] [team] [task-id] [--json]",
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
   audit: "usage: maw audit [limit]",
-  serve: "usage: maw serve [port] [--as <name>] [--force-takeover] | maw serve status|--status|stop",
+  serve: "usage: maw serve [port] [--gateway bun|rust] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv] | maw serve status|--status|stop",
 };
+
+type ServeVerbosity = 0 | 1 | 2 | 3 | 4;
 
 type ParseFlags = (args: string[], spec: Record<string, unknown>, skip?: number) => any;
 type InvokeResult = { ok: boolean; output?: string; error?: string; exitCode?: number };
@@ -65,11 +68,11 @@ type ServeStatusTools = {
 
 type ServeStartTools = {
   acquirePidLock: (instanceName: string | null, opts: { forceTakeover: boolean }) => void;
-  startServer: (port: number) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => Promise<void> | void;
 };
 
 type CoreServerTools = {
-  startServer: (port: number) => Promise<void> | void;
+  startServer: (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => Promise<void> | void;
 };
 type CoreServerLoader = () => Promise<CoreServerTools>;
 
@@ -89,6 +92,58 @@ export type RouteToolsDeps = {
   loadServeStatusTools: () => Promise<ServeStatusTools>;
   loadServeStartTools: () => Promise<ServeStartTools>;
 };
+
+function clampServeVerbosity(value: number): ServeVerbosity {
+  return Math.max(0, Math.min(4, Math.trunc(value))) as ServeVerbosity;
+}
+
+function envServeVerbosity(value: string | undefined): ServeVerbosity | undefined {
+  if (value === undefined) return undefined;
+  if (value === "quiet") return 0;
+  if (value === "normal") return 1;
+  if (value === "verbose" || value === "debug") return 2;
+  if (value === "access") return 3;
+  if (value === "frames" || value === "frame" || value === "ws") return 4;
+  if (/^\d+$/.test(value)) return clampServeVerbosity(Number(value));
+  return undefined;
+}
+
+function serveVerbosityFromArgs(serveArgs: string[]): ServeVerbosity {
+  const hasQuietFlag = serveArgs.some((a) => a === "--quiet" || a === "-q")
+    || process.argv.some((a) => a === "--quiet" || a === "-q")
+    || process.env.MAW_QUIET === "1";
+  if (hasQuietFlag) return 0;
+
+  const stackedVCount = serveArgs.reduce((count, arg) => (
+    /^-v+$/.test(arg) ? count + arg.length - 1 : count
+  ), 0);
+  if (stackedVCount > 0) return clampServeVerbosity(1 + stackedVCount);
+  if (serveArgs.some((a) => a === "--verbose")) return 2;
+  return envServeVerbosity(process.env.MAW_SERVE_VERBOSITY) ?? 1;
+}
+
+function readServeGatewayFlag(serveArgs: string[]): { gateway?: GatewayKind; args: string[] } {
+  const next: string[] = [];
+  let gateway: GatewayKind | undefined;
+  for (let i = 0; i < serveArgs.length; i++) {
+    const arg = serveArgs[i];
+    if (arg === "--gateway") {
+      const value = serveArgs[i + 1];
+      if (value === undefined) throw new UserError("--gateway requires one of: bun, rust");
+      gateway = normalizeGateway(value, "--gateway");
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--gateway=")) {
+      const value = arg.slice("--gateway=".length);
+      if (!value) throw new UserError("--gateway requires one of: bun, rust");
+      gateway = normalizeGateway(value, "--gateway");
+      continue;
+    }
+    next.push(arg);
+  }
+  return { gateway, args: next };
+}
 
 export function createDefaultRouteToolsDeps(loadCoreServer?: CoreServerLoader): RouteToolsDeps {
   return {
@@ -148,9 +203,9 @@ export function createDefaultRouteToolsDeps(loadCoreServer?: CoreServerLoader): 
       const { acquirePidLock } = await import("./instance-pid");
       return {
         acquirePidLock,
-        startServer: async (port: number) => {
+        startServer: async (port: number, options?: { verbosity?: ServeVerbosity; gateway?: GatewayKind; forceTakeover?: boolean }) => {
           const { startServer } = loadCoreServer ? await loadCoreServer() : await import("../core/server");
-          await startServer(port);
+          await startServer(port, options);
         },
       };
     },
@@ -177,6 +232,8 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const flags = parseFlags(args, {
       "--json": Boolean,
       "--force": Boolean,
+      "--local": Boolean,
+      "--symlink": Boolean,
       "--all": Boolean,
       "--verbose": Boolean,
       "-v": Boolean,
@@ -190,6 +247,26 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
   }
   if (cmd === "plugin") {
     const sub = args[1]?.toLowerCase();
+    if (sub === "install" && (args.includes("--standard") || args[2] === "standard")) {
+      const { parseFlags } = await import("./parse-args");
+      const { installStandardPlugins } = await import("../commands/shared/standard-plugins");
+      const flags = parseFlags(args, {
+        "--standard": Boolean,
+        "--force": Boolean,
+        "--dry-run": Boolean,
+        "--source-root": String,
+        "--ref": String,
+      }, 1);
+      const unsupported = (flags._ as string[]).filter((arg) => arg !== "install" && arg !== "standard");
+      if (unsupported.length > 0) throw new UserError(`plugin install --standard: unexpected argument ${unsupported[0]}`);
+      await installStandardPlugins({
+        force: Boolean(flags["--force"]),
+        dryRun: Boolean(flags["--dry-run"]),
+        sourceRoot: flags["--source-root"] as string | undefined,
+        ref: flags["--ref"] as string | undefined,
+      });
+      return true;
+    }
     // "maw plugin init|build|install|search|registry|pin|unpin|dev" →
     // forward to the plugin-lifecycle plugin (marketplace pipeline).
     const lifecycleSubs = new Set(["init", "build", "install", "search", "registry", "pin", "unpin", "dev"]);
@@ -293,15 +370,17 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
   if (cmd === "serve") {
     // Strip `--as <name>` from the flag check — already consumed by
     // applyInstancePreset() in cli.ts. Any OTHER flag is still a typo.
-    const serveArgs = args.slice(1);
+    const rawServeArgs = args.slice(1);
+    const { gateway, args: serveArgs } = readServeGatewayFlag(rawServeArgs);
     const asIdx = serveArgs.indexOf("--as");
     const forceIdx = serveArgs.indexOf("--force-takeover");
     const noScoutIdx = serveArgs.indexOf("--no-scout");
+    const serveVerbosity = serveVerbosityFromArgs(serveArgs);
     const withoutAs = asIdx === -1
       ? serveArgs
       : [...serveArgs.slice(0, asIdx), ...serveArgs.slice(asIdx + 2)];
-    const withoutKnownFlags = withoutAs.filter((a) => a !== "--force-takeover" && a !== "--no-scout");
-    const filteredArgs = forceIdx === -1 && noScoutIdx === -1 ? withoutAs : withoutKnownFlags;
+    const withoutKnownFlags = withoutAs.filter((a) => !["--force-takeover", "--no-scout", "--quiet", "-q", "--verbose"].includes(a) && !/^-v+$/.test(a));
+    const filteredArgs = withoutKnownFlags;
     const sub = filteredArgs[0] === "--status" ? "status" : filteredArgs[0];
     if (sub === "status" || sub === "stop") {
       const { printServeStatusWithPlugins, stopServe } = await deps.loadServeStatusTools();
@@ -316,7 +395,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const unknownFlag = filteredArgs.find(a => a.startsWith("-"));
     if (unknownFlag) {
       deps.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
-      deps.error(`  usage: maw serve [port] [--as <name>] [--force-takeover]  (run 'maw serve --help' for more)`);
+      deps.error(`  usage: maw serve [port] [--gateway bun|rust] [--as <name>] [--force-takeover] [--quiet|-q] [--verbose|-v|-vv|-vvv]  (run 'maw serve --help' for more)`);
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));
@@ -326,7 +405,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     const instanceName = asIdx === -1 ? null : serveArgs[asIdx + 1];
     acquirePidLock(instanceName, { forceTakeover: forceIdx !== -1 });
     if (noScoutIdx !== -1) process.env.MAW_NO_SCOUT = "1";
-    await startServer(portArg ? +portArg : 3456);
+    await startServer(portArg ? +portArg : 3456, { verbosity: serveVerbosity, gateway, forceTakeover: forceIdx !== -1 });
     return true;
   }
   return false;

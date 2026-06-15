@@ -20,6 +20,16 @@ const original = {
 
 mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => fakeHostExec(cmd),
+  getGhqRoot: () => ghqRoot,
+  loadFleetCore: () => {
+    if (scenario === "offline-all") {
+      return [{ name: "edge", windows: [{ name: "edge", repo: "Soul-Brews-Studio/edge-oracle" }] }];
+    }
+    if (scenario === "empty-scan") {
+      return [{ name: "empty", windows: [{ name: "missing", repo: "Soul-Brews-Studio/missing-oracle" }] }];
+    }
+    return [{ name: "many", windows: [{ name: "dupe", repo: "Soul-Brews-Studio/repo-00-oracle" }] }];
+  },
 }));
 
 mock.module("maw-js/config/ghq-root", () => ({

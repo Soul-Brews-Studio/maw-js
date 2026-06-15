@@ -63,6 +63,7 @@ export function resolveTarget(
   query: string,
   config: MawConfig,
   sessions: (Session & { source?: string })[],
+  currentSession?: string,
 ): ResolveResult {
   if (!query) return { type: "error", reason: "empty_query", detail: "no target specified", hint: "usage: maw hey <agent> <message>" };
 
@@ -76,6 +77,13 @@ export function resolveTarget(
   );
 
   const selfNode = config.node ?? "local";
+
+  // #1450 release blocker: a concrete tmux pane address already names the
+  // exact local session/window/pane. Do not run session-alias suffix matching
+  // on this shape, or `47-mawjs:1.0` can be misread as alias `mawjs` and become
+  // ambiguous with `08-mawjs`.
+  const exactTmuxAddress = resolveExactTmuxPaneAddress(query, writable, "local");
+  if (exactTmuxAddress) return exactTmuxAddress;
 
   // Fleet config: oracle name → session name → findWindow (#281)
   //
@@ -98,17 +106,18 @@ export function resolveTarget(
     if (sessionAliasResult) return sessionAliasResult;
   }
 
+  // A forwarded /api/send target such as `volt-oracle:1` is a local
+  // session/window alias on the receiving node, not a remote node named
+  // `volt-oracle`. Resolve and validate that explicit tmux shape before
+  // findWindow's legacy raw fallback or node-prefix routing (#2139).
+  const localSessionWindowAlias = resolveSessionWindowAliasTarget(query, writable, "local");
+  if (localSessionWindowAlias) return localSessionWindowAlias;
+
   // --- Step 1: Local findWindow ---
-  const localTarget = findWindow(writable, query);
+  const localTarget = findWindow(writable, query, currentSession);
   if (localTarget) {
     return { type: "local", target: localTarget };
   }
-
-  // A forwarded /api/send target such as `volt-oracle:1` is a local
-  // session/window alias on the receiving node, not a remote node named
-  // `volt-oracle`. Try that explicit tmux shape before node-prefix routing.
-  const localSessionWindowAlias = resolveSessionWindowAliasTarget(query, writable, "local");
-  if (localSessionWindowAlias) return localSessionWindowAlias;
 
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---
   if (query.includes(":") && !query.includes("/")) {
@@ -131,7 +140,7 @@ export function resolveTarget(
       if (sessionAliasResult) return sessionAliasResult;
       const sessionWindowAliasResult = resolveSessionWindowAliasTarget(agentName, writable, "self-node");
       if (sessionWindowAliasResult) return sessionWindowAliasResult;
-      const selfTarget = findWindow(writable, agentName);
+      const selfTarget = findWindow(writable, agentName, currentSession);
       if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }
@@ -306,10 +315,17 @@ function resolveSessionWindowAliasTarget(
 
   if (matches.length > 1) {
     const normalizedQuery = sessionQuery.trim().toLowerCase();
-    const exactUnnumbered = matches.filter((s) =>
-      s.name.trim().replace(/^\d+-/, "").toLowerCase() === normalizedQuery,
+    const exactSessionName = matches.filter((s) =>
+      s.name.trim().toLowerCase() === normalizedQuery,
     );
-    if (exactUnnumbered.length === 1) matches = exactUnnumbered;
+    if (exactSessionName.length === 1) {
+      matches = exactSessionName;
+    } else {
+      const exactUnnumbered = matches.filter((s) =>
+        s.name.trim().replace(/^\d+-/, "").toLowerCase() === normalizedQuery,
+      );
+      if (exactUnnumbered.length === 1) matches = exactUnnumbered;
+    }
   }
 
   if (matches.length > 1) {
@@ -337,6 +353,32 @@ function resolveSessionWindowAliasTarget(
     type: routeType,
     target: `${session.name}:${window.index}${paneIndex ? `.${paneIndex}` : ""}`,
   };
+}
+
+function resolveExactTmuxPaneAddress(
+  query: string,
+  writable: Session[],
+  routeType: FleetRouteType,
+): FleetWindowResult | null {
+  const match = query.trim().match(/^([^:]+):(\d+)\.(\d+)$/);
+  if (!match) return null;
+
+  const [, sessionName, rawWindowIndex, paneIndex] = match;
+  const session = writable.find((s) => s.name === sessionName);
+  if (!session) return null;
+
+  const windowIndex = Number(rawWindowIndex);
+  const window = session.windows.find((w) => w.index === windowIndex);
+  if (!window) {
+    return {
+      type: "error",
+      reason: "session_window_index_not_found",
+      detail: `'${sessionName}' matched local session '${session.name}', but window ${rawWindowIndex} was not found`,
+      hint: `candidates: ${session.windows.map((w) => `${session.name}:${w.index} (${w.name})`).join(", ") || "none"}`,
+    };
+  }
+
+  return { type: routeType, target: `${session.name}:${window.index}.${paneIndex}` };
 }
 
 function resolveSessionAliasWindowTarget(

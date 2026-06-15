@@ -15,9 +15,7 @@
  *
  *   maw send-text <target> "<text>"
  */
-import { listSessions, resolveTarget, Tmux, curlFetch } from "maw-js/sdk";
-import { loadConfig } from "maw-js/config";
-import { resolveOraclePane } from "maw-js/commands/shared/comm-send";
+import { curlFetch, listSessions, loadConfig, resolveOraclePane, resolveTarget, Tmux, UserError } from "maw-js/sdk";
 
 export interface SendTextOpts {
   target: string;
@@ -26,17 +24,17 @@ export interface SendTextOpts {
 
 export async function cmdSendText(opts: SendTextOpts): Promise<void> {
   const { target: query, text } = opts;
-  if (!query) throw new Error('usage: maw send-text <target> "<text>"');
-  if (text.length === 0) throw new Error('usage: maw send-text <target> "<text>" — text is required');
+  if (!query) throw new UserError('usage: maw send-text <target> "<text>"');
+  if (text.length === 0) throw new UserError('usage: maw send-text <target> "<text>" — text is required');
 
   const config = loadConfig();
   const sessions = await listSessions();
   const result = resolveTarget(query, config, sessions);
 
-  if (!result) throw new Error(`could not resolve target: ${query}`);
+  if (!result) throw new UserError(`could not resolve target: ${query}`);
   if (result.type === "error") {
     const hint = result.hint ? ` — ${result.hint}` : "";
-    throw new Error(`${result.detail}${hint}`);
+    throw new UserError(`${result.detail}${hint}`);
   }
 
   if (result.type === "peer") {
@@ -48,7 +46,7 @@ export async function cmdSendText(opts: SendTextOpts): Promise<void> {
     });
     if (!res.ok || !res.data?.ok) {
       const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
-      throw new Error(`peer send-text failed (${result.node} ${result.peerUrl}): ${underlying}`);
+      throw new UserError(`peer send-text failed (${result.node} ${result.peerUrl}): ${underlying}`);
     }
     console.log(`\x1b[32msent\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${truncate(text)}`);
     return;
@@ -80,9 +78,9 @@ function truncate(s: string, n = 200): string {
  */
 export function parseSendTextArgs(args: string[]): SendTextOpts {
   const targetIdx = args.findIndex((a) => !a.startsWith("-"));
-  if (targetIdx < 0) throw new Error('usage: maw send-text <target> "<text>"');
+  if (targetIdx < 0) throw new UserError('usage: maw send-text <target> "<text>"');
   const target = args[targetIdx];
   const text = args.slice(targetIdx + 1).join(" ");
-  if (text.length === 0) throw new Error('usage: maw send-text <target> "<text>" — text is required');
+  if (text.length === 0) throw new UserError('usage: maw send-text <target> "<text>" — text is required');
   return { target, text };
 }

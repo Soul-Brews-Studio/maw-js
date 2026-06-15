@@ -1,5 +1,4 @@
-import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
-import { resolveFleetWindowSessionTarget } from "../../../core/matcher/resolve-target";
+import { isInfrastructureChannelSessionName, resolveFleetWindowSessionTarget } from "maw-js/sdk";
 import { resolvePeer as resolveConfiguredPeer } from "../ls/internal/peer-resolve";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";

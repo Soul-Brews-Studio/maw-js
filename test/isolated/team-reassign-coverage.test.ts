@@ -94,7 +94,7 @@ describe("team-reassign helper", () => {
       },
     ]]);
     expect(promptCalls).toEqual([123]);
-    expect(calls).toContainEqual(["list-panes", "-a", "-F", "#{session_name}|#{window_name}|#{pane_current_command}|#{pane_current_path}|#{pane_id}"]);
+    expect(calls).toContainEqual(["list-panes", "-a", "-F", "#{session_name}|#{window_name}|#{pane_current_command}|#{pane_current_path}|#{pane_id}|#{pane_pid}|#{session_id}|#{window_id}"]);
   });
 
   test("rejects unresolved members", async () => {

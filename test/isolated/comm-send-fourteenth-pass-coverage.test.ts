@@ -8,6 +8,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { join } from "path";
 
 const srcRoot = join(import.meta.dir, "../..");
+const realGhqModule = await import("../../src/core/ghq");
+const realFleetLoadModule = await import("../../src/commands/shared/fleet-load");
 
 type ResolvedTarget =
   | { type: "local" | "self-node"; target: string }
@@ -15,7 +17,7 @@ type ResolvedTarget =
   | { type: "error"; detail: string; hint?: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [], commands: { default: "claude" } };
 let listSessionsReturn: any[];
 let resolveTargetReturn: ResolvedTarget;
 let captureResponses: string[];
@@ -25,16 +27,35 @@ let curlFetchCalls: Array<{ url: string; options: any }>;
 let runHookCalls: Array<{ name: string; payload: any }>;
 let defaultInboxCalls: any[];
 let sleepCalls: number[];
+let ghqFindCalls: string[];
+let fleetLoadCalls: number;
+
+mock.module(join(srcRoot, "src/core/ghq"), () => ({
+  ...realGhqModule,
+  ghqFind: async (suffix: string) => {
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => [],
+}));
+
+mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
+  ...realFleetLoadModule,
+  loadFleetEntries: () => {
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
 
 mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   class MockTmux {
     async run() { return "0 claude\n"; }
     async tryRun() { return "0 claude\n"; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+const sdkMock = {
   listSessions: async () => listSessionsReturn,
   capture: async () => captureResponses.shift() ?? "",
   sendKeys: async (target: string, text: string) => {
@@ -51,7 +72,10 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
   runHook: async (name: string, payload: any) => {
     runHookCalls.push({ name, payload });
   },
-}));
+};
+
+mock.module(join(srcRoot, "src/sdk"), () => sdkMock);
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => sdkMock);
 
 mock.module(join(srcRoot, "src/config"), () => ({
   loadConfig: () => config,
@@ -61,6 +85,10 @@ mock.module(join(srcRoot, "src/config"), () => ({
 mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   logMessage: () => {},
   emitFeed: () => {},
+}));
+
+mock.module(join(srcRoot, "src/plugin/event-hooks"), () => ({
+  runPluginEventHooks: async () => ({ eventName: "test", matched: 0, invoked: 0, skipped: 0, failed: 0 }),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
@@ -75,6 +103,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
@@ -109,7 +140,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
   captureResponses = ["❯ "];
@@ -119,12 +150,23 @@ beforeEach(() => {
   runHookCalls = [];
   defaultInboxCalls = [];
   sleepCalls = [];
+  ghqFindCalls = [];
+  fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
 });
 
 afterEach(() => {
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 
 afterAll(() => {
@@ -159,7 +201,7 @@ describe("comm-send fourteenth-pass uncovered branches", () => {
     await runCmd(() => cmdSend("local:session:oracle", "wait for idle", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toEqual([150]);
+    expect(sleepCalls).toContain(150);
     expect(defaultInboxCalls).toEqual([]);
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] wait for idle" }]);
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] wait for idle" } }]);

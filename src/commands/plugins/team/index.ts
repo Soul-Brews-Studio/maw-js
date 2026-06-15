@@ -3,7 +3,7 @@ import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
-  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn,
+  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn, cmdTeamPrune,
   cmdTeamSend, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { parseFlags } from "../../../cli/parse-args";
@@ -143,9 +143,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: args.includes("--force"),
         merge: args.includes("--merge"),
       });
+    } else if (sub === "prune") {
+      await cmdTeamPrune();
     } else if (sub === "up") {
       if (!args[1]) {
-        logs.push("usage: maw team up <team> [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
+        logs.push("usage: maw team up <team> [--members <roles>] [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
         return { ok: false, error: "team required", output: logs.join("\n") };
       }
       const { cmdTeamUp } = await import("../../../vendor/mpr-plugins/team/team-up");
@@ -156,6 +158,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--gather": Boolean,
         "--engine": String,
         "-e": "--engine",
+        "--members": String,
       }, 2);
       await cmdTeamUp(args[1], {
         dryRun: Boolean(flags["--dry-run"]),
@@ -163,9 +166,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: Boolean(flags["--force"]),
         gather: Boolean(flags["--gather"]),
         engine: flags["--engine"] as string | undefined,
+        members: String(flags["--members"] || "").split(",").map((s) => s.trim()).filter(Boolean),
       });
     } else if (sub === "list" || sub === "ls" || !sub) {
-      await cmdTeamList();
+      if (args.includes("--all")) await cmdTeamList({ all: true });
+      else await cmdTeamList();
     } else if (sub === "add" || sub === "task") {
       // maw team add "subject" [--team <name>] [--assign agent] [--description text]
       const { cmdTeamTaskAdd } = await import("./task-ops");
@@ -210,6 +215,30 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!id || !agent) { return { ok: false, error: "usage: maw team assign <task-id> <agent> [--team <name>]" }; }
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
+
+    } else if (sub === "wtf") {
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--session": String,
+        "--fix": Boolean,
+        "--dry-run": Boolean,
+        "--confirm": String,
+      }, 1);
+      if (flags["--fix"]) {
+        const { cmdTeamWtfFix } = await import("./team-wtf-fix");
+        await cmdTeamWtfFix(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+          dryRun: Boolean(flags["--dry-run"]),
+          confirm: flags["--confirm"] as string | undefined,
+        });
+      } else {
+        const { cmdTeamWtf } = await import("./team-wtf");
+        await cmdTeamWtf(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+        });
+      }
 
     } else if (sub === "status") {
       // maw team status [team-name]

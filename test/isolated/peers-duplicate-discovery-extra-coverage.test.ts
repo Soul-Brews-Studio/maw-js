@@ -88,6 +88,22 @@ describe.each(duplicateModules)("%s peers duplicate detection exports", (_label,
     expect(logs[1]).toContain("maw peers remove <alias>");
   });
 
+  test("deduplicates repeated boot warnings for the same peer collision", () => {
+    const logs: string[] = [];
+    const peers = {
+      repeatOne: peer({ url: "http://repeat-1", identity: { oracle: "repeat", node: "node" } }),
+      repeatTwo: peer({ url: "http://repeat-2", identity: { oracle: "repeat", node: "node" } }),
+    };
+
+    const first = mod.warnDuplicatesAtBoot({ peers, log: (msg) => logs.push(msg) });
+    const second = mod.warnDuplicatesAtBoot({ peers, log: (msg) => logs.push(msg) });
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toContain('duplicate <oracle>:<node> claim "repeat:node"');
+  });
+
   test("sorts multiple duplicate groups and uses the default boot logger", () => {
     const originalWarn = console.warn;
     const warnings: string[] = [];

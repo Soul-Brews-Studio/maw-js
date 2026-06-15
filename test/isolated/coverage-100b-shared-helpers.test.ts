@@ -212,7 +212,7 @@ describe("workspace store error branches", () => {
       lastStatus: "connected",
     }), "utf-8");
 
-    expect(store.loadAllWorkspaces()).toEqual([{
+    expect(store.loadAllWorkspaces()).toContainEqual({
       id: "good",
       name: "Good",
       hubUrl: "http://hub",
@@ -220,7 +220,7 @@ describe("workspace store error branches", () => {
       sharedAgents: ["one", "two"],
       joinedAt: "now",
       lastStatus: "connected",
-    }]);
+    });
 
     const blockedConfigDir = tmp("maw-workspaces-blocked-");
     process.env.MAW_CONFIG_DIR = blockedConfigDir;

@@ -12,9 +12,7 @@ Generated 2026-04-28 by mawjs-oracle@white.
 
 ## Methodology
 
-1. `ls src/commands/plugins/` → 71 entries (70 with valid `plugin.json`,
-   plus `hey-test/` which is a stub: no `plugin.json`, last touched
-   2026-04-13).
+1. `ls src/commands/plugins/` → 70 entries with valid `plugin.json`.
 2. For each plugin: read `plugin.json` (`name`, `weight`, declared API),
    inventory internal `import` paths via `grep -rhoE "from ['\"]\\.\\.[^'\"]+['\"]"`.
 3. Last-modified inferred from `git log -1 --format=%cs -- <plugin-dir>`.
@@ -38,12 +36,11 @@ Generated 2026-04-28 by mawjs-oracle@white.
 
 ## Summary
 
-- **Total plugins (in-tree):** 71 entries (70 with `plugin.json` + `hey-test`
-  stub)
+- **Total plugins (in-tree):** 70 entries with `plugin.json`
 - **Core:** 8
 - **Standard:** 13
 - **Extra:** 49
-- **Stub / not shipping:** 1 (`hey-test`)
+- **Stub / not shipping:** 0
 - **Already extracted (community):** 2 — `shellenv` (#816, #848), `rename`
   (#859). Not in this table.
 
@@ -80,7 +77,6 @@ and out of scope for this audit. Likewise `bootstrap` lives in
 | find | extra | tangled | 4 | 2026-04-24 | Cross-fleet search. Touches ghq-root + fleet-load. |
 | fleet | extra | tangled | 6 | 2026-04-24 | Fleet inspector. Heavy core ties — keep with fleet primitives. |
 | health | standard | clean | 3 | 2026-04-28 | SDK + config only. Maintenance plugin. |
-| hey-test | — | stub | 1 | 2026-04-13 | No `plugin.json`. Drop or convert to test fixture. |
 | inbox | core | clean | 2 | 2026-04-29 | Schemas + types only. Daily-driver primitive. Stays core. |
 | incubate | extra | clean | 1 | 2026-04-18 | Repo-scaffolding. Light. |
 | init | extra | tangled | 5 | 2026-04-24 | First-run wizard. Touches plugin/lock + config/types. Maintenance-only after extraction. |
@@ -138,8 +134,8 @@ and out of scope for this audit. Likewise `bootstrap` lives in
 | core | 8 | 6 clean / 2 tangled (`federation`, `plugin`) |
 | standard | 13 | 8 clean / 5 tangled |
 | extra | 49 | 21 clean / 28 tangled |
-| stub | 1 | `hey-test` (drop or convert) |
-| **total** | **71** | **35 clean / 35 tangled / 1 stub** |
+| stub | 0 | — |
+| **total** | **70** | **35 clean / 35 tangled** |
 
 Half of the tree is **clean** — mostly SDK + `plugin/types` only. These are
 the cheapest extractions and the fastest path to a lean core.
@@ -199,8 +195,7 @@ These reach into `core/fleet`, `core/matcher`, `core/ghq`, `shared/wake*`,
 
 ### Stub cleanup
 
-- `hey-test` has no `plugin.json` and hasn't moved since 2026-04-13. Either
-  promote to `test/` fixture or delete in a follow-up PR.
+- Completed in #2155: deleted the dead `hey-test` vendor stub.
 
 ## Open questions for Phase 1
 

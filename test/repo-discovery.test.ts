@@ -24,7 +24,7 @@ import {
   GhqDiscovery,
   type RepoDiscovery,
 } from "../src/core/repo-discovery";
-import { _normalize } from "../src/core/repo-discovery/ghq-discovery";
+import { _normalize, selectRepoMatch } from "../src/core/repo-discovery/ghq-discovery";
 
 // ─── helpers ──────────────────────────────────────────────────────────
 
@@ -177,20 +177,15 @@ describe("findBySuffix — contract", () => {
     expect(withDollar).toBe(without);
   });
 
-  test("GhqDiscovery itself literalizes $ (the real, not mocked, impl)", () => {
-    // Exercise the *real* adapter's literalize guard without spawning ghq:
-    // findBySuffixSync delegates to listSync() which returns [] when ghq
-    // is absent — but the code path that strips $ still runs. A suffix
-    // that won't match anything regardless lets us assert "returns null,
-    // doesn't throw" on both forms.
-    expect(() => GhqDiscovery.findBySuffixSync("/xxx-no-such-repo$")).not.toThrow();
-    expect(() => GhqDiscovery.findBySuffixSync("/xxx-no-such-repo")).not.toThrow();
-    // Both produce the same sentinel (either null or a real path), never
-    // diverge — if literalize regressed, "$" form would always be null
-    // while bare form might be a string. Same-value equality catches it.
-    expect(GhqDiscovery.findBySuffixSync("/xxx-no-such-repo$")).toBe(
-      GhqDiscovery.findBySuffixSync("/xxx-no-such-repo"),
-    );
+  test("GhqDiscovery itself literalizes $ without hitting the real ghq backend", () => {
+    const originalListSync = GhqDiscovery.listSync;
+    try {
+      GhqDiscovery.listSync = () => ["/home/user/Code/github.com/org/foo"];
+      expect(GhqDiscovery.findBySuffixSync("/foo$")).toBe("/home/user/Code/github.com/org/foo");
+      expect(GhqDiscovery.findBySuffixSync("/foo")).toBe("/home/user/Code/github.com/org/foo");
+    } finally {
+      GhqDiscovery.listSync = originalListSync;
+    }
   });
 
   test("no match returns null (not undefined, not empty string)", async () => {
@@ -208,6 +203,52 @@ describe("findBySuffix — contract", () => {
       "/home/user/Code/github.com/org/maw-ui",
     );
     expect(ghqFindSync("/nope")).toBeNull();
+  });
+});
+
+// ─── 2b. Doubled github.com/github.com path preference (#2577) ────────
+
+describe("selectRepoMatch (#2577) — prefers canonical over doubled github.com", () => {
+  const canonical = "/opt/Code/github.com/laris-co/neo-oracle";
+  const doubled = "/opt/Code/github.com/github.com/laris-co/neo-oracle";
+
+  test("returns the canonical path even when the doubled one is listed first", () => {
+    // The exact #2577 repro: maw wake neo was resolving to the doubled path.
+    expect(selectRepoMatch([doubled, canonical], "/neo-oracle")).toBe(canonical);
+  });
+
+  test("returns the canonical path when it is listed first", () => {
+    expect(selectRepoMatch([canonical, doubled], "/neo-oracle")).toBe(canonical);
+  });
+
+  test("a more specific suffix still prefers canonical", () => {
+    expect(selectRepoMatch([doubled, canonical], "/laris-co/neo-oracle")).toBe(canonical);
+  });
+
+  test("falls back to a doubled path only when it is the sole match", () => {
+    expect(selectRepoMatch([doubled], "/neo-oracle")).toBe(doubled);
+  });
+
+  test("returns null when nothing matches the suffix", () => {
+    expect(selectRepoMatch([doubled, canonical], "/no-such-oracle")).toBeNull();
+  });
+
+  test("preserves case-insensitive + $-stripping suffix matching", () => {
+    expect(selectRepoMatch([doubled, canonical], "/NEO-Oracle$")).toBe(canonical);
+  });
+
+  test("the real GhqDiscovery.findBySuffix routes through selectRepoMatch", async () => {
+    // Drive the real adapter (not the fake) with a deterministic list so the
+    // #2577 preference is exercised end-to-end through findBySuffix.
+    setRepos({
+      name: "doubled-probe",
+      async list() { return [doubled, canonical]; },
+      listSync() { return [doubled, canonical]; },
+      findBySuffix(suffix: string) { return Promise.resolve(selectRepoMatch([doubled, canonical], suffix)); },
+      findBySuffixSync(suffix: string) { return selectRepoMatch([doubled, canonical], suffix); },
+    });
+    expect(await ghqFind("/neo-oracle")).toBe(canonical);
+    resetRepos();
   });
 });
 

@@ -27,6 +27,7 @@ type HandlerCall = { fn: string; args: unknown[] };
 type ResolvedPeer = {
   peerName: string;
   peerNode?: string;
+  identityMismatch?: boolean;
   peerUrl: string;
   version: string;
   peerSha256?: string;
@@ -55,6 +56,7 @@ let exitCode: number | undefined;
 
 const originalEnv = {
   consent: process.env.MAW_CONSENT,
+  pluginsDir: process.env.MAW_PLUGINS_DIR,
 };
 const originalLog = console.log;
 const originalError = console.error;
@@ -147,6 +149,7 @@ beforeEach(() => {
   stderr = [];
   exitCode = undefined;
   delete process.env.MAW_CONSENT;
+  delete process.env.MAW_PLUGINS_DIR;
   console.log = (...args: unknown[]) => stdout.push(args.map(String).join(" "));
   console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
   (process as any).exit = (code?: number): never => {
@@ -158,6 +161,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalEnv.consent === undefined) delete process.env.MAW_CONSENT;
   else process.env.MAW_CONSENT = originalEnv.consent;
+  if (originalEnv.pluginsDir === undefined) delete process.env.MAW_PLUGINS_DIR;
+  else process.env.MAW_PLUGINS_DIR = originalEnv.pluginsDir;
   console.log = originalLog;
   console.error = originalError;
   (process as any).exit = originalExit;
@@ -196,6 +201,27 @@ describe("cmdPluginInstall source dispatch", () => {
     expect(handlerCalls).toEqual([
       { fn: "dir", args: ["/tmp/dev-plugin", { force: true, weight: 5 }] },
     ]);
+  });
+
+  test("accepts --local and --symlink for directory installs without leaking MAW_PLUGINS_DIR", async () => {
+    plannedMode = { kind: "dir", src: "/tmp/dev-plugin" };
+
+    await cmdPluginInstall(["/tmp/dev-plugin", "--local", "--symlink", "--force"]);
+
+    expect(process.env.MAW_PLUGINS_DIR).toBeUndefined();
+    expect(handlerCalls).toEqual([
+      { fn: "dir", args: ["/tmp/dev-plugin", { force: true, weight: undefined }] },
+    ]);
+  });
+
+  test("rejects --symlink for sealed artifact installs", async () => {
+    plannedMode = { kind: "tarball", src: "/tmp/builds/demo-1.2.3.tgz" };
+
+    await expect(cmdPluginInstall(["/tmp/builds/demo-1.2.3.tgz", "--symlink"])).rejects.toThrow(
+      /--symlink is only supported for local directory plugin installs/,
+    );
+
+    expect(handlerCalls).toEqual([]);
   });
 
   test("normalizes tarball source labels and forwards pin/weight options", async () => {
@@ -282,6 +308,30 @@ describe("cmdPluginInstall peer source flow", () => {
         ],
       },
     ]);
+  });
+
+  test("refuses identity-mismatched peers before consent or download", async () => {
+    resolvedPeer = {
+      peerName: "white",
+      peerNode: "attacker",
+      identityMismatch: true,
+      peerUrl: "http://white.internal:2700",
+      version: "2.0.0",
+      peerSha256: "sha256:abcdef1234567890",
+      downloadUrl: "http://white.internal:2700/api/plugin/download/ping",
+    };
+    plannedMode = { kind: "peer", src: "ping@white", name: "ping", peer: "white" };
+
+    await expect(cmdPluginInstall(["ping@white"])).rejects.toThrow(
+      /__plugin_install_impl_test_exit__:1/,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr.join("\n")).toContain("peer identity mismatch");
+    expect(stderr.join("\n")).toContain("manifest claimed node: attacker");
+    expect(stderr.join("\n")).toContain("refusing to bind consent/trust");
+    expect(consentCalls).toEqual([]);
+    expect(handlerCalls).toEqual([]);
   });
 
   test("uses local fallback node name and continues when consent allows", async () => {

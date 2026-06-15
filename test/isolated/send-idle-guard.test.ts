@@ -60,7 +60,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/config"), () => {
   const { mockConfigModule } = require("../helpers/mock-config");
-  return mockConfigModule(() => ({ node: "test-node", port: 3456 }));
+  return mockConfigModule(() => ({ node: "test-node", port: 3456, commands: { default: "claude" } }));
 });
 
 mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
@@ -79,6 +79,9 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 // Bun.sleep intercept — replace globally so checkPaneIdle retry doesn't stall
 const origSleep = Bun.sleep.bind(Bun);
 const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
 };
@@ -122,6 +125,9 @@ beforeEach(() => {
   delete process.env.MAW_QUIET;
   process.env.MAW_QUIET = "1"; // suppress tip output
   process.env.CLAUDE_AGENT_NAME = "test-node";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
 });
 
 afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
@@ -130,6 +136,12 @@ afterAll(() => {
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 
 // ─── checkPaneIdle tests ─────────────────────────────────────────────────────

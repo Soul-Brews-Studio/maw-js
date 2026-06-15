@@ -7,6 +7,6 @@
  */
 
 export type { TriggerContext, TriggerFireResult } from "./triggers-engine";
-export { getTriggers, getTriggerHistory, fire } from "./triggers-engine";
+export { getTriggers, getTriggerHistory, fire, sweepStaleAgentState, STALE_AGENT_STATE_MS } from "./triggers-engine";
 export { parseCronField, wouldFireAt } from "./triggers-cron";
 export { markAgentActive, checkIdleTriggers } from "./triggers-idle";

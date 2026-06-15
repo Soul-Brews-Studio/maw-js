@@ -32,12 +32,9 @@ function output() {
   return logs.join("\n");
 }
 
-mock.module("maw-js/config", () => ({
+mock.module("maw-js/sdk", () => ({
   loadConfig: () => config,
   cfgTimeout: (name: string) => (name === "health" ? 1234 : 1),
-}));
-
-mock.module("maw-js/sdk", () => ({
   tmux: {
     listSessions: mock(async () => {
       if (tmuxShouldThrow) throw new Error("tmux down");

@@ -208,7 +208,7 @@ describe("src/core/runtime/triggers-idle focused branches", () => {
     expect(agentPrevState.get("too-young")).toBe("busy");
   });
 
-  test("checkIdleTriggers records a fired idle transition and clears its timer after a successful fire", async () => {
+  test("checkIdleTriggers records a fired idle transition and keeps last-seen state for sweeping", async () => {
     const now = 1_779_000_200_000;
     Date.now = () => now;
     triggers = [{ on: "agent-idle", action: "echo idle", timeout: 5 }];
@@ -219,7 +219,7 @@ describe("src/core/runtime/triggers-idle focused branches", () => {
     expect(await checkIdleTriggers()).toEqual(["done-agent"]);
     expect(fireCalls).toEqual([{ event: "agent-idle", ctx: { agent: "done-agent" } }]);
     expect(agentPrevState.get("done-agent")).toBe("idle");
-    expect(idleTimers.has("done-agent")).toBe(false);
+    expect(idleTimers.get("done-agent")).toBe(now - 6_000);
   });
 
   test("checkIdleTriggers leaves busy state and timer intact when fire returns no successful result", async () => {

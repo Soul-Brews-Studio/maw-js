@@ -111,4 +111,62 @@ describe("buildCommandFromConfig golden master (#1960 P0)", () => {
       engines: { codex: { name: "codex", cmd: "codex --typed" } },
     } as any, "codex-agent", "codex")).toBe("codex --typed");
   });
+
+
+
+  test("config.engines default and patterns are primary over legacy commands", () => {
+    delete process.env.MAW_GENERIC_ENGINES;
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      commands: { default: "claude --legacy", "foo-*": "foo --legacy" },
+      engines: {
+        default: { name: "default", cmd: "codex --typed" },
+        "foo-*": { name: "foo-*", cmd: "foo --typed" },
+      },
+    } as any, "unmapped-agent")).toBe("codex --typed");
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      commands: { default: "claude --legacy", "foo-*": "foo --legacy" },
+      engines: { "foo-*": { name: "foo-*", cmd: "foo --typed" } },
+    } as any, "foo-agent")).toBe("foo --typed");
+  });
+
+  test("typed engine capabilities, not command spelling, control Claude-only channels", () => {
+    delete process.env.MAW_GENERIC_ENGINES;
+    const tmp = mkdtempSync(join(tmpdir(), "maw-typed-capability-"));
+    mkdirSync(join(tmp, ".discord"));
+
+    expect(buildCommandInDirFromConfig({
+      ...baseConfig,
+      commands: { default: "claude --legacy" },
+      engines: { default: { name: "default", cmd: "claude" } },
+    } as any, "plain-agent", tmp)).toBe("claude");
+
+    expect(buildCommandInDirFromConfig({
+      ...baseConfig,
+      commands: { default: "codex" },
+      engines: { default: { name: "default", cmd: "codex", capabilities: ["system-prompt-file"] } },
+    } as any, "cap-agent", tmp)).toBe("codex --channels plugin:discord@claude-plugins-official");
+  });
+
+  test("defaultEngine supplies the default fallback when commands.default is absent", () => {
+    delete process.env.MAW_GENERIC_ENGINES;
+
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      defaultEngine: "codex",
+      commands: {},
+      engines: { codex: { name: "codex", cmd: "codex" } },
+    } as any, "unmapped-agent")).toBe("codex");
+
+    process.env.MAW_GENERIC_ENGINES = "0";
+    expect(buildCommandFromConfig({
+      ...baseConfig,
+      defaultEngine: "opencode",
+      commands: { opencode: "opencode" },
+      engines: { opencode: { name: "opencode", cmd: "opencode" } },
+    } as any, "unmapped-agent")).toBe("opencode");
+  });
 });

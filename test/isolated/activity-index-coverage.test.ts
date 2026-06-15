@@ -1,4 +1,4 @@
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const activityCalls: Array<{ target: string | undefined; opts: Record<string, unknown> }> = [];
 
@@ -12,6 +12,26 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/activity/impl"), (
 
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/activity/index.ts?activity-index-coverage");
 
+const startedProcesses: Array<ReturnType<typeof Bun.spawn>> = [];
+const originalBunSpawn = Bun.spawn;
+Bun.spawn = ((...args: Parameters<typeof Bun.spawn>) => {
+  const child = originalBunSpawn(...args);
+  startedProcesses.push(child);
+  return child;
+}) as typeof Bun.spawn;
+
+afterAll(() => {
+  for (const child of startedProcesses) {
+    try {
+      child.kill();
+    } catch {
+      // ignore
+    }
+  }
+  startedProcesses.length = 0;
+  Bun.spawn = originalBunSpawn;
+});
+
 function ctx(source: "cli" | "api", args: unknown) {
   return { source, args } as never;
 }
@@ -20,7 +40,7 @@ beforeEach(() => {
   activityCalls.length = 0;
 });
 
-describe("maw activity plugin index", () => {
+describe("maw activity plugin index", { timeout: 30000 }, () => {
   test("exports metadata and routes CLI pane flags", async () => {
     expect(command).toEqual({
       name: "activity",

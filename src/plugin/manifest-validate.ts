@@ -60,7 +60,10 @@ export function parseApi(r: Record<string, unknown>): PluginManifest["api"] {
   return { path: a.path, methods: a.methods as ("GET" | "POST")[] };
 }
 
-function parseLifecycleHook(hooks: Record<string, unknown>, key: "wake" | "sleep" | "serve"): PluginLifecycleHook | undefined {
+function parseLifecycleHook(
+  hooks: Record<string, unknown>,
+  key: "wake" | "sleep" | "serve" | "transport",
+): PluginLifecycleHook | undefined {
   const raw = hooks[key];
   if (raw === undefined) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -104,6 +107,7 @@ export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] 
   const wake = parseLifecycleHook(h, "wake");
   const sleep = parseLifecycleHook(h, "sleep");
   const serve = parseLifecycleHook(h, "serve");
+  const transport = parseLifecycleHook(h, "transport");
   return {
     ...(Array.isArray(h.gate) ? { gate: h.gate as string[] } : {}),
     ...(Array.isArray(h.filter) ? { filter: h.filter as string[] } : {}),
@@ -112,6 +116,7 @@ export function parseHooks(r: Record<string, unknown>): PluginManifest["hooks"] 
     ...(wake ? { wake } : {}),
     ...(sleep ? { sleep } : {}),
     ...(serve ? { serve } : {}),
+    ...(transport ? { transport } : {}),
   };
 }
 

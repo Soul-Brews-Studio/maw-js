@@ -32,6 +32,7 @@ import { join } from "path";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, existsSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import type { LoadedPlugin } from "../../src/plugin/types";
+import { isUserError } from "../../src/core/util/user-error";
 
 // ─── Gate ───────────────────────────────────────────────────────────────────
 
@@ -115,7 +116,12 @@ function run(fn: () => void): void {
   try { fn(); }
   catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (!msg.startsWith("__exit__")) throw e;
+    if (isUserError(e)) {
+      exitCode = 1;
+      errs.push(msg);
+    } else if (!msg.startsWith("__exit__")) {
+      throw e;
+    }
   } finally {
     console.log = origLog;
     console.error = origError;

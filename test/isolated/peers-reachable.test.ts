@@ -18,9 +18,11 @@ mock.module("../../src/core/transport/curl-fetch", () => ({
   },
 }));
 
-const { getFederationStatus } = await import("../../src/core/transport/peers");
+const { getFederationStatus, resetPeerCaches } = await import("../../src/core/transport/peers");
+import { beforeEach } from "bun:test";
 
 describe("checkPeerReachable — identity failure visibility (#385 site 3)", () => {
+  beforeEach(() => { resetPeerCaches(); });
   test("warns when peer is reachable (sessions ok) but /api/identity fails", async () => {
     responses = [
       { match: "/api/sessions", res: { ok: true, status: 200, data: [] } },

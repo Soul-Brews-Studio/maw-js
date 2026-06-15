@@ -98,9 +98,12 @@ mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
 }));
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
-  buildCommandInDir: (windowName: string, cwd: string, engine?: string) =>
-    `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
+  buildCommandInDir: (windowName: string, cwd: string, optsOrEngine?: string | { engine?: string }) => {
+    const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
+    return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`;
+  },
   cfgTimeout: () => 0,
+  cfgLimit: () => 0,
   loadConfig: () => ({ node: "m5", agents: { neo: "m5" } }),
   saveConfig: () => {},
 }));
@@ -130,6 +133,8 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () =>
 mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () => ({
   attachToSession: async (session: string) => { attachCalls.push(session); },
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: () => undefined,
+  writeWorktreeEngineFile: () => {},
   waitForEngine: async () => {},
   ensureSessionRunning: async () => 0,
   createWorktree: async (...args: any[]) => {
@@ -158,6 +163,22 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   latestSnapshot: () => null,
+  listSnapshots: () =>
+    snapshotReturn
+      ? [
+          {
+            file: "snap-1.json",
+            timestamp: snapshotReturn.timestamp,
+            trigger: snapshotReturn.trigger ?? "wake",
+            sessionCount: snapshotReturn.sessions?.length ?? 0,
+            windowCount:
+              snapshotReturn.sessions?.reduce(
+                (n: number, s: any) => n + (s.windows?.length ?? 0),
+                0,
+              ) ?? 0,
+          },
+        ]
+      : [],
   loadSnapshot: () => snapshotReturn,
 }));
 

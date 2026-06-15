@@ -9,6 +9,7 @@ export interface DoneBranchCleanupOpts {
   branchBase?: string;
   dryRun?: boolean;
   cwd?: string;
+  force?: boolean;
 }
 
 function activeFleetConfigFiles(): Array<{ file: string; path: string }> {
@@ -34,6 +35,11 @@ function shellArg(value: string): string {
 function isNotWorkingTreeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /not a working tree/i.test(message);
+}
+
+function isDirtyWorktreeRemovalError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /has uncommitted changes; rerun maw done --force/i.test(message);
 }
 
 function archivePathFor(wtPath: string): string {
@@ -196,7 +202,10 @@ export async function removeWorktreeViaConfig(
         } catch (removeErr: any) {
           const msg = String(removeErr.message || removeErr);
           if (/modified or untracked|contains modified/i.test(msg)) {
-            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing`);
+            if (!opts.force) {
+              throw new Error(`worktree remove failed and ${fullPath} has uncommitted changes; rerun maw done --force to delete it`);
+            }
+            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing (--force)`);
             await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)} --force`);
           } else {
             throw removeErr;
@@ -207,6 +216,7 @@ export async function removeWorktreeViaConfig(
         await cleanupDoneBranch(mainPath, branch, opts);
         return true;
       } catch (e: any) {
+        if (isDirtyWorktreeRemovalError(e)) throw e;
         if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(fullPath, mainPath)) {
           return true;
         }
@@ -214,7 +224,10 @@ export async function removeWorktreeViaConfig(
       }
       break;
     }
-  } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`); }
+  } catch (e) {
+    if (isDirtyWorktreeRemovalError(e)) throw e;
+    console.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`);
+  }
   return false;
 }
 
@@ -268,7 +281,10 @@ export async function removeWorktreeByGhqScan(
         } catch (removeErr: any) {
           const msg = String(removeErr.message || removeErr);
           if (/modified or untracked|contains modified/i.test(msg)) {
-            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing`);
+            if (!opts.force) {
+              throw new Error(`worktree remove failed and ${wtPath} has uncommitted changes; rerun maw done --force to delete it`);
+            }
+            console.log(`  \x1b[33m⚠\x1b[0m worktree has uncommitted changes, force-removing (--force)`);
             await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(wtPath)} --force`);
           } else {
             throw removeErr;
@@ -279,6 +295,7 @@ export async function removeWorktreeByGhqScan(
         removed = true;
         await cleanupDoneBranch(mainPath, branch, opts);
       } catch (e) {
+        if (isDirtyWorktreeRemovalError(e)) throw e;
         if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(wtPath, mainPath)) {
           removed = true;
           continue;
@@ -286,7 +303,10 @@ export async function removeWorktreeByGhqScan(
         console.error(`  \x1b[33m⚠\x1b[0m worktree remove failed: ${e}`);
       }
     }
-  } catch (e) { console.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`); }
+  } catch (e) {
+    if (isDirtyWorktreeRemovalError(e)) throw e;
+    console.error(`  \x1b[33m⚠\x1b[0m worktree scan failed: ${e}`);
+  }
   return removed;
 }
 

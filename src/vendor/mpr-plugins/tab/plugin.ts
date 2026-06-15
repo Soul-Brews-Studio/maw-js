@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "tab",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List tmux tabs/windows, peek a tab, or send a message to it; use rename to change tab names.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "tab",
+    "aliases": [
+      "tabs"
+    ],
+    "help": "maw tab [N] [message|--talk message] — list tabs, peek a tab, or message it; see maw rename to rename tabs"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

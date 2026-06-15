@@ -164,7 +164,8 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
         const flags = parseFlags(args, { "--json": Boolean, "--awake": Boolean, "--org": String }, 2);
         await commands.cmdOracleSearch(query, { json: flags["--json"], awake: flags["--awake"], org: flags["--org"] });
       } else if (subcmd === "about" && args[1]) {
-        await commands.cmdOracleAbout(args[1]);
+        const flags = parseFlags(args, { "--json": Boolean }, 2);
+        await commands.cmdOracleAbout(args[1], flags["--json"] ? { json: true } : undefined);
       } else {
         return { ok: false, error: "usage: maw oracle [ls|scan|search <query>|prune|register <name>|set-nickname <name> <nickname>|get-nickname <name>|about <name>]" };
       }
@@ -239,7 +240,7 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
           org: query.org as string | undefined,
         });
       } else if (sub === "about" && query.name) {
-        await commands.cmdOracleAbout(query.name as string);
+        await commands.cmdOracleAbout(query.name as string, query.json ? { json: true } : undefined);
       } else {
         return { ok: false, error: "usage: query.sub=[ls|scan|search|prune|register|set-nickname|get-nickname|about] + query.name" };
       }

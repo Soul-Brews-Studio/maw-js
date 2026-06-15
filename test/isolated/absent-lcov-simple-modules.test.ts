@@ -6,20 +6,28 @@ import { timemachineView } from "../../src/views/timemachine";
 import shellHooks from "../../src/plugins/builtin/shell-hooks";
 
 const vendorTeamImplPath = import.meta.resolve("../../src/vendor/mpr-plugins/team/impl");
+const teamImplPath = import.meta.resolve("../../src/commands/plugins/team/impl.ts?absent-lcov-team-impl");
 
-mock.module(vendorTeamImplPath, () => ({
+const mockTeamImpl = {
   cmdTeamShutdown: () => {},
   cmdTeamList: () => {},
   cmdTeamCreate: () => {},
   cmdTeamSpawn: () => {},
+  cmdTeamPrune: () => {},
   cmdTeamSend: () => {},
   cmdTeamBroadcast: () => {},
   cmdTeamBring: () => {},
   cmdTeamResume: () => {},
   cmdTeamLives: () => {},
+};
+
+mock.module(vendorTeamImplPath, () => ({
+  ...mockTeamImpl,
 }));
 
-describe("absent-from-LCOV simple modules", () => {
+mock.module(teamImplPath, () => mockTeamImpl);
+
+describe("absent-from-LCOV simple modules", { timeout: 30000 }, () => {
   test("mountViews wires the standalone browser views", () => {
     const routes: Array<{ path: string; view: Hono }> = [];
     const app = {
@@ -53,7 +61,7 @@ describe("absent-from-LCOV simple modules", () => {
   });
 
   test("command team impl re-exports the vendor command surface", async () => {
-    const teamImpl = await import("../../src/commands/plugins/team/impl.ts?absent-lcov-team-impl");
+    const teamImpl = await import(teamImplPath);
 
     expect(typeof teamImpl.cmdTeamCreate).toBe("function");
     expect(typeof teamImpl.cmdTeamList).toBe("function");

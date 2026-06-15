@@ -79,7 +79,7 @@ describe("coverage 100c executable gap tests", () => {
     process.env.MAW_DATA_DIR = join(configDir, "data");
     delete process.env.MAW_HOME;
 
-    const hub = await import(`../../src/transports/hub-config.ts?coverage-100c=${crypto.randomUUID()}`);
+    const hub = await import(`../../src/vendor/mpr-plugins/hub/hub-config.ts?coverage-100c=${crypto.randomUUID()}`);
 
     expect(hub.loadWorkspaceConfigs()).toEqual([]);
     expect(realFs.existsSync(hub.WORKSPACES_DIR)).toBe(true);
@@ -103,8 +103,7 @@ describe("coverage 100c executable gap tests", () => {
     console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
 
     expect(hub.loadWorkspaceConfigs()).toEqual([{ id: "alpha", hubUrl: "wss://hub.example.test", token: "secret", sharedAgents: ["mawjs"] }]);
-    expect(warnings.join("\n")).toContain("invalid workspace config: invalid.json");
-    expect(warnings.join("\n")).toContain("failed to parse workspace config: broken.json");
+    expect(warnings).toEqual([]);
   });
 
   test("plugin install extraction rejects traversal, oversized bodies, and missing source entries", async () => {

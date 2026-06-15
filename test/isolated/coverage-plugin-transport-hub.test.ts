@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { HubTransport } from "../../src/transports/hub-transport";
-import { LoRaTransport } from "../../src/transports/lora";
-import type { HubConnection } from "../../src/transports/hub-connection";
+import { HubTransport } from "../../src/vendor/mpr-plugins/hub/hub-transport";
+import type { HubConnection } from "../../src/vendor/mpr-plugins/hub/hub-connection";
 import {
   cleanupConnection,
   handleMessage,
@@ -10,7 +9,7 @@ import {
   sendAuth,
   startHeartbeat,
   stopHeartbeat,
-} from "../../src/transports/hub-connection";
+} from "../../src/vendor/mpr-plugins/hub/hub-connection";
 
 const originalLog = console.log;
 const originalWarn = console.warn;
@@ -366,29 +365,5 @@ describe("hub transport coverage", () => {
     expect(transport.connected).toBe(false);
     expect(transport.workspaceStatus()).toEqual([]);
     expect(transport.canReach({ oracle: "target" })).toBe(false);
-  });
-});
-
-describe("lora transport coverage", () => {
-  test("stub transport methods stay disconnected and best-effort", async () => {
-    const transport = new LoRaTransport();
-    const messageHandler = () => undefined;
-    const presenceHandler = () => undefined;
-    const feedHandler = () => undefined;
-
-    transport.onMessage(messageHandler);
-    transport.onPresence(presenceHandler);
-    transport.onFeed(feedHandler);
-
-    expect(transport.name).toBe("lora");
-    expect(transport.connected).toBe(false);
-    await transport.connect();
-    expect(transport.connected).toBe(false);
-    expect(await transport.send({ oracle: "any" }, "hello")).toBe(false);
-    await transport.publishPresence({ oracle: "any", host: "local", status: "ready", timestamp: 1 });
-    await transport.publishFeed({ kind: "note" } as any);
-    expect(transport.canReach({ oracle: "any" })).toBe(false);
-    await transport.disconnect();
-    expect(transport.connected).toBe(false);
   });
 });

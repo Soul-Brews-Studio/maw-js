@@ -1,9 +1,8 @@
-import { hostExec } from "maw-js/sdk";
-import { cmdWake, fetchIssuePrompt } from "maw-js/commands/shared/wake";
+import { cmdWake, fetchIssuePrompt, hostExec, UserError } from "maw-js/sdk";
 
 function parseIssueUrl(url: string): { org: string; repo: string; issueNum: number } {
   const m = url.match(/github\.com[:/]([^/]+)\/([^/]+)\/issues\/(\d+)/);
-  if (!m) throw new Error(`Invalid issue URL: ${url}\nExpected: https://github.com/org/repo/issues/N`);
+  if (!m) throw new UserError(`Invalid issue URL: ${url}\nExpected: https://github.com/org/repo/issues/N`);
   return { org: m[1], repo: m[2], issueNum: parseInt(m[3]) };
 }
 
@@ -27,7 +26,7 @@ export async function cmdAssign(issueUrl: string, opts: { oracle?: string }): Pr
     oracle = await detectCurrentOracle() ?? undefined;
   }
   if (!oracle) {
-    throw new Error("could not detect oracle — pass --oracle <name>");
+    throw new UserError("could not detect oracle — pass --oracle <name>");
   }
 
   console.log(`\x1b[36m⚡\x1b[0m fetching issue #${issueNum} from ${slug}...`);

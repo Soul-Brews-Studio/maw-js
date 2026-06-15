@@ -1,3 +1,4 @@
+import { matchesAgentProcessName } from "../../core/agent-detect";
 import { tmux as defaultTmux } from "../../sdk";
 
 export interface ContextLimitProbeDeps {
@@ -43,7 +44,8 @@ export function isLikelyAgentPaneCommand(command: string | undefined): boolean {
   if (!command) return false;
   const cmd = command.toLowerCase().trim();
   if (!cmd) return false;
-  if (/claude|codex|node|bun/.test(cmd)) return true;
+  if (matchesAgentProcessName(cmd)) return true;
+  if (/^(node|bun)$/i.test(cmd)) return true;
   return /^\d+\.\d+\.\d+$/.test(cmd);
 }
 

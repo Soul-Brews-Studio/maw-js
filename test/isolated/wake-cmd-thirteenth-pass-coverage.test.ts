@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { handleTopLevelError } from "../../src/cli/error-handler";
+import { UserError } from "../../src/core/util/user-error";
 
 type WindowInfo = { name: string };
 type WorktreeInfo = { name: string; path: string };
@@ -37,6 +39,7 @@ let savedConfigs: any[] = [];
 let ensureTeamConfigReturn = false;
 let offerAttachPrompt = false;
 let capacityChecks: string[] = [];
+let capacityError: Error | null = null;
 let setEnvCalls: string[] = [];
 let lifecycleCalls: any[] = [];
 let newSessions: Array<{ session: string; opts: any }> = [];
@@ -54,6 +57,8 @@ let lineageWrites: any[] = [];
 let birthSignalWrites: any[] = [];
 let parseWakeTargetReturn: null | { slug: string; oracle: string } = null;
 let ghqFindReturn: string | null = null;
+let commandTemplateContinues = false;
+let worktreeEngineFiles: Record<string, string | undefined> = {};
 
 function resetState(): void {
   logs = [];
@@ -86,6 +91,7 @@ function resetState(): void {
   ensureTeamConfigReturn = false;
   offerAttachPrompt = false;
   capacityChecks = [];
+  capacityError = null;
   setEnvCalls = [];
   lifecycleCalls = [];
   newSessions = [];
@@ -103,6 +109,8 @@ function resetState(): void {
   birthSignalWrites = [];
   parseWakeTargetReturn = null;
   ghqFindReturn = null;
+  commandTemplateContinues = false;
+  worktreeEngineFiles = {};
 }
 
 async function captureLogs<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -180,10 +188,15 @@ mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
 }));
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
-  buildCommandInDir: (windowName: string, cwd: string, engine?: string) =>
-    `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
+  buildCommandInDir: (windowName: string, cwd: string, optsOrEngine?: string | { engine?: string; fresh?: boolean }) => {
+    const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
+    const fresh = typeof optsOrEngine === "object" && Boolean(optsOrEngine.fresh);
+    const resume = commandTemplateContinues && !fresh ? " --continue" : "";
+    return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}${resume}`;
+  },
   cfgTimeout: () => 0,
-  loadConfig: () => ({ node: "m5", agents: configAgents }),
+  cfgLimit: () => 0,
+  loadConfig: () => ({ node: "m5", agents: configAgents, commands: { default: "claude" } }),
   saveConfig: (patch: any) => {
     savedConfigs.push(patch);
   },
@@ -224,6 +237,8 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () =>
     attachCalls.push(session);
   },
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: (wtPath: string) => worktreeEngineFiles[wtPath],
+  writeWorktreeEngineFile: () => {},
   waitForEngine: async () => {},
   ensureSessionRunning: async () => ensureSessionRunningReturn,
   createWorktree: async (...args: any[]) => {
@@ -256,17 +271,20 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-target"), () => 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), () => ({
   assertAgentCapacity: async (oracle: string) => {
     capacityChecks.push(oracle);
+    if (capacityError) throw capacityError;
   },
 }));
 
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   latestSnapshot: () => snapshotReturn,
+  listSnapshots: () => snapshotReturn ? [{ file: "latest.json", timestamp: snapshotReturn.timestamp ?? "latest" }] : [],
   loadSnapshot: () => snapshotReturn,
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd-helpers"), () => ({
   buildWakeBudLineage: () => "",
   findWakeSnapshotSession: () => snapshotSessionReturn,
+  filterMergedWorktreesForRehydrate: async (worktrees: any[]) => worktrees,
   planRehydrateWorktreeWindows: () => plannedRehydrateWindows,
   planSnapshotRestoreWindows: () => plannedSnapshotWindows,
   retryFreshSessionTmuxStep: async (_session: string, _label: string, fn: () => unknown) => await fn(),
@@ -295,11 +313,19 @@ const {
   getLiveTileRoles,
   _wtPicker,
   promptAmbiguousWorktreePick,
+  shouldMarkWakeInboxRead,
 } = await import("../../src/commands/shared/wake-cmd");
 
 beforeEach(resetState);
 
 describe("wake-cmd thirteenth-pass isolated coverage", () => {
+  test("marks wake inbox read only for attach-follow consume path", () => {
+    expect(shouldMarkWakeInboxRead({}, { MAW_ATTACH_FOLLOWS: "1" })).toBe(true);
+    expect(shouldMarkWakeInboxRead({ dryRun: true }, { MAW_ATTACH_FOLLOWS: "1" })).toBe(false);
+    expect(shouldMarkWakeInboxRead({ listWt: true }, { MAW_ATTACH_FOLLOWS: "1" })).toBe(false);
+    expect(shouldMarkWakeInboxRead({}, {})).toBe(false);
+  });
+
   test("exported helpers cover live tile parsing, failures, and picker defaults", async () => {
     await expect(getLiveTileRoles("54-neo", {
       hostExecFn: async () => "main\n\n side \nmain\n",
@@ -494,11 +520,13 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     let result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
     expect(result).toBe("54-neo:neo-oracle");
     expect(plain()).toContain("would restore snapshot windows: none");
+    expect(plain()).toContain("snapshot rehydrate: none from snapshot latest.json");
 
     logs = [];
     plannedSnapshotWindows = [{ windowName: "neo-alpha", cwd: "/tmp/neo-oracle.wt-1-alpha", source: "worktree" }];
     result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
     expect(plain()).toContain("would restore snapshot window: neo-alpha");
 
     snapshotSessionReturn = null;
@@ -507,14 +535,15 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
   });
 
   test("dry-run reports concrete worktree rehydrate plans", async () => {
-    findWorktreesReturn = [{ name: "5-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
-    plannedRehydrateWindows = [{ windowName: "neo-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
+    findWorktreesReturn = [{ name: "5-docs", path: `${repoPath}/agents/5-docs` }];
+    plannedRehydrateWindows = [{ windowName: "neo-docs", path: `${repoPath}/agents/5-docs` }];
 
     const result = await captureLogs(() => cmdWake("neo", { repoPath, dryRun: true }));
 
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at /tmp/ghq/github.com/Soul-Brews-Studio/neo-oracle/agents");
     expect(plain()).toContain("would respawn: neo-docs");
-    expect(plain()).toContain("/tmp/neo-oracle.wt-5-docs");
+    expect(plain()).toContain("from agents/5-docs");
   });
 
   test("invalid bud flag combinations and missing snapshots fail before tmux mutation", async () => {
@@ -562,16 +591,17 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
 
   test("dry-run treats window listing failures as empty when planning rehydrate", async () => {
     listWindowsThrows = true;
-    findWorktreesReturn = [{ name: "5-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
-    plannedRehydrateWindows = [{ windowName: "neo-docs", path: "/tmp/neo-oracle.wt-5-docs" }];
+    findWorktreesReturn = [{ name: "5-docs", path: `${repoPath}/agents/5-docs` }];
+    plannedRehydrateWindows = [{ windowName: "neo-docs", path: `${repoPath}/agents/5-docs` }];
 
     const result = await captureLogs(() => cmdWake("neo", { repoPath, dryRun: true }));
 
     expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at /tmp/ghq/github.com/Soul-Brews-Studio/neo-oracle/agents");
     expect(plain()).toContain("would respawn: neo-docs");
   });
 
-  test("missing session creation registers new agents and reports team auto-config", async () => {
+  test("missing session creation registers new agents without team auto-config", async () => {
     detectSessionReturn = null;
     shouldWake = true;
     listSessionsReturn = [{ name: "02-old" }];
@@ -584,7 +614,7 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(result).toBe("03-neo:neo-oracle");
     expect(savedConfigs).toEqual([{ agents: { neo: "m5" } }]);
     expect(plain()).toContain("registered agent 'neo' → 'm5'");
-    expect(plain()).toContain("team 'neo' auto-created");
+    expect(plain()).not.toContain("team 'neo' auto-created");
   });
 
   test("missing session creation tolerates post-create window listing failures", async () => {
@@ -598,6 +628,49 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(result).toBe("03-neo:neo-oracle");
     expect(newSessions).toEqual([{ session: "03-neo", opts: { window: "neo-oracle", cwd: repoPath } }]);
     expect(plain()).toContain("created session '03-neo'");
+  });
+
+  test("over-cap missing-session wake prints the UserError reason at the CLI boundary", async () => {
+    detectSessionReturn = null;
+    shouldWake = true;
+    listSessionsReturn = [{ name: "02-old" }];
+    capacityError = new UserError("agent concurrency cap reached: 13/10 agents already live — refusing to spawn 'neo'.");
+
+    let thrown: unknown;
+    await captureLogs(async () => {
+      try {
+        await cmdWake("neo", { repoPath, noRehydrate: true });
+      } catch (error) {
+        thrown = error;
+      }
+    });
+
+    expect(thrown).toBe(capacityError);
+    expect(newSessions).toEqual([]);
+    expect(plain()).toContain("no session found, creating");
+
+    const originalExit = process.exit;
+    const originalError = console.error;
+    const originalStderrWrite = process.stderr.write;
+    const stderr: string[] = [];
+    console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
+    process.stderr.write = ((chunk: unknown) => {
+      stderr.push(String(chunk).replace(/\n$/, ""));
+      return true;
+    }) as typeof process.stderr.write;
+    process.exit = ((code?: string | number | null | undefined) => {
+      throw new Error(`__exit__:${code ?? 0}`);
+    }) as typeof process.exit;
+    try {
+      expect(() => handleTopLevelError(thrown, ["wake", "neo"])).toThrow("__exit__:1");
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+      process.stderr.write = originalStderrWrite;
+    }
+
+    expect(stderr.join("\n")).toContain("agent concurrency cap reached: 13/10 agents already live");
+    expect(stderr.join("\n")).toContain("refusing to spawn 'neo'");
   });
 
   test("existing sessions restore snapshots and rehydrate worktrees before ensuring panes", async () => {
@@ -623,8 +696,34 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       target: "54-neo:neo-review",
       text: "cd /tmp/neo-oracle.wt-3-review && codex --agent neo-review",
     });
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot restore: 1 window");
     expect(plain()).toContain("2 window(s) retried.");
+  });
+
+  test("rehydrate uses persisted per-worktree engine markers", async () => {
+    findWorktreesReturn = [
+      { name: "2-codex", path: "/tmp/neo-oracle.wt-2-codex" },
+      { name: "3-plain", path: "/tmp/neo-oracle.wt-3-plain" },
+    ];
+    plannedRehydrateWindows = [
+      { windowName: "neo-codex", path: "/tmp/neo-oracle.wt-2-codex" },
+      { windowName: "neo-plain", path: "/tmp/neo-oracle.wt-3-plain" },
+    ];
+    worktreeEngineFiles["/tmp/neo-oracle.wt-2-codex"] = "opencode";
+
+    const result = await captureLogs(() => cmdWake("neo", { repoPath }));
+
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(sentText).toContainEqual({
+      target: "54-neo:neo-codex",
+      text: "cd /tmp/neo-oracle.wt-2-codex && opencode --agent neo-codex",
+    });
+    expect(sentText).toContainEqual({
+      target: "54-neo:neo-plain",
+      text: "cd /tmp/neo-oracle.wt-3-plain && codex --agent neo-plain",
+    });
   });
 
   test("missing sessions restore snapshot windows, rehydrate worktrees, and reuse the live main window", async () => {
@@ -664,8 +763,34 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       text: "cd /tmp/neo-oracle.wt-2-beta && claude --agent neo-beta",
     });
     expect(snapshots).toEqual(["wake"]);
+    expect(plain()).toContain("Rehydrating 1 window from snapshot latest.json");
+    expect(plain()).toContain("Rehydrating 1 window from agents/ state at worktree folders");
     expect(plain()).toContain("snapshot window: neo-restored");
     expect(plain()).toContain("1 window(s) reordered");
+  });
+
+  test("dead rehydrated worktree panes launch fresh without engine continue placeholders", async () => {
+    detectSessionReturn = null;
+    shouldWake = true;
+    listSessionsReturn = [{ name: "03-old" }];
+    listWindowsReturn = [];
+    findWorktreesReturn = [{ name: "2-beta", path: "/tmp/neo-oracle.wt-2-beta" }];
+    plannedRehydrateWindows = [{ windowName: "neo-beta", path: "/tmp/neo-oracle.wt-2-beta" }];
+    paneCommand = "zsh";
+    commandTemplateContinues = true;
+
+    const result = await captureLogs(() => cmdWake("neo", { repoPath, engine: "claude" }));
+
+    expect(result).toBe("04-neo:neo-oracle");
+    expect(sentText).toContainEqual({
+      target: "04-neo:neo-oracle",
+      text: `cd ${repoPath} && claude --agent neo-oracle --continue`,
+    });
+    expect(sentText).toContainEqual({
+      target: "04-neo:neo-beta",
+      text: "cd /tmp/neo-oracle.wt-2-beta && claude --agent neo-beta",
+    });
+    expect(sentText.find((call) => call.target === "04-neo:neo-beta")?.text).not.toContain("--continue");
   });
 
   test("existing live windows can switch engine through tmux respawn-pane", async () => {
@@ -693,10 +818,16 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     );
 
     expect(result).toBe("54-neo:neo-oracle");
-    expect(sentText).toEqual([{
-      target: "54-neo:neo-oracle",
-      text: `cd ${repoPath} && claude --agent neo-oracle -p 'quote '\\''this'\\'''`,
-    }]);
+    expect(sentText).toEqual([
+      {
+        target: "54-neo:neo-oracle",
+        text: `cd ${repoPath} && claude --agent neo-oracle`,
+      },
+      {
+        target: "54-neo:neo-oracle",
+        text: "quote 'this'",
+      },
+    ]);
     expect(selectedWindows).toEqual(["54-neo:neo-oracle"]);
     expect(attachCalls).toEqual(["54-neo"]);
 

@@ -130,7 +130,7 @@ describe("tmux-class isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/maw socket.sock' capture-pane -t sess:oracle.0 -e -p 2>/dev/null | tail -12",
+        cmd: "tmux -S '/tmp/maw socket.sock' capture-pane -t sess:oracle.0 -e -p -S -12",
         host: "remote-box",
       },
       {
@@ -306,6 +306,16 @@ describe("tmux-class isolated coverage", () => {
         pid: 123,
         cwd: "/tmp/repo",
         lastActivity: 456,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
       {
         id: "%2",
@@ -315,6 +325,16 @@ describe("tmux-class isolated coverage", () => {
         pid: undefined,
         cwd: undefined,
         lastActivity: undefined,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
     ]);
     await expect(t.listPanes()).resolves.toEqual([]);

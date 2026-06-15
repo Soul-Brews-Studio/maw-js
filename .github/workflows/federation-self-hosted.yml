@@ -53,7 +53,7 @@ jobs:
     name: federation + flake cross-check (self-hosted)
     # Both labels required. The runner host must be registered with both.
     runs-on: [self-hosted, federation]
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
 

@@ -1,4 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { mockConfigModule } from "../helpers/mock-config";
 
 let hostExecCalls: string[] = [];
@@ -68,6 +71,19 @@ describe("coverage next wake-session", () => {
     expect(localCalls).toContain("git -C '/repo path/project-oracle' show-ref --verify --quiet 'refs/heads/agents/stable-task'");
     expect(localCalls).toContain("git -C '/repo path/project-oracle' worktree add '/repo path/project-oracle/agents/stable-task' 'agents/stable-task'");
     expect(localCalls.some((cmd) => cmd.includes(" -b "))).toBe(false);
+  });
+
+  test("worktree engine marker helpers persist safe engine names", () => {
+    reset();
+    const wt = mkdtempSync(join(tmpdir(), "maw-engine-marker-"));
+
+    wakeSession.writeWorktreeEngineFile(wt, "opencode", () => {});
+
+    expect(readFileSync(join(wt, ".maw-engine"), "utf-8")).toBe("opencode\n");
+    expect(wakeSession.readWorktreeEngineFile(wt)).toBe("opencode");
+
+    writeFileSync(join(wt, ".maw-engine"), "bad;rm -rf /\n", "utf-8");
+    expect(() => wakeSession.readWorktreeEngineFile(wt)).toThrow("invalid worktree engine marker");
   });
 
   test("ensureSessionRunning retries idle shells with default commands and skips busy panes", async () => {

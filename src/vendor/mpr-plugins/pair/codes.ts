@@ -67,5 +67,17 @@ export function consume(code: string): LookupResult {
   return r;
 }
 
+export function prunePairCodes(now: number = Date.now()): number {
+  let pruned = 0;
+  for (const [code, entry] of store) {
+    if (entry.consumed || now > entry.expiresAt) {
+      store.delete(code);
+      pruned++;
+    }
+  }
+  return pruned;
+}
+
 export function _resetStore(): void { store.clear(); }
 export function _inject(entry: PairEntry): void { store.set(entry.code, entry); }
+export function _storeSize(): number { return store.size; }

@@ -131,7 +131,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux -S '/tmp/explicit socket.sock' capture-pane -t 'pane target' -e -p 2>/dev/null | tail -50",
+        cmd: "tmux -S '/tmp/explicit socket.sock' capture-pane -t 'pane target' -e -p -S -50",
         host: "remote-box",
       },
       {
@@ -188,6 +188,16 @@ describe("tmux-class sixth-pass isolated coverage", () => {
         pid: undefined,
         cwd: undefined,
         lastActivity: undefined,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
     ]);
     await expect(t.getPaneCommands(["alpha:2", "alpha:3"])).resolves.toEqual({
@@ -216,7 +226,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
     ]);
 
     const noWhitespace = new SubmitProbeTmux();
-    noWhitespace.captureScript = ["agent%make test"];
+    noWhitespace.captureScript = ["agent%unrelated text"];
 
     await noWhitespace.sendText("alpha:0.0", "make test");
 

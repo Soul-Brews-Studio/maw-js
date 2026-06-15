@@ -104,16 +104,43 @@ describe("oracle-workon plugin index", () => {
     expect(execCalls).toEqual([]);
   });
 
-  test("rejects execution outside tmux before parsing task details", async () => {
+  test("auto-creates a tmux session outside tmux", async () => {
     delete process.env.TMUX;
+    fastTimers();
+    const dir = chdirTemp("oracle-workon-outside-");
+    const basename = dir.split(/[\\/]+/).filter(Boolean).at(-1)!;
 
     const result = await handler({ source: "cli", args: ["--task", "ship-fix"] } as any);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("not in tmux");
-    expect(result.output).toContain("requires tmux");
-    expect(result.output).toContain("tmux attach");
-    expect(execCalls).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain(`maw wake ${basename} --task ship-fix --engine claude47 --work`);
+    expect(result.output).not.toContain("--split");
+    expect(result.output).toContain("✓ oracle-workon complete:");
+    expect(execCalls).toEqual([
+      {
+        cmd: `maw wake ${basename} --task ship-fix --engine claude47 --work`,
+        options: { stdio: "inherit" },
+      },
+    ]);
+  });
+
+  test("skips swarm agents outside tmux", async () => {
+    delete process.env.TMUX;
+    fastTimers();
+
+    const result = await handler({
+      source: "cli",
+      args: ["maw-js", "--task", "ship-fix", "--with", "codex,thclaws"],
+    } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("⚠ Skipped agent spawn outside tmux: maw swarm codex thclaws");
+    expect(execCalls).toEqual([
+      {
+        cmd: "maw wake maw-js --task ship-fix --engine claude47 --work",
+        options: { stdio: "inherit" },
+      },
+    ]);
   });
 
   test("requires --task once tmux is available", async () => {
@@ -127,17 +154,22 @@ describe("oracle-workon plugin index", () => {
     expect(execCalls).toEqual([]);
   });
 
-  test("returns oracle detection guidance when cwd is not an oracle repo", async () => {
+  test("falls back to cwd basename when cwd is not an oracle repo", async () => {
     process.env.TMUX = "%0";
-    chdirTemp("plain-workspace-");
+    fastTimers();
+    const dir = chdirTemp("plain-workspace-");
+    const basename = dir.split(/[\\/]+/).filter(Boolean).at(-1)!;
 
     const result = await handler({ source: "cli", args: ["--task", "ship-fix"] } as any);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("oracle not detected");
-    expect(result.output).toContain("is not an oracle repo");
-    expect(result.output).toContain("Pass <oracle> as positional");
-    expect(execCalls).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain(`auto-detected oracle: ${basename} (from cwd)`);
+    expect(execCalls).toEqual([
+      {
+        cmd: `maw wake ${basename} --task ship-fix --engine claude47 --split --no-attach`,
+        options: { stdio: "inherit" },
+      },
+    ]);
   });
 
   test("builds escaped dry-run wake and tiled swarm commands for explicit oracle", async () => {
@@ -165,7 +197,7 @@ describe("oracle-workon plugin index", () => {
     expect(result.output).toContain("slug:    ship-fix");
     expect(result.output).toContain("engine:  claude46");
     expect(result.output).toContain("agents:  codex thclaws");
-    expect(result.output).toContain("▶ maw wake arra --task ship-fix --split --no-attach --engine claude46 --prompt 'ship Bob'\\''s fix'");
+    expect(result.output).toContain("▶ maw wake arra --task ship-fix --engine claude46 --split --no-attach --prompt 'ship Bob'\\''s fix'");
     expect(result.output).toContain("▶ (in new pane) maw swarm codex thclaws --tiled");
     expect(result.output).toContain("[dry-run] no changes made.");
     expect(execCalls).toEqual([]);
@@ -179,13 +211,13 @@ describe("oracle-workon plugin index", () => {
     const result = await handler({ source: "cli", args: ["--task", "ship-fix"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("auto-detected oracle: pulse (from cwd: pulse-oracle");
+    expect(result.output).toContain("auto-detected oracle: pulse (from cwd)");
     expect(result.output).toContain("agents:  none");
     expect(result.output).toContain("leader:    (check: maw panes)");
     expect(result.output).toContain("cleanup:   maw done pulse-ship-fix");
     expect(execCalls).toEqual([
       {
-        cmd: "maw wake pulse --task ship-fix --split --no-attach --engine claude47",
+        cmd: "maw wake pulse --task ship-fix --engine claude47 --split --no-attach",
         options: { stdio: "inherit" },
       },
     ]);
@@ -202,13 +234,13 @@ describe("oracle-workon plugin index", () => {
     } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("▶ maw wake arra --task long-investigation --split --no-attach --engine claude47");
+    expect(result.output).toContain("▶ maw wake arra --task long-investigation --engine claude47 --split --no-attach");
     expect(result.output).toContain("▶ (in %9) maw swarm codex thclaws");
     expect(result.output).toContain("leader:    %9");
     expect(result.output).toContain("agents:    codex thclaws");
     expect(execCalls).toEqual([
       {
-        cmd: "maw wake arra --task long-investigation --split --no-attach --engine claude47",
+        cmd: "maw wake arra --task long-investigation --engine claude47 --split --no-attach",
         options: { stdio: "inherit" },
       },
       {
@@ -234,7 +266,7 @@ describe("oracle-workon plugin index", () => {
     expect(result.output).toContain("leader is up; swarm skipped");
     expect(execCalls).toEqual([
       {
-        cmd: "maw wake arra --task ship-cache --split --no-attach --engine claude47",
+        cmd: "maw wake arra --task ship-cache --engine claude47 --split --no-attach",
         options: { stdio: "inherit" },
       },
       {
@@ -256,7 +288,7 @@ describe("oracle-workon plugin index", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("oracle:  arra");
-    expect(result.error).toContain("▶ maw wake arra --task ship-fix --split --no-attach --engine claude47");
+    expect(result.error).toContain("▶ maw wake arra --task ship-fix --engine claude47 --split --no-attach");
     expect(result.output).toBe(result.error);
   });
 });

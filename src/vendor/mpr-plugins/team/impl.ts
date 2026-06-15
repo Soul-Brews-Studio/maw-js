@@ -6,11 +6,12 @@ import { findZombiePanes } from "./team-cleanup-zombies";
 
 // Re-export everything so index.ts and tests continue to import from "./impl"
 export { _setDirs, loadTeam, writeShutdownRequest, writeMessage } from "./team-helpers";
-export { cmdTeamShutdown, cmdTeamCreate, cmdTeamSpawn, mergeTeamKnowledge } from "./team-lifecycle";
+export { cmdTeamShutdown, cmdTeamCreate, cmdTeamSpawn, cmdTeamPrune, mergeTeamKnowledge } from "./team-lifecycle";
 export { cmdTeamSend, cmdTeamBroadcast } from "./team-comms";
 export { cmdTeamBring, resolveTeamBringSession, teamOracleMemberNames, loadTeamOracleMemberNames, applyTeamBringLayout } from "./team-workspace";
 export { cmdTeamResume, cmdTeamLives } from "./team-reincarnation";
 export { cmdCleanupZombies } from "./team-cleanup-zombies";
+export { cmdTeamApply } from "./team-apply";
 export { parseTeamCharterText, readTeamCharter, planTeamCharter, formatTeamCharterPlan, preflightTeamCharter, formatTeamCharterPreflight, loadTeamCharter, formatTeamCharterLoad, composeTeamCharterMemberPrompt, spawnFromTeamCharter, formatTeamCharterSpawn } from "./team-charter";
 
 /**
@@ -40,7 +41,7 @@ function listVaultOnlyTeams(toolTeamNames: Set<string>): Array<{ name: string; m
 
 // ─── maw team list ───
 
-export async function cmdTeamList() {
+export async function cmdTeamList(opts: { all?: boolean } = {}) {
   let teamDirs: string[] = [];
   try {
     teamDirs = readdirSync(TEAMS_DIR).filter(d =>
@@ -48,12 +49,17 @@ export async function cmdTeamList() {
     );
   } catch { /* expected: teams dir may not exist */ }
 
+  const toolTeams = teamDirs
+    .map((dir) => ({ dir, team: loadTeam(dir) }))
+    .filter((entry): entry is { dir: string; team: NonNullable<ReturnType<typeof loadTeam>> } => Boolean(entry.team))
+    .filter(({ team }) => opts.all || !Array.isArray(team.members) || team.members.length > 0);
+
   // #393 Bug B: also surface vault-only teams (created via maw team create
   // but never wired through the tool-layer Agent()). They don't have pane
   // IDs, but they exist and can be resumed.
   const vaultOnly = listVaultOnlyTeams(new Set(teamDirs));
 
-  if (!teamDirs.length && !vaultOnly.length) {
+  if (!toolTeams.length && !vaultOnly.length) {
     console.log("\x1b[90mNo teams found.\x1b[0m");
     console.log("\x1b[90m  looked in: ~/.claude/teams/ (tool) + ψ/memory/mailbox/teams/ (vault)\x1b[0m");
     return;
@@ -64,9 +70,7 @@ export async function cmdTeamList() {
   console.log();
   console.log(`  \x1b[36;1mTEAM${" ".repeat(26)}STORE  MEMBERS  STATUS          ZOMBIES\x1b[0m`);
 
-  for (const dir of teamDirs) {
-    const team = loadTeam(dir);
-    if (!team) continue;
+  for (const { dir, team } of toolTeams) {
 
     const teammates = team.members.filter(m => m.agentType !== "team-lead");
     const aliveMembers = team.members.filter(m =>
@@ -111,3 +115,5 @@ export async function cmdTeamList() {
 
   console.log();
 }
+
+export { cmdTeamWtf, inspectTeamWtf, sampleProcessMap, parsePs } from "./team-wtf";

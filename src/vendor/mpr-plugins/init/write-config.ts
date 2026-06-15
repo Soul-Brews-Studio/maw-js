@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import type { MawConfig } from "maw-js/config/types";
+import { ENGINE_SEED } from "../../../config/engine-registry";
 
 function generateTmpPath(filePath: string): string {
   return `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
@@ -74,7 +75,6 @@ export interface BuildConfigInput {
 
 const DEFAULT_PORT = 3456;
 const DEFAULT_ORACLE_URL = "http://localhost:47779";
-const DEFAULT_COMMAND = "claude --dangerously-skip-permissions --continue";
 
 export function buildConfig(input: BuildConfigInput): Partial<MawConfig> {
   const env: Record<string, string> = {};
@@ -99,7 +99,9 @@ export function buildConfig(input: BuildConfigInput): Partial<MawConfig> {
     port: DEFAULT_PORT,
     oracleUrl: DEFAULT_ORACLE_URL,
     env,
-    commands: { default: DEFAULT_COMMAND },
+    engines: { ...ENGINE_SEED },
+    defaultEngine: "claude",
+    commands: {},
     sessions: {},
   };
   if (input.ghqRoot) cfg.ghqRoot = input.ghqRoot;

@@ -1,5 +1,6 @@
 import { loadConfig } from "../../config";
 import { tmuxCmd, Tmux } from "./tmux";
+import { isAgentCommandForConfig } from "../agent-detect";
 
 export type HostExecTransport = "local" | "ssh";
 
@@ -50,8 +51,12 @@ export interface SshDeps {
   requireConfig: () => { loadConfig: typeof loadConfig };
 }
 
+export interface HostExecOptions {
+  timeoutMs?: number;
+}
+
 export interface SshTransport {
-  hostExec: (cmd: string, host?: string) => Promise<string>;
+  hostExec: (cmd: string, host?: string, options?: HostExecOptions) => Promise<string>;
   ssh: (cmd: string, host?: string) => Promise<string>;
   listSessions: (host?: string) => Promise<Session[]>;
   capture: (target: string, lines?: number, host?: string) => Promise<string>;
@@ -98,7 +103,7 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
   }
 
   /** Transport — run on oracle host. local → bash -c | remote → ssh */
-  async function hostExec(cmd: string, host = defaultHost): Promise<string> {
+  async function hostExec(cmd: string, host = defaultHost, options: HostExecOptions = {}): Promise<string> {
     // #713: with bind/host split, host is never a bind address (0.0.0.0 etc.)
     const local = host === "local" || host === "localhost" || isLocal;
     const transport: HostExecTransport = local ? "local" : "ssh";
@@ -110,16 +115,35 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
       windowsHide: true,
       env: local ? { ...process.env, ...env, PATH: pathWithCommonLocalBins(env) } : undefined,
     });
-    const [text, err, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (code !== 0) {
-      const underlying = new Error(err.trim() || `exit ${code}`);
-      throw new HostExecError(host, transport, underlying, code);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const exited = options.timeoutMs && options.timeoutMs > 0
+      ? Promise.race([
+          proc.exited,
+          new Promise<number>((_, reject) => {
+            timeout = setTimeout(() => {
+              try { proc.kill("SIGTERM"); } catch { /* best effort */ }
+              setTimeout(() => {
+                try { proc.kill("SIGKILL"); } catch { /* best effort */ }
+              }, 250).unref?.();
+              reject(new HostExecError(host, transport, new Error(`timed out after ${options.timeoutMs}ms`)));
+            }, options.timeoutMs);
+          }),
+        ])
+      : proc.exited;
+    try {
+      const [text, err, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        exited,
+      ]);
+      if (code !== 0) {
+        const underlying = new Error(err.trim() || `exit ${code}`);
+        throw new HostExecError(host, transport, underlying, code);
+      }
+      return text.trim();
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
-    return text.trim();
   }
 
   const ssh = hostExec;
@@ -163,30 +187,13 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
  *  WHOLE command name — not loose substrings — so non-agent node processes
  *  don't pass. */
   function isAgentCommand(cmd: string | null | undefined): boolean {
-    const c = (cmd ?? "").trim();
-    if (!c) return false;
-    // #1906 — non-claude/codex agents (thclaws, thclaude, …) need the same
-    // detection path so wake doesn't re-send the launch command into their
-    // chat input. Config-driven match below covers exotics; this hardcoded
-    // list covers the common-case fleet engines that ship without explicit
-    // config.commands entries.
-    if (/claude|codex|thclaws|thclaude/i.test(c)) return true;
-    if (/^node$/i.test(c)) return true;
-    if (/^\d+\.\d+\.\d+$/.test(c)) return true;
     try {
       const { loadConfig } = io.requireConfig();
-      const commands: Record<string, string> = loadConfig().commands || {};
-      const lc = c.toLowerCase();
-      for (const v of Object.values(commands)) {
-        const bin = v.split(/\s/)[0];
-        // Exact name match, not substring — a configured `node`-launched agent
-        // must not make every `nodemon`/`node-*` pane look like an agent.
-        if (bin && bin !== "default" && lc === bin.toLowerCase()) return true;
-      }
-    } catch {}
-    return false;
+      return isAgentCommandForConfig(cmd, loadConfig());
+    } catch {
+      return isAgentCommandForConfig(cmd, null);
+    }
   }
-
 /** Batch-check which panes are running what command. */
   async function getPaneCommands(targets: string[], host?: string): Promise<Record<string, string>> {
     const t = io.createTmux(host);

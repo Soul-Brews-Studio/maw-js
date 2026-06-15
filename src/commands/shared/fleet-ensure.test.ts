@@ -26,6 +26,20 @@ describe("repoFromCwd", () => {
       .toBe("github.com/acme/repo");
   });
 
+
+  it("rejects archive copies under the ghq root", () => {
+    const result = _test.repoFromCwdResult(
+      "/opt/Code/_archive/oracle-world/nat-2026-06-10/ghq/github.com/acme/repo",
+      ghqRoot,
+    );
+    expect(result).toMatchObject({
+      repo: null,
+      archiveCopy: true,
+      reason: expect.stringContaining("refusing to register archive copy"),
+    });
+    expect(repoFromCwd("/opt/Code/_archive/oracle-world/nat-2026-06-10/ghq/github.com/acme/repo", ghqRoot)).toBeNull();
+  });
+
   it("returns null for paths outside ghq root", () => {
     expect(repoFromCwd("/home/user/projects/foo", ghqRoot)).toBeNull();
   });

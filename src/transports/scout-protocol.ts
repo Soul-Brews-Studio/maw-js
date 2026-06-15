@@ -4,7 +4,7 @@
  * Inspired by Eclipse Zenoh's scouting protocol:
  *   Scout (multicast) → Hello (unicast) → Pair (HTTP)
  *
- * JSON over UDP for simplicity. Same multicast group as mdns transport.
+ * JSON over UDP for simplicity on MAW's discovery multicast group.
  */
 
 import { randomBytes } from "crypto";

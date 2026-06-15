@@ -10,6 +10,8 @@ import { join } from "path";
 import { AmbiguousMatchError } from "../../src/core/runtime/find-window";
 
 const srcRoot = join(import.meta.dir, "../..");
+const realGhqModule = await import("../../src/core/ghq");
+const realFleetLoadModule = await import("../../src/commands/shared/fleet-load");
 const realSdk = await import("../../src/sdk");
 
 type ResolvedTarget =
@@ -56,6 +58,25 @@ let scopes: any[];
 let aclDecision: "allow" | "queue";
 let savePendingCalls: any[];
 let consentDecision: { allow: boolean; message?: string; exitCode?: number };
+let ghqFindCalls: string[];
+let fleetLoadCalls: number;
+mock.module(join(srcRoot, "src/core/ghq"), () => ({
+  ...realGhqModule,
+  ghqFind: async (suffix: string) => {
+    ghqFindCalls.push(suffix);
+    return null;
+  },
+  ghqList: async () => [],
+}));
+
+mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
+  ...realFleetLoadModule,
+  loadFleetEntries: () => {
+    fleetLoadCalls += 1;
+    return [];
+  },
+}));
+
 mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
   class MockTmux {
     async run() { return "0 claude\n"; }
@@ -99,6 +120,10 @@ mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   emitFeed: (event: string, oracle: string, host: string, message: string, port: number, data: any) => {
     emitFeedCalls.push({ event, oracle, host, message, port, data });
   },
+}));
+
+mock.module(join(srcRoot, "src/plugin/event-hooks"), () => ({
+  runPluginEventHooks: async () => ({ eventName: "test", matched: 0, invoked: 0, skipped: 0, failed: 0 }),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
@@ -154,6 +179,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 const origConsent = process.env.MAW_CONSENT;
 const origAclBypass = process.env.MAW_ACL_BYPASS;
 
@@ -188,7 +216,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
   resolveTargetHandler = null;
@@ -215,7 +243,12 @@ beforeEach(() => {
   aclDecision = "allow";
   savePendingCalls = [];
   consentDecision = { allow: true };
+  ghqFindCalls = [];
+  fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
 });
@@ -223,6 +256,12 @@ beforeEach(() => {
 afterEach(() => {
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
   if (origConsent === undefined) delete process.env.MAW_CONSENT;
   else process.env.MAW_CONSENT = origConsent;
   if (origAclBypass === undefined) delete process.env.MAW_ACL_BYPASS;

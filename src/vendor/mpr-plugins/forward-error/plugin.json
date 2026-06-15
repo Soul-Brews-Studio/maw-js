@@ -1,0 +1,19 @@
+{
+  "name": "forward-error",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Forward recent tmux pane error context to a doctor oracle.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "forward-error",
+    "help": "maw forward-error [--to <target>] [--last N] — forward current tmux pane error context to a doctor oracle",
+    "flags": {
+      "--to": "string",
+      "--last": "number"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+}

@@ -21,14 +21,32 @@ mock.module("maw-js/core/ghq", () => ({
 }));
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR: fleetDir,
+  ghqFind: async () => ghqResults.shift() ?? null,
   listSessions: async () => {
     if (listSessionsThrows) throw new Error("tmux unavailable");
     return sessions;
   },
+  loadFleetEntries: () => readdirSync(fleetDir)
+    .filter(file => file.endsWith(".json") && !file.endsWith(".disabled"))
+    .sort()
+    .map(file => {
+      const match = file.match(/^(\d+)-(.+)\.json$/);
+      return {
+        file,
+        path: join(fleetDir, file),
+        num: match ? Number.parseInt(match[1], 10) : 0,
+        groupName: match ? match[2] : file.replace(/\.json$/, ""),
+        session: JSON.parse(readFileSync(join(fleetDir, file), "utf-8") || "{}"),
+      };
+    }),
+  loadConfig: () => config,
+  resolveSessionTarget: () => resolved,
+  loadManifestCached: () => manifestEntries,
   curlFetch: async (url: string, options: any) => {
     curlFetchCalls.push({ url, options });
     return curlFetchQueue.shift() ?? { ok: true, status: 200, data: { sessions: [] } };
   },
+  UserError: class UserError extends Error {},
 }));
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleetEntries: () => readdirSync(fleetDir)

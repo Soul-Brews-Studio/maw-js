@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -118,9 +118,24 @@ describe("vendor consent plugin index coverage", () => {
     expect(unknown.error).toContain("unknown subcommand: wat");
     expect(unknown.error).toContain("maw consent list-trust");
 
-    process.env.CONSENT_TRUST_FILE = dir;
-    const caught = await handler(cli(["trust", "peer"]));
-    expect(caught.ok).toBe(false);
-    expect(caught.error).toBeString();
+    const badTrustPath = join(dir, "trust-as-dir");
+    mkdirSync(badTrustPath);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => warnings.push(String(message));
+    try {
+      process.env.CONSENT_TRUST_FILE = badTrustPath;
+      const recovered = await handler(cli(["trust", "peer"]));
+      expect(recovered).toEqual({ ok: true, output: "✅ trust written: local-node → peer:hey" });
+    } finally {
+      console.warn = originalWarn;
+    }
+    const corruptCopies = readdirSync(dir).filter((entry) => entry.startsWith("trust-as-dir.corrupt-"));
+    expect(corruptCopies).toHaveLength(1);
+    expect(existsSync(join(dir, corruptCopies[0]))).toBe(true);
+    expect(JSON.parse(readFileSync(badTrustPath, "utf-8")).trust["local-node→peer:hey"]).toMatchObject({ from: "local-node", to: "peer", action: "hey" });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("corrupt/unreadable");
+    expect(warnings[0]).toContain("moved aside");
   });
 });

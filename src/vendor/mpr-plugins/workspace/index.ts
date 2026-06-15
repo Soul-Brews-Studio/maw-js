@@ -1,6 +1,17 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
-import { parseFlags } from "maw-js/cli/parse-args";
-import { cmdWorkspaceCreate, cmdWorkspaceJoin, cmdWorkspaceShare, cmdWorkspaceUnshare, cmdWorkspaceLs, cmdWorkspaceAgents, cmdWorkspaceInvite, cmdWorkspaceLeave, cmdWorkspaceStatus } from "maw-js/commands/shared/workspace";
+import {
+  cmdWorkspaceAgents,
+  cmdWorkspaceCreate,
+  cmdWorkspaceInvite,
+  cmdWorkspaceJoin,
+  cmdWorkspaceLeave,
+  cmdWorkspaceLs,
+  cmdWorkspaceShare,
+  cmdWorkspaceStatus,
+  cmdWorkspaceUnshare,
+  parseFlags,
+  type InvokeContext,
+  type InvokeResult,
+} from "maw-js/sdk";
 
 export const command = {
   name: ["workspace", "ws"],

@@ -42,6 +42,37 @@ let spawnSpy: ReturnType<typeof spyOn> | null;
 const originalExit = process.exit;
 const originalLog = console.log;
 const originalError = console.error;
+const envKeys = [
+  "MAW_HOME",
+  "MAW_DATA_DIR",
+  "MAW_STATE_DIR",
+  "MAW_CACHE_DIR",
+  "MAW_CONFIG_DIR",
+  "MAW_XDG",
+  "MAW_HOST",
+  "MAW_PORT",
+  "MAW_QUIET",
+  "TMUX",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "NODE_ENV",
+] as const;
+const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+
+function resetResolverEnv(): void {
+  for (const key of envKeys) delete process.env[key];
+}
+
+function restoreResolverEnv(): void {
+  for (const key of envKeys) {
+    const value = originalEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
 
 function resetFleetDir(): void {
   rmSync(fleetRoot, { recursive: true, force: true });
@@ -83,6 +114,13 @@ mock.module(join(srcRoot, "src/core/ghq"), () => ({
 mock.module(join(srcRoot, "src/core/resolve"), () => ({
   resolveOracle: async () => resolveResults.shift() ?? { kind: "not-found" },
   pickOracle: async () => null,
+  rankOracleCandidates: (candidates: { owner: string; repo: string; path?: string }[]) => candidates.map((candidate, index) => ({
+    ...candidate,
+    path: candidate.path,
+    lastActivityMs: 0,
+    hasLiveSession: false,
+    recommended: index === 0,
+  })),
 }));
 
 mock.module(join(srcRoot, "src/core/fleet/worktrees-scan"), () => ({
@@ -110,6 +148,7 @@ const {
 } = await import("../../src/commands/shared/wake-resolve-impl");
 
 beforeEach(() => {
+  resetResolverEnv();
   resetFleetDir();
   config = { githubOrg: "FallbackOrg", githubOrgs: undefined, peers: [], sessions: {} };
   envVars = {};
@@ -141,6 +180,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreResolverEnv();
   spawnSpy?.mockRestore();
   process.exit = originalExit;
   console.log = originalLog;
@@ -265,8 +305,8 @@ describe("resolveOracle fallback branches", () => {
     ghqFindMap = {};
     hostExecHandler = async () => { throw new Error("network down\nmore"); };
     await expect(resolveOracle("broken")).resolves.toBeUndefined();
-    expect(errors.join("\n")).toContain("fleet-pinned Org/broken-oracle clone/update failed: network down");
-    expect(errors.join("\n")).toContain("clone failed and not found locally");
+    expect(errors.join("\n")).toContain("fleet-pinned Org/broken-oracle clone failed: network down");
+    expect(errors.join("\n")).toContain("is not cloned locally");
     expect(exitCodes).toContain(1);
   });
 
@@ -326,6 +366,14 @@ describe("resolveOracle fallback branches", () => {
 });
 
 describe("detectSession and setSessionEnv uncovered function paths", () => {
+  test("detectSession joins hyphen-equivalent existing sessions instead of creating duplicates", async () => {
+    sessions = [{ name: "139-mawjs" }];
+    await expect(detectSession("maw-js")).resolves.toBe("139-mawjs");
+
+    sessions = [{ name: "139-mawjs" }];
+    await expect(detectSession("maw-js", "maw-js-oracle")).resolves.toBe("139-mawjs");
+  });
+
   test("detectSession covers URL-numbered, numeric, prefix, and generic ambiguities", async () => {
     sessions = [{ name: "77-wireboy-oracle" }];
     await expect(detectSession("wireboy", "wireboy-oracle")).resolves.toBe("77-wireboy-oracle");

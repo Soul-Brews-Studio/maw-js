@@ -20,6 +20,7 @@ type Pane = {
   active?: boolean;
   window?: { w?: number; h?: number; active?: boolean };
   attached?: boolean;
+  attachedClients?: number;
 };
 
 let hostCalls: string[] = [];
@@ -215,6 +216,7 @@ describe("tmux impl plugin second-pass isolated coverage", () => {
         active: true,
         window: { w: 161, h: 49, active: false },
         attached: true,
+        attachedClients: 2,
       },
     ];
 
@@ -231,6 +233,7 @@ describe("tmux impl plugin second-pass isolated coverage", () => {
       active: true,
       window: { w: 161, h: 49, active: false },
       attached: true,
+      attachedClients: 2,
     });
   });
 

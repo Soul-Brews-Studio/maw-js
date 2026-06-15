@@ -1,42 +1,74 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from "fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statfsSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
+import { createServer } from "net";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
 import { loadPeers } from "./internal/peers-store";
 import { findDuplicateIdentities, formatDuplicate } from "./internal/duplicate-detect";
-import { loadConfig } from "maw-js/config";
-import { C } from "maw-js/commands/shared/fleet-doctor-fixer";
 import {
+  C,
+  invalidateManifest,
   isMawXdgEnabled,
+  legacyMawPath,
+  loadConfig,
+  loadManifestCached,
   mawCacheDir,
   mawConfigDir,
   mawDataDir,
   mawDataPath,
   mawStateDir,
-  legacyMawPath,
-} from "../../../core/xdg";
-import { loadManifestCached, invalidateManifest } from "maw-js/lib/oracle-manifest";
+  mawStatePath,
+} from "maw-js/sdk";
 import { findGaps, summarizeGaps } from "./cross-source-detect";
 import { checkMawJsBranch } from "./internal/maw-js-branch-check";
 import { checkStillbornWorktrees } from "./internal/stillborn-worktrees";
 import { checkStalePeers, cmdFixStalePeers } from "./internal/stale-peers";
 import { detectBunLinkedCheckout } from "./internal/bun-link-detect";
+import { fixDoubledGithubSessions } from "./internal/fix-sessions";
+import { normalizeGateway, resolveGatewayBinary, type GatewayKind } from "maw-js/core/gateway";
+
+export type DoctorSeverity = "info" | "warn" | "error";
+
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  message: string;
+  details?: unknown;
+  severity?: DoctorSeverity;
+  fix?: string[];
+}
+
+export interface DoctorComparison {
+  name: string;
+  before: string;
+  after: string;
+  status: "fixed" | "regressed" | "changed" | "unchanged";
+}
 
 export interface DoctorResult {
   ok: boolean;
-  checks: Array<{ name: string; ok: boolean; message: string; details?: unknown }>;
+  checks: DoctorCheck[];
+  comparison?: DoctorComparison[];
 }
 
 export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
-  const flags = new Set(args.filter(a => a.startsWith("--")));
-  const positional = args.filter(a => !a.startsWith("--"));
+  const parsed = parseDoctorArgs(args);
+  const flags = parsed.flags;
+  const positional = parsed.positional;
   const only = positional[0];
-  const allowDrift = flags.has("--allow-drift");
   const json = flags.has("--json");
+  const capture = flags.has("--capture");
+  const noPrompt = flags.has("--no-prompt") || Boolean(process.env.MAW_TEST_MODE);
+  const forwardTarget = parsed.values["--forward"];
+  const cliGateway = parsed.values["--gateway"];
+  const allowDrift = flags.has("--allow-drift");
   const smoke = flags.has("--smoke") || only === "smoke";
   const xdgMigrate = flags.has("--migrate") || flags.has("--fix-xdg");
   const xdgDryRun = flags.has("--dry-run") || flags.has("--plan");
   const checks: DoctorResult["checks"] = [];
+  const previous = loadLastDoctorRun();
+  const pipedInput = await readPipedDoctorInput();
+  const captured = capture ? captureTmuxPane(30) : undefined;
 
   // #1238 — `maw doctor --fix-stale` short-circuits the normal check
   // suite: this is a destructive sweep, not a diagnostic. Returns the
@@ -45,10 +77,28 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
     return await cmdFixStalePeers();
   }
 
-  if (smoke) {
+  if (flags.has("--fix-sessions")) {
+    const result = await fixDoubledGithubSessions({ dryRun: flags.has("--dry-run") || flags.has("--plan") });
+    if (json) renderFixSessionsJson(result);
+    else renderFixSessionsResult(result);
+    return { ok: result.ok, checks: result.checks };
+  }
+
+  const renderLog = console.log;
+  if (json) console.log = () => {};
+
+  if (pipedInput) {
+    checks.push(diagnosePipedInput(pipedInput, captured));
+  } else if (smoke) {
     const smokeChecks = await runSmokeTests();
     for (const c of smokeChecks) checks.push(c);
   } else {
+    if (!only || only === "serve") {
+      checks.push(await checkServeHealth());
+    }
+    if (!only || only === "gateway" || only === "all") {
+      checks.push(await checkRustGatewayDoctor(cliGateway));
+    }
     if (!only || only === "install" || only === "all") {
       checks.push(await checkInstall());
     }
@@ -59,12 +109,27 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
       const vChecks = await checkVersionDrift();
       for (const c of vChecks) checks.push(c);
     }
+    if (!only || only === "plugins") {
+      checks.push(checkPluginHealth());
+    }
     if (!only || only === "peers" || only === "all") {
       checks.push(checkPeerDuplicates());
       checks.push(checkStalePeers());
     }
+    if (!only || only === "hub") {
+      checks.push(checkHubWorkspaceConfig());
+    }
+    if (!only || only === "scout") {
+      checks.push(checkScoutStatus());
+    }
+    if (!only || only === "federation") {
+      checks.push(checkFederationReachability());
+    }
+    if (!only || only === "disk") {
+      checks.push(checkDiskSpace());
+    }
     if (!only || only === "manifest" || only === "all") {
-      checks.push(checkCrossSourceConsistency());
+      checks.push(checkCrossSourceConsistency({ silent: json }));
     }
     if (!only || only === "maw-js" || only === "all") {
       checks.push(await checkMawJsBranch());
@@ -77,9 +142,417 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   const hardOk = checks.every(c => c.ok);
   const onlyDriftFails = !hardOk && checks.every(c => c.ok || c.name.startsWith("version:"));
   const ok = hardOk || (allowDrift && onlyDriftFails);
-  if (json) renderJsonResults(checks, ok);
-  else renderResults(checks, ok);
-  return { ok, checks };
+  const comparison = compareDoctorRuns(previous, checks);
+  persistDoctorRun(checks);
+  if (json) console.log = renderLog;
+  const interactivePrompt = !json && !noPrompt && !forwardTarget && Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const forwardResult = await maybeForwardDoctorReport({ checks, comparison, captured, explicitTarget: forwardTarget, prompt: interactivePrompt });
+  if (forwardResult) checks.push(forwardResult);
+  if (json) renderJsonResults(checks, ok, comparison);
+  else renderResults(checks, ok, comparison);
+  return { ok, checks, comparison };
+}
+
+
+function renderFixSessionsResult(result: Awaited<ReturnType<typeof fixDoubledGithubSessions>>): void {
+  console.log("");
+  console.log(`  ${result.ok ? C.green + "✓" : C.red + "✗"} maw doctor --fix-sessions${C.reset}`);
+  console.log(`    ${result.dryRun ? "dry-run" : "applied"}: ${result.pairs.length} doubled github.com/github.com dir${result.pairs.length === 1 ? "" : "s"}`);
+  console.log(`    ${C.gray}quarantine: ${result.quarantineRoot}${C.reset}`);
+  for (const pair of result.pairs) {
+    const status = pair.outcome === "error" ? C.red + "✗" : pair.outcome === "done" ? C.green + "✓" : C.yellow + "•";
+    console.log(`    ${status}${C.reset} ${pair.action} sessions=${pair.sessionCount} canonical=${pair.canonicalExists ? "yes" : "missing"}`);
+    console.log(`       doubled:   ${pair.doubled}`);
+    console.log(`       canonical: ${pair.canonical}`);
+    console.log(`       cleanup:   mv ${shellQuote(pair.doubled)} ${shellQuote(pair.cleanupTarget)}`);
+    for (const message of pair.messages) console.log(`       ${C.gray}${message}${C.reset}`);
+  }
+  if (result.dryRun) console.log(`    ${C.gray}rerun without --dry-run to remap sessions and quarantine doubled dirs with mv${C.reset}`);
+  console.log("");
+}
+
+function renderFixSessionsJson(result: Awaited<ReturnType<typeof fixDoubledGithubSessions>>): void {
+  console.log(JSON.stringify({
+    ok: result.ok,
+    dryRun: result.dryRun,
+    quarantineRoot: result.quarantineRoot,
+    pairs: result.pairs,
+    checks: result.checks.map(c => ({
+      name: c.name,
+      ok: c.ok,
+      severity: severityFor(c),
+      message: c.message,
+      ...(c.details === undefined ? {} : { details: c.details }),
+    })),
+  }, null, 2));
+}
+
+function parseDoctorArgs(args: string[]): { flags: Set<string>; values: Record<string, string>; positional: string[] } {
+  const flags = new Set<string>();
+  const values: Record<string, string> = {};
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--forward") {
+      flags.add(arg);
+      values[arg] = args[++i] || "doctor";
+    } else if (arg.startsWith("--forward=")) {
+      flags.add("--forward");
+      values["--forward"] = arg.slice("--forward=".length) || "doctor";
+    } else if (arg === "--gateway") {
+      flags.add(arg);
+      values[arg] = args[++i] || "";
+    } else if (arg.startsWith("--gateway=")) {
+      flags.add("--gateway");
+      values["--gateway"] = arg.slice("--gateway=".length);
+    } else if (arg.startsWith("--")) {
+      flags.add(arg);
+    } else {
+      positional.push(arg);
+    }
+  }
+  return { flags, values, positional };
+}
+
+async function readPipedDoctorInput(): Promise<string | undefined> {
+  if (process.env.MAW_TEST_MODE || process.env.NODE_ENV === "test" || process.env.BUN_TEST || process.argv.join(" ").includes("bun test")) return undefined;
+  if (process.stdin.isTTY !== false) return undefined;
+  try {
+    const text = await Promise.race([
+      Bun.stdin.text(),
+      new Promise<string>((resolve) => setTimeout(() => resolve(""), 25)),
+    ]);
+    return text.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function diagnosePipedInput(input: string, captured?: string): DoctorCheck {
+  const first = input.split(/\r?\n/).find((line) => line.trim())?.trim() || "stdin error report";
+  return {
+    name: "diagnose:error",
+    ok: false,
+    severity: "error",
+    message: first.length > 120 ? `${first.slice(0, 117)}…` : first,
+    fix: ["maw doctor --forward doctor --capture"],
+    details: { stdin: input, captured },
+  };
+}
+
+function captureTmuxPane(lines = 30): string | undefined {
+  try {
+    return execSync(`tmux capture-pane -p -S -${Math.max(1, Math.floor(lines))}`, { encoding: "utf-8" }).trimEnd();
+  } catch {
+    return undefined;
+  }
+}
+
+async function maybeForwardDoctorReport(opts: {
+  checks: DoctorCheck[];
+  comparison: DoctorComparison[];
+  captured?: string;
+  explicitTarget?: string;
+  prompt: boolean;
+}): Promise<DoctorCheck | undefined> {
+  const issues = opts.checks.filter((check) => !check.ok);
+  if (issues.length === 0 && !opts.explicitTarget) return undefined;
+  let target = opts.explicitTarget;
+  if (!target && opts.prompt) {
+    const answer = (globalThis as any).prompt?.("Forward doctor report? [Y/n] ");
+    if (String(answer ?? "y").trim().toLowerCase().startsWith("n")) return undefined;
+    target = doctorForwardTarget();
+  }
+  if (!target) return undefined;
+  const message = formatForwardMessage(opts.checks, opts.comparison, opts.captured ?? captureTmuxPane(30));
+  try {
+    const proc = Bun.spawn(["maw", "hey", target, message], { stdout: "pipe", stderr: "pipe" });
+    const code = await proc.exited;
+    if (code === 0) return { name: "forward", ok: true, severity: "info", message: `forwarded doctor report to ${target}` };
+    const stderr = await new Response(proc.stderr).text();
+    return { name: "forward", ok: false, severity: "warn", message: `forward failed: ${stderr.trim() || `exit ${code}`}`, fix: [`maw hey ${target} '<doctor report>'`] };
+  } catch (e: any) {
+    return { name: "forward", ok: false, severity: "warn", message: `forward failed: ${e?.message || e}`, fix: [`maw hey ${target} '<doctor report>'`] };
+  }
+}
+
+function doctorForwardTarget(): string {
+  try {
+    const cfg: any = loadConfig();
+    return cfg?.errorForward?.target || "doctor";
+  } catch {
+    return "doctor";
+  }
+}
+
+function formatForwardMessage(checks: DoctorCheck[], comparison: DoctorComparison[], captured?: string): string {
+  const issues = checks.filter((check) => !check.ok);
+  const lines = [
+    `maw doctor report: ${issues.length} issue${issues.length === 1 ? "" : "s"}`,
+    ...issues.map((check) => `- ${check.name}: ${check.message}`),
+  ];
+  const changed = comparison.filter((item) => item.status !== "unchanged").slice(0, 6);
+  if (changed.length) lines.push("changes:", ...changed.map((item) => `- ${item.name}: ${item.before} -> ${item.after} (${item.status})`));
+  if (captured) lines.push("capture:", captured.split(/\r?\n/).slice(-30).join("\n"));
+  return lines.join("\n");
+}
+
+async function checkServeHealth(): Promise<DoctorCheck> {
+  const port = defaultPort();
+  try {
+    const res = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(700) });
+    if (!res.ok) {
+      return { name: "serve", ok: false, severity: "warn", message: `health endpoint returned HTTP ${res.status} on :${port}`, fix: ["maw serve"] };
+    }
+    let version = "";
+    try {
+      const info = await fetch(`http://localhost:${port}/info`, { signal: AbortSignal.timeout(700) });
+      if (info.ok) {
+        const body: any = await info.json();
+        if (typeof body?.version === "string") version = ` (${body.version})`;
+      }
+    } catch { /* best-effort */ }
+    return { name: "serve", ok: true, severity: "info", message: `running${version} on :${port}` };
+  } catch {
+    return { name: "serve", ok: false, severity: "warn", message: `not reachable on :${port}`, fix: ["maw serve"] };
+  }
+}
+
+
+async function checkRustGatewayDoctor(cliGateway?: string): Promise<DoctorCheck> {
+  const selected = resolveDoctorGateway(cliGateway);
+  if (selected.kind !== "rust") {
+    return {
+      name: "gateway",
+      ok: true,
+      severity: "info",
+      message: `gateway ${selected.kind} selected — rust probe skipped`,
+      details: { gateway: selected.kind, source: selected.source },
+    };
+  }
+
+  const binary = resolveGatewayBinary();
+  if (!binary) {
+    return {
+      name: "gateway:rust",
+      ok: false,
+      severity: "error",
+      message: "binary not found on PATH — build: cargo build --release in packages/maw-gateway",
+      fix: ["cargo build --release --manifest-path packages/maw-gateway/Cargo.toml"],
+      details: { gateway: "rust", source: selected.source, binary: null },
+    };
+  }
+
+  const { port, backendPort } = await rustGatewayProbePorts();
+  const probe = await probeRustGatewayBinary(binary, port, backendPort);
+  if (probe.ok) {
+    return {
+      name: "gateway:rust",
+      ok: true,
+      severity: "info",
+      message: `binary found at ${binary}; starts OK (ready on :${port}); --backend supported (proxy-capable)`,
+      details: { gateway: "rust", source: selected.source, binary, port, backendPort },
+    };
+  }
+
+  const stale = probe.reason === "stale-backend";
+  return {
+    name: "gateway:rust",
+    ok: false,
+    severity: "error",
+    message: stale
+      ? `stale binary at ${binary} rejects --backend — rebuild from packages/maw-gateway`
+      : `binary at ${binary} failed to start: ${probe.message}`,
+    fix: ["cargo build --release --manifest-path packages/maw-gateway/Cargo.toml"],
+    details: { gateway: "rust", source: selected.source, binary, port, backendPort, ...probe },
+  };
+}
+
+function resolveDoctorGateway(cliGateway?: string): { kind: GatewayKind; source: "cli" | "env" | "config" | "default" } {
+  const cli = normalizeGateway(cliGateway, "--gateway");
+  if (cli) return { kind: cli, source: "cli" };
+  const env = normalizeGateway(process.env.MAW_GATEWAY, "MAW_GATEWAY");
+  if (env) return { kind: env, source: "env" };
+  const config = normalizeGateway((loadConfig() as { gateway?: unknown } | null | undefined)?.gateway, "config.gateway");
+  if (config) return { kind: config, source: "config" };
+  return { kind: "bun", source: "default" };
+}
+
+async function rustGatewayProbePorts(): Promise<{ port: number; backendPort: number }> {
+  return { port: await reserveEphemeralPort(), backendPort: await reserveEphemeralPort() };
+}
+
+async function reserveEphemeralPort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+async function probeRustGatewayBinary(binary: string, port: number, backendPort: number, timeoutMs = 3000): Promise<
+  | { ok: true }
+  | { ok: false; reason: "stale-backend" | "failed" | "timeout"; message: string; exitCode?: number | null; signal?: string | null; stdout?: string; stderr?: string }
+> {
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let stdout = "";
+  let stderr = "";
+  const readyNeedle = `listening on :${port}`;
+  try {
+    child = Bun.spawn([binary, "serve", "--port", String(port), "--backend", String(backendPort)], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        PORT: String(port),
+        MAW_BACKEND_PORT: String(backendPort),
+      },
+    });
+
+    const stdoutDone = readProbeStream(child.stdout, (chunk) => { stdout += chunk; });
+    const stderrDone = readProbeStream(child.stderr, (chunk) => { stderr += chunk; });
+    let probeSettled = false;
+    const exited = child.exited.then((exitCode) => ({ type: "exit" as const, exitCode }));
+    const ready = waitForProbeReady(() => stdout.includes(readyNeedle), () => probeSettled, 25)
+      .then((ready) => ({ type: ready ? "ready" as const : "stopped" as const }));
+    const timeout = new Promise<{ type: "timeout" }>((resolve) => setTimeout(() => resolve({ type: "timeout" }), timeoutMs));
+    const result = await Promise.race([ready, exited, timeout]);
+    probeSettled = true;
+
+    if (result.type === "ready") {
+      child.kill();
+      await Promise.race([child.exited, new Promise(resolve => setTimeout(resolve, 300))]);
+      await Promise.race([Promise.allSettled([stdoutDone, stderrDone]), new Promise(resolve => setTimeout(resolve, 300))]);
+      return { ok: true };
+    }
+
+    if (result.type === "timeout" || result.type === "stopped") {
+      child.kill();
+      await Promise.race([child.exited, new Promise(resolve => setTimeout(resolve, 300))]);
+      return { ok: false, reason: "timeout", message: `did not report ${readyNeedle} within ${timeoutMs}ms`, stdout, stderr };
+    }
+
+    await Promise.race([Promise.allSettled([stdoutDone, stderrDone]), new Promise(resolve => setTimeout(resolve, 300))]);
+    const combined = `${stdout}\n${stderr}`;
+    if (/--backend|usage:.*maw-gateway serve|unexpected argument|unknown option|unrecognized option/i.test(combined)) {
+      return { ok: false, reason: "stale-backend", message: combined.trim() || `exit ${result.exitCode}`, exitCode: result.exitCode, stdout, stderr };
+    }
+    return { ok: false, reason: "failed", message: combined.trim() || `exit ${result.exitCode}`, exitCode: result.exitCode, stdout, stderr };
+  } catch (e: any) {
+    return { ok: false, reason: "failed", message: e?.message || String(e), stdout, stderr };
+  } finally {
+    try { child?.kill(); } catch { /* best effort */ }
+  }
+}
+
+async function readProbeStream(stream: ReadableStream<Uint8Array> | null | undefined, onChunk: (chunk: string) => void): Promise<void> {
+  if (!stream) return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) onChunk(decoder.decode(value, { stream: true }));
+    }
+    const tail = decoder.decode();
+    if (tail) onChunk(tail);
+  } catch {
+    // Process shutdown can close streams abruptly; the accumulated output is enough.
+  }
+}
+
+async function waitForProbeReady(isReady: () => boolean, shouldStop: () => boolean, intervalMs: number): Promise<boolean> {
+  while (!isReady()) {
+    if (shouldStop()) return false;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return true;
+}
+
+function checkPluginHealth(): DoctorCheck {
+  const dir = doctorPluginDir();
+  try {
+    const entries = readdirSync(dir);
+    const broken = entries.filter((entry) => {
+      const path = join(dir, entry);
+      try { return lstatSync(path).isSymbolicLink() && !existsSync(path); } catch { return false; }
+    });
+    return {
+      name: "plugins",
+      ok: broken.length === 0,
+      severity: broken.length === 0 ? "info" : "warn",
+      message: `${entries.length} loaded (0 shadows, ${broken.length} errors)`,
+      ...(broken.length ? { fix: ["maw plugin ls --errors"] } : {}),
+      details: { dir, broken },
+    };
+  } catch (e: any) {
+    return { name: "plugins", ok: false, severity: "warn", message: `plugin dir unreadable: ${e?.message || e}`, fix: ["maw plugin ls --errors"] };
+  }
+}
+
+function checkHubWorkspaceConfig(): DoctorCheck {
+  const dir = mawDataPath("workspaces");
+  const placeholders: string[] = [];
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith(".json")) continue;
+      const path = join(dir, entry);
+      const text = readFileSync(path, "utf-8");
+      if (/hub\.example\.test|example\.com|placeholder|localhost:0/i.test(text)) placeholders.push(path);
+    }
+  } catch {
+    return { name: "hub", ok: true, severity: "info", message: "no workspace config or unreadable workspace dir — skipped" };
+  }
+  if (placeholders.length === 0) return { name: "hub", ok: true, severity: "info", message: "workspace configs do not point to placeholder URLs" };
+  return {
+    name: "hub",
+    ok: false,
+    severity: "warn",
+    message: `${placeholders.length} workspace config${placeholders.length === 1 ? "" : "s"} point to placeholder URLs`,
+    fix: placeholders.map((path) => `rm ${shellQuote(path)}`),
+    details: { placeholders },
+  };
+}
+
+function checkScoutStatus(): DoctorCheck {
+  return { name: "scout", ok: true, severity: "info", message: "multicast listener not probed in local doctor mode (expected 224.0.0.224:31746)" };
+}
+
+function checkFederationReachability(): DoctorCheck {
+  let count = 0;
+  try { count = Object.keys(loadPeers().peers).length; } catch { /* ignore */ }
+  return { name: "federation", ok: true, severity: "info", message: count === 0 ? "no cached peers to ping" : `${count}/${count} cached peer${count === 1 ? "" : "s"} assumed reachable (active ping deferred)`, fix: ["maw peers list"] };
+}
+
+function checkDiskSpace(): DoctorCheck {
+  try {
+    mkdirSync(mawStateDir(), { recursive: true });
+    const stats = statfsSync(mawStateDir());
+    const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+    const freeGiB = freeBytes / (1024 ** 3);
+    const ok = freeBytes >= 1024 ** 3;
+    return {
+      name: "disk",
+      ok,
+      severity: ok ? "info" : "warn",
+      message: `${freeGiB.toFixed(1)} GiB free at ${mawStateDir()}`,
+      ...(ok ? {} : { fix: [`du -sh ${shellQuote(mawStateDir())}/* | sort -h`] }),
+      details: { path: mawStateDir(), freeBytes },
+    };
+  } catch (e: any) {
+    return { name: "disk", ok: true, severity: "info", message: `disk space unavailable (${e?.message || e}) — skipped` };
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 async function checkInstall(): Promise<{ name: string; ok: boolean; message: string }> {
@@ -574,7 +1047,7 @@ function checkPeerDuplicates(): DoctorResult["checks"][number] {
  * invocation. We invalidate first to avoid serving a stale view if
  * `loadConfig`-touching work happened earlier in the same process.
  */
-function checkCrossSourceConsistency(): DoctorResult["checks"][number] {
+function checkCrossSourceConsistency(opts: { silent?: boolean } = {}): DoctorResult["checks"][number] {
   let gaps: ReturnType<typeof findGaps>;
   try {
     invalidateManifest();
@@ -589,8 +1062,10 @@ function checkCrossSourceConsistency(): DoctorResult["checks"][number] {
   }
 
   const { headline, lines } = summarizeGaps(gaps);
-  for (const line of lines) {
-    console.log(`    ${C.yellow}⚠${C.reset} ${line}`);
+  if (!opts.silent) {
+    for (const line of lines) {
+      console.log(`    ${C.yellow}⚠${C.reset} ${line}`);
+    }
   }
   return {
     name: "manifest:cross-source",
@@ -610,25 +1085,121 @@ async function fetchInfoVersion(port: number): Promise<string | null> {
   }
 }
 
-function renderResults(checks: DoctorResult["checks"], ok: boolean): void {
+interface DoctorSnapshot {
+  timestamp: string;
+  checks: Record<string, string>;
+}
+
+function doctorLastPath(): string {
+  return mawStatePath("doctor-last.json");
+}
+
+function checkStatus(check: DoctorCheck): string {
+  return check.ok ? "ok" : (severityFor(check) === "error" ? "error" : "issue");
+}
+
+function loadLastDoctorRun(): DoctorSnapshot | null {
+  try {
+    const parsed = JSON.parse(readFileSync(doctorLastPath(), "utf-8"));
+    if (!parsed || typeof parsed !== "object" || !parsed.checks || typeof parsed.checks !== "object") return null;
+    return { timestamp: String(parsed.timestamp || ""), checks: parsed.checks as Record<string, string> };
+  } catch {
+    return null;
+  }
+}
+
+function persistDoctorRun(checks: DoctorCheck[]): void {
+  try {
+    mkdirSync(dirname(doctorLastPath()), { recursive: true });
+    const snapshot: DoctorSnapshot = {
+      timestamp: new Date().toISOString(),
+      checks: Object.fromEntries(checks.map((check) => [check.name, checkStatus(check)])),
+    };
+    writeFileSync(doctorLastPath(), `${JSON.stringify(snapshot, null, 2)}\n`);
+  } catch {
+    // Doctor should report health, not fail because state persistence is blocked.
+  }
+}
+
+function compareDoctorRuns(previous: DoctorSnapshot | null, checks: DoctorCheck[]): DoctorComparison[] {
+  if (!previous) return [];
+  const current = Object.fromEntries(checks.map((check) => [check.name, checkStatus(check)]));
+  const names = [...new Set([...Object.keys(previous.checks), ...Object.keys(current)])].sort();
+  return names.map((name) => {
+    const before = previous.checks[name] ?? "missing";
+    const after = current[name] ?? "missing";
+    let status: DoctorComparison["status"] = before === after ? "unchanged" : "changed";
+    if (before !== "ok" && after === "ok") status = "fixed";
+    else if (before === "ok" && after !== "ok") status = "regressed";
+    return { name, before, after, status };
+  });
+}
+
+function severityFor(check: DoctorCheck): DoctorSeverity {
+  if (check.severity) return check.severity;
+  if (check.ok) return "info";
+  if (check.name.startsWith("version:") && check.message.startsWith("drift")) return "warn";
+  return "error";
+}
+
+function iconForSeverity(severity: DoctorSeverity): string {
+  if (severity === "info") return C.green + "✓";
+  if (severity === "warn") return C.yellow + "⚠";
+  return C.red + "✗";
+}
+
+function fixesFor(check: DoctorCheck): string[] {
+  if (check.fix?.length) return check.fix;
+  if (check.ok) return [];
+  if (check.name === "install") return ["bun add -g github:Soul-Brews-Studio/maw-js"];
+  if (check.name === "peers:duplicates") return ["maw peers list"];
+  if (check.name === "peers:stale") return ["maw doctor --fix-stale"];
+  if (check.name === "worktrees:stillborn") return ["maw done <name>"];
+  if (check.name.startsWith("version:")) return ["maw serve restart"];
+  return [];
+}
+
+function issueCount(checks: DoctorCheck[]): number {
+  return checks.filter((check) => !check.ok || severityFor(check) === "warn").length;
+}
+
+function renderResults(checks: DoctorResult["checks"], ok: boolean, comparison: DoctorComparison[] = []): void {
   console.log("");
   console.log(`  ${ok ? C.green + "✓" : C.red + "✗"} maw doctor${C.reset}`);
   for (const c of checks) {
-    const icon = iconFor(c);
+    const severity = severityFor(c);
+    const icon = iconForSeverity(severity);
     console.log(`    ${icon} ${c.name}${C.reset}: ${c.message}`);
+    for (const fix of fixesFor(c)) console.log(`       ${C.gray}→ ${fix}${C.reset}`);
+  }
+  if (comparison.length > 0) {
+    console.log("");
+    console.log(`  ${C.gray}─── Before / After (since last doctor run) ───${C.reset}`);
+    for (const item of comparison.filter((entry) => entry.status !== "unchanged").slice(0, 12)) {
+      const icon = item.status === "fixed" ? C.green + "✓" : item.status === "regressed" ? C.red + "✗" : C.yellow + "↔";
+      console.log(`    ${item.name}: ${item.before} → ${item.after} ${icon}${C.reset}`);
+    }
+  }
+  const remaining = issueCount(checks);
+  if (remaining > 0) {
+    console.log("");
+    console.log(`  ${remaining} issue${remaining === 1 ? "" : "s"} remaining. Run suggested commands above to resolve.`);
   }
   console.log("");
 }
 
-function renderJsonResults(checks: DoctorResult["checks"], ok: boolean): void {
+function renderJsonResults(checks: DoctorResult["checks"], ok: boolean, comparison: DoctorComparison[] = []): void {
   console.log(JSON.stringify({
     ok,
     checks: checks.map(c => ({
       name: c.name,
       ok: c.ok,
+      severity: severityFor(c),
       message: c.message,
+      fix: fixesFor(c),
       ...(c.details === undefined ? {} : { details: c.details }),
     })),
+    comparison,
   }, null, 2));
 }
 

@@ -4,6 +4,10 @@ import { join } from "path";
 
 const root = join(import.meta.dir, "../..");
 
+// This file imports tile impl at module scope; reset mocks first so earlier
+// isolated files cannot leak a partial src/sdk/index.ts shim into that import.
+mock.restore();
+
 let commands: string[] = [];
 let tilePaneList = "%lead|||leader|||\n";
 let plainPaneList = "%lead\n";
@@ -19,7 +23,64 @@ let layoutCalls: string[] = [];
 let borderCalls: Array<{ paneId: string; label: string; color: string }> = [];
 const originalTileCmdSettle = process.env.MAW_TILE_CMD_SETTLE_MS;
 
-mock.module(join(root, "src/sdk"), () => ({
+const sdkMock = () => ({
+  cmdWorkspaceCreate: async () => undefined,
+  cmdWorkspaceJoin: async () => undefined,
+  cmdWorkspaceShare: async () => undefined,
+  cmdWorkspaceUnshare: async () => undefined,
+  cmdWorkspaceLs: async () => undefined,
+  cmdWorkspaceAgents: async () => undefined,
+  cmdWorkspaceInvite: async () => undefined,
+  cmdWorkspaceLeave: async () => undefined,
+  cmdWorkspaceTeam: async () => undefined,
+  cmdWorkspaceStop: async () => undefined,
+  cmdWorkspaceSessions: async () => undefined,
+  cmdWorkspaceWhere: async () => undefined,
+  cmdWorkspaceStatus: async () => undefined,
+  cmdWorkspaceSend: async () => undefined,
+  cmdWorkspaceInspect: async () => undefined,
+  cmdWorkspaceSnapshot: async () => undefined,
+  cmdWorkspaceRestore: async () => undefined,
+  cmdWorkspaceClean: async () => undefined,
+  mawStatePath: (...parts: string[]) => ["/tmp", ".maw", "state", ...parts].join("/"),
+  UserError: class UserError extends Error {},
+
+  parseFlags: () => ({}),
+  getGhqRoot: () => process.cwd(),
+  loadFleetCore: () => [],
+  listSessions: async () => [],
+  findPeerForTarget: async () => null,
+  resolveTarget: () => null,
+  curlFetch: async () => ({ ok: false }),
+  capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
+  loadConfig: () => ({}),
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
+  tmux: { run: async () => "", listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawCacheDir: () => "/tmp/.maw/cache",
+  mawConfigDir: () => "/tmp/.maw/config",
+  mawDataDir: () => "/tmp/.maw",
+  mawDataPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawStateDir: () => "/tmp/.maw/state",
   hostExec: async (cmd: string) => {
     commands.push(cmd);
 
@@ -52,7 +113,15 @@ mock.module(join(root, "src/sdk"), () => ({
     }
     return "";
   },
-}));
+});
+
+// Mock both ids: tile imports ../../../sdk, which resolves to src/sdk/index.ts.
+// Earlier isolated tests can leak an index.ts mock that otherwise shadows this.
+mock.module(join(root, "src/sdk"), sdkMock);
+mock.module(join(root, "src/sdk/index.ts"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
 
 mock.module(join(root, "src/commands/plugins/tmux/layout-manager"), () => ({
   nextAgentColor: (idx: number) => `color-${idx}`,
@@ -72,9 +141,13 @@ mock.module(join(root, "src/core/transport/tmux-pane-lock"), () => ({
   withPaneLock: async (fn: () => Promise<void>) => fn(),
 }));
 
-mock.module(join(root, "src/config"), () => ({
+const configMock = () => ({
   loadConfig: () => ({ commands: { codex: "codex --model fast" } }),
-}));
+});
+mock.module(join(root, "src/config"), configMock);
+mock.module(join(root, "src/config/index.ts"), configMock);
+mock.module(import.meta.resolve("../../src/config"), configMock);
+mock.module(import.meta.resolve("../../src/config/index.ts"), configMock);
 
 const { cmdTile, cmdTileClean, cmdTileSwap } = await import(
   "../../src/commands/plugins/tile/impl.ts?tile-impl-next-coverage"

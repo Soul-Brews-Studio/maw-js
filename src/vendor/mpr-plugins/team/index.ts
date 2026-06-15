@@ -1,14 +1,13 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
+import type { InvokeContext, InvokeResult } from "maw-js/sdk";
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
-  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn,
+  cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn, cmdTeamPrune,
   cmdTeamSend, cmdTeamBroadcast, cmdTeamBring, cmdTeamResume, cmdTeamLives,
 } from "./impl";
 import { resolveTeamSendMode, teamMessageTargets } from "./team-comms";
-import { parseFlags } from "maw-js/cli/parse-args";
-import { hostExec } from "maw-js/sdk";
+import { hostExec, parseFlags } from "maw-js/sdk";
 
 export const command = {
   name: "team",
@@ -208,8 +207,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         force: args.includes("--force"),
         merge: args.includes("--merge"),
       });
+    } else if (sub === "prune") {
+      await cmdTeamPrune();
     } else if (sub === "list" || sub === "ls" || !sub) {
-      await cmdTeamList();
+      if (args.includes("--all")) await cmdTeamList({ all: true });
+      else await cmdTeamList();
     } else if (sub === "add" || sub === "task") {
       // maw team add "subject" [--team <name>] [--assign agent] [--description text]
       const { cmdTeamTaskAdd } = await import("./task-ops");
@@ -254,6 +256,30 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!id || !agent) { return { ok: false, error: "usage: maw team assign <task-id> <agent> [--team <name>]" }; }
       const team = (flags["--team"] as string | undefined) || resolveTeamFromContext();
       cmdTeamTaskAssign(team, id, agent);
+
+    } else if (sub === "wtf") {
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--session": String,
+        "--fix": Boolean,
+        "--dry-run": Boolean,
+        "--confirm": String,
+      }, 1);
+      if (flags["--fix"]) {
+        const { cmdTeamWtfFix } = await import("./team-wtf-fix");
+        await cmdTeamWtfFix(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+          dryRun: Boolean(flags["--dry-run"]),
+          confirm: flags["--confirm"] as string | undefined,
+        });
+      } else {
+        const { cmdTeamWtf } = await import("./team-wtf");
+        await cmdTeamWtf(flags._[0] as string | undefined, {
+          json: Boolean(flags["--json"]),
+          session: flags["--session"] as string | undefined,
+        });
+      }
 
     } else if (sub === "status") {
       // maw team status [team-name]
@@ -370,6 +396,43 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         status: Boolean(flags["--status"]),
       });
 
+    } else if (sub === "apply") {
+      // #2612 — reconcile an edited charter against live tmux state. Dry-run by default.
+      const flags = parseFlags(args, {
+        "--apply": Boolean,
+        "--session": String,
+        "--charter": String,
+      }, 1);
+      const team = flags._[0];
+      if (!team) {
+        logs.push("usage: maw team apply <team|team.yaml> [--charter <path>] [--session <name>] [--apply]");
+        logs.push("       dry-run by default; pass --apply to spawn missing members and gracefully shut down removed members");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      const { cmdTeamApply } = await import("./team-apply");
+      await cmdTeamApply(team, {
+        apply: Boolean(flags["--apply"]),
+        session: flags["--session"] as string | undefined,
+        charterPath: flags["--charter"] as string | undefined,
+      });
+
+    } else if (sub === "remove") {
+      // #2073 — single-verb member removal: teardown pane/worktree + drop from charter.
+      if (!args[1]) {
+        logs.push("usage: maw team remove <member> [--keep-branch] [--dry-run]");
+        return { ok: false, error: "member required", output: logs.join("\n") };
+      }
+      const { cmdTeamRemove } = await import("./team-remove");
+      const flags = parseFlags(args, {
+        "--keep-branch": Boolean,
+        "--dry-run": Boolean,
+      }, 2);
+      const team = resolveTeamFromContext();
+      await cmdTeamRemove(team, args[1], {
+        keepBranch: Boolean(flags["--keep-branch"]),
+        dryRun: Boolean(flags["--dry-run"]),
+      });
+
     } else if (sub === "reassign") {
       // maw team reassign <member> <new-issue> — done + fresh wake + prime
       if (!args[1] || !args[2]) {
@@ -389,11 +452,6 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "up") {
       // #1976 — charter-driven team wake: reconcile the charter against live
       // panes (skip live, resume dead in place, fresh-wake missing).
-      if (!args[1]) {
-        logs.push("usage: maw team up <team> [--session <name>] [--only <a,b>] [--dry-run] [--status] [--force] [--gather] [-e <engine>]");
-        return { ok: false, error: "team required", output: logs.join("\n") };
-      }
-      const { cmdTeamUp } = await import("./team-up");
       const flags = parseFlags(args, {
         "--dry-run": Boolean,
         "--status": Boolean,
@@ -401,22 +459,42 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--gather": Boolean,
         "--engine": String,
         "-e": "--engine",
+        "--quick": Number,
         "--only": String,
+        "--members": String,
         "--session": String,
-      }, 2);
-      await cmdTeamUp(args[1], {
+      }, 1);
+      const quick = flags["--quick"] === undefined ? undefined : Number(flags["--quick"]);
+      const team = (flags._[0] as string | undefined) || (quick !== undefined ? "quick" : undefined);
+      if (!team) {
+        logs.push("usage: maw team up <team> [--session <name>] [--members <roles>] [--only <a,b>] [--dry-run] [--status] [--force] [--gather] [-e <engine>] [--quick N]");
+        logs.push("       maw team up --quick N [-e <engine>] [--session <name>]");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      if (quick !== undefined && (!Number.isInteger(quick) || quick < 1)) {
+        return { ok: false, error: "--quick must be a positive integer", output: logs.join("\n") || undefined };
+      }
+      const { cmdTeamUp, quickCharter } = await import("./team-up");
+      const engine = flags["--engine"] as string | undefined;
+      const session = flags["--session"] as string | undefined;
+      await cmdTeamUp(team, {
         dryRun: Boolean(flags["--dry-run"]),
         status: Boolean(flags["--status"]),
         force: Boolean(flags["--force"]),
         gather: Boolean(flags["--gather"]),
-        engine: flags["--engine"] as string | undefined,
+        engine,
+        quick,
         only: String(flags["--only"] || "").split(",").map((s) => s.trim()).filter(Boolean),
-        session: flags["--session"] as string | undefined,
-      });
+        members: String(flags["--members"] || "").split(",").map((s) => s.trim()).filter(Boolean),
+        session,
+      }, quick !== undefined ? {
+        charterPath: null,
+        readTeamCharterFn: () => quickCharter(quick, { name: team, engine, session }),
+      } : undefined);
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|plan|preflight|load|up|down|reassign|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|up|down|apply|remove|reassign|spawn-from|spawn|bring|send|shutdown|prune|resume|lives|list|status|wtf|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

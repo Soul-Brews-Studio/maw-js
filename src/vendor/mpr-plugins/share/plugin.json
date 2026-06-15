@@ -1,0 +1,30 @@
+{
+  "name": "share",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Share a tmux session/pane as a read-only web stream.",
+  "cli": {
+    "command": "share",
+    "help": "maw share <session-or-pane> [--read-only] [--control] [--presence] [--chat] [--ttl <seconds>] [--port <number>] [--auth token|federation|none|encrypted] [--encrypt]",
+    "flags": {
+      "--read-only": "boolean",
+      "--ttl": "number",
+      "--port": "number",
+      "--auth": "string",
+      "--encrypt": "boolean",
+      "--control": "boolean",
+      "--presence": "boolean",
+      "--chat": "boolean"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve"
+    }
+  }
+}

@@ -46,3 +46,6 @@ psi/
 
 # Test coverage artifacts
 coverage/
+
+# Rust gateway build artifacts
+packages/maw-gateway/target/

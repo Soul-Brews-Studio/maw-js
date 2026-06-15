@@ -6,8 +6,8 @@ import { join } from "path";
 let fleetEntries: Array<{ num: number; file: string; path?: string; session: { name: string } }> = [];
 const fleetDir = join(tmpdir(), `maw-bud-init-fleet-${process.pid}`);
 
-mock.module("maw-js/commands/shared/fleet-load", () => ({
-  fleetDirForWrite: () => fleetDir,
+mock.module("maw-js/sdk", () => ({
+  fleetLoadDirForWrite: () => fleetDir,
   loadFleetEntries: () => fleetEntries,
 }));
 

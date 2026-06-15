@@ -1,0 +1,122 @@
+DELETE /api/config-file -> elysia api
+DELETE /api/files/:name -> elysia api
+FALLBACK * (serve-views) -> serve plugin:serve-views
+GET /api/_engine/registrations -> elysia api
+GET /api/agent -> serve plugin:serve-agents
+GET /api/agents -> serve plugin:serve-agents
+GET /api/asks -> elysia api
+GET /api/auth/status -> elysia api
+GET /api/avengers/best -> elysia api
+GET /api/avengers/health -> elysia api
+GET /api/avengers/status -> elysia api
+GET /api/avengers/traffic -> elysia api
+GET /api/capture -> elysia api
+GET /api/captures -> elysia api
+GET /api/config-file -> elysia api
+GET /api/config-files -> elysia api
+GET /api/consent/:id -> elysia api
+GET /api/consent/list -> elysia api
+GET /api/costs -> elysia api
+GET /api/costs/daily -> elysia api
+GET /api/docs -> elysia api
+GET /api/docs/json -> elysia api
+GET /api/federation/status -> serve plugin:serve-federation
+GET /api/feed -> elysia api
+GET /api/files -> elysia api
+GET /api/files/:name -> elysia api
+GET /api/fleet -> elysia api
+GET /api/fleet-config -> elysia api
+GET /api/fleet/claude -> elysia api
+GET /api/identity -> serve plugin:serve-identity
+GET /api/maw-log -> elysia api
+GET /api/messages -> elysia api
+GET /api/mirror -> elysia api
+GET /api/oracle/search -> elysia api
+GET /api/oracle/stats -> elysia api
+GET /api/oracle/traces -> elysia api
+GET /api/pair/:code/probe -> elysia api
+GET /api/pair/:code/status -> elysia api
+GET /api/peer/session -> elysia api
+GET /api/peers/discovered -> serve plugin:serve-federation
+GET /api/peers/discoveries -> serve plugin:serve-federation
+GET /api/pin-info -> elysia api
+GET /api/plugin/download/:name -> elysia api
+GET /api/plugin/list-manifest -> elysia api
+GET /api/plugins -> elysia api
+GET /api/plugins -> serve plugin:serve-debug
+GET /api/plugins/:name -> elysia api
+GET /api/proxy/session -> elysia api
+GET /api/pulse -> elysia api
+GET /api/queue -> elysia api
+GET /api/queue/:oracle -> elysia api
+GET /api/request/:correlationId -> elysia api
+GET /api/requests -> elysia api
+GET /api/sessions -> elysia api
+GET /api/snapshots -> elysia api
+GET /api/snapshots/:id -> elysia api
+GET /api/teams -> elysia api
+GET /api/teams/:name -> elysia api
+GET /api/teams/:name/tasks -> elysia api
+GET /api/tokens -> elysia api
+GET /api/tokens/rate -> elysia api
+GET /api/transport/status -> elysia api
+GET /api/triggers -> serve plugin:serve-triggers
+GET /api/ui-state -> elysia api
+GET /api/workspace/:id/agents -> elysia api
+GET /api/workspace/:id/feed -> elysia api
+GET /api/workspace/:id/status -> elysia api
+GET /api/worktrees -> serve plugin:serve-worktrees
+GET /plugins -> serve plugin:serve-debug
+MIDDLEWARE 01 * -> CORS preflight (handleCorsOptions)
+MIDDLEWARE 02 /ws* -> WebSocket upgrade registry before HTTP routing
+MIDDLEWARE 03 /api protected -> legacy Elysia auth gate before serve plugin fallback
+MIDDLEWARE 04 /api -> serve route registry before legacy Elysia for unprotected API routes
+MIDDLEWARE 05 /api -> legacy Elysia app with @elysiajs/cors
+MIDDLEWARE 06 /api -> federationAuth HMAC
+MIDDLEWARE 07 /api -> fromSigningAuth peer signature
+MIDDLEWARE 08 * -> fallback CORS wrapper
+OPTIONS /api/ -> elysia api
+OPTIONS /api/* -> elysia api
+PATCH /api/pulse/:id -> elysia api
+POST /api/_engine/register -> elysia api
+POST /api/_engine/unregister -> elysia api
+POST /api/asks -> elysia api
+POST /api/config-file -> elysia api
+POST /api/config-file/toggle -> elysia api
+POST /api/consent/:id/approve -> elysia api
+POST /api/consent/:id/reject -> elysia api
+POST /api/consent/request -> elysia api
+POST /api/feed -> elysia api
+POST /api/pair/:code -> elysia api
+POST /api/pair/auto -> elysia api
+POST /api/pair/generate -> elysia api
+POST /api/pane-keys -> elysia api
+POST /api/peer/exec -> elysia api
+POST /api/pin-set -> elysia api
+POST /api/pin-verify -> elysia api
+POST /api/plugins/:name -> elysia api
+POST /api/plugins/reload -> serve plugin:serve-debug
+POST /api/probe -> elysia api
+POST /api/proxy -> elysia api
+POST /api/pulse -> elysia api
+POST /api/queue -> elysia api
+POST /api/reply/:correlationId -> elysia api
+POST /api/request -> elysia api
+POST /api/select -> elysia api
+POST /api/send -> elysia api
+POST /api/sleep -> elysia api
+POST /api/transport/send -> elysia api
+POST /api/triggers/fire -> serve plugin:serve-triggers-mutate
+POST /api/ui-state -> elysia api
+POST /api/upload -> elysia api
+POST /api/wake -> elysia api
+POST /api/workspace/:id/agents -> elysia api
+POST /api/workspace/:id/message -> elysia api
+POST /api/workspace/create -> elysia api
+POST /api/workspace/join -> elysia api
+POST /api/worktrees/cleanup -> serve plugin:serve-worktrees
+PROXY /api/{engine-plugin-prefix}/* -> dynamic engine plugin proxy (findEnginePluginRegistration)
+PUT /api/config-file -> elysia api
+WS /ws -> serve ws registry
+WS /ws/pty -> serve ws registry
+WS /ws/tmux -> serve ws registry

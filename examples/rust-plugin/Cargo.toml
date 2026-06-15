@@ -1,0 +1,17 @@
+[package]
+name = "rust-echo"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal external engine plugin for maw — proof of the gateway IPC contract (#2566)"
+publish = false
+
+[[bin]]
+name = "rust-echo"
+path = "src/main.rs"
+
+# Intentionally dependency-free: the proof is that the maw engine-plugin IPC
+# contract is plain loopback HTTP, reachable from any language with a socket —
+# no SDK, no framework. std only.
+
+[profile.release]
+opt-level = "z"

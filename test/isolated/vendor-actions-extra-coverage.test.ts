@@ -85,6 +85,10 @@ mock.module("maw-js/sdk", () => ({
     return "";
   },
   tmuxCmd: () => "tmux-mock",
+  resolveSessionTarget: (target: string, seenSessions: Session[]) => {
+    resolveCalls.push({ target, sessions: seenSessions });
+    return resolveResults.get(target) ?? { kind: "none", hints: [] };
+  },
 }));
 
 mock.module("maw-js/core/matcher/resolve-target", () => ({

@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("registry-oracle-scan-local", () => {
-  test("readFleetLineage merges project_repos and window repo references while skipping invalid files", () => {
+  test("readFleetLineage merges project_repos and window repo references", () => {
     const root = tmpRoot("lineage");
     const fleetDir = join(root, "fleet");
     mkdirp(fleetDir);
@@ -42,12 +42,11 @@ describe("registry-oracle-scan-local", () => {
       project_repos: ["Soul-Brews-Studio/mawjs-oracle", "Soul-Brews-Studio/fleet-only-oracle"],
       windows: [
         { name: "mawjs", repo: "Soul-Brews-Studio/mawjs-oracle" },
-        { name: "issuer", repo: "Soul-Brews-Studio/mawjs-issuer-oracle" },
+        { name: "issuer", repo: "github.com/Soul-Brews-Studio/mawjs-issuer-oracle.git" },
       ],
       budded_from: "seed-oracle",
       budded_at: "2026-05-16T00:00:00.000Z",
     });
-    writeFileSync(join(fleetDir, "broken.json"), "{ nope");
     writeJson(join(fleetDir, "ignored.json.disabled"), {
       project_repos: ["Soul-Brews-Studio/ignored-oracle"],
     });
@@ -64,6 +63,46 @@ describe("registry-oracle-scan-local", () => {
       budded_at: "2026-05-16T00:00:00.000Z",
     });
     expect(readFleetLineage(join(root, "missing")).size).toBe(0);
+  });
+
+
+  test("readFleetLineage skips invalid window repo refs and keeps valid fleet visibility (#2795)", () => {
+    const root = tmpRoot("lineage-bad-window");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    writeJson(join(fleetDir, "fleet.json"), {
+      project_repos: ["Soul-Brews-Studio/project-oracle"],
+      windows: [
+        { name: "archived", repo: "_archive/oracle-world/nat-2026-06-10" },
+        { name: "valid", repo: "github.com/Soul-Brews-Studio/live-oracle.git" },
+      ],
+    });
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => warnings.push(args.map(String).join(" ")));
+    try {
+      const lineage = readFleetLineage(fleetDir);
+      expect([...lineage.keys()].sort()).toEqual([
+        "Soul-Brews-Studio/live-oracle",
+        "Soul-Brews-Studio/project-oracle",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(warnings).toEqual([
+      expect.stringContaining("skipping invalid fleet window 'archived': invalid fleet repo reference in windows[].repo: _archive/oracle-world/nat-2026-06-10"),
+    ]);
+  });
+
+  test("readFleetLineage fails loud on truncated or malformed fleet JSON", () => {
+    const root = tmpRoot("lineage-broken");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    const broken = join(fleetDir, "broken.json");
+    writeFileSync(broken, "{ nope");
+
+    expect(() => readFleetLineage(fleetDir)).toThrow(`invalid fleet lineage JSON ${broken}:`);
   });
 
   test("deriveName removes only the canonical -oracle suffix", () => {
@@ -138,6 +177,56 @@ describe("registry-oracle-scan-local", () => {
       has_fleet_config: true,
       federation_node: null,
     });
+  });
+
+  test("scanLocal ignores host-like org segments at ghq root", () => {
+    const root = tmpRoot("host-org");
+    const ghqRoot = join(root, "ghq");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    mkdirp(join(ghqRoot, "github.com", "Soul-Brews-Studio"));
+
+    makeRepo(ghqRoot, "Soul-Brews-Studio", "valid-oracle", { psi: true });
+    makeRepo(ghqRoot, "github.com", "laris-co", { psi: true });
+
+    writeJson(join(fleetDir, "fleet.json"), {
+      project_repos: [],
+      windows: [],
+    });
+
+    const entries = scanLocal(false, { ghqRoot, fleetDir });
+
+    expect(entries.map((entry) => `${entry.org}/${entry.repo}`)).toEqual(["Soul-Brews-Studio/valid-oracle"]);
+  });
+
+  test("readFleetLineage fails loud on malformed owner-only fleet repo refs", () => {
+    const root = tmpRoot("malformed-lineage");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+
+    const file = join(fleetDir, "fleet.json");
+    writeJson(file, {
+      project_repos: ["github.com/laris-co"],
+    });
+
+    expect(() => readFleetLineage(fleetDir)).toThrow(`invalid fleet lineage JSON ${file}: invalid fleet repo reference in project_repos: github.com/laris-co`);
+  });
+
+  test("scanLocal skips doubled host trees and archived repo segments", () => {
+    const root = tmpRoot("archive-skip");
+    const ghqRoot = join(root, "ghq");
+    const fleetDir = join(root, "fleet");
+    mkdirp(fleetDir);
+    writeJson(join(fleetDir, "fleet.json"), { project_repos: [], windows: [] });
+
+    makeRepo(ghqRoot, "Soul-Brews-Studio", "valid-oracle", { psi: true });
+    makeRepo(ghqRoot, "github.com", "doubled-oracle", { psi: true });
+    makeRepo(ghqRoot, "_archive", "archived-oracle", { psi: true });
+    makeRepo(ghqRoot, "Soul-Brews-Studio", "_archive", { psi: true });
+
+    const entries = scanLocal(false, { ghqRoot, fleetDir });
+
+    expect(entries.map((entry) => `${entry.org}/${entry.repo}`)).toEqual(["Soul-Brews-Studio/valid-oracle"]);
   });
 
   test("scanLocal verbose mode reports scan sources, fleet-only refs, enrichment, and walk failures", () => {

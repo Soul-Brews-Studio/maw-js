@@ -51,6 +51,7 @@ const originalPath = process.env.PATH ?? "";
 const commandCalls: Record<string, unknown[][]> = {
   cmdTeamCreate: [],
   cmdTeamSpawn: [],
+  cmdTeamPrune: [],
   cmdTeamSend: [],
   cmdTeamResume: [],
   cmdTeamLives: [],
@@ -111,6 +112,7 @@ mock.module("child_process", () => ({
 mock.module(at("../../src/commands/plugins/team/impl"), () => ({
   cmdTeamCreate: (...args: unknown[]) => commandCalls.cmdTeamCreate.push(args),
   cmdTeamSpawn: async (...args: unknown[]) => { commandCalls.cmdTeamSpawn.push(args); },
+  cmdTeamPrune: async (...args: unknown[]) => { commandCalls.cmdTeamPrune.push(args); },
   cmdTeamSend: (...args: unknown[]) => commandCalls.cmdTeamSend.push(args),
   cmdTeamResume: (...args: unknown[]) => {
     if (commandThrowOnResume) throw new Error("resume exploded");

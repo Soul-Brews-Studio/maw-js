@@ -52,6 +52,8 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () => ({
   reconcileParentClaudeDir: async () => {},
+  readWorktreeEngineFile: () => undefined,
+  writeWorktreeEngineFile: () => {},
   attachToSession: async (name: string) => { attached.push(name); },
 }));
 
@@ -430,6 +432,8 @@ describe("cmdNew workspace session factory", () => {
           target: undefined,
           opts: {
             cwd: dir,
+            direction: "vertical",
+            fullWindow: true,
             command: `bun dev; exec ${process.env.SHELL || "zsh"}`,
             printFormat: "#{pane_id}",
           },
@@ -465,12 +469,14 @@ describe("cmdNew workspace session factory", () => {
           target: undefined,
           opts: {
             cwd: dir,
+            direction: "vertical",
+            fullWindow: true,
             command: `bun dev; exec ${process.env.SHELL || "zsh"}`,
             printFormat: "#{pane_id}",
           },
         },
       ]);
-      expect(lines.join("\n")).toContain("created split shell + command 'agent-log' in work:main");
+      expect(lines.join("\n")).toContain("created split shell + command 'agent-log' at bottom edge in work:main");
     } finally {
       logSpy.mockRestore();
       rmSync(dir, { recursive: true, force: true });
@@ -483,7 +489,13 @@ describe("cmdNew workspace session factory", () => {
       await cmdNew(["righty", "-p", dir, "--split", "--right", "--no-attach"]);
       await cmdNew(["bottomy", "-p", dir, "--split", "--bottom", "--no-attach"]);
 
-      expect(splitWindowCalls.map(call => call.opts.direction)).toEqual(["horizontal", "vertical"]);
+      expect(splitWindowCalls.map(call => ({
+        direction: call.opts.direction,
+        fullWindow: call.opts.fullWindow,
+      }))).toEqual([
+        { direction: "horizontal", fullWindow: true },
+        { direction: "vertical", fullWindow: true },
+      ]);
       await expect(cmdNew(["conflict", "-p", dir, "--split", "--right", "--vertical", "--no-attach"]))
         .rejects.toThrow("choose only one split direction");
       await expect(cmdNew(["no-split", "-p", dir, "--right", "--no-attach"]))

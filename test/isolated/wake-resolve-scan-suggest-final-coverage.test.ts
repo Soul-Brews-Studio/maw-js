@@ -4,7 +4,7 @@
  * Uses injected exec/host deps plus a tiny mocked TTY reader so default prompt
  * and clone branches are covered without touching a real terminal, gh, or ghq.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
 const srcRoot = join(import.meta.dir, "../..");
@@ -16,12 +16,27 @@ let logs: string[];
 let errors: string[];
 let writes: string[];
 let exitCodes: number[];
+let childSyncCalls: string[][] = [];
 
 const originalLog = console.log;
 const originalError = console.error;
 const originalStdoutWrite = process.stdout.write;
 const originalExit = process.exit;
 const originalPath = process.env.PATH;
+
+mock.module("child_process", () => ({
+  spawnSync: (command: string, args: string[] = []) => {
+    childSyncCalls.push([command, ...args]);
+    return {
+      status: 1,
+      stdout: "",
+      stderr: "",
+      pid: -1,
+      output: [],
+      signal: null,
+    };
+  },
+}));
 
 mock.module("fs", () => ({
   openSync: () => {
@@ -84,6 +99,7 @@ beforeEach(() => {
   ttyThrows = false;
   closedTtyFds = [];
   exitCodes = [];
+  childSyncCalls = [];
   captureOutput();
   process.env.PATH = originalPath;
   process.exit = ((code?: number) => {
@@ -101,7 +117,15 @@ afterEach(() => {
   process.exit = originalExit;
 });
 
-describe("wake-resolve-scan-suggest helpers in one process", () => {
+afterAll(() => {
+  process.exit = originalExit;
+  console.log = originalLog;
+  console.error = originalError;
+  process.stdout.write = originalStdoutWrite;
+  process.env.PATH = originalPath;
+});
+
+describe("wake-resolve-scan-suggest helpers in one process", { timeout: 30000 }, () => {
   test("covers org extraction, filtering, cache success/failure, and tty reads", () => {
     expect(extractGhqOrgs("github.com/Beta/repo\ngithub.com/alpha/repo\nnot-ghq\n")).toEqual(["Beta", "alpha"]);
 

@@ -63,6 +63,34 @@ describe("MessageQueue", () => {
     expect(queue.getAll()[0].error).toBeUndefined();
   });
 
+
+  test("prune removes pending and delivering messages stuck longer than active max age", () => {
+    const stalePending = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "stale pending" });
+    const staleDelivering = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "stale delivering" });
+    const freshPending = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "fresh pending" });
+
+    queue.markDelivering(staleDelivering.id);
+    stalePending.queuedAt = Date.now() - 25 * 60 * 60 * 1000;
+    staleDelivering.queuedAt = Date.now() - 25 * 60 * 60 * 1000;
+
+    queue.prune();
+
+    expect(queue.getAll().map(m => m.message)).toEqual(["fresh pending"]);
+  });
+
+  test("prune keeps pending and delivering messages newer than active max age", () => {
+    const pending = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "pending" });
+    const delivering = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "delivering" });
+
+    queue.markDelivering(delivering.id);
+    pending.queuedAt = Date.now() - 23 * 60 * 60 * 1000;
+    delivering.queuedAt = Date.now() - 23 * 60 * 60 * 1000;
+
+    queue.prune();
+
+    expect(queue.getAll().map(m => m.message)).toEqual(["pending", "delivering"]);
+  });
+
   test("pendingCount and size", () => {
     queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "m1" });
     const m2 = queue.enqueue({ from: "a:s", to: "neo", target: "s:neo", message: "m2" });

@@ -11,6 +11,12 @@ mock.module("maw-js/sdk", () => ({
     listSessionsCalls.push([]);
     return [];
   },
+  getGhqRoot: () => "/tmp/ghq",
+  loadFleetCore: async () => {
+    loadFleetCalls.push([]);
+    return [];
+  },
+  UserError: class UserError extends Error {},
 }));
 
 mock.module("maw-js/commands/shared/fleet-load", () => ({

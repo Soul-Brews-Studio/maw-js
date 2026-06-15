@@ -24,6 +24,9 @@ import {
   getChannelPermissionMode,
   saveOracleChannels,
   saveRepoChannels,
+  channelStem,
+  isChannelListener,
+  channelListenerIds,
   type OracleChannelConfig,
 } from "./channel-loader";
 
@@ -98,5 +101,57 @@ describe("loadEffectiveChannels — #1195 Phase 2 repo > global precedence", () 
     saveOracleChannels(stem, globalConfig());
     saveRepoChannels(repoDir, repoConfig());
     expect(getChannelPluginIds(stem, ["plugin:fleet@1"], repoDir)).toEqual(["plugin:fleet@1"]);
+  });
+});
+
+describe("channelStem (#2555) — name → channel-config stem", () => {
+  it("strips a trailing -oracle suffix", () => {
+    expect(channelStem("discord-oracle")).toBe("discord");
+    expect(channelStem("mawjs-codex-oracle")).toBe("mawjs-codex");
+  });
+
+  it("strips a leading numeric fleet prefix", () => {
+    expect(channelStem("139-mawjs")).toBe("mawjs");
+    expect(channelStem("03-discord-oracle")).toBe("discord");
+  });
+
+  it("lowercases and trims", () => {
+    expect(channelStem("  Discord-Oracle ")).toBe("discord");
+  });
+
+  it("leaves a bare stem unchanged", () => {
+    expect(channelStem("mawjs-codex")).toBe("mawjs-codex");
+  });
+});
+
+describe("isChannelListener / channelListenerIds (#2555)", () => {
+  const stem = "discord";
+  beforeEach(() => {
+    try { rmSync(join(homeSandbox, ".claude", "channels", stem), { recursive: true, force: true }); } catch {}
+  });
+
+  it("false / [] when the agent subscribes to no channel", () => {
+    expect(isChannelListener("discord-oracle")).toBe(false);
+    expect(channelListenerIds("discord-oracle")).toEqual([]);
+  });
+
+  it("true once a channel plugin is configured (name resolves via stem)", () => {
+    saveOracleChannels(stem, { plugins: [{ id: "plugin:discord@1" }] });
+    // accepts the -oracle form, the numeric-prefixed form, and the bare stem
+    expect(isChannelListener("discord-oracle")).toBe(true);
+    expect(isChannelListener("23-discord-oracle")).toBe(true);
+    expect(isChannelListener("discord")).toBe(true);
+    expect(channelListenerIds("discord-oracle")).toEqual(["plugin:discord@1"]);
+  });
+
+  it("honors a repo-local channel.json override", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "maw-channel-listener-repo-"));
+    try {
+      saveRepoChannels(repoDir, { plugins: [{ id: "plugin:repo-telegram@1" }] });
+      expect(isChannelListener("telegram-oracle", repoDir)).toBe(true);
+      expect(channelListenerIds("telegram-oracle", repoDir)).toEqual(["plugin:repo-telegram@1"]);
+    } finally {
+      try { rmSync(repoDir, { recursive: true, force: true }); } catch {}
+    }
   });
 });

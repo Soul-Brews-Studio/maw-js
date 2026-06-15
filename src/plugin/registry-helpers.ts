@@ -22,6 +22,7 @@ export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
   for (let i = 0; i < 32; i += 1) {
     const pluginsDir = join(dir, ".maw", "plugins");
     if (existsSync(pluginsDir)) dirs.push(pluginsDir);
+    if (existsSync(join(dir, ".maw-root"))) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -30,7 +31,8 @@ export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
 }
 
 export function scanDirs(cwd = process.cwd()): string[] {
-  return [process.env.MAW_PLUGINS_DIR || mawDataPath("plugins"), ...discoverLocalPluginDirs(cwd)];
+  const pluginDirs = [...discoverLocalPluginDirs(cwd), process.env.MAW_PLUGINS_DIR || mawDataPath("plugins")];
+  return [...new Set(pluginDirs)];
 }
 
 /** Runtime SDK version — sourced from @maw-js/sdk package.json (build-inlined). */

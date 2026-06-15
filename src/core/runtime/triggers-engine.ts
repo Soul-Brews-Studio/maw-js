@@ -8,6 +8,7 @@
 // No execSync — use async Bun.spawn to avoid blocking event loop
 import { loadConfig, saveConfig, type TriggerConfig, type TriggerEvent } from "../../config";
 import { logAudit } from "../fleet/audit";
+import { isAgentExemptFromTrigger } from "./idle-exempt";
 
 export interface TriggerContext {
   agent?: string;
@@ -28,11 +29,43 @@ export interface TriggerFireResult {
 /** Last-fired timestamp per trigger (index in config array → result) */
 const lastFired = new Map<number, TriggerFireResult>();
 
-/** Idle tracking: agent → last activity timestamp (ms) */
+/** Idle tracking: agent → last feed activity timestamp (ms) */
 export const idleTimers = new Map<string, number>();
 
 /** Track busy→idle transition: only fire agent-idle when agent WAS busy (#149) */
 export const agentPrevState = new Map<string, "busy" | "idle">();
+
+/** Remove trigger state for agents absent from feed events for this long (#2386). */
+export const STALE_AGENT_STATE_MS = 60 * 60 * 1000;
+
+/**
+ * Sweep idle/transition state for agents not seen in feed events recently.
+ *
+ * `idleTimers` is the source of truth for last feed activity. Keeping idle
+ * agents there until this sweep lets `agentPrevState` be pruned by age too,
+ * instead of accumulating idle entries indefinitely.
+ */
+export function sweepStaleAgentState(now = Date.now(), maxAgeMs = STALE_AGENT_STATE_MS): string[] {
+  const removed: string[] = [];
+
+  for (const [agent, lastSeen] of idleTimers) {
+    if (now - lastSeen > maxAgeMs) {
+      idleTimers.delete(agent);
+      agentPrevState.delete(agent);
+      removed.push(agent);
+    }
+  }
+
+  // Defensive cleanup for any transition state left without a feed timestamp.
+  for (const agent of agentPrevState.keys()) {
+    if (!idleTimers.has(agent)) {
+      agentPrevState.delete(agent);
+      removed.push(agent);
+    }
+  }
+
+  return removed;
+}
 
 /**
  * Expand template variables in an action string.
@@ -89,6 +122,12 @@ export async function fire(event: TriggerEvent, ctx: TriggerContext = {}): Promi
         const idleSec = (Date.now() - lastActivity) / 1000;
         if (idleSec < t.timeout) continue;
       }
+    }
+
+    // #2555 — channel-aware exemption: a trigger with exempt:["channel-listener"]
+    // never fires for an agent subscribed to a channel plugin (idle-but-waiting).
+    if (event === "agent-idle" && ctx.agent && isAgentExemptFromTrigger(t, ctx.agent)) {
+      continue;
     }
 
     const action = expandAction(t.action, event, ctx);

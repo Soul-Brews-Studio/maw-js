@@ -1,11 +1,48 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 
-import teamHandler from "../../src/vendor/mpr-plugins/team/index";
-import { composeTeamCharterMemberPrompt, formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter, spawnFromTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
-import { _setDirs, TEAMS_DIR, TASKS_DIR } from "../../src/vendor/mpr-plugins/team/team-helpers";
+const rootSrc = join(import.meta.dir, "../../src");
+const teamCharterEngineConfig = {
+  host: "localhost",
+  node: "localhost",
+  port: 3457,
+  oracleUrl: "http://localhost:47779",
+  env: {},
+  defaultEngine: "claude",
+  commands: { default: "claude", claude: "claude", codex: "codex", omx: "omx" },
+  engines: {
+    claude: {
+      name: "claude",
+      cmd: "claude",
+      label: "Claude Code",
+      processNames: ["claude", "claude-code", "thclaude"],
+      capabilities: ["channels", "resume", "model", "system-prompt-file"],
+      resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
+      model: { flag: "--model", default: "sonnet" },
+    },
+    codex: { name: "codex", cmd: "codex", label: "Codex CLI", processNames: ["codex"] },
+    omx: { name: "omx", cmd: "omx", label: "Oh My Codex", processNames: ["omx", "codex"] },
+  },
+};
+const realConfigLoad = await import("../../src/config/load.ts");
+mock.module(join(rootSrc, "config/load"), () => ({ ...realConfigLoad, loadConfig: () => teamCharterEngineConfig }));
+mock.module(join(rootSrc, "config/load.ts"), () => ({ ...realConfigLoad, loadConfig: () => teamCharterEngineConfig }));
+
+const { default: teamHandler } = await import("../../src/vendor/mpr-plugins/team/index");
+const {
+  composeTeamCharterMemberPrompt,
+  formatTeamCharterLoad,
+  formatTeamCharterPlan,
+  formatTeamCharterPreflight,
+  loadTeamCharter,
+  parseTeamCharterText,
+  planTeamCharter,
+  preflightTeamCharter,
+  spawnFromTeamCharter,
+} = await import("../../src/vendor/mpr-plugins/team/team-charter");
+const { _setDirs, TEAMS_DIR, TASKS_DIR } = await import("../../src/vendor/mpr-plugins/team/team-helpers");
 
 const tmpDirs: string[] = [];
 
@@ -84,6 +121,47 @@ governance:
     expect(rendered).toContain("verifier: target 'new:light' is planned only");
   });
 
+
+  test("parses top-level flags and engines with YAML anchors", () => {
+    const charter = parseTeamCharterText(`
+name: charter-v3
+flags:
+  claude-combo: &claude-combo
+    - "--dangerously-skip-permissions"
+    - "--channels plugin:discord@claude-plugins-official"
+  omx-combo: &omx-combo ["--yolo", "--direct"]
+engines:
+  opus48: ["claude --model claude-opus-4-8", *claude-combo]
+  omx-5.5: ["omx --model gpt-5.5", *omx-combo]
+members:
+  - role: builder
+    engine: opus48
+`);
+
+    expect(charter.flags?.["claude-combo"]).toEqual([
+      "--dangerously-skip-permissions",
+      "--channels plugin:discord@claude-plugins-official",
+    ]);
+    expect(charter.flags?.["omx-combo"]).toEqual(["--yolo", "--direct"]);
+    expect(charter.engines?.opus48).toEqual([
+      "claude --model claude-opus-4-8",
+      ["--dangerously-skip-permissions", "--channels plugin:discord@claude-plugins-official"],
+    ]);
+    expect(charter.engines?.["omx-5.5"]).toEqual(["omx --model gpt-5.5", ["--yolo", "--direct"]]);
+    expect(charter.warnings).toBeUndefined();
+  });
+
+  test("fails loudly for unknown YAML anchor references", () => {
+    expect(() => parseTeamCharterText(`
+name: bad-anchor
+engines:
+  missing: ["claude", *nope]
+members:
+  - role: builder
+    engine: missing
+`)).toThrow("unknown YAML anchor reference: *nope");
+  });
+
   test("parses JSON charters without requiring a YAML dependency", () => {
     const charter = parseTeamCharterText(JSON.stringify({
       name: "json-team",
@@ -139,6 +217,34 @@ agents:
       { role: "codex", engine: "omx", prompt: "inline prompt" },
       { role: "oss-world", engine: "claude", discord: false, prompt: "./prompts/bridge.md" },
     ]);
+  });
+
+  test("charter v3 defaults are inherited and overridden by members", () => {
+    const charter = parseTeamCharterText(`
+name: test-defaults
+defaults:
+  engine: omx
+  worktree: true
+  branch: alpha
+
+members:
+  - role: lead
+    name: oracle
+    engine: claude
+    worktree: false
+  - role: builder
+    name: codex-1
+`);
+
+    expect(charter.defaults).toEqual({ engine: "omx", worktree: true, branch: "alpha" });
+    expect(charter.warnings).toBeUndefined();
+    expect(charter.members).toEqual([
+      { role: "lead", name: "oracle", engine: "claude", worktree: false, branch: "alpha" },
+      { role: "builder", name: "codex-1", engine: "omx", worktree: true, branch: "alpha" },
+    ]);
+
+    const rendered = formatTeamCharterPlan(planTeamCharter(charter));
+    expect(rendered).toContain("builder (target=auto, name=codex-1, engine=omx, worktree=true, branch=alpha)");
   });
 
   test("warns and ignores unknown top-level and member keys", () => {

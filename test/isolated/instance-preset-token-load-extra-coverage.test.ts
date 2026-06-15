@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir as realHomedir } from "os";
@@ -53,7 +53,15 @@ mock.module(tokenLibPath, () => ({
 }));
 
 mock.module(pluginsRegistryPath, () => ({
-  discoverPackages: () => registryDiscoverResult,
+  // Keep broad: this registry mock can be visible to later isolated files.
+  discoverPackages: () => (globalThis as any).__dispatchRuntimePlugins?.() ?? registryDiscoverResult,
+  hashFile: () => "mock-hash",
+  importPluginSymbol: async () => undefined,
+  invokePlugin: async (plugin: any, ctx: any) => {
+    (globalThis as any).__dispatchRuntimeInvokeCalls?.push({ plugin, ctx });
+    return (globalThis as any).__dispatchRuntimeInvokeResult?.() ?? { ok: true };
+  },
+  resetDiscoverCache: () => undefined,
 }));
 
 mock.module(pluginsLsInfoPath, () => ({
@@ -83,6 +91,7 @@ mock.module(pluginsUiPath, () => ({
   printTable: () => undefined,
 }));
 
+const { isUserError } = await import("../../src/core/util/user-error.ts");
 const { applyInstancePreset } = await import("../../src/cli/instance-preset.ts?instance-preset-extra-coverage");
 const { cmdLoad } = await import("../../src/vendor/mpr-plugins/token/load.ts?token-load-extra-coverage");
 const { cmdPlugins } = await import("../../src/commands/shared/plugins.ts?plugins-extra-coverage");
@@ -138,6 +147,10 @@ afterEach(() => {
   if (originalMawHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = originalMawHome;
   for (const dir of tempRoots) rmSync(dir, { recursive: true, force: true });
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe("applyInstancePreset isolated branches", () => {
@@ -309,28 +322,40 @@ describe("cmdPlugins isolated branch dispatcher", () => {
     const discover = () => [] as any[];
 
     await cmdPlugins("install", [], { _: ["/tmp/plugin"], "--force": true }, discover as any);
+    await cmdPlugins(
+      "install",
+      [],
+      { _: ["/tmp/local-plugin"], "--local": true, "--symlink": true },
+      discover as any,
+    );
     await cmdPlugins("uninstall", [], { _: ["old-plugin"] }, discover as any);
     await cmdPlugins("rm", [], { _: ["older-plugin"] }, discover as any);
 
     expect(pluginCalls).toEqual([
-      { fn: "doInstall", args: ["/tmp/plugin", true] },
+      { fn: "doInstall", args: ["/tmp/plugin", true, { local: false, symlink: false }] },
+      { fn: "doInstall", args: ["/tmp/local-plugin", false, { local: true, symlink: true }] },
       { fn: "doRemove", args: ["old-plugin", discover] },
       { fn: "doRemove", args: ["older-plugin", discover] },
     ]);
   });
 
-  test("exits with usage for missing required plugin arguments", async () => {
-    stubExit();
+  test("throws UserError for missing required plugin arguments", async () => {
+    const cases = [
+      ["info", "usage: maw plugins info <name>"],
+      ["install", "usage: maw plugins install <path> [--force] [--local] [--symlink]"],
+      ["remove", "usage: maw plugins remove <name>"],
+      ["enable", "usage: maw plugin enable <name> [more...]"],
+      ["disable", "usage: maw plugin disable <name>"],
+    ] as const;
 
-    for (const sub of ["info", "install", "remove", "enable", "disable"] as const) {
-      await expect(cmdPlugins(sub, [], { _: [] })).rejects.toThrow("process.exit(1)");
+    for (const [sub, message] of cases) {
+      try {
+        await cmdPlugins(sub, [], { _: [] });
+        throw new Error(`expected ${sub} to throw`);
+      } catch (err) {
+        expect(isUserError(err)).toBe(true);
+        expect((err as Error).message).toBe(message);
+      }
     }
-
-    expect(exitCodes).toEqual([1, 1, 1, 1, 1]);
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins info <name>");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins install <path> [--force]");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugins remove <name>");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin enable <name> [more...]");
-    expect(errorSpy).toHaveBeenCalledWith("usage: maw plugin disable <name>");
   });
 });

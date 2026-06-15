@@ -25,6 +25,11 @@ mock.module("os", () => ({
 }));
 
 mock.module("fs", () => ({
+  statSync: () => ({ isFile: () => false, isDirectory: () => false }),
+  mkdirSync: () => undefined,
+  renameSync: () => undefined,
+  rmSync: () => undefined,
+  writeFileSync: () => undefined,
   existsSync: () => false,
   readdirSync: () => [],
   readFileSync: () => { throw new Error("unexpected readFileSync"); },
@@ -222,6 +227,11 @@ describe("tmux impl fifth-pass isolated branch coverage", () => {
 
     hostCalls = [];
     fleetFiles = ["101-fleet.json"];
+
+    const killedPane = await capture(() => cmdTmuxKill("101-fleet:0.0"));
+    expect(hostCalls.at(-1)).toBe("tmux kill-pane -t '101-fleet:0.0'");
+    expect(killedPane.logs).toContain("killed pane");
+
     await expect(cmdTmuxKill("101-fleet:0.0", { session: true })).rejects.toThrow("refusing to kill: session '101-fleet' is fleet or view");
 
     const killed = await capture(() => cmdTmuxKill("101-fleet:0.0", { session: true, force: true }));

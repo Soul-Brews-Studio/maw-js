@@ -30,7 +30,7 @@ bash scripts/test-isolated.sh \
   --coverage-reporter=lcov \
   --coverage-dir=coverage/isolated
 
-MAW_TEST_MODE=1 bun test test/zz-mock-tmux-smoke.test.ts \
+MAW_TEST_MODE=1 bun test test/zz-mock-transport-smoke.test.ts \
   --coverage \
   --coverage-reporter=lcov \
   --coverage-dir=coverage/mock-smoke \

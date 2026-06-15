@@ -23,6 +23,7 @@ jobs:
   regen-lockfile:
     name: Regenerate bun.lock if stale
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.actor == 'dependabot[bot]'
 
     steps:

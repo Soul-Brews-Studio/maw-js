@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Elysia } from "elysia";
-import type { HubConnection } from "../../src/transports/hub-connection";
+import type { HubConnection } from "../../src/vendor/mpr-plugins/hub/hub-connection";
 
 const root = join(import.meta.dir, "../..");
 const realFsPromises = await import("node:fs/promises");
@@ -177,7 +177,7 @@ describe("coverage 100b runtime hooks", () => {
 describe("coverage 100b hub config and connection", () => {
   test("workspace loader creates a missing directory, accepts valid files, and warns on parse errors", async () => {
     rmSync(mockConfigDir, { recursive: true, force: true });
-    const first = await import(`../../src/transports/hub-config.ts?coverage-100b-missing=${Date.now()}-${Math.random()}`);
+    const first = await import(`../../src/vendor/mpr-plugins/hub/hub-config.ts?coverage-100b-missing=${Date.now()}-${Math.random()}`);
     try {
       expect(first.loadWorkspaceConfigs()).toEqual([]);
 
@@ -187,8 +187,15 @@ describe("coverage 100b hub config and connection", () => {
       writeFileSync(join(workspacesDir, "skip.txt"), "not json");
 
       const warnings: string[] = [];
+      const originalFlag = process.env.MAW_HUB_CONFIG_WARNINGS;
+      process.env.MAW_HUB_CONFIG_WARNINGS = "1";
       console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
-      expect(first.loadWorkspaceConfigs()).toEqual([{ id: "good", hubUrl: "wss://hub.example.test", token: "tok", sharedAgents: ["neo"] }]);
+      try {
+        expect(first.loadWorkspaceConfigs()).toEqual([{ id: "good", hubUrl: "wss://hub.example.test", token: "tok", sharedAgents: ["neo"] }]);
+      } finally {
+        if (originalFlag === undefined) delete process.env.MAW_HUB_CONFIG_WARNINGS;
+        else process.env.MAW_HUB_CONFIG_WARNINGS = originalFlag;
+      }
       expect(warnings.join("\n")).toContain("[hub] failed to parse workspace config: bad.json");
     } finally {
       // Keep the mocked CONFIG_FILE root alive for later config/load tests in this file.
@@ -196,7 +203,7 @@ describe("coverage 100b hub config and connection", () => {
   });
 
   test("hub connection default branch and error message fallback are no-ops/sanitized", async () => {
-    const { handleMessage } = await import("../../src/transports/hub-connection.ts");
+    const { handleMessage } = await import("../../src/vendor/mpr-plugins/hub/hub-connection.ts");
     const conn = makeConn("default-branch");
     const errors: string[] = [];
     console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
@@ -281,23 +288,5 @@ describe("coverage 100b from-signing body read failure", () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "from-signing failed", reason: "body_read_failed" });
     expect(warnings.join("\n")).toContain("body read failed");
-  });
-});
-
-describe("coverage 100b small transport functions", () => {
-  test("LoRa stub records handlers and remains unreachable", async () => {
-    const { LoRaTransport } = await import("../../src/transports/lora.ts");
-    const lora = new LoRaTransport();
-    lora.onMessage(() => undefined);
-    lora.onPresence(() => undefined);
-    lora.onFeed(() => undefined);
-    await lora.connect();
-    expect(lora.connected).toBe(false);
-    expect(await lora.send({ oracle: "neo" }, "hello")).toBe(false);
-    await lora.publishPresence({ oracle: "neo", host: "white", status: "ready", timestamp: 1 });
-    await lora.publishFeed({ type: "note", source: "test", message: "hello", timestamp: 1 } as any);
-    expect(lora.canReach({ oracle: "neo" })).toBe(false);
-    await lora.disconnect();
-    expect(lora.connected).toBe(false);
   });
 });

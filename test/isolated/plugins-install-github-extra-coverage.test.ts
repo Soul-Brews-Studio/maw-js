@@ -9,16 +9,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { doInstall, doRemove } from "../../src/commands/shared/plugins-install";
+import { isUserError } from "../../src/core/util/user-error";
 import type { LoadedPlugin, PluginManifest } from "../../src/plugin/types";
 
 const createdDirs: string[] = [];
@@ -113,7 +116,12 @@ async function capture(fn: () => unknown | Promise<unknown>): Promise<CaptureRes
   try {
     await fn();
   } catch (err: any) {
-    if (!String(err?.message ?? "").startsWith("__maw_test_exit__")) throw err;
+    if (isUserError(err)) {
+      exitCode = 1;
+      errs.push(err.message);
+    } else if (!String(err?.message ?? "").startsWith("__maw_test_exit__")) {
+      throw err;
+    }
   } finally {
     (process as any).exit = originalExit;
     console.log = originalLog;
@@ -176,6 +184,39 @@ describe("doInstall local source", () => {
     expect(result.stdout).toContain("installed local-extra@1.2.3");
     expect(existsSync(join(dest, "plugin.json"))).toBe(true);
     expect(readFileSync(join(dest, "index.js"), "utf8")).toContain("marker");
+  });
+
+
+  test("installs into cwd-local .maw/plugins when --local is set", async () => {
+    const cwd = tmpDir("maw-local-install-cwd-");
+    const src = buildPlugin("local-flag", "1.0.1", "export const marker = 'local';\n");
+    const originalCwd = process.cwd();
+
+    try {
+      process.chdir(cwd);
+      const result = await capture(() => doInstall(src, false, { local: true }));
+
+      const localDest = join(cwd, ".maw", "plugins", "local-flag");
+      expect(result.exitCode).toBeUndefined();
+      expect(result.stdout).toContain("installed local-flag@1.0.1");
+      expect(result.stdout).toContain(join(".maw", "plugins", "local-flag"));
+      expect(existsSync(join(localDest, "plugin.json"))).toBe(true);
+      expect(existsSync(join(pluginHome(), "local-flag"))).toBe(false);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test("symlinks a local plugin when --symlink is set", async () => {
+    const src = buildPlugin("symlink-flag", "2.0.1", "export const marker = 'symlink';\n");
+
+    const result = await capture(() => doInstall(src, false, { symlink: true }));
+
+    const dest = join(pluginHome(), "symlink-flag");
+    expect(result.exitCode).toBeUndefined();
+    expect(result.stdout).toContain("installed symlink-flag@2.0.1");
+    expect(lstatSync(dest).isSymbolicLink()).toBe(true);
+    expect(resolve(pluginHome(), readlinkSync(dest))).toBe(resolve(src));
   });
 
   test("exits when the local source path is missing", async () => {

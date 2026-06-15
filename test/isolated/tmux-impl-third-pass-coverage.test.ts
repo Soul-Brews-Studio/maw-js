@@ -23,6 +23,11 @@ mock.module("os", () => ({
 }));
 
 mock.module("fs", () => ({
+  statSync: (path: string) => ({ isFile: () => existingPaths.has(path) && path.endsWith(".json"), isDirectory: () => !path.endsWith(".json") && (existingPaths.has(path) || path.startsWith(`${teamsRoot}/`)) }),
+  mkdirSync: () => undefined,
+  renameSync: () => undefined,
+  rmSync: () => undefined,
+  writeFileSync: () => undefined,
   existsSync: (path: string) => existingPaths.has(path),
   readdirSync: (path: string) => dirEntries.get(path) ?? [],
   readFileSync: (path: string) => {

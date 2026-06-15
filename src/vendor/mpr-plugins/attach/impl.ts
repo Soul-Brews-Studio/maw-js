@@ -10,12 +10,9 @@
  *   - implicit bounded federation precheck after local misses, before wake/scan (#1878)
  * Both hand off to attach-ssh.
  */
-import { listSessions } from "maw-js/sdk";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
-import { getGhqRoot } from "maw-js/config/ghq-root";
+import { getGhqRoot, listSessions, loadFleetCore as loadFleet, UserError } from "maw-js/sdk";
 import { cmdTmuxAttach } from "../../../commands/plugins/tmux/impl";
 import { isClaudeLikePane } from "../../../commands/plugins/tmux/safety";
-import { UserError } from "../../../core/util/user-error";
 import { join } from "path";
 import {
   resolveAttachTarget,
@@ -238,7 +235,7 @@ async function openShellForSession(
 ): Promise<void> {
   // #1916 MED-4 — pass a real readSessionOption so workspace sessions
   // (no fleet entry) can fall back to their @maw_new_cwd.
-  const { hostExec } = await import("../../../sdk");
+  const { hostExec } = await import("maw-js/sdk");
   const readSessionOption = (session: string, option: string): string | undefined => {
     try {
       // hostExec is async but resolveSessionOptionSync isn't available; do a

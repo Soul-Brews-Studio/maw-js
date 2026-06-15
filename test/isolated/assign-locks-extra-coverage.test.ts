@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const realFs = await import("fs");
+const { UserError, isUserError } = await import("../../src/core/util/user-error.ts");
 
 type FsCall = { fn: string; args: unknown[] };
 type PlannedOpen = number | { code: string };
@@ -114,9 +115,21 @@ let fetchIssuePromptImpl: (issueNum: number, slug: string) => Promise<string> = 
 ) => `prompt for ${slug}#${issueNum}`;
 
 await mock.module("maw-js/sdk", () => ({
+  UserError,
+  isUserError,
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     return hostExecImpl(cmd);
+  },
+  fetchIssuePrompt: async (issueNum: number, slug: string) => {
+    fetchIssueCalls.push([issueNum, slug]);
+    return fetchIssuePromptImpl(issueNum, slug);
+  },
+  cmdWake: async (
+    oracle: string,
+    opts: { incubate: string; task: string; prompt: string },
+  ) => {
+    wakeCalls.push([oracle, opts]);
   },
 }));
 
@@ -203,9 +216,14 @@ describe("assign plugin extra coverage", () => {
   });
 
   test("cmdAssign rejects malformed issue URLs before fetching", async () => {
-    await expect(assignImpl.cmdAssign("not-a-github-issue", { oracle: "orion" })).rejects.toThrow(
-      "Invalid issue URL: not-a-github-issue",
-    );
+    let thrown: unknown;
+    try {
+      await assignImpl.cmdAssign("not-a-github-issue", { oracle: "orion" });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("Invalid issue URL: not-a-github-issue");
     expect(fetchIssueCalls).toEqual([]);
     expect(wakeCalls).toEqual([]);
   });

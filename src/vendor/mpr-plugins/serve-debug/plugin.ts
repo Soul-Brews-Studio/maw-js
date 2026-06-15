@@ -1,0 +1,29 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "serve-debug",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "core",
+  "description": "maw serve plugin-system debug API and HTML status page.",
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "serve:debug-routes",
+    "plugins:debug"
+  ],
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "policy": "best-effort"
+    }
+  },
+  "weight": 6,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "capabilityNamespaces": [
+    "serve",
+    "plugins"
+  ]
+} as const);

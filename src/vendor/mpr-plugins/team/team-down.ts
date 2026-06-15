@@ -55,7 +55,7 @@ function renderRoster(team: string, session: string, roster: ClassifiedTeamMembe
   const lines = [`team down: ${team} (${session})`, "role\tengine\tstate\taction"];
   for (const item of roster) {
     const action = actionByRole.get(item.role)?.action ?? "skip";
-    lines.push(`${item.role}\t${item.engine}\t${item.state}\t${action}`);
+    lines.push(`${item.role}\t${item.engine ?? "(default)"}\t${item.state}\t${action}`);
   }
   if (tail) lines.push("", tail);
   return lines.join("\n");

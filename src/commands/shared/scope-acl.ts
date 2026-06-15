@@ -169,9 +169,9 @@ export function loadAllScopes(): TScope[] {
  * the file. Mirrors the relationship between `loadAllScopes()` (this
  * module) and `cmdList()` (the scope plugin).
  *
- * Returns `[]` when the file is missing, malformed, or unreadable —
- * forgiving semantics so an operator who's never written a trust entry
- * still gets a working ACL evaluator. The on-disk shape carries an
+ * Returns `[]` when the file is missing, malformed, or unreadable. Missing
+ * stays quiet for fresh installs; malformed/unreadable files are warned and
+ * quarantined by `loadTrustStore()`. The on-disk shape carries an
  * `addedAt` field that this function strips before returning, so the
  * result is assignable to `TrustList` (which only requires
  * `sender` / `target`). TypeScript's structural typing accepts the

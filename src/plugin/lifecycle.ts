@@ -10,9 +10,14 @@ import { existsSync, realpathSync } from "fs";
 import { resolve, sep } from "path";
 import { pathToFileURL } from "url";
 import { discoverPackages } from "./registry";
-import type { LoadedPlugin, PluginLifecycleHook } from "./types";
+import type { MawEngine } from "../engine";
+import type { ServeWsRouteRegistrar } from "../core/serve-ws-registry";
+import type { MawConfig } from "../config/types";
+import type { TransportRouter } from "../core/transport/transport";
+import type { ServeProfile } from "../core/server";
+import type { LoadedPlugin, PluginLifecycleHook, ServeRouteRegistrar } from "./types";
 
-export type LifecyclePhase = "wake" | "sleep" | "serve";
+export type LifecyclePhase = "wake" | "sleep" | "serve" | "transport";
 
 export interface PluginLifecycleContext {
   phase: LifecyclePhase;
@@ -27,6 +32,15 @@ export interface PluginLifecycleContext {
   httpUrl?: string;
   wsUrl?: string;
   hostname?: string;
+  http?: ServeRouteRegistrar;
+  ws?: ServeWsRouteRegistrar;
+  engine?: MawEngine;
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
   ensures?: string[];
 }
 
@@ -49,6 +63,34 @@ export interface ServeLifecycleContextInput {
   httpUrl: string;
   wsUrl: string;
   hostname: string;
+  http?: ServeRouteRegistrar;
+  ws?: ServeWsRouteRegistrar;
+  engine?: MawEngine;
+  /** Serve logger scoped by CLI verbosity for core lifecycle plugins. */
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
+  /** In-memory feed plugin system, exposed for serve diagnostics/debug plugins. */
+  plugins?: unknown;
+  /** Reload user plugins and return the current plugin stats/debug payload. */
+  reloadPlugins?: () => unknown | Promise<unknown>;
+  /** Optional lean serve composition profile for filtering serve hook mounts. */
+  profile?: Pick<ServeProfile, "views" | "apiRouters">;
+}
+
+export interface TransportLifecycleContextInput {
+  router: TransportRouter;
+  config: MawConfig;
+  /** Transport lifecycle logger scoped by CLI verbosity for transport plugins. */
+  log?: {
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    debug?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  };
 }
 
 export interface LifecycleRunSummary {
@@ -59,6 +101,10 @@ export interface LifecycleRunSummary {
 }
 
 export type LifecycleDiscover = () => LoadedPlugin[];
+export type LifecycleLogger = {
+  info: (message: string) => void;
+  warn: (message: string) => void;
+};
 
 function sortByLifecycleOrder(plugins: LoadedPlugin[]): LoadedPlugin[] {
   return [...plugins].sort((a, b) =>
@@ -70,6 +116,23 @@ function sortByLifecycleOrder(plugins: LoadedPlugin[]): LoadedPlugin[] {
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+
+type PluginScopedServeRoutes = ServeRouteRegistrar & {
+  forPlugin?: (plugin: { name: string; dir?: string }) => ServeRouteRegistrar;
+};
+
+function scopedServeContext(
+  baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures">,
+  plugin: LoadedPlugin,
+): Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures"> {
+  const http = baseContext.http as PluginScopedServeRoutes | undefined;
+  if (!http?.forPlugin) return baseContext;
+  return {
+    ...baseContext,
+    http: http.forPlugin({ name: plugin.manifest.name, dir: plugin.dir }),
+  };
 }
 
 function resolveHookModulePath(plugin: LoadedPlugin, hook: PluginLifecycleHook): string {
@@ -93,6 +156,27 @@ function resolveHookModulePath(plugin: LoadedPlugin, hook: PluginLifecycleHook):
   return realPath;
 }
 
+function serveApiRouterName(pluginName: string): string | null {
+  if (pluginName === "serve-views" || pluginName === "serve-ws") return null;
+  if (pluginName.startsWith("serve-")) return pluginName.slice("serve-".length);
+  return pluginName;
+}
+
+function shouldRunLifecycleHook(
+  phase: LifecyclePhase,
+  plugin: LoadedPlugin,
+  baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures">,
+): boolean {
+  if (phase !== "serve") return true;
+  const profile = (baseContext as { profile?: Pick<ServeProfile, "views" | "apiRouters"> }).profile;
+  if (!profile) return true;
+  const pluginName = plugin.manifest.name;
+  if (profile.views === false && pluginName === "serve-views") return false;
+  if (profile.apiRouters === undefined) return true;
+  const routerName = serveApiRouterName(pluginName);
+  return routerName === null || profile.apiRouters.includes(routerName);
+}
+
 async function runOneLifecycleHook(
   phase: LifecyclePhase,
   plugin: LoadedPlugin,
@@ -108,7 +192,7 @@ async function runOneLifecycleHook(
   }
 
   const result = await handler({
-    ...baseContext,
+    ...scopedServeContext(baseContext, plugin),
     phase,
     plugin: { name: plugin.manifest.name, dir: plugin.dir },
     ensures: hook.ensures ?? [],
@@ -123,30 +207,38 @@ export async function runLifecycleHooks(
   phase: LifecyclePhase,
   baseContext: Omit<PluginLifecycleContext, "phase" | "plugin" | "ensures"> = {},
   discover: LifecycleDiscover = discoverPackages,
+  logger: LifecycleLogger = {
+    info: (message) => console.log(message),
+    warn: (message) => console.warn(message),
+  },
 ): Promise<LifecycleRunSummary> {
   const summary: LifecycleRunSummary = { phase, ran: 0, skipped: 0, failed: 0 };
+  const ranPluginNames: string[] = [];
 
   for (const plugin of sortByLifecycleOrder(discover())) {
     if (plugin.disabled) { summary.skipped++; continue; }
     const hook = plugin.manifest.hooks?.[phase];
     if (!hook) continue;
+    if (!shouldRunLifecycleHook(phase, plugin, baseContext)) { summary.skipped++; continue; }
     if (plugin.kind !== "ts" && !hook.script) { summary.skipped++; continue; }
 
     try {
       await runOneLifecycleHook(phase, plugin, hook, baseContext);
       summary.ran++;
+      ranPluginNames.push(plugin.manifest.name);
     } catch (error) {
       summary.failed++;
       const msg = messageOf(error);
       if (hook.policy === "fail-fast") {
         throw new Error(`plugin lifecycle ${phase} failed for ${plugin.manifest.name}: ${msg}`);
       }
-      console.warn(`\x1b[33m⚠\x1b[0m plugin lifecycle ${phase}:${plugin.manifest.name} failed: ${msg}`);
+      logger.warn(`\x1b[33m⚠\x1b[0m plugin lifecycle ${phase}:${plugin.manifest.name} failed: ${msg}`);
     }
   }
 
   if (summary.ran > 0) {
-    console.log(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}`);
+    const names = ranPluginNames.length > 0 ? ` (${ranPluginNames.join(", ")})` : "";
+    logger.info(`\x1b[36m↻\x1b[0m plugin lifecycle ${phase}: ${summary.ran} hook${summary.ran === 1 ? "" : "s"}${names}`);
   }
   return summary;
 }
@@ -168,6 +260,15 @@ export function runSleepLifecycleHooks(
 export function runServeLifecycleHooks(
   context: ServeLifecycleContextInput,
   discover?: LifecycleDiscover,
+  logger?: LifecycleLogger,
 ): Promise<LifecycleRunSummary> {
-  return runLifecycleHooks("serve", context, discover);
+  return runLifecycleHooks("serve", context, discover, logger);
+}
+
+export function runTransportLifecycleHooks(
+  context: TransportLifecycleContextInput,
+  discover?: LifecycleDiscover,
+  logger?: LifecycleLogger,
+): Promise<LifecycleRunSummary> {
+  return runLifecycleHooks("transport", context, discover, logger);
 }

@@ -18,6 +18,29 @@ let sendShutdownImpl = (...args: unknown[]) => {
   Date.now();
   return "/tmp/shutdown.json";
 };
+const teamLifecycleEngineConfig = {
+  host: "localhost",
+  port: 3457,
+  oracleUrl: "http://localhost:47779",
+  env: {},
+  defaultEngine: "claude",
+  commands: { default: "claude", claude: "claude", codex: "codex", omx: "omx" },
+  engines: {
+    claude: {
+      name: "claude",
+      cmd: "claude",
+      processNames: ["claude", "claude-code", "thclaude"],
+      capabilities: ["channels", "resume", "model", "system-prompt-file"],
+      resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
+      model: { flag: "--model", default: "sonnet" },
+    },
+    codex: { name: "codex", cmd: "codex", processNames: ["codex"] },
+    omx: { name: "omx", cmd: "omx", processNames: ["omx", "codex"] },
+  },
+};
+
+const realConfigLoad = await import("../../src/config/load.ts");
+
 const tmuxMock = {
   listPaneIds: async () => paneSnapshots.shift() ?? new Set<string>(),
   killPane: async (paneId: string) => { killPaneCalls.push(paneId); },
@@ -26,6 +49,9 @@ const tmuxMock = {
 mock.module(join(rootSrc, "sdk/index.ts"), () => ({ tmux: tmuxMock }));
 mock.module(join(rootSrc, "sdk/index"), () => ({ tmux: tmuxMock }));
 mock.module(join(rootSrc, "sdk"), () => ({ tmux: tmuxMock }));
+mock.module(join(rootSrc, "config/load"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+mock.module(join(rootSrc, "config/load.ts"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+
 mock.module("../../src/sdk/index", () => ({ tmux: tmuxMock }));
 mock.module("../../src/sdk", () => ({ tmux: tmuxMock }));
 
@@ -194,11 +220,14 @@ describe("team-lifecycle coverage", () => {
   test("spawn can render a non-Claude engine through buildCommandFromConfig", async () => {
     lifecycle.cmdTeamCreate("qa-team");
 
-    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" });
+    await expect(lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" })).rejects.toThrow("requires --worktree/--cwd");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex", cwd: "/tmp/codexer-wt" });
 
     const output = logs.join("\n");
     expect(output).toContain("engine: codex");
     expect(output).toContain("Run:");
+    expect(output).toContain("cd '/tmp/codexer-wt' && ");
     expect(output).toContain("codex");
     expect(output).not.toContain("--model sonnet");
     expect(output).not.toContain("--system-prompt-file");

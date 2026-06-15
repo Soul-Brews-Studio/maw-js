@@ -30,6 +30,7 @@ export {
 } from "./fleet-doctor-checks";
 export type { FleetEntryLike } from "./fleet-doctor-checks-repo";
 export { checkMissingRepos } from "./fleet-doctor-checks-repo";
+export { checkDoubledGhqPaths, canonicalGhqPath } from "./fleet-doctor-checks-ghq";
 export { checkStalePeers } from "./fleet-doctor-stale-peers";
 export { autoFix } from "./fleet-doctor-fixer";
 export { checkRebootReadiness } from "./fleet-doctor-reboot";
@@ -38,6 +39,7 @@ import { join } from "path";
 import { loadConfig } from "../../config";
 import { getGhqRoot } from "../../config/ghq-root";
 import { listSessions } from "../../sdk";
+import { ghqList } from "../../core/ghq";
 import { loadFleetEntries } from "./fleet-load";
 import {
   checkCollisions,
@@ -48,6 +50,7 @@ import {
   checkPeerVersionSkew,
 } from "./fleet-doctor-checks";
 import { checkMissingRepos } from "./fleet-doctor-checks-repo";
+import { checkDoubledGhqPaths } from "./fleet-doctor-checks-ghq";
 import { checkStalePeers } from "./fleet-doctor-stale-peers";
 import { autoFix, C, colorFor, iconFor } from "./fleet-doctor-fixer";
 import type { DoctorFinding, Level } from "./fleet-doctor-checks";
@@ -120,6 +123,11 @@ export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
   findings.push(...checkDuplicatePeers(peers));
   findings.push(...checkSelfPeer(peers, localNode, config.port));
   findings.push(...checkMissingRepos(entries, join(getGhqRoot(), "github.com")));
+
+  // #2578 — surface doubled `github.com/github.com/` ghq clones (report only).
+  let repoPaths: string[] = [];
+  try { repoPaths = await ghqList(); } catch { /* ghq absent — nothing to scan */ }
+  findings.push(...checkDoubledGhqPaths(repoPaths));
 
   const { findings: staleFindings, identities } = await checkStalePeers(peers);
   findings.push(...staleFindings);

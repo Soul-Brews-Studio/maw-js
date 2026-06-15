@@ -105,6 +105,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
 
 mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => ({
   loadFleet: () => fleetLoadReturn,
+  loadFleetEntries: () => [],
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve"), () => ({
@@ -163,12 +164,14 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-concurrency"), (
 mock.module(import.meta.resolve("../../src/core/fleet/snapshot"), () => ({
   ...realSnapshot,
   latestSnapshot: () => latestSnapshotReturn,
-  loadSnapshot: () => loadSnapshotReturn,
+  listSnapshots: () => latestSnapshotReturn ? [{ file: "latest.json", timestamp: latestSnapshotReturn.timestamp ?? "latest" }] : [],
+  loadSnapshot: () => loadSnapshotReturn ?? latestSnapshotReturn,
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd-helpers"), () => ({
   ...realWakeHelpers,
   findWakeSnapshotSession: () => findWakeSnapshotSessionReturn,
+  filterMergedWorktreesForRehydrate: async (worktrees: any[]) => worktrees,
   planRehydrateWorktreeWindows: () => planRehydrateReturn,
   planSnapshotRestoreWindows: () => planSnapshotRestoreReturn,
   retryFreshSessionTmuxStep: async (_session: string, _label: string, fn: () => unknown) => await fn(),
@@ -320,6 +323,11 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     }];
     fleetSessionReturn = "199-zzcodex";
     ghqFindReturn = "/tmp/ghq/github.com/Soul-Brews-Studio/mawjs-codex-oracle";
+    resolveOracleReturn = {
+      repoPath: "/tmp/ghq/github.com/Soul-Brews-Studio/mawjs-codex-oracle",
+      repoName: "mawjs-codex-oracle",
+      parentDir: "/tmp/ghq/github.com/Soul-Brews-Studio",
+    };
     shouldAutoWakeReturn = { wake: true, reason: "missing" };
 
     const { logs } = await captureLogs(() =>
@@ -358,6 +366,7 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     );
 
     latestSnapshotReturn = { timestamp: "2026-05-18T00:00:00.000Z", sessions: [] };
+    loadSnapshotReturn = latestSnapshotReturn;
     await expect(cmdWake("neo", { fromSnapshot: true, dryRun: true })).rejects.toThrow(
       "has no session for neo",
     );

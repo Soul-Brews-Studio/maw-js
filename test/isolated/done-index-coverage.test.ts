@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 type InvokeCtx = { source: "cli" | "api"; args: unknown; writer?: (...args: unknown[]) => void };
-type DoneOpts = { force?: boolean; dryRun?: boolean; cleanBranch?: boolean };
+type DoneOpts = { force?: boolean; dryRun?: boolean; cleanBranch?: boolean; oracle?: string };
 
 let doneCalls: Array<{ name: string; opts: DoneOpts }> = [];
 let doneAllCalls: DoneOpts[] = [];
@@ -64,6 +64,27 @@ describe("done plugin index wrapper", () => {
     expect(lines).toEqual(["all:true:false"]);
   });
 
+  test("accepts --all with a positional oracle and forwards it to cmdDoneAll", async () => {
+    const result = await donePlugin.default({
+      source: "cli",
+      args: ["arra-oracle-v3", "--all", "--dry-run"],
+    } as InvokeCtx);
+
+    expect(result.ok).toBe(true);
+    expect(doneAllCalls).toEqual([{ force: false, dryRun: true, cleanBranch: false, oracle: "arra-oracle-v3", cwd: process.cwd() }]);
+    expect(doneCalls).toEqual([]);
+  });
+
+  test("maps API --all with oracle argument to cmdDoneAll", async () => {
+    const result = await donePlugin.default({
+      source: "api",
+      args: { all: true, oracle: "mawjs", force: true },
+    } as InvokeCtx);
+
+    expect(result.ok).toBe(true);
+    expect(doneAllCalls).toEqual([{ force: true, dryRun: false, cleanBranch: false, oracle: "mawjs", cwd: process.cwd() }]);
+  });
+
   test("maps CLI --clean-branch to cmdDone", async () => {
     const result = await donePlugin.default({
       source: "cli",
@@ -86,13 +107,10 @@ describe("done plugin index wrapper", () => {
     expect(typo.error).toContain("33-arraoraclev3");
     expect(typo.error).toContain("did you mean `maw done --all`");
 
-    const allWithTarget = await donePlugin.default({
-      source: "cli",
-      args: ["--all", "33-arraoraclev3"],
-    } as InvokeCtx);
-
-    expect(allWithTarget.ok).toBe(false);
-    expect(allWithTarget.error).toContain("unexpected positional arg(s) with maw done --all");
+    const allWithTooManyTargets = await donePlugin.default({ source: "cli", args: ["--all", "33-arraoraclev3", "extra"] } as InvokeCtx);
+    expect(allWithTooManyTargets.ok).toBe(false);
+    expect(allWithTooManyTargets.error).toContain("unexpected extra positional arg(s) for maw done --all");
+    expect(allWithTooManyTargets.error).toContain("extra");
     expect(doneCalls).toEqual([]);
     expect(doneAllCalls).toEqual([]);
   });

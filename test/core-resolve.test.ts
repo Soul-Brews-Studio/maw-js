@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Readable } from "stream";
-import { pickOracle, resolveOracle } from "../src/core/resolve";
+import { pickOracle, rankOracleCandidates, resolveOracle } from "../src/core/resolve";
 
 const repos = [
   "/opt/Code/github.com/Soul-Brews-Studio/mother-oracle",
@@ -56,6 +56,56 @@ describe("core resolveOracle", () => {
 });
 
 describe("pickOracle", () => {
+  test("rankOracleCandidates prefers live sessions then recent activity and stable slug order", () => {
+    const candidates = [
+      { owner: "arkkra-co", repo: "volt-oracle", path: "/gh/arkkra-co/volt-oracle" },
+      { owner: "laris-co", repo: "volt-oracle", path: "/gh/laris-co/volt-oracle" },
+      { owner: "soul-brews-studio", repo: "volt-oracle", path: "/gh/soul-brews-studio/volt-oracle" },
+    ];
+    const now = 12_000_000;
+    const before = candidates.map(c => `${c.owner}/${c.repo}`);
+    const after = rankOracleCandidates(candidates, {
+      liveSessions: new Set(["/gh/laris-co/volt-oracle"]),
+      now,
+      getLastActivityMs: (path) => {
+        if (path.endsWith("arkkra-co/volt-oracle")) return now - 11 * 60 * 60 * 1000;
+        if (path.endsWith("laris-co/volt-oracle")) return now - 2 * 60 * 1000;
+        return now - 3 * 24 * 60 * 60 * 1000;
+      },
+    }).map(c => ({
+      slug: `${c.owner}/${c.repo}`,
+      recommended: c.recommended,
+      hasLiveSession: c.hasLiveSession,
+      lastActivityMs: c.lastActivityMs,
+    }));
+
+    expect(before).toEqual([
+      "arkkra-co/volt-oracle",
+      "laris-co/volt-oracle",
+      "soul-brews-studio/volt-oracle",
+    ]);
+    expect(after.map(c => c.slug)).toEqual([
+      "laris-co/volt-oracle",
+      "arkkra-co/volt-oracle",
+      "soul-brews-studio/volt-oracle",
+    ]);
+    expect(after[0]!.slug).toBe("laris-co/volt-oracle");
+    expect(after[0]!.recommended).toBe(true);
+    expect(after[0]!.hasLiveSession).toBe(true);
+
+    // Deterministic tie-break when activity is equal and no live sessions are present.
+    const tieOrdered = rankOracleCandidates(candidates, {
+      now,
+      getLastActivityMs: () => now - 60_000,
+    });
+    expect(tieOrdered[0]!.recommended).toBe(true);
+    expect(tieOrdered.map(c => `${c.owner}/${c.repo}`)).toEqual([
+      "arkkra-co/volt-oracle",
+      "laris-co/volt-oracle",
+      "soul-brews-studio/volt-oracle",
+    ]);
+  });
+
   test("returns selected candidate from injected reader", async () => {
     const writes: string[] = [];
     const selected = await pickOracle([
@@ -66,9 +116,22 @@ describe("pickOracle", () => {
       reader: Readable.from(["2\n"]) as NodeJS.ReadStream,
     });
 
-    expect(selected).toEqual({ owner: "two", repo: "alpha-oracle" });
+    expect(selected).toMatchObject({ owner: "two", repo: "alpha-oracle" });
     expect(writes.join("")).toContain("Wake which oracle?");
     expect(writes.join("")).toContain("two/alpha-oracle");
+  });
+
+  test("defaults to rank #1 on Enter", async () => {
+    const selected = await pickOracle([
+      { owner: "one", repo: "alpha-oracle", path: "/gh/one/alpha-oracle" },
+      { owner: "two", repo: "alpha-oracle", path: "/gh/two/alpha-oracle" },
+    ], {
+      stream: { write: () => true },
+      liveSessions: new Set(["/gh/two/alpha-oracle"]),
+      reader: Readable.from(["\n"]) as NodeJS.ReadStream,
+    });
+
+    expect(selected).toMatchObject({ owner: "two", repo: "alpha-oracle", path: "/gh/two/alpha-oracle" });
   });
 
   test("returns null for invalid choices", async () => {

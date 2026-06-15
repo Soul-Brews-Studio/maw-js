@@ -1,0 +1,27 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "capture",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Capture visible pane output or full scrollback; use peek for a quick latest-output glance.",
+  "cli": {
+    "command": "capture",
+    "help": "maw capture <target> [--pane N] [--lines N] [--full] — capture pane output or scrollback; see maw peek for a quick glance",
+    "flags": {
+      "--pane": "number",
+      "--lines": "number",
+      "--full": "boolean"
+    }
+  },
+  "api": {
+    "path": "/api/capture",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

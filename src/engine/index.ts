@@ -34,16 +34,18 @@ export class MawEngine {
   private lastTeamsJson = { value: "" };
   private feedUnsub: (() => void) | null = null;
   private transportRouter: TransportRouter | null = null;
+  private intervalsEnabled = true;
 
   private feedBuffer: FeedEvent[];
   private feedListeners: Set<(event: FeedEvent) => void>;
 
-  constructor({ feedBuffer, feedListeners }: { feedBuffer: FeedEvent[]; feedListeners: Set<(event: FeedEvent) => void> }) {
+  constructor({ feedBuffer, feedListeners, intervals = true }: { feedBuffer: FeedEvent[]; feedListeners: Set<(event: FeedEvent) => void>; intervals?: boolean }) {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
+    this.intervalsEnabled = intervals;
     registerBuiltinHandlers(this);
     this.feedListeners.add((event) => agentStatusStore.handleFeedEvent(event));
-    this.initSessionCache();
+    if (intervals) this.initSessionCache();
   }
 
   private async initSessionCache() {
@@ -87,7 +89,7 @@ export class MawEngine {
 
   handleOpen(ws: MawWS) {
     this.clients.add(ws);
-    this.startIntervals();
+    if (this.intervalsEnabled) this.startIntervals();
     sendInitialSessions(ws, this.getIntervalState()).catch(() => {});
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-cfgLimit("feedHistory")) }));
   }
@@ -106,7 +108,7 @@ export class MawEngine {
     this.clients.delete(ws);
     this.lastContent.delete(ws);
     this.lastPreviews.delete(ws);
-    this.stopIntervals();
+    if (this.intervalsEnabled) this.stopIntervals();
   }
 
   // --- Public (handlers use these) ---

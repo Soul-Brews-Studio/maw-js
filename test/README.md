@@ -1,15 +1,18 @@
 # test/
 
+800+ test files covering 89 vendor plugins, core transport, federation,
+fleet management, and CLI commands.
+
 ## Canonical suite
 
-Use `bun run test:all`. This is the ship gate — the alpha release script
-(`scripts/ship-alpha.sh`) refuses to tag if it fails.
+Use `bun run test:all`. This is the ship gate — CI runs it on every PR
+to `alpha` via 4-shard parallelism.
 
 `test:all` runs four disjoint invocations so mocks don't cross-pollute:
 
 1. `bun run test:default:safe`
 2. `bun test test/isolated/`
-3. `bun test test/zz-mock-tmux-smoke.test.ts`
+3. `bun test test/zz-mock-transport-smoke.test.ts`
 4. `bun test src/commands/plugins/`
 
 `test:default:safe` keeps one shared Bun process for ordinary default-suite
@@ -42,7 +45,7 @@ when it trips:
 
 - Move the test into `test/isolated/` (preferred).
 - Add `// mock-boundary-ok: <reason>` on the offending line for a one-off
-  justification (rare — `zz-mock-tmux-smoke` is the canonical example).
+  justification (rare — `zz-mock-transport-smoke` is the canonical example).
 
 `scripts/mock-boundary-allowlist.txt` grandfathers files that predate the
 rule. That list is expected to shrink; adding new entries requires review.
