@@ -103,7 +103,11 @@ export function generateClaudeSettings(budRepoPath: string): void {
     return;
   }
 
-  const hookScript = join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh");
+  // Use a literal $HOME (expanded at runtime by the hook's shell) rather than the
+  // bud-time absolute path. The settings.json is committed into the budded repo, so
+  // baking the bud machine's HOME breaks the hook when the oracle runs elsewhere
+  // (e.g. budded on a Mac → /Users/<x>/…, deployed on a Linux pod → /root/… not found).
+  const hookScript = "$HOME/.config/maw/hooks/status-reporter.sh";
   const makeHook = (event: string) => ({
     matcher: "",
     hooks: [{ type: "command", command: `CLAUDE_HOOK_EVENT=${event} ${hookScript}` }],
