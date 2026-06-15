@@ -28,6 +28,7 @@ function resetEnv(name: string, value: string | undefined): void {
 const originalFetch = globalThis.fetch;
 const originalEnv = {
   MAW_CONFIG_DIR: process.env.MAW_CONFIG_DIR,
+  MAW_DATA_DIR: process.env.MAW_DATA_DIR,
   MAW_HOME: process.env.MAW_HOME,
   MAW_SDK_RUST_PATH: process.env.MAW_SDK_RUST_PATH,
 };
@@ -40,6 +41,7 @@ beforeEach(() => {
   globalThis.fetch = originalFetch;
   console.warn = originalWarn;
   resetEnv("MAW_CONFIG_DIR", originalEnv.MAW_CONFIG_DIR);
+  resetEnv("MAW_DATA_DIR", originalEnv.MAW_DATA_DIR);
   resetEnv("MAW_HOME", originalEnv.MAW_HOME);
   resetEnv("MAW_SDK_RUST_PATH", originalEnv.MAW_SDK_RUST_PATH);
 });
@@ -48,6 +50,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   console.warn = originalWarn;
   resetEnv("MAW_CONFIG_DIR", originalEnv.MAW_CONFIG_DIR);
+  resetEnv("MAW_DATA_DIR", originalEnv.MAW_DATA_DIR);
   resetEnv("MAW_HOME", originalEnv.MAW_HOME);
   resetEnv("MAW_SDK_RUST_PATH", originalEnv.MAW_SDK_RUST_PATH);
 });
@@ -70,9 +73,13 @@ describe("coverage 100c executable gap tests", () => {
   test("hub workspace config loader creates the dir, keeps valid configs, and reports malformed files", async () => {
     const configDir = join(tempRoot, `hub-${crypto.randomUUID()}`);
     process.env.MAW_CONFIG_DIR = configDir;
+    // Pin the data dir into temp so WORKSPACES_DIR never resolves to the real
+    // ~/.maw/workspaces. The cache-busted import below recomputes the frozen
+    // WORKSPACES_DIR const against this env instead of a stale cached module.
+    process.env.MAW_DATA_DIR = join(configDir, "data");
     delete process.env.MAW_HOME;
 
-    const hub = await import("../../src/transports/hub-config");
+    const hub = await import(`../../src/transports/hub-config.ts?coverage-100c=${crypto.randomUUID()}`);
 
     expect(hub.loadWorkspaceConfigs()).toEqual([]);
     expect(realFs.existsSync(hub.WORKSPACES_DIR)).toBe(true);
