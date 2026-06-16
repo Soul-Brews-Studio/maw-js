@@ -123,6 +123,16 @@ describe("bud plugin standalone boundary (#2314)", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
+  test("budded .claude/settings.json hook uses a portable $HOME path, not the bud-time absolute home", () => {
+    // The settings.json is committed into the budded repo, so the hook command must use a
+    // literal $HOME (expanded at runtime by /bin/sh) rather than the bud machine's resolved
+    // HOME — otherwise the hook breaks when the oracle runs on a different host
+    // (e.g. budded on a Mac → /Users/<x>/…, deployed on a Linux pod → /root/… not found).
+    const budInit = readFileSync(join(budDir, "bud-init.ts"), "utf8");
+    expect(budInit).toContain('"$HOME/.config/maw/hooks/status-reporter.sh"');
+    expect(budInit).not.toContain('join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh")');
+  });
+
   test("CLI usage and invalid argument paths return InvokeResult errors without side effects", async () => {
     const help = await budHandler({ source: "cli", args: ["--help"] } as any);
     expect(help.ok).toBe(false);
