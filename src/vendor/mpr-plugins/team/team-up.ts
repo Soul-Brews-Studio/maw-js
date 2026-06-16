@@ -13,6 +13,7 @@ import type { WakeOptions } from "../../../commands/shared/wake-cmd";
 import { UserError } from "../../../core/util/user-error";
 import { cmdSend } from "../../../commands/shared/comm-send";
 import { TEAM_LIFECYCLE_GUARD_WINDOW } from "./team-down";
+import { readUnreadTeamMemberInbox, markTeamMemberInboxRead, type TeamInboxMessage } from "./team-helpers";
 import {
   classifyMember,
   memberEngine,
@@ -233,18 +234,69 @@ export function quickCharter(count: number, opts: { name?: string; engine?: stri
   };
 }
 
+const MAX_HANDOFF_SUMMARIES = 10;
+
+/**
+ * Render the bring-up handoff notice for a member's unread team inbox. Pure so
+ * it can be tested without tmux. Lists message summaries (sender-tagged) up to
+ * a cap, then an "N more" tail. Mirrors the single-oracle ψ/inbox wake notice:
+ * surface what is waiting without dumping full message bodies into the pane.
+ */
+export function formatTeamInboxHandoff(role: string, messages: TeamInboxMessage[]): string {
+  const count = messages.length;
+  const header = `📬 Team handoff — ${count} unread inbox message${count === 1 ? "" : "s"} for ${role} while the team was down:`;
+  const lines = messages.slice(0, MAX_HANDOFF_SUMMARIES).map((msg) => {
+    const from = (msg.from ?? "").trim();
+    const label = ((msg.summary ?? "").trim() || from || "message");
+    return from && label !== from ? `  - [${from}] ${label}` : `  - ${label}`;
+  });
+  const omitted = count - lines.length;
+  if (omitted > 0) lines.push(`  … ${omitted} more`);
+  return [header, ...lines].join("\n");
+}
+
+/**
+ * Read a member's unread team inbox (the per-role handoff written by
+ * `maw team send`/`shutdown`) and render the bring-up notice, or `undefined`
+ * when there is nothing waiting. Read-only and never throws — marking the
+ * messages read is the caller's job, after a successful send.
+ */
+function takeInboxHandoff(team: string, member: TeamCharter["members"][number]): string | undefined {
+  let unread: TeamInboxMessage[];
+  try {
+    unread = readUnreadTeamMemberInbox(team, member.role);
+  } catch {
+    return undefined;
+  }
+  return unread.length ? formatTeamInboxHandoff(member.role, unread) : undefined;
+}
+
+/**
+ * Prime a freshly woken member with its charter prompt and any unread team
+ * inbox handoff. Both are folded into a single send — mirroring how
+ * single-oracle wake merges the ψ/inbox notice into the wake prompt
+ * (mergeWakeInboxPrompt) — so the handoff never lands as a second injection
+ * into a pane the prompt just set working. The inbox is marked read only after
+ * the send succeeds, so a delivery failure leaves it pending for the next
+ * `team up`. A missing prompt file is still a hard error (resolvePrimingPrompt
+ * throws before the send), exactly as before.
+ */
 async function primeMember(
   member: TeamCharter["members"][number],
   session: string,
   repoRoot: string,
+  team: string,
   deps: Pick<TeamUpDeps, "cmdSendFn">,
   warnings: string[],
 ): Promise<void> {
   const prompt = resolvePrimingPrompt(member, repoRoot);
-  if (!prompt) return;
+  const handoff = takeInboxHandoff(team, member);
+  const message = [prompt, handoff].filter(Boolean).join("\n\n");
+  if (!message) return;
   const send = deps.cmdSendFn ?? cmdSend;
   try {
-    await send(memberPrimingTarget(session, member), prompt, false, { currentSession: session });
+    await send(memberPrimingTarget(session, member), message, false, { currentSession: session });
+    if (handoff) markTeamMemberInboxRead(team, member.role);
   } catch (error) {
     warnings.push(`prompt prime failed for ${member.role}: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -385,7 +437,12 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
   if (launchTasks.length > 0) {
     await Promise.all(launchTasks.map((task) => waitForNonShell(task.item.member, session, tmux, sleep, targetRepoSlug)));
     await sleep(promptDelayMs(charter));
-    await Promise.all(launchTasks.map((task) => primeMember(task.item.member, session, callerRepoRoot, deps, warnings)));
+    // #2742 — priming also folds in each woken member's pending team inbox so
+    // messages sent while the team was down are handed off on bring-up, not
+    // silently stranded in inboxes/<role>.json. Key by charter.name: that is
+    // where charter prep + `maw team send` write, and it can differ from the
+    // `team` argument (e.g. a charter file named after a node or alias).
+    await Promise.all(launchTasks.map((task) => primeMember(task.item.member, session, callerRepoRoot, charter.name, deps, warnings)));
   }
 
   const finalPanes = await listPaneSnapshots(tmux).catch(() => panes);

@@ -11,9 +11,10 @@ import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-cha
 import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
 import * as commandTeamLiveness from "../../src/commands/plugins/team/team-liveness";
 import * as vendorTeamLiveness from "../../src/vendor/mpr-plugins/team/team-liveness";
-import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
+import { cmdTeamUp, quickCharter, formatTeamInboxHandoff } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
+import { _setDirs, TEAMS_DIR, TASKS_DIR, readUnreadTeamMemberInbox, markTeamMemberInboxRead } from "../../src/vendor/mpr-plugins/team/team-helpers";
 import { isUserError } from "../../src/core/util/user-error";
 
 const dirs: string[] = [];
@@ -750,6 +751,221 @@ members:
     expect(engineCommand("omx", { resume: true }, config)).toBe("maw run omx-resume");
     expect(engineCommand("opus48", { engines: { opus48: ["claude --model opus", ["--dangerously-skip-permissions", "--channels plugin:discord"]] } }, config)).toBe("claude --model opus --dangerously-skip-permissions --channels plugin:discord");
     expect(engineCommand("opus48", { resume: true, engines: { "opus48-resume": ["claude --resume abc", ["--dangerously-skip-permissions"]] } }, config)).toBe("claude --resume abc --dangerously-skip-permissions");
+  });
+});
+
+describe("team inbox handoff on team up (#2742)", () => {
+  // _setDirs mutates the module-global TEAMS_DIR; capture + restore so the
+  // handoff store points at a temp dir per test and never leaks into the rest
+  // of the suite (or a real ~/.claude/teams on the dev machine).
+  const ORIG_TEAMS = TEAMS_DIR;
+  const ORIG_TASKS = TASKS_DIR;
+  afterEach(() => { _setDirs(ORIG_TEAMS, ORIG_TASKS); });
+
+  function seedTeamInbox(team: string, role: string, messages: unknown[]): void {
+    const teamsRoot = mkdtempSync(join(tmpdir(), "maw-team-store-"));
+    dirs.push(teamsRoot);
+    const inboxDir = join(teamsRoot, team, "inboxes");
+    mkdirSync(inboxDir, { recursive: true });
+    writeFileSync(join(inboxDir, `${role}.json`), JSON.stringify(messages, null, 2));
+    _setDirs(teamsRoot, join(teamsRoot, "tasks"));
+  }
+
+  function charterRepo(team: string): string {
+    const root = mkdtempSync(join(tmpdir(), "maw-inbox-up-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw", "teams"), { recursive: true });
+    writeFileSync(join(root, ".maw", "teams", `${team}.yaml`), `
+name: ${team}
+session: charter-session
+members:
+  - role: coder
+    engine: omx
+    worktree: true
+`, "utf-8");
+    return root;
+  }
+
+  function liveOnSecondPoll(pane: string) {
+    let listCalls = 0;
+    return {
+      run: async (...args: string[]) => {
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          return listCalls === 1 ? "" : pane;
+        }
+        return "";
+      },
+    };
+  }
+
+  test("readUnreadTeamMemberInbox returns only unread; markTeamMemberInboxRead flips them", () => {
+    seedTeamInbox("t", "m", [
+      { from: "a", summary: "one", read: false },
+      { from: "b", summary: "two", read: true },
+      { from: "c", summary: "three", read: false },
+    ]);
+
+    expect(readUnreadTeamMemberInbox("t", "m").map((msg) => msg.summary)).toEqual(["one", "three"]);
+    expect(markTeamMemberInboxRead("t", "m")).toBe(2);
+    expect(readUnreadTeamMemberInbox("t", "m")).toHaveLength(0);
+    expect(markTeamMemberInboxRead("t", "m")).toBe(0);
+    expect(readUnreadTeamMemberInbox("t", "absent-member")).toEqual([]);
+  });
+
+  test("formatTeamInboxHandoff summarizes unread messages with sender labels", () => {
+    const msg = formatTeamInboxHandoff("coder", [
+      { from: "lead", summary: "do the thing" },
+      { from: "reviewer", summary: "rebase first" },
+    ]);
+    expect(msg).toContain("2 unread");
+    expect(msg).toContain("coder");
+    expect(msg).toContain("[lead] do the thing");
+    expect(msg).toContain("[reviewer] rebase first");
+  });
+
+  test("team up delivers unread team inbox messages to a freshly woken member and marks them read", async () => {
+    const root = charterRepo("inboxteam");
+    seedTeamInbox("inboxteam", "coder", [
+      { from: "lead", text: "{}", summary: "finish the parser refactor", timestamp: "2026-06-15T10:00:00.000Z", read: false },
+      { from: "lead", text: "{}", summary: "already-seen note", timestamp: "2026-06-14T10:00:00.000Z", read: true },
+      { from: "reviewer", text: "{}", summary: "rebase onto alpha before pushing", timestamp: "2026-06-15T11:00:00.000Z", read: false },
+    ]);
+    const sends: any[] = [];
+
+    await cmdTeamUp("inboxteam", { session: "charter-session" }, {
+      cwd: root,
+      tmux: liveOnSecondPoll("charter-session|coder|omx|/wt/coder|%1"),
+      loadConfigFn: () => config,
+      cmdWakeFn: async () => "woke",
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(sends).toHaveLength(1);
+    const [target, message] = sends[0];
+    expect(target).toBe("charter-session:coder");
+    expect(message).toContain("2 unread");
+    expect(message).toContain("finish the parser refactor");
+    expect(message).toContain("rebase onto alpha before pushing");
+    expect(message).not.toContain("already-seen note");
+
+    expect(readUnreadTeamMemberInbox("inboxteam", "coder")).toHaveLength(0);
+  });
+
+  test("priming prompt and inbox handoff are merged into a single send, not two injections", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-inbox-prime-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw", "teams"), { recursive: true });
+    writeFileSync(join(root, ".maw", "teams", "primeteam.yaml"), `
+name: primeteam
+session: charter-session
+members:
+  - role: coder
+    engine: omx
+    worktree: true
+    prompt: kick off the build
+`, "utf-8");
+    seedTeamInbox("primeteam", "coder", [
+      { from: "lead", summary: "merge this note", read: false },
+    ]);
+    const sends: any[] = [];
+
+    await cmdTeamUp("primeteam", { session: "charter-session" }, {
+      cwd: root,
+      tmux: liveOnSecondPoll("charter-session|coder|omx|/wt/coder|%1"),
+      loadConfigFn: () => config,
+      cmdWakeFn: async () => "woke",
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(sends).toHaveLength(1);
+    const [, message] = sends[0];
+    expect(message).toContain("kick off the build");
+    expect(message).toContain("merge this note");
+    expect(message.indexOf("kick off the build")).toBeLessThan(message.indexOf("merge this note"));
+    expect(readUnreadTeamMemberInbox("primeteam", "coder")).toHaveLength(0);
+  });
+
+  test("inbox handoff is keyed by the charter name, not the team-up argument", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-inbox-alias-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw", "teams"), { recursive: true });
+    // Charter file is found by the CLI arg (aliasteam.yaml) but its internal
+    // name — where charter prep + `maw team send` actually write inboxes — is realteam.
+    writeFileSync(join(root, ".maw", "teams", "aliasteam.yaml"), `
+name: realteam
+session: charter-session
+members:
+  - role: coder
+    engine: omx
+    worktree: true
+`, "utf-8");
+    seedTeamInbox("realteam", "coder", [
+      { from: "lead", summary: "keyed by charter name", read: false },
+    ]);
+    const sends: any[] = [];
+
+    await cmdTeamUp("aliasteam", { session: "charter-session" }, {
+      cwd: root,
+      tmux: liveOnSecondPoll("charter-session|coder|omx|/wt/coder|%1"),
+      loadConfigFn: () => config,
+      cmdWakeFn: async () => "woke",
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(sends).toHaveLength(1);
+    expect(sends[0][1]).toContain("keyed by charter name");
+    expect(readUnreadTeamMemberInbox("realteam", "coder")).toHaveLength(0);
+  });
+
+  test("team up does not deliver a handoff when the member inbox has no unread messages", async () => {
+    const root = charterRepo("emptyteam");
+    seedTeamInbox("emptyteam", "coder", [
+      { from: "lead", summary: "old news", read: true },
+    ]);
+    const sends: any[] = [];
+
+    await cmdTeamUp("emptyteam", { session: "charter-session" }, {
+      cwd: root,
+      tmux: liveOnSecondPoll("charter-session|coder|omx|/wt/coder|%1"),
+      loadConfigFn: () => config,
+      cmdWakeFn: async () => "woke",
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(sends).toHaveLength(0);
+  });
+
+  test("team up --status does not deliver inbox handoff or mark messages read", async () => {
+    const root = charterRepo("inboxteam");
+    seedTeamInbox("inboxteam", "coder", [
+      { from: "lead", summary: "finish the parser refactor", read: false },
+      { from: "reviewer", summary: "rebase onto alpha before pushing", read: false },
+    ]);
+    const sends: any[] = [];
+
+    await cmdTeamUp("inboxteam", { status: true, session: "charter-session" }, {
+      cwd: root,
+      tmux: fakeTmux([]).tmux,
+      loadConfigFn: () => config,
+      cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      logger: () => {},
+    });
+
+    expect(sends).toHaveLength(0);
+    expect(readUnreadTeamMemberInbox("inboxteam", "coder")).toHaveLength(2);
   });
 });
 
