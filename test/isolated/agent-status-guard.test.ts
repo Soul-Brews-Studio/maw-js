@@ -1,6 +1,8 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { extractOracleName, checkBusyGuard } from "../../src/core/agent-status-guard";
 import { agentStatusStore } from "../../src/core/agent-status";
+
+const originalFetch = globalThis.fetch;
 
 describe("extractOracleName", () => {
   test("bare name", () => {
@@ -31,6 +33,11 @@ describe("extractOracleName", () => {
 describe("checkBusyGuard", () => {
   beforeEach(() => {
     for (const e of agentStatusStore.getAll()) agentStatusStore.remove(e.oracle);
+    globalThis.fetch = (async () => new Response("not found", { status: 404 })) as typeof fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("unknown agent → not busy", async () => {

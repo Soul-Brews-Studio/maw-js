@@ -126,7 +126,14 @@ describe("core resolve next coverage", () => {
       reader: Readable.from(["1"]) as NodeJS.ReadStream,
     });
 
-    expect(selected).toEqual({ owner: "one", repo: "neo-oracle", path: "/gh/one/neo-oracle" });
+    expect(selected).toMatchObject({
+      owner: "one",
+      repo: "neo-oracle",
+      path: "/gh/one/neo-oracle",
+      hasLiveSession: false,
+      lastActivityMs: 0,
+      recommended: true,
+    });
     expect(writes.join("")).toContain("/gh/one/neo-oracle");
 
     await expect(pickOracle([], {

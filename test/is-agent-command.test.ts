@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { isAgentCommand } from "../src/core/transport/ssh";
+import { engineIdlePromptPatterns, isAgentCommandForConfig } from "../src/core/agent-detect";
 
 describe("isAgentCommand", () => {
   test("matches classic agent binary names", () => {
@@ -65,9 +66,29 @@ describe("isAgentCommand", () => {
     expect(isAgentCommand("  node  ")).toBe(true);
   });
 
-  test("claude / codex stay substring-matched (distinctive — no false positives)", () => {
+  test("claude / codex process names remain recognized", () => {
     expect(isAgentCommand("claude")).toBe(true);
     expect(isAgentCommand("claude-code")).toBe(true);
     expect(isAgentCommand("codex")).toBe(true);
   });
+  test("matches configured engine processNames without hardcoded regex updates", () => {
+    const config = {
+      commands: {},
+      engines: { gemini: { name: "gemini", cmd: "gemini", processNames: ["gemini-cli", "/opt/bin/gemini-agent"] } },
+    };
+
+    expect(isAgentCommandForConfig("gemini-cli", config)).toBe(true);
+    expect(isAgentCommandForConfig("/opt/bin/gemini-agent", config)).toBe(true);
+    expect(isAgentCommandForConfig("gemini-agent-helper", config)).toBe(false);
+  });
+
+  test("matches engine idle prompts from configured processNames", () => {
+    const config = {
+      commands: {},
+      engines: { gemini: { name: "gemini", cmd: "gemini", processNames: ["gemini-cli"] } },
+    };
+
+    expect(engineIdlePromptPatterns(config).some((pattern) => pattern.test("Ask gemini-cli?"))).toBe(true);
+  });
+
 });

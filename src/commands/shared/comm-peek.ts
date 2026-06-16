@@ -49,10 +49,41 @@ export function resolveSearchSessions(
   return sessions;
 }
 
-export interface CmdPeekDeps extends ResolveSearchSessionsDeps {
+export interface ResolvePeekTargetDeps extends ResolveSearchSessionsDeps {
   listSessions: typeof listSessions;
-  capture: typeof capture;
   findWindow: typeof findWindow;
+}
+
+export function resolvePeekTargetDeps(overrides: Partial<ResolvePeekTargetDeps> = {}): ResolvePeekTargetDeps {
+  return {
+    ...resolveSearchSessionsDeps(),
+    listSessions,
+    findWindow,
+    ...overrides,
+  };
+}
+
+export async function resolvePeekTarget(query: string, deps: Partial<ResolvePeekTargetDeps> = {}): Promise<string | null> {
+  const io = resolvePeekTargetDeps(deps);
+  let normalized = normalizeTarget(query);
+  const config = io.loadConfig();
+
+  // Keep the same local node-prefix behavior as cmdPeek: `local:<agent>` and
+  // `<config.node>:<agent>` are aliases for the local agent/window query, not
+  // literal tmux `session:window` targets.
+  if (normalized.includes(":") && !normalized.includes("/")) {
+    const [nodeName, agentName] = normalized.split(":", 2);
+    const localNode = config.node || "local";
+    if (nodeName === localNode || nodeName === "local") normalized = agentName;
+  }
+
+  const sessions = await io.listSessions();
+  const searchIn = resolveSearchSessions(normalized, sessions, { ...io, loadConfig: () => config });
+  return io.findWindow(searchIn, normalized);
+}
+
+export interface CmdPeekDeps extends ResolvePeekTargetDeps {
+  capture: typeof capture;
   curlFetch: typeof curlFetch;
   shouldAutoWake: typeof shouldAutoWake;
   log: (...args: unknown[]) => void;
@@ -145,8 +176,7 @@ export async function cmdPeek(query?: string, deps: Partial<CmdPeekDeps> = {}) {
     }
     return;
   }
-  const searchIn = resolveSearchSessions(query, sessions, io);
-  const target = io.findWindow(searchIn, query);
+  const target = await resolvePeekTarget(query, { ...io, listSessions: async () => sessions });
   if (!target) { io.error(`window not found: ${query}`); io.exit(1); }
   const content = await io.capture(target);
   io.log(`\x1b[36m--- ${target} ---\x1b[0m`);

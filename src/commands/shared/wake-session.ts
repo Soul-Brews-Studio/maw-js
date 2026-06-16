@@ -1,6 +1,8 @@
 import { hostExec, tmux } from "../../sdk";
 import { buildCommand, buildCommandInDir, cfgTimeout } from "../../config";
 import { execSync } from "child_process";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
 
 type WakeTmuxDeps = Pick<typeof tmux, "switchClient" | "listWindows" | "getPaneCommands" | "sendText">;
@@ -20,6 +22,10 @@ export interface WakeSessionDeps {
   named: boolean;
   /** Filesystem layout for newly-created worktrees (#1850). Defaults to nested repo/agents/<name>. */
   layout: WorktreeLayout;
+  /** Existing tmux window names in the target session; used to avoid duplicate wake --task windows. */
+  existingWindowNames: Iterable<string>;
+  /** Engine to persist for rehydrating this worktree later. Defaults to claude. */
+  engine: string;
 }
 
 export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
@@ -35,8 +41,73 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
     fresh: false,
     named: false,
     layout: "nested",
+    existingWindowNames: [],
+    engine: "claude",
     ...overrides,
   };
+}
+
+export const WORKTREE_ENGINE_FILE = ".maw-engine";
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function acquireWorktreePathLock(
+  wtPath: string,
+  hostExecFn: WakeSessionDeps["hostExec"],
+): Promise<(() => Promise<void>) | null> {
+  const quotedPath = shellSingleQuote(wtPath);
+  const quotedLock = shellSingleQuote(`${wtPath}.maw-create.lock`);
+  try {
+    await hostExecFn(`[ ! -e ${quotedPath} ] && mkdir ${quotedLock}`);
+  } catch {
+    return null;
+  }
+  return async () => {
+    try {
+      await hostExecFn(`rmdir ${quotedLock} 2>/dev/null || true`);
+    } catch { /* best-effort lock cleanup */ }
+  };
+}
+
+function normalizeWorktreeEngineName(engine: string | undefined, fallbackToClaude = false): string | undefined {
+  const normalized = ((engine ?? (fallbackToClaude ? "claude" : ""))).trim().split(/\r?\n/, 1)[0]?.trim();
+  if (!normalized) return undefined;
+  // Engine names are config keys / built-ins. Reject unsafe file contents
+  // loudly at read-time so rehydrate never silently falls back to the wrong engine.
+  if (!/^[A-Za-z0-9_.:-]+$/.test(normalized)) return undefined;
+  return normalized;
+}
+
+export function readWorktreeEngineFile(wtPath: string): string | undefined {
+  const marker = join(wtPath, WORKTREE_ENGINE_FILE);
+  let raw: string;
+  try {
+    raw = readFileSync(marker, "utf-8");
+  } catch {
+    return undefined;
+  }
+  const normalized = normalizeWorktreeEngineName(raw);
+  if (!normalized) {
+    throw new Error(`invalid worktree engine marker ${marker}: expected /^[A-Za-z0-9_.:-]+$/`);
+  }
+  return normalized;
+}
+
+export function writeWorktreeEngineFile(
+  wtPath: string,
+  engine: string | undefined,
+  log: WakeSessionDeps["log"] = () => {},
+): void {
+  const normalized = normalizeWorktreeEngineName(engine, true);
+  if (!normalized) return;
+  try {
+    writeFileSync(join(wtPath, WORKTREE_ENGINE_FILE), `${normalized}\n`, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`\x1b[33m⚠\x1b[0m .maw-engine write skipped: ${message}`);
+  }
 }
 
 /** Attach to tmux session — switch-client if inside tmux, attach if fresh shell */
@@ -219,22 +290,39 @@ export async function createWorktree(
   const nums = existingWorktrees.map(w => parseInt(w.name) || 0);
   let nextNum = d.fresh && nums.length > 0 ? Math.max(...nums) + 1 : 1;
   const safe = (s: string) => s.replace(/'/g, "'\\''");
-  try { await d.hostExec(`git -C '${safe(repoPath)}' rev-parse HEAD 2>/dev/null`); } catch {
-    await d.hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
+  try { await d.hostExec(`git -C ${shellSingleQuote(repoPath)} rev-parse HEAD 2>/dev/null`); } catch {
+    await d.hostExec(`git -C ${shellSingleQuote(repoPath)} commit --allow-empty -m "init: bootstrap for worktree"`);
   }
 
   const layout = normalizeWorktreeLayout(d.layout);
+  if (layout === "nested") {
+    await d.hostExec(`mkdir -p ${shellSingleQuote(`${repoPath}/agents`)}`);
+  }
+  const existingWindowNames = new Set([...d.existingWindowNames].filter(Boolean));
+  const preferredWindowName = `${oracle}-${name}`;
+  const windowNameForWorktree = (wtName: string): string => {
+    if (d.named) return preferredWindowName;
+    return existingWindowNames.has(preferredWindowName) ? `${oracle}-${wtName}` : preferredWindowName;
+  };
   let wtName = "";
   let wtPath = "";
   let branch = "";
+  let windowName = "";
   let branchExists = false;
   let allocated = false;
+  let releaseWorktreePathLock: (() => Promise<void>) | null = null;
   if (d.named) {
     wtName = name;
     wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
     branch = `agents/${wtName}`;
+    windowName = windowNameForWorktree(wtName);
+    if (existingWindowNames.has(windowName)) {
+      throw new Error(`tmux window '${windowName}' already exists`);
+    }
     const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
     if (!knownWorktree) {
+      releaseWorktreePathLock = await acquireWorktreePathLock(wtPath, d.hostExec);
+      if (!releaseWorktreePathLock) throw new Error(`worktree slot '${wtName}' is already reserved`);
       try {
         await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
         branchExists = true;
@@ -248,8 +336,14 @@ export async function createWorktree(
       wtName = `${nextNum}-${name}`;
       wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
       branch = `agents/${wtName}`;
+      windowName = windowNameForWorktree(wtName);
       const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
-      if (knownWorktree) {
+      if (knownWorktree || existingWindowNames.has(windowName)) {
+        nextNum++;
+        continue;
+      }
+      releaseWorktreePathLock = await acquireWorktreePathLock(wtPath, d.hostExec);
+      if (!releaseWorktreePathLock) {
         nextNum++;
         continue;
       }
@@ -257,6 +351,8 @@ export async function createWorktree(
         await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
         branchExists = true;
         if (d.fresh) {
+          await releaseWorktreePathLock();
+          releaseWorktreePathLock = null;
           nextNum++;
           continue;
         }
@@ -268,18 +364,20 @@ export async function createWorktree(
     }
   }
 
-  if (!allocated || !wtName || !wtPath || !branch) {
+  if (!allocated || !wtName || !wtPath || !branch || !windowName) {
     throw new Error(`could not allocate worktree for ${name}`);
   }
 
-  if (layout === "nested") {
-    await d.hostExec(`mkdir -p '${safe(repoPath)}/agents'`);
-  }
   const addArgs = branchExists
     ? `'${safe(wtPath)}' '${safe(branch)}'`
     : `'${safe(wtPath)}' -b '${safe(branch)}'`;
-  await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
-  await reconcileParentClaudeDir(repoPath, wtPath, d.log);
-  d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
-  return { wtPath, windowName: `${oracle}-${name}` };
+  try {
+    await d.hostExec(`git -C '${safe(repoPath)}' worktree add ${addArgs}`);
+    await reconcileParentClaudeDir(repoPath, wtPath, d.log);
+    writeWorktreeEngineFile(wtPath, d.engine, d.log);
+    d.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch}${branchExists ? ", reused branch" : ""})`);
+    return { wtPath, windowName };
+  } finally {
+    await releaseWorktreePathLock?.();
+  }
 }

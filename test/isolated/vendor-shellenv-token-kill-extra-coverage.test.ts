@@ -83,10 +83,10 @@ afterAll(() => {
 describe("vendor kill implementation branch coverage", () => {
   test("rejects a missing target before querying tmux", async () => {
     const { errors } = await captureConsole(async () => {
-      await expect(cmdKill("")).rejects.toThrow("usage: maw kill <target>[:window] [--pane N]");
+      await expect(cmdKill("")).rejects.toThrow("usage: maw kill <target>[:window] [--pane N] [--index N|--all]");
     });
 
-    expect(errors.join("\n")).toContain("usage: maw kill <target>[:window] [--pane N]");
+    expect(errors.join("\n")).toContain("usage: maw kill <target>[:window] [--pane N] [--index N|--all]");
     expect(hostExecCalls).toEqual([]);
   });
 
@@ -189,6 +189,40 @@ describe("vendor kill implementation branch coverage", () => {
       throw new Error(`unexpected command: ${cmd}`);
     };
     await expect(cmdKill("mawjs", { pane: 4 })).rejects.toThrow("kill-pane failed: permission denied");
+  });
+
+  test("refuses duplicate window names unless --index or --all disambiguates", async () => {
+    sessions = [{
+      name: "47-mawjs",
+      windows: [
+        { index: 0, name: "lead" },
+        { index: 2, name: "codex" },
+        { index: 5, name: "codex" },
+      ],
+    }];
+    hostExecImpl = (cmd) => {
+      if (cmd.includes("kill-window -t '47-mawjs:2'")) return "";
+      if (cmd.includes("kill-window -t '47-mawjs:5'")) return "";
+      throw new Error(`unexpected command: ${cmd}`);
+    };
+
+    await expect(cmdKill("mawjs:codex")).rejects.toThrow(
+      "use --index N to kill one, or --all to kill all matching windows",
+    );
+    expect(hostExecCalls).toEqual([]);
+
+    await expect(captureConsole(() => cmdKill("mawjs:codex", { index: 5 }))).resolves.toMatchObject({
+      logs: [expect.stringContaining("killed window 47-mawjs:5")],
+    });
+
+    hostExecCalls = [];
+    await expect(captureConsole(() => cmdKill("mawjs:codex", { all: true }))).resolves.toMatchObject({
+      logs: [expect.stringContaining("killed 2 windows 47-mawjs:2, 47-mawjs:5")],
+    });
+    expect(hostExecCalls).toEqual([
+      "tmux kill-window -t '47-mawjs:2'",
+      "tmux kill-window -t '47-mawjs:5'",
+    ]);
   });
 
   test("kills windows and sessions, wrapping tmux failures with action-specific messages", async () => {

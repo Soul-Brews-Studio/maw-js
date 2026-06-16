@@ -1,10 +1,13 @@
-import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, rmSync } from "fs";
 import { createHash } from "crypto";
-import { join } from "path";
+import { join, resolve as resolvePath } from "path";
 import { tmux } from "maw-js/sdk";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
+import { writeWorktreeEngineFile } from "../../../commands/shared/wake-session";
+import { loadConfig } from "../../../config/load";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -73,6 +76,42 @@ export function mergeTeamKnowledge(name: string, teammates: Array<{ name: string
     const archiveDest = join(PSI, "memory", "mailbox", "teams", name);
     mkdirSync(archiveDest, { recursive: true });
     copyFileSync(manifestSrc, join(archiveDest, "manifest.json"));
+  }
+}
+
+
+function isCodexLikeSpawnEngine(engine: string, config: ReturnType<typeof loadConfig>): boolean {
+  try {
+    const resolved = resolveEngine(engine, config) as { name?: string; cmd?: string; processNames?: string[] };
+    const haystack = [engine, resolved.name, resolved.cmd, ...(resolved.processNames ?? [])]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ");
+    return /(^|[\s/_-])(codex|omx)([\s/_-]|$)/i.test(haystack);
+  } catch {
+    return /^(codex|omx)$/i.test(engine);
+  }
+}
+
+function gitTopLevel(cwd: string): string | null {
+  try {
+    const proc = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe" });
+    if (proc.exitCode !== 0) return null;
+    const top = new TextDecoder().decode(proc.stdout).trim();
+    return top ? resolvePath(top) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function assertTeamSpawnWorktreeIsolation(role: string, engine: string, opts: { cwd?: string }, config: ReturnType<typeof loadConfig>, currentCwd = process.cwd()): void {
+  if (!isCodexLikeSpawnEngine(engine, config)) return;
+  if (!opts.cwd) {
+    throw new Error(`codex-like team spawn for '${role}' requires --worktree/--cwd; refusing to run in the shared checkout (#2764)`);
+  }
+  const targetTop = gitTopLevel(opts.cwd);
+  const currentTop = gitTopLevel(currentCwd);
+  if (targetTop && currentTop && targetTop === currentTop) {
+    throw new Error(`codex-like team spawn for '${role}' must use an isolated git worktree, not the shared checkout: ${opts.cwd} (#2764)`);
   }
 }
 
@@ -150,6 +189,44 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   cleanupTeamDir(name);
   console.log(`\x1b[32m✓\x1b[0m team '${name}' shut down${opts.merge ? " (knowledge merged)" : ""}`);
+}
+
+
+function teamConfigHasNoMembers(name: string): boolean {
+  const team = loadTeam(name);
+  return Boolean(team && Array.isArray(team.members) && team.members.length === 0);
+}
+
+function sessionMatchesTeamName(sessionName: string, teamName: string): boolean {
+  return sessionName === teamName || sessionName.replace(/^\d+-/, "") === teamName;
+}
+
+export async function cmdTeamPrune(): Promise<string[]> {
+  let teamDirs: string[] = [];
+  try {
+    teamDirs = readdirSync(TEAMS_DIR).filter((name) => existsSync(join(TEAMS_DIR, name, "config.json")));
+  } catch {
+    teamDirs = [];
+  }
+
+  const sessions = await tmux.listSessions().catch(() => [] as Array<{ name: string }>);
+  const activeNames = new Set(sessions.map((session) => session.name));
+  const pruned: string[] = [];
+
+  for (const name of teamDirs) {
+    if (!teamConfigHasNoMembers(name)) continue;
+    if ([...activeNames].some((sessionName) => sessionMatchesTeamName(sessionName, name))) continue;
+    rmSync(join(TEAMS_DIR, name), { recursive: true, force: true });
+    pruned.push(name);
+  }
+
+  if (pruned.length === 0) {
+    console.log("\x1b[90mNo empty inactive teams to prune.\x1b[0m");
+  } else {
+    for (const name of pruned) console.log(`\x1b[32m✓\x1b[0m pruned empty team '${name}'`);
+    console.log(`\x1b[32m✓\x1b[0m pruned ${pruned.length} empty inactive team${pruned.length === 1 ? "" : "s"}`);
+  }
+  return pruned;
 }
 
 // ─── maw team create <name> ───
@@ -232,8 +309,12 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const engine = opts.engine || "claude";
-  const model = opts.model || (engine === "claude" ? "sonnet" : undefined);
+  const config = loadConfig();
+  const engine = opts.engine || config.defaultEngine || defaultEngineNameForConfig(config);
+  assertTeamSpawnWorktreeIsolation(role, engine, opts, config);
+  if (opts.cwd && existsSync(opts.cwd)) writeWorktreeEngineFile(opts.cwd, engine, console.log.bind(console));
+  const resolvedEngine = resolveEngine(engine, config);
+  const model = opts.model || resolvedEngine.model?.default;
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];

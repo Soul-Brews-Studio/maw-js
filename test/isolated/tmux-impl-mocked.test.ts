@@ -176,10 +176,14 @@ describe("cmdTmuxSplit/Layout/Kill — mocked tmux commands", () => {
     ]);
   });
 
-  test("kill refuses fleet sessions without force before hostExec kill", async () => {
+  test("kill allows fleet panes but refuses whole fleet sessions without force", async () => {
     fleetFiles = ["101-mawjs.json"];
 
-    await expect(cmdTmuxKill("101-mawjs:0.1")).rejects.toThrow(/refusing to kill: session '101-mawjs'/);
+    await captureLogs(() => cmdTmuxKill("101-mawjs:0.1"));
+    expect(hostCalls).toEqual(["tmux kill-pane -t '101-mawjs:0.1'"]);
+
+    hostCalls = [];
+    await expect(cmdTmuxKill("101-mawjs:0.1", { session: true })).rejects.toThrow(/refusing to kill: session '101-mawjs'/);
     expect(hostCalls).toEqual([]);
   });
 

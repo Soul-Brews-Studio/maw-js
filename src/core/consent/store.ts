@@ -88,18 +88,41 @@ export interface PendingRequest {
 
 function emptyTrust(): TrustFile { return { version: 1, trust: {} }; }
 
+function corruptTrustPath(path: string, attempt = 0): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const candidate = `${path}.corrupt-${stamp}${attempt ? `-${attempt}` : ""}`;
+  return existsSync(candidate) ? corruptTrustPath(path, attempt + 1) : candidate;
+}
+
+function quarantineCorruptTrust(path: string, reason: string): void {
+  const dest = corruptTrustPath(path);
+  try {
+    renameSync(path, dest);
+    console.warn(`[consent-trust] trust store at ${path} is corrupt/unreadable (${reason}); moved aside to ${dest}; starting with empty trust`);
+  } catch (error) {
+    const moveReason = error instanceof Error ? error.message : String(error);
+    console.warn(`[consent-trust] trust store at ${path} is corrupt/unreadable (${reason}); failed to move aside (${moveReason}); starting with empty trust`);
+  }
+}
+
 export function loadTrust(): TrustFile {
   const path = readableTrustPath();
   if (!path) return emptyTrust();
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<TrustFile>;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyTrust();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      quarantineCorruptTrust(path, "invalid shape: expected object");
+      return emptyTrust();
+    }
     const trust = (parsed as { trust?: unknown }).trust;
     if (trust !== undefined && (typeof trust !== "object" || trust === null || Array.isArray(trust))) {
+      quarantineCorruptTrust(path, "invalid shape: expected trust object");
       return emptyTrust();
     }
     return { version: 1, trust: (trust ?? {}) as Record<string, TrustEntry> };
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    quarantineCorruptTrust(path, reason);
     return emptyTrust();
   }
 }

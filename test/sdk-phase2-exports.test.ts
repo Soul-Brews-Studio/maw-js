@@ -71,6 +71,15 @@ describe("@maw-js/sdk Phase 2 widening", () => {
     expect(typeof sdk.artifactDir).toBe("function");
   });
 
+  test("re-exports channel-loader helpers", () => {
+    expect(typeof sdk.loadOracleChannels).toBe("function");
+    expect(typeof sdk.saveOracleChannels).toBe("function");
+    expect(typeof sdk.listAllOracleChannels).toBe("function");
+    expect(typeof sdk.loadRepoChannels).toBe("function");
+    expect(typeof sdk.saveRepoChannels).toBe("function");
+    expect(typeof sdk.getChannelEnv).toBe("function");
+  });
+
   // Behavior smoke: pure functions are safe to invoke without filesystem state.
   test("normalizeTarget strips trailing /.git/", () => {
     expect(sdk.normalizeTarget("foo/.git/")).toBe("foo");

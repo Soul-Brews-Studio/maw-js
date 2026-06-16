@@ -64,6 +64,19 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR: fleetDir,
+  ghqFind: async (pattern: string) => {
+    ghqCalls.push(pattern);
+    return ghqResults.get(pattern) ?? null;
+  },
+  ghqList: async () => ghqListResult,
+  loadFleetEntries: loadTestFleetEntries,
+  loadConfig: () => configState,
+  resolveOraclePane: async (target: string) => {
+    paneCalls.push(target);
+    if (paneError) throw paneError;
+    return paneResult;
+  },
+  UserError: class UserError extends Error {},
   listSessions: async () => {
     if (listSessionsError) throw listSessionsError;
     return sessions;

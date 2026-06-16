@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
-import { mkdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 
 let commands: string[] = [];
 let nextPane = 1;
@@ -32,6 +32,14 @@ function paneIdsFromPaneList(): string[] {
     .filter(Boolean);
 }
 
+function linkedWorktreeGlobList(): string {
+  return worktreeGlobList
+    .split("\n")
+    .filter(Boolean)
+    .filter(path => existsSync(join(path, ".git")))
+    .join("\n") + (worktreeGlobList.trim() ? "\n" : "");
+}
+
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   FLEET_DIR: "/tmp/fleet",
   curlFetch: async () => ({ ok: false, status: 404, text: async () => "" }),
@@ -52,6 +60,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     }
     if (cmd.includes("rev-parse --git-common-dir")) return gitCommonDir;
     if (cmd.includes("git rev-parse --show-toplevel")) return "/tmp/maw-js\n";
+    if (cmd.includes("find") && cmd.includes(".wt-*") && cmd.includes('[ -e \"$dir/.git\" ]')) return linkedWorktreeGlobList();
     if (cmd.includes("ls -d") && cmd.includes(".wt-*")) return worktreeGlobList;
     if (cmd.includes("git -C '/tmp/maw-js' worktree list")) return worktreeList;
     if (cmd.includes("show-ref --verify")) throw new Error("missing branch");
@@ -147,7 +156,8 @@ describe("tile plugin spawn metadata", () => {
     expect(splitCommand).toContain("MAW_TILE_WINDOW='\\''sess:1'\\''");
     expect(splitCommand).toContain("exec zsh");
     expect(splitCommand).not.toContain("; claude;");
-    expect(commands).toContain("tmux send-keys -t '%p1' -l 'claude'");
+    const launchCommand = commands.find(cmd => cmd.startsWith("tmux send-keys -t '%p1' -l "));
+    expect(launchCommand).toContain("claude");
     expect(commands).toContain("tmux send-keys -t '%p1' Enter");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile '1'");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_parent 'sess:1.0'");
@@ -222,6 +232,7 @@ describe("tile plugin spawn metadata", () => {
 
   test("reuses named --wt worktrees and resolves --path relative to that worktree", async () => {
     mkdirSync("/tmp/maw-js.wt-explore-1234/src", { recursive: true });
+    writeFileSync("/tmp/maw-js.wt-explore-1234/.git", "gitdir: /tmp/maw-js/.git/worktrees/explore-1234\n");
     worktreeGlobList = "/tmp/maw-js.wt-explore-1234\n";
 
     await cmdTile(2, { wt: "explore-1234", path: "src" });

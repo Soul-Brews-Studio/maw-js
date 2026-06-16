@@ -1,7 +1,6 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdBud } from "./impl";
 import { cmdBudFromRepo, looksLikeUrl } from "./from-repo";
-import { parseFlags } from "maw-js/cli/parse-args";
+import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
 
 export const command = {
   name: "bud",

@@ -1,0 +1,43 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "serve-peer-startup-warnings",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "core",
+  "description": "Emits maw serve startup warnings for peer auth exposure and duplicate peer identity.",
+  "author": "Soul-Brews-Studio",
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "ensures": [
+        "serve:startup:peer-warnings"
+      ],
+      "policy": "best-effort"
+    }
+  },
+  "module": {
+    "path": "./index.ts",
+    "exports": [
+      "serve",
+      "runServePeerStartupWarnings",
+      "warnMissingFederationTokenOnce",
+      "warnMissingFederationTokenIfNeeded",
+      "warnDuplicatePeerIdentityAtBoot",
+      "resetServePeerStartupWarningStateForTests"
+    ]
+  },
+  "capabilities": [
+    "serve:startup",
+    "peers:read"
+  ],
+  "capabilityNamespaces": [
+    "serve",
+    "peers"
+  ],
+  "weight": 2,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

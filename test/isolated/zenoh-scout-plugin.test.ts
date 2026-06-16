@@ -8,10 +8,10 @@ import {
   readZenohScoutConfig,
   runZenohScout,
   formatZenohScoutResult,
+  ZenohScoutTransport,
   keyexprFromReply,
   type ZenohApi,
 } from "../../src/vendor/mpr-plugins/zenoh-scout/impl";
-import { ZenohScoutTransport } from "../../src/transports/zenoh-scout";
 import { discoveryTransport } from "../../src/transports";
 
 describe("zenoh-scout plugin (#1455)", () => {

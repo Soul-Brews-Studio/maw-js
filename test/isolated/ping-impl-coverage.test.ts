@@ -11,15 +11,12 @@ let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
 
-mock.module("maw-js/config", () => ({
+mock.module("maw-js/sdk", () => ({
   loadConfig: () => configState,
   cfgTimeout: (name: string) => {
     cfgTimeoutCalls.push(name);
     return 4321;
   },
-}));
-
-mock.module("maw-js/sdk", () => ({
   curlFetch: async (url: string, opts: Record<string, unknown>) => {
     curlFetchCalls.push({ url, opts });
     const next = curlFetchQueue.shift();

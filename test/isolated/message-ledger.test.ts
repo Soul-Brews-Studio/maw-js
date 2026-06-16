@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildMessageLifecycleFeedEvent } from "../../src/lib/message-events";
-import { listMessageLedgerEvents, messageLedgerDbPath, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
+import { listMessageLedgerEvents, messageLedgerDbPath, pruneMessageLedgerEvents, recordMessageLedgerEvent } from "../../src/vendor/mpr-plugins/messages/ledger";
 import messagesHandler, { messagesEngineFetch, onEvent } from "../../src/vendor/mpr-plugins/messages/index";
 import { messagesHtml, messagesView } from "../../src/views/messages";
 import type { FeedEvent } from "../../src/lib/feed";
@@ -14,12 +14,16 @@ let dataDir: string;
 const prevConfig = process.env.MAW_CONFIG_DIR;
 const prevData = process.env.MAW_DATA_DIR;
 const prevHome = process.env.MAW_HOME;
+const prevKeepLast = process.env.MAW_MESSAGE_KEEP_LAST;
+const prevMaxAgeDays = process.env.MAW_MESSAGE_MAX_AGE_DAYS;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "maw-message-ledger-"));
   configDir = join(tmp, "config");
   dataDir = join(tmp, "data");
   delete process.env.MAW_HOME;
+  delete process.env.MAW_MESSAGE_KEEP_LAST;
+  delete process.env.MAW_MESSAGE_MAX_AGE_DAYS;
   process.env.MAW_CONFIG_DIR = configDir;
   process.env.MAW_DATA_DIR = dataDir;
 });
@@ -31,6 +35,10 @@ afterEach(() => {
   else process.env.MAW_DATA_DIR = prevData;
   if (prevHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = prevHome;
+  if (prevKeepLast === undefined) delete process.env.MAW_MESSAGE_KEEP_LAST;
+  else process.env.MAW_MESSAGE_KEEP_LAST = prevKeepLast;
+  if (prevMaxAgeDays === undefined) delete process.env.MAW_MESSAGE_MAX_AGE_DAYS;
+  else process.env.MAW_MESSAGE_MAX_AGE_DAYS = prevMaxAgeDays;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -112,6 +120,38 @@ describe("messages plugin ledger", () => {
 
     expect(listMessageLedgerEvents({ direction: "inbound" })).toMatchObject([
       { id: "m3", state: "delivered", lastLine: "received" },
+    ]);
+  });
+
+  test("prunes oldest rows when message retention is exceeded", () => {
+    process.env.MAW_MESSAGE_KEEP_LAST = "3";
+    process.env.MAW_MESSAGE_MAX_AGE_DAYS = "9999";
+
+    for (let i = 1; i <= 5; i += 1) {
+      recordMessageLedgerEvent({
+        id: `retention-${i}`,
+        ts: `2026-05-16T01:0${i}:00.000Z`,
+        direction: "outbound",
+        state: "delivered",
+        channel: "hey",
+        route: "local",
+        from: "m5:mawjs-codex",
+        to: "m5:mawjs-oracle",
+        text: `retention ${i}`,
+      });
+    }
+
+    expect(listMessageLedgerEvents({ limit: 10 }).map(row => row.id)).toEqual([
+      "retention-5",
+      "retention-4",
+      "retention-3",
+    ]);
+
+    process.env.MAW_MESSAGE_KEEP_LAST = "2";
+    expect(pruneMessageLedgerEvents()).toMatchObject({ removed: 1, retained: 2 });
+    expect(listMessageLedgerEvents({ limit: 10 }).map(row => row.id)).toEqual([
+      "retention-5",
+      "retention-4",
     ]);
   });
 });

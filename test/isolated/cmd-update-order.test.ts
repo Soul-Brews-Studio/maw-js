@@ -8,9 +8,9 @@
  *
  * This test reads the source file and asserts two invariants:
  *   1. The REF_RE allowlist check appears BEFORE any `bun remove` call
- *   2. `bun add` appears BEFORE `bun remove` in the atomic happy-path
- *      (the remove-as-fallback is only on failure, and still only after
- *      at least one install attempt)
+ *   2. Branch-ref `bun add` fallback appears BEFORE `bun remove`
+ *      (the remove-as-fallback is only on branch install failure, and still
+ *      only after at least one install attempt)
  *
  * If someone refactors this file without preserving the invariants, this
  * test catches it — not by behavior (hard to test spawn ordering in unit
@@ -40,7 +40,7 @@ describe("cmd-update source-order invariants", () => {
     expect(refReIdx).toBeLessThan(removeCallIdx);
   });
 
-  it("`Bun.spawn(['bun', 'add', ...])` appears before the `bun remove` execSync (atomic: try add first)", () => {
+  it("branch fallback `Bun.spawn(['bun', 'add', ...])` appears before the `bun remove` execSync", () => {
     const addSpawnMatch = src.match(ADD_SPAWN_RE);
     const removeCallMatch = src.match(REMOVE_CALL_RE);
     expect(addSpawnMatch).not.toBeNull();
@@ -63,10 +63,11 @@ describe("cmd-update source-order invariants", () => {
     expect(src).toMatch(/-o ~\/\.bun\/bin\/maw/);
   });
 
-  it("failure path prints fallback dep-loop instructions", () => {
-    // If the curl URL 404s (e.g. branch ref, not a tag), the user gets a
-    // pointer at the manual file-level eviction.
-    expect(src).toMatch(/edit ~\/\.bun\/install\/global\/package\.json to drop maw-js/);
+  it("failure path keeps resolver cleanup before retry", () => {
+    // If the release URL is unavailable (e.g. branch ref, not a tag), the bun
+    // fallback still clears resolver metadata before retrying.
+    expect(src).toContain("clearBunGlobalResolverState");
+    expect(src).toContain("release binary not available — falling back to bun add");
   });
 
   // #950 — direct-evict of global package.json + node_modules must run
@@ -95,7 +96,7 @@ describe("cmd-update source-order invariants", () => {
 
   it("#1449: resolver metadata is cleared before the first `bun add`", () => {
     const clearIdx = src.indexOf("const restoreResolverState = clearBunGlobalResolverState()");
-    const firstAddIdx = src.indexOf("let installCode = await spawnInstall().exited");
+    const firstAddIdx = src.indexOf("installCode = await spawnInstall().exited");
     expect(clearIdx).toBeGreaterThan(-1);
     expect(firstAddIdx).toBeGreaterThan(-1);
     expect(clearIdx).toBeLessThan(firstAddIdx);

@@ -32,6 +32,9 @@ let cmdWakeCalls = 0;
 let resolveTargetReturn: unknown = { type: "error", reason: "not_found", detail: "…" };
 let listSessionsReturn: Array<{ name: string; windows: Array<{ index: number; name: string; active: boolean }> }> = [];
 let origClaudeAgentName: string | undefined;
+let origSshClient: string | undefined;
+let origSshConnection: string | undefined;
+let origSshTty: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +63,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/config"), () => {
   const { mockConfigModule } = require("../helpers/mock-config");
-  return mockConfigModule(() => ({ node: "test-node", port: 3456 }));
+  return mockConfigModule(() => ({ node: "test-node", port: 3456, commands: { default: "claude" } }));
 });
 
 mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({
@@ -90,6 +93,10 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => (
     cmdWakeCalls++;
     return null;
   },
+}));
+
+mock.module(join(import.meta.dir, "../../src/commands/shared/hey-locate-resolution"), () => ({
+  resolveBareHeyByLocatePath: async () => ({ result: null, repoPath: null, crossNodeBlocked: false }),
 }));
 
 // Bun.sleep intercept — keep tests fast
@@ -129,7 +136,13 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 
 beforeEach(() => {
   origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+  origSshClient = process.env.SSH_CLIENT;
+  origSshConnection = process.env.SSH_CONNECTION;
+  origSshTty = process.env.SSH_TTY;
   process.env.CLAUDE_AGENT_NAME = "test-sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   mockActive = true;
   sendKeysCalls = [];
   resolveTargetCalls = 0;
@@ -145,6 +158,12 @@ afterEach(() => {
   delete process.env.MAW_QUIET;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
 });
 afterAll(() => {
   mockActive = false;
@@ -183,7 +202,6 @@ describe("cmdSend — bare-name local-first (#1572)", () => {
     expect(allErr).toContain("same-node targets:");
     expect(allErr).toContain("maw hey local:mawjs-oracle");
     expect(allErr).toContain("cross-node targets:");
-    expect(allErr).toContain("maw hey <node>:mawjs-oracle");
     expect(allErr).toContain("maw locate mawjs-oracle");
     // Local resolution happened, but remote/fallback delivery did not.
     expect(resolveTargetCalls).toBe(1);

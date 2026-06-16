@@ -1,0 +1,24 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "workon",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Open or resume work on a repository with optional task context.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "workon",
+    "aliases": [
+      "work"
+    ],
+    "help": "maw workon <repo> [task] [--layout nested|legacy] (default nested repo/agents/N-X; --layout legacy uses .wt-N-X)",
+    "flags": {
+      "--layout": "string"
+    }
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "tier": "standard"
+} as const);

@@ -138,6 +138,38 @@ describe("federationAuth protected runtime branches", () => {
 });
 
 describe("verifyRequest current-v3 malformed and edge branches", () => {
+  test("uncached partial v3 headers refuse malformed instead of falling back to legacy", () => {
+    const decision = verifyRequest({
+      method: "POST",
+      path: "/api/send",
+      headers: {
+        "x-maw-from": FROM,
+        "x-maw-signature-v3": "0".repeat(64),
+      },
+      body: "",
+      lookupPubkey: () => undefined,
+      now: 1_700_000_000,
+    });
+
+    expect(decision).toEqual({ kind: "refuse-malformed", reason: "invalid-timestamp" });
+  });
+
+  test("uncached partial legacy from-signing headers refuse malformed", () => {
+    const decision = verifyRequest({
+      method: "POST",
+      path: "/api/send",
+      headers: {
+        "x-maw-from": FROM,
+        "x-maw-signed-at": new Date(1_700_000_000_000).toISOString(),
+      },
+      body: "",
+      lookupPubkey: () => undefined,
+      now: 1_700_000_000,
+    });
+
+    expect(decision).toEqual({ kind: "refuse-malformed", reason: "missing-signature" });
+  });
+
   test("cached v3 request with malformed unix timestamp refuses as invalid-timestamp", () => {
     const decision = verifyRequest({
       method: "POST",

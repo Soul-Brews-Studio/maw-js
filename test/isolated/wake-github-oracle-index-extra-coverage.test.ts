@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+
+
+// Reset process-wide mocks before registering this file's shims.
+mock.restore();
 
 type HostExecImpl = (cmd: string) => Promise<string> | string;
 
@@ -9,26 +13,83 @@ const oracleImplListPath = join(import.meta.dir, "../../src/commands/plugins/ora
 let hostExecCalls: string[] = [];
 let hostExecImpl: HostExecImpl = () => "";
 
-mock.module(sdkPath, () => ({
+const sdkMock = () => ({
   CONFIG_DIR: "/tmp/maw-test-config",
   FLEET_DIR: "/tmp/maw-test-fleet",
-  tmux: { listSessions: async () => [] },
+  // Keep broad: this SDK mock can be visible to later isolated files.
+  UserError: class UserError extends Error {},
+  runHook: async () => undefined,
+  withPaneLock: async (fn: () => Promise<unknown>) => fn(),
+  splitWindowLocked: async () => "%1",
+  tagPane: async () => undefined,
+  readPaneTags: async () => ({}),
+  Tmux: class { async killSession() {} },
+  tmuxCmd: () => "tmux",
+  resolveSocket: () => undefined,
+  tmux: { listPaneIds: async () => new Set<string>(), listSessions: async () => [] },
   saveTabOrder: async () => undefined,
   takeSnapshot: async () => ({ id: "test-snapshot" }),
+  loadFleetCore: () => [],
+  getGhqRoot: () => process.cwd(),
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     return await hostExecImpl(cmd);
   },
   listSessions: async () => [],
+  findPeerForTarget: async () => null,
   capture: async () => "",
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  getPaneCommands: async () => [],
+  getPaneInfos: async () => [],
+  isAgentCommand: () => false,
   curlFetch: async () => ({ ok: false }),
+  resolveTarget: () => null,
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
   readCache: () => ({ oracles: [], scanned_at: new Date().toISOString() }),
   scanAndCache: async () => ({ oracles: [], scanned_at: new Date().toISOString() }),
   scanFull: async () => ({ oracles: [], scanned_at: new Date().toISOString() }),
   scanRemote: async () => ({ oracles: [], scanned_at: new Date().toISOString() }),
   isCacheStale: () => false,
   loadConfig: () => ({ sessions: {}, agents: {}, peers: [] }),
-}));
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawCacheDir: () => "/tmp/.maw/cache",
+  mawConfigDir: () => "/tmp/.maw/config",
+  mawDataDir: () => "/tmp/.maw",
+  mawDataPath: (...parts: string[]) => ["/tmp", ".maw", ...parts].join("/"),
+  mawStateDir: () => "/tmp/.maw/state",
+  mawStatePath: (...parts: string[]) => ["/tmp", ".maw", "state", ...parts].join("/"),
+  cmdWorkspaceCreate: async () => undefined,
+  cmdWorkspaceJoin: async () => undefined,
+  cmdWorkspaceShare: async () => undefined,
+  cmdWorkspaceUnshare: async () => undefined,
+  cmdWorkspaceLs: async () => undefined,
+  cmdWorkspaceAgents: async () => undefined,
+  cmdWorkspaceInvite: async () => undefined,
+  cmdWorkspaceLeave: async () => undefined,
+  cmdWorkspaceTeam: async () => undefined,
+  cmdWorkspaceStop: async () => undefined,
+  cmdWorkspaceSessions: async () => undefined,
+  cmdWorkspaceWhere: async () => undefined,
+  cmdWorkspaceStatus: async () => undefined,
+  cmdWorkspaceSend: async () => undefined,
+  cmdWorkspaceInspect: async () => undefined,
+  cmdWorkspaceSnapshot: async () => undefined,
+  cmdWorkspaceRestore: async () => undefined,
+  cmdWorkspaceClean: async () => undefined,
+});
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
+mock.module(join(import.meta.dir, "../../src/sdk/index.ts"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), sdkMock);
+mock.module(new URL("../../src/sdk/index.ts", import.meta.url).pathname, sdkMock);
 
 type FakeEnrichedEntry = {
   entry: {
@@ -151,6 +212,10 @@ function makeOracleHandler(overrides: Record<string, any> = {}) {
   return { handler: createOracleHandler(deps as any), calls };
 }
 
+afterAll(() => {
+  mock.restore();
+});
+
 describe("wake GitHub prompt resolver", () => {
   test("formats explicit-repo issues without consulting git remote", async () => {
     hostExecImpl = (cmd) => {
@@ -262,6 +327,7 @@ describe("oracle plugin handler", () => {
       scan: true,
       stale: true,
       path: true,
+      sortBy: undefined,
     }] }]);
   });
 
@@ -341,10 +407,10 @@ describe("oracle plugin handler", () => {
 
     expect(fleetResult.output).toContain("oracle.fleet is deprecated");
     expect(calls).toEqual([
-      { name: "list", args: [{ awake: true, org: "org", json: true, scan: true, stale: true, path: true }] },
+      { name: "list", args: [{ awake: true, org: "org", json: true, scan: true, stale: true, path: true, sortBy: undefined }] },
       { name: "scan", args: [{ json: true, force: true, local: true, remote: true, all: true, verbose: true }] },
       { name: "scanStale", args: [{ json: true, all: true }] },
-      { name: "list", args: [{ awake: true, org: "org", json: undefined, scan: undefined, stale: undefined, path: undefined }] },
+      { name: "list", args: [{ awake: true, org: "org", json: undefined, scan: undefined, stale: undefined, path: undefined, sortBy: undefined }] },
       { name: "prune", args: [{ stale: true, force: true, json: true }] },
       { name: "register", args: ["neo", { json: true }] },
       { name: "setNickname", args: ["neo", "One", { json: true }] },

@@ -5,6 +5,7 @@
 import { discoverPackages, resetDiscoverCache } from "../../plugin/registry";
 import { pluginCliNames } from "../../cli/dispatch-match";
 import { pluginDependencyNames } from "../../plugin/dependencies";
+import { UserError } from "../../core/util/user-error";
 
 function resolvePluginToggleName(input: string, plugins = discoverPackages()): string {
   const exact = plugins.find(p => p.manifest.name === input);
@@ -76,10 +77,7 @@ export function doDisable(name: string): void {
   }
   // Verify plugin exists
   const plugins = discoverPackages();
-  if (!plugins.find(p => p.manifest.name === pluginName)) {
-    console.error(`plugin not found: ${name}`);
-    process.exit(1);
-  }
+  if (!plugins.find(p => p.manifest.name === pluginName)) throw new UserError(`plugin not found: ${name}`);
   saveConfig({ disabledPlugins: [...disabled, pluginName] });
   resetDiscoverCache();  // config change → next discover call reflects it
   console.log(`\x1b[33m✗\x1b[0m disabled ${pluginName}`);

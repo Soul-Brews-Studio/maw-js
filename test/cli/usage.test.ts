@@ -30,6 +30,7 @@ describe("usage alias grouping", () => {
     expect(output).toContain("maw attach (a)");
     expect(output).toContain("maw bring (b)");
     expect(output).toContain("maw team (t)");
+    expect(output).toContain("maw work");
     expect(output).not.toMatch(/^\s+maw a\s/m);
     expect(output).not.toMatch(/^\s+maw b\s/m);
     expect(output).not.toMatch(/^\s+maw t\s/m);

@@ -79,6 +79,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/fleet-load"), () => (
 const { cmdFleetSync, cmdFleetSyncConfigs } = await import(
   "../../src/commands/shared/fleet-sync.ts?fleet-sync-extra-coverage"
 );
+const { isUserError } = await import("../../src/core/util/user-error.ts");
 
 let logs: string[] = [];
 let errors: string[] = [];
@@ -281,13 +282,20 @@ describe("fleet sync extra coverage", () => {
     expect(logs.join("\n")).toContain("✓ Fleet in sync");
   });
 
-  test("sync configs exits with an error when the repo fleet directory is missing", async () => {
+  test("sync configs throws UserError when the repo fleet directory is missing", async () => {
     repoFleetExists = false;
 
-    await expect(cmdFleetSyncConfigs()).rejects.toThrow("process.exit:1");
+    let thrown: unknown;
+    try {
+      await cmdFleetSyncConfigs();
+    } catch (err) {
+      thrown = err;
+    }
 
-    expect(exitCalls).toEqual([1]);
-    expect(errors.join("\n")).toContain("No fleet/ directory found in repo");
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("No fleet/ directory found in repo");
+    expect(exitCalls).toEqual([]);
+    expect(errors.join("\n")).toBe("");
     expect(readdirSyncMock).not.toHaveBeenCalled();
     expect(mkdirSyncMock).not.toHaveBeenCalled();
   });

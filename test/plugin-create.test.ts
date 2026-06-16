@@ -10,6 +10,7 @@ import {
   buildManifestJson,
 } from "../src/commands/shared/plugin-create";
 import { parseManifest } from "../src/plugin/manifest";
+import { isUserError } from "../src/core/util/user-error";
 
 // ─── Temp dir management ─────────────────────────────────────────────────────
 
@@ -313,34 +314,22 @@ describe("plugin.json manifest emission", () => {
 // ─── scaffoldRust — existing destination ─────────────────────────────────────
 
 describe("scaffoldRust — destination guard (via cmdPluginCreate)", () => {
-  test("rejects existing destination — process.exit(1) path", async () => {
-    // We exercise the check in cmdPluginCreate by pointing --dest at an existing dir
+  test("rejects existing destination with UserError", async () => {
+    // We exercise the check in cmdPluginCreate by pointing --dest at an existing dir.
     const existing = tmpDir();
 
-    // Patch process.exit AND console.error — the guard prints the dest path to
-    // stderr, which otherwise looks like a real test failure in CI logs and
-    // previously tripped osc8-gater (iter 10) into flagging a false "blocked" state.
-    const origExit = process.exit;
-    const origError = console.error;
-    let exitCode: number | undefined;
-    const errs: string[] = [];
-    console.error = (...a: unknown[]) => { errs.push(a.map(String).join(" ")); };
-    (process as any).exit = (code: number) => { exitCode = code; throw new Error("exit:" + code); };
-
+    let thrown: unknown;
+    const { cmdPluginCreate } = await import("../src/commands/shared/plugin-create");
     try {
-      const { cmdPluginCreate } = await import("../src/commands/shared/plugin-create");
       await cmdPluginCreate("my-plugin", {
         "--rust": true,
         "--dest": existing,
       });
-    } catch {
-      // expected — patched process.exit throws
-    } finally {
-      (process as any).exit = origExit;
-      console.error = origError;
+    } catch (err) {
+      thrown = err;
     }
 
-    expect(exitCode).toBe(1);
-    expect(errs.join("\n")).toContain("Destination already exists");
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("Destination already exists");
   });
 });

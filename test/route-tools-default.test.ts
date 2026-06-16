@@ -39,7 +39,7 @@ function harness(options: HarnessOptions = {}) {
     status: 0,
     stop: 0,
     locks: [] as any[],
-    servers: [] as number[],
+    servers: [] as any[],
     exists: [] as string[],
   };
 
@@ -105,7 +105,7 @@ function harness(options: HarnessOptions = {}) {
     }),
     loadServeStartTools: async () => ({
       acquirePidLock: (instanceName, opts) => { calls.locks.push({ instanceName, opts }); },
-      startServer: (port) => { calls.servers.push(port); },
+      startServer: (port, options) => { calls.servers.push({ port, options }); },
     }),
   };
 
@@ -191,11 +191,18 @@ describe("routeTools default-suite seams", () => {
   test("routes plugins, artifacts, agents, and audit through injected handlers", async () => {
     const h = harness();
 
+    expect(await routeToolsWithDeps("plugins", ["plugins", "install", "./demo", "--local", "--symlink", "--force"], h.deps)).toBe(true);
+    expect(h.calls.plugins[0]).toMatchObject({
+      sub: "install",
+      args: ["./demo", "--local", "--symlink", "--force"],
+      flags: { "--local": true, "--symlink": true, "--force": true },
+    });
+
     expect(await routeToolsWithDeps("plugins", ["plugins", "info", "about", "--json"], h.deps)).toBe(true);
-    expect(h.calls.plugins[0]).toMatchObject({ sub: "info", args: ["about", "--json"], flags: { "--json": true } });
+    expect(h.calls.plugins[1]).toMatchObject({ sub: "info", args: ["about", "--json"], flags: { "--json": true } });
 
     expect(await routeToolsWithDeps("plugin", ["plugin", "ls", "--all", "-v", "--api"], h.deps)).toBe(true);
-    expect(h.calls.plugins[1]).toMatchObject({
+    expect(h.calls.plugins[2]).toMatchObject({
       sub: "ls",
       args: ["--all", "-v", "--api"],
       flags: { "--all": true, "-v": true, "--api": true },
@@ -209,6 +216,37 @@ describe("routeTools default-suite seams", () => {
 
     expect(await routeToolsWithDeps("audit", ["audit", "5"], h.deps)).toBe(true);
     expect(h.calls.audits).toEqual([["5"]]);
+  });
+
+  test("plugin install --standard is handled as a bare-binary core bootstrap", async () => {
+    const h = harness({ lifecycleExists: "none" });
+    const original = process.env.MAW_PLUGINS_DIR;
+    const originalSource = process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
+    const root = await import("fs").then(({ mkdtempSync }) => mkdtempSync("/tmp/maw-route-standard-"));
+    try {
+      const { mkdirSync, writeFileSync, rmSync, readdirSync } = await import("fs");
+      const { join } = await import("path");
+      const sourceRoot = join(root, "maw-js");
+      const pluginDir = join(root, "plugins");
+      mkdirSync(join(sourceRoot, "src", "vendor", "mpr-plugins"), { recursive: true });
+      writeFileSync(join(sourceRoot, "package.json"), JSON.stringify({ name: "maw-js" }));
+      for (let i = 0; i < 50; i++) {
+        const name = `std-${i}`;
+        const dir = join(sourceRoot, "src", "vendor", "mpr-plugins", name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name, version: "1.0.0", sdk: "^1.0.0" }));
+        writeFileSync(join(dir, "index.ts"), "export default async () => ({ ok: true });\n");
+      }
+      process.env.MAW_PLUGINS_DIR = pluginDir;
+      process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = sourceRoot;
+      expect(await routeToolsWithDeps("plugin", ["plugin", "install", "--standard"], h.deps)).toBe(true);
+      expect(readdirSync(pluginDir).length).toBe(50);
+      expect(h.calls.invokes).toEqual([]);
+      rmSync(root, { recursive: true, force: true });
+    } finally {
+      if (original === undefined) delete process.env.MAW_PLUGINS_DIR; else process.env.MAW_PLUGINS_DIR = original;
+      if (originalSource === undefined) delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT; else process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = originalSource;
+    }
   });
 
   test("plugin lifecycle dispatch uses dev/home candidates, logs output, and fails loudly", async () => {
@@ -275,21 +313,57 @@ describe("routeTools default-suite seams", () => {
     const start = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4567", "--as", "blue", "--force-takeover"], start.deps)).toBe(true);
     expect(start.calls.locks).toEqual([{ instanceName: "blue", opts: { forceTakeover: true } }]);
-    expect(start.calls.servers).toEqual([4567]);
+    expect(start.calls.servers).toEqual([{ port: 4567, options: { verbosity: 1, gateway: undefined, forceTakeover: true } }]);
 
     const defaultPort = harness();
     expect(await routeToolsWithDeps("serve", ["serve"], defaultPort.deps)).toBe(true);
     expect(defaultPort.calls.locks).toEqual([{ instanceName: null, opts: { forceTakeover: false } }]);
-    expect(defaultPort.calls.servers).toEqual([3456]);
+    expect(defaultPort.calls.servers).toEqual([{ port: 3456, options: { verbosity: 1, gateway: undefined, forceTakeover: false } }]);
 
     const oldNoScout = process.env.MAW_NO_SCOUT;
     delete process.env.MAW_NO_SCOUT;
     const noScout = harness();
     expect(await routeToolsWithDeps("serve", ["serve", "4568", "--no-scout"], noScout.deps)).toBe(true);
-    expect(noScout.calls.servers).toEqual([4568]);
+    expect(noScout.calls.servers).toEqual([{ port: 4568, options: { verbosity: 1, gateway: undefined, forceTakeover: false } }]);
     expect(process.env.MAW_NO_SCOUT).toBe("1");
     if (oldNoScout === undefined) delete process.env.MAW_NO_SCOUT;
     else process.env.MAW_NO_SCOUT = oldNoScout;
+
+    const quiet = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4569", "--quiet"], quiet.deps)).toBe(true);
+    expect(quiet.calls.servers).toEqual([{ port: 4569, options: { verbosity: 0, gateway: undefined, forceTakeover: false } }]);
+
+    const shortQuiet = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4570", "-q"], shortQuiet.deps)).toBe(true);
+    expect(shortQuiet.calls.servers).toEqual([{ port: 4570, options: { verbosity: 0, gateway: undefined, forceTakeover: false } }]);
+
+    const verbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4571", "--verbose"], verbose.deps)).toBe(true);
+    expect(verbose.calls.servers).toEqual([{ port: 4571, options: { verbosity: 2, gateway: undefined, forceTakeover: false } }]);
+
+    const shortVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4572", "-v"], shortVerbose.deps)).toBe(true);
+    expect(shortVerbose.calls.servers).toEqual([{ port: 4572, options: { verbosity: 2, gateway: undefined, forceTakeover: false } }]);
+
+    const accessVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4573", "-vv"], accessVerbose.deps)).toBe(true);
+    expect(accessVerbose.calls.servers).toEqual([{ port: 4573, options: { verbosity: 3, gateway: undefined, forceTakeover: false } }]);
+
+    const frameVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4574", "-vvv"], frameVerbose.deps)).toBe(true);
+    expect(frameVerbose.calls.servers).toEqual([{ port: 4574, options: { verbosity: 4, gateway: undefined, forceTakeover: false } }]);
+
+    const repeatedVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4575", "-v", "-v"], repeatedVerbose.deps)).toBe(true);
+    expect(repeatedVerbose.calls.servers).toEqual([{ port: 4575, options: { verbosity: 3, gateway: undefined, forceTakeover: false } }]);
+
+    const oldServeVerbosity = process.env.MAW_SERVE_VERBOSITY;
+    process.env.MAW_SERVE_VERBOSITY = "4";
+    const envFrameVerbose = harness();
+    expect(await routeToolsWithDeps("serve", ["serve", "4576"], envFrameVerbose.deps)).toBe(true);
+    expect(envFrameVerbose.calls.servers).toEqual([{ port: 4576, options: { verbosity: 4, gateway: undefined, forceTakeover: false } }]);
+    if (oldServeVerbosity === undefined) delete process.env.MAW_SERVE_VERBOSITY;
+    else process.env.MAW_SERVE_VERBOSITY = oldServeVerbosity;
 
     const bad = harness();
     await expect(routeToolsWithDeps("serve", ["serve", "--as", "blue", "--force-takeover", "--bogus"], bad.deps)).rejects.toBeInstanceOf(UserError);

@@ -147,7 +147,7 @@ describe("tmux-class fourth-pass isolated coverage", () => {
         host: "remote-box",
       },
       {
-        cmd: "tmux capture-pane -t 'pane target' -e -p 2>/dev/null | tail -4",
+        cmd: "tmux capture-pane -t 'pane target' -e -p -S -4",
         host: "remote-box",
       },
       {
@@ -205,6 +205,16 @@ describe("tmux-class fourth-pass isolated coverage", () => {
         pid: 0,
         cwd: "/",
         lastActivity: 0,
+        top: undefined,
+        left: undefined,
+        w: undefined,
+        h: undefined,
+        paneIdx: undefined,
+        winIdx: undefined,
+        winName: undefined,
+        active: false,
+        window: { w: undefined, h: undefined, active: false },
+        attached: false,
       },
     ]);
     await expect(t.getPaneCommand("alpha:empty.0")).resolves.toBe("");

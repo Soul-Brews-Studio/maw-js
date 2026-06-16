@@ -55,7 +55,36 @@ describe("plugin registry runtime helpers", () => {
     mkdirSync(cwd, { recursive: true });
 
     expect(discoverLocalPluginDirs(cwd)).toEqual([packagePlugins, projectPlugins]);
-    expect(scanDirs(cwd)).toEqual(["/tmp/maw-test-plugins", packagePlugins, projectPlugins]);
+    expect(scanDirs(cwd)).toEqual([packagePlugins, projectPlugins, "/tmp/maw-test-plugins"]);
+  });
+
+  test("scanDirs deduplicates plugin directories", () => {
+    const root = tempDir("maw-local-plugins-dupe-");
+    const packagePlugins = join(root, "packages", "app", ".maw", "plugins");
+    const cwd = join(root, "packages", "app", "src");
+    mkdirSync(packagePlugins, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+
+    saveEnv("MAW_PLUGINS_DIR");
+    process.env.MAW_PLUGINS_DIR = packagePlugins;
+
+    expect(scanDirs(cwd)).toEqual([packagePlugins]);
+  });
+
+  test("discoverLocalPluginDirs stops walking at a .maw-root marker", () => {
+    const root = tempDir("maw-root-marker-");
+    const parentPlugins = join(root, ".maw", "plugins");
+    const project = join(root, "workspace");
+    const projectPlugins = join(project, ".maw", "plugins");
+    const packagePlugins = join(project, "packages", "app", ".maw", "plugins");
+    const cwd = join(project, "packages", "app", "src");
+    mkdirSync(parentPlugins, { recursive: true });
+    mkdirSync(projectPlugins, { recursive: true });
+    mkdirSync(packagePlugins, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(project, ".maw-root"), "");
+
+    expect(discoverLocalPluginDirs(cwd)).toEqual([packagePlugins, projectPlugins]);
   });
 
   test("runtimeSdkVersion resolves and caches the bundled SDK package version", () => {

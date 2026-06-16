@@ -6,6 +6,9 @@ import { join } from "path";
 const budImplPath = join(import.meta.dir, "../../src/vendor/mpr-plugins/bud/impl.ts");
 const sendTextImplPath = join(import.meta.dir, "../../src/vendor/mpr-plugins/send-text/impl.ts");
 
+const realSdk = await import("../../src/sdk");
+const { parseFlags } = await import("../../src/cli/parse-args");
+
 let config: Record<string, any> = {};
 
 let budCalls: Array<{ stem: string; opts: Record<string, any> }> = [];
@@ -37,6 +40,9 @@ mock.module(sendTextImplPath, () => ({
 }));
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
+  loadConfig: () => config,
+  parseFlags,
   listSessions: async () => sessions,
   resolveTarget: (stem: string, cfg: any, sessionRows: any[]) => {
     resolveCalls.push({ stem, config: cfg, sessions: sessionRows });

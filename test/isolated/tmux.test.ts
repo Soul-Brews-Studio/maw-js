@@ -186,7 +186,7 @@ describe("Tmux", () => {
 
   describe("listPanes", () => {
     test("uses stable window-name targets, not window indexes (#1567)", async () => {
-      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000";
+      sshResult = "%42|||claude|||54-mawjs:mawjs-oracle.0|||oracle title|||1234|||/tmp/maw|||1715840000|||4|||9|||80|||24|||0|||1|||mawjs-oracle|||1|||160|||48|||1|||1";
 
       const panes = await t.listPanes();
 
@@ -201,6 +201,16 @@ describe("Tmux", () => {
           pid: 1234,
           cwd: "/tmp/maw",
           lastActivity: 1715840000,
+          top: 4,
+          left: 9,
+          w: 80,
+          h: 24,
+          paneIdx: 0,
+          winIdx: 1,
+          winName: "mawjs-oracle",
+          active: true,
+          window: { w: 160, h: 48, active: true },
+          attached: true,
         },
       ]);
     });
@@ -225,10 +235,10 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p -S -80");
     });
 
-    test("uses tail for lines <= 50", async () => {
+    test("uses tmux capture directly for lines <= 50 so target errors surface", async () => {
       sshResult = "some output";
       await t.capture("s:0", 30);
-      expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p 2>/dev/null | tail -30");
+      expect(commands[0]).toBe("tmux capture-pane -t s:0 -e -p -S -30");
     });
   });
 
@@ -256,6 +266,15 @@ describe("Tmux", () => {
         printFormat: "#{pane_id}",
       });
       expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -h -c /tmp/work zsh");
+    });
+
+    test("can split the full window before applying direction", async () => {
+      await t.splitWindow(undefined, {
+        fullWindow: true,
+        direction: "horizontal",
+        printFormat: "#{pane_id}",
+      });
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -f -h");
     });
   });
 
@@ -309,7 +328,7 @@ describe("Tmux", () => {
       expect(commands).toEqual([
         "tmux pipe-pane -O -o -t oracles:0.1 'cat > /tmp/out file'",
         "tmux pipe-pane -I -t oracles:0.1 cat",
-        "tmux pipe-pane -O -t oracles:0.1",
+        "tmux pipe-pane -t oracles:0.1",
       ]);
     });
 

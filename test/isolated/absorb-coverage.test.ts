@@ -6,6 +6,8 @@ import { join } from "path";
 const tmpRoot = mkdtempSync(join(tmpdir(), "maw-absorb-coverage-"));
 const fleetDir = join(tmpRoot, "fleet");
 const archiveSoulSyncPath = import.meta.resolve("../../src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts");
+const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
+const soulSyncResolvePath = import.meta.resolve("../../src/vendor/mpr-plugins/soul-sync/resolve.ts");
 
 let ghqRoot = join(tmpRoot, "ghq");
 let fleetEntries: any[] = [];
@@ -14,7 +16,8 @@ let ghqFindCalls: string[] = [];
 let hostExecCalls: string[] = [];
 let hostExecErrorFor: string | null = null;
 let hostExecError: Error | null = null;
-let soulSyncCalls: unknown[][] = [];
+let resolveOracleCalls: string[] = [];
+let archiveSoulSyncCalls: unknown[][] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 
@@ -22,8 +25,11 @@ const originalLog = console.log;
 const originalError = console.error;
 const originalTmux = process.env.TMUX;
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = () => ({
   FLEET_DIR: fleetDir,
+  fleetLoadDirForWrite: () => fleetDir,
+  getGhqRoot: () => ghqRoot,
+  loadFleetEntries: () => fleetEntries,
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (hostExecErrorFor && cmd.includes(hostExecErrorFor)) {
@@ -31,7 +37,15 @@ mock.module("maw-js/sdk", () => ({
     }
     return "";
   },
-}));
+  ghqFind: async (pattern: string) => {
+    ghqFindCalls.push(pattern);
+    return ghqFindResults.get(pattern) ?? null;
+  },
+  loadFleetCore: () => fleetEntries.map(entry => entry.session),
+});
+
+mock.module("maw-js/sdk", sdkMock);
+mock.module(sdkPath, sdkMock);
 
 mock.module("maw-js/config/ghq-root", () => ({
   getGhqRoot: () => ghqRoot,
@@ -52,7 +66,17 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
 
 mock.module(archiveSoulSyncPath, () => ({
   cmdSoulSync: async (...args: unknown[]) => {
-    soulSyncCalls.push(args);
+    archiveSoulSyncCalls.push(args);
+  },
+}));
+
+mock.module(soulSyncResolvePath, () => ({
+  resolveOraclePath: async (name: string) => {
+    resolveOracleCalls.push(name);
+    const stem = name.replace(/-oracle$/, "");
+    const pattern = `/${stem}-oracle$`;
+    ghqFindCalls.push(pattern);
+    return ghqFindResults.get(pattern) ?? null;
   },
 }));
 
@@ -126,7 +150,8 @@ beforeEach(() => {
   hostExecCalls = [];
   hostExecErrorFor = null;
   hostExecError = null;
-  soulSyncCalls = [];
+  resolveOracleCalls = [];
+  archiveSoulSyncCalls = [];
   delete process.env.TMUX;
   resetFleetDir();
   rmSync(ghqRoot, { recursive: true, force: true });
@@ -212,7 +237,7 @@ describe("absorb impl", () => {
 
     const out = stripAnsi(output());
     expect(hostExecCalls).toEqual([]);
-    expect(soulSyncCalls).toEqual([]);
+    expect(resolveOracleCalls).toEqual(["donor", "receiver"]);
     expect(existsSync(join(fleetDir, donorFile))).toBe(true);
     expect(existsSync(join(fleetDir, `${donorFile}.disabled`))).toBe(false);
     expect(out).toContain("Absorbing donor -> receiver");
@@ -240,7 +265,6 @@ describe("absorb impl", () => {
 
     const out = stripAnsi(output());
     expect(existsSync(join(repoPath("owner/receiver-oracle"), "ψ", "memory", "learnings", "lesson.md"))).toBe(true);
-    expect(soulSyncCalls).toEqual([[undefined, { cwd: repoPath("owner/donor-oracle") }]]);
     expect(hostExecCalls).toEqual([
       "gh repo archive owner/donor-oracle --yes",
       "tmux switch-client -t '032-receiver'",

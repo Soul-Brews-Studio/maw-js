@@ -35,7 +35,7 @@
     "expected": { "kind": "bound", "window": "feature" }
   },
   {
-    "name": "parent session without match falls back to global single match",
+    "name": "parent session without match returns none instead of global fallback (#2392)",
     "input": {
       "mainRepoName": "mawjs-oracle",
       "wtName": "1-feature",
@@ -44,7 +44,7 @@
         { "name": "other", "windows": [{ "index": 1, "name": "feature", "active": false }] }
       ]
     },
-    "expected": { "kind": "bound", "window": "feature" }
+    "expected": { "kind": "none" }
   },
   {
     "name": "same-named windows across sessions dedupe before ambiguity",
@@ -73,7 +73,7 @@
     "expected": { "kind": "bound", "window": "mawjs-6-tile-1" }
   },
   {
-    "name": "stripped tile suffix ambiguity fails loud",
+    "name": "global scope skips fuzzy and ambiguous to prevent cross-session matches (#2392)",
     "input": {
       "mainRepoName": "mawjs-oracle",
       "wtName": "1-tile-1",
@@ -84,7 +84,7 @@
         ] }
       ]
     },
-    "expected": { "kind": "ambiguous", "query": "tile-1", "candidates": ["mawjs-tile-1", "mawjs-6-tile-1"] }
+    "expected": { "kind": "none" }
   },
   {
     "name": "unmatched worktree is none",

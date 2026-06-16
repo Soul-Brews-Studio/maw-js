@@ -95,8 +95,8 @@ export function shouldOfferExistingSessionAttach(
   );
 }
 
-const FRESH_SESSION_READY_ATTEMPTS = 120;
-const FRESH_SESSION_READY_DELAY_MS = 250;
+const FRESH_SESSION_READY_ATTEMPTS = 10;
+const FRESH_SESSION_READY_DELAY_MS = 50;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -164,6 +164,57 @@ export async function retryFreshSessionTmuxStep<T>(
   throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
 }
 
+
+export type RehydrateWorktree = { name: string; path: string };
+
+export type RehydrateMergeCheckDeps = {
+  hostExec: (command: string) => Promise<string>;
+  baseBranch?: string;
+};
+
+function shellArg(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function parseMergedBranches(output: string): Set<string> {
+  return new Set(
+    output
+      .split("\n")
+      .map(line => line.replace(/^\*?\s*/, "").trim())
+      .filter(Boolean),
+  );
+}
+
+export async function isWorktreeBranchMergedToBase(
+  worktree: RehydrateWorktree,
+  deps: RehydrateMergeCheckDeps,
+): Promise<boolean> {
+  const baseBranch = deps.baseBranch ?? "alpha";
+  const cwd = shellArg(worktree.path);
+  try {
+    const branch = (await deps.hostExec(`git -C ${cwd} branch --show-current`)).trim();
+    if (!branch) return false;
+    const merged = await deps.hostExec(`git -C ${cwd} branch --merged ${shellArg(baseBranch)}`);
+    return parseMergedBranches(merged).has(branch);
+  } catch {
+    // Rehydrate conservatively if Git cannot answer. A stale or missing local
+    // alpha ref should not hide a still-active worktree.
+    return false;
+  }
+}
+
+export async function filterMergedWorktreesForRehydrate(
+  worktrees: RehydrateWorktree[],
+  deps: RehydrateMergeCheckDeps,
+): Promise<RehydrateWorktree[]> {
+  const kept: RehydrateWorktree[] = [];
+  for (const wt of worktrees) {
+    if (await isWorktreeBranchMergedToBase(wt, deps)) continue;
+    kept.push(wt);
+  }
+  return kept;
+}
+
 export type RehydrateWorktreePlan = {
   worktreeName: string;
   windowName: string;
@@ -188,13 +239,21 @@ export function planRehydrateWorktreeWindows(
 ): RehydrateWorktreePlan[] {
   const usedNames = new Set(existingWindows);
   const planned: RehydrateWorktreePlan[] = [];
+  const oracleBase = oracle.replace(/^\d+-/, "");
+  const oracleBaseLower = oracleBase.toLowerCase();
   for (const wt of worktrees) {
     const taskPart = wt.name.replace(/^\d+-/, "");
-    if (liveTileRoles.has(taskPart)) continue;
-    let wtWindowName = `${oracle}-${taskPart}`;
+    if (taskPart.toLowerCase() === oracleBaseLower) continue;
+    const cleanTask = taskPart.toLowerCase().startsWith(`${oracleBaseLower}-`)
+      ? taskPart.slice(oracleBase.length + 1)
+      : taskPart;
+    if (!cleanTask) continue;
+    if (liveTileRoles.has(taskPart) || liveTileRoles.has(cleanTask)) continue;
+    let wtWindowName = `${oracle}-${cleanTask}`;
     if (usedNames.has(wtWindowName)) {
       if (existingWindows.includes(wtWindowName)) continue;
-      wtWindowName = `${oracle}-${wt.name}`;
+      const numberPrefix = wt.name.match(/^(\d+)-/)?.[1];
+      wtWindowName = `${oracle}-${numberPrefix ? `${numberPrefix}-` : ""}${cleanTask}`;
     }
     const altName = `${oracle}-${wt.name}`;
     if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;

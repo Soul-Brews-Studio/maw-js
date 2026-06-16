@@ -20,6 +20,7 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/impl"), () =>
   cmdTeamList: async () => {},
   cmdTeamCreate: () => {},
   cmdTeamSpawn: async () => {},
+  cmdTeamPrune: async () => {},
   cmdTeamSend: () => {},
   cmdTeamBroadcast: async () => {},
   cmdTeamBring: async () => {},
@@ -55,6 +56,14 @@ mock.module("maw-js/sdk", () => ({
   resolveTarget: () => null,
   Tmux: class {},
   FLEET_DIR: join(psi, "fleet"),
+  parseFlags: (args: string[]) => {
+    const flags: Record<string, unknown> = { _: [] as string[] };
+    for (const arg of args) {
+      if (arg.startsWith("--")) flags[arg.slice(2)] = true;
+      else (flags._ as string[]).push(arg);
+    }
+    return flags;
+  },
 }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/oracle-members"), () => ({
   loadOracleRegistry: () => ({ members: [{ oracle: "neo" }] }),

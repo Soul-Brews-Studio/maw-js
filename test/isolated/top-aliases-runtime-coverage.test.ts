@@ -17,6 +17,7 @@ let tmuxLayoutCalls: unknown[][] = [];
 let wakeCalls: unknown[][] = [];
 let newCalls: unknown[][] = [];
 let preflightCalls: unknown[] = [];
+let teamWtfCalls: unknown[][] = [];
 let lsFederatedCalls: unknown[] = [];
 let loadConfigCalls = 0;
 let logs: string[] = [];
@@ -57,6 +58,10 @@ mock.module(import.meta.resolve("../../src/cli/cmd-new"), () => ({
 
 mock.module(import.meta.resolve("../../src/commands/shared/preflight"), () => ({
   cmdPreflight: async (opts: unknown) => { preflightCalls.push(opts); },
+}));
+
+mock.module(import.meta.resolve("../../src/commands/plugins/team/team-wtf"), () => ({
+  cmdTeamWtf: async (...args: unknown[]) => { teamWtfCalls.push(args); },
 }));
 
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/ls/internal/peer-call"), () => ({
@@ -102,6 +107,7 @@ beforeEach(() => {
   wakeCalls = [];
   newCalls = [];
   preflightCalls = [];
+  teamWtfCalls = [];
   lsFederatedCalls = [];
   loadConfigCalls = 0;
   logs = [];
@@ -148,8 +154,9 @@ describe("top alias resolution table", () => {
     expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
   });
 
-  test("layout is a direct top-level handler, not a team argv alias", () => {
+  test("layout and wtf are direct top-level handlers", () => {
     expect(resolveTopAlias(["layout", "tiled"])).toEqual({ kind: "direct", handler: "cmdLayout", argv: ["tiled"] });
+    expect(resolveTopAlias(["wtf", "web-v2", "--json"])).toEqual({ kind: "direct", handler: "../commands/plugins/team/team-wtf:cmdTeamWtf", argv: ["web-v2", "--json"] });
   });
 });
 
@@ -370,13 +377,15 @@ describe("direct handler invocation", () => {
     }]]);
   });
 
-  test("new and preflight handlers dispatch to their static imports", async () => {
+  test("new, preflight, and wtf handlers dispatch to their static imports", async () => {
     await invokeDirectHandler("./cmd-new:cmdNew", ["workspace", "--no-attach"]);
     await invokeDirectHandler("../commands/shared/preflight:cmdPreflight", ["--fix"]);
     await invokeDirectHandler("../commands/shared/preflight:cmdPreflight", []);
+    await invokeDirectHandler("../commands/plugins/team/team-wtf:cmdTeamWtf", ["web-v2", "--json", "--session", "167-web-v2"]);
 
     expect(newCalls).toEqual([[["workspace", "--no-attach"]]]);
     expect(preflightCalls).toEqual([{ fix: true }, { fix: false }]);
+    expect(teamWtfCalls).toEqual([["web-v2", { json: true, session: "167-web-v2" }]]);
   });
 
   test("malformed and unknown direct handlers fail loudly", async () => {

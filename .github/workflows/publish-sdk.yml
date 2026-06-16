@@ -8,6 +8,7 @@ on:
 jobs:
   verify-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
 
@@ -24,6 +25,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: verify-version
     permissions:
       id-token: write

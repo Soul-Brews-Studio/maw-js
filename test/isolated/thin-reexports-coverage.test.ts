@@ -28,8 +28,9 @@ describe("thin re-export module coverage", () => {
       name: "thin-reexport-smoke",
       handler: () => ({ ok: true }),
     })).toMatchObject({ name: "thin-reexport-smoke" });
+    expect(sdk.definePlugin({ name: "manifest-only" })).toMatchObject({ name: "manifest-only" });
     expect(() => sdk.definePlugin({ name: "", handler: () => ({ ok: true }) })).toThrow("name is required");
-    expect(() => sdk.definePlugin({ name: "bad" } as any)).toThrow("handler is required");
+    expect(() => sdk.definePlugin({ name: "bad", handler: "not-a-function" } as any)).toThrow("handler must be a function");
 
     const oldSocket = process.env.MAW_TMUX_SOCKET;
     process.env.MAW_TMUX_SOCKET = "/tmp/maw socket";

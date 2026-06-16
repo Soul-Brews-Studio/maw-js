@@ -12,7 +12,7 @@
  *   • schema version mismatch in lock → CLI refuses with migration hint.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
   rmSync, writeFileSync,
@@ -21,14 +21,17 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { createHash } from "crypto";
 import { spawnSync } from "child_process";
-import { cmdPluginInstall } from "../../src/commands/plugins/plugin/install-impl";
-import {
+// Reset process-wide mocks before importing registry/lock modules.
+mock.restore();
+
+const { cmdPluginInstall } = await import("../../src/commands/plugins/plugin/install-impl");
+const {
   readLock, writeLock, pinPlugin, unpinPlugin, validateSha256, validateName,
   LOCK_SCHEMA,
-} from "../../src/commands/plugins/plugin/lock";
-import {
+} = await import("../../src/commands/plugins/plugin/lock");
+const {
   __resetDiscoverStateForTests, resetDiscoverCache,
-} from "../../src/plugin/registry";
+} = await import("../../src/plugin/registry");
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 

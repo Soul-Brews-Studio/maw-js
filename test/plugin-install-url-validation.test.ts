@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { runBunChild } from "./isolated/helpers/run-bun-child";
+import { detectMode } from "../src/commands/plugins/plugin/install-impl";
 
 const installImplUrl = new URL("../src/commands/plugins/plugin/install-impl.ts", import.meta.url).href;
 
@@ -103,12 +104,10 @@ describe("H4 — doInstall URL scheme gate (CLI subprocess)", () => {
     expect(stderr.length).toBeGreaterThan(0);
   }, 10_000);
 
-  it("valid https:// URL passes scheme gate (reaches ghq, not scheme check)", async () => {
-    // ghq is not available in test env so this will fail at the ghq step,
-    // but the error must NOT be about "invalid URL scheme".
-    const { stderr } = await runCli([
-      "plugins", "install", "https://github.com/test-org/test-plugin.git",
-    ]);
-    expect(stderr).not.toContain("invalid URL scheme");
-  }, 10_000);
+  it("valid https:// URL passes scheme gate without touching network", () => {
+    expect(detectMode("https://github.com/test-org/test-plugin.git")).toEqual({
+      kind: "url",
+      src: "https://github.com/test-org/test-plugin.git",
+    });
+  });
 });

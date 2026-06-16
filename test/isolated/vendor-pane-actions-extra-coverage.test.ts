@@ -62,7 +62,7 @@ let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
 
-mock.module("maw-js/sdk", () => ({
+const sdkMock = {
   listSessions: async () => {
     listSessionsCalls += 1;
     return sessions;
@@ -74,6 +74,36 @@ mock.module("maw-js/sdk", () => ({
     return next ?? "";
   },
   tmuxCmd: () => "tmux-test",
+  loadConfig: () => configState,
+  cfgTimeout: (name: string) => {
+    cfgTimeoutCalls.push(name);
+    return 1234;
+  },
+  buildCommandInDir: (dir: string, cmd: string) => `cd ${dir} && ${cmd}`,
+  resolveSessionTarget: (target: string, seenSessions: Session[]) => {
+    resolveCalls.push({ target, sessions: seenSessions });
+    return resolveResults.get(target) ?? { kind: "none", hints: [] };
+  },
+  cmdPeek: async (target: string) => {
+    peekCalls.push(target);
+  },
+  cmdSend: async (target: string, message: string, force = false) => {
+    sendCalls.push({ target, message, force });
+  },
+  parseFlags: (args: string[]) => {
+    const out: Record<string, unknown> & { _: string[] } = { _: [] };
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i]!;
+      if (arg === "--pane" || arg === "--lines") {
+        const value = args[++i];
+        if (value === undefined || value.startsWith("--")) throw new Error(`option requires argument: ${arg}`);
+        out[arg] = Number(value);
+      } else if (["--full", "--dry-run", "--shell", "--split", "--no-split", "--yes", "-y"].includes(arg)) {
+        out[arg === "-y" ? "--yes" : arg] = true;
+      } else out._.push(arg);
+    }
+    return out;
+  },
   tmux: {
     run: async (...args: string[]) => {
       tmuxRunCalls.push(args);
@@ -88,7 +118,15 @@ mock.module("maw-js/sdk", () => ({
     if (next instanceof Error) throw next;
     return next ?? { ok: true, data: {} };
   },
-}));
+};
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module("maw-js/cli/parse-args", () => ({ parseFlags: sdkMock.parseFlags }));
+mock.module(import.meta.resolve("../../src/cli/parse-args"), () => ({ parseFlags: sdkMock.parseFlags }));
+mock.module(import.meta.resolve("../../src/cli/parse-args.ts"), () => ({ parseFlags: sdkMock.parseFlags }));
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk.ts"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => configState,

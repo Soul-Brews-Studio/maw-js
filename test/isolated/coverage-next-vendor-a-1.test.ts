@@ -21,6 +21,8 @@ let ghqExactQueue: string[] = [];
 let resolveAttachResult: any = null;
 let fetchOk = false;
 
+const realSdk = await import("../../src/sdk");
+
 const original = {
   cwd: process.cwd(),
   log: console.log,
@@ -43,6 +45,7 @@ function makeDreamRepo() {
 }
 
 mock.module("maw-js/sdk", () => ({
+  ...realSdk,
   listSessions: async () => sessions,
   tmuxCmd: () => "tmux",
   hostExec: async (command: string) => {

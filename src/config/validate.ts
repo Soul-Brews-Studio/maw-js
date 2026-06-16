@@ -61,17 +61,67 @@ export function validateBasicFields(
     }
   }
 
-  // commands: Record<string, string>, must have "default" if present
+  // commands: Record<string, string | null> per layer. `null` is a tombstone
+  // that must survive validation so deepMerge can delete inherited commands.
+  // Final merged config.commands remains string-only after tombstones apply.
   if ("commands" in raw) {
     if (raw.commands && typeof raw.commands === "object" && !Array.isArray(raw.commands)) {
       const cmds = raw.commands as Record<string, unknown>;
-      if (!("default" in cmds) || typeof cmds.default !== "string") {
-        warn("commands", "must include a 'default' string entry");
-      } else {
-        result.commands = cmds as Record<string, string>;
+      const validCommands: Record<string, string | null> = {};
+      for (const [name, value] of Object.entries(cmds)) {
+        if (value === null) {
+          validCommands[name] = null;
+          continue;
+        }
+        if (typeof value !== "string") {
+          warn(`commands.${name}`, "must be a string or null");
+          continue;
+        }
+        validCommands[name] = value;
+      }
+      const validCommandNames = Object.keys(validCommands);
+      if (validCommandNames.length > 0) {
+        result.commands = validCommands;
+      }
+      const explicitDefaultEngine = typeof raw.defaultEngine === "string" && raw.defaultEngine.trim().length > 0
+        ? raw.defaultEngine.trim()
+        : undefined;
+      const engines = raw.engines && typeof raw.engines === "object" && !Array.isArray(raw.engines)
+        ? raw.engines as Record<string, unknown>
+        : {};
+      const defaultEngineResolves = !!explicitDefaultEngine && (
+        explicitDefaultEngine in validCommands ||
+        explicitDefaultEngine in engines
+      );
+      if (!("default" in validCommands) && explicitDefaultEngine && !defaultEngineResolves) {
+        warn("commands", `has no default entry and defaultEngine '${explicitDefaultEngine}' is not configured`);
+      } else if (!("default" in validCommands) && !explicitDefaultEngine && !("default" in engines) && Object.keys(engines).length === 0 && (validCommandNames.length > 0 || Object.keys(cmds).length === 0)) {
+        warn("commands", "has no default entry and no defaultEngine; bare wake requires config.engines/defaultEngine or maw init seed");
       }
     } else {
       warn("commands", "must be an object");
+    }
+  }
+
+  // defaultEngine: string (#2670) — source of truth for bare wake when no
+  // commands.default/engines.default exists.
+  if ("defaultEngine" in raw) {
+    if (typeof raw.defaultEngine === "string" && raw.defaultEngine.trim().length > 0) {
+      result.defaultEngine = raw.defaultEngine.trim();
+    } else {
+      warn("defaultEngine", "must be a non-empty string");
+    }
+  }
+
+  // gateway: serve gateway selector (#2566)
+  if ("gateway" in raw) {
+    if (raw.gateway === "bun" || raw.gateway === "rust") {
+      result.gateway = raw.gateway;
+    } else if (raw.gateway === "auto") {
+      warn("gateway", '"auto" is deprecated, using "bun"');
+      result.gateway = "bun";
+    } else {
+      warn("gateway", "must be one of: bun, rust");
     }
   }
 
@@ -89,6 +139,10 @@ export function validateBasicFields(
         const def = value as Record<string, unknown>;
         if (typeof def.cmd !== "string" || def.cmd.trim().length === 0) {
           warn(`engines.${name}.cmd`, "must be a non-empty string");
+          continue;
+        }
+        if (def.processNames !== undefined && (!Array.isArray(def.processNames) || def.processNames.some((v) => typeof v !== "string"))) {
+          warn(`engines.${name}.processNames`, "must be a string[]");
           continue;
         }
         engines[name] = { ...def, name: typeof def.name === "string" && def.name ? def.name : name };
@@ -136,6 +190,20 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.tmuxSocket !== undefined && typeof c.tmuxSocket !== "string") errors.push("tmuxSocket must be a string");
   if (c.federationToken !== undefined && typeof c.federationToken !== "string") errors.push("federationToken must be a string");
   if (c.scout !== undefined && typeof c.scout !== "boolean") errors.push("scout must be a boolean");
+  if (c.gateway !== undefined && c.gateway !== "bun" && c.gateway !== "rust" && c.gateway !== "auto") {
+    errors.push("gateway must be one of: bun, rust");
+  }
+
+  if (c.errorForward !== undefined) {
+    if (!c.errorForward || typeof c.errorForward !== "object" || Array.isArray(c.errorForward)) {
+      errors.push("errorForward must be an object");
+    } else {
+      const errorForward = c.errorForward as Record<string, unknown>;
+      if (errorForward.target !== undefined && typeof errorForward.target !== "string") {
+        errors.push("errorForward.target must be a string");
+      }
+    }
+  }
 
   if (c.env !== undefined) {
     if (!c.env || typeof c.env !== "object" || Array.isArray(c.env)) {
@@ -149,10 +217,10 @@ export function validateConfigShape(config: unknown): string[] {
 
   if (c.commands !== undefined) {
     if (!c.commands || typeof c.commands !== "object" || Array.isArray(c.commands)) {
-      errors.push("commands must be a Record<string, string>");
+      errors.push("commands must be a Record<string, string | null>");
     } else {
       for (const [k, v] of Object.entries(c.commands as Record<string, unknown>)) {
-        if (typeof v !== "string") errors.push(`commands.${k} must be a string`);
+        if (v !== null && typeof v !== "string") errors.push(`commands.${k} must be a string or null`);
       }
     }
   }
@@ -169,6 +237,19 @@ export function validateConfigShape(config: unknown): string[] {
         const def = v as Record<string, unknown>;
         if (def.name !== undefined && typeof def.name !== "string") errors.push(`engines.${k}.name must be a string`);
         if (typeof def.cmd !== "string" || def.cmd.length === 0) errors.push(`engines.${k}.cmd must be a non-empty string`);
+        if (def.processNames !== undefined && (!Array.isArray(def.processNames) || def.processNames.some((item) => typeof item !== "string"))) {
+          errors.push(`engines.${k}.processNames must be a string[]`);
+        }
+      }
+    }
+  }
+
+  if (c.limits !== undefined) {
+    if (!c.limits || typeof c.limits !== "object" || Array.isArray(c.limits)) {
+      errors.push("limits must be a Record<string, number>");
+    } else {
+      for (const [k, v] of Object.entries(c.limits as Record<string, unknown>)) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0) errors.push(`limits.${k} must be a number >= 0`);
       }
     }
   }

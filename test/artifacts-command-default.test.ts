@@ -30,6 +30,7 @@ mock.module(join(import.meta.dir, "../src/lib/artifacts"), () => ({
 }));
 
 const { cmdArtifacts } = await import("../src/commands/shared/artifacts");
+const { isUserError } = await import("../src/core/util/user-error");
 
 const origLog = console.log;
 const origError = console.error;
@@ -38,11 +39,13 @@ const origExit = process.exit;
 let logs: string[];
 let errors: string[];
 let exitCode: number | undefined;
+let thrown: unknown;
 
 async function runArtifacts(sub: string, args: string[] = [], flags: Record<string, any> = {}) {
   logs = [];
   errors = [];
   exitCode = undefined;
+  thrown = undefined;
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
   console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
   (process as unknown as { exit: (code?: number) => never }).exit = (code?: number): never => {
@@ -54,7 +57,7 @@ async function runArtifacts(sub: string, args: string[] = [], flags: Record<stri
     await cmdArtifacts(sub, args, flags);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!message.startsWith("__exit__")) throw error;
+    if (!message.startsWith("__exit__")) thrown = error;
   } finally {
     console.log = origLog;
     console.error = origError;
@@ -71,6 +74,7 @@ beforeEach(() => {
   logs = [];
   errors = [];
   exitCode = undefined;
+  thrown = undefined;
 });
 
 afterEach(() => {
@@ -223,28 +227,34 @@ describe("maw artifacts command", () => {
     expect(output).not.toContain("attachments (");
   });
 
-  test("get usage errors exit when team or task id is missing", async () => {
+  test("get usage errors throw UserError when team or task id is missing", async () => {
     await runArtifacts("get", ["team-only"]);
 
-    expect(exitCode).toBe(1);
-    expect(errors).toEqual(["usage: maw artifacts get <team> <task-id>"]);
+    expect(exitCode).toBeUndefined();
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toBe("usage: maw artifacts get <team> <task-id>");
+    expect(errors).toEqual([]);
     expect(getCalls).toEqual([]);
   });
 
-  test("get missing artifact errors and exits", async () => {
+  test("get missing artifact throws UserError", async () => {
     artifact = null;
 
     await runArtifacts("get", ["ghost-team", "404"]);
 
     expect(getCalls).toEqual([{ team: "ghost-team", taskId: "404" }]);
-    expect(exitCode).toBe(1);
-    expect(errors).toEqual(["artifact not found: ghost-team/404"]);
+    expect(exitCode).toBeUndefined();
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toBe("artifact not found: ghost-team/404");
+    expect(errors).toEqual([]);
   });
 
-  test("unknown subcommand prints command usage and exits", async () => {
+  test("unknown subcommand throws command usage UserError", async () => {
     await runArtifacts("wat", []);
 
-    expect(exitCode).toBe(1);
-    expect(errors).toEqual(["usage: maw artifacts [ls|get] [team] [task-id] [--json]"]);
+    expect(exitCode).toBeUndefined();
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toBe("usage: maw artifacts [ls|get] [team] [task-id] [--json]");
+    expect(errors).toEqual([]);
   });
 });

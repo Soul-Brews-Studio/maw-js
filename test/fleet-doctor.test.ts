@@ -6,6 +6,8 @@ import {
   checkDuplicatePeers,
   checkSelfPeer,
   checkMissingRepos,
+  checkDoubledGhqPaths,
+  canonicalGhqPath,
   autoFix,
   type DoctorFinding,
 } from "../src/commands/shared/fleet-doctor";
@@ -296,3 +298,57 @@ describe("autoFix — only safe transforms", () => {
 function safeAutoFix(findings: DoctorFinding[], config: MawConfig): string[] {
   return autoFix(findings, config, () => {});
 }
+
+describe("canonicalGhqPath (#2578)", () => {
+  test("de-doubles the first github.com/github.com/ segment", () => {
+    expect(canonicalGhqPath("/opt/Code/github.com/github.com/laris-co/neo-oracle"))
+      .toBe("/opt/Code/github.com/laris-co/neo-oracle");
+  });
+  test("leaves a single github.com path unchanged", () => {
+    expect(canonicalGhqPath("/opt/Code/github.com/laris-co/neo-oracle"))
+      .toBe("/opt/Code/github.com/laris-co/neo-oracle");
+  });
+});
+
+describe("checkDoubledGhqPaths (#2578) — report-only doubled github.com paths", () => {
+  const doubled = "/opt/Code/github.com/github.com/laris-co/neo-oracle";
+  const canonical = "/opt/Code/github.com/laris-co/neo-oracle";
+
+  test("no doubled paths → no findings", () => {
+    expect(checkDoubledGhqPaths([canonical, "/opt/Code/github.com/org/other"], () => false)).toEqual([]);
+  });
+
+  test("reports a doubled path whose canonical also exists, recommends removal (never fixable)", () => {
+    const out = checkDoubledGhqPaths([doubled, canonical], () => true);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      level: "warn",
+      check: "doubled-ghq-path",
+      fixable: false,
+      detail: { doubled, canonical, canonicalExists: true },
+    });
+    expect(out[0].message).toContain("rm -rf");
+    expect(out[0].message).toContain(doubled);
+  });
+
+  test("reports a doubled path with no canonical, recommends a move", () => {
+    // canonical not in the list and exists() says no
+    const out = checkDoubledGhqPaths([doubled], () => false);
+    expect(out).toHaveLength(1);
+    expect(out[0].detail).toMatchObject({ canonicalExists: false });
+    expect(out[0].message).toContain("mv ");
+    expect(out[0].fixable).toBe(false);
+  });
+
+  test("detects canonical via the path list even when exists() is false", () => {
+    const out = checkDoubledGhqPaths([doubled, canonical], () => false);
+    expect(out[0].detail).toMatchObject({ canonicalExists: true });
+  });
+
+  test("reports each distinct doubled path once", () => {
+    const second = "/opt/Code/github.com/github.com/acme/tool-oracle";
+    const out = checkDoubledGhqPaths([doubled, doubled, second], () => false);
+    expect(out).toHaveLength(2);
+    expect(out.map((f) => f.detail!.doubled)).toEqual([doubled, second]);
+  });
+});

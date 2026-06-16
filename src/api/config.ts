@@ -1,12 +1,38 @@
 import { Elysia, t } from "elysia";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
-import { type MawConfig, loadConfig, saveConfig, configForDisplay } from "../config";
+import { loadConfig, saveConfig, configForDisplay } from "../config";
 import { CONFIG_FILE } from "../core/paths";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 // Rate limit: max 5 attempts per IP per minute
 const pinAttempts = new Map<string, { count: number; resetAt: number }>();
+export const MAX_PIN_ATTEMPTS_ENTRIES = 1_000;
+
+export function prunePinAttempts(
+  attempts: Map<string, { count: number; resetAt: number }> = pinAttempts,
+  now: number = Date.now(),
+  maxEntries: number = MAX_PIN_ATTEMPTS_ENTRIES,
+): number {
+  let pruned = 0;
+  for (const [key, entry] of attempts) {
+    if (now > entry.resetAt) {
+      attempts.delete(key);
+      pruned++;
+    }
+  }
+  if (attempts.size > maxEntries) {
+    const overflow = attempts.size - maxEntries;
+    const oldest = [...attempts.entries()]
+      .sort(([, a], [, b]) => a.resetAt - b.resetAt)
+      .slice(0, overflow);
+    for (const [key] of oldest) {
+      attempts.delete(key);
+      pruned++;
+    }
+  }
+  return pruned;
+}
 
 export interface ConfigApiDeps {
   readdirSync?: typeof readdirSync;
@@ -245,36 +271,6 @@ export function createConfigApi(deps: ConfigApiDeps = {}) {
     return { ok };
   }, {
     body: t.Object({ pin: t.Optional(t.String()) }),
-  });
-
-  // PUBLIC FEDERATION API (v1) — no auth. Shape is load-bearing for lens
-  // clients (e.g. maw-ui#8). See docs/federation.md before changing fields.
-  configApi.get("/config", ({ query }) => {
-    if (query.raw === "1") return load();
-    return displayConfig();
-  }, {
-    query: t.Object({ raw: t.Optional(t.String()) }),
-  });
-
-  configApi.post("/config", async ({ body, set }) => {
-    try {
-      const data = body as Partial<MawConfig>;
-      // If env has masked values (bullet chars), keep originals for those keys
-      if (data.env && typeof data.env === "object") {
-        const current = load();
-        const merged: Record<string, string> = {};
-        for (const [k, v] of Object.entries(data.env as Record<string, string>)) {
-          merged[k] = /\u2022/.test(v) ? (current.env[k] || v) : v;
-        }
-        data.env = merged;
-      }
-      save(data);
-      return { ok: true };
-    } catch (e: unknown) {
-      set.status = 400; return { error: e instanceof Error ? e.message : String(e) };
-    }
-  }, {
-    body: t.Unknown(),
   });
 
   return configApi;

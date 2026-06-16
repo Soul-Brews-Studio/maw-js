@@ -8,6 +8,29 @@ let killPaneCalls: string[] = [];
 let hostExecCalls: string[] = [];
 let hostExecImpl: (cmd: string) => Promise<void> = async (cmd: string) => { hostExecCalls.push(cmd); };
 
+const teamLifecycleEngineConfig = {
+  host: "localhost",
+  port: 3457,
+  oracleUrl: "http://localhost:47779",
+  env: {},
+  defaultEngine: "claude",
+  commands: { default: "claude", claude: "claude", codex: "codex", omx: "omx" },
+  engines: {
+    claude: {
+      name: "claude",
+      cmd: "claude",
+      processNames: ["claude", "claude-code", "thclaude"],
+      capabilities: ["channels", "resume", "model", "system-prompt-file"],
+      resume: { flag: "--resume", replaces: "--continue", quoteValue: true },
+      model: { flag: "--model", default: "sonnet" },
+    },
+    codex: { name: "codex", cmd: "codex", processNames: ["codex"] },
+    omx: { name: "omx", cmd: "omx", processNames: ["omx", "codex"] },
+  },
+};
+
+const realConfigLoad = await import("../../src/config/load.ts");
+
 const tmuxMock = {
   listPaneIds: async () => paneSnapshots.shift() ?? new Set<string>(),
   killPane: async (paneId: string) => { killPaneCalls.push(paneId); },
@@ -17,6 +40,9 @@ mock.module("maw-js/sdk", () => ({
   tmux: tmuxMock,
   hostExec: async (cmd: string) => hostExecImpl(cmd),
 }));
+mock.module(join(import.meta.dir, "../../src/config/load"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+mock.module(join(import.meta.dir, "../../src/config/load.ts"), () => ({ ...realConfigLoad, loadConfig: () => teamLifecycleEngineConfig }));
+
 
 const helpers = await import("../../src/vendor/mpr-plugins/team/team-helpers");
 const lifecycle = await import("../../src/vendor/mpr-plugins/team/team-lifecycle");
@@ -331,15 +357,27 @@ describe("vendor team-lifecycle second-pass coverage", () => {
   test("spawn supports non-Claude engines without Claude-only launch flags", async () => {
     lifecycle.cmdTeamCreate("qa-team");
 
-    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" });
+    await expect(lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex" })).rejects.toThrow("requires --worktree/--cwd");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex", cwd: "/tmp/codexer-wt" });
 
     const output = logs.join("\n");
     expect(output).toContain("engine: codex");
+    expect(output).toContain("cd '/tmp/codexer-wt' && ");
     expect(output).toContain("codex");
     expect(output).not.toContain("--model sonnet");
     expect(output).not.toContain("--system-prompt-file");
     expect(output).not.toContain("--resume");
     expect(readJson(join(teamsDir, "qa-team/config.json")).members).toEqual([{ name: "codexer", engine: "codex" }]);
+  });
+
+  test("spawn persists engine markers in cwd worktrees", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    const cwd = mkdtempSync(join(tmpdir(), "maw-team-engine-cwd-"));
+
+    await lifecycle.cmdTeamSpawn("qa-team", "codexer", { engine: "codex", cwd });
+
+    expect(readFileSync(join(cwd, ".maw-engine"), "utf-8")).toBe("codex\n");
   });
 
   test("spawn --exec outside tmux prints a manual command instead of starting a pane", async () => {

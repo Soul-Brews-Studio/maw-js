@@ -19,15 +19,37 @@ export type {
 
 // ─── Identity & Config ───────────────────────────────────────────────────────
 
+export { loadConfig } from "../config/load";
 export {
-  loadConfig, saveConfig, buildCommand, buildCommandInDir,
+  saveConfig, buildCommand, buildCommandInDir,
   getEnvVars, cfgTimeout, cfgLimit, cfgInterval, cfg, D,
   resetConfig,
 } from "../config";
-export { DEFAULT_ENGINES, resolveEngine } from "../config/engine-registry";
+export { ENGINE_SEED, defaultEngineNameForConfig, resolveEngine } from "../config/engine-registry";
+export { getGhqRoot } from "../config/ghq-root";
+export {
+  isMawXdgEnabled,
+  legacyMawPath,
+  mawCacheDir,
+  mawConfigDir,
+  mawDataDir,
+  mawDataPath,
+  mawMessageLogPath,
+  mawStateDir,
+  mawStatePath,
+} from "../core/xdg";
 export type { EngineDef } from "../config/engine-def";
 export type { EngineRegistry } from "../config/engine-registry";
+export type { TScope } from "../lib/schemas";
 export type { MawConfig } from "../config";
+
+// ─── Consent ────────────────────────────────────────────────────────────────
+
+export {
+  listPending, listTrust, recordTrust, removeTrust,
+  approveConsent, rejectConsent,
+} from "../core/consent";
+export type { ConsentAction } from "../core/consent";
 
 // ─── Transport ───────────────────────────────────────────────────────────────
 
@@ -42,7 +64,6 @@ export type {
 export {
   hostExec, listSessions, capture, sendKeys,
   getPaneCommand, getPaneCommands, getPaneInfos,
-  isAgentCommand,
   HostExecError,
 } from "../core/transport/ssh";
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
@@ -54,6 +75,10 @@ export {
 } from "../core/transport/peers";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
+export { resolveSessionTarget, resolveWorktreeTarget, resolveFleetWindowSessionTarget } from "../core/matcher/resolve-target";
+export { sanitizeBranchName } from "../commands/shared/sanitize-branch-name";
+export { normalizeTarget } from "../core/matcher/normalize-target";
+export { isInfrastructureChannelSessionName } from "../core/matcher/channel-session";
 export { resolveOracle, pickOracle } from "../core/resolve";
 export type {
   OracleRef,
@@ -62,12 +87,40 @@ export type {
   PickOracleOptions,
 } from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
+export { agentProcessNames, engineIdlePromptPatterns, isAgentCommand, isAgentCommandForConfig, matchesAgentProcessName, matchesEngineIdlePrompt } from "../core/agent-detect";
+export { checkBusyGuard, extractOracleName } from "../core/agent-status-guard";
 export type { Session, Window } from "../core/runtime/find-window";
+export {
+  loadOracleChannels,
+  saveOracleChannels,
+  listAllOracleChannels,
+  loadRepoChannels,
+  saveRepoChannels,
+  getChannelEnv,
+} from "../commands/shared/channel-loader";
+export type { ChannelPlugin, OracleChannelConfig } from "../commands/shared/channel-loader";
+export { scanSignals } from "../commands/shared/scan-signals";
+export { resolveOraclePane } from "../commands/shared/comm-send";
+export {
+  deletePending,
+  isExpired,
+  loadPending,
+  loadPendingById,
+  pendingDir,
+  pendingPath,
+  savePending,
+  TTL_MS,
+  updatePending,
+} from "../commands/shared/queue-store";
+export type { PendingMessage } from "../commands/shared/queue-store";
+export type { ScannedSignal } from "../commands/shared/scan-signals";
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export { runHook } from "../core/runtime/hooks";
-export { getTriggers, getTriggerHistory } from "../core/runtime/triggers";
+export { runSleepLifecycleHooks } from "../plugin/lifecycle";
+export type { SleepLifecycleContextInput, LifecycleRunSummary } from "../plugin/lifecycle";
+export { getTriggers, getTriggerHistory, fire } from "../core/runtime/triggers";
 
 // ─── Fleet ───────────────────────────────────────────────────────────────────
 
@@ -81,6 +134,24 @@ export {
   readCache, isCacheStale,
 } from "../core/fleet/oracle-registry";
 export type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
+export {
+  fleetDirsForRead as fleetLoadDirsForRead,
+  fleetDirForWrite as fleetLoadDirForWrite,
+  loadFleet as loadFleetCore,
+  countDisabledFleetFiles as countDisabledFleetFilesCore,
+  loadDisabledFleetEntries as loadDisabledFleetEntriesCore,
+  loadFleetEntries,
+} from "../core/fleet/fleet-load-core";
+export { cmdSleep, cmdWakeAll } from "../commands/shared/fleet-wake";
+export { cmdPulseAdd, cmdPulseLs } from "../commands/shared/pulse";
+export { cmdWake, fetchIssuePrompt, findWorktrees, detectSession } from "../commands/shared/wake";
+export { parseWakeTarget, ensureCloned } from "../commands/shared/wake-target";
+export { shouldAutoWake } from "../commands/shared/should-auto-wake";
+export type {
+  FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
+} from "../core/fleet/fleet-load-core";
+export { loadOracleRegistry, getOracleMembers, filterMembers } from "../lib/oracle-members";
+export type { OracleMember, OracleTeamRegistry } from "../lib/oracle-members";
 // Sub-issue 2 of #736 Phase 2 / #836 — unified read-only view across the 5
 // oracle registries. Consumer-side rollouts (oracle ls, doctor, resolveTarget)
 // land in follow-up PRs.
@@ -103,6 +174,16 @@ export {
 } from "../lib/artifacts";
 export type { ArtifactMeta, ArtifactSummary } from "../lib/artifacts";
 
+// ─── Profile Loader ─────────────────────────────────────────────────────────
+
+export {
+  getActiveProfile,
+  loadAllProfiles,
+  loadProfile,
+  setActiveProfile,
+} from "../lib/profile-loader";
+export type { TProfile } from "../lib/schemas";
+
 // ─── Plugin System ───────────────────────────────────────────────────────────
 
 export { discoverPackages, importPluginSymbol, invokePlugin } from "../plugin/registry";
@@ -111,7 +192,33 @@ export { registerCommand, matchCommand, listCommands } from "../cli/command-regi
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+export { C } from "../commands/shared/fleet-doctor-fixer";
 export { parseFlags } from "../cli/parse-args";
+export {
+  cmdWorkspaceCreate,
+  cmdWorkspaceJoin,
+  cmdWorkspaceShare,
+  cmdWorkspaceUnshare,
+  cmdWorkspaceLs,
+  cmdWorkspaceAgents,
+  cmdWorkspaceInvite,
+  cmdWorkspaceLeave,
+  cmdWorkspaceStatus,
+} from "../commands/shared/workspace";
+export { ghqFind, ghqList, ghqFindSync, ghqListSync } from "../core/ghq";
+export { UserError, isUserError } from "../core/util/user-error";
+export { assertValidOracleName } from "../core/fleet/validate";
+export { writeSignal } from "../core/fleet/leaf";
+export { validateNickname, writeNickname, setCachedNickname } from "../core/fleet/nicknames";
+export { sparkline } from "../lib/sparkline";
+export { tlink } from "../core/util/terminal";
+
+// Plugin extraction helpers for tab-like command surfaces.
+export { cmdPeek, cmdSend, resolvePeekTarget } from "../commands/shared/comm";
+export { updateInboxStatusBadge } from "../commands/shared/inbox-status-badge";
+export { cmdSplit } from "../commands/plugins/split/impl";
+export { buildAgentRows } from "../commands/shared/agents";
+export type { AgentRow } from "../commands/shared/agents";
 
 // ─── Transport Router ────────────────────────────────────────────────────────
 
@@ -148,8 +255,12 @@ import type { InvokeContext, InvokeResult } from "../plugin/types";
 export interface PluginConfig {
   /** Plugin name (must match plugin.json name) */
   name: string;
-  /** The handler — one function, all surfaces (cli/api/peer) */
-  handler: (ctx: InvokeContext) => Promise<InvokeResult>;
+  /**
+   * Optional handler for command/API/peer entry points.
+   *
+   * Plugin manifests that use `entry` + `hooks` can omit a top-level handler.
+   */
+  handler?: (ctx: InvokeContext) => Promise<InvokeResult>;
   /** Phase 0: GATE — return false to cancel event pipeline */
   onGate?: (event: any) => boolean;
   /** Phase 1: FILTER — modify event before handlers */
@@ -182,6 +293,8 @@ export interface PluginConfig {
  */
 export function definePlugin(config: PluginConfig): PluginConfig {
   if (!config.name) throw new Error("definePlugin: name is required");
-  if (typeof config.handler !== "function") throw new Error("definePlugin: handler is required");
+  if (config.handler !== undefined && typeof config.handler !== "function") {
+    throw new Error("definePlugin: handler must be a function");
+  }
   return config;
 }

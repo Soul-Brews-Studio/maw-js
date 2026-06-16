@@ -219,7 +219,14 @@ describe("coverage next core oracle resolver", () => {
     });
     reader.end("2");
 
-    await expect(selected).resolves.toEqual({ owner: "Org", repo: "two-oracle", path: "/gh/Org/two-oracle" });
+    await expect(selected).resolves.toMatchObject({
+      owner: "Org",
+      repo: "two-oracle",
+      path: "/gh/Org/two-oracle",
+      hasLiveSession: false,
+      lastActivityMs: 0,
+      recommended: false,
+    });
     expect(writes.join("")).toContain("Select [1-2]");
     expect(reader.listenerCount("data")).toBe(0);
     expect(reader.listenerCount("end")).toBe(0);

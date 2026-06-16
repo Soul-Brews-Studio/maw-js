@@ -15,12 +15,14 @@ import { Tmux } from "../core/transport/tmux";
 import { pushFeedEvent } from "./feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../lib/message-events";
 import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInboxWriter } from "../commands/shared/receiver-inbox";
+import { notifyLiveInboxReceiver, type LiveInboxNotifyDeps } from "../commands/shared/live-inbox-notify";
+export { formatInboxNotification, resolveLiveInboxNotificationTarget } from "../commands/shared/live-inbox-notify";
 import { checkBusyGuard, queueForDispatch } from "../core/agent-status-guard";
 import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
 type IdleCheck = Awaited<ReturnType<typeof checkPaneIdle>>;
-type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys" | "listPanes" | "capture">;
+type TmuxLike = Pick<Tmux, "sendKeysLiteral" | "sendKeys" | "listPanes" | "capture" | "run">;
 
 type AutoWakeDecision = Awaited<ReturnType<typeof defaultShouldAutoWake>>;
 type AutoWakeOpts = Parameters<typeof defaultShouldAutoWake>[1];
@@ -50,6 +52,7 @@ export interface SessionsApiDeps {
   shouldAutoWake?: (target: string, opts: AutoWakeOpts) => AutoWakeDecision | Promise<AutoWakeDecision>;
   cmdWake?: (target: string, opts: { noAttach: boolean; task?: string }) => Promise<unknown>;
   cmdSleepOne?: (target: string) => Promise<unknown>;
+  countUnreadInbox?: LiveInboxNotifyDeps["countUnread"];
 }
 
 function defaults(deps: SessionsApiDeps) {
@@ -136,46 +139,6 @@ export function sessionTargetExists(sessions: Session[], target: string): boolea
   if (!session) return false;
   if (!windowName) return true;
   return session.windows.some(w => String(w.index) === windowName || w.name === windowName);
-}
-
-function normalizeInboxTargetName(value: string | undefined): string {
-  return (value ?? "")
-    .trim()
-    .replace(/\.[0-9]+$/, "")
-    .replace(/^\d+-/, "")
-    .replace(/-oracle$/i, "")
-    .toLowerCase();
-}
-
-function windowTarget(session: Session, window: Session["windows"][number] | undefined): string {
-  if (!window) return session.name;
-  return `${session.name}:${window.name || window.index}`;
-}
-
-function receiverNamedWindow(session: Session, wanted: string): Session["windows"][number] | undefined {
-  return session.windows.find((window) => normalizeInboxTargetName(window.name) === wanted);
-}
-
-/** @internal exported for tests. Resolve an inbox oracle to a live tmux target. */
-export function resolveLiveInboxNotificationTarget(oracle: string, sessions: Session[]): string | null {
-  const wanted = normalizeInboxTargetName(oracle);
-  if (!wanted) return null;
-
-  for (const session of sessions) {
-    const namedWindow = receiverNamedWindow(session, wanted);
-    if (namedWindow) return windowTarget(session, namedWindow);
-
-    if (normalizeInboxTargetName(session.name) === wanted) {
-      return windowTarget(session, session.windows.find(w => w.active) ?? session.windows[0]);
-    }
-  }
-
-  return null;
-}
-
-/** @internal exported for tests. */
-export function formatInboxNotification(inbox: Extract<ReceiverInboxResult, { ok: true }>, from: string): string {
-  return `📬 maw inbox: new message from ${from} in ψ/inbox/${inbox.filename}. Run \`maw inbox\` to read.`;
 }
 
 export function emitMessageLifecycle(input: MessageLifecycleInput, deps: SessionsApiDeps = {}) {
@@ -412,20 +375,33 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           receipt: queuedReceipt(reason),
         };
       };
-      const notifyLiveInboxReceiver = async (inbox: ReceiverInboxResult) => {
-        if (!inbox.ok) return;
-        try {
-          const liveTarget = resolveLiveInboxNotificationTarget(inbox.oracle, await d.listSessions());
-          if (liveTarget) await d.sendKeys(liveTarget, formatInboxNotification(inbox, messageFrom));
-        } catch {
-          // Inbox persistence is the durable path. Live notification is only a
-          // best-effort nudge for already-running receiver sessions (#2057).
+      const notifyQueuedInboxReceiver = async (inbox: ReceiverInboxResult, tmuxTarget: string, reason: string) => {
+        const notify = await notifyLiveInboxReceiver(inbox, messageFrom, {
+          listSessions: d.listSessions,
+          tmux: d.createTmux(),
+          countUnread: deps.countUnreadInbox,
+        });
+        if (notify.status !== "sent") {
+          const detail = notify.reason || "unknown notify failure";
+          console.warn(`warn: inbox pane notify skipped for ${inbox.ok ? inbox.oracle : tmuxTarget}: ${detail}`);
+          emitLifecycle({
+            direction: "inbound",
+            state: "queued",
+            channel: "api-send",
+            route: "inbox-notify",
+            from: messageFrom,
+            to: inbox.ok ? `${config.node ?? "local"}:${inbox.oracle}` : messageTo,
+            target: notify.target || tmuxTarget,
+            text: message,
+            lastLine: `${reason}; notify skipped: ${detail}`,
+            signed: messageSigned,
+          });
         }
       };
       const queueOrFail = async (tmuxTarget: string, reason: string, status = 502) => {
         const inbox = await writeInboundInbox(tmuxTarget);
-        if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
         const queued = inbox ? queuedInboxResponse(inbox, tmuxTarget, reason) : null;
+        if (inbox?.ok) await notifyQueuedInboxReceiver(inbox, tmuxTarget, reason);
         if (queued) return queued;
         set.status = status;
         emitLifecycle({
@@ -671,9 +647,10 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       }
 
       const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
+      const reason = errDetail.detail || "target not live; persisted for receiver inbox polling";
       const inbox = await writeInboundInbox(target);
-      if (inbox?.ok) await notifyLiveInboxReceiver(inbox);
-      const queued = inbox ? queuedInboxResponse(inbox, target, errDetail.detail || "target not live; persisted for receiver inbox polling") : null;
+      const queued = inbox ? queuedInboxResponse(inbox, target, reason) : null;
+      if (inbox?.ok) await notifyQueuedInboxReceiver(inbox, target, reason);
       if (queued) return queued;
       emitLifecycle({
         direction: "inbound",

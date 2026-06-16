@@ -1,7 +1,12 @@
 import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
-import { ghqFind, ghqList } from "../../core/ghq";
-import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
+import { ghqFind } from "../../core/ghq";
+import {
+  pickOracle,
+  rankOracleCandidates,
+  resolveOracle as resolveSharedOracle,
+  type OracleRef,
+} from "../../core/resolve";
 import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
@@ -11,6 +16,61 @@ import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-sca
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
 import { loadFleet, resolveFleetSession, type FleetWindow } from "./fleet-load";
 import type { Session } from "../../core/runtime/find-window";
+import { sanitizeBranchName } from "./sanitize-branch-name";
+
+export { sanitizeBranchName } from "./sanitize-branch-name";
+
+const DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS = 10_000;
+
+export function cwdWorkHint(cwd: string, gitToplevel: string | null | undefined): string | null {
+  if (!cwd.trim()) return null;
+  const top = gitToplevel?.trim();
+  if (!top) return null;
+  const repoName = top.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+  if (!repoName) return null;
+  return `  or:  maw work   — wake the current directory (${repoName}) in work mode`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function resolveGitToplevel(cwd: string): Promise<string | null> {
+  try {
+    return (await hostExec(`git -C ${shellQuote(cwd)} rev-parse --show-toplevel 2>/dev/null`)).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function wakeFleetGhqGetTimeoutMs(): number {
+  const raw = process.env.MAW_WAKE_GHQ_GET_TIMEOUT_MS;
+  if (raw === undefined) return DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS;
+}
+
+function isWakeFleetCloneTimeout(error: unknown): boolean {
+  return error instanceof Error && /timed out after \d+ms/.test(error.message);
+}
+
+async function hostExecWakeFleetGhqGet(command: string, timeoutMs: number): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      hostExec(command, undefined, { timeoutMs }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function wakeFleetManualCloneHint(repo: string, oracle: string): string {
+  return `ghq get github.com/${repo} && maw wake ${oracle}`;
+}
 
 /**
  * Worktree fallback for resolveOracle: if maw ls can see a worktree whose
@@ -71,6 +131,20 @@ function repoNameFromPath(path: string): string {
   return path.split("/").pop() ?? "";
 }
 
+function isLikelyHostName(segment: string): boolean {
+  if (segment === "github.com") return true;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(segment);
+}
+
+function sanitizeFleetRepoForClone(slug: string): string | null {
+  const parts = slug.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  if (isLikelyHostName(owner)) return null;
+  return `${owner}/${repo}`;
+}
+
 function repoSlugFromPath(path: string): string {
   const parts = path.split("/").filter(Boolean);
   return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
@@ -82,6 +156,40 @@ function stripOracleSuffix(name: string): string {
 
 function stripNumericFleetPrefix(name: string): string {
   return name.replace(/^\d+-/, "");
+}
+
+function hyphenInsensitiveSessionKey(name: string): string {
+  return stripOracleSuffix(stripNumericFleetPrefix(name.trim().toLowerCase())).replace(/-/g, "");
+}
+
+function findHyphenInsensitiveSessions<T extends { name: string }>(
+  sessions: readonly T[],
+  targets: readonly string[],
+): T[] {
+  const targetKeys = new Set(
+    targets
+      .map(hyphenInsensitiveSessionKey)
+      .filter(Boolean),
+  );
+  if (targetKeys.size === 0) return [];
+
+  return sessions.filter(session => targetKeys.has(hyphenInsensitiveSessionKey(session.name)));
+}
+
+function resolveHyphenInsensitiveSession<T extends { name: string }>(
+  label: string,
+  sessions: readonly T[],
+  targets: readonly string[],
+): T | null {
+  const matches = findHyphenInsensitiveSessions(sessions, targets);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    console.error(`\x1b[31merror\x1b[0m: '${label}' is ambiguous — matches ${matches.length} hyphen-equivalent sessions:`);
+    for (const s of matches) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+  return null;
 }
 
 function localOracleIntentNames(oracle: string): string[] {
@@ -155,15 +263,61 @@ function repoInfoFromOracleRef(ref: OracleRef): { repoPath: string; repoName: st
   return { repoPath: ref.path, repoName: ref.repo, parentDir: ref.path.replace(/\/[^/]+$/, "") };
 }
 
+function normalizeCandidatePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function candidatePathFromRef(ref: OracleRef): string | null {
+  return ref.path ? normalizeCandidatePath(ref.path) : null;
+}
+
+function pathLooksInside(cwd: string, candidatePath: string): boolean {
+  const normalizedCwd = normalizeCandidatePath(cwd);
+  return normalizedCwd === candidatePath || normalizedCwd.startsWith(`${candidatePath}/`);
+}
+
+function relativeTimeFromNow(now: number, thenMs: number): string {
+  if (!Number.isFinite(thenMs) || thenMs <= 0) return "never";
+  const diffMs = Math.max(0, now - thenMs);
+  const sec = Math.floor(diffMs / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (day > 0) return `${day}d ago`;
+  if (hr > 0) return `${hr}h ago`;
+  if (min > 0) return `${min}m ago`;
+  return `${sec}s ago`;
+}
+
+async function liveOracleCandidates(candidates: OracleRef[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const candidatePaths = candidates
+    .map(candidatePathFromRef)
+    .filter((path): path is string => Boolean(path));
+  if (candidatePaths.length === 0) return out;
+
+  try {
+    const panes = await tmux.listPanes();
+    for (const pane of panes) {
+      if (!pane.cwd) continue;
+      const cwd = pane.cwd;
+      for (const candidatePath of candidatePaths) {
+        if (pathLooksInside(cwd, candidatePath)) out.add(candidatePath);
+      }
+    }
+  } catch {
+    return out;
+  }
+
+  return out;
+}
+
 async function resolveLocalOracleWithPicker(
   oracle: string,
 ): Promise<{ repoPath: string; repoName: string; parentDir: string; fuzzy: boolean } | null> {
-  const repos = await ghqList().catch(() => [] as string[]);
-  if (repos.length === 0) return null;
   let result = await resolveSharedOracle(oracle, {
     nameSpace: "oracle",
     matchPolicy: "exact",
-    repos,
   });
   let fuzzy = false;
 
@@ -171,7 +325,6 @@ async function resolveLocalOracleWithPicker(
     result = await resolveSharedOracle(oracle, {
       nameSpace: "oracle",
       matchPolicy: "substring",
-      repos,
     });
     fuzzy = result.kind === "exact";
   }
@@ -182,11 +335,35 @@ async function resolveLocalOracleWithPicker(
     return info ? { ...info, fuzzy } : null;
   }
 
-  console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${result.candidates.length} local oracles:`);
-  for (const c of result.candidates) console.error(`\x1b[90m    • ${oracleSlug(c)}\x1b[0m`);
+  const now = Date.now();
+  const liveSessions = await liveOracleCandidates(result.candidates);
+  const ranked = rankOracleCandidates(result.candidates, { liveSessions, now });
+
+  console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${result.candidates.length} local oracles (ranked by live session + recent activity):`);
+  ranked.forEach((candidate, index) => {
+    const label = candidate.recommended
+      ? "\x1b[33m⭐ recommended\x1b[0m"
+      : "";
+    const live = candidate.hasLiveSession
+      ? "\x1b[32m● live session\x1b[0m"
+      : "";
+    const markerText = [label, live].filter(Boolean);
+    const markers = markerText.length
+      ? `    ${markerText.join(" \x1b[90m·\x1b[0m")} `
+      : "";
+    console.error(`  \x1b[36m${index + 1}\x1b[0m) \x1b[90m${oracleSlug(candidate)}\x1b[0m ${markers}`.trimEnd());
+    if (candidate.path) console.error(`    \x1b[90m${candidate.path}\x1b[0m`);
+    const details: string[] = [];
+    if (candidate.hasLiveSession) details.push("live session");
+    if (candidate.lastActivityMs) details.push(`edited ${relativeTimeFromNow(now, candidate.lastActivityMs)}`);
+    if (details.length) console.error(`       ${details.join(" \x1b[90m·\x1b[0m ")}`);
+  });
 
   if (isInteractivePickerAvailable()) {
-    const picked = await pickOracle(result.candidates);
+    const picked = await pickOracle(result.candidates, {
+      liveSessions,
+      now,
+    });
     const info = picked ? repoInfoFromOracleRef(picked) : null;
     if (info) return { ...info, fuzzy: false };
     console.error(`\x1b[90m  aborted\x1b[0m`);
@@ -220,13 +397,18 @@ export async function resolveOracle(
     for (const config of loadFleet()) {
       const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
       if (win?.repo) {
-        const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
+        const sanitizedFleetPin = sanitizeFleetRepoForClone(win.repo);
+        if (!sanitizedFleetPin) {
+          console.error(`\x1b[33m⚠\x1b[0m malformed fleet repo '${win.repo}' for ${win.name}; expected 'owner/repo'.`);
+          continue;
+        }
+        const fullPath = await ghqFind(`/${sanitizedFleetPin.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
           const repoPath = fullPath;
           return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
         }
         // Fleet knows the slug but it's not cloned yet — remember for step 3
-        fleetRepo = win.repo;
+        fleetRepo = sanitizedFleetPin;
       }
     }
   } catch { /* fleet dir may not exist */ }
@@ -267,20 +449,24 @@ export async function resolveOracle(
         parentDir: existing.replace(/\/[^/]+$/, ""),
       };
     }
-    console.log(`\x1b[36m🌱\x1b[0m ${oracle} pinned in fleet → github.com/${fleetRepo} — cloning to ghq...`);
+    const timeoutMs = wakeFleetGhqGetTimeoutMs();
+    const hint = wakeFleetManualCloneHint(fleetRepo, oracle);
+    console.log(`\x1b[36m🌱\x1b[0m ${oracle} pinned in fleet → github.com/${fleetRepo} — checking ghq clone (bounded ${Math.ceil(timeoutMs / 1000)}s)...`);
     try {
-      await hostExec(`ghq get -u 'github.com/${fleetRepo}'`);
+      await hostExecWakeFleetGhqGet(`ghq get 'github.com/${fleetRepo}'`, timeoutMs);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${fleetRepo} clone/update failed: ${msg.split("\n")[0]}`);
+      const reason = isWakeFleetCloneTimeout(e) ? `timed out after ${timeoutMs}ms` : msg.split("\n")[0];
+      console.error(`\x1b[33m⚠\x1b[0m fleet-pinned ${fleetRepo} clone failed: ${reason}`);
+      console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
     }
     const cloned = await ghqFind(`/${fleetRepoStem}`);
     if (cloned) {
       console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
       return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
     }
-    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} — clone failed and not found locally`);
-    console.error(`\x1b[90m  manually: ghq get -u 'github.com/${fleetRepo}' && maw wake ${oracle}\x1b[0m`);
+    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} is not cloned locally`);
+    console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
     process.exit(1);
   }
 
@@ -341,7 +527,12 @@ export async function resolveOracle(
     if (scanned) return scanned;
   } catch { /* scan suggest failed — fall through to original error */ }
 
-  console.error(`oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${(loadConfig().peers || []).length} peers — try: maw bud ${oracle}  OR  ghq get <url>)`);
+  const peerCount = (loadConfig().peers || []).length;
+  const workHint = cwdWorkHint(process.cwd(), await resolveGitToplevel(process.cwd()));
+  console.error([
+    `oracle repo not found: ${oracle} (tried ghq, fleet configs, worktree scan, GitHub clone, and ${peerCount} peers — try: maw bud ${oracle}  OR  ghq get <url>)`,
+    workHint,
+  ].filter(Boolean).join("\n"));
   process.exit(1);
 }
 
@@ -354,14 +545,16 @@ export async function findWorktrees(
   const safe = (s: string) => s.replace(/'/g, "'\\''");
   const repoPath = `${parentDir}/${repoName}`;
   const outs: string[] = [];
-  const legacyOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
+  const gitLinkedFind = (root: string, predicates: string) =>
+    `find ${root} ${predicates} -exec sh -c 'for dir do [ -e "$dir/.git" ] && printf "%s\n" "$dir"; done' sh {} + 2>/dev/null || true`;
+  const legacyOut = await hostExec(gitLinkedFind(`'${safe(parentDir)}'`, `-maxdepth 1 -type d -name '${safe(repoName)}.wt-*'`));
   outs.push(legacyOut);
-  const nestedOut = await hostExec(`find '${safe(repoPath)}/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`);
+  const nestedOut = await hostExec(gitLinkedFind(`'${safe(repoPath)}/agents'`, "-mindepth 1 -maxdepth 1 -type d"));
   outs.push(nestedOut);
 
   if (!outs.join("\n").trim() && taskSlug && scopeStem) {
     outs.push(await hostExec(
-      `find '${safe(parentDir)}' -maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}' 2>/dev/null || true`,
+      gitLinkedFind(`'${safe(parentDir)}'`, `-maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}'`),
     ));
   }
 
@@ -437,7 +630,16 @@ function knownFleetSessionStems(): string[] {
   }
 }
 
-export async function detectSession(oracle: string, urlRepoName?: string): Promise<string | null> {
+export async function detectSession(
+  oracle: string,
+  urlRepoName?: string,
+  opts: { invokingSession?: string | null } = {},
+): Promise<string | null> {
+  // #2557 — `--task`/`--wt` wakes pass the operator's invoking tmux session so a
+  // budded oracle's worktree window lands in the current session instead of an
+  // unrelated workspace that merely hosts the repo. `null` (plain wake / not in
+  // tmux) preserves the historical placement order exactly.
+  const invokingSession = opts.invokingSession || null;
   const sessions = await tmux.listSessions();
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
@@ -462,7 +664,18 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     const fleetSession =
       resolveFleetSession(urlRepoName) ||
       resolveFleetSession(oracle);
-    if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+    const liveFleetSession = fleetSession && sessions.find(s => s.name === fleetSession) ? fleetSession : null;
+    // #2557 — defer the window-metadata home for task/worktree wakes so the
+    // oracle's own name-matched sessions and the invoking session (below) can
+    // claim placement first. Plain wakes keep the historical metadata-first win.
+    if (liveFleetSession && !invokingSession) return liveFleetSession;
+
+    // #2461 — session stems may be registered/generated with or without
+    // human-readable hyphens. A URL/repo target like `maw-js-oracle` should
+    // still join the live numbered session `139-mawjs` instead of creating a
+    // duplicate `NN-maw-js`.
+    const hyphenInsensitive = resolveHyphenInsensitiveSession(urlRepoName, scopedSessions, [urlRepoName, oracle]);
+    if (hyphenInsensitive) return hyphenInsensitive.name;
 
     const numbered = scopedSessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
     if (numbered.length === 1) return numbered[0]!.name;
@@ -472,6 +685,13 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
       console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
       process.exit(1);
     }
+
+    // #2557 — task/worktree wake: prefer the invoking session over the deferred
+    // window-metadata home once the strict name matches above have missed.
+    if (invokingSession) {
+      if (sessions.find(s => s.name === invokingSession)) return invokingSession;
+      if (liveFleetSession) return liveFleetSession;
+    }
     return null;
   }
 
@@ -480,7 +700,11 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // in 23-discord-admin. Try this before generic suffix matching so unrelated
   // aux/channel sessions like odin-discord do not steal `maw wake discord`.
   const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+  const liveFleetSession = fleetSession && sessions.find(s => s.name === fleetSession) ? fleetSession : null;
+  // #2557 — for `--task`/`--wt` placement, defer the window-metadata home so the
+  // invoking session (resolved below, after the oracle's own name-matched
+  // sessions) can win over an unrelated workspace that hosts the oracle's repo.
+  if (liveFleetSession && !invokingSession) return liveFleetSession;
 
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
@@ -496,6 +720,11 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
+  // #2461 — allow `maw wake maw-js` to find `139-mawjs` (and vice versa)
+  // while preserving ambiguity reporting if both spellings are live.
+  const hyphenInsensitive = resolveHyphenInsensitiveSession(oracle, scopedSessions, [oracle]);
+  if (hyphenInsensitive) return hyphenInsensitive.name;
+
   const numeric = numericSessions.filter(s => s.name.endsWith(`-${oracle}`));
   if (numeric.length === 1) return numeric[0]!.name;
   if (numeric.length > 1) {
@@ -503,6 +732,16 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     for (const s of numeric) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
     console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
     process.exit(1);
+  }
+
+  // #2557 — task/worktree wake prefers the invoking tmux session over the
+  // deferred window-metadata home, but only after the oracle's own
+  // name-matched sessions (handled above) have had priority. This keeps a
+  // budded oracle's task window in the operator's current session instead of
+  // an unrelated workspace (e.g. `03-catlab-hello`) that merely hosts the repo.
+  if (invokingSession) {
+    if (sessions.find(s => s.name === invokingSession)) return invokingSession;
+    if (liveFleetSession) return liveFleetSession;
   }
 
   // #1794 — wake may be invoked with a short fuzzy oracle token ("homeke")
@@ -566,22 +805,6 @@ export async function setSessionEnv(session: string, deps: SetSessionEnvDeps = {
       await setEnvironment(session, key, val);
     }
   }
-}
-
-export function sanitizeBranchName(name: string): string {
-  // #823 Bug A — greedy strip of leading/trailing dashes/dots so unknown CLI
-  // flags that leak into the positional slot (e.g. "--no-attach") sanitize to
-  // "no-attach" rather than the half-stripped "-no-attach", which then
-  // becomes a corrupted worktree name "1--no-attach" downstream.
-  //
-  // Strip pattern split into two anchored passes:
-  //   - `^[-.]+`        — `^` anchor pins the start, no backtracking possible.
-  //   - `(?<![-.])[-.]+$` — negative look-behind pins the trailing run to its
-  //     leftmost start, preventing the n² backtrack CodeQL's js/polynomial-redos
-  //     flags on the bare `[-.]+$` form (it can begin matching anywhere within
-  //     the run, then backtrack on long all-dash input).
-  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._\-]/g, "")
-    .replace(/\.{2,}/g, ".").replace(/^[-.]+/, "").replace(/(?<![-.])[-.]+$/, "").slice(0, 50);
 }
 
 // Wake target parsing (parseWakeTarget, ensureCloned) is in wake-target.ts

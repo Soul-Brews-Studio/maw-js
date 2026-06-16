@@ -59,6 +59,7 @@ let listWindowsThrows = false;
 let listClaudeSessionsThrows = false;
 let snapshot: any = null;
 let shouldWakeDecision = { wake: false, reason: "already-live" };
+let detectSessionResult: string | null = "54-mawjs";
 let paneCommand = "codex";
 let logs: string[] = [];
 let writes: string[] = [];
@@ -86,6 +87,7 @@ function resetState() {
   listClaudeSessionsThrows = false;
   snapshot = null;
   shouldWakeDecision = { wake: false, reason: "already-live" };
+  detectSessionResult = "54-mawjs";
   paneCommand = "codex";
   logs = [];
   writes = [];
@@ -173,7 +175,7 @@ mock.module(join(import.meta.dir, "../../src/config"), () => ({
   ..._rConfig,
   buildCommandInDir: (windowName: string, cwd: string, engine?: string) => mockActive ? `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}` : realConfig.buildCommandInDir(windowName, cwd, engine),
   cfgTimeout: (key: any) => mockActive ? 0 : realConfig.cfgTimeout(key),
-  loadConfig: () => mockActive ? { node: "m5", agents: { mawjs: "m5" } } : realConfig.loadConfig(),
+  loadConfig: () => mockActive ? { node: "m5", agents: { mawjs: "m5" }, commands: { default: "claude" } } : realConfig.loadConfig(),
   saveConfig: (patch: any) => mockActive ? undefined : realConfig.saveConfig(patch),
 }));
 
@@ -184,7 +186,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () 
   findReusableWorktreeBySlug: (...args: any[]) => mockActive ? null : (realWakeResolve.findReusableWorktreeBySlug as any)(...args),
   getSessionMap: () => mockActive ? {} : realWakeResolve.getSessionMap(),
   resolveFleetSession: (oracle: string) => mockActive ? null : realWakeResolve.resolveFleetSession(oracle),
-  detectSession: async (oracle: string) => mockActive ? "54-mawjs" : realWakeResolve.detectSession(oracle),
+  detectSession: async (oracle: string) => mockActive ? detectSessionResult : realWakeResolve.detectSession(oracle),
   setSessionEnv: async (session: string) => mockActive ? undefined : realWakeResolve.setSessionEnv(session),
   sanitizeBranchName: (value: string) => mockActive ? value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").slice(0, 50) : realWakeResolve.sanitizeBranchName(value),
 }));
@@ -225,6 +227,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-concurrency"),
 mock.module(join(import.meta.dir, "../../src/core/fleet/snapshot"), () => ({
   ..._rSnapshot,
   latestSnapshot: () => mockActive ? snapshot : realSnapshot.latestSnapshot(),
+  listSnapshots: () => mockActive ? (snapshot ? [{ file: "latest.json", timestamp: snapshot.timestamp ?? "latest" }] : []) : realSnapshot.listSnapshots(),
   loadSnapshot: (id: string) => mockActive ? snapshot : realSnapshot.loadSnapshot(id),
 }));
 
@@ -296,6 +299,37 @@ describe("wake-cmd isolated executable branch coverage", () => {
     expect(sendTextCalls).toEqual([{ target: "project:mawjs", text: expect.stringContaining("--agent mawjs") }]);
   });
 
+  test("#2586 prompts before rehydrating saved agent windows in a newly created session", async () => {
+    detectSessionResult = null;
+    sessions = [];
+    hasSessions = new Set();
+    shouldWakeDecision = { wake: true, reason: "missing-session" };
+    worktrees = [
+      { name: "1-review", path: join(repoPath, "agents", "1-review") },
+    ];
+    const originalIsStdoutTTY = _wtPicker.isStdoutTTY;
+    const originalReadChoice = _wtPicker.readChoice;
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "n";
+
+    try {
+      const { result, logs } = await captureLogs(() => cmdWake("mawjs", {}));
+
+      expect(result).toBe("01-mawjs:mawjs-oracle");
+      const rendered = logs.join("\n");
+      expect(rendered).toContain("found 1 saved agent window");
+      expect(writes.join("")).toContain("Rehydrate? [Y]es all / [n]one / [s]elect:");
+      expect(rendered).toContain("skipped agent rehydration");
+      expect(sessions).toContainEqual({ name: "01-mawjs" });
+      expect(windowsBySession["01-mawjs"]).toEqual([{ name: "mawjs-oracle", cwd: repoPath }]);
+      expect(newWindowCalls).toEqual([]);
+      expect(sendTextCalls).toEqual([{ target: "01-mawjs:mawjs-oracle", text: expect.stringContaining("--agent mawjs-oracle") }]);
+    } finally {
+      _wtPicker.isStdoutTTY = originalIsStdoutTTY;
+      _wtPicker.readChoice = originalReadChoice;
+    }
+  });
+
   test("rejects unavailable and non-matching requested snapshots", async () => {
     snapshot = null;
     await expect(cmdWake("mawjs", { fromSnapshot: true, snapshotId: "missing" })).rejects.toThrow("snapshot not found: missing");
@@ -359,10 +393,11 @@ describe("wake-cmd isolated executable branch coverage", () => {
 
     expect(result).toBe("54-mawjs:mawjs-oracle");
     expect(selectWindowCalls).toEqual(["54-mawjs:mawjs-oracle"]);
-    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls).toHaveLength(2);
     expect(sendTextCalls[0]!.target).toBe("54-mawjs:mawjs-oracle");
-    expect(sendTextCalls[0]!.text).toContain(`cd ${repoPath} && codex --agent mawjs-oracle -p `);
-    expect(sendTextCalls[0]!.text).toMatch(/say .*hi/);
+    expect(sendTextCalls[0]!.text).toContain(`cd ${repoPath}`);
+    expect(sendTextCalls[1]!.target).toBe("54-mawjs:mawjs-oracle");
+    expect(sendTextCalls[1]!.text).toMatch(/say .*hi/);
     expect(attachCalls).toEqual(["54-mawjs"]);
     expect(splitCalls).toEqual(["54-mawjs:mawjs-oracle"]);
     expect(openWindowCalls).toEqual(["54-mawjs:mawjs-oracle"]);

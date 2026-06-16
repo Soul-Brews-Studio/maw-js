@@ -5,11 +5,9 @@
  * For genuinely unexpected runtime failures, throw a regular Error so
  * the stack stays visible for debugging.
  *
- * Convention: the throw site is responsible for printing the
- * user-facing output (primary error line + any "did you mean" hints)
- * BEFORE throwing. The top-level catch just exits cleanly. This lets
- * sites compose multi-line output (colors, hints, suggestions) without
- * the error class having to carry that structure.
+ * Convention: throw sites may print richer context (colors, hints,
+ * suggestions) before throwing. The top-level catch still prints this
+ * message so direct UserError throws never disappear silently.
  *
  * Throw UserError for: missing/invalid args, unknown commands, bad
  *   target resolution, help-path exits.

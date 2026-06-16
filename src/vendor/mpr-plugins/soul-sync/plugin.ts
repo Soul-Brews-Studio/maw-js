@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "soul-sync",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Synchronize oracle soul across nodes.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "soul-sync",
+    "aliases": [
+      "soulsync",
+      "ss"
+    ],
+    "help": "maw soul-sync [target] [--from <source>] [--project]"
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

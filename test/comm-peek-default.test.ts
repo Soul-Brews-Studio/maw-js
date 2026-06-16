@@ -7,6 +7,7 @@ import type { SshSession as Session } from "../src/sdk";
 import {
   cmdPeek,
   cmdPeekDeps,
+  resolvePeekTarget,
   resolveSearchSessions,
   resolveSearchSessionsDeps,
   type CmdPeekDeps,
@@ -156,6 +157,48 @@ describe("resolveSearchSessions", () => {
       loadConfig: () => ({}) as MawConfig,
       resolveFleetSession: () => null,
     })).toBe(sessions);
+  });
+});
+
+describe("resolvePeekTarget", () => {
+  const sessions = [
+    session("167-web-v2", [
+      { index: 1, name: "web-v2-oracle" },
+      { index: 2, name: "web-v2-web-v2.wt-coder-2" },
+    ]),
+    session("50-mawjs", [{ index: 0, name: "mawjs-oracle" }]),
+  ];
+
+  test("resolves session:window through the same findWindow path peek uses", async () => {
+    const findCalls: Array<{ sessions: Session[]; query: string }> = [];
+    const target = await resolvePeekTarget("web-v2:2", {
+      loadConfig: () => ({ node: "m5" }) as MawConfig,
+      resolveFleetSession: () => null,
+      listSessions: async () => sessions,
+      findWindow: (search, query) => {
+        findCalls.push({ sessions: search, query });
+        return "167-web-v2:2";
+      },
+    });
+
+    expect(target).toBe("167-web-v2:2");
+    expect(findCalls).toEqual([{ sessions, query: "web-v2:2" }]);
+  });
+
+  test("strips local node prefixes before local lookup", async () => {
+    const queries: string[] = [];
+    const target = await resolvePeekTarget("m5:mawjs", {
+      loadConfig: () => ({ node: "m5" }) as MawConfig,
+      resolveFleetSession: () => null,
+      listSessions: async () => sessions,
+      findWindow: (_search, query) => {
+        queries.push(query);
+        return "50-mawjs:0";
+      },
+    });
+
+    expect(target).toBe("50-mawjs:0");
+    expect(queries).toEqual(["mawjs"]);
   });
 });
 

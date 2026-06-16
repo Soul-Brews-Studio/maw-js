@@ -5,7 +5,7 @@ import { execSync } from "child_process";
 import {
   loadOracleChannels, saveOracleChannels,
   type ChannelPlugin,
-} from "../../shared/channel-loader";
+} from "../../../sdk";
 
 const CHANNELS_BASE = join(homedir(), ".claude", "channels");
 const PLUGINS_CACHE = join(homedir(), ".claude/plugins/cache/claude-plugins-official");

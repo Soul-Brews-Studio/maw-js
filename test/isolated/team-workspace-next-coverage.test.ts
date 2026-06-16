@@ -19,6 +19,14 @@ const originalTmux = process.env.TMUX;
 const originalWarn = console.warn;
 
 mock.module("maw-js/sdk", () => ({
+  hostExec: async () => "",
+  curlFetch: async () => ({ ok: false, status: 503, data: {} }),
+  isAgentCommand: () => true,
+  getPaneInfos: async () => [],
+  getPaneCommands: async () => [],
+  getPaneCommand: async () => "claude",
+  listSessions: async () => [],
+  tmuxCmd: () => "tmux-test",
   tmux: {
     hasSession: async (name: string) => sessionExists.has(name),
     run: async () => {
@@ -49,6 +57,13 @@ mock.module("maw-js/commands/shared/context-limit", () => ({
 
 mock.module("../../src/vendor/mpr-plugins/team/oracle-members", () => ({
   loadOracleRegistry: () => registry,
+}));
+
+mock.module("../../src/vendor/mpr-plugins/team/team-liveness", () => ({
+  listPaneSnapshots: async () => [],
+}));
+mock.module("../../src/vendor/mpr-plugins/team/team-liveness.ts", () => ({
+  listPaneSnapshots: async () => [],
 }));
 
 const {

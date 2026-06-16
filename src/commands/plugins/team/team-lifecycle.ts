@@ -1,10 +1,12 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { createHash } from "crypto";
-import { join } from "path";
+import { join, resolve as resolvePath } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
 import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
 import { buildCommand, buildCommandInDir } from "../../../config/command";
+import { loadConfig } from "../../../config/load";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -73,6 +75,42 @@ export function mergeTeamKnowledge(name: string, teammates: Array<{ name: string
     const archiveDest = join(PSI, "memory", "mailbox", "teams", name);
     mkdirSync(archiveDest, { recursive: true });
     copyFileSync(manifestSrc, join(archiveDest, "manifest.json"));
+  }
+}
+
+
+function isCodexLikeSpawnEngine(engine: string, config: ReturnType<typeof loadConfig>): boolean {
+  try {
+    const resolved = resolveEngine(engine, config) as { name?: string; cmd?: string; processNames?: string[] };
+    const haystack = [engine, resolved.name, resolved.cmd, ...(resolved.processNames ?? [])]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ");
+    return /(^|[\s/_-])(codex|omx)([\s/_-]|$)/i.test(haystack);
+  } catch {
+    return /^(codex|omx)$/i.test(engine);
+  }
+}
+
+function gitTopLevel(cwd: string): string | null {
+  try {
+    const proc = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe" });
+    if (proc.exitCode !== 0) return null;
+    const top = new TextDecoder().decode(proc.stdout).trim();
+    return top ? resolvePath(top) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function assertTeamSpawnWorktreeIsolation(role: string, engine: string, opts: { cwd?: string }, config: ReturnType<typeof loadConfig>, currentCwd = process.cwd()): void {
+  if (!isCodexLikeSpawnEngine(engine, config)) return;
+  if (!opts.cwd) {
+    throw new Error(`codex-like team spawn for '${role}' requires --worktree/--cwd; refusing to run in the shared checkout (#2764)`);
+  }
+  const targetTop = gitTopLevel(opts.cwd);
+  const currentTop = gitTopLevel(currentCwd);
+  if (targetTop && currentTop && targetTop === currentTop) {
+    throw new Error(`codex-like team spawn for '${role}' must use an isolated git worktree, not the shared checkout: ${opts.cwd} (#2764)`);
   }
 }
 
@@ -241,8 +279,11 @@ export async function cmdTeamSpawn(
   }
 
   // Build spawn prompt
-  const engine = opts.engine || "claude";
-  const model = opts.model || (engine === "claude" ? "sonnet" : undefined);
+  const config = loadConfig();
+  const engine = opts.engine || config.defaultEngine || defaultEngineNameForConfig(config);
+  assertTeamSpawnWorktreeIsolation(role, engine, opts, config);
+  const resolvedEngine = resolveEngine(engine, config);
+  const model = opts.model || resolvedEngine.model?.default;
   const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];

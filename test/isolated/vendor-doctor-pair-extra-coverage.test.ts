@@ -1,7 +1,8 @@
 /** Extra isolated branch coverage for vendor doctor + pair peer internals. */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realChildProcess from "child_process";
-import * as realFs from "fs";
+import * as realFs from "node:fs";
+import * as realOs from "os";
 
 const C = { green: "", red: "", yellow: "", gray: "", reset: "" };
 const DOCTOR_HOME = "/tmp/vendor-doctor-pair-extra-home";
@@ -28,8 +29,12 @@ const originalLog = console.log;
 const originalFetch = globalThis.fetch;
 const originalResolveSync = Bun.resolveSync;
 const originalSpawn = Bun.spawn;
+const realExistsSync = realFs.existsSync;
+const realReadlinkSync = realFs.readlinkSync;
+const realReadFileSync = realFs.readFileSync;
 
-mock.module("os", () => ({ homedir: () => DOCTOR_HOME }));
+mock.module("os", () => ({ ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host", default: { ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host" } }));
+mock.module("node:os", () => ({ ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host", default: { ...realOs, homedir: () => DOCTOR_HOME, hostname: () => "doctor-host" } }));
 
 mock.module("child_process", () => ({
   ...realChildProcess,
@@ -50,16 +55,19 @@ mock.module("child_process", () => ({
 mock.module("fs", () => ({
   ...realFs,
   existsSync: (path: string) => {
-    if (path === DOCTOR_BIN) {
+    const pathText = String(path);
+    if (pathText === DOCTOR_BIN) {
       if (installMode === "present-plain") return true;
       return execCalls.includes("bun add -g github:Soul-Brews-Studio/maw-js")
         && installMode === "missing-then-restored";
     }
-    return true;
+    if (pathText.endsWith("/package.json")) return true;
+    if (pathText.startsWith(DOCTOR_HOME)) return true;
+    return realExistsSync(path);
   },
   readlinkSync: (path: string) => {
     if (path === DOCTOR_BIN && installMode === "present-plain") throw new Error("not a symlink");
-    return realFs.readlinkSync(path);
+    return realReadlinkSync(path);
   },
   readFileSync: (path: string, encoding?: BufferEncoding) => {
     if (String(path).endsWith("/package.json")) {
@@ -67,7 +75,7 @@ mock.module("fs", () => ({
       if (sourcePackageMode === "missing-version") return JSON.stringify({ name: "maw-js" });
       return JSON.stringify({ version: "1.2.3-test" });
     }
-    return realFs.readFileSync(path, encoding);
+    return realReadFileSync(path, encoding);
   },
 }));
 
@@ -76,16 +84,54 @@ mock.module("maw-js/config", () => ({
     if (configError) throw configError;
     return configValue;
   },
+  cfgLimit: (_cfg: unknown, _key: string, fallback: number) => fallback,
+  cfgTimeout: (_cfg: unknown, _key: string, fallback: number) => fallback,
+  cfgInterval: (_cfg: unknown, _key: string, fallback: number) => fallback,
+  buildCommand: (name: string) => `maw ${name}`,
+  buildCommandInDir: (name: string, cwd: string) => `cd ${cwd} && maw ${name}`,
+  getEnvVars: () => ({}),
+  D: {},
+  resetConfig: () => {},
+  saveConfig: () => {},
+  cfg: (_cfg: unknown, _key: string, fallback: unknown) => fallback,
 }));
 
 mock.module("maw-js/commands/shared/fleet-doctor-fixer", () => ({ C }));
 
+
+mock.module("maw-js/sdk", () => ({
+  C,
+  invalidateManifest: () => { invalidateCalls += 1; },
+  isMawXdgEnabled: () => false,
+  legacyMawPath: (...parts: string[]) => `${DOCTOR_HOME}/.maw${parts.length ? `/${parts.join("/")}` : ""}`,
+  mawCacheDir: () => `${DOCTOR_HOME}/.cache/maw`,
+  mawConfigDir: () => `${DOCTOR_HOME}/.config/maw`,
+  mawDataDir: () => `${DOCTOR_HOME}/.local/share/maw`,
+  mawDataPath: (...parts: string[]) => `${DOCTOR_HOME}/.local/share/maw/${parts.join("/")}`,
+  mawStateDir: () => `${DOCTOR_HOME}/.local/state/maw`,
+  mawStatePath: (...parts: string[]) => `${DOCTOR_HOME}/.local/state/maw/${parts.join("/")}`,
+  loadConfig: () => {
+    if (configError) throw configError;
+    return configValue;
+  },
+  loadManifestCached: () => {
+    if (manifestError) throw manifestError;
+    return manifestValue;
+  },
+  findOracle: () => null,
+  loadManifest: () => manifestValue,
+  ORACLE_MANIFEST_DEFAULT_TTL_MS: 60_000,
+}));
 mock.module("maw-js/lib/oracle-manifest", () => ({
   invalidateManifest: () => { invalidateCalls += 1; },
   loadManifestCached: () => {
     if (manifestError) throw manifestError;
     return manifestValue;
   },
+  findOracle: () => null,
+  loadManifest: () => manifestValue,
+  ORACLE_MANIFEST_DEFAULT_TTL_MS: 60_000,
+  DEFAULT_TTL_MS: 60_000,
 }));
 
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/doctor/internal/peers-store"), () => ({
@@ -270,6 +316,7 @@ describe("doctor impl extra branch coverage", () => {
 
     const all = await doctorModule.cmdDoctor(["all"]);
     expect(all.checks.map((c) => c.name)).toEqual([
+      "gateway",
       "install",
       "xdg:paths",
       "version:pm2",

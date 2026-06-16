@@ -56,22 +56,21 @@ export function resolveWorktreeWindow(
 
     const taskScoped = boundWindow(taskPart, scopedWindows);
     if (taskScoped) return { kind: "bound", window: taskScoped };
+
+    // Parent session exists but no matching window — treat as stale.
+    // Do NOT fall through to global scan, which causes cross-session ambiguity (#2392).
+    return { kind: "none" };
   }
 
+  // No parent session at all — scope global search to exact matches only.
   const allWindows = dedupeWindowsByName(sessions);
   const fullGlobal = boundWindow(wtName, allWindows);
   if (fullGlobal) return { kind: "bound", window: fullGlobal };
 
   const taskResolved = resolveWorktreeTarget(taskPart, allWindows);
-  if (taskResolved.kind === "exact" || taskResolved.kind === "fuzzy") {
+  if (taskResolved.kind === "exact") {
     return { kind: "bound", window: taskResolved.match.name };
   }
-  if (taskResolved.kind === "ambiguous") {
-    return {
-      kind: "ambiguous",
-      query: taskPart,
-      candidates: taskResolved.candidates.map(candidate => candidate.name),
-    };
-  }
+  // Skip fuzzy + ambiguous from global scope — prevents cross-session false matches
   return { kind: "none" };
 }

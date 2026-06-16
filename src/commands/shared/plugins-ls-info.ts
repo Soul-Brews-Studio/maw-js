@@ -6,6 +6,7 @@ import type { LoadedPlugin, PluginTier } from "../../plugin/types";
 import { weightToTier } from "../../plugin/tier";
 import { existsSync } from "fs";
 import { surfaces, shortenHome, printTable } from "./plugins-ui";
+import { UserError } from "../../core/util/user-error";
 
 export interface PluginLsOptions {
   verbose?: boolean;
@@ -190,10 +191,7 @@ export function doLs(
 export function doInfo(name: string, discover: () => LoadedPlugin[]): void {
   const plugins = discover();
   const p = plugins.find(x => x.manifest.name === name);
-  if (!p) {
-    console.error(`plugin not found: ${name}`);
-    process.exit(1);
-  }
+  if (!p) throw new UserError(`plugin not found: ${name}`);
 
   const m = p.manifest;
   const t = effectiveTier(p);

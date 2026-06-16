@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "cross-team-queue",
+  "version": "0.1.2",
+  "description": "Unified inbox view across multiple oracle vaults",
+  "author": "Soul-Brews-Studio",
+  "license": "BUSL-1.1",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-cross-team-queue",
+  "sdk": "^1.0.0-alpha",
+  "api": {
+    "path": "/cross-team-queue",
+    "methods": [
+      "GET"
+    ]
+  },
+  "schemaVersion": 1,
+  "entry": "./src/index.ts"
+} as const);

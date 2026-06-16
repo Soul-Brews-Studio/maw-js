@@ -1,6 +1,6 @@
 {
   "name": "maw-js",
-  "version": "26.6.6-alpha.1615",
+  "version": "26.6.14-alpha.2110",
   "license": "BUSL-1.1",
   "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
@@ -19,7 +19,7 @@
     "test:isolated": "bash scripts/test-isolated.sh",
     "test:isolated:random": "bash scripts/test-isolated.sh --randomize",
     "test:isolated:legacy": "MAW_TEST_MODE=1 bun test test/isolated/",
-    "test:mock-smoke": "MAW_TEST_MODE=1 bun test test/zz-mock-tmux-smoke.test.ts --path-ignore-patterns '**/agents/**'",
+    "test:mock-smoke": "MAW_TEST_MODE=1 bun test test/zz-mock-transport-smoke.test.ts --path-ignore-patterns '**/agents/**'",
     "test:plugin": "MAW_TEST_MODE=1 bun test src/commands/plugins/ --path-ignore-patterns '**/agents/**'",
     "test:all": "bun run test:default:safe && bun run test:isolated && bun run test:mock-smoke && bun run test:plugin",
     "test:spec": "MAW_TEST_MODE=1 bun test test/spec/",
@@ -31,10 +31,12 @@
     "preflight": "bash scripts/preflight.sh",
     "test:coverage": "bash scripts/test-coverage.sh",
     "test:unit:coverage": "bash scripts/test-unit-coverage.sh",
-    "coverage:gap": "bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md"
+    "coverage:gap": "bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md",
+    "check:sdk-surface": "bun scripts/check-sdk-surface-parity.ts"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
+    "@maw-js/sdk": "workspace:*",
     "@eclipse-zenoh/zenoh-ts": "^1.9.0",
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
@@ -82,6 +84,7 @@
     "./core/fleet/validate": "./src/core/fleet/validate.ts",
     "./core/fleet/worktree-layout": "./src/core/fleet/worktree-layout.ts",
     "./core/ghq": "./src/core/ghq.ts",
+    "./core/gateway": "./src/core/gateway.ts",
     "./core/resolve": "./src/core/resolve.ts",
     "./core/matcher/normalize-target": "./src/core/matcher/normalize-target.ts",
     "./core/matcher/resolve-target": "./src/core/matcher/resolve-target.ts",
@@ -103,6 +106,7 @@
     "./commands/shared/context-limit": "./src/commands/shared/context-limit.ts",
     "./commands/shared/done": "./src/commands/shared/done.ts",
     "./commands/shared/fleet": "./src/commands/shared/fleet.ts",
+    "./commands/shared/fleet-ensure": "./src/commands/shared/fleet-ensure.ts",
     "./commands/shared/fleet-doctor-fixer": "./src/commands/shared/fleet-doctor-fixer.ts",
     "./commands/shared/fleet-load": "./src/commands/shared/fleet-load.ts",
     "./commands/shared/queue-store": "./src/commands/shared/queue-store.ts",
@@ -114,9 +118,14 @@
     "./commands/shared/triggers": "./src/commands/shared/triggers.ts",
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
     "./commands/shared/wake-cmd": "./src/commands/shared/wake-cmd.ts",
+    "./commands/shared/wake-cwd": "./src/commands/shared/wake-cwd.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
     "./commands/plugins/tmux/impl": "./src/commands/plugins/tmux/impl.ts",
-    "./commands/shared/workspace": "./src/commands/shared/workspace.ts"
+    "./vendor/mpr-plugins/team/team-charter": "./src/vendor/mpr-plugins/team/team-charter.ts",
+    "./vendor/mpr-plugins/team/team-liveness": "./src/vendor/mpr-plugins/team/team-liveness.ts",
+    "./commands/shared/workspace": "./src/commands/shared/workspace.ts",
+    "./core/transport/transport": "./src/core/transport/transport.ts",
+    "./commands/shared/discovered-peers-client": "./src/commands/shared/discovered-peers-client.ts"
   }
 }

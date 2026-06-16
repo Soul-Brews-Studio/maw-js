@@ -4,7 +4,7 @@
  * Verifies cmdSend silently auto-wakes fleet-known targets when no local
  * session exists yet — parity with `maw view` / `maw a` (view/impl.ts:107).
  *
- * Mocked seams: src/sdk, src/config, src/core/routing,
+ * Mocked seams: src/sdk, src/config,
  *   src/core/runtime/hooks, src/commands/shared/comm-log-feed,
  *   src/commands/shared/wake-resolve, src/commands/shared/wake-cmd.
  *
@@ -20,8 +20,6 @@ let mockActive = false;
 
 // ─── Capture real module refs BEFORE any mock.module installs ────────────────
 
-const _rSdk = await import("../../src/sdk");
-
 // ─── Mutable stubs ───────────────────────────────────────────────────────────
 
 let sendKeysCalls: Array<{ target: string; text: string }> = [];
@@ -32,12 +30,16 @@ let cmdWakeCalls: Array<{ oracle: string; opts: unknown }> = [];
 let listSessionsCallCount = 0;
 let listSessionsAfterWake: Array<{ name: string; windows: { index: number; name: string; active: boolean }[] }> | null = null;
 let previousAgentName: string | undefined;
+let previousSshClient: string | undefined;
+let previousSshConnection: string | undefined;
+let previousSshTty: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
-  ..._rSdk,
   capture: async () => "",
+  resolveTarget: () => resolveTargetReturn,
+  isAgentCommand: (cmd: string | null | undefined) => ["claude", "codex", "node"].includes((cmd ?? "").trim()),
   sendKeys: async (target: string, text: string) => {
     if (!mockActive) return;
     sendKeysCalls.push({ target, text });
@@ -57,12 +59,8 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../../src/config"), () => {
   const { mockConfigModule } = require("../helpers/mock-config");
-  return mockConfigModule(() => ({ node: "test-node", port: 3456 }));
+  return mockConfigModule(() => ({ node: "test-node", port: 3456, commands: { default: "claude" } }));
 });
-
-mock.module(join(import.meta.dir, "../../src/core/routing"), () => ({
-  resolveTarget: () => resolveTargetReturn,
-}));
 
 mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({
   runHook: async () => {},
@@ -82,6 +80,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () 
 // for the local-scope auto-wake branch. Mock it to mirror the same fleetKnown
 // set the legacy wake-resolve mock above used.
 mock.module(join(import.meta.dir, "../../src/lib/oracle-manifest"), () => ({
+  loadManifestCached: () => [],
   findOracle: (oracle: string) => {
     if (!fleetKnown.has(oracle)) return undefined;
     return {
@@ -108,7 +107,13 @@ const origSleep = Bun.sleep.bind(Bun);
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
-const { cmdSend } = await import("../../src/commands/shared/comm-send");
+type CmdSendModule = typeof import("../../src/commands/shared/comm-send");
+let cmdSendModule: Promise<CmdSendModule> | null = null;
+
+function getCmdSendModule(): Promise<CmdSendModule> {
+  if (!cmdSendModule) cmdSendModule = import("../../src/commands/shared/comm-send");
+  return cmdSendModule;
+}
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -139,7 +144,13 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 
 beforeEach(() => {
   previousAgentName = process.env.CLAUDE_AGENT_NAME;
+  previousSshClient = process.env.SSH_CLIENT;
+  previousSshConnection = process.env.SSH_CONNECTION;
+  previousSshTty = process.env.SSH_TTY;
   process.env.CLAUDE_AGENT_NAME = "test-node";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   mockActive = true;
   sendKeysCalls = [];
   cmdWakeCalls = [];
@@ -156,9 +167,16 @@ afterEach(() => {
   delete process.env.MAW_QUIET;
   if (previousAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = previousAgentName;
+  if (previousSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = previousSshClient;
+  if (previousSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = previousSshConnection;
+  if (previousSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = previousSshTty;
 });
 afterAll(() => {
   mockActive = false;
+  mock.restore();
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
 });
 
@@ -173,7 +191,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
 
     // #759 Phase 2: bare names rejected — use self-node prefix to exercise
     // the auto-wake path on a target the resolver still treats as local-scope.
-    await run(() => cmdSend("test-node:volt", "hello"));
+    await run(async () => (await getCmdSendModule()).cmdSend("test-node:volt", "hello"));
 
     expect(cmdWakeCalls.length).toBe(1);
     expect(cmdWakeCalls[0].oracle).toBe("volt");
@@ -190,7 +208,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     resolveTargetReturn = { type: "local", target: "mawjs:mawjs-oracle.0" };
 
     // #759 Phase 2: bare names rejected — use self-node prefix.
-    await run(() => cmdSend("test-node:mawjs", "hi"));
+    await run(async () => (await getCmdSendModule()).cmdSend("test-node:mawjs", "hi"));
 
     expect(cmdWakeCalls.length).toBe(0);
     expect(sendKeysCalls.length).toBe(1);
@@ -204,7 +222,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     // #759 Phase 2: bare names rejected — use self-node prefix so the
     // assertion exercises the auto-wake skip-on-unknown path, not the
     // bare-name guard.
-    await run(() => cmdSend("test-node:typo", "hi"));
+    await run(async () => (await getCmdSendModule()).cmdSend("test-node:typo", "hi"));
 
     expect(cmdWakeCalls.length).toBe(0);
     // resolveTarget returned error → cmdSend exits 1 via the error branch
@@ -216,7 +234,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsReturn = [];
     resolveTargetReturn = { type: "peer", target: "hojo", node: "phaith", peerUrl: "http://phaith:3456" } as any;
 
-    await run(() => cmdSend("phaith:hojo", "ping"));
+    await run(async () => (await getCmdSendModule()).cmdSend("phaith:hojo", "ping"));
 
     expect(cmdWakeCalls.length).toBe(0);
   });
@@ -227,7 +245,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsAfterWake = [{ name: "volt-session", windows: [{ index: 0, name: "volt-oracle", active: true }] }];
     resolveTargetReturn = { type: "self-node", target: "volt-session:volt-oracle.0" };
 
-    await run(() => cmdSend("test-node:volt", "yo"));
+    await run(async () => (await getCmdSendModule()).cmdSend("test-node:volt", "yo"));
 
     expect(cmdWakeCalls.length).toBe(1);
     expect(cmdWakeCalls[0].oracle).toBe("volt");
@@ -240,7 +258,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     listSessionsAfterWake = [{ name: "volt-session", windows: [{ index: 0, name: "volt-oracle", active: true }] }];
     resolveTargetReturn = { type: "self-node", target: "volt-session:volt-oracle.0" };
 
-    await run(() => cmdSend("local:volt", "yo"));
+    await run(async () => (await getCmdSendModule()).cmdSend("local:volt", "yo"));
 
     expect(cmdWakeCalls.length).toBe(1);
     expect(cmdWakeCalls[0].oracle).toBe("volt");
@@ -254,7 +272,7 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     resolveTargetReturn = { type: "local", target: "colab-session:colab-oracle.0" };
 
     // #759 Phase 2: bare names rejected — use self-node prefix.
-    await run(() => cmdSend("test-node:colab", "msg"));
+    await run(async () => (await getCmdSendModule()).cmdSend("test-node:colab", "msg"));
 
     // No prompt-style strings should appear in stderr
     const allErr = errs.join("\n");

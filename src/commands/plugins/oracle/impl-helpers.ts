@@ -2,6 +2,7 @@ import { listSessions, type OracleEntry } from "../../../sdk";
 import { ghqFind, ghqList } from "../../../core/ghq";
 import { UserError } from "../../../core/util/user-error";
 import { loadFleetEntries } from "../../shared/fleet-load";
+import { canonicalRepoKey, normalizeGhqRepos } from "../../../core/repo-discovery/ghq-normalize";
 
 /** Like resolveOracle but returns null instead of throwing on miss */
 export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string } | { parentDir: ""; repoName: ""; repoPath: "" }> {
@@ -11,25 +12,37 @@ export async function resolveOracleSafe(oracle: string): Promise<{ repoPath: str
     return parseRepoPath(repoPath);
   }
 
-  const repos = await ghqList().catch(() => [] as string[]);
+  const repos = normalizeGhqRepos(await ghqList().catch(() => [] as string[]));
   const wantedOracle = `${oracle}-oracle`.toLowerCase();
   const directName = oracle.toLowerCase();
 
-  const oracleCandidates = repos
-    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === wantedOracle);
+  const oracleCandidates = repoCandidatesByBasename(repos, wantedOracle);
   if (oracleCandidates.length > 1) {
-    throw new UserError(`ambiguous oracle short-name '${oracle}' (${oracleCandidates.length} matches): ${oracleCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+    throw ambiguousOracleError(oracle, oracleCandidates);
   }
   if (oracleCandidates.length === 1) return parseRepoPath(oracleCandidates[0]!);
 
-  const directCandidates = repos
-    .filter((candidate) => candidate.split("/").pop()?.toLowerCase() === directName);
+  const directCandidates = repoCandidatesByBasename(repos, directName);
   if (directCandidates.length > 1) {
-    throw new UserError(`ambiguous oracle short-name '${oracle}' (${directCandidates.length} matches): ${directCandidates.map((repoPath) => repoPath.split("/").pop()).join(", ")}`);
+    throw ambiguousOracleError(oracle, directCandidates);
   }
   if (directCandidates.length === 1) return parseRepoPath(directCandidates[0]!);
 
   return { parentDir: "", repoName: "", repoPath: "" };
+}
+
+function repoCandidatesByBasename(repos: string[], basename: string): string[] {
+  const seen = new Map<string, string>();
+  for (const repoPath of repos) {
+    if (repoPath.split("/").pop()?.toLowerCase() !== basename) continue;
+    const key = canonicalRepoKey(repoPath);
+    if (!seen.has(key)) seen.set(key, repoPath);
+  }
+  return [...seen.values()];
+}
+
+function ambiguousOracleError(oracle: string, candidates: string[]): UserError {
+  return new UserError(`ambiguous oracle short-name '${oracle}' (${candidates.length} matches): ${candidates.join(", ")}`);
 }
 
 function parseRepoPath(repoPath: string): { repoPath: string; repoName: string; parentDir: string } {

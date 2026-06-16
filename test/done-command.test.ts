@@ -92,7 +92,7 @@ function createHarness(options: {
     hostExec: async (command: string) => {
       commands.push(command);
       if (options.hostExec) return await options.hostExec(command);
-      if (command.includes("pane_current_path")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
+      if (command.includes("pane_current_path")) return "claude\t/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
       if (command.startsWith("find ")) return "";
       return "";
     },
@@ -141,7 +141,7 @@ describe("cmdDone", () => {
 
     await cmdDone(" tile-1/ ", { dryRun: true }, h.deps);
 
-    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'"]);
+    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'"]);
     expect(h.killed).toEqual([]);
     expect(h.snapshots).toEqual([]);
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
@@ -178,7 +178,7 @@ describe("cmdDone", () => {
 
     await cmdDone("TILE-1", { force: true }, h.deps);
 
-    expect(h.commands).not.toContain("tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'");
+    expect(h.commands).not.toContain("tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'");
     expect(h.killed).toEqual(["work:tile-1"]);
     expect(h.commands).toEqual([
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' rev-parse --abbrev-ref HEAD",
@@ -310,7 +310,7 @@ describe("done inbox and autosave helpers", () => {
     expect(h.sent).toEqual([{ target: "work:tile-1", text: "/rrr" }]);
     expect(h.sleeps).toEqual([10_000]);
     expect(h.commands).toEqual([
-      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' add -A",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' commit -m 'chore: auto-save before done'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' push",
@@ -326,7 +326,7 @@ describe("done inbox and autosave helpers", () => {
 
     const commitPushFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "/repo";
+        if (command.includes("pane_current_path")) return "claude\t/repo";
         if (command.includes(" commit ")) throw new Error("nothing");
         if (command.endsWith(" push")) throw new Error("denied");
         return "";
@@ -338,7 +338,7 @@ describe("done inbox and autosave helpers", () => {
 
     const addFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "/repo";
+        if (command.includes("pane_current_path")) return "claude\t/repo";
         if (command.endsWith(" add -A")) throw new Error("add failed");
         return "";
       },
@@ -358,6 +358,24 @@ describe("done inbox and autosave helpers", () => {
 
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
     expect(h.logs.join("\n")).not.toContain("would git add + commit + push");
+  });
+
+  test("autoSave uses engine-aware retrospective command from shared done", async () => {
+    const omx = createHarness({
+      hostExec: (command) => command.includes("pane_current_path") ? "omx\t/repo" : "",
+    });
+    await autoSave("tile-1", "work", {}, omx.deps);
+    expect(omx.sent).toEqual([{ target: "work:tile-1", text: "$rrr" }]);
+    expect(omx.sleeps).toEqual([10_000]);
+    expect(omx.logs.join("\n")).toContain("$rrr sent (waited 10s)");
+
+    const codex = createHarness({
+      hostExec: (command) => command.includes("pane_current_path") ? "codex\t/repo" : "",
+    });
+    await autoSave("tile-1", "work", {}, codex.deps);
+    expect(codex.sent).toEqual([]);
+    expect(codex.sleeps).toEqual([]);
+    expect(codex.logs.join("\n")).toContain("no retrospective command for this engine");
   });
 });
 
@@ -473,9 +491,35 @@ describe("done worktree cleanup helpers", () => {
 
     expect(h.commands).toEqual([
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' rev-parse --abbrev-ref HEAD",
-      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' --force",
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree prune",
     ]);
+  });
+
+  test("removeWorktreeViaConfig fails loud instead of force-removing dirty worktrees without --force", async () => {
+    const h = createHarness({
+      files: {
+        "/fleet/team.json": JSON.stringify({
+          windows: [{ name: "tile-1", repo: "Soul-Brews-Studio/maw-js.wt-tile-1" }],
+        }),
+      },
+      hostExec: (command) => {
+        if (command.includes("rev-parse")) return "feature/dirty\n";
+        if (command.includes("worktree remove")) throw new Error("fatal: contains modified or untracked files");
+        if (command.includes("status --porcelain")) return "?? notes.txt\n";
+        return "";
+      },
+    });
+
+    await expect(removeWorktreeViaConfig("tile-1", "/repos/github.com", h.deps)).rejects.toThrow(
+      "has uncommitted changes; rerun maw done --force",
+    );
+
+    expect(h.commands).toContain(
+      "git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1'",
+    );
+    expect(h.commands.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(false);
+    expect(h.commands).not.toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree prune");
   });
 
   test("removeWorktreeViaConfig reads state fleet configs before duplicate legacy configs", async () => {
@@ -521,6 +565,7 @@ describe("done worktree cleanup helpers", () => {
       },
       hostExec: (command) => {
         if (command.includes("worktree remove")) throw new Error("busy");
+        if (command.startsWith("test -d")) throw new Error("missing");
         return "feature\n";
       },
     });
@@ -551,7 +596,7 @@ describe("done worktree cleanup helpers", () => {
     await expect(removeWorktreeByGhqScan("6-tile-1", "/repos/github.com", h.deps)).resolves.toBe(true);
 
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' rev-parse --abbrev-ref HEAD");
-    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1' --force");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' worktree remove '/repos/github.com/Soul-Brews-Studio/maw-js.wt-6-tile-1'");
     expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/maw-js' merge-base --is-ancestor 'feature/scan' 'alpha'");
     expect(h.commands).toContain("gh pr list --head 'feature/scan' --state merged --json number --limit 1");
     expect(h.logs.join("\n")).toContain("removed worktree maw-js.wt-6-tile-1");
@@ -599,7 +644,7 @@ describe("done worktree cleanup helpers", () => {
     await expect(removeWorktreeByGhqScan("mawjs-trio-coder", "/repos/github.com", h.deps, { cwd: "/repos/github.com/Soul-Brews-Studio/mawjs-oracle" })).resolves.toBe(true);
 
     expect(h.logs.join("\n")).toContain("scoped ambiguous worktree 'trio-coder' to cwd repo /repos/github.com/Soul-Brews-Studio/mawjs-oracle");
-    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/mawjs-oracle' worktree remove '/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder' --force");
+    expect(h.commands).toContain("git -C '/repos/github.com/Soul-Brews-Studio/mawjs-oracle' worktree remove '/repos/github.com/Soul-Brews-Studio/mawjs-oracle/agents/1-trio-coder'");
     expect(h.commands.join("\n")).not.toContain("ccc-oracle.wt-trio-coder' --force");
   });
 
@@ -630,6 +675,7 @@ describe("done worktree cleanup helpers", () => {
       hostExec: (command) => {
         if (command.startsWith("find ")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
         if (command.includes("worktree remove")) throw new Error("busy");
+        if (command.startsWith("test -d")) throw new Error("missing");
         return "";
       },
     });

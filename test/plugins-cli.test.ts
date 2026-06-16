@@ -10,6 +10,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { cmdPlugins } from "../src/commands/shared/plugins";
+import { isUserError } from "../src/core/util/user-error";
 import type { LoadedPlugin } from "../src/plugin/types";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -124,22 +125,15 @@ describe("maw plugins CLI", () => {
     }
   });
 
-  test("info on unknown plugin exits with error", async () => {
-    let exited = false;
-    const origExit = process.exit;
-    (process as any).exit = () => {
-      exited = true;
-      throw new Error("exit");
-    };
+  test("info on unknown plugin throws UserError", async () => {
     try {
       await cmdPlugins("info", [], { _: ["ghost"] }, () => []);
-    } catch {
-      // expected
-    } finally {
-      (process as any).exit = origExit;
+      throw new Error("expected info to throw");
+    } catch (err) {
+      expect(isUserError(err)).toBe(true);
+      expect((err as Error).message).toBe("plugin not found: ghost");
     }
-    expect(exited).toBe(true);
-    expect(errors.some(e => e.includes("plugin not found: ghost"))).toBe(true);
+    expect(errors).toEqual([]);
   });
 
   // ─── install ─────────────────────────────────────────────────────────────
@@ -157,27 +151,22 @@ describe("maw plugins CLI", () => {
     }
   });
 
-  test("install duplicate without --force exits with error", async () => {
+  test("install duplicate without --force throws UserError", async () => {
     const src = mkdtempSync(join(tmpdir(), "maw-src-"));
-    let exited = false;
-    const origExit = process.exit;
-    (process as any).exit = () => {
-      exited = true;
-      throw new Error("exit");
-    };
     try {
       makePlugin(src, "dupl");
       await cmdPlugins("install", [], { _: [src] });
-      exited = false;
-      await cmdPlugins("install", [], { _: [src] });
-    } catch {
-      // expected on second install
+      try {
+        await cmdPlugins("install", [], { _: [src] });
+        throw new Error("expected duplicate install to throw");
+      } catch (err) {
+        expect(isUserError(err)).toBe(true);
+        expect((err as Error).message).toContain("already installed");
+      }
     } finally {
-      (process as any).exit = origExit;
       rmSync(src, { recursive: true, force: true });
     }
-    expect(exited).toBe(true);
-    expect(errors.some(e => e.includes("already installed"))).toBe(true);
+    expect(errors).toEqual([]);
   });
 
   // ─── remove ──────────────────────────────────────────────────────────────

@@ -72,7 +72,26 @@ afterEach(() => {
 });
 
 describe("vendor done worktree forced removal", () => {
-  test("removes a configured worktree containing engine scratch", async () => {
+  test("refuses a configured worktree containing engine scratch without --force", async () => {
+    const { root, reposRoot, mainPath, worktreePath } = setupRepo();
+    const fleetDir = join(root, "fleet");
+    mkdirSync(fleetDir, { recursive: true });
+    writeFileSync(join(fleetDir, "test.json"), JSON.stringify({
+      windows: [{ name: "Codex", repo: "Soul-Brews-Studio/maw-js/agents/1-codex" }],
+    }));
+    fleetDirs = [fleetDir];
+    writeFileSync(join(worktreePath, "README.md"), "dirty local edit\n");
+
+    await expect(silenceConsole(() =>
+      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha" }),
+    )).rejects.toThrow("has uncommitted changes; rerun maw done --force");
+
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(hostExecCommands.some(command => /worktree remove .* --force/.test(command))).toBe(false);
+    expect(sh("git branch --list feature/codex", mainPath).trim()).toContain("feature/codex");
+  });
+
+  test("removes a configured worktree containing engine scratch with explicit --force", async () => {
     const { root, reposRoot, mainPath, worktreePath } = setupRepo();
     const fleetDir = join(root, "fleet");
     mkdirSync(fleetDir, { recursive: true });
@@ -82,7 +101,7 @@ describe("vendor done worktree forced removal", () => {
     fleetDirs = [fleetDir];
 
     const removed = await silenceConsole(() =>
-      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha" }),
+      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha", force: true }),
     );
 
     expect(removed).toBe(true);

@@ -8,10 +8,82 @@ import {
 export interface KillOpts {
   /** Pane index — narrows kill to a specific pane of the resolved window. */
   pane?: number;
+  /** Window index — disambiguates duplicate window names. */
+  index?: number;
+  /** Kill every window whose name matches the requested window. */
+  all?: boolean;
+}
+
+type KillWindowInfo = { index?: number; name?: string };
+
+function windowLabel(w: KillWindowInfo): string {
+  const index = Number.isInteger(w.index) ? String(w.index) : "?";
+  const name = w.name || "(unnamed)";
+  return `${index}:${name}`;
+}
+
+function parseWindowIndex(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "number") return Number.isInteger(value) && value >= 0 ? value : undefined;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return undefined;
+  const n = Number.parseInt(text, 10);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
+function matchingWindowIndexes(
+  sessionName: string,
+  windows: KillWindowInfo[],
+  rawWindow: string,
+  opts: KillOpts,
+): number[] {
+  const optIndex = parseWindowIndex(opts.index);
+  if (opts.index !== undefined && optIndex === undefined) throw new Error(`--index must be a non-negative integer (got ${String(opts.index)})`);
+  if (opts.all && optIndex !== undefined) throw new Error("cannot combine --all and --index");
+  if (opts.all && opts.pane !== undefined) throw new Error("cannot combine --all and --pane");
+
+  if (optIndex !== undefined) {
+    const hit = windows.find(w => w.index === optIndex);
+    if (!hit) {
+      const valid = windows.map(windowLabel).join(", ") || "(none)";
+      throw new Error(`window index ${optIndex} does not exist in session ${sessionName} (valid: ${valid})`);
+    }
+    return [optIndex];
+  }
+
+  if (!rawWindow) return [];
+
+  // Preserve long-standing shorthand: session:2 means window index 2.
+  if (/^\d+$/.test(rawWindow)) {
+    const index = Number.parseInt(rawWindow, 10);
+    const hit = windows.find(w => w.index === index);
+    if (!hit) {
+      const valid = windows.map(windowLabel).join(", ") || "(none)";
+      throw new Error(`window index ${index} does not exist in session ${sessionName} (valid: ${valid})`);
+    }
+    return [index];
+  }
+
+  const requested = rawWindow.toLowerCase();
+  const matches = windows.filter(w => (w.name || "").toLowerCase() === requested);
+  if (matches.length === 0) {
+    const valid = windows.map(windowLabel).join(", ") || "(none)";
+    throw new Error(`window '${rawWindow}' not found in session ${sessionName} (valid: ${valid})`);
+  }
+  if (matches.length > 1 && !opts.all) {
+    const lines = matches.map(w => `    • ${windowLabel(w)}`).join("\n");
+    throw new Error(
+      `window '${rawWindow}' is ambiguous in session ${sessionName} — matches ${matches.length} windows:\n` +
+      `${lines}\n  use --index N to kill one, or --all to kill all matching windows`,
+    );
+  }
+  return matches
+    .map(w => w.index)
+    .filter((index): index is number => Number.isInteger(index));
 }
 
 /**
- * maw kill <target>[:window] [--pane N]
+ * maw kill <target>[:window] [--pane N] [--index N|--all]
  *
  * Trust the user — if they typed it, they meant it. No --force gate.
  *
@@ -25,11 +97,11 @@ export interface KillOpts {
  */
 export async function cmdKill(target: string, opts: KillOpts = {}) {
   if (!target) {
-    console.error("usage: maw kill <target>[:window] [--pane N]");
+    console.error("usage: maw kill <target>[:window] [--pane N] [--index N|--all]");
     console.error("  e.g. maw kill mawjs");
     console.error("       maw kill mawjs:0");
     console.error("       maw kill mawjs --pane 1");
-    throw new Error("usage: maw kill <target>[:window] [--pane N]");
+    throw new Error("usage: maw kill <target>[:window] [--pane N] [--index N|--all]");
   }
 
   const [rawSession, rawWindow] = target.includes(":")
@@ -88,10 +160,12 @@ export async function cmdKill(target: string, opts: KillOpts = {}) {
   const session = r.match.name;
   const tmux = tmuxCmd();
 
+  const windowIndexes = matchingWindowIndexes(session, r.match.windows ?? [], rawWindow, opts);
+
   // --pane requires a window, bare session kill does not
   if (opts.pane !== undefined) {
-    // Default to window 0 if no window given
-    const win = rawWindow || String(r.match.windows[0]?.index ?? 0);
+    // Default to the first window if no window/index given.
+    const win = windowIndexes[0] ?? r.match.windows[0]?.index ?? 0;
     const winTarget = `${session}:${win}`;
     const paneIndexesRaw = await hostExec(
       `${tmux} list-panes -t '${winTarget}' -F '#{pane_index}'`,
@@ -122,13 +196,24 @@ export async function cmdKill(target: string, opts: KillOpts = {}) {
     return;
   }
 
-  if (rawWindow) {
-    const win = `${session}:${rawWindow}`;
-    try {
-      await hostExec(`${tmux} kill-window -t '${win}'`);
-      console.log(`  \x1b[32m✓\x1b[0m killed window ${win}`);
-    } catch (e: any) {
-      throw new Error(`kill-window failed: ${e.message || e}`);
+  if (rawWindow || opts.index !== undefined || opts.all) {
+    if (windowIndexes.length === 0) {
+      throw new Error(opts.all ? "--all requires a window name target (session:window)" : "window target required");
+    }
+    const killed: string[] = [];
+    for (const index of windowIndexes) {
+      const win = `${session}:${index}`;
+      try {
+        await hostExec(`${tmux} kill-window -t '${win}'`);
+        killed.push(win);
+      } catch (e: any) {
+        throw new Error(`kill-window failed: ${e.message || e}`);
+      }
+    }
+    if (killed.length === 1) {
+      console.log(`  \x1b[32m✓\x1b[0m killed window ${killed[0]}`);
+    } else {
+      console.log(`  \x1b[32m✓\x1b[0m killed ${killed.length} windows ${killed.join(", ")}`);
     }
     return;
   }

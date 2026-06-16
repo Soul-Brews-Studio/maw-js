@@ -7,8 +7,27 @@ on:
     branches: [alpha, main]
 
 jobs:
+  plugin-coverage-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Require plugin extraction boundary tests
+        run: bun scripts/check-plugin-coverage-gate.ts origin/${{ github.base_ref }}
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: plugin-coverage-gate
+    if: always() && (needs.plugin-coverage-gate.result == 'success' || needs.plugin-coverage-gate.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +95,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: test
     steps:
       - uses: actions/checkout@v6

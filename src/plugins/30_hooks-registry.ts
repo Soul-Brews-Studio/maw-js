@@ -51,7 +51,11 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
     }
 
     if (registeredForPlugin > 0) {
-      system.register(plugin.manifest.name, "ts", "user");
+      if (typeof (system as any).registerManifest === "function") {
+        (system as any).registerManifest(plugin.manifest.name, "ts", "user");
+      } else {
+        system.register(plugin.manifest.name, "ts", "user");
+      }
     }
   }
 

@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "send-text",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Type text + press Enter into a tmux pane (composes send + send-enter).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "send-text",
+    "help": "maw send-text <target> \"<text>\" — type text and press Enter (smart multi-line; uses Tmux.sendText)"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

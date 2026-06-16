@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { FeedEvent } from "../src/lib/feed";
 import type { TransportMessage, TransportPresence } from "../src/core/transport/transport";
-import type { HubConnection } from "../src/transports/hub-connection";
+import type { HubConnection } from "../src/vendor/mpr-plugins/hub/hub-connection";
 import {
   cleanupConnection,
   handleMessage,
@@ -10,7 +10,12 @@ import {
   sendAuth,
   startHeartbeat,
   stopHeartbeat,
-} from "../src/transports/hub-connection";
+} from "../src/vendor/mpr-plugins/hub/hub-connection";
+import {
+  forgetRemoteAgentsForNode,
+  pruneStaleRemoteAgents,
+  rememberRemoteAgent,
+} from "../src/vendor/mpr-plugins/hub/hub-agent-registry";
 
 function makeConn(id = "ws-test"): HubConnection {
   return {
@@ -107,6 +112,41 @@ describe("hub connection lifecycle helpers", () => {
     expect(feeds[0].oracle).toBe("pulse");
   });
 
+  test("remote agent cleanup handles offline presence, node-left owners, and stale reconciliation", () => {
+    const conn = makeConn();
+    const presenceHandlers = new Set<(p: TransportPresence) => void>();
+
+    handleMessage(conn, JSON.stringify({
+      type: "presence",
+      timestamp: 1_000,
+      agents: [
+        { name: "neo", host: "m5", status: "ready" },
+        { name: "pulse", nodeId: "m6", status: "ready" },
+      ],
+    }), new Set(), presenceHandlers, new Set());
+
+    expect(conn.remoteAgents.has("neo")).toBe(true);
+    expect(conn.remoteAgents.has("pulse")).toBe(true);
+    expect(conn.remoteAgentOwners?.get("neo")).toBe("m5");
+    expect(conn.remoteAgentLastSeen?.get("pulse")).toBe(1_000);
+
+    handleMessage(conn, JSON.stringify({
+      type: "presence",
+      timestamp: 2_000,
+      agents: [{ name: "neo", host: "m5", status: "offline" }],
+    }), new Set(), presenceHandlers, new Set());
+    expect(conn.remoteAgents.has("neo")).toBe(false);
+
+    expect(forgetRemoteAgentsForNode(conn, "m6")).toEqual(["pulse"]);
+    expect(conn.remoteAgents.has("pulse")).toBe(false);
+
+    rememberRemoteAgent(conn, "fresh", 10_000, "m7");
+    rememberRemoteAgent(conn, "stale", 1_000, "m8");
+    expect(pruneStaleRemoteAgents(conn, 11_000, 5_000)).toEqual(["stale"]);
+    expect(conn.remoteAgents.has("fresh")).toBe(true);
+    expect(conn.remoteAgents.has("stale")).toBe(false);
+  });
+
   test("heartbeat, reconnect, and cleanup manage timers and sockets", () => {
     const originalSetInterval = globalThis.setInterval;
     const originalClearInterval = globalThis.clearInterval;
@@ -137,6 +177,7 @@ describe("hub connection lifecycle helpers", () => {
         send: (payload: string) => sent.push(payload),
         close: (_code?: number, reason?: string) => closed.push(reason ?? ""),
       } as unknown as WebSocket;
+      rememberRemoteAgent(conn, "stale-on-cleanup", 1);
 
       startHeartbeat(conn, "m5");
       expect(intervals).toEqual([30_000]);
@@ -159,6 +200,7 @@ describe("hub connection lifecycle helpers", () => {
       expect(conn.connected).toBe(false);
       expect(conn.ws).toBeNull();
       expect(conn.reconnectTimer).toBeNull();
+      expect(conn.remoteAgents.size).toBe(0);
 
       const timerOnly = makeConn();
       timerOnly.reconnectTimer = { kind: "pending-timeout" } as ReturnType<typeof setTimeout>;
@@ -235,11 +277,14 @@ describe("hub connection lifecycle helpers", () => {
         expect(JSON.parse(ws.sent[0])).toMatchObject({ type: "auth", nodeId: "m5" });
 
         ws.emit("message", { data: JSON.stringify({ type: "message", from: "pulse", to: "mawjs", body: "hi", timestamp: 7 }) });
+        ws.emit("message", { data: JSON.stringify({ type: "presence", agents: [{ name: "neo", host: "m5" }] }) });
+        expect(conn.remoteAgents.has("neo")).toBe(true);
         ws.emit("error", { message: "network broke" });
         ws.emit("close", { code: 1006, reason: "lost" });
       });
       expect(messages).toEqual([{ from: "pulse", to: "mawjs", body: "hi", timestamp: 7, transport: "hub" }]);
       expect(conn.connected).toBe(false);
+      expect(conn.remoteAgents.size).toBe(0);
       expect(updateState).toBe(1);
       cleanupConnection(conn);
 

@@ -120,10 +120,10 @@ describe("tmux-class tenth-pass isolated coverage", () => {
     ]);
   });
 
-  test("listPanes preserves malformed truthy numeric fields instead of dropping the pane", async () => {
+  test("listPanes keeps panes with malformed numeric fields but normalizes them to undefined", async () => {
     const t = new RecordingTmux().queue(
       "list-panes",
-      "%bad|||node|||alpha:debug.2|||debug|||not-a-pid|||/repo|||not-activity\n",
+      "%bad|||node|||alpha:debug.2|||debug|||not-a-pid|||/repo|||not-activity||||||||||||||||||||||||||||||||||||||||||||||||0\n",
     );
 
     const panes = await t.listPanes();
@@ -136,15 +136,15 @@ describe("tmux-class tenth-pass isolated coverage", () => {
       title: "debug",
       cwd: "/repo",
     });
-    expect(Number.isNaN(panes[0].pid)).toBe(true);
-    expect(Number.isNaN(panes[0].lastActivity)).toBe(true);
+    expect(panes[0].pid).toBeUndefined();
+    expect(panes[0].lastActivity).toBeUndefined();
     expect(t.calls).toEqual([
       {
         subcommand: "list-panes",
         args: [
           "-a",
           "-F",
-          "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}",
+          "#{pane_id}|||#{pane_current_command}|||#{session_name}:#{window_name}.#{pane_index}|||#{pane_title}|||#{pane_pid}|||#{pane_current_path}|||#{window_activity}|||#{pane_top}|||#{pane_left}|||#{pane_width}|||#{pane_height}|||#{pane_index}|||#{window_index}|||#{window_name}|||#{pane_active}|||#{window_width}|||#{window_height}|||#{window_active}|||#{session_attached}|||#{pane_dead}",
         ],
       },
     ]);
@@ -153,7 +153,7 @@ describe("tmux-class tenth-pass isolated coverage", () => {
   test("listPanes parses spatial pane, window, and session metadata", async () => {
     const t = new RecordingTmux().queue(
       "list-panes",
-      "%7|||claude|||alpha:main.1|||main|||123|||/repo|||1700|||4|||9|||80|||24|||1|||2|||main|||1|||160|||48|||0|||1\n",
+      "%7|||claude|||alpha:main.1|||main|||123|||/repo|||1700|||4|||9|||80|||24|||1|||2|||main|||1|||160|||48|||0|||1|||0\n",
     );
 
     await expect(t.listPanes()).resolves.toEqual([{
@@ -175,6 +175,21 @@ describe("tmux-class tenth-pass isolated coverage", () => {
       window: { w: 160, h: 48, active: false },
       attached: true,
     }]);
+  });
+
+  test("listPanes skips dead panes and malformed rows", async () => {
+    const t = new RecordingTmux().queue(
+      "list-panes",
+      [
+        "not-a-pane-row",
+        "%8|||zsh|||alpha:dead.0|||dead|||999|||/repo|||1701|||0|||0|||80|||24|||0|||1|||dead|||0|||80|||24|||0|||0|||1",
+        "%9|||codex|||alpha:live.0|||live|||1000|||/repo|||1702|||0|||0|||80|||24|||0|||1|||live|||1|||80|||24|||1|||1|||0",
+      ].join("\n"),
+    );
+
+    const panes = await t.listPanes();
+
+    expect(panes.map(p => p.id)).toEqual(["%9"]);
   });
 
   test("getPaneCommands fails soft when the batch pane command lookup errors", async () => {

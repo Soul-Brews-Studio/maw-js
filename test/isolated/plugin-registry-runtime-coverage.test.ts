@@ -31,6 +31,7 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
 mock.module(import.meta.resolve("../../src/cli/verbosity"), () => ({
   verbose: (fn: () => void) => fn(),
   info: (line: string) => { infos.push(line); },
+  warn: (line: string) => { warns.push(line); },
 }));
 
 mock.module(import.meta.resolve("../../src/lib/profile-loader"), () => ({

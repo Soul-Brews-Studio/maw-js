@@ -39,18 +39,11 @@ mock.module(join(srcRoot, "src/config"), () => ({
 
 mock.module(join(srcRoot, "src/core/transport/transport"), () => ({ TransportRouter: FakeRouter }));
 mock.module(join(srcRoot, "src/transports/tmux"), () => ({ TmuxTransport: fakeTransport("tmux") }));
-mock.module(join(srcRoot, "src/transports/hub"), () => ({
-  loadWorkspaceConfigs: () => [],
-  HubTransport: fakeTransport("hub"),
-}));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
-mock.module(join(srcRoot, "src/transports/zenoh-scout"), () => ({ ZenohScoutTransport: fakeTransport("zenoh-scout") }));
-mock.module(join(srcRoot, "src/vendor/mpr-plugins/zenoh-scout/impl"), () => ({
-  readZenohScoutConfig: () => ({}),
+mock.module(join(srcRoot, "src/plugin/registry"), () => ({
+  importPluginSymbol: async () => () => new (fakeTransport("zenoh-scout"))(),
 }));
 
 mock.module(join(srcRoot, "src/transports/zenoh"), () => {
@@ -78,7 +71,7 @@ describe("transport registry zenoh load failure coverage", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
 
-    expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw", "lora"]);
+    expect(router.registered.map((transport) => transport.name)).toEqual(["tmux", "nanoclaw"]);
     expect(warnings).toContain("[zenoh] load failed: Error: wasm unavailable");
   });
 });

@@ -38,7 +38,6 @@ export async function checkIdleTriggers(): Promise<string[]> {
         if (results.some((r) => r.ok)) {
           fired.push(agent);
           agentPrevState.set(agent, "idle");
-          idleTimers.delete(agent);
         }
       }
     }

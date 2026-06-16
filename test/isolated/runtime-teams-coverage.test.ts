@@ -9,6 +9,7 @@ process.env.HOME = tmpHome;
 const sshPath = import.meta.resolve("../../src/core/transport/ssh.ts");
 const tmuxPath = import.meta.resolve("../../src/core/transport/tmux.ts");
 const configPath = import.meta.resolve("../../src/config/index.ts");
+const configDirPath = import.meta.resolve("../../src/config");
 const targetCwdPath = import.meta.resolve("../../src/commands/shared/target-cwd.ts");
 
 let selectCalls: string[] = [];
@@ -49,9 +50,12 @@ mock.module(tmuxPath, () => ({
   },
 }));
 
-mock.module(configPath, () => ({
+const configMock = () => ({
   buildCommand: (oracle: string) => `claude --oracle ${oracle || "default"}`,
-}));
+});
+
+mock.module(configPath, configMock);
+mock.module(configDirPath, configMock);
 
 mock.module(targetCwdPath, () => ({
   extractOracleName: (target: string) => target.split(":")[0]?.replace(/^\d+-/, "") || "",
@@ -82,6 +86,15 @@ function makeEngine() {
   };
   registerBuiltinHandlers(engine as any);
   return { engine, handlers };
+}
+
+async function waitUntil(predicate: () => boolean, label: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${label}`);
 }
 
 function makeWs() {
@@ -162,8 +175,8 @@ describe("runtime websocket handlers", () => {
 
     paneCommand = new Error("pane gone");
     await handlers.get("send")!(ws, { target: "alpha:0", text: "forced by failed check" }, engine);
-    await new Promise(resolve => setTimeout(resolve, 320));
     expect(JSON.parse(sent.at(-1)!)).toMatchObject({ type: "sent", target: "alpha:0" });
+    await waitUntil(() => engine.pushedCapture === 1, "send capture refresh");
     expect(engine.pushedCapture).toBe(1);
   });
 
@@ -189,9 +202,7 @@ describe("runtime websocket handlers", () => {
     await handlers.get("stop")!(ws, { target: "alpha" }, {});
     await handlers.get("wake")!(ws, { target: "known:0" }, {});
 
-    const restartPromise = handlers.get("restart")!(ws, { target: "plain:0", command: "custom-cmd" }, {});
-    await new Promise(resolve => setTimeout(resolve, 2510));
-    await restartPromise;
+    await handlers.get("restart")!(ws, { target: "plain:0", command: "custom-cmd" }, {});
 
     expect(sendKeyCalls).toContainEqual({ target: "alpha:0", text: "\x03" });
     expect(killedWindows).toEqual(["alpha"]);

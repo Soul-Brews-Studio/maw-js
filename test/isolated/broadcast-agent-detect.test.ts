@@ -17,6 +17,11 @@ mock.module("maw-js/sdk", () => ({
   hostExec: async () => "",
   listSessions: async () => [],
   tmuxCmd: () => "tmux",
+  isAgentCommand: (cmd: string | null | undefined) => /claude|codex|thclaws|thclaude/i.test((cmd ?? "").trim()) || /^node$/i.test((cmd ?? "").trim()) || /^\d+\.\d+\.\d+$/.test((cmd ?? "").trim()),
+  loadOracleRegistry: (teamName: string) => teamMembers.length
+    ? { name: teamName, members: teamMembers.map(oracle => ({ oracle, role: "member", addedAt: "2026-06-06T00:00:00.000Z" })), createdAt: "2026-06-06T00:00:00.000Z" }
+    : null,
+  loadFleetEntries: () => fleetEntries,
   tmux: {
     run: async (subcommand: string, ...args: string[]) => {
       if (subcommand === "display-message") {
@@ -37,16 +42,6 @@ mock.module("maw-js/sdk", () => ({
   },
 }));
 
-
-mock.module(join(import.meta.dir, "../../src/lib/oracle-members"), () => ({
-  loadOracleRegistry: (teamName: string) => teamMembers.length
-    ? { name: teamName, members: teamMembers.map(oracle => ({ oracle, role: "member", addedAt: "2026-06-06T00:00:00.000Z" })), createdAt: "2026-06-06T00:00:00.000Z" }
-    : null,
-}));
-
-mock.module(join(import.meta.dir, "../../src/commands/shared/fleet-load"), () => ({
-  loadFleetEntries: () => fleetEntries,
-}));
 
 const { cmdBroadcast, parseBroadcastArgs } = await import("../../src/vendor/mpr-plugins/broadcast/impl");
 

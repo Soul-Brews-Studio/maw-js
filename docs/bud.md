@@ -110,7 +110,6 @@ team (17), cleanup (8), completions (5) — generated-once or rarely-invoked.
 
 `artifact-manager` (133 LOC) — persists team-agent results to `~/.maw/artifacts/`. Zero invocations. The `/team-agents` workflow uses `SendMessage` + in-context compilation instead of persistent artifacts. Code exists; workflow routes around it. Candidate for `/lean` out, or wire to `/team-agents` shutdown hook to give it a use.
 
-`hey-test` (0 LOC) — test scaffold, not a real plugin.
 
 ### What the numbers reveal
 

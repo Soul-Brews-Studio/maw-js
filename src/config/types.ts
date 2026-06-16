@@ -8,6 +8,13 @@ export interface TriggerConfig {
   action: string;       // shell command to execute — supports {agent}, {repo}, {issue} templates
   name?: string;        // optional human label
   once?: boolean;       // fire once then self-destruct (#149)
+  /**
+   * #2555 — exemption tags that suppress this trigger for matching agents.
+   * Currently supports `"channel-listener"`: agents subscribed to a channel
+   * plugin (discord/telegram/etc.) are idle-but-waiting for inbound messages
+   * and must not be auto-slept. Absent/empty = no exemptions.
+   */
+  exempt?: string[];
 }
 
 /** Named peer with URL */
@@ -41,6 +48,22 @@ export interface MawTimeouts {
   wsIdleSec?: number;
 }
 
+
+export interface MawSnapshotRetention {
+  /** Keep at least the newest N snapshot files. */
+  keepLast?: number;
+  /** Remove snapshots older than D days. */
+  maxAgeDays?: number;
+}
+
+
+export interface MawRetentionPolicy {
+  /** Keep at least the newest N records. */
+  keepLast?: number;
+  /** Remove records older than D days. */
+  maxAgeDays?: number;
+}
+
 export interface MawLimits {
   feedMax?: number;
   feedDefault?: number;
@@ -53,8 +76,8 @@ export interface MawLimits {
   ptyRows?: number;
   /**
    * Max concurrent agent panes across the fleet before `maw wake` refuses to
-   * spawn a new one (#2). `0` (the default) disables the cap entirely —
-   * operators opt in by setting a positive number.
+   * spawn a new one (#2). Defaults to `40`; explicit `0` disables the cap
+   * entirely for operators that intentionally want unbounded spawning.
    */
   maxConcurrentAgents?: number;
 }
@@ -82,6 +105,10 @@ export interface MawConfig {
   oracleUrl: string;
   env: Record<string, string>;
   commands: Record<string, string>;
+  /** Default engine key/command used when no command-specific fallback is configured (#2400). */
+  defaultEngine?: string;
+  /** Serve gateway preference (#2566). CLI --gateway and MAW_GATEWAY override this. */
+  gateway?: "bun" | "rust";
   /**
    * Generic engine definitions (#1960 P1).
    *
@@ -199,6 +226,16 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** Transport names that receive best-effort relay sends after primary delivery succeeds (#2497). */
+  broadcastTo?: string[];
+  /** Default target for `maw forward-error` structured error reports (#2511). */
+  errorForward?: {
+    target?: string;
+  };
+  /** Fleet snapshot retention policy (#2146). */
+  snapshotRetention?: MawSnapshotRetention;
+  /** Message/inbox retention policy (#2165). */
+  messageRetention?: MawRetentionPolicy;
   /** One-shot config migrations already applied. */
   migrations?: Record<string, boolean>;
 }
@@ -207,6 +244,6 @@ export interface MawConfig {
 export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000, peerRetryBackoff: 300, ptySweep: 300000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000, wsIdleSec: 60 } as const,
-  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200, maxConcurrentAgents: 0, peerProbeRetries: 2 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200, maxConcurrentAgents: 40, peerProbeRetries: 2 } as const,
   hmacWindowSeconds: 300,
 } as const;

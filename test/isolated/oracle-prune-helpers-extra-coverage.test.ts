@@ -257,6 +257,34 @@ describe("oracle helper extra isolated coverage", () => {
     expect(ghqListResult).toEqual([]);
   });
 
+
+  test("resolveOracleSafe ignores archive ghq duplicates before ambiguity checks (#2691)", async () => {
+    ghqListResult = [
+      "/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle",
+      "/opt/Code/_archive/oracle-world/nat-2026-06-10/ghq/github.com/Soul-Brews-Studio/mawjs-oracle",
+      "/opt/Code/backups/ghq/github.com/Soul-Brews-Studio/mawjs-oracle",
+    ];
+
+    await expect(helpers.resolveOracleSafe("mawjs")).resolves.toEqual({
+      repoPath: "/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle",
+      repoName: "mawjs-oracle",
+      parentDir: "/opt/Code/github.com/Soul-Brews-Studio",
+    });
+  });
+
+  test("resolveOracleSafe ignores archive duplicates for direct-name matches (#2691)", async () => {
+    ghqListResult = [
+      "/opt/Code/github.com/Soul-Brews-Studio/plain",
+      "/opt/Code/_archive/oracle-world/snapshot/ghq/github.com/Soul-Brews-Studio/plain",
+    ];
+
+    await expect(helpers.resolveOracleSafe("plain")).resolves.toEqual({
+      repoPath: "/opt/Code/github.com/Soul-Brews-Studio/plain",
+      repoName: "plain",
+      parentDir: "/opt/Code/github.com/Soul-Brews-Studio",
+    });
+  });
+
   test("resolveOracleSafe throws on ambiguous -oracle short-name matches", async () => {
     ghqCalls = [];
     ghqListResult = [
@@ -264,7 +292,7 @@ describe("oracle helper extra isolated coverage", () => {
       "/ghq/other-org/pulse-oracle",
     ];
 
-    await expect(helpers.resolveOracleSafe("pulse")).rejects.toThrow(/ambiguous oracle short-name 'pulse'.*2 matches/);
+    await expect(helpers.resolveOracleSafe("pulse")).rejects.toThrow(/ambiguous oracle short-name 'pulse'.*\/ghq\/Soul-Brews-Studio\/pulse-oracle.*\/ghq\/other-org\/pulse-oracle/);
     expect(ghqCalls).toEqual([]);
     expect(ghqListResult).toHaveLength(2);
   });
@@ -275,7 +303,7 @@ describe("oracle helper extra isolated coverage", () => {
       "/ghq/other-org/neo",
     ];
 
-    await expect(helpers.resolveOracleSafe("neo")).rejects.toThrow(/ambiguous oracle short-name 'neo'.*2 matches/);
+    await expect(helpers.resolveOracleSafe("neo")).rejects.toThrow(/ambiguous oracle short-name 'neo'.*\/ghq\/Soul-Brews-Studio\/neo.*\/ghq\/other-org\/neo/);
   });
 
   test("discoverOracles merges valid fleet configs with tmux, skips disabled files, and tolerates bad sources", async () => {

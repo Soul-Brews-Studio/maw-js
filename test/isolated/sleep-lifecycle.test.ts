@@ -16,6 +16,20 @@ const tempDirs: string[] = [];
 const session = { name: "54-mawjs", windows: [{ name: "mawjs-oracle" }] };
 
 const sdkMock = () => ({
+  detectSession: async (target: string) => {
+    calls.push(`detect:${target}`);
+    return session.name;
+  },
+  loadFleetCore: () => {
+    calls.push("loadFleet");
+    return [session];
+  },
+  mawMessageLogPath: () => join(tmpdir(), "maw-sleep-life.log"),
+  runSleepLifecycleHooks: async (ctx: { oracle: string; target: string; session: string; window: string }) => {
+    calls.push(`hook:${ctx.oracle}:${ctx.target}:${ctx.session}:${ctx.window}`);
+    if ((globalThis as any).__mawSleepLifecycleThrow) throw new Error("plugin lifecycle sleep failed for sleep-ledger: fatal sleep hook");
+    return { ok: true, results: [] };
+  },
   listSessions: async () => {
     calls.push("listSessions");
     return [session];
@@ -63,6 +77,7 @@ mock.module("maw-js/commands/shared/wake", wakeMock);
 mock.module("maw-js/commands/shared/fleet-load", fleetMock);
 
 mock.module(join(import.meta.dir, "../../src/sdk"), sdkMock);
+mock.module(join(import.meta.dir, "../../src/sdk/index.ts"), sdkMock);
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake"), wakeMock);
 mock.module(join(import.meta.dir, "../../src/plugin/registry"), () => ({
   discoverPackages: () => plugins,

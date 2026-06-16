@@ -11,6 +11,8 @@ export interface EngineDef {
   cmd: string;
   /** Human label for UI surfaces such as swarm/team panes. */
   label?: string;
+  /** Tmux pane_current_command basenames that identify this engine as live. */
+  processNames?: string[];
   /** Arguments for a fresh launch form. Advisory until P2/P3 consumes it. */
   freshArgs?: string[];
   /** Resume form for engines that support session resurrection. */

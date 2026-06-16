@@ -1,4 +1,4 @@
-import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
+import type { InvokeContext, InvokeResult } from "@maw-js/sdk/plugin";
 
 export const command = {
   name: "on",
@@ -6,7 +6,7 @@ export const command = {
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
-  const { loadConfig, saveConfig } = await import("maw-js/config");
+  const { loadConfig, saveConfig } = await import("maw-js/sdk");
 
   const logs: string[] = [];
   const origLog = console.log;

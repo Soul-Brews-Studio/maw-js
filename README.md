@@ -1,13 +1,14 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=alpha)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Aalpha) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/github/v/release/Soul-Brews-Studio/maw-js?include_prereleases&label=calver)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Test files](https://img.shields.io/badge/test_files-750%2B-brightgreen)](./test)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=alpha)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Aalpha) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/github/v/release/Soul-Brews-Studio/maw-js?include_prereleases&label=calver)](https://github.com/Soul-Brews-Studio/maw-js/releases) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Test files](https://img.shields.io/badge/test_files-800%2B-brightgreen)](./test)
 
 > Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
 
 **maw is a CLI for running multiple AI agents across machines.** You wake
 an agent in a tmux window, send it tasks, watch its screen, and see what
 it cost — all from one terminal. One node or twenty; same commands. Built
-on [Bun](https://bun.sh) and [Claude Code](https://claude.com/claude-code).
+on [Bun](https://bun.sh) and engine-agnostic — drives [Claude Code](https://claude.com/claude-code),
+[Codex](https://openai.com/codex), Aider, and OpenCode alike.
 
 
 ## Install
@@ -202,16 +203,25 @@ promoting every experiment into core.
 
 ## Team Workspaces
 
-Use `maw new` to create a shared tmux workspace, then bring a team of
-oracles into it. This is the dynamic version of a static MAWK profile:
-one lead shell plus one window per specialist.
+Charter-driven multi-agent teams with worktree isolation:
 
 ```bash
+# Charter-based (recommended)
+maw team up my-team --dry-run       # preview spawn plan
+maw team up my-team                 # spawn from .maw/teams/my-team.yaml
+maw team down my-team               # graceful shutdown
+maw team reassign codex-1 "#999"    # kill + fresh wake + re-dispatch
+
+# Ad-hoc
 maw new project-room --no-attach
 maw team create project-room
 maw team oracle-invite mawjs-issuer --team project-room
 maw team bring project-room
 ```
+
+Charter YAML declares members, engines, worktrees, and prompts. Workers
+get isolated git worktrees; prompts are delivered via `send-keys` (works
+with any engine — Claude Code, Codex, Aider, OpenCode).
 
 ## Wake Lifecycle
 
@@ -246,8 +256,8 @@ maw-js (backend + CLI)              maw-ui (frontend)
 ├── src/api/       (engine + plugin APIs)   ├── src/hooks/
 ├── src/engine/    (WebSocket + serve proxy)├── src/lib/
 ├── src/transports/ (HTTP/tmux/hub)         └── 16 HTML entry points
-├── plugins        (89 installed plugin surfaces)
-├── test/          (750+ test files)
+├── plugins        (89 vendor plugin surfaces)
+├── test/          (800+ test files)
 └── install.sh
 ```
 
@@ -261,8 +271,12 @@ Apr 2026   v2.0.0-alpha.66        Plugin OS foundation, Bun runtime,
                                    federation API + maw-ui split
 May 2026   v26.5.20-alpha.2203    Plugin engine, lifecycle hooks,
                                    team workspaces, 89 plugins,
-                                   750+ test files, near-100% coverage,
+                                   800+ test files, near-100% coverage,
                                    portable Rust spec fixtures
+Jun 2026   v26.6.6-alpha.1830     Charter-driven teams, engine-aware
+                                   wake/done, cross-node federation,
+                                   lean-core extraction (RFC #2113),
+                                   shared isClaudeLikeEngine helper
 ```
 
 ## Federation testing

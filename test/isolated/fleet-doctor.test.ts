@@ -15,6 +15,7 @@
  *   - src/sdk                               (curlFetch, listSessions)
  *   - src/config                            (loadConfig — cmdFleetDoctor entry)
  *   - src/commands/shared/fleet-load        (loadFleetEntries)
+ *   - src/core/ghq                          (ghqList)
  *
  * mock.module is process-global → capture REAL fn refs BEFORE install so
  * passthrough doesn't point at our wrappers (see #375 pollution catalog).
@@ -56,6 +57,9 @@ const realLoadConfig = _rConfig.loadConfig;
 const _rFleetLoad = await import("../../src/commands/shared/fleet-load");
 const realLoadFleetEntries = _rFleetLoad.loadFleetEntries;
 
+const _rGhq = await import("../../src/core/ghq");
+const realGhqList = _rGhq.ghqList;
+
 // ─── Mutable state (reset per-test) ─────────────────────────────────────────
 
 interface CurlResponse { ok: boolean; status?: number; data?: unknown; }
@@ -72,6 +76,8 @@ let configOverride: Record<string, unknown> = {};
 let loadFleetEntriesReturn: Array<{ session: { name: string; windows: Array<{ repo?: string }> } }> = [];
 let loadFleetEntriesThrows = false;
 let rebootChecksReturn: Array<{ name: string; level: "pass" | "warn" | "fail"; message: string; fix?: string }> = [];
+let ghqListReturn: string[] = [];
+let ghqListThrows = false;
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -129,6 +135,19 @@ mock.module(
   }),
 );
 
+
+mock.module(
+  join(import.meta.dir, "../../src/core/ghq"),
+  () => ({
+    ..._rGhq,
+    ghqList: async (...args: unknown[]) => {
+      if (!mockActive) return (realGhqList as (...a: unknown[]) => Promise<string[]>)(...args);
+      if (ghqListThrows) throw new Error("ghq unavailable");
+      return ghqListReturn;
+    },
+  }),
+);
+
 mock.module(
   join(import.meta.dir, "../../src/commands/shared/fleet-doctor-reboot"),
   () => ({
@@ -174,6 +193,8 @@ beforeEach(() => {
   loadFleetEntriesReturn = [];
   loadFleetEntriesThrows = false;
   rebootChecksReturn = [];
+  ghqListReturn = [];
+  ghqListThrows = false;
   saveConfigCalls = [];
 });
 

@@ -21,6 +21,8 @@
  */
 import type { Peer } from "./store";
 
+const bootWarningMessagesLogged = new Set<string>();
+
 /** A single collision: two-or-more peers (or local + peers) sharing one key. */
 export interface DuplicateClaim {
   /** Canonical `<oracle>:<node>` key the peers collide on. */
@@ -84,8 +86,8 @@ export function formatDuplicate(d: DuplicateClaim): string {
 
 /**
  * Boot-time hook used by `startServer()`. Loads the peer cache + the
- * caller-supplied local identity, then writes a YELLOW warning per
- * collision via `console.warn`. Never throws — boot must continue per ADR.
+ * caller-supplied local identity, then writes a YELLOW warning once per
+ * unique collision via `console.warn`. Never throws — boot must continue per ADR.
  *
  * Returns the duplicates list so tests / callers can assert on it.
  */
@@ -97,7 +99,10 @@ export function warnDuplicatesAtBoot(args: {
   const log = args.log ?? ((m: string) => console.warn(m));
   const dups = findDuplicateIdentities(args.peers, args.local);
   for (const d of dups) {
-    log(`\x1b[33m⚠ ${formatDuplicate(d)}\x1b[0m`);
+    const warning = formatDuplicate(d);
+    if (bootWarningMessagesLogged.has(warning)) continue;
+    bootWarningMessagesLogged.add(warning);
+    log(`\x1b[33m⚠ ${warning}\x1b[0m`);
     log(`\x1b[33m  investigate with \`maw peers list\` and \`maw peers remove <alias>\` if stale.\x1b[0m`);
   }
   return dups;

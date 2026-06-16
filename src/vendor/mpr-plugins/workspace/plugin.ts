@@ -1,0 +1,20 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "workspace",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Multi-node workspace management.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "workspace",
+    "aliases": [
+      "ws"
+    ],
+    "help": "maw workspace <subcommand> [args] — Multi-node workspace management"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

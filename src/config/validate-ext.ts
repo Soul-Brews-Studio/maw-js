@@ -112,6 +112,24 @@ function validateExtFields(
     if (Object.keys(discovery).length > 0) result.discovery = discovery;
   }
 
+  // limits: Record<string, number >= 0>. Keep the object generic so new typed
+  // limits can be introduced without a validator whitelist update (#2602).
+  if ("limits" in raw) {
+    if (raw.limits && typeof raw.limits === "object" && !Array.isArray(raw.limits)) {
+      const limits: Record<string, number> = {};
+      for (const [key, value] of Object.entries(raw.limits as Record<string, unknown>)) {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          limits[key] = value;
+        } else {
+          warn(`limits.${key}`, "must be a number >= 0");
+        }
+      }
+      if (Object.keys(limits).length > 0) result.limits = limits;
+    } else {
+      warn("limits", "must be an object");
+    }
+  }
+
   // pluginSources: string[] of URLs
   if ("pluginSources" in raw) {
     if (Array.isArray(raw.pluginSources)) {
@@ -127,6 +145,33 @@ function validateExtFields(
       result.disabledPlugins = (raw.disabledPlugins as unknown[]).filter(s => typeof s === "string") as string[];
     } else {
       warn("disabledPlugins", "must be an array of plugin names");
+    }
+  }
+
+  // broadcastTo: string[] of transport names for best-effort send relay (#2497)
+  if ("broadcastTo" in raw) {
+    if (Array.isArray(raw.broadcastTo)) {
+      result.broadcastTo = (raw.broadcastTo as unknown[]).filter(s => typeof s === "string") as string[];
+    } else {
+      warn("broadcastTo", "must be an array of transport names");
+    }
+  }
+
+  // errorForward: default target for `maw forward-error` structured reports (#2511)
+  if ("errorForward" in raw) {
+    if (raw.errorForward && typeof raw.errorForward === "object" && !Array.isArray(raw.errorForward)) {
+      const input = raw.errorForward as Record<string, unknown>;
+      const errorForward: NonNullable<MawConfig["errorForward"]> = {};
+      if ("target" in input) {
+        if (typeof input.target === "string" && input.target.trim().length > 0) {
+          errorForward.target = input.target.trim();
+        } else {
+          warn("errorForward.target", "must be a non-empty string");
+        }
+      }
+      if (Object.keys(errorForward).length > 0) result.errorForward = errorForward;
+    } else {
+      warn("errorForward", "must be an object");
     }
   }
 

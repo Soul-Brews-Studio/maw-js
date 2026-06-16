@@ -9,8 +9,12 @@ import { tmpdir } from "os";
 // despite green tests. Guard the copy that actually ships.
 import { parseTeamCharterText } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { classifyMember, engineCommand, memberWakeOptions, memberWakeTarget, resolveCharterPath } from "../../src/vendor/mpr-plugins/team/team-liveness";
-import { cmdTeamUp } from "../../src/vendor/mpr-plugins/team/team-up";
+import * as commandTeamLiveness from "../../src/commands/plugins/team/team-liveness";
+import * as vendorTeamLiveness from "../../src/vendor/mpr-plugins/team/team-liveness";
+import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-up";
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
+import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
+import { isUserError } from "../../src/core/util/user-error";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -54,6 +58,8 @@ function fakeTmux(lines: string[]) {
 }
 
 const config = { commands: {
+  claude: "maw run claude",
+  "claude-resume": "maw run claude-resume",
   omx: "maw run omx",
   "omx-resume": "maw run omx-resume",
   claude48: "maw run claude48",
@@ -76,8 +82,11 @@ members:
     channels: true
     queue:
       - next
+lifecycle:
+  prompt_delay: 250
 `);
     expect(charter.session).toBe("named-session");
+    expect(charter.lifecycle?.prompt_delay).toBe(250);
     expect(charter.members[0]).toMatchObject({ role: "coder", name: "mawjs-codex", engine: "omx", worktree: true, node: "m5", channels: true, queue: ["next"] });
   });
 
@@ -113,7 +122,7 @@ members:
       ["lead", "live", undefined],
       ["bridge", "skipped", "other node: oracle-world"],
     ]);
-    expect(status.output).toContain("bridge\tclaude\tskipped\tskip (other node: oracle-world)");
+    expect(status.output).toContain("bridge\tmawjs-oss-world\tclaude\tskipped\tskip (other node: oracle-world)");
     expect(status.output).not.toContain("bridge\tclaude\tmissing");
     expect(wakes).toHaveLength(0);
 
@@ -212,10 +221,179 @@ agents:
     expect(status.output).not.toContain("oss-world\tclaude\tmissing\twakeable --wt oss-world -e claude --session charter-session --channels");
   });
 
-  test("team up wakes charter.project and primes inline plus file-ref prompts", async () => {
-    const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-"));
+  test("team up delays by lifecycle.prompt_delay after wake readiness before priming prompts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-delay-"));
     dirs.push(root);
     mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+session: charter-session
+lifecycle:
+  prompt_delay: 42
+agents:
+  codex:
+    engine: omx
+    prompt: delayed hello
+`, "utf-8");
+
+    let listCalls = 0;
+    const events: string[] = [];
+    const tmux = {
+      run: async (...args: string[]) => {
+        events.push(`tmux:${args[0]}`);
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          if (listCalls === 2) return "charter-session|codex|zsh|/wt/codex|%1";
+          return "charter-session|codex|codex|/wt/codex|%1";
+        }
+        return "";
+      },
+    };
+
+    await cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async () => { events.push("wake"); return "woke"; },
+      cmdSendFn: async () => { events.push("send"); },
+      sleep: async (ms: number) => { events.push(`sleep:${ms}`); },
+      logger: () => {},
+    });
+
+    expect(events).toContain("sleep:42");
+    expect(events.indexOf("sleep:1000")).toBeLessThan(events.indexOf("sleep:42"));
+    expect(events.indexOf("sleep:42")).toBeLessThan(events.indexOf("send"));
+  });
+
+  test("team up launches missing members in parallel before readiness waits and prompt priming", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-parallel-wake-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+session: charter-session
+lifecycle:
+  prompt_delay: 7
+agents:
+  coder-a:
+    engine: omx
+    prompt: prompt a
+  coder-b:
+    engine: claude48
+    prompt: prompt b
+`, "utf-8");
+
+    let listCalls = 0;
+    const events: string[] = [];
+    const tmux = {
+      run: async (...args: string[]) => {
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          return [
+            "charter-session|coder-a|codex|/wt/coder-a|%1",
+            "charter-session|coder-b|claude|/wt/coder-b|%2",
+          ].join("\n");
+        }
+        return "";
+      },
+    };
+    const wakeResolvers: Array<() => void> = [];
+    const wakes: any[] = [];
+
+    const run = cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async (...args: any[]) => {
+        wakes.push(args);
+        events.push(`wake:start:${args[1].wt}`);
+        await new Promise<void>((resolve) => wakeResolvers.push(resolve));
+        events.push(`wake:end:${args[1].wt}`);
+        return "woke";
+      },
+      cmdSendFn: async (...args: any[]) => { events.push(`prime:${args[0]}`); },
+      sleep: async (ms: number) => { events.push(`sleep:${ms}`); },
+      logger: () => {},
+    });
+
+    for (let i = 0; i < 20 && wakeResolvers.length < 2; i++) await Promise.resolve();
+
+    expect(wakeResolvers).toHaveLength(2);
+    expect(events).toEqual(["wake:start:coder-a", "wake:start:coder-b"]);
+    expect(wakes.map((wake) => wake[1].wt)).toEqual(["coder-a", "coder-b"]);
+
+    for (const resolveWake of wakeResolvers) resolveWake();
+    await run;
+
+    expect(events.indexOf("sleep:7")).toBeGreaterThan(events.indexOf("wake:end:coder-a"));
+    expect(events.indexOf("sleep:7")).toBeGreaterThan(events.indexOf("wake:end:coder-b"));
+    expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-a"));
+    expect(events.indexOf("sleep:7")).toBeLessThan(events.indexOf("prime:charter-session:coder-b"));
+  });
+
+  test("--quick synthesizes an in-memory builder charter with explicit worktree names", async () => {
+    expect(quickCharter(3, { name: "quick", engine: "omx", session: "charter-session" })).toMatchObject({
+      name: "quick",
+      session: "charter-session",
+      members: [
+        { role: "builder-1", name: "builder-1", engine: "omx", worktree: "builder-1" },
+        { role: "builder-2", name: "builder-2", engine: "omx", worktree: "builder-2" },
+        { role: "builder-3", name: "builder-3", engine: "omx", worktree: "builder-3" },
+      ],
+    });
+
+    const root = tempRepo();
+    let listCalls = 0;
+    const tmux = {
+      run: async (...args: string[]) => {
+        if (args[0] === "display-message") return "lead-session\n";
+        if (args[0] === "list-panes") {
+          listCalls++;
+          if (listCalls === 1) return "";
+          return [
+            "charter-session|builder-1|codex|/wt/builder-1|%1",
+            "charter-session|builder-2|codex|/wt/builder-2|%2",
+            "charter-session|builder-3|codex|/wt/builder-3|%3",
+          ].join("\n");
+        }
+        return "";
+      },
+    };
+    const wakes: any[] = [];
+
+    const result = await cmdTeamUp("quick", { quick: 3, engine: "omx", session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      cmdWakeFn: async (...args: any[]) => { wakes.push(args); return "woke"; },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(wakes.map((wake) => wake[1])).toEqual([
+      { wt: "builder-1", engine: "omx", session: "charter-session", repoPath: root },
+      { wt: "builder-2", engine: "omx", session: "charter-session", repoPath: root },
+      { wt: "builder-3", engine: "omx", session: "charter-session", repoPath: root },
+    ]);
+    expect(result.roster.map((member) => [member.role, member.engine, member.state])).toEqual([
+      ["builder-1", "omx", "live"],
+      ["builder-2", "omx", "live"],
+      ["builder-3", "omx", "live"],
+    ]);
+  });
+
+  test("team up wakes charter.project worktrees from the project repo while priming charter-local prompts (#2798)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-prompt-"));
+    const projectRoot = mkdtempSync(join(tmpdir(), "maw-target-project-"));
+    dirs.push(root, projectRoot);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(projectRoot, ".git"));
     mkdirSync(join(root, ".maw"), { recursive: true });
     mkdirSync(join(root, "prompts"), { recursive: true });
     writeFileSync(join(root, "prompts", "claude48.md"), "file prompt\n", "utf-8");
@@ -242,18 +420,46 @@ agents:
       loadConfigFn: () => ({ ...config, node: "m5" }),
       cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
       cmdSendFn: async (...a: any[]) => { sends.push(a); },
+      ghqFindFn: async (suffix: string) => suffix === "/soul-brews-studio/maw-js" ? projectRoot : null,
       sleep: async () => {},
       logger: () => {},
     });
 
     expect(wakes).toEqual([
-      ["soul-brews-studio/maw-js", { wt: "codex", engine: "omx", session: "charter-session", repoPath: root, channels: true }],
-      ["soul-brews-studio/maw-js", { wt: "claude48", engine: "claude48", session: "charter-session", repoPath: root, channels: true }],
+      ["soul-brews-studio/maw-js", { wt: "codex", engine: "omx", session: "charter-session", repoPath: projectRoot, channels: true }],
+      ["soul-brews-studio/maw-js", { wt: "claude48", engine: "claude48", session: "charter-session", repoPath: projectRoot, channels: true }],
     ]);
     expect(sends).toEqual([
-      ["codex", "inline prompt", false],
-      ["claude48", "file prompt", false],
+      ["charter-session:codex", "inline prompt", false, { currentSession: "charter-session" }],
+      ["charter-session:claude48", "file prompt", false, { currentSession: "charter-session" }],
     ]);
+  });
+
+  test("team up errors loudly when charter.project is not cloned for worktree creation (#2798)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-node-missing-project-"));
+    dirs.push(root);
+    mkdirSync(join(root, ".git"));
+    mkdirSync(join(root, ".maw"), { recursive: true });
+    writeFileSync(join(root, ".maw", "m5.yaml"), `
+name: m5-team
+project: soul-brews-studio/missing-project
+agents:
+  codex:
+    engine: omx
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+    const wakes: any[] = [];
+
+    await expect(cmdTeamUp("any", { session: "charter-session" }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => ({ ...config, node: "m5" }),
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      ghqFindFn: async () => null,
+      sleep: async () => {},
+      logger: () => {},
+    })).rejects.toThrow("charter.project 'soul-brews-studio/missing-project' is not cloned under ghq");
+    expect(wakes).toEqual([]);
   });
 
   test("semantic role adopts live window by charter member name", async () => {
@@ -282,10 +488,91 @@ members:
     ]);
   });
 
+
+  test("team up preflight aborts before spawn when charter engine is unresolved", async () => {
+    const root = tempRepo();
+    const { tmux, calls } = fakeTmux([]);
+    const wakes: any[] = [];
+    const badConfig = { commands: { default: "claude", codex: "codex" } } as any;
+    let thrown: unknown;
+
+    try {
+      await cmdTeamUp("alpha", {}, {
+        cwd: root,
+        tmux,
+        loadConfigFn: () => badConfig,
+        cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+        sleep: async () => {},
+        logger: () => {},
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("team up preflight failed");
+    expect((thrown as Error).message).toContain("coder-1: engine 'omx' not resolvable");
+    expect(wakes).toHaveLength(0);
+    expect(calls.some((call) => call[0] === "send-keys" || call[0] === "kill-window")).toBe(false);
+  });
+
   test("role matching is anchored so coder-1 does not match coder-10", () => {
     const panes = [{ sessionName: "s", windowName: "repo-coder-10", command: "claude", path: "/x", paneId: "%1" }];
     expect(classifyMember({ role: "coder-1" }, panes, "s").state).toBe("missing");
     expect(classifyMember({ role: "coder-10" }, panes, "s").state).toBe("live");
+  });
+
+
+
+  test("team up preflight rejects codex-like members pinned to shared checkout with worktree:false (#2764)", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "shared-codex.yaml"), `
+name: shared-codex
+session: charter-session
+members:
+  - role: codex-main
+    engine: codex
+    worktree: false
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+
+    await expect(cmdTeamUp("shared-codex", { dryRun: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      logger: () => {},
+    })).rejects.toThrow("codex-like members must run in isolated worktrees");
+  });
+
+  test("classifyMember matches wake-produced dot worktree windows (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-web-v2.wt-coder-2", command: "codex", path: "/wt/web-v2.wt-coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2", worktree: "web-v2.wt-coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember keeps explicit member name matching live (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-web-v2.wt-coder-2", command: "codex", path: "/wt/web-v2.wt-coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2", name: "web-v2.wt-coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember keeps role-only wake window matching live (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-2", command: "codex", path: "/wt/coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-2" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("classifyMember does not match absent members through wake candidates (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-2", command: "codex", path: "/wt/coder-2", paneId: "%2" }];
+    expect(classifyMember({ role: "coder-3" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("missing");
+  });
+
+  test("classifyMember wake candidates remain anchored for numbered roles (#2802)", () => {
+    const panes = [{ sessionName: "s", windowName: "web-v2-coder-10", command: "codex", path: "/wt/coder-10", paneId: "%10" }];
+    expect(classifyMember({ role: "coder-1" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("missing");
+    expect(classifyMember({ role: "coder-10" }, panes, "s", { repoSlug: "web-v2" }).state).toBe("live");
+  });
+
+  test("commands team-liveness re-exports the vendor source of truth (#2802)", () => {
+    expect(commandTeamLiveness.classifyMember).toBe(vendorTeamLiveness.classifyMember);
+    expect(commandTeamLiveness.memberWindowCandidates).toBe(vendorTeamLiveness.memberWindowCandidates);
   });
 
   test("status and dry-run are read-only classification modes", async () => {
@@ -338,6 +625,37 @@ members:
   });
 
 
+  test("--members filters by charter role, warns unknown roles, and wakes only selected members", async () => {
+    const root = tempRepo();
+    const { tmux } = fakeTmux([]);
+    const wakes: any[] = [];
+
+    const status = await cmdTeamUp("alpha", { status: true, members: ["coder-1", "mawjs-oracle", "missing-role"] }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      logger: () => {},
+    });
+    expect(status.roster.map((m) => [m.role, m.state, m.skipReason])).toEqual([
+      ["coder-1", "missing", undefined],
+      ["coder-10", "skipped", "outside --members"],
+      ["oracle", "skipped", "outside --members"],
+    ]);
+    expect(status.warnings).toContain("--members role not found in charter: mawjs-oracle");
+    expect(status.warnings).toContain("--members role not found in charter: missing-role");
+
+    await cmdTeamUp("alpha", { members: ["coder-1"] }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      sleep: async () => {},
+      logger: () => {},
+    });
+    expect(wakes.map((w) => w[1].wt)).toEqual(["coder-1"]);
+  });
+
+
   test("--only skips members outside the selected role/name/worktree set", async () => {
     const root = tempRepo();
     const { tmux } = fakeTmux([]);
@@ -385,7 +703,7 @@ members:
 
     const missing = fakeTmux([]);
     const status = await cmdTeamUp("lead", { status: true }, { cwd: root, tmux: missing.tmux, repoSlug: "Soul-Brews-Studio/mawjs-oracle", loadConfigFn: () => config, logger: () => {} });
-    expect(status.output).toContain("lead\tclaude\tmissing\twakeable mawjs-oracle -e claude --session charter-session");
+    expect(status.output).toContain("lead\tmawjs-oracle\tclaude\tmissing\twakeable mawjs-oracle -e claude --session charter-session");
     expect(status.output).not.toContain("--wt mawjs-oracle");
 
     expect(memberWakeTarget("Soul-Brews-Studio/mawjs-oracle", status.roster[0].member)).toBe("mawjs-oracle");
@@ -401,9 +719,37 @@ members:
     expect(result.warnings).toContain("current tmux session 'lead-session' differs from --session '01-mawjs'; targeting explicit session");
   });
 
+
+  test("dry-run action commands resolve charter engines with YAML anchor flags", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "anchors.yaml"), `
+name: anchors
+session: charter-session
+flags:
+  claude-combo: &claude-combo
+    - "--dangerously-skip-permissions"
+    - "--channels plugin:discord@claude-plugins-official"
+engines:
+  opus48: ["claude --model claude-opus-4-8", *claude-combo]
+members:
+  - role: builder
+    engine: opus48
+`, "utf-8");
+    const { tmux } = fakeTmux([]);
+
+    const result = await cmdTeamUp("anchors", { dryRun: true }, { cwd: root, tmux, loadConfigFn: () => config, logger: () => {} });
+
+    expect(result.actions[0]).toMatchObject({
+      role: "builder",
+      command: "claude --model claude-opus-4-8 --dangerously-skip-permissions --channels plugin:discord@claude-plugins-official",
+    });
+  });
+
   test("engine command resolves resume key only when requested", () => {
     expect(engineCommand("omx", {}, config)).toBe("maw run omx");
     expect(engineCommand("omx", { resume: true }, config)).toBe("maw run omx-resume");
+    expect(engineCommand("opus48", { engines: { opus48: ["claude --model opus", ["--dangerously-skip-permissions", "--channels plugin:discord"]] } }, config)).toBe("claude --model opus --dangerously-skip-permissions --channels plugin:discord");
+    expect(engineCommand("opus48", { resume: true, engines: { "opus48-resume": ["claude --resume abc", ["--dangerously-skip-permissions"]] } }, config)).toBe("claude --resume abc --dangerously-skip-permissions");
   });
 });
 
@@ -553,6 +899,128 @@ members:
   });
 });
 
+describe("maw team apply (#2612)", () => {
+  test("dry-run compares charter to live tmux state without spawning or shutting down", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: lead
+    name: mawjs-oracle
+    engine: claude
+    worktree: false
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-oracle|claude|/repo|%1",
+      "charter-session|mawjs-old-worker|codex|/wt/old-worker|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", {}, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action, a.target])).toEqual([
+      ["skip", "lead", "skip live", undefined],
+      ["spawn", "reviewer", "would spawn member", undefined],
+      ["shutdown", "mawjs-old-worker", "would maw done removed member", "mawjs-old-worker"],
+    ]);
+    expect(wakes).toEqual([]);
+    expect(doneCalls).toEqual([]);
+    expect(result.output).toContain("No changes made (pass --apply to execute)");
+  });
+
+  test("--apply spawns missing members and gracefully shuts down removed panes", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-old-worker|codex|/wt/old-worker|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", { apply: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoRoot: root,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action])).toEqual([
+      ["spawn", "reviewer", "spawn member"],
+      ["shutdown", "mawjs-old-worker", "maw done removed member"],
+    ]);
+    expect(wakes).toEqual([["Soul-Brews-Studio/maw-js", {
+      engine: "codex",
+      session: "charter-session",
+      repoPath: root,
+      wt: "reviewer",
+    }]]);
+    expect(doneCalls).toEqual([["mawjs-old-worker", { sessionName: "charter-session" }]]);
+  });
+
+  test("reports live member engine and branch drift without auto-migrating", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "apply.yaml"), `
+name: apply
+session: charter-session
+members:
+  - role: reviewer
+    name: reviewer
+    engine: codex
+    branch: next
+    worktree: true
+`, "utf-8");
+    const { tmux } = fakeTmux([
+      "charter-session|mawjs-reviewer|claude|/wt/reviewer|%2",
+    ]);
+    const wakes: any[] = [];
+    const doneCalls: any[] = [];
+
+    const result = await cmdTeamApply("apply", { apply: true }, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => config,
+      repoSlug: "Soul-Brews-Studio/maw-js",
+      cmdWakeFn: async (...a: any[]) => { wakes.push(a); return "woke"; },
+      cmdDoneFn: async (...a: any[]) => { doneCalls.push(a); },
+      branchForPathFn: () => "main",
+      logger: () => {},
+    });
+
+    expect(result.actions.map((a) => [a.kind, a.role, a.action, a.detail])).toEqual([
+      ["report", "reviewer", "engine changed; not migrated", "live=claude charter=codex"],
+      ["report", "reviewer", "branch changed; not migrated", "live=main charter=next"],
+    ]);
+    expect(wakes).toEqual([]);
+    expect(doneCalls).toEqual([]);
+  });
+});
+
 // Regression guard for the integration miss: #1976 landed in core but the
 // runtime dispatches the VENDORED plugin index, where `up` was an unknown
 // subcommand. Assert the vendored handler routes `up` (usage path), NOT the
@@ -570,6 +1038,7 @@ describe("vendored team plugin routes `up` (#1976 integration)", () => {
     const { res } = await dispatch(["up"]);
     expect(res.error).not.toContain("unknown subcommand");
     expect(res.error).toBe("team required");
+    expect(res.output).toContain("--members <roles>");
   });
 
   test("`team down` is a known subcommand", async () => {

@@ -18,6 +18,7 @@ describe("validateBasicFields", () => {
       oracleUrl: "http://localhost:47779",
       env: { A: "B" },
       commands: { default: "claude", codex: "codex" },
+      defaultEngine: "codex",
       engines: { codex: { cmd: "codex", label: "Codex CLI" } },
       sessions: { mawjs: "54-mawjs" },
       tmuxSocket: "maw",
@@ -32,6 +33,7 @@ describe("validateBasicFields", () => {
       oracleUrl: "http://localhost:47779",
       env: { A: "B" },
       commands: { default: "claude", codex: "codex" },
+      defaultEngine: "codex",
       engines: { codex: { name: "codex", cmd: "codex", label: "Codex CLI" } },
       sessions: { mawjs: "54-mawjs" },
       tmuxSocket: "maw",
@@ -59,12 +61,19 @@ describe("validateBasicFields", () => {
     ]);
   });
 
-  test("warns for invalid maps and commands without default string", () => {
+
+  test("coerces deprecated gateway auto to bun with a warning", () => {
+    const { result, warnings } = collectBasic({ gateway: "auto" });
+
+    expect(result).toEqual({ gateway: "bun" });
+    expect(warnings).toEqual(['gateway: "auto" is deprecated, using "bun"']);
+  });
+
+  test("warns for invalid maps and non-string command values", () => {
     const cases = [
       [{ env: [] }, "env: must be an object"],
       [{ commands: [] }, "commands: must be an object"],
-      [{ commands: { codex: "codex" } }, "commands: must include a 'default' string entry"],
-      [{ commands: { default: 123 } }, "commands: must include a 'default' string entry"],
+      [{ commands: { default: 123 } }, "commands.default: must be a string or null"],
       [{ engines: [] }, "engines: must be an object"],
       [{ engines: { codex: false } }, "engines.codex: must be an object"],
       [{ engines: { codex: { cmd: "" } } }, "engines.codex.cmd: must be a non-empty string"],
@@ -76,6 +85,53 @@ describe("validateBasicFields", () => {
       expect(result).toEqual({});
       expect(warnings).toEqual([warning]);
     }
+  });
+
+  test("keeps commands without default when defaultEngine names a configured command", () => {
+    const { result, warnings } = collectBasic({
+      commands: {
+        claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude",
+        claude46: "ANTHROPIC_MODEL=claude-sonnet-4-6 command claude",
+      },
+      defaultEngine: "claude48",
+    });
+
+    expect(warnings).toEqual([]);
+    expect(result).toEqual({
+      commands: {
+        claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude",
+        claude46: "ANTHROPIC_MODEL=claude-sonnet-4-6 command claude",
+      },
+      defaultEngine: "claude48",
+    });
+  });
+
+  test("warns when commands has no default and defaultEngine cannot resolve to a configured key", () => {
+    const { result, warnings } = collectBasic({
+      commands: { claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude" },
+      defaultEngine: "missing",
+    });
+
+    expect(result).toEqual({
+      commands: { claude48: "ANTHROPIC_MODEL=claude-opus-4-8 command claude" },
+      defaultEngine: "missing",
+    });
+    expect(warnings).toEqual(["commands: has no default entry and defaultEngine 'missing' is not configured"]);
+  });
+
+
+  test("warns when commands is empty and no defaultEngine is configured", () => {
+    const { result, warnings } = collectBasic({ commands: {} });
+
+    expect(result).toEqual({});
+    expect(warnings).toEqual(["commands: has no default entry and no defaultEngine; bare wake requires config.engines/defaultEngine or maw init seed"]);
+  });
+
+  test("accepts empty commands when defaultEngine resolves to a configured engine", () => {
+    const { result, warnings } = collectBasic({ commands: {}, defaultEngine: "claude", engines: { claude: { cmd: "claude" } } });
+
+    expect(warnings).toEqual([]);
+    expect(result).toEqual({ defaultEngine: "claude", engines: { claude: { name: "claude", cmd: "claude" } } });
   });
 });
 
@@ -96,9 +152,12 @@ describe("validateConfigShape", () => {
       federationToken: "x".repeat(16),
       env: { A: "B" },
       commands: { default: "claude" },
+      defaultEngine: "claude",
       engines: { codex: { cmd: "codex" } },
       sessions: { mawjs: "54-mawjs" },
       peers: ["http://peer:3456"],
+      errorForward: { target: "doctor" },
+      gateway: "auto",
     })).toEqual([]);
   });
 
@@ -111,6 +170,7 @@ describe("validateConfigShape", () => {
       oracleUrl: 4,
       tmuxSocket: 5,
       federationToken: 6,
+      errorForward: [],
     })).toEqual([
       "host must be a string",
       "bind must be a string",
@@ -119,18 +179,21 @@ describe("validateConfigShape", () => {
       "oracleUrl must be a string",
       "tmuxSocket must be a string",
       "federationToken must be a string",
+      "errorForward must be an object",
     ]);
   });
 
   test("reports invalid object maps and nested values", () => {
     expect(validateConfigShape({
       env: { GOOD: "ok", BAD: 1 },
-      commands: { default: "claude", bad: false },
+      commands: { default: "claude", tombstone: null, bad: false },
       engines: { nope: false, broken: { cmd: "" }, badName: { name: 7, cmd: "tool" } },
       sessions: { ok: "54-mawjs", bad: 2 },
+      errorForward: { target: 8 },
     })).toEqual([
+      "errorForward.target must be a string",
       "env.BAD must be a string",
-      "commands.bad must be a string",
+      "commands.bad must be a string or null",
       "engines.nope must be an object",
       "engines.broken.cmd must be a non-empty string",
       "engines.badName.name must be a string",
@@ -139,7 +202,7 @@ describe("validateConfigShape", () => {
 
     expect(validateConfigShape({ env: [], commands: null, sessions: [] })).toEqual([
       "env must be a Record<string, string>",
-      "commands must be a Record<string, string>",
+      "commands must be a Record<string, string | null>",
       "sessions must be a Record<string, string>",
     ]);
   });

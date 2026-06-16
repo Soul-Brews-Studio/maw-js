@@ -53,6 +53,62 @@ mock.module(sdkPath, () => ({
     scanFullCalls.push({ scope, loud });
     return fullCache;
   },
+  parseFlags: (args: string[]) => {
+    parseInputs.push(args);
+    return parseReturn;
+  },
+  loadConfig: () => ({}),
+  sparkline: () => "▁",
+  UserError: class UserError extends Error {},
+  findPeerForTarget: () => null,
+  curlFetch: async () => ({ ok: false, status: 404, data: {} }),
+  capture: async () => "",
+  listSessions: async () => [],
+  resolveTarget: () => null,
+  resolveOraclePane: async (target: string) => target,
+  Tmux: class {},
+  sendKeys: async () => undefined,
+  getPaneCommand: async () => "",
+  runHook: async () => undefined,
+  isAgentCommand: () => false,
+  hostExec: async () => "",
+  tmux: { listPaneIds: async () => new Set<string>(), sendKeys: async () => undefined },
+  getPaneInfos: async () => [],
+  getPaneCommands: async () => [],
+  saveTabOrder: async () => undefined,
+  restoreTabOrder: async () => undefined,
+  takeSnapshot: async () => undefined,
+  mawMessageLogPath: (..._parts: string[]) => "/tmp/maw-message.log",
+  runSleepLifecycleHooks: async () => undefined,
+  loadFleetCore: () => [],
+  detectSession: () => null,
+  scanWorktrees: () => [],
+  cleanupWorktree: async () => undefined,
+  findWindow: () => null,
+  loadFleetEntries: () => [],
+  getGhqRoot: () => "/tmp/ghq",
+  ghqFind: async () => "",
+  ghqFindSync: () => "",
+  cmdPeek: async () => undefined,
+  cmdSend: async () => undefined,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  cmdPulseAdd: async () => undefined,
+  cmdPulseLs: async () => undefined,
+  scanSignals: () => [],
+  tlink: (s: string) => s,
+  resolveSessionTarget: () => null,
+  resolveWorktreeTarget: () => null,
+  resolveFleetWindowSessionTarget: () => null,
+  loadPending: () => [],
+  savePending: () => undefined,
+  updatePending: () => undefined,
+  deletePending: () => undefined,
+  loadPendingById: () => null,
+  pendingPath: () => "/tmp/pending.json",
+  pendingDir: () => "/tmp/pending",
+  isExpired: () => false,
+  TTL_MS: 1,
 }));
 
 mock.module(implListPath, () => ({
@@ -64,11 +120,15 @@ mock.module(implListPath, () => ({
 
 mock.module(verbosityPath, () => ({
   isQuiet: () => quietMode,
+  info: (..._args: unknown[]) => {},
+  verbose: (..._args: unknown[]) => {},
+  warn: (..._args: unknown[]) => {},
 }));
 
 mock.module(registryTypesPath, () => ({
   CACHE_FILE: "/tmp/maw-test-oracles.json",
   LEGACY_CACHE_FILE: "/tmp/legacy-maw-test-oracles.json",
+  STALE_HOURS: 24,
   registryCacheFilePath: () => "/tmp/maw-test-oracles.json",
   legacyRegistryCacheFilePath: () => "/tmp/legacy-maw-test-oracles.json",
 }));

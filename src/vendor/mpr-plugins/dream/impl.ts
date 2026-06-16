@@ -1,6 +1,4 @@
-import { hostExec } from "maw-js/sdk";
-import { getGhqRoot } from "maw-js/config/ghq-root";
-import { loadFleet } from "maw-js/commands/shared/fleet-load";
+import { hostExec, getGhqRoot, loadFleetCore as loadFleet } from "maw-js/sdk";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "fs";
 import { join, basename } from "path";
 import type { DreamFlags } from "./index";

@@ -1,6 +1,4 @@
-import { hostExec } from "maw-js/sdk";
-import { tmux, tmuxCmd } from "maw-js/sdk";
-import { cmdPeek, cmdSend } from "maw-js/commands/shared/comm";
+import { hostExec, tmux, tmuxCmd, cmdPeek, cmdSend } from "maw-js/sdk";
 import { cmdTalkTo } from "./internal/talk-to-impl";
 
 /**

@@ -3,28 +3,40 @@
  */
 
 import type { LoadedPlugin } from "../../plugin/types";
-import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, cpSync, readFileSync, symlinkSync } from "fs";
 import { join, resolve } from "path";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
 import { mawDataPath } from "../../core/xdg";
+import { UserError } from "../../core/util/user-error";
 
 /** Allowlist: only http/https URLs permitted as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
-function getPluginHome(): string {
+export type PluginInstallOptions = {
+  /** Install into the cwd-local .maw/plugins tree instead of the global plugin home. */
+  local?: boolean;
+  /** Symlink the source directory into place for development instead of copying it. */
+  symlink?: boolean;
+};
+
+function getPluginHome(options: PluginInstallOptions = {}): string {
+  if (options.local) return join(process.cwd(), ".maw", "plugins");
   return process.env.MAW_PLUGIN_HOME ?? mawDataPath("plugins");
 }
 
-export async function doInstall(srcPath: string, force: boolean): Promise<void> {
+export async function doInstall(
+  srcPath: string,
+  force: boolean,
+  options: PluginInstallOptions = {},
+): Promise<void> {
   let src: string;
 
   // GitHub URL → clone via ghq, then install from local path
   if (srcPath.startsWith("http") || srcPath.startsWith("github.com/")) {
     const url = srcPath.startsWith("http") ? srcPath : `https://${srcPath}`;
     if (!URL_SCHEME_RE.test(url)) {
-      console.error(`invalid URL scheme: ${url}`);
-      process.exit(1);
+      throw new UserError(`invalid URL scheme: ${url}`);
     }
     console.log(`\x1b[36m⚡\x1b[0m cloning ${url}...`);
     try {
@@ -32,15 +44,14 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
       const code = await proc.exited;
       if (code !== 0) throw new Error(`ghq exited ${code}`);
     } catch {
-      console.error(`failed to clone: ${url}`);
-      process.exit(1);
+      throw new UserError(`failed to clone: ${url}`);
     }
     const rootProc = Bun.spawn(["ghq", "root"], { stdout: "pipe", stderr: "pipe" });
     await rootProc.exited;
     const ghqRoot = (await new Response(rootProc.stdout).text()).trim();
     const repoPath = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
     src = join(ghqRoot, repoPath);
-    if (!existsSync(src)) { console.error(`cloned but not found: ${src}`); process.exit(1); }
+    if (!existsSync(src)) throw new UserError(`cloned but not found: ${src}`);
 
     // Monorepo? List available plugins
     const pkgDir = join(src, "packages");
@@ -64,40 +75,39 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
   }
 
   if (!existsSync(src)) {
-    console.error(`path not found: ${src}`);
-    process.exit(1);
+    throw new UserError(`path not found: ${src}`);
   }
 
   let manifestJson: string;
   try {
     manifestJson = readFileSync(join(src, "plugin.json"), "utf8");
   } catch {
-    console.error(`no plugin.json in: ${src}`);
-    process.exit(1);
+    throw new UserError(`no plugin.json in: ${src}`);
   }
 
   let manifest: ReturnType<typeof parseManifest>;
   try {
     manifest = parseManifest(manifestJson, src);
   } catch (err: any) {
-    console.error(`invalid plugin: ${err.message}`);
-    process.exit(1);
+    throw new UserError(`invalid plugin: ${err.message}`);
   }
 
-  const dest = join(getPluginHome(), manifest.name);
+  const pluginHome = getPluginHome(options);
+  const dest = join(pluginHome, manifest.name);
   if (existsSync(dest)) {
     if (!force) {
-      console.error(
-        `plugin '${manifest.name}' already installed — use --force to overwrite`,
-      );
-      process.exit(1);
+      throw new UserError(`plugin '${manifest.name}' already installed — use --force to overwrite`);
     }
     // Archive existing before overwrite (Nothing Deleted)
     archiveToTmp(manifest.name, dest);
   }
 
-  mkdirSync(dest, { recursive: true });
-  cpSync(src, dest, { recursive: true });
+  mkdirSync(pluginHome, { recursive: true });
+  if (options.symlink) {
+    symlinkSync(resolve(src), dest, "dir");
+  } else {
+    cpSync(src, dest, { recursive: true });
+  }
   console.log(
     `\x1b[32m✓\x1b[0m installed ${manifest.name}@${manifest.version} → ${dest}`,
   );
@@ -106,10 +116,7 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
 export function doRemove(name: string, discover: () => LoadedPlugin[]): void {
   const plugins = discover();
   const p = plugins.find(x => x.manifest.name === name);
-  if (!p) {
-    console.error(`plugin not found: ${name}`);
-    process.exit(1);
-  }
+  if (!p) throw new UserError(`plugin not found: ${name}`);
   archiveToTmp(name, p.dir);
   console.log(
     `\x1b[32m✓\x1b[0m removed ${name} → archived to /tmp/maw-plugin-${name}-*`,

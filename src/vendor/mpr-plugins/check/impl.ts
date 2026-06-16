@@ -1,5 +1,5 @@
 import { spawnSync } from "child_process";
-import { tlink } from "maw-js/core/util/terminal";
+import { tlink } from "maw-js/sdk";
 
 export interface ToolStatus {
   name: string;

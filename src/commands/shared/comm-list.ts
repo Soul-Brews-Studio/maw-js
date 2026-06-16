@@ -15,7 +15,10 @@ import {
   scanWorktrees as defaultScanWorktrees,
   cleanupWorktree as defaultCleanupWorktree,
   isAgentCommand as defaultIsAgentCommand,
+  tmux,
 } from "../../sdk";
+import { channelListenerIds } from "./channel-loader";
+import type { TmuxPane } from "../../core/transport/tmux-types";
 
 type LatestSnapshot = {
   timestamp: string;
@@ -28,6 +31,10 @@ export interface CommListDeps {
   scanWorktrees?: typeof defaultScanWorktrees;
   cleanupWorktree?: typeof defaultCleanupWorktree;
   isAgentCommand?: typeof defaultIsAgentCommand;
+  /** #2555 — panes carry `lastActivity` for the idle-duration column. */
+  listPanes?: () => Promise<TmuxPane[]>;
+  /** #2555 — channel plugin ids for an agent (drives the `[ch: …]` tag). */
+  channelIds?: (agent: string, repoPath?: string) => string[];
   latestSnapshot?: () => LatestSnapshot | null;
   log?: Pick<Console, "log" | "error">;
   env?: Record<string, string | undefined>;
@@ -41,11 +48,33 @@ function commListDeps(deps: CommListDeps) {
     scanWorktrees: deps.scanWorktrees ?? defaultScanWorktrees,
     cleanupWorktree: deps.cleanupWorktree ?? defaultCleanupWorktree,
     isAgentCommand: deps.isAgentCommand ?? defaultIsAgentCommand,
+    // Read-only (list-panes). The call site fail-soft-wraps this so a missing
+    // tmux server (or an injected stub that throws) never breaks `maw ls`.
+    listPanes: deps.listPanes ?? (() => tmux.listPanes()),
+    channelIds: deps.channelIds ?? channelListenerIds,
     latestSnapshot: deps.latestSnapshot,
     log: deps.log ?? console,
     env: deps.env ?? process.env,
     now: deps.now ?? Date.now,
   };
+}
+
+/** #2555 — compact idle age: `45s` → `12m` → `3h`. Negative clamps to 0s. */
+export function formatIdleAge(idleSec: number): string {
+  const s = Math.max(0, Math.round(idleSec));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+}
+
+/**
+ * #2555 — derive the channel/oracle stem for a live agent window. The repo dir
+ * in the pane cwd (`…/mawjs-codex-oracle/agents/…`) is authoritative; the tmux
+ * window name is the fallback for non-worktree panes.
+ */
+export function oracleStemForChannel(cwd: string, windowName: string): string {
+  const m = cwd.match(/([^/]+)-oracle(?:\/|$)/);
+  return m ? m[1]! : windowName;
 }
 
 async function loadLatestSnapshot(depsLatestSnapshot?: () => LatestSnapshot | null): Promise<LatestSnapshot | null> {
@@ -101,6 +130,21 @@ export async function cmdList(opts: { fix?: boolean; verify?: boolean } = {}, de
   }
   const infos = await d.getPaneInfos(targets);
 
+  // #2555 — idle duration per window from `lastActivity` (epoch seconds). Keyed
+  // by `<session>:<winIdx>` to join the session→window rows below; take the most
+  // recent activity across a window's panes.
+  const nowSec = d.now() / 1000;
+  const lastActivityByWindow = new Map<string, number>();
+  let panes: TmuxPane[] = [];
+  try { panes = await d.listPanes(); } catch { panes = []; }
+  for (const p of panes) {
+    if (p.lastActivity === undefined || p.winIdx === undefined) continue;
+    const sess = p.target.split(":")[0];
+    const key = `${sess}:${p.winIdx}`;
+    const prev = lastActivityByWindow.get(key);
+    if (prev === undefined || p.lastActivity > prev) lastActivityByWindow.set(key, p.lastActivity);
+  }
+
   for (const s of sessions) {
     d.log.log(renderSessionName(s.name));
     for (const w of s.windows) {
@@ -122,7 +166,21 @@ export async function cmdList(opts: { fix?: boolean; verify?: boolean } = {}, de
         dot = "\x1b[31m●\x1b[0m"; // red — dead (shell only)
         suffix = `  \x1b[90m(${info.command || "?"})\x1b[0m`;
       }
-      d.log.log(`  ${dot} ${w.index}: ${w.name}${suffix}`);
+
+      // #2555 — for live agents, annotate idle duration + channel-listener
+      // status so operators can see why an agent is (or isn't) auto-sleep exempt.
+      let meta = "";
+      if (isAgent && !cwdBroken) {
+        const lastActive = lastActivityByWindow.get(target);
+        if (lastActive !== undefined) {
+          meta += `  \x1b[90midle ${formatIdleAge(nowSec - lastActive)}\x1b[0m`;
+        }
+        const channels = d.channelIds(oracleStemForChannel(info.cwd, w.name));
+        if (channels.length > 0) {
+          meta += `  \x1b[36m📡 [ch: ${channels.join(", ")}]\x1b[0m`;
+        }
+      }
+      d.log.log(`  ${dot} ${w.index}: ${w.name}${suffix}${meta}`);
     }
   }
 

@@ -34,6 +34,7 @@ function bundledMawJsRoot(target: string, entry: string): string | undefined {
   const suffixes = [
     `/src/commands/plugins/${entry}`,
     `/src/vendor/mpr-plugins/${entry}`,
+    `/src/vendor-plugins/${entry}`,
   ];
   for (const suffix of suffixes) {
     if (!normalized.endsWith(suffix)) continue;
@@ -48,6 +49,29 @@ function isMawJsPackageRoot(root: string | undefined): boolean {
     return pkg?.name === "maw-js";
   } catch {
     return false;
+  }
+}
+
+function isLegacyMawPackageRoot(root: string | undefined): boolean {
+  if (!root) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
+    return pkg?.name === "maw";
+  } catch {
+    return false;
+  }
+}
+
+function legacyMawJsBundledPluginRoot(target: string, entry: string): string | undefined {
+  const normalized = target.replace(/\\/g, "/");
+  const suffixes = [
+    `/node_modules/maw/src/commands/plugins/${entry}`,
+    `/node_modules/maw/src/vendor/mpr-plugins/${entry}`,
+    `/node_modules/maw/src/vendor-plugins/${entry}`,
+  ];
+  for (const suffix of suffixes) {
+    if (!normalized.endsWith(suffix)) continue;
+    return normalized.slice(0, normalized.length - suffix.length);
   }
 }
 
@@ -89,6 +113,17 @@ function pointsAtLegacyMawPluginRegistryPlugin(symlinkPath: string, entry: strin
   }
 }
 
+function pointsAtLegacyRenamedMawBundledPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
+  try {
+    const existingTarget = realpathSync(symlinkPath);
+    if (existingTarget === realpathSync(replacement)) return false;
+    if (!isLegacyMawPackageRoot(legacyMawJsBundledPluginRoot(existingTarget, entry))) return false;
+    return existingTarget.replace(/\\/g, "/").includes("/node_modules/maw/");
+  } catch {
+    return false;
+  }
+}
+
 function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): { healed: number; pruned: number } {
   let healed = 0;
   let pruned = 0;
@@ -100,7 +135,8 @@ function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): {
       const targetIsValidPlugin = existsSync(p) && isPluginDir(p);
       const shouldHealValidTarget = replacement && (
         pointsAtStaleMawJsBundledPlugin(p, entry, replacement) ||
-        pointsAtLegacyMawPluginRegistryPlugin(p, entry, replacement)
+        pointsAtLegacyMawPluginRegistryPlugin(p, entry, replacement) ||
+        pointsAtLegacyRenamedMawBundledPlugin(p, entry, replacement)
       );
       if (targetIsValidPlugin && !shouldHealValidTarget) continue;
       unlinkSync(p);
@@ -144,6 +180,7 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   const bundledRoots = [
     join(srcDir, "commands", "plugins"),
     join(srcDir, "vendor", "mpr-plugins"),
+    join(srcDir, "vendor-plugins"),
   ];
   const { pruned } = healOrPruneBrokenSymlinks(pluginDir, bundledRoots);
   if (pruned > 0) {
@@ -161,6 +198,11 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
   // source-only and intentionally uses the same pluginDir symlink mechanism as
   // in-tree plugins so user-installed plugins keep precedence.
   linkBundledPlugins(pluginDir, bundledRoots[1]);
+
+  // Core serve-route extractions live in the top-level vendor-plugins tree.
+  // Keep them on the same bundled symlink path so lifecycle hooks discover
+  // them like the older src/vendor/mpr-plugins packages.
+  linkBundledPlugins(pluginDir, bundledRoots[2]);
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
   //    should not retry every boot).

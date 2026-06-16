@@ -9,6 +9,15 @@ let sdkCurlFetch: any = { ok: false, status: 500, data: { error: "boom" } };
 let peerKillResponse: any = { ok: false, status: 500, data: { error: "boom" } };
 let execCalls: string[] = [];
 let ghqDir = "";
+
+class MockUserError extends Error {
+  readonly isUserError = true;
+}
+
+function isMockUserError(value: unknown): boolean {
+  return value instanceof Error && (value as { isUserError?: unknown }).isUserError === true;
+}
+
 const originalEnv = {
   home: process.env.HOME,
   mawHome: process.env.MAW_HOME,
@@ -23,9 +32,12 @@ mock.module("os", () => ({
 
 mock.module("maw-js/config", () => ({
   loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 mock.module("maw-js/sdk", () => ({
+  UserError: MockUserError,
+  isUserError: isMockUserError,
   listSessions: async () => [],
   resolveTarget: () => sdkResolveTarget,
   curlFetch: async () => sdkCurlFetch,
@@ -44,6 +56,23 @@ mock.module("maw-js/sdk", () => ({
   readPaneTags: async () => ({}),
   Tmux: class { async killSession() {} },
   tmux: { listPaneIds: async () => new Set<string>() },
+  resolveOraclePane: async (target: string) => target,
+  cmdSleep: async () => undefined,
+  cmdWakeAll: async () => undefined,
+  // Keep broad/env-aware: this SDK mock can leak to later isolated tests.
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => join(require("os").homedir(), ".maw", ...parts),
+  mawCacheDir: () => join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "cache"),
+  mawConfigDir: () => process.env.MAW_CONFIG_DIR || join(require("os").homedir(), ".maw"),
+  mawDataDir: () => process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"),
+  mawDataPath: (...parts: string[]) => join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), ...parts),
+  mawStateDir: () => process.env.MAW_STATE_DIR || join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "state"),
+  mawStatePath: (...parts: string[]) => join(process.env.MAW_STATE_DIR || join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "state"), ...parts),
+  loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 mock.module("maw-js/commands/shared/comm-send", () => ({
@@ -73,6 +102,20 @@ mock.module("maw-js/core/ghq", () => ({
 mock.module("maw-js/commands/shared/fleet", () => ({
   cmdSleep: async () => undefined,
   cmdWakeAll: async () => undefined,
+  // Keep broad/env-aware: this SDK mock can leak to later isolated tests.
+  C: { green: "", red: "", yellow: "", gray: "", reset: "" },
+  invalidateManifest: () => undefined,
+  isMawXdgEnabled: () => false,
+  loadManifestCached: () => null,
+  legacyMawPath: (...parts: string[]) => join(require("os").homedir(), ".maw", ...parts),
+  mawCacheDir: () => join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "cache"),
+  mawConfigDir: () => process.env.MAW_CONFIG_DIR || join(require("os").homedir(), ".maw"),
+  mawDataDir: () => process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"),
+  mawDataPath: (...parts: string[]) => join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), ...parts),
+  mawStateDir: () => process.env.MAW_STATE_DIR || join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "state"),
+  mawStatePath: (...parts: string[]) => join(process.env.MAW_STATE_DIR || join(process.env.MAW_DATA_DIR || join(require("os").homedir(), ".maw"), "state"), ...parts),
+  loadConfig: () => ({}),
+  ghqFindSync: () => ghqDir,
 }));
 
 beforeEach(() => {

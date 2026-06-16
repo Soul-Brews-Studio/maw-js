@@ -18,6 +18,12 @@ export interface ResolvedPeerSource {
   peerName: string;
   /** Peer's node name, if it identified itself (for the success label). */
   peerNode?: string;
+  /**
+   * True when searchPeers detected the peer's configured name and manifest
+   * node disagree. When set, peerNode is untrusted evidence only and must not
+   * be used for consent/trust routing.
+   */
+  identityMismatch?: boolean;
   /** The version the peer advertised — surfaced in the success label. */
   version: string;
   /** Peer base URL — used by the #644 Phase 3 consent gate to POST /api/consent/request. */
@@ -92,5 +98,6 @@ export async function resolvePeerInstall(
     peerUrl: hit.peerUrl,
   };
   if (hit.peerNode) resolved.peerNode = hit.peerNode;
+  if (hit.identityMismatch) resolved.identityMismatch = true;
   return resolved;
 }

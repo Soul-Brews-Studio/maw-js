@@ -20,6 +20,7 @@ let fakeConfig: any = {
 let fakeSessionIds: Record<string, string> = {};
 
 const { buildCommandFromConfig, buildCommandInDirFromConfig } = await import("../src/config/command-logic");
+const { isUserError } = await import("../src/core/util/user-error");
 
 function testConfig() {
   return { ...fakeConfig, sessionIds: fakeSessionIds };
@@ -31,6 +32,10 @@ function buildCommand(agentName: string, engine?: string): string {
 
 function buildCommandInDir(agentName: string, cwd: string, engine?: string): string {
   return buildCommandInDirFromConfig(testConfig(), agentName, cwd, engine);
+}
+
+function buildFreshCommand(agentName: string): string {
+  return buildCommandFromConfig(testConfig(), agentName, { fresh: true });
 }
 
 // buildCommand strips --dangerously-skip-permissions when process.getuid() === 0
@@ -124,6 +129,17 @@ describe("buildCommand — post-#541 contract", () => {
     expect(out).not.toContain("--session-id");
   });
 
+  test("fresh launch strips continue placeholders and suppresses sessionId resume injection", () => {
+    fakeConfig.commands = { default: "claude --continue" };
+    fakeSessionIds = { foo: "uuid-fresh" };
+
+    const out = buildFreshCommand("foo");
+
+    expect(out).toBe("claude");
+    expect(out).not.toContain("--continue");
+    expect(out).not.toContain("--resume");
+  });
+
   test("sessionId supports glob fallback when there is no exact agent key", () => {
     fakeConfig.commands = { default: "claude" };
     fakeSessionIds = { "*-oracle": "uuid-glob" };
@@ -149,14 +165,23 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe("codex --search");
   });
 
-  test("engine param selects built-in engines even when config omits them", () => {
+  test("engine param requires configured seed engines instead of runtime built-ins", () => {
     fakeConfig.commands = { default: "claude" };
+    fakeConfig.engines = { codex: { name: "codex", cmd: "codex" } };
     expect(buildCommand("any-agent", "codex")).toBe("codex");
   });
 
-  test("engine param falls back to default when engine not in config", () => {
+  test("explicit unknown engine fails loud instead of falling back to default", () => {
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent", "gemini")).toBe("claude");
+    let thrown: unknown;
+    try {
+      buildCommand("any-agent", "gemini");
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isUserError(thrown)).toBe(true);
+    expect((thrown as Error).message).toContain("engine 'gemini' not resolvable");
+    expect((thrown as Error).message).toContain("known:");
   });
 
   test("engine param skips pattern matching", () => {

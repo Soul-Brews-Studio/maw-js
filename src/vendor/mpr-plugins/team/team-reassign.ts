@@ -9,6 +9,7 @@ import {
   findRepoRoot,
   listPaneSnapshots,
   memberMatchesSelector,
+  memberEngine,
   repoSlugFromRoot,
   resolveCharterPath,
   type ClassifiedTeamMember,
@@ -127,7 +128,7 @@ export async function cmdTeamReassign(
       fresh: true,
       session,
       wt: selected.member.worktree === false ? undefined : target,
-      engine: selected.engine,
+      engine: memberEngine(selected.member, undefined, config),
       repoPath: repoRoot,
     };
     await wake(selected.member.name ?? selected.role, wakeOpts);

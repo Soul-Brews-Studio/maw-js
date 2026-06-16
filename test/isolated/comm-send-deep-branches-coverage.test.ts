@@ -22,7 +22,7 @@ type ReceiverInboxResult =
   | { ok: false; reason: string }
   | null;
 
-let config: any;
+let config: any = { node: "test-node", oracle: "sender", host: "local", port: 3456, namedPeers: [], commands: { default: "claude" } };
 let listSessionsReturn: any[];
 let listSessionsCalls: number;
 let resolveTargetReturn: ResolvedTarget;
@@ -60,10 +60,10 @@ mock.module(join(srcRoot, "src/core/transport/tmux"), () => {
     async run() { return tmuxPaneList; }
     async tryRun() { return tmuxPaneList; }
   }
-  return { Tmux: MockTmux, tmux: new MockTmux() };
+  return { Tmux: MockTmux, tmux: new MockTmux(), tmuxCmd: () => "tmux", resolveSocket: () => undefined };
 });
 
-mock.module(join(srcRoot, "src/sdk"), () => ({
+mock.module(join(srcRoot, "src/sdk/index.ts"), () => ({
   listSessions: async () => {
     listSessionsCalls += 1;
     return listSessionsReturn;
@@ -166,6 +166,9 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
 const origConsent = process.env.MAW_CONSENT;
 const origAclBypass = process.env.MAW_ACL_BYPASS;
 
@@ -202,7 +205,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 }
 
 beforeEach(() => {
-  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
+  config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   listSessionsCalls = 0;
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
@@ -235,6 +238,9 @@ beforeEach(() => {
   sleepCalls = [];
   tmuxPaneList = "0 claude\n";
   process.env.CLAUDE_AGENT_NAME = "sender";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
 });
@@ -242,6 +248,12 @@ beforeEach(() => {
 afterEach(() => {
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
   if (origConsent === undefined) delete process.env.MAW_CONSENT;
   else process.env.MAW_CONSENT = origConsent;
   if (origAclBypass === undefined) delete process.env.MAW_ACL_BYPASS;
@@ -397,10 +409,11 @@ describe("comm-send deep isolated branches", () => {
   });
 
   test("team fan-out counts delivered, member exits, and thrown member failures", async () => {
-    oracleMembers = ["good", "exit", "thrower"];
-    oracleRegistry = { members: ["sender", "good", "exit", "thrower"] };
+    oracleMembers = ["good", "bad:target", "thrower"];
+    oracleRegistry = { members: ["sender", "good", "bad:target", "thrower"] };
     resolveTargetHandler = (query) => {
       if (query === "good") return { type: "local", target: "session:good.0" };
+      if (query === "bad:target") return { type: "error", detail: "forced member exit" };
       if (query === "thrower") throw new Error("fanout boom");
       return null;
     };
@@ -412,8 +425,31 @@ describe("comm-send deep isolated branches", () => {
     expect(sendKeysCalls).toEqual([{ target: "session:good.0", text: "[test-node:sender] fan out" }]);
     expect(logs.join("\n")).toContain("self 'sender' excluded");
     expect(logs.join("\n")).toContain("fan-out complete: 1 delivered, 2 failed");
-    expect(errs.join("\n")).toContain("bare target 'exit' not found locally");
+    expect(errs.join("\n")).toContain("forced member exit");
     expect(errs.join("\n")).toContain("thrower: fanout boom");
+  });
+
+  test("team fan-out aborts a member after process.exit without leaking delivery side effects", async () => {
+    oracleMembers = ["denied"];
+    oracleRegistry = { members: ["sender", "denied"] };
+    resolveTargetHandler = (query) => {
+      expect(query).toBe("denied");
+      return { type: "local", target: "session:denied.0" };
+    };
+    process.env.MAW_CONSENT = "1";
+    consentDecision = { allow: false, message: "consent denied for member", exitCode: 7 };
+
+    await runCmd(() => cmdSend("team:squad", "should not deliver"));
+
+    expect(exitCode).toBeUndefined();
+    expect(consentCalls).toHaveLength(1);
+    expect(sendKeysCalls).toEqual([]);
+    expect(defaultInboxCalls).toEqual([]);
+    expect(runHookCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([]);
+    expect(emitFeedCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("fan-out complete: 0 delivered, 1 failed");
+    expect(errs.join("\n")).toContain("consent denied for member");
   });
 
   test("ACL queue records pending peer sends before network delivery", async () => {

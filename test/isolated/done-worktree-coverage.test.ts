@@ -178,7 +178,7 @@ describe("removeWorktreeViaConfig", () => {
     const mainPath = join(REPOS_ROOT, "Soul-Brews-Studio", "maw-js");
     expect(hostExecCalls).toEqual([
       `git -C '${fullPath}' rev-parse --abbrev-ref HEAD`,
-      `git -C '${mainPath}' worktree remove '${fullPath}' --force`,
+      `git -C '${mainPath}' worktree remove '${fullPath}'`,
       `git -C '${mainPath}' worktree prune`,
       `git -C '${mainPath}' merge-base --is-ancestor 'feature/done-cleanup' 'alpha'`,
       `git -C '${mainPath}' branch -d 'feature/done-cleanup'`,
@@ -230,6 +230,23 @@ describe("removeWorktreeViaConfig", () => {
     expect(output).toContain("worktree remove failed: busy worktree");
   });
 
+  test("fails loud instead of force-removing dirty configured worktrees without --force", async () => {
+    writeFleetConfig("oracle.json", {
+      windows: [{ name: "dirty", repo: "org/repo.wt-dirty" }],
+    });
+    hostExecHandler = (command) => {
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/dirty\n";
+      if (command.includes("worktree remove")) throw new Error("fatal: contains modified or untracked files");
+      return "";
+    };
+
+    await expect(captureConsole(async () => {
+      await removeWorktreeViaConfig("dirty", REPOS_ROOT);
+    })).rejects.toThrow("has uncommitted changes; rerun maw done --force");
+
+    expect(hostExecCalls.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(false);
+  });
+
   test("ignores configured non-worktree repos", async () => {
     writeFleetConfig("oracle.json", {
       windows: [{ name: "plain", repo: "org/repo" }],
@@ -264,7 +281,7 @@ describe("removeWorktreeByGhqScan", () => {
     expect(hostExecCalls).toEqual([
       `find '${REPOS_ROOT}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`,
       `git -C '${exact}' rev-parse --abbrev-ref HEAD`,
-      `git -C '${mainPath}' worktree remove '${exact}' --force`,
+      `git -C '${mainPath}' worktree remove '${exact}'`,
       `git -C '${mainPath}' worktree prune`,
       `git -C '${mainPath}' merge-base --is-ancestor 'feature/done' 'main'`,
       "gh pr list --head 'feature/done' --state merged --json number --limit 1",
@@ -311,7 +328,7 @@ describe("removeWorktreeByGhqScan", () => {
     });
 
     expect(output).toContain("scoped ambiguous worktree 'trio-coder'");
-    expect(hostExecCalls).toContain(`git -C '${join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle")}' worktree remove '${two}' --force`);
+    expect(hostExecCalls).toContain(`git -C '${join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle")}' worktree remove '${two}'`);
     expect(hostExecCalls.join("\n")).not.toContain("ccc-oracle.wt-trio-coder' --force");
 
     hostExecCalls = [];

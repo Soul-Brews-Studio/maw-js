@@ -314,21 +314,21 @@ describe("cmd-update seventh-pass focused branch coverage", () => {
     expect(spawnCalls).toEqual([]);
   });
 
-  test("rollback path reports a failed STASH-to-BIN restore when fresh binary verification fails", async () => {
+  test("rollback path attempts STASH-to-BIN restore when fresh binary verification fails", async () => {
     prepareInstallHome();
     failRollbackBinRestore = true;
     spawnExitQueue = [1, 0, 1];
 
-    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+    const res = await captureRun(["update", "main", "--yes"], { testMode: null });
 
     expect(res.code).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["maw", "--version"],
     ]);
-    expect(res.stderr).toContain("fresh install did not run — rolling back to previous maw");
-    expect(res.stderr).toContain("failed to restore stash: rollback bin restore blocked");
+    expect(res.stderr).toContain("install failed — previous maw restored from stash (if available)");
+    expect(_fs.existsSync(`${mawBin}.prev`)).toBe(true);
   });
 
   test("successful install links a matching local SDK clone and creates XDG package metadata", async () => {
@@ -342,7 +342,10 @@ describe("cmd-update seventh-pass focused branch coverage", () => {
     expect(res.code).toBeUndefined();
     expect(lockCalls).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
+      ["chmod", "+x", mawBin],
+      ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "v26.5.16-alpha.1053"],
     ]);
     expect(execSyncCalls).toContain(`cd ${cloneDir} && bun link`);
     expect(execSyncCalls).toContain(`cd ${join(homeDir, ".maw", "oracle-plugins")} && bun link maw`);

@@ -30,6 +30,26 @@ export interface PluginArtifact {
   sha256: string | null;    // sha256 of the bundle, or null if unbuilt
 }
 
+export type ServeRouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
+
+export type ServeRouteHandler = (request: Request) => Response | Promise<Response>;
+
+export type ServeFallbackHandler = (
+  request: Request,
+  env?: Record<string, unknown>,
+) => Response | Promise<Response>;
+
+export interface ServeHttpRouteRegistrar {
+  route(method: ServeRouteMethod, path: string, handler: ServeRouteHandler): void;
+}
+
+export interface ServeFallbackRegistrar {
+  /** Register the public fallback surface used after core /ws and /api routing. */
+  fallback(id: string, handler: ServeFallbackHandler): void;
+}
+
+export interface ServeRouteRegistrar extends ServeHttpRouteRegistrar, ServeFallbackRegistrar {}
+
 export interface PluginLifecycleHook {
   /** Relative script/module path reserved for lifecycle runners (#1576). */
   script?: string;
@@ -86,6 +106,7 @@ export interface PluginManifest {
     wake?: PluginLifecycleHook;  // lifecycle: oracle/session wake (#1576)
     sleep?: PluginLifecycleHook; // lifecycle: oracle/session sleep (#1576)
     serve?: PluginLifecycleHook; // lifecycle: plugin persistent serve (#1576)
+    transport?: PluginLifecycleHook; // lifecycle: transport initialization (#2496)
   };
   cron?: {
     schedule: string;   // cron expression
@@ -111,6 +132,7 @@ export interface LoadedPlugin {
   kind: "wasm" | "ts";    // plugin type
   disabled?: boolean;     // true if plugin is in disabledPlugins config list
 }
+
 
 export interface InvokeContext {
   source: "cli" | "api" | "peer";

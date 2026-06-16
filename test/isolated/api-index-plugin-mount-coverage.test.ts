@@ -62,7 +62,6 @@ const moduleExports: Record<string, unknown> = {
   asksApi: inertPlugin,
   oracleApi: inertPlugin,
   federationApi: inertPlugin,
-  worktreesApi: inertPlugin,
   uiStateApi: inertPlugin,
   deprecatedApi: inertPlugin,
   costsApi: inertPlugin,
@@ -80,8 +79,9 @@ const moduleExports: Record<string, unknown> = {
   pairApi: inertPlugin,
   consentApi: inertPlugin,
   claudeFleetApi: inertPlugin,
-  peerDiscoveriesApi: inertPlugin,
   engineApi: inertPlugin,
+  statusApi: inertPlugin,
+  requestReplyApi: inertPlugin,
 };
 
 const apiModules: Array<[string, string]> = [
@@ -93,7 +93,6 @@ const apiModules: Array<[string, string]> = [
   ["asks", "asksApi"],
   ["oracle", "oracleApi"],
   ["federation", "federationApi"],
-  ["worktrees", "worktreesApi"],
   ["ui-state", "uiStateApi"],
   ["deprecated", "deprecatedApi"],
   ["costs", "costsApi"],
@@ -111,8 +110,9 @@ const apiModules: Array<[string, string]> = [
   ["pair", "pairApi"],
   ["consent", "consentApi"],
   ["claude-fleet", "claudeFleetApi"],
-  ["peers-discoveries", "peerDiscoveriesApi"],
   ["engine", "engineApi"],
+  ["status", "statusApi"],
+  ["request-reply", "requestReplyApi"],
 ];
 
 for (const [moduleName, exportName] of apiModules) {

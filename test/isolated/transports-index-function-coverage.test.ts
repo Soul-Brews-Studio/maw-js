@@ -5,7 +5,6 @@ const srcRoot = join(import.meta.dir, "../..");
 const calls: string[] = [];
 let connectRejectNames = new Set<string>();
 let config: any = {};
-let workspaces: any[] = [];
 
 class FakeRouter {
   registered: Array<{ name: string }> = [];
@@ -36,18 +35,11 @@ function fakeTransport(name: string) {
 mock.module(join(srcRoot, "src/config"), () => ({ loadConfig: () => config }));
 mock.module(join(srcRoot, "src/core/transport/transport"), () => ({ TransportRouter: FakeRouter }));
 mock.module(join(srcRoot, "src/transports/tmux"), () => ({ TmuxTransport: fakeTransport("tmux") }));
-mock.module(join(srcRoot, "src/transports/hub"), () => ({
-  loadWorkspaceConfigs: () => workspaces,
-  HubTransport: fakeTransport("hub"),
-}));
 mock.module(join(srcRoot, "src/transports/http"), () => ({ HttpTransport: fakeTransport("http") }));
-mock.module(join(srcRoot, "src/transports/lora"), () => ({ LoRaTransport: fakeTransport("lora") }));
 mock.module(join(srcRoot, "src/transports/nanoclaw"), () => ({ NanoclawTransport: fakeTransport("nanoclaw") }));
-mock.module(join(srcRoot, "src/transports/mdns"), () => ({ MdnsTransport: fakeTransport("mdns") }));
 mock.module(join(srcRoot, "src/transports/scout"), () => ({ ScoutTransport: fakeTransport("scout") }));
-mock.module(join(srcRoot, "src/transports/zenoh-scout"), () => ({ ZenohScoutTransport: fakeTransport("zenoh-scout") }));
-mock.module(join(srcRoot, "src/vendor/mpr-plugins/zenoh-scout/impl"), () => ({
-  readZenohScoutConfig: (cfg: any) => ({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
+mock.module(join(srcRoot, "src/plugin/registry"), () => ({
+  importPluginSymbol: async () => (cfg: any) => new (fakeTransport("zenoh-scout"))({ locator: cfg.zenoh?.scout?.locator ?? "memory" }),
 }));
 mock.module(join(srcRoot, "src/transports/zenoh"), () => ({ ZenohTransport: fakeTransport("zenoh") }));
 mock.module(join(srcRoot, "src/transports/zenoh.ts"), () => ({ ZenohTransport: fakeTransport("zenoh") }));
@@ -88,8 +80,6 @@ describe("transport index function coverage", () => {
       disabledPlugins: [],
       zenoh: { locator: "tcp/127.0.0.1:7447", scout: { locator: "memory" } },
     };
-    workspaces = [{ node: "workspace" }];
-
     const router = transports.createTransportRouter() as unknown as FakeRouter;
     expect(transports.getTransportRouter()).toBe(router);
     expect(transports.createTransportRouter()).toBe(router);
@@ -98,12 +88,10 @@ describe("transport index function coverage", () => {
 
     expect(router.registered.map((t) => t.name)).toEqual([
       "tmux",
-      "hub",
       "scout",
       "zenoh-scout",
       "http",
       "nanoclaw",
-      "lora",
       "zenoh",
     ]);
     expect(warnings.join("\n")).toContain("[zenoh] connect failed: Error: zenoh down");

@@ -8,7 +8,7 @@
 
 ## Context
 
-`maw-js` ships 70 in-tree plugins (71 entries in `src/commands/plugins/`, one of which is the `hey-test` stub without a `plugin.json`). Every install pays for every plugin. This was tolerable when the tree held a dozen commands; at 70 it is no longer tolerable.
+`maw-js` ships 70 in-tree plugins. Every install pays for every plugin. This was tolerable when the tree held a dozen commands; at 70 it is no longer tolerable.
 
 Three pressures forced the decision recorded here:
 

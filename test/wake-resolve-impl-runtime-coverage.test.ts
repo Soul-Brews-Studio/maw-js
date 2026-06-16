@@ -36,6 +36,7 @@ const realSdk = {
   curlFetch: _rSdk.curlFetch,
   tmux: {
     listSessions: _rSdk.tmux.listSessions.bind(_rSdk.tmux),
+    listPanes: _rSdk.tmux.listPanes.bind(_rSdk.tmux),
     setEnvironment: _rSdk.tmux.setEnvironment.bind(_rSdk.tmux),
   },
 };
@@ -103,6 +104,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   tmux: {
     ..._rSdk.tmux,
     listSessions: async () => (mockActive ? sessions : realSdk.tmux.listSessions()),
+    listPanes: async () => (mockActive ? [] : realSdk.tmux.listPanes()),
     setEnvironment: async (session: string, key: string, val: string) => {
       if (!mockActive) return realSdk.tmux.setEnvironment(session, key, val);
       setEnvCalls.push({ session, key, val });
@@ -306,7 +308,7 @@ describe("resolveOracle runtime paths", () => {
     writeFleet("12-special", [{ name: "special-oracle", repo: "Org/special-oracle" }]);
     ghqFindImpl = async (query) => ghqFindMap[query] ?? null;
     hostExecImpl = async (cmd) => {
-      if (cmd.includes("ghq get -u 'github.com/Org/special-oracle'")) {
+      if (cmd.includes("ghq get 'github.com/Org/special-oracle'")) {
         ghqFindMap["/special-oracle"] = "/repos/Org/special-oracle";
       }
       return "";
@@ -319,6 +321,29 @@ describe("resolveOracle runtime paths", () => {
     });
     expect(logs.some((line) => line.includes("special pinned in fleet"))).toBe(true);
     expect(logs.some((line) => line.includes("found at /repos/Org/special-oracle"))).toBe(true);
+  });
+
+  test("skips malformed fleet slug (owner-only) and still resolves via fallback org scan", async () => {
+    writeFleet("12-special", [{ name: "special-oracle", repo: "github.com/laris-co" }]);
+    config.githubOrgs = ["Soul-Brews-Studio"];
+    hostExecImpl = async (cmd) => {
+      if (cmd.includes("gh repo view 'Soul-Brews-Studio/special-oracle'")) return '{"name":"special-oracle"}';
+      if (cmd.includes("ghq get -u 'github.com/Soul-Brews-Studio/special-oracle'")) {
+        ghqFindMap["/special-oracle"] = "/repos/Soul-Brews-Studio/special-oracle";
+      }
+      return "";
+    };
+
+    await expect(resolveOracle("special")).resolves.toEqual({
+      repoPath: "/repos/Soul-Brews-Studio/special-oracle",
+      repoName: "special-oracle",
+      parentDir: "/repos/Soul-Brews-Studio",
+    });
+
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get 'github.com/github.com/laris-co'"))).toBe(false);
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get 'github.com/laris-co'"))).toBe(false);
+    expect(errors.some((line) => line.includes("malformed fleet repo 'github.com/laris-co'"))).toBe(true);
+    expect(hostExecCalls.some((cmd) => cmd.includes("ghq get -u 'github.com/Soul-Brews-Studio/special-oracle'"))).toBe(true);
   });
 
   test("re-checks fleet-pinned repos before cloning and reports failed fleet clones", async () => {
@@ -342,9 +367,9 @@ describe("resolveOracle runtime paths", () => {
 
     await expect(resolveOracle("broken")).resolves.toEqual(scanSuggestResult);
 
-    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle clone/update failed: network down"))).toBe(true);
-    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle — clone failed"))).toBe(true);
-    expect(errors.some((line) => line.includes("ghq get -u 'github.com/Org/broken-oracle'"))).toBe(true);
+    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle clone failed: network down"))).toBe(true);
+    expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle is not cloned locally"))).toBe(true);
+    expect(errors.some((line) => line.includes("ghq get github.com/Org/broken-oracle && maw wake broken"))).toBe(true);
     expect(exitCalls).toContain(1);
   });
 
@@ -412,6 +437,22 @@ describe("resolveOracle runtime paths", () => {
 
     expect(errors.some((line) => line.includes("oracle repo not found: missing"))).toBe(true);
     expect(errors.some((line) => line.includes("2 peers"))).toBe(true);
+    expect(errors.some((line) => line.includes("maw work"))).toBe(false);
+    expect(exitCalls).toContain(1);
+  });
+
+  test("adds a maw work hint on not-found when cwd is inside a git repo", async () => {
+    hostExecImpl = async (cmd) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return "/opt/Code/github.com/Soul-Brews-Studio/maw-js\n";
+      throw new Error("not found");
+    };
+
+    await expect(resolveOracle("typoed-name")).resolves.toBeUndefined();
+
+    const errorText = errors.join("\n");
+    expect(errorText).toContain("oracle repo not found: typoed-name");
+    expect(errorText).toContain("maw work");
+    expect(errorText).toContain("maw-js");
     expect(exitCalls).toContain(1);
   });
 });
@@ -421,10 +462,10 @@ describe("findWorktrees and detectSession runtime paths", () => {
     const calls: string[] = [];
     hostExecImpl = async (cmd) => {
       calls.push(cmd);
-      if (cmd === "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true") {
+      if (cmd.includes("-name 'mawjs-oracle.wt-*'") && cmd.includes('[ -e "$dir/.git" ]')) {
         return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
       }
-      if (cmd === "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true") {
+      if (cmd.includes("find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d") && cmd.includes('[ -e "$dir/.git" ]')) {
         return "/repos/mawjs-oracle/agents/3-nested\n";
       }
       throw new Error(`unexpected command: ${cmd}`);
@@ -435,10 +476,10 @@ describe("findWorktrees and detectSession runtime paths", () => {
       { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
       { path: "/repos/mawjs-oracle/agents/3-nested", name: "3-nested" },
     ]);
-    expect(calls).toEqual([
-      "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true",
-      "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true",
-    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("-name 'mawjs-oracle.wt-*'");
+    expect(calls[1]).toContain("find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d");
+    expect(calls.every(cmd => cmd.includes('[ -e "$dir/.git" ]'))).toBe(true);
   });
 
   test("findReusableWorktreeBySlug finds matching slug only within the requested oracle scope", () => {

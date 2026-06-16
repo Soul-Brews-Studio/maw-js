@@ -13,11 +13,51 @@
  */
 
 import { execSync } from "child_process";
+import { resolve } from "path";
 import { hostExec } from "../transport/ssh";
-import type { RepoDiscovery } from "./types";
+import type { RepoDetectResult, RepoDiscovery } from "./types";
 
 function normalize(out: string): string[] {
   return out.split("\n").filter(Boolean).map((p) => p.replace(/\\/g, "/"));
+}
+
+/**
+ * #2573 — pure path helper, shared with {@link GhqDiscovery.detectFromCwd}.
+ * Strips a trailing `-oracle` (case-insensitive) and preserves the original
+ * case of the stem. Returns `null` when the segment is not an oracle name.
+ */
+export function stripOracleRepoSuffix(name: string): string | null {
+  return name.toLowerCase().endsWith("-oracle") ? name.slice(0, -"-oracle".length) : null;
+}
+
+/**
+ * #2573 — single source of truth for CWD → `{ oracle, worktree }` derivation.
+ * Path-string analysis only; no ghq exec, no filesystem I/O. See the
+ * `detectFromCwd` contract in {@link RepoDiscovery} for the recognized layouts.
+ * Exported so other backends (and the wake-cwd compat shim) can reuse it
+ * without going through the singleton.
+ */
+export function detectFromCwdPath(cwd: string | undefined): RepoDetectResult | null {
+  const parts = cwd ? resolve(cwd).split(/[\\/]+/).filter(Boolean) : [];
+  if (parts.length === 0) return null;
+
+  const agentsIdx = parts.lastIndexOf("agents");
+  if (agentsIdx > 0 && parts[agentsIdx + 1]) {
+    const oracle = stripOracleRepoSuffix(parts[agentsIdx - 1] ?? "") ?? undefined;
+    return { oracle, worktree: parts[agentsIdx + 1] };
+  }
+
+  for (const part of parts.slice().reverse()) {
+    const worktreeMarker = part.indexOf(".wt-");
+    if (worktreeMarker > 0) {
+      const oracle = stripOracleRepoSuffix(part.slice(0, worktreeMarker)) ?? undefined;
+      const worktree = part.slice(worktreeMarker + ".wt-".length) || undefined;
+      return { oracle, worktree };
+    }
+    const oracle = stripOracleRepoSuffix(part);
+    if (oracle) return { oracle };
+  }
+  return null;
 }
 
 /**
@@ -28,6 +68,27 @@ function normalize(out: string): string[] {
  */
 function literalize(suffix: string): string {
   return suffix.endsWith("$") ? suffix.slice(0, -1) : suffix;
+}
+
+/**
+ * #2577 — pick the best repo path among the ghq suffix-matches.
+ *
+ * A misconfigured ghq root (one that already ends in `.../github.com`) makes
+ * ghq clone into a DOUBLED `…/github.com/github.com/<org>/<repo>` path. `ghq
+ * list` then surfaces BOTH that and the correct `…/github.com/<org>/<repo>`,
+ * and since both `endsWith` the queried suffix the old first-match returned
+ * whichever ghq happened to list first — which broke `maw wake neo`. Prefer a
+ * canonical (non-doubled) path; fall back to a doubled one only when it is the
+ * sole match, so a genuinely doubled-only checkout still resolves.
+ *
+ * Exported for tests.
+ */
+export function selectRepoMatch(paths: string[], suffix: string): string | null {
+  const lower = literalize(suffix).toLowerCase();
+  const matches = paths.filter((p) => p.toLowerCase().endsWith(lower));
+  if (matches.length === 0) return null;
+  const canonical = matches.find((p) => !p.toLowerCase().includes("/github.com/github.com/"));
+  return canonical ?? matches[0]!;
 }
 
 export const GhqDiscovery: RepoDiscovery = {
@@ -50,13 +111,15 @@ export const GhqDiscovery: RepoDiscovery = {
   },
 
   async findBySuffix(suffix: string): Promise<string | null> {
-    const lower = literalize(suffix).toLowerCase();
-    return (await this.list()).find((p) => p.toLowerCase().endsWith(lower)) ?? null;
+    return selectRepoMatch(await this.list(), suffix);
   },
 
   findBySuffixSync(suffix: string): string | null {
-    const lower = literalize(suffix).toLowerCase();
-    return this.listSync().find((p) => p.toLowerCase().endsWith(lower)) ?? null;
+    return selectRepoMatch(this.listSync(), suffix);
+  },
+
+  detectFromCwd(cwd?: string): RepoDetectResult | null {
+    return detectFromCwdPath(cwd ?? process.cwd());
   },
 };
 

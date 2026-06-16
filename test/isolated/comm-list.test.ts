@@ -204,8 +204,13 @@ mock.module(
   join(import.meta.dir, "../../src/config"),
   () => ({
     ..._rConfig,
-    loadConfig: (...args: unknown[]) =>
-      mockActive ? configOverride : (realLoadConfig as (...a: unknown[]) => unknown)(...args),
+    loadConfig: (...args: unknown[]) => {
+      if (!mockActive) return (realLoadConfig as (...a: unknown[]) => unknown)(...args);
+      return {
+        ...configOverride,
+        commands: { default: "claude", ...((configOverride.commands as Record<string, string> | undefined) ?? {}) },
+      };
+    },
     cfgLimit: (...args: unknown[]) => {
       if (!mockActive) return (realCfgLimit as (...a: unknown[]) => number)(...args);
       const [key] = args as [string];
@@ -271,6 +276,13 @@ mock.module(
   () => ({ cmdWake: async () => null }),
 );
 
+mock.module(
+  join(import.meta.dir, "../../src/commands/shared/hey-locate-resolution"),
+  () => ({
+    resolveBareHeyByLocatePath: async () => ({ result: null, repoPath: null, crossNodeBlocked: false }),
+  }),
+);
+
 // NB: import targets AFTER mocks so their import graph resolves through our stubs.
 const { cmdList, renderSessionName } = await import("../../src/commands/shared/comm-list");
 const { cmdSend, resolveOraclePane, resolveMyName } = await import("../../src/commands/shared/comm-send");
@@ -283,6 +295,10 @@ const origExit = process.exit;
 const origQuiet = process.env.MAW_QUIET;
 const origDebug = process.env.MAW_DEBUG;
 const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+const origSshClient = process.env.SSH_CLIENT;
+const origSshConnection = process.env.SSH_CONNECTION;
+const origSshTty = process.env.SSH_TTY;
+const origTmux = process.env.TMUX;
 
 let outs: string[] = [];
 let errs: string[] = [];
@@ -334,6 +350,10 @@ beforeEach(() => {
   delete process.env.MAW_QUIET;
   delete process.env.MAW_DEBUG;
   process.env.CLAUDE_AGENT_NAME = "test-oracle";
+  delete process.env.SSH_CLIENT;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
+  delete process.env.TMUX;
   childProcess.execSync = ((command: string, ...rest: unknown[]) => {
     if (!mockActive) return realExecSync(command, ...(rest as [unknown]));
     for (const response of execSyncResponses) {
@@ -351,6 +371,14 @@ afterEach(() => {
   if (origDebug === undefined) delete process.env.MAW_DEBUG; else process.env.MAW_DEBUG = origDebug;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  if (origSshClient === undefined) delete process.env.SSH_CLIENT;
+  else process.env.SSH_CLIENT = origSshClient;
+  if (origSshConnection === undefined) delete process.env.SSH_CONNECTION;
+  else process.env.SSH_CONNECTION = origSshConnection;
+  if (origSshTty === undefined) delete process.env.SSH_TTY;
+  else process.env.SSH_TTY = origSshTty;
+  if (origTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = origTmux;
   childProcess.execSync = realExecSync;
 });
 
@@ -733,13 +761,23 @@ describe("resolveMyName", () => {
 
   test("tmux session name is stripped to the bare oracle name", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, result: "08-mawjs\n" }];
     const out = resolveMyName({ node: "ignored" } as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("mawjs");
   });
 
+  test("outside tmux does not trust tmux server current session", () => {
+    delete process.env.CLAUDE_AGENT_NAME;
+    delete process.env.TMUX;
+    execSyncResponses = [{ match: /tmux display-message/, result: "05-nari\n" }];
+    const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("white");
+  });
+
   test("no CLAUDE_AGENT_NAME, no tmux session → config.node fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("white");
@@ -747,6 +785,7 @@ describe("resolveMyName", () => {
 
   test("no CLAUDE_AGENT_NAME and no config.node → 'cli' fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    process.env.TMUX = "/tmp/tmux-test,1,0";
     execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({} as unknown as Parameters<typeof resolveMyName>[0]);
     expect(out).toBe("cli");

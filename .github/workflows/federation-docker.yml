@@ -12,7 +12,7 @@ jobs:
   federation:
     name: 2-node probe round-trip
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
 

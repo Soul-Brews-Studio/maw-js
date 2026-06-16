@@ -187,5 +187,6 @@ Learned the hard way on 2026-04-11 while scoping the first lens:
 - [maw-ui#8](https://github.com/Soul-Brews-Studio/maw-ui/pull/8) — first v1 lens client, drift map in PR body
 - [maw-ui#9](https://github.com/Soul-Brews-Studio/maw-ui/pull/9) — v1.1 identity badge using `/api/config.node`
 - [maw-ui#10](https://github.com/Soul-Brews-Studio/maw-ui/pull/10) — CI workflow that prevents "fresh clone can't build" regressions on the lens side
+- [#2784](https://github.com/Soul-Brews-Studio/maw-js/issues/2784) / [`docs/rfcs/2784-federation-hardening-roadmap.md`](./rfcs/2784-federation-hardening-roadmap.md) — forward roadmap for from-signature enforcement, per-peer admission keys, and durable delivery
 - [#249](https://github.com/Soul-Brews-Studio/maw-js/issues/249) — stale pm2 on `oracle-world` causing some deferred endpoints to 404
 - `ψ/memory/feedback_less_is_more_ui.md` (mawjs-oracle vault) — the "ground BEFORE proposing" rule that scoped v1 down to this quartet

@@ -1,5 +1,24 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+function parseFlags(args: string[], spec: Record<string, unknown>, start = 0) {
+  const out: Record<string, any> & { _: string[] } = { _: [] };
+  for (let i = start; i < args.length; i += 1) {
+    const arg = args[i]!;
+    const parser = spec[arg];
+    if (!parser) out._.push(arg);
+    else if (typeof parser === "string") out[parser] = true;
+    else if (parser === Boolean) out[arg] = true;
+    else if (parser === Number) out[arg] = Number(args[++i]);
+    else if (parser === String) out[arg] = args[++i];
+  }
+  return out;
+}
+
+const sdkMock = { parseFlags };
+mock.module("maw-js/sdk", () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk"), () => sdkMock);
+mock.module(import.meta.resolve("../../src/sdk/index.ts"), () => sdkMock);
+
 const wakeCalls: Array<{ oracle: string; opts: Record<string, unknown> }> = [];
 const wakeAllCalls: Array<Record<string, unknown>> = [];
 const parseTargetCalls: string[] = [];
@@ -15,21 +34,25 @@ let peersByAlias = new Map<string, { url: string }>();
 let peerWakeResult: { ok: boolean; status?: number; data?: any } = { ok: true, data: {} };
 let peerWakeError: Error | null = null;
 
-mock.module("maw-js/commands/shared/wake", () => ({
+const wakeSharedMock = () => ({
   cmdWake: async (oracle: string, opts: Record<string, unknown>) => {
     wakeCalls.push({ oracle, opts });
     console.log(`wake ${oracle}`);
   },
-}));
+} as const);
+mock.module("maw-js/commands/shared/wake", wakeSharedMock);
+mock.module(import.meta.resolve("../../src/commands/shared/wake.ts"), wakeSharedMock);
 
-mock.module("maw-js/commands/shared/fleet", () => ({
+const fleetSharedMock = () => ({
   cmdWakeAll: async (opts: Record<string, unknown>) => {
     wakeAllCalls.push(opts);
     console.log("wake all invoked");
   },
-}));
+} as const);
+mock.module("maw-js/commands/shared/fleet", fleetSharedMock);
+mock.module(import.meta.resolve("../../src/commands/shared/fleet.ts"), fleetSharedMock);
 
-mock.module("maw-js/commands/shared/wake-target", () => ({
+const wakeTargetMock = () => ({
   parseWakeTarget: (target: string) => {
     parseTargetCalls.push(target);
     return parsedTarget;
@@ -37,14 +60,18 @@ mock.module("maw-js/commands/shared/wake-target", () => ({
   ensureCloned: async (slug: string) => {
     ensureClonedCalls.push(slug);
   },
-}));
+} as const);
+mock.module("maw-js/commands/shared/wake-target", wakeTargetMock);
+mock.module(import.meta.resolve("../../src/commands/shared/wake-target.ts"), wakeTargetMock);
 
-mock.module("maw-js/commands/shared/wake-resolve", () => ({
+const wakeResolveMock = () => ({
   fetchGitHubPrompt: async (kind: string, num: number, repo?: string) => {
     fetchPromptCalls.push({ kind, num, repo });
     return fetchedPrompt;
   },
-}));
+} as const);
+mock.module("maw-js/commands/shared/wake-resolve", wakeResolveMock);
+mock.module(import.meta.resolve("../../src/commands/shared/wake-resolve.ts"), wakeResolveMock);
 
 mock.module(peerResolvePath, () => ({
   resolvePeer: (alias: string) => peersByAlias.get(alias) ?? null,
@@ -82,12 +109,11 @@ describe("wake plugin index", () => {
     });
   });
 
-  test("returns usage when cli args omit the wake target", async () => {
+  test("zero-arg cli wake delegates cwd-derived oracle resolution", async () => {
     const result = await handler({ source: "cli", args: [] } as any);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("usage: maw wake <oracle|org/repo|URL>");
-    expect(wakeCalls).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(wakeCalls).toEqual([{ oracle: ".", opts: {} }]);
   });
 
   test("dispatches wake all with parsed fleet flags", async () => {

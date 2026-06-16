@@ -4,6 +4,8 @@
 
 This document is the canonical answer to "**how do I coordinate multiple agents in maw-js?**" The surface is larger than it looks — there are at least **20 distinct team/coordination verbs** plus 4 Claude Code APIs, 10+ user skills, and 6 sibling repos. They overlap on purpose: each was built for a specific shape of work.
 
+For sprint charters that spawn Codex/Claude builders from a YAML pattern, see [Codex Team Pattern](./codex-team-pattern.md).
+
 > **Naming footgun — singular vs plural:** `/team-agent` and `/team-agents` are **not aliases**.
 >
 > - `/team-agent` (singular) opens the guided wizard for the shell-driven `maw team-agent` plugin.

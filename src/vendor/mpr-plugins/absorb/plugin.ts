@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "absorb",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Absorb one oracle into another, archive the donor, and switch to the receiver.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "absorb",
+    "help": "maw absorb <donor> --into <receiver> [--dry-run] — absorb donor knowledge, archive donor, and switch to receiver"
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

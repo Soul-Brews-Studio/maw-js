@@ -293,6 +293,48 @@ describe("loadManifestFromDir", () => {
       rmSync(dir, { recursive: true });
     }
   });
+
+  test("prefers plugin.ts over plugin.json and parses exported manifest", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(join(dir, "index.ts"), "export default {}\n");
+      writeFileSync(
+        join(dir, "plugin.ts"),
+        `export default {\n` +
+          `  name: "from-plugin-ts",\n` +
+          `  version: "1.0.0",\n` +
+          `  sdk: "^1.0.0",\n` +
+          `  entry: "index.ts",\n` +
+          `};\n`,
+      );
+      writeFileSync(
+        join(dir, "plugin.json"),
+        JSON.stringify({ name: "from-plugin-json", version: "2.0.0", sdk: "^1.0.0", entry: "index.ts" }),
+      );
+      const loaded = loadManifestFromDir(dir);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.manifest.name).toBe("from-plugin-ts");
+      expect(loaded!.manifest.version).toBe("1.0.0");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("falls back to plugin.json when plugin.ts is missing", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(
+        join(dir, "plugin.json"),
+        JSON.stringify({ name: "from-plugin-json", version: "1.0.0", sdk: "^1.0.0", entry: "index.ts" }),
+      );
+      writeFileSync(join(dir, "index.ts"), "export default {}\n");
+      const loaded = loadManifestFromDir(dir);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.manifest.name).toBe("from-plugin-json");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

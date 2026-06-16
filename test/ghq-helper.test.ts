@@ -8,6 +8,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { _normalize, ghqFind, ghqFindSync } from "../src/core/ghq";
+import { selectRepoMatch } from "../src/core/repo-discovery/ghq-discovery";
 
 describe("_normalize (Windows path handling)", () => {
   test("POSIX paths pass through unchanged", () => {
@@ -90,10 +91,11 @@ describe("API contract — suffix matching is case-insensitive", () => {
   // case-sensitive (would silently break GitHub org-name lookups since
   // GitHub URLs are case-insensitive but ghq stores them case-preserving).
   test("ghqFindSync contract documents case-insensitive behavior", () => {
-    // Can't ground-test without a real ghq install — assert the function
-    // accepts mixed-case input without throwing (catches accidental
-    // case-sensitive String.prototype.endsWith use).
-    expect(() => ghqFindSync("/FOO-Bar")).not.toThrow();
-    expect(() => ghqFindSync("MIXEDcase")).not.toThrow();
+    // Ground the suffix contract on the pure selector instead of shelling out
+    // to the operator's real ghq database. The public ghqFindSync wrapper
+    // delegates to this selector after listing repos, and real ghq can be slow
+    // enough under the full suite to turn this contract check into a timeout.
+    expect(selectRepoMatch(["/repos/GitHub.com/Org/FOO-Bar"], "/foo-bar")).toBe("/repos/GitHub.com/Org/FOO-Bar");
+    expect(selectRepoMatch(["/repos/github.com/org/MIXEDcase"], "mixedCASE")).toBe("/repos/github.com/org/MIXEDcase");
   });
 });

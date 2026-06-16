@@ -315,12 +315,12 @@ describe("cmd-update fifth-pass runtime branches", () => {
     failStashRotation = true;
     spawnExitQueue = [1];
 
-    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+    const res = await captureRun(["update", "main", "--yes"], { testMode: null });
 
     expect(res.code).toBe(1);
     expect(lockCalls).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
     ]);
     expect(res.stderr).toContain("could not be rotated: rename blocked");
     expect(res.stderr).toContain("resolve manually");
@@ -332,43 +332,40 @@ describe("cmd-update fifth-pass runtime branches", () => {
     _fs.writeFileSync(`${mawBin}.prev`, "previous crash stash");
     spawnExitQueue = [1, 0, 0];
 
-    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+    const res = await captureRun(["update", "main", "--yes"], { testMode: null });
 
     expect(res.code).toBeUndefined();
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "main"],
     ]);
-    expect(res.stderr).toContain("rotated stale");
     const crashStashes = _fs.readdirSync(dirname(mawBin)).filter((entry) => entry.startsWith("maw.prev.crash."));
     expect(crashStashes).toHaveLength(1);
     expect(_fs.readFileSync(join(dirname(mawBin), crashStashes[0]), "utf-8")).toBe("previous crash stash");
     expect(_fs.existsSync(`${mawBin}.prev`)).toBe(false);
   });
 
-  test("release-binary fallback success verifies the fresh binary, discards stashes, and reports pruned plugin links", async () => {
+  test("release-binary primary path verifies the fresh binary and reports pruned plugin links", async () => {
     prepareInstallHome();
     prepareLocalClone("26.5.16-alpha.9999");
     prepareBundledPluginRoot();
     prepareBrokenUserPluginSymlinks(2);
     ghqFindReturn = cloneDir;
-    spawnExitQueue = [1, 1, 0, 0, 0];
+    spawnExitQueue = [0, 0, 0];
 
     const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
 
     expect(res.code).toBeUndefined();
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
       ["curl", "-fsSL", "-o", mawBin, "https://github.com/Soul-Brews-Studio/maw-js/releases/download/v26.5.16-alpha.1053/maw"],
       ["chmod", "+x", mawBin],
       ["maw", "--version"],
-      ["maw", "--version"],
+      ["maw", "plugin", "install", "--standard", "--ref", "v26.5.16-alpha.1053"],
     ]);
-    expect(res.stderr).toContain("first install attempt failed");
-    expect(res.stderr).toContain("bun add failed — trying release-binary fallback");
-    expect(res.stdout).toContain("installed via release binary");
+    expect(res.stderr).not.toContain("first install attempt failed");
+    expect(res.stdout).toContain("installed release binary");
     expect(res.stdout).toContain("SDK link skipped");
     expect(res.stdout).toContain("bundled plugins re-linked");
     expect(res.stdout).toContain("removed 2 broken plugin symlinks");
@@ -383,16 +380,16 @@ describe("cmd-update fifth-pass runtime branches", () => {
     prepareInstallHome();
     spawnExitQueue = [1, 0, 1];
 
-    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+    const res = await captureRun(["update", "main", "--yes"], { testMode: null });
 
     expect(res.code).toBe(1);
     expect(spawnCalls).toEqual([
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
-      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
       ["maw", "--version"],
     ]);
-    expect(res.stderr).toContain("fresh install did not run — rolling back to previous maw");
-    expect(res.stderr).toContain("previous maw restored from stash");
+    expect(res.stderr).toContain("install failed — previous maw restored from stash (if available)");
+    expect(res.stderr).toContain("Manual recovery");
     expect(_fs.readFileSync(mawBin, "utf-8")).toBe("old working maw");
     expect(packageDependencies()).toEqual({ "maw-js": "old-ref", maw: "old-bin", keep: "1" });
     expect(_fs.existsSync(join(homeDir, ".bun", "install", "global", "node_modules", "maw-js"))).toBe(true);
@@ -409,6 +406,7 @@ describe("cmd-update fifth-pass runtime branches", () => {
     expect(res.code).toBeUndefined();
     expect(spawnCalls).toEqual([
       ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#main"],
+      ["maw", "plugin", "install", "--standard", "--ref", "main"],
     ]);
     expect(execSyncCalls).toContain("maw --version");
     expect(res.stdout).toContain("✅ done");

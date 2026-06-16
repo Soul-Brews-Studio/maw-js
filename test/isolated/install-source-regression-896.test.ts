@@ -89,14 +89,16 @@ async function capture(fn: () => Promise<unknown>): Promise<{
   exitCode: number | undefined; stdout: string; stderr: string;
 }> {
   const o = { exit: process.exit, log: console.log, err: console.error, warn: console.warn };
-  const origStderrWrite = process.stderr.write.bind(process.stderr);
+  const origStderrWrite = process.stderr.write;
   const outs: string[] = [], errs: string[] = [];
   let exitCode: number | undefined;
   console.log = (...a: any[]) => outs.push(a.map(String).join(" "));
   console.error = (...a: any[]) => errs.push(a.map(String).join(" "));
   console.warn = (...a: any[]) => errs.push(a.map(String).join(" "));
-  (process.stderr as any).write = (chunk: any) => {
+  (process.stderr as any).write = (chunk: any, encodingOrCb?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void) => {
     errs.push(typeof chunk === "string" ? chunk : String(chunk));
+    const callback = typeof encodingOrCb === "function" ? encodingOrCb : cb;
+    if (callback) queueMicrotask(() => callback());
     return true;
   };
   (process as any).exit = (c?: number) => { exitCode = c ?? 0; throw new Error("__exit__:" + exitCode); };

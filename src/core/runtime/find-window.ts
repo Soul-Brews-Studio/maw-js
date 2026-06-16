@@ -58,7 +58,7 @@ function matchSession(sessions: Session[], part: string, strict = false): Sessio
   return null;
 }
 
-export function findWindow(sessions: Session[], query: string): string | null {
+export function findWindow(sessions: Session[], query: string, currentSession?: string): string | null {
   const q = query.toLowerCase();
 
   // session:window syntax — strict session match to prevent node:agent collision (#186)
@@ -70,9 +70,20 @@ export function findWindow(sessions: Session[], query: string): string | null {
     const paneSuffix = paneMatch ? `.${paneMatch[2]}` : "";
     const sess = matchSession(sessions, sessPart, true);
     if (sess) {
-      // Empty window part → return session's first window
+      // Empty window part → return session's first window.
       if (!winPart) {
         if (sess.windows.length > 0) return `${sess.name}:${sess.windows[0].index}`;
+      } else if (/^\d+$/.test(winPart)) {
+        // #2139: explicit `session:number(.pane)` is a tmux window_index,
+        // not a display ordinal. Resolve it against the observed session list
+        // and canonicalize the session alias before any raw tmux fallback can
+        // reinterpret the target and land on the adjacent window.
+        const windowIndex = Number(winPart);
+        const win = sess.windows.find((w) => w.index === windowIndex);
+        if (win) return `${sess.name}:${win.index}${paneSuffix}`;
+        // Preserve findWindow's historical low-level behavior for unknown
+        // literal tmux targets; resolveTarget validates these before calling
+        // findWindow on the `maw hey` path.
       } else {
         for (const w of sess.windows) {
           if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}${paneSuffix}`;
@@ -87,8 +98,10 @@ export function findWindow(sessions: Session[], query: string): string | null {
   //   window-name matches because a stale session may still have a window named
   //   `<name>-oracle` while the live session itself is named `NN-<name>-oracle`
   //   (#1752). Pass 1b collects exact window matches only when no exact session
-  //   match exists. Pass 2 collects substring matches only if Pass 1 was empty.
-  //   Multi-candidate inside any pass → AmbiguousMatchError.
+  //   match exists. Pass 1c scopes substring matching to the caller-supplied
+  //   current tmux session before falling back to Pass 2's cross-session
+  //   substring search (#2134). Multi-candidate inside any pass →
+  //   AmbiguousMatchError.
   const exactSessions = new Set<string>();
   for (const s of sessions) {
     if (s.windows.length > 0) {
@@ -109,6 +122,21 @@ export function findWindow(sessions: Session[], query: string): string | null {
   }
   if (exact.size === 1) return [...exact][0];
   if (exact.size > 1) throw new AmbiguousMatchError(query, [...exact]);
+
+  const current = currentSession
+    ? sessions.find((s) => s.name.toLowerCase() === currentSession.toLowerCase())
+    : undefined;
+  if (current) {
+    const scopedSub = new Set<string>();
+    for (const w of current.windows) {
+      if (w.name.toLowerCase().includes(q)) scopedSub.add(`${current.name}:${w.index}`);
+    }
+    if (current.name.toLowerCase().includes(q) && current.windows.length > 0) {
+      scopedSub.add(`${current.name}:${current.windows[0].index}`);
+    }
+    if (scopedSub.size === 1) return [...scopedSub][0];
+    if (scopedSub.size > 1) throw new AmbiguousMatchError(query, [...scopedSub]);
+  }
 
   const sub = new Set<string>();
   for (const s of sessions) {

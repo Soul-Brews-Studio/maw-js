@@ -194,10 +194,10 @@ describe("scanWorktrees (#935) — scope window match to parent oracle session",
     }
   });
 
-  it("parent session exists but window lives elsewhere → falls through to global", async () => {
+  it("parent session exists but window lives elsewhere → stale, no global fallback (#2392)", async () => {
     // `pulse` session is up but `--no-attach` only exists in `timekeeper`.
-    // Scoped search finds nothing (kind: none) → global fall-through resolves
-    // to the timekeeper window (single match — no ambiguity).
+    // #2392: parent session exists + no match → return "none" (stale).
+    // Do NOT fall through to global — prevents cross-session ambiguity.
     stubFindOutput = wtPath("Org", "pulse-oracle", "1--no-attach");
     stubSessions = [
       { name: "pulse",      windows: [win("pulse-something-else")] },
@@ -207,9 +207,8 @@ describe("scanWorktrees (#935) — scope window match to parent oracle session",
     const results = await scanWorktrees();
     const wt = results.find(r => r.name === "1--no-attach");
     expect(wt).toBeDefined();
-    // Single global match remains — current behavior preserved.
-    expect(wt!.status).toBe("active");
-    expect(wt!.tmuxWindow).toBe("timekeeper--no-attach");
+    expect(wt!.status).toBe("stale");
+    expect(wt!.tmuxWindow).toBeUndefined();
   });
 
   it("#1553 full worktree name wins before stripped tile suffix fallback", async () => {

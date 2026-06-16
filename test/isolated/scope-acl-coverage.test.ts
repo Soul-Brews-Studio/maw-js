@@ -69,21 +69,31 @@ describe("scope ACL coverage", () => {
     ]);
   });
 
-  test("loadTrustFromDisk strips timestamps and forgives missing, malformed, and wrong-shaped trust files", () => {
-    expect(loadTrustFromDisk()).toEqual([]);
+  test("loadTrustFromDisk strips timestamps and warns/quarantines malformed trust files", () => {
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = ((...args: unknown[]) => { warnings.push(args.map(String).join(" ")); }) as typeof console.warn;
+    try {
+      expect(loadTrustFromDisk()).toEqual([]);
+      expect(warnings).toEqual([]);
 
-    writeTrust("{");
-    expect(loadTrustFromDisk()).toEqual([]);
+      writeTrust("{");
+      expect(loadTrustFromDisk()).toEqual([]);
 
-    writeTrust({ sender: "not", target: "array" });
-    expect(loadTrustFromDisk()).toEqual([]);
+      writeTrust({ sender: "not", target: "array" });
+      expect(loadTrustFromDisk()).toEqual([]);
 
-    writeTrust([
-      { sender: "alpha", target: "beta", addedAt: "2026-05-18T00:00:00Z" },
-      { sender: "missing", target: "timestamp" },
-      { sender: 7, target: "bad", addedAt: "now" },
-    ]);
-    expect(loadTrustFromDisk()).toEqual([{ sender: "alpha", target: "beta" }]);
+      writeTrust([
+        { sender: "alpha", target: "beta", addedAt: "2026-05-18T00:00:00Z" },
+        { sender: "missing", target: "timestamp" },
+        { sender: 7, target: "bad", addedAt: "now" },
+      ]);
+      expect(loadTrustFromDisk()).toEqual([{ sender: "alpha", target: "beta" }]);
+      expect(warnings).toHaveLength(2);
+      expect(warnings.every(w => w.includes("moved aside"))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
   test("evaluateAclFromDisk composes scope and trust loaders with queue fallback", () => {
