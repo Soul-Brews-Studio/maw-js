@@ -158,6 +158,62 @@ export function writeMessage(teamName: string, memberName: string, from: string,
   writeFileSync(inboxPath, JSON.stringify(messages, null, 2));
 }
 
+/** A single entry in a teammate's `inboxes/<role>.json` array. */
+export interface TeamInboxMessage {
+  from: string;
+  text?: string;
+  summary?: string;
+  timestamp?: string;
+  read?: boolean;
+}
+
+/**
+ * Read a teammate's inbox file (the single-file array written by
+ * {@link writeMessage} / {@link writeShutdownRequest} and the charter prep).
+ * Returns `[]` when the file is absent or malformed — never throws.
+ */
+export function readTeamMemberInbox(teamName: string, memberName: string): TeamInboxMessage[] {
+  const inboxPath = join(TEAMS_DIR, teamName, "inboxes", `${memberName}.json`);
+  if (!existsSync(inboxPath)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(inboxPath, "utf-8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Unread subset of {@link readTeamMemberInbox}. */
+export function readUnreadTeamMemberInbox(teamName: string, memberName: string): TeamInboxMessage[] {
+  return readTeamMemberInbox(teamName, memberName).filter((msg) => !msg.read);
+}
+
+/**
+ * Flip every unread message in a teammate's inbox to `read: true` and persist.
+ * Returns the number flipped (0 when the file is absent/malformed or already
+ * fully read). Used after a handoff has been delivered so it does not re-fire
+ * on the next `team up`.
+ */
+export function markTeamMemberInboxRead(teamName: string, memberName: string): number {
+  const inboxPath = join(TEAMS_DIR, teamName, "inboxes", `${memberName}.json`);
+  if (!existsSync(inboxPath)) return 0;
+  let messages: TeamInboxMessage[];
+  try {
+    const parsed = JSON.parse(readFileSync(inboxPath, "utf-8"));
+    if (!Array.isArray(parsed)) return 0;
+    messages = parsed;
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (const msg of messages) {
+    if (!msg.read) { msg.read = true; count++; }
+  }
+  // lgtm[js/file-system-race] — PRIVATE-PATH: inbox under ~/.maw/teams/<team>/inboxes/, see docs/security/file-system-race-stance.md
+  if (count > 0) writeFileSync(inboxPath, JSON.stringify(messages, null, 2));
+  return count;
+}
+
 export function cleanupTeamDir(name: string) {
   const teamDir = join(TEAMS_DIR, name);
   const tasksDir = join(TASKS_DIR, name);
