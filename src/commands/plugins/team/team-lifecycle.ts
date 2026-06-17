@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFi
 import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
-import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
+import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, creatorEnv, type TeamConfig, type TeamMember } from "./team-helpers";
 import { formatError } from "../../../lib/format-error";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -168,6 +168,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
       description: opts.description || "",
       members: [],
       createdAt: Date.now(),
+      ...creatorEnv(),
     };
     writeFileSync(join(toolTeamDir, "config.json"), JSON.stringify(stubConfig, null, 2));
   }

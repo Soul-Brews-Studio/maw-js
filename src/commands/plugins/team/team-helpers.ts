@@ -27,6 +27,22 @@ export interface TeamConfig {
   description?: string;
   members: TeamMember[];
   createdAt?: number;
+  // Who created/leads this team — the dispatcher's tmux pane (%NN) and Claude
+  // session id, captured from the env at create time. Lets consumers (e.g. the
+  // fleet visualizer) group a team under the orchestrator that spawned it, since
+  // the team↔dispatcher link isn't otherwise persisted.
+  createdByPane?: string;
+  createdBySession?: string;
+}
+
+/** Snapshot the creating agent's identity from the environment (best-effort). */
+export function creatorEnv(): { createdByPane?: string; createdBySession?: string } {
+  const pane = process.env.TMUX_PANE;
+  const session = process.env.CLAUDE_SESSION_ID;
+  return {
+    ...(pane ? { createdByPane: pane } : {}),
+    ...(session ? { createdBySession: session } : {}),
+  };
 }
 
 export function loadTeam(name: string): TeamConfig | null {

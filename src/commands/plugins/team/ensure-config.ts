@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { TEAMS_DIR, type TeamConfig } from "./team-helpers";
+import { TEAMS_DIR, creatorEnv, type TeamConfig } from "./team-helpers";
 
 export function ensureTeamConfig(name: string, description?: string): boolean {
   const configDir = join(TEAMS_DIR, name);
@@ -13,6 +13,7 @@ export function ensureTeamConfig(name: string, description?: string): boolean {
     description: description ?? `Auto-created team for session ${name}`,
     members: [],
     createdAt: Date.now(),
+    ...creatorEnv(),
   };
   writeFileSync(configPath, JSON.stringify(config, null, 2));
   return true;
