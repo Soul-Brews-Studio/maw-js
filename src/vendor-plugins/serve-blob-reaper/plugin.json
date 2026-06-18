@@ -1,0 +1,26 @@
+{
+  "name": "serve-blob-reaper",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "tier": "core",
+  "description": "Reaps orphaned upload blobs (web dir + inbox image mirrors) older than the retention TTL during maw serve.",
+  "author": "Soul-Brews-Studio",
+  "hooks": {
+    "serve": {
+      "script": "./index.ts",
+      "handler": "serve",
+      "ensures": ["serve:timer:blob-reap"],
+      "policy": "best-effort"
+    }
+  },
+  "module": {
+    "path": "./index.ts",
+    "exports": ["serve", "startServeBlobReap", "resolveBlobTtlDays"]
+  },
+  "capabilities": ["serve:timer", "upload:reap"],
+  "capabilityNamespaces": ["serve", "upload"],
+  "weight": 1,
+  "license": "MIT",
+  "schemaVersion": 1
+}

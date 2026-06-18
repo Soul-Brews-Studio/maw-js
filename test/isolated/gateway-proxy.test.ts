@@ -205,6 +205,7 @@ const realServePluginNames = [
 ] as const;
 
 const realServeCorePluginNames = [
+  "serve-blob-reaper",
   "serve-config-health",
   "serve-engine-health-polling",
   "serve-maintenance",

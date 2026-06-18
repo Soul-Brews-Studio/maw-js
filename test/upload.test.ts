@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, utimesSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Elysia } from "elysia";
@@ -214,5 +214,34 @@ describe("DELETE /files/:name", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("not found");
+  });
+});
+
+// --- reapOldUploads (serve-blob-reaper GC) ---
+
+describe("reapOldUploads", () => {
+  test("removes old blobs, never oracle .jsonl, prunes empty web dirs, keeps fresh", async () => {
+    const { reapOldUploads } = await import("../src/api/upload");
+    mkdirSync(INBOX, { recursive: true });
+    const old = new Date(Date.now() - 30 * 864e5); // 30 days ago
+
+    // inbox is shared with oracle data: old image → reaped, old .jsonl → KEPT, fresh image → kept
+    writeFileSync(join(INBOX, "old-blob.png"), "x"); utimesSync(join(INBOX, "old-blob.png"), old, old);
+    writeFileSync(join(INBOX, "oracle.jsonl"), "{}"); utimesSync(join(INBOX, "oracle.jsonl"), old, old);
+    writeFileSync(join(INBOX, "fresh.png"), "x");
+
+    // web store is upload-only: old file in a dated dir → reaped + emptied dir pruned
+    const dated = join(WEB, "2020-01-01");
+    mkdirSync(dated, { recursive: true });
+    writeFileSync(join(dated, "old.png"), "x"); utimesSync(join(dated, "old.png"), old, old);
+
+    const res = reapOldUploads(7);
+
+    expect(existsSync(join(INBOX, "old-blob.png"))).toBe(false); // reaped
+    expect(existsSync(join(INBOX, "oracle.jsonl"))).toBe(true);  // NEVER touched
+    expect(existsSync(join(INBOX, "fresh.png"))).toBe(true);     // within TTL
+    expect(existsSync(dated)).toBe(false);                       // emptied dated dir pruned
+    expect(res.web).toBe(1);
+    expect(res.inbox).toBe(1);
   });
 });

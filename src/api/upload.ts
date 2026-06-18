@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync, rmdirSync } from "fs";
 import { join, basename, extname } from "path";
 import { randomUUID } from "crypto";
 import { mawDataPath } from "../core/xdg";
@@ -19,6 +19,9 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/heic": "heic",
   "image/heif": "heif",
 };
+/** Extensions written by /upload — lets the reaper spot upload blobs in the shared
+ * inbox without ever touching oracle data (.jsonl etc). */
+const IMAGE_EXTS = new Set(Object.values(EXT_BY_MIME));
 
 export function uploadInboxDir(): string {
   return mawDataPath("inbox");
@@ -70,19 +73,28 @@ uploadApi.post("/upload", async ({ body, set }) => {
     const ext = (EXT_BY_MIME[mime] || extname(safeName).replace(/^\./, "") || "bin").toLowerCase();
     const filename = `${id}.${ext}`;
 
-    // Primary: web-served path (nginx /maw-uploads/<date>/<id>.<ext>)
-    const { dir: webDir, dateSlug } = ensureWebDated();
-    const dest = join(webDir, filename);
     const buf = Buffer.from(await file.arrayBuffer());
-    await Bun.write(dest, buf);
 
-    // Mirror to maw's XDG data inbox for back-compat with /files listing
+    // Required: mirror to maw's XDG data inbox — this is what /api/files serves and
+    // the portable cross-node reference (maw://<node>/<filename>).
     const mirror = join(ensureInbox(), filename);
     await Bun.write(mirror, buf);
 
-    const url = `/maw-uploads/${dateSlug}/${filename}`;
+    // Best-effort: also write the nginx web-served path. Nodes without a writable
+    // web dir (e.g. laptops where /var/www is not writable) fall back cleanly to the
+    // inbox mirror + /api/files instead of failing the whole upload.
+    let url = `/api/files/${filename}`;
+    let path = mirror;
+    try {
+      const { dir: webDir, dateSlug } = ensureWebDated();
+      const dest = join(webDir, filename);
+      await Bun.write(dest, buf);
+      url = `/maw-uploads/${dateSlug}/${filename}`;
+      path = dest;
+    } catch { /* no writable web dir — inbox mirror + /api/files is the reference */ }
+
     const kb = (buf.length / 1024).toFixed(1);
-    return { ok: true, id, url, path: dest, name: safeName, size: `${kb}KB`, mime };
+    return { ok: true, id, url, path, name: safeName, size: `${kb}KB`, mime };
   } catch (e: any) {
     set.status = 500;
     return { error: e.message };
@@ -118,3 +130,51 @@ uploadApi.delete("/files/:name", ({ params, set }) => {
   unlinkSync(filePath);
   return { ok: true, archived: archive };
 });
+
+/**
+ * Reap upload blobs older than `ttlDays`. Safe by construction:
+ *  - the web-served store is upload-only → any old file is removed and emptied
+ *    dated dirs are pruned;
+ *  - the inbox is shared with oracle data → ONLY image files are eligible, so
+ *    `.jsonl` and other oracle files are never matched.
+ * Best-effort: absent dirs and per-entry errors are ignored so a long-running
+ * `maw serve` never crashes during GC. Returns counts removed per location.
+ */
+export function reapOldUploads(ttlDays = 7): { web: number; inbox: number } {
+  const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000;
+  let web = 0;
+  let inbox = 0;
+
+  // Web-served store (upload-only): prune old files in dated dirs, then empty dirs.
+  const webRoot = uploadWebDir();
+  try {
+    for (const dateDir of readdirSync(webRoot)) {
+      const dirPath = join(webRoot, dateDir);
+      try {
+        if (!statSync(dirPath).isDirectory()) continue;
+        for (const f of readdirSync(dirPath)) {
+          const fp = join(dirPath, f);
+          try {
+            if (statSync(fp).mtimeMs < cutoff) { unlinkSync(fp); web++; }
+          } catch { /* skip unreadable entry */ }
+        }
+        try { if (readdirSync(dirPath).length === 0) rmdirSync(dirPath); } catch { /* keep non-empty */ }
+      } catch { /* skip unreadable dated dir */ }
+    }
+  } catch { /* web dir absent — nothing to reap */ }
+
+  // Inbox mirror (shared with oracle data): ONLY image blobs are eligible.
+  try {
+    const inboxRoot = uploadInboxDir();
+    for (const f of readdirSync(inboxRoot)) {
+      const ext = extname(f).replace(/^\./, "").toLowerCase();
+      if (!IMAGE_EXTS.has(ext)) continue;
+      const fp = join(inboxRoot, f);
+      try {
+        if (statSync(fp).mtimeMs < cutoff) { unlinkSync(fp); inbox++; }
+      } catch { /* skip unreadable entry */ }
+    }
+  } catch { /* inbox absent — nothing to reap */ }
+
+  return { web, inbox };
+}
