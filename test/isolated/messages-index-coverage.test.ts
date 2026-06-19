@@ -461,7 +461,6 @@ describe("messages plugin coverage slice", () => {
   test("serve --detach reports spawn failure when child_process.spawn throws", async () => {
     spawnShouldThrow = true;
     const engine = makeEngineStub({ registrations: [] });
-    writeMessagesPid(111);
 
     const result = await messagesHandler({
       source: "cli",
@@ -619,7 +618,10 @@ describe("messages plugin coverage slice", () => {
         pendingError = err;
       });
 
-      await waitUntil(() => Boolean(registered) || Boolean(pendingError) || pendingResolved, "foreground messages registration");
+      await waitUntil(
+        () => (Boolean(registered) && Object.keys(callbacks).length === 2) || Boolean(pendingError) || pendingResolved,
+        "foreground messages registration and shutdown hooks",
+      );
       expect(pendingError).toBeUndefined();
       expect(pendingResolved).toBe(false);
       expect(registered).toMatchObject({ plugin: "messages", upstream: "http://127.0.0.1:45678" });
@@ -902,6 +904,7 @@ describe("messages plugin coverage slice", () => {
       if (calls === 1) throw new Error("engine not ready");
       return Response.json({ ok: true, removed: true });
     }) as typeof fetch;
+    Bun.sleep = (async () => undefined) as typeof Bun.sleep;
 
     installServeShutdown("http://engine.local", {
       stop: (force?: boolean) => {
