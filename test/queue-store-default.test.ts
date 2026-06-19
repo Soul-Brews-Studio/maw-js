@@ -65,13 +65,14 @@ describe("queue-store default coverage", () => {
     const legacyConfig = join(testDir, "legacy-config");
     process.env.MAW_CONFIG_DIR = legacyConfig;
     const legacyDir = join(legacyConfig, "pending");
+    const legacySentAt = new Date(Date.now() - 60_000).toISOString();
     mkdirSync(legacyDir, { recursive: true });
     writeFileSync(join(legacyDir, "legacy.json"), JSON.stringify({
       id: "legacy",
       sender: "old",
       target: "new",
       message: "still pending",
-      sentAt: "2026-05-20T00:00:00.000Z",
+      sentAt: legacySentAt,
       status: "pending",
     }));
 
