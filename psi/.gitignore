@@ -1,0 +1,11 @@
+data/
+**/origin
+*.db
+*.sqlite
+*.sqlite3
+.maw-engine
+MAW_HOME/
+tmux-captures/
+logs/
+dist/
+coverage/
