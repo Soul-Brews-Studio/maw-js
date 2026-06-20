@@ -447,9 +447,17 @@ export async function startBunGatewayServer(
       const enginePlugin = findEnginePluginRegistration(url.pathname);
       if (enginePlugin) return logAccess(await proxyEnginePluginRequest(req, enginePlugin));
       if (isProtected(apiPath, req.method)) {
-        const authOrLegacyRoute = await api.handle(req.clone());
+        // Hand the ORIGINAL request to the auth/legacy handler — federation-auth
+        // resolves loopback via server.requestIP(request), and Bun only tracks
+        // the socket for the original Request object. Passing req.clone() here
+        // made requestIP() return undefined, so local loopback callers (the
+        // status-reporter hook, maw's own emitFeed, any local CLI) were treated
+        // as non-loopback and rejected with 401. The clone goes to the plugin
+        // fall-through instead, which doesn't need requestIP.
+        const fresh = req.clone();
+        const authOrLegacyRoute = await api.handle(req);
         if (authOrLegacyRoute.status !== 404) return logAccess(authOrLegacyRoute);
-        const servedByPlugin = await serveRoutes.handle(req);
+        const servedByPlugin = await serveRoutes.handle(fresh);
         return logAccess(servedByPlugin ? addCors(servedByPlugin) : authOrLegacyRoute);
       }
       const servedByPlugin = await serveRoutes.handle(req);
