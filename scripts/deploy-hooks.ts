@@ -9,6 +9,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
+import { ensureStatusReporterScript, statusReporterPath } from "../src/core/status-reporter";
 
 const GHQ_ROOT = join(process.env.HOME!, "ghq/github.com/meganechan");
 const HOOK_SCRIPT = join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh");
@@ -28,6 +29,16 @@ if (existsSync(FLEET_DIR)) {
 }
 
 const DRY_RUN = process.argv.includes("--dry-run");
+
+// Provision the hook script itself — the wired path was never shipped.
+if (DRY_RUN) {
+  console.log(existsSync(statusReporterPath())
+    ? `  ok: status-reporter.sh present`
+    : `  dry: status-reporter.sh — would install`);
+} else {
+  const r = ensureStatusReporterScript();
+  console.log(`  ${r.created ? "done: status-reporter.sh installed" : "ok: status-reporter.sh present"}`);
+}
 
 function makeHookEntry(event: string) {
   return {
