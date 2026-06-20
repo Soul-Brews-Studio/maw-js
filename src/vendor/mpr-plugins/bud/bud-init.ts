@@ -1,6 +1,7 @@
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { fleetLoadDirForWrite, loadFleetEntries } from "maw-js/sdk";
+import { ensureStatusReporterScript } from "../../../core/status-reporter";
 
 /** Step 2: Create ψ/ vault directory structure. Returns the psiDir path. */
 export function initVault(budRepoPath: string): string {
@@ -96,6 +97,11 @@ Run \`/awaken\` for the full identity setup ceremony.
 
 /** Step 3.5: Create .claude/settings.json with status-reporter hooks. */
 export function generateClaudeSettings(budRepoPath: string): void {
+  // The hooks below point at $HOME/.config/maw/hooks/status-reporter.sh — make
+  // sure that script actually exists (it's wired but was never shipped).
+  const reporter = ensureStatusReporterScript();
+  if (reporter.created) console.log(`  \x1b[32m✓\x1b[0m status-reporter.sh installed`);
+
   const settingsDir = join(budRepoPath, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
   if (existsSync(settingsPath)) {
