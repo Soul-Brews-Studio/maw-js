@@ -7,6 +7,9 @@ import {
   type DeptRole,
 } from "./company-helpers";
 import { attachToDept } from "./company-attach";
+import {
+  deptLearn, deptKnowledge, deptShare, deptSync,
+} from "./company-knowledge";
 
 export const command = {
   name: ["company", "dept"],
@@ -246,8 +249,107 @@ function runDept(args: string[], logs: string[]): string | undefined {
   }
 
   logs.push(`unknown dept subcommand: ${sub}`);
-  logs.push("usage: maw dept <assign|members|remove>");
+  logs.push("usage: maw dept <assign|members|remove|learn|knowledge|share|sync>");
   return `unknown subcommand: ${sub}`;
+}
+
+// ─── async dept verbs: knowledge exchange (KB HTTP / soul-sync / hey) ─────────
+
+/** Dept verbs that perform I/O (HTTP / shell-out) and must be awaited. */
+const ASYNC_DEPT_VERBS = new Set(["learn", "knowledge", "share", "sync"]);
+
+async function runDeptAsync(args: string[], logs: string[]): Promise<string | undefined> {
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "learn") {
+    const company = args[1];
+    const dept = args[2];
+    const knowledge = args.slice(3).join(" ").trim();
+    if (!company || !dept || !knowledge) {
+      logs.push('usage: maw dept learn <company> <dept> "<knowledge>"');
+      return "company, dept, knowledge required";
+    }
+    const res = await deptLearn(company, dept, knowledge);
+    if (!res.ok) { logs.push(`${Y}⚠${R} ${res.message}`); return res.message; }
+    logs.push(`${G}✓${R} ${res.message}`);
+    return;
+  }
+
+  if (sub === "knowledge") {
+    const company = args[1];
+    const dept = args[2];
+    const query = args.slice(3).join(" ").trim() || undefined;
+    if (!company || !dept) {
+      logs.push("usage: maw dept knowledge <company> <dept> [<query>]");
+      return "company and dept required";
+    }
+    const res = await deptKnowledge(company, dept, query);
+    if (!res.ok) { logs.push(`${Y}⚠${R} ${res.message}`); return res.message; }
+    logs.push(`\n  ${C}${company}/${dept}${R}  ${D}${res.message}${R}\n`);
+    if (res.results.length === 0) {
+      logs.push(`  ${D}(no dept knowledge${query ? ` matching "${query}"` : ""})${R}\n`);
+      return;
+    }
+    for (const r of res.results) {
+      const snippet = r.content.replace(/\s+/g, " ").trim().slice(0, 160);
+      logs.push(`  ${G}●${R} ${snippet}`);
+      logs.push(`      ${D}${r.source_file} · score ${r.score.toFixed(3)}${R}`);
+    }
+    logs.push("");
+    return;
+  }
+
+  if (sub === "share") {
+    const company = args[1];
+    const dept = args[2];
+    const message = args.slice(3).join(" ").trim();
+    if (!company || !dept || !message) {
+      logs.push('usage: maw dept share <company> <dept> "<msg>"');
+      return "company, dept, message required";
+    }
+    const reports = await deptShare(company, dept, message);
+    if (reports.length === 0) {
+      logs.push(`${Y}⚠${R} ${company}/${dept} has no members to share with`);
+      return `${company}/${dept} has no members`;
+    }
+    const sent = reports.filter((r) => r.ok).length;
+    logs.push(`\n  ${C}${company}/${dept}${R}  ${D}shared to ${sent}/${reports.length} member(s)${R}\n`);
+    for (const r of reports) {
+      if (r.ok) logs.push(`  ${G}✓${R} ${r.oracle}`);
+      else logs.push(`  ${Y}✗${R} ${r.oracle} ${D}(${r.detail ?? "failed"})${R}`);
+    }
+    logs.push("");
+    return sent === 0 ? "no members reached" : undefined;
+  }
+
+  if (sub === "sync") {
+    const company = args[1];
+    const dept = args[2];
+    if (!company || !dept) {
+      logs.push("usage: maw dept sync <company> <dept>");
+      return "company and dept required";
+    }
+    const res = await deptSync(company, dept);
+    if (res.lead === null) {
+      logs.push(`${Y}⚠${R} no lead set for ${company}/${dept} — set one: maw dept assign ${company} ${dept} <oracle> --role lead`);
+      return `no lead set for ${company}/${dept}`;
+    }
+    logs.push(`\n  ${C}${company}/${dept}${R}  ${D}soul-sync FROM lead '${res.lead}' (push lead.ψ → members)${R}\n`);
+    if (res.reports.length === 0) {
+      logs.push(`  ${D}(no members besides the lead)${R}\n`);
+      return;
+    }
+    const ok = res.reports.filter((r) => r.ok).length;
+    for (const r of res.reports) {
+      if (r.ok) logs.push(`  ${G}✓${R} ${res.lead} → ${r.oracle}`);
+      else logs.push(`  ${Y}✗${R} ${res.lead} → ${r.oracle} ${D}(${r.detail ?? "failed"})${R}`);
+    }
+    logs.push("");
+    return ok === 0 ? "no members synced" : undefined;
+  }
+
+  // Should not reach here (gated by ASYNC_DEPT_VERBS), but be safe.
+  return runDept(args, logs);
 }
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -261,11 +363,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const asDept = ctx.matchedName === "dept";
     // `attach` is an async company verb (shells out to maw attach / maw bud).
     const isAttach = !asDept && args[0]?.toLowerCase() === "attach";
+    // learn/knowledge/share/sync are async dept verbs (KB HTTP / soul-sync / hey).
+    const isAsyncDept = asDept && ASYNC_DEPT_VERBS.has(args[0]?.toLowerCase() ?? "");
     const err = isAttach
       ? await runAttach(args, logs)
-      : asDept
-        ? runDept(args, logs)
-        : runCompany(args, logs);
+      : isAsyncDept
+        ? await runDeptAsync(args, logs)
+        : asDept
+          ? runDept(args, logs)
+          : runCompany(args, logs);
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
     // When a writer streamed the output, return undefined so the dispatcher
