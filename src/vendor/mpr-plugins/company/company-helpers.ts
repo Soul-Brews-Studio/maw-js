@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { mawDataPath, loadFleetEntries, fleetLoadDirForWrite } from "maw-js/sdk";
+import { mawDataPath, loadFleetEntries, fleetLoadDirForWrite, getGhqRoot } from "maw-js/sdk";
+import { writeDeptBlock, removeDeptBlockFromRepo } from "./company-claudemd";
 
 /**
  * Company plugin — logical company > department > oracle layer.
@@ -225,12 +226,31 @@ interface OracleAssignment {
   deptRole?: DeptRole;
 }
 
+/** Find the fleet entry for an oracle by stem name (strips leading "NN-"). */
+function fleetEntryForOracle(oracle: string) {
+  const entries = loadFleetEntries();
+  return entries.find((e) => e.session.name.replace(/^\d+-/, "") === oracle) ?? null;
+}
+
 /** Resolve the writable fleet config file for an oracle by stem name, if any. */
 function fleetFileForOracle(oracle: string): string | null {
-  const entries = loadFleetEntries();
-  const entry = entries.find((e) => e.session.name.replace(/^\d+-/, "") === oracle);
+  const entry = fleetEntryForOracle(oracle);
   if (!entry) return null;
   return entry.path ?? join(fleetLoadDirForWrite(), entry.file);
+}
+
+/**
+ * Resolve an oracle's repo dir (where CLAUDE.md lives), SYNCHRONOUSLY — mirrors
+ * the fleet fallback in soul-sync's `resolveOraclePath` without taking on its
+ * async ghqFind dependency. Returns null when the oracle has no fleet entry, no
+ * window, or the derived repo path does not exist on disk.
+ */
+export function resolveOracleRepoPath(oracle: string): string | null {
+  const entry = fleetEntryForOracle(oracle);
+  const repo = entry?.session.windows?.[0]?.repo;
+  if (!repo) return null;
+  const repoPath = join(getGhqRoot(), "github.com", repo);
+  return existsSync(repoPath) ? repoPath : null;
 }
 
 /**
@@ -247,6 +267,23 @@ export function syncOracleAssignment(oracle: string, a: OracleAssignment): boole
   if (a.deptRole) cfg.deptRole = a.deptRole;
   else delete cfg.deptRole;
   writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+
+  // Third sync target: the oracle's own CLAUDE.md managed block. Best-effort —
+  // a missing repo / CLAUDE.md must NOT fail the assignment.
+  const repoPath = resolveOracleRepoPath(oracle);
+  if (repoPath) {
+    const lead = loadCompany(a.company)?.departments[a.department]?.lead;
+    writeDeptBlock(repoPath, {
+      company: a.company,
+      dept: a.department,
+      role: a.deptRole,
+      lead,
+    });
+  } else {
+    console.warn(
+      `[company] CLAUDE.md sync skipped for '${oracle}' — no fleet repo path resolved`,
+    );
+  }
   return true;
 }
 
@@ -265,6 +302,10 @@ export function clearOracleAssignment(
     delete cfg.department;
     delete cfg.deptRole;
     writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+
+    // Third sync target: strip the CLAUDE.md managed block. Best-effort.
+    const repoPath = resolveOracleRepoPath(oracle);
+    if (repoPath) removeDeptBlockFromRepo(repoPath);
     return true;
   }
   return false;
