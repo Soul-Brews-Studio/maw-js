@@ -215,11 +215,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const err = asDept ? runDept(args, logs) : runCompany(args, logs);
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
-    if (err) return { ok: false, error: err, output: output || undefined };
-    return { ok: true, output: output || undefined };
+    // When a writer streamed the output, return undefined so the dispatcher
+    // does not reprint it (see ping plugin). With no writer, return output.
+    const returned = ctx.writer ? undefined : output || undefined;
+    if (err) return { ok: false, error: err, output: returned };
+    return { ok: true, output: returned };
   } catch (e: any) {
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
-    return { ok: false, error: output || e.message, output: output || undefined };
+    const returned = ctx.writer ? undefined : output || undefined;
+    return { ok: false, error: output || e.message, output: returned };
   }
 }
