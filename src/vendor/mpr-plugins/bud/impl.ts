@@ -36,6 +36,12 @@ export interface BudOpts {
   parentSessionId?: string;
   /** Deterministic child session id to expose to the spawned bud's wake command (#1925). */
   sessionId?: string;
+  /** Logical company to assign the new oracle into after birth (company plugin). */
+  company?: string;
+  /** Logical department to assign the new oracle into after birth (company plugin). */
+  department?: string;
+  /** Department role for the company assignment (lead|dev|qa). Defaults to dev. */
+  deptRole?: string;
 }
 
 function oracleStemFromMaybeWorktreePath(path: string): string {
@@ -172,6 +178,9 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     if (parentName && !opts.scaffoldOnly) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would add ${name} to ${parentName}'s sync_peers`);
     }
+    if (opts.company && opts.department) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would assign ${name} → ${opts.company}/${opts.department} (${opts.deptRole || "dev"})`);
+    }
     console.log();
     return;
   }
@@ -253,6 +262,11 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     console.log(`  \x1b[36m⬡\x1b[0m signal dropped → ${parentName}'s ψ/memory/signals/`);
   }
 
+  // Optional: assign the freshly-born oracle into a company/department.
+  // This is an ASSIGN-only step layered AFTER the normal bud flow — it does
+  // not auto-spawn or change bud's explicit nature (company plugin, Phase 1).
+  await maybeAssignCompany(name, opts);
+
   // Summary
   console.log(`\n  \x1b[32m${parentName ? "🧬 Bud" : "🌱 Root bud"} complete!\x1b[0m ${parentName ? `${parentName} → ${name}` : name}`);
   console.log(`  \x1b[90m  repo: ${budRepoSlug}`);
@@ -262,6 +276,31 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     console.log(`  \x1b[90m  run /awaken in the new oracle for full identity setup\x1b[0m`);
   }
   console.log();
+}
+
+/**
+ * Assign a freshly-born oracle into a company/department (company plugin).
+ *
+ * Runs AFTER the bud flow finalizes — the oracle and its fleet config already
+ * exist, so company-helpers can sync the per-oracle company/department/deptRole
+ * fields. Failures here are non-fatal: the oracle is already born, so we warn
+ * rather than throw (e.g. when the company/department hasn't been created yet).
+ */
+async function maybeAssignCompany(name: string, opts: BudOpts): Promise<void> {
+  if (!opts.company || !opts.department) return;
+  try {
+    const { assignMember } = await import("../company/company-helpers");
+    const roleRaw = (opts.deptRole || "dev").toLowerCase();
+    const role = roleRaw === "lead" || roleRaw === "qa" ? roleRaw : "dev";
+    const res = assignMember(opts.company, opts.department, name, role as "lead" | "dev" | "qa");
+    if (res.naming.collision) {
+      console.log(`  \x1b[33m⚠\x1b[0m name '${name}' already in ${opts.company}/${opts.department} — suggested: ${res.naming.suggestion}`);
+    }
+    console.log(`  \x1b[32m✓\x1b[0m assigned ${name} → ${opts.company}/${opts.department} (${role})`);
+  } catch (e: any) {
+    console.log(`  \x1b[33m⚠\x1b[0m company assign skipped: ${e?.message || e}`);
+    console.log(`     \x1b[90mcreate it first: maw company create ${opts.company} && maw company add-dept ${opts.company} ${opts.department}\x1b[0m`);
+  }
 }
 
 // cmdBudTiny removed — --tiny deprecated, code preserved in deprecated/tiny-bud-209/

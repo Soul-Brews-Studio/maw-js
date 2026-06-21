@@ -1,0 +1,22 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "company",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Logical company > department > oracle layer — registry, assign, ls/tree.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "company",
+    "aliases": [
+      "dept",
+      "co"
+    ],
+    "help": "maw company <create|add-dept|ls|tree|rm-dept|delete> · maw dept <assign|members|remove>"
+  },
+  "weight": 30,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

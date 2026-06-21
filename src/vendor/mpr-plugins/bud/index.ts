@@ -47,6 +47,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--parent": String,
         "--parent-session-id": String,
         "--session-id": String,
+        "--company": String,
+        "--department": String,
+        "--role": String,
       }, 0);
 
       // --from-repo branches early: inject scaffolding into an existing repo (#588).
@@ -101,6 +104,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         signalOnBirth: flags["--signal-on-birth"],
         parentSessionId: (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined),
         sessionId: flags["--session-id"],
+        company: flags["--company"] as string | undefined,
+        department: flags["--department"] as string | undefined,
+        deptRole: flags["--role"] as string | undefined,
       });
     } else if (ctx.source === "api") {
       const body = ctx.args as Record<string, unknown>;
@@ -124,6 +130,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         signalOnBirth: body.signalOnBirth as boolean | undefined,
         parentSessionId: (body.parentSessionId as string | undefined) || (body.parent as string | undefined),
         sessionId: body.sessionId as string | undefined,
+        company: body.company as string | undefined,
+        department: body.department as string | undefined,
+        deptRole: body.deptRole as string | undefined,
       });
     }
 

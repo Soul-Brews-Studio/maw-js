@@ -50,6 +50,8 @@ const LS_FLAGS = {
   "--scan": Boolean,
   "--stale": Boolean,
   "--org": String,
+  "--company": String,
+  "--department": String,
   "--path": Boolean,
   "--sort-by": String,
   "-p": "--path",
@@ -79,6 +81,8 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
         await commands.cmdOracleList({
           awake: flags["--awake"],
           org: flags["--org"],
+          company: flags["--company"],
+          department: flags["--department"],
           json: flags["--json"],
           scan: flags["--scan"],
           stale: flags["--stale"],
@@ -123,6 +127,8 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
         await commands.cmdOracleList({
           awake: flags["--awake"],
           org: flags["--org"],
+          company: flags["--company"],
+          department: flags["--department"],
           json: flags["--json"],
           scan: flags["--scan"],
           stale: flags["--stale"],
@@ -176,6 +182,8 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
         await commands.cmdOracleList({
           awake: query.awake as boolean | undefined,
           org: query.org as string | undefined,
+          company: query.company as string | undefined,
+          department: query.department as string | undefined,
           json: query.json as boolean | undefined,
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,
@@ -205,6 +213,8 @@ export function createOracleHandler(overrides: Partial<OracleCommandDeps> = {}) 
         await commands.cmdOracleList({
           awake: query.awake as boolean | undefined,
           org: query.org as string | undefined,
+          company: query.company as string | undefined,
+          department: query.department as string | undefined,
           json: query.json as boolean | undefined,
           scan: query.scan as boolean | undefined,
           stale: query.stale as boolean | undefined,

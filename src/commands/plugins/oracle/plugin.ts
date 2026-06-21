@@ -16,6 +16,8 @@ export default definePlugin({
       "--json": "boolean",
       "--awake": "boolean",
       "--org": "string",
+      "--company": "string",
+      "--department": "string",
       "--path": "boolean",
       "--scan": "boolean",
       "--stale": "boolean",

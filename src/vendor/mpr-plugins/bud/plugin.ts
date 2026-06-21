@@ -27,7 +27,10 @@ export default definePlugin({
       "--split": "boolean",
       "--scaffold-only": "boolean",
       "--seed": "boolean",
-      "--dry-run": "boolean"
+      "--dry-run": "boolean",
+      "--company": "string",
+      "--department": "string",
+      "--role": "string"
     }
   },
   "api": {

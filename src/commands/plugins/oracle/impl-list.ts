@@ -48,6 +48,10 @@ export interface OracleListOpts {
   stale?: boolean;
   path?: boolean;
   sortBy?: "born" | string;
+  /** Logical company filter (company plugin) — reads per-oracle fleet config. */
+  company?: string;
+  /** Logical department filter (company plugin) — reads per-oracle fleet config. */
+  department?: string;
 }
 
 export interface EnrichedEntry {
@@ -206,6 +210,19 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
   let filtered = enriched;
   if (opts.awake) filtered = filtered.filter((x) => x.awake);
   if (opts.org) filtered = filtered.filter((x) => x.entry.org === opts.org);
+  // Logical company/department filters (company plugin) — read each oracle's
+  // company/department from its fleet config. Distinct from the github `org`.
+  if (opts.company || opts.department) {
+    const { readOracleAssignment } = await import(
+      "../../../vendor/mpr-plugins/company/company-helpers"
+    );
+    filtered = filtered.filter((x) => {
+      const a = readOracleAssignment(x.entry.name);
+      if (opts.company && a.company !== opts.company) return false;
+      if (opts.department && a.department !== opts.department) return false;
+      return true;
+    });
+  }
 
   // 6. Sort — default keeps org grouping; `--sort-by born` answers "newest
   // known oracle births first" and leaves entries without birth metadata last.
@@ -257,6 +274,10 @@ export async function cmdOracleList(opts: OracleListOpts = {}) {
 
   if (total === 0) {
     if (opts.awake) console.log("  No awake oracles.\n");
+    else if (opts.company || opts.department)
+      console.log(
+        `  No oracles found in ${opts.company ?? "*"}/${opts.department ?? "*"}.\n`,
+      );
     else if (opts.org) console.log(`  No oracles found in org '${opts.org}'.\n`);
     else
       console.log(
