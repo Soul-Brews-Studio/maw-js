@@ -13,7 +13,7 @@ export default definePlugin({
       "dept",
       "co"
     ],
-    "help": "maw company <create|add-dept|ls|tree|rm-dept|delete> · maw dept <assign|members|remove>"
+    "help": "maw company <create|add-dept|ls|tree|attach|rm-dept|delete> · maw dept <assign|members|remove>"
   },
   "weight": 30,
   "tier": "standard",

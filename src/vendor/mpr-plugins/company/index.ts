@@ -6,6 +6,7 @@ import {
   assignMember, removeMember, departmentMembers,
   type DeptRole,
 } from "./company-helpers";
+import { attachToDept } from "./company-attach";
 
 export const command = {
   name: ["company", "dept"],
@@ -86,8 +87,54 @@ function runCompany(args: string[], logs: string[]): string | undefined {
   }
 
   logs.push(`unknown company subcommand: ${sub}`);
-  logs.push("usage: maw company <create|add-dept|ls|tree|rm-dept|delete>");
+  logs.push("usage: maw company <create|add-dept|ls|tree|attach|rm-dept|delete>");
   return `unknown subcommand: ${sub}`;
+}
+
+// ─── operate verb: attach (async — shells out to maw attach / maw bud) ───────
+
+async function runAttach(args: string[], logs: string[]): Promise<string | undefined> {
+  // args[0] === "attach"; positional company/dept follow it.
+  const flags = parseFlags(args, { "--new": Boolean, "--role": String }, 1);
+  const company = flags._[0];
+  const dept = flags._[1];
+  if (!company || !dept) {
+    logs.push("usage: maw company attach <company> <dept> [--new] [--role lead|dev|qa]");
+    return "company and dept required";
+  }
+  const role = flags["--role"] !== undefined ? parseRole(flags["--role"]) : "dev";
+  const outcome = await attachToDept(company, dept, {
+    isNew: Boolean(flags["--new"]),
+    role,
+  });
+
+  switch (outcome.kind) {
+    case "no-company":
+      logs.push(`${Y}⚠${R} no company matches '${outcome.input}'`);
+      logs.push(`  ${D}see: maw company ls${R}`);
+      return `company '${outcome.input}' not found`;
+    case "no-dept":
+      logs.push(`${Y}⚠${R} no department in '${outcome.company}' matches '${outcome.input}'`);
+      logs.push(`  ${D}see: maw company tree ${outcome.company}${R}`);
+      return `department '${outcome.input}' not found`;
+    case "attached":
+      // maw attach streamed its own output to the inherited terminal; just note it.
+      logs.push(`${G}✓${R} ${outcome.company}/${outcome.dept} → ${outcome.oracle} ${D}(${outcome.status})${R}`);
+      return;
+    case "budded":
+      logs.push(`${G}✓${R} budded new member ${outcome.oracle} → ${outcome.company}/${outcome.dept}`);
+      return;
+    case "all-busy": {
+      const { report } = outcome;
+      logs.push(`${Y}⚠${R} ${outcome.company}/${outcome.dept} full (${report.busy}/${report.total} busy)`);
+      if (report.sleeping > 0) {
+        logs.push(`  ${D}sleeping (wakeable):${R} ${report.sleepingMembers.join(", ")}`);
+        logs.push(`  ${D}→ wake one: maw wake ${report.sleepingMembers[0]}${R}`);
+      }
+      logs.push(`  ${D}→ wait for an idle member, or spawn a new one: maw company attach ${outcome.company} ${outcome.dept} --new${R}`);
+      return `${outcome.company}/${outcome.dept} full`;
+    }
+  }
 }
 
 function renderList(logs: string[]): void {
@@ -212,7 +259,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = ctx.args as string[];
     // Route by the matched surface: `maw dept ...` → dept verbs, else company.
     const asDept = ctx.matchedName === "dept";
-    const err = asDept ? runDept(args, logs) : runCompany(args, logs);
+    // `attach` is an async company verb (shells out to maw attach / maw bud).
+    const isAttach = !asDept && args[0]?.toLowerCase() === "attach";
+    const err = isAttach
+      ? await runAttach(args, logs)
+      : asDept
+        ? runDept(args, logs)
+        : runCompany(args, logs);
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
     // When a writer streamed the output, return undefined so the dispatcher
