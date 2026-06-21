@@ -11,6 +11,7 @@ import {
   findIdleMember, deptBusyReport, nextNewMemberName,
   type BusyCheck,
 } from "../src/vendor/mpr-plugins/company/company-attach";
+import handler from "../src/vendor/mpr-plugins/company/index";
 
 let dir = "";
 
@@ -175,5 +176,22 @@ describe("nextNewMemberName collision-avoidance", () => {
 
   test("role is reflected in the name", () => {
     expect(nextNewMemberName("kob", "payment", "qa")).toBe("kob-payment-qa");
+  });
+});
+
+describe("handler failure path — single-print contract (#15 error dupe)", () => {
+  // The dispatcher prints result.output then, on !ok, also prints result.error.
+  // When output already carries the user-facing message, error must be
+  // undefined so the dispatcher doesn't reprint it. ok:false is preserved
+  // (exit code unchanged). Uses the no-company path: errors WITHOUT spawning.
+  test("output carries the message, error is suppressed (no reprint)", async () => {
+    const res = await handler({
+      source: "cli",
+      args: ["attach", "nope-xyz", "web"],
+      matchedName: "company",
+    } as any);
+    expect(res.ok).toBe(false);
+    expect(res.output).toMatch(/no company/i);
+    expect(res.error).toBeUndefined();
   });
 });

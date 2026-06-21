@@ -271,12 +271,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     // When a writer streamed the output, return undefined so the dispatcher
     // does not reprint it (see ping plugin). With no writer, return output.
     const returned = ctx.writer ? undefined : output || undefined;
-    if (err) return { ok: false, error: err, output: returned };
+    // When output already carries the message (streamed or returned),
+    // suppress `error` so the dispatcher doesn't reprint it (see #15).
+    if (err) return { ok: false, error: output ? undefined : err, output: returned };
     return { ok: true, output: returned };
   } catch (e: any) {
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
     const returned = ctx.writer ? undefined : output || undefined;
-    return { ok: false, error: output || e.message, output: returned };
+    return { ok: false, error: output ? undefined : e.message, output: returned };
   }
 }
