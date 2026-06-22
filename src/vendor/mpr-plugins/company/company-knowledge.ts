@@ -10,7 +10,7 @@ import {
  * Company plugin — Department Knowledge Exchange (spec §4, Phase 2.2).
  *
  *   maw dept learn     <co> <dept> "<knowledge>"   write → KB (muninn), dept-tagged
- *   maw dept knowledge <co> <dept> [<query>]       search KB, scoped to the dept tag
+ *   maw dept knowledge <co> <dept> [<query>]       search KB — dept entries + related (two-source merge)
  *   maw dept share     <co> <dept> "<msg>"         push message to dept members
  *   maw dept sync      <co> <dept>                  soul-sync members FROM the dept lead
  *
@@ -144,28 +144,76 @@ export function kbLearnPayload(company: string, dept: string, knowledge: string)
 }
 
 /**
- * Build the KB search URL. The dept tag is prepended to the query so the tag
- * boosts relevance; results are then post-filtered by `filterByDeptTag`. When
- * the user gives no query, the tag alone is the query.
+ * ── TWO-SOURCE SEARCH (the dept-entry guarantee) ────────────────────────────
  *
- * Uses `mode=fts` (full-text/exact match) rather than `mode=hybrid`: hybrid
- * ranks dept-tagged entries below semantic noise so the exact `dept:<co>:<dept>`
- * matches fall outside `limit=10` and `filterByDeptTag` then drops everything
- * (always 0 results). fts surfaces the tagged entries directly.
+ * `dept knowledge` merges results from TWO independent KB queries so a browse is
+ * reliable AND a query still has semantic recall:
+ *
+ *   1. TAG-EXACT (`kbTagSearchUrl`, mode=fts) — q = the literal `dept:<co>:<dept>`
+ *      tag. fts is keyword/exact, so this RELIABLY returns the department's own
+ *      entries (the tag is a literal token written inline by `kbLearnPayload`).
+ *      Run ALWAYS — this is what guarantees the dept's entries are present,
+ *      regardless of how a semantic ranker would have scored them.
+ *
+ *   2. HYBRID SEMANTIC (`kbHybridSearchUrl`, mode=hybrid) — q = the USER's query
+ *      (NOT the tag; the tag would only dilute the semantic ranking). Run ONLY
+ *      when a query is given. Brings in semantically-related neighbours.
+ *
+ * History: a single fts+hard-filter source (#20) lost semantic recall and could
+ * hard-drop to 0; a single hybrid+soft-bias source ranked the dept's OWN entries
+ * near the bottom so a no-query browse returned 0 dept entries. The two-source
+ * merge fixes both: source 1 guarantees the dept entries, source 2 adds recall.
  */
-export function kbSearchUrl(base: string, deptTag: string, query?: string): string {
-  const q = query && query.trim() ? `${deptTag} ${query.trim()}` : deptTag;
-  return `${base}/api/search?q=${encodeURIComponent(q)}&limit=10&mode=fts`;
+
+/** Tag-exact (fts) search URL — q is the literal dept tag. Reliably surfaces the dept's own entries. */
+export function kbTagSearchUrl(base: string, deptTag: string, limit = 10): string {
+  return `${base}/api/search?q=${encodeURIComponent(deptTag)}&limit=${limit}&mode=fts`;
+}
+
+/** Hybrid semantic search URL — q is the user's query. Brings in related neighbours. */
+export function kbHybridSearchUrl(base: string, query: string, limit = 10): string {
+  return `${base}/api/search?q=${encodeURIComponent(query)}&limit=${limit}&mode=hybrid`;
 }
 
 /**
- * Best-effort dept scoping: the search endpoint has no concept filter and does
- * not return concepts, so we keep only results whose `content` embeds the dept
- * tag (written there by `kbLearnPayload`). Trade-off: knowledge stored OUTSIDE
- * `dept learn` (which lacks the inline tag) won't match — accepted per spec.
+ * Whether a result carries the dept tag inline (written there by `kbLearnPayload`).
+ * Used to order a merged list tagged-first; NOT a hard filter (the two-source
+ * merge already guarantees the dept entries are present).
  */
-export function filterByDeptTag(results: KbSearchResult[], deptTag: string): KbSearchResult[] {
-  return results.filter((r) => typeof r.content === "string" && r.content.includes(deptTag));
+export function hasDeptTag(r: KbSearchResult, deptTag: string): boolean {
+  return typeof r.content === "string" && r.content.includes(deptTag);
+}
+
+/** Stable dedup/identity key for a result — prefer source_file, fall back to content. */
+function resultKey(r: KbSearchResult): string {
+  return (typeof r.source_file === "string" && r.source_file) ? r.source_file : String(r.content ?? "");
+}
+
+/**
+ * Merge the two sources: dept (tag-exact, source 1) entries FIRST, preserving
+ * their order, then hybrid (source 2) neighbours not already present. Deduped by
+ * a stable key (`source_file`, else `content`) so an entry surfaced by BOTH
+ * sources appears once (kept in its source-1 position). Neither side is dropped.
+ */
+export function mergeDeptResults(
+  tagResults: KbSearchResult[],
+  hybridResults: KbSearchResult[],
+): KbSearchResult[] {
+  const merged: KbSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const r of tagResults) {
+    const k = resultKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(r);
+  }
+  for (const r of hybridResults) {
+    const k = resultKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(r);
+  }
+  return merged;
 }
 
 // ─── share / sync target planning (pure) ─────────────────────────────────────
@@ -231,7 +279,35 @@ export interface DeptKnowledgeResult {
   results: KbSearchResult[];
 }
 
-/** GET dept-scoped search results from the KB. Graceful on unreachable / non-2xx. */
+/** One source's outcome: ok + its results, or a failure (thrown / non-2xx). */
+interface SourceOutcome {
+  ok: boolean;
+  results: KbSearchResult[];
+}
+
+/** GET one search URL, best-effort. Never throws — non-2xx / thrown → { ok:false, results:[] }. */
+async function fetchSource(doFetch: FetchLike, url: string): Promise<SourceOutcome> {
+  try {
+    const res = await doFetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return { ok: false, results: [] };
+    const data = (await res.json()) as { results?: KbSearchResult[] };
+    return { ok: true, results: data.results ?? [] };
+  } catch {
+    return { ok: false, results: [] };
+  }
+}
+
+/**
+ * GET dept knowledge from the KB via the TWO-SOURCE merge (see `kbTagSearchUrl` /
+ * `kbHybridSearchUrl`):
+ *
+ *   - Source 1 (tag-exact, fts): run ALWAYS. Guarantees the dept's own entries.
+ *   - Source 2 (hybrid semantic): run ONLY when a query is given. Adds neighbours.
+ *
+ * Best-effort PER SOURCE: if one fetch throws / is non-2xx, the other still
+ * returns. Only when BOTH fail (or both empty) do we surface the empty/error
+ * result. Never throws. Merge keeps dept (source-1) entries first, deduped.
+ */
 export async function deptKnowledge(
   company: string,
   dept: string,
@@ -241,19 +317,30 @@ export async function deptKnowledge(
   const base = deps.url ?? kbUrl();
   const doFetch = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const deptTag = kbTagFor(company, dept);
-  try {
-    const res = await doFetch(kbSearchUrl(base, deptTag, query), {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      return { ok: false, message: `KB rejected search (HTTP ${res.status}) at ${base}`, results: [] };
-    }
-    const data = (await res.json()) as { results?: KbSearchResult[] };
-    const scoped = filterByDeptTag(data.results ?? [], deptTag);
-    return { ok: true, message: `${scoped.length} result(s) for ${deptTag}`, results: scoped };
-  } catch {
+  const trimmedQuery = query?.trim();
+
+  // Source 1 — tag-exact, always. Source 2 — hybrid, only with a query.
+  const tag = await fetchSource(doFetch, kbTagSearchUrl(base, deptTag));
+  const hybrid = trimmedQuery
+    ? await fetchSource(doFetch, kbHybridSearchUrl(base, trimmedQuery))
+    : { ok: true, results: [] as KbSearchResult[] };
+
+  // BOTH sources failed (and we actually attempted both / the only one) → error.
+  // With a query we attempt both; without one, only source 1 is in play.
+  const attemptedHybrid = !!trimmedQuery;
+  if (!tag.ok && (!attemptedHybrid || !hybrid.ok)) {
     return { ok: false, message: `KB unreachable at ${base}`, results: [] };
   }
+
+  // Hybrid neighbours = source-2 entries that are NOT the dept's own (those are
+  // already guaranteed by source 1); keep dept entries first via mergeDeptResults.
+  const hybridNeighbours = hybrid.results.filter((r) => !hasDeptTag(r, deptTag));
+  const merged = mergeDeptResults(tag.results, hybridNeighbours);
+  const inDept = merged.filter((r) => hasDeptTag(r, deptTag)).length;
+  const related = merged.length - inDept;
+
+  const message = `${merged.length} result(s) — ${inDept} in dept '${deptTag}', ${related} related`;
+  return { ok: true, message, results: merged };
 }
 
 export interface ShareReport {
