@@ -7,10 +7,10 @@ import {
   createCompany, addDepartment, assignMember, kbTagFor,
 } from "../src/vendor/mpr-plugins/company/company-helpers";
 import {
-  kbLearnPayload, kbSearchUrl, filterByDeptTag,
+  kbLearnPayload, kbSearchUrl, filterByDeptTag, resolveKbUrl,
   resolveLead, planShareTargets, planSyncTargets,
   deptLearn, deptKnowledge, deptShare, deptSync,
-  type FetchLike, type KbSearchResult,
+  type FetchLike, type KbSearchResult, type ClaudeJson,
 } from "../src/vendor/mpr-plugins/company/company-knowledge";
 
 let dir = "";
@@ -22,6 +22,84 @@ beforeEach(() => {
 
 afterEach(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
+});
+
+// ─── pure: resolveKbUrl ──────────────────────────────────────────────────────
+
+describe("resolveKbUrl", () => {
+  const REMOTE = "http://10.66.66.26:47778";
+  const root = (url: string): ClaudeJson => ({
+    mcpServers: { "arra-oracle": { env: { ORACLE_REMOTE_URL: url } } },
+  });
+  const perProject = (url: string): ClaudeJson => ({
+    projects: { "/some/path": { mcpServers: { "arra-oracle": { env: { ORACLE_REMOTE_URL: url } } } } },
+  });
+
+  test("(a) env.ORACLE_REMOTE_URL wins over everything", () => {
+    expect(
+      resolveKbUrl({ env: { ORACLE_REMOTE_URL: REMOTE, ARRA_URL: "http://other" }, claudeJson: root("http://json") }),
+    ).toBe(REMOTE);
+  });
+
+  test("(b) env.ARRA_URL is next when ORACLE_REMOTE_URL absent", () => {
+    expect(
+      resolveKbUrl({ env: { ARRA_URL: "http://manual" }, claudeJson: root("http://json") }),
+    ).toBe("http://manual");
+  });
+
+  test("(c) claude.json ROOT mcpServers used when env absent", () => {
+    expect(resolveKbUrl({ env: {}, claudeJson: root(REMOTE) })).toBe(REMOTE);
+  });
+
+  test("(d) per-project fallback when root absent", () => {
+    expect(resolveKbUrl({ env: {}, claudeJson: perProject(REMOTE) })).toBe(REMOTE);
+  });
+
+  test("(d) first non-empty per-project hit wins", () => {
+    const cj: ClaudeJson = {
+      projects: {
+        "/a": { mcpServers: { "arra-oracle": { env: {} } } },
+        "/b": { mcpServers: { "arra-oracle": { env: { ORACLE_REMOTE_URL: REMOTE } } } },
+      },
+    };
+    expect(resolveKbUrl({ env: {}, claudeJson: cj })).toBe(REMOTE);
+  });
+
+  test("(e) localhost fallback when claude.json is null", () => {
+    expect(resolveKbUrl({ env: {}, claudeJson: null })).toBe("http://localhost:47778");
+  });
+
+  test("(e) localhost fallback honors ORACLE_PORT", () => {
+    expect(resolveKbUrl({ env: { ORACLE_PORT: "9999" }, claudeJson: null })).toBe("http://localhost:9999");
+  });
+
+  test("(e) localhost fallback when claude.json lacks the keys", () => {
+    expect(resolveKbUrl({ env: {}, claudeJson: { mcpServers: {} } })).toBe("http://localhost:47778");
+    expect(resolveKbUrl({ env: {}, claudeJson: {} })).toBe("http://localhost:47778");
+  });
+
+  test("(f) precedence: root claude.json beats per-project", () => {
+    const cj: ClaudeJson = {
+      mcpServers: { "arra-oracle": { env: { ORACLE_REMOTE_URL: "http://root" } } },
+      projects: { "/p": { mcpServers: { "arra-oracle": { env: { ORACLE_REMOTE_URL: "http://proj" } } } } },
+    };
+    expect(resolveKbUrl({ env: {}, claudeJson: cj })).toBe("http://root");
+  });
+
+  test("(f) full precedence order ORACLE_REMOTE_URL > ARRA_URL > json > localhost", () => {
+    const cj = root("http://json");
+    expect(resolveKbUrl({ env: { ORACLE_REMOTE_URL: "http://exp", ARRA_URL: "http://man" }, claudeJson: cj })).toBe("http://exp");
+    expect(resolveKbUrl({ env: { ARRA_URL: "http://man" }, claudeJson: cj })).toBe("http://man");
+    expect(resolveKbUrl({ env: {}, claudeJson: cj })).toBe("http://json");
+    expect(resolveKbUrl({ env: {}, claudeJson: null })).toBe("http://localhost:47778");
+  });
+
+  test("blank/whitespace values fall through, not treated as set", () => {
+    expect(
+      resolveKbUrl({ env: { ORACLE_REMOTE_URL: "   ", ARRA_URL: "" }, claudeJson: root(REMOTE) }),
+    ).toBe(REMOTE);
+    expect(resolveKbUrl({ env: {}, claudeJson: root("  ") })).toBe("http://localhost:47778");
+  });
 });
 
 // ─── pure: kbLearnPayload ────────────────────────────────────────────────────
@@ -71,7 +149,8 @@ describe("kbSearchUrl", () => {
     const url = kbSearchUrl("http://localhost:47778", tag, "retry logic");
     expect(url).toContain(`q=${encodeURIComponent(`${tag} retry logic`)}`);
     expect(url).toContain("limit=10");
-    expect(url).toContain("mode=hybrid");
+    expect(url).toContain("mode=fts");
+    expect(url).not.toContain("mode=hybrid");
   });
 
   test("no query: tag alone is the q", () => {

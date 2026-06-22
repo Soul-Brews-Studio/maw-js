@@ -1,3 +1,6 @@
+import { readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import {
   loadCompany, departmentMembers, kbTagFor,
   type DeptMember,
@@ -32,10 +35,70 @@ import {
  * so they can be unit tested without a live server or spawned process.
  */
 
-// ─── KB (muninn) HTTP — mirror the `dream` plugin's base-URL resolution ──────
+// ─── KB (muninn) HTTP — resolve the real fleet KB, not localhost ─────────────
 
+/** Shape of the arra-oracle MCP server entry we mine for the KB URL. */
+interface ClaudeMcpServers {
+  ["arra-oracle"]?: { env?: { ORACLE_REMOTE_URL?: string } };
+  [key: string]: any;
+}
+
+/** Minimal shape of `~/.claude.json` we read — root + per-project mcpServers. */
+export interface ClaudeJson {
+  mcpServers?: ClaudeMcpServers;
+  projects?: Record<string, { mcpServers?: ClaudeMcpServers }>;
+}
+
+/** Pull `arra-oracle.env.ORACLE_REMOTE_URL` from an mcpServers map, or "". */
+function remoteUrlFrom(servers: ClaudeMcpServers | undefined): string {
+  const u = servers?.["arra-oracle"]?.env?.ORACLE_REMOTE_URL;
+  return typeof u === "string" ? u.trim() : "";
+}
+
+/**
+ * Pure KB base-URL resolver — first non-empty wins:
+ *   1. env.ORACLE_REMOTE_URL  (someone exported it)
+ *   2. env.ARRA_URL           (existing manual override)
+ *   3. claude.json → ROOT mcpServers["arra-oracle"].env.ORACLE_REMOTE_URL,
+ *      else the first per-project projects.*.mcpServers[...] hit
+ *   4. http://localhost:${env.ORACLE_PORT || "47778"}  (fallback)
+ *
+ * Takes already-parsed inputs (env object + parsed claude.json or null) so it is
+ * unit-testable with no real file read. Never throws.
+ */
+export function resolveKbUrl(args: { env: Record<string, string | undefined>; claudeJson: ClaudeJson | null }): string {
+  const { env, claudeJson } = args;
+
+  const exported = env.ORACLE_REMOTE_URL?.trim();
+  if (exported) return exported;
+
+  const manual = env.ARRA_URL?.trim();
+  if (manual) return manual;
+
+  if (claudeJson) {
+    const root = remoteUrlFrom(claudeJson.mcpServers);
+    if (root) return root;
+    for (const proj of Object.values(claudeJson.projects ?? {})) {
+      const perProject = remoteUrlFrom(proj?.mcpServers);
+      if (perProject) return perProject;
+    }
+  }
+
+  return `http://localhost:${env.ORACLE_PORT || "47778"}`;
+}
+
+/** Best-effort read+parse of `~/.claude.json`; missing/malformed → null. */
+function readClaudeJson(): ClaudeJson | null {
+  try {
+    return JSON.parse(readFileSync(join(homedir(), ".claude.json"), "utf-8")) as ClaudeJson;
+  } catch {
+    return null;
+  }
+}
+
+/** Thin wrapper: read live env + `~/.claude.json` and resolve. Never throws. */
 export function kbUrl(): string {
-  return process.env.ARRA_URL || `http://localhost:${process.env.ORACLE_PORT || "47778"}`;
+  return resolveKbUrl({ env: process.env, claudeJson: readClaudeJson() });
 }
 
 export interface KbLearnPayload {
@@ -84,10 +147,15 @@ export function kbLearnPayload(company: string, dept: string, knowledge: string)
  * Build the KB search URL. The dept tag is prepended to the query so the tag
  * boosts relevance; results are then post-filtered by `filterByDeptTag`. When
  * the user gives no query, the tag alone is the query.
+ *
+ * Uses `mode=fts` (full-text/exact match) rather than `mode=hybrid`: hybrid
+ * ranks dept-tagged entries below semantic noise so the exact `dept:<co>:<dept>`
+ * matches fall outside `limit=10` and `filterByDeptTag` then drops everything
+ * (always 0 results). fts surfaces the tagged entries directly.
  */
 export function kbSearchUrl(base: string, deptTag: string, query?: string): string {
   const q = query && query.trim() ? `${deptTag} ${query.trim()}` : deptTag;
-  return `${base}/api/search?q=${encodeURIComponent(q)}&limit=10&mode=hybrid`;
+  return `${base}/api/search?q=${encodeURIComponent(q)}&limit=10&mode=fts`;
 }
 
 /**
