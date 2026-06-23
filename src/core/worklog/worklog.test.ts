@@ -174,7 +174,7 @@ describe("hook scripts stay in sync with embedded base64", () => {
   it("decoded base64 matches scripts/hooks/*.sh", async () => {
     const { hookScriptBody } = await import("./hook-setup");
     const root = join(import.meta.dir, "../../..");
-    for (const f of ["worklog-tool.sh", "worklog-convo.sh", "worklog-orient.sh"]) {
+    for (const f of ["worklog-tool.sh", "worklog-convo.sh", "worklog-orient.sh", "company-policy.sh"]) {
       const onDisk = readFileSync(join(root, "scripts/hooks", f), "utf-8");
       expect(hookScriptBody(f)).toBe(onDisk);
     }

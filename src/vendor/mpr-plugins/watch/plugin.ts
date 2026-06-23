@@ -15,7 +15,7 @@ export default definePlugin({
     "serve": {
       "script": "./serve.ts",
       "handler": "serve",
-      "ensures": ["http:route:/api/worklog"],
+      "ensures": ["http:route:/api/worklog", "http:route:/api/policy"],
       "policy": "best-effort"
     }
   },

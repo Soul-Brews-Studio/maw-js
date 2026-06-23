@@ -10,6 +10,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest } from "../../../core/worklog/route";
+import { handlePolicyRequest } from "../../../core/policy/route";
 import { feedListeners } from "../../../api/feed";
 
 export function serve(ctx: PluginLifecycleContext): { ok: true } {
@@ -17,5 +18,8 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   registerWorklogListener(feedListeners);
   // read/inject route
   ctx.http?.route("GET", "/api/worklog", (request: Request) => handleWorklogRequest(request));
+  // company/dept policy inject route — on-attach context (separate concern,
+  // toggles with this plugin). Behind auth via PROTECTED "/policy".
+  ctx.http?.route("GET", "/api/policy", (request: Request) => handlePolicyRequest(request));
   return { ok: true };
 }

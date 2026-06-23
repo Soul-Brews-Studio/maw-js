@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { mawDataPath, loadFleetEntries, fleetLoadDirForWrite, getGhqRoot } from "maw-js/sdk";
-import { writeDeptBlock, removeDeptBlockFromRepo } from "./company-claudemd";
+import { removeDeptBlockFromRepo } from "./company-claudemd";
 
 /**
  * Company plugin — logical company > department > oracle layer.
@@ -257,6 +257,11 @@ export function resolveOracleRepoPath(oracle: string): string | null {
  * Write company/department/deptRole onto the oracle's fleet config WITHOUT
  * disturbing existing fields. No-op (returns false) when the oracle has no
  * fleet config on disk — the registry remains the source of truth either way.
+ *
+ * Note (#19 — conditional inject): we no longer write a static "## Department"
+ * block into the oracle's CLAUDE.md on assign. Dept identity is injected ONLY
+ * while attached (via the policy hook), so wake = 0 inject. Use
+ * `maw company migrate` to strip any stale static block left by older versions.
  */
 export function syncOracleAssignment(oracle: string, a: OracleAssignment): boolean {
   const file = fleetFileForOracle(oracle);
@@ -267,23 +272,6 @@ export function syncOracleAssignment(oracle: string, a: OracleAssignment): boole
   if (a.deptRole) cfg.deptRole = a.deptRole;
   else delete cfg.deptRole;
   writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
-
-  // Third sync target: the oracle's own CLAUDE.md managed block. Best-effort —
-  // a missing repo / CLAUDE.md must NOT fail the assignment.
-  const repoPath = resolveOracleRepoPath(oracle);
-  if (repoPath) {
-    const lead = loadCompany(a.company)?.departments[a.department]?.lead;
-    writeDeptBlock(repoPath, {
-      company: a.company,
-      dept: a.department,
-      role: a.deptRole,
-      lead,
-    });
-  } else {
-    console.warn(
-      `[company] CLAUDE.md sync skipped for '${oracle}' — no fleet repo path resolved`,
-    );
-  }
   return true;
 }
 

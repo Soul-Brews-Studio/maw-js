@@ -177,7 +177,7 @@ describe("writeDeptBlock / removeDeptBlockFromRepo (temp dir)", () => {
   });
 });
 
-describe("assign → CLAUDE.md block lands; remove → gone (fleet + repo integration)", () => {
+describe("assign → no static block (#19 inject-on-attach); remove → strips any existing block (fleet + repo integration)", () => {
   let home = "";
   let ghqRoot = "";
   const origHome = process.env.MAW_HOME;
@@ -223,23 +223,23 @@ describe("assign → CLAUDE.md block lands; remove → gone (fleet + repo integr
     resetGhqRootCache();
   });
 
-  test("assignMember writes the block; removeMember strips it", () => {
+  test("assignMember no longer writes a static block (#19 — inject on attach); removeMember strips any existing one", () => {
     const h = reqHelpers();
     h.createCompany("kob");
     h.addDepartment("kob", "payment");
     h.assignMember("kob", "payment", "payment-dev", "dev");
 
-    const claudeMd = join(ghqRoot, "github.com", "acme", "payment-dev-oracle", "CLAUDE.md");
-    expect(existsSync(claudeMd)).toBe(true);
-    let content = readFileSync(claudeMd, "utf-8");
-    expect(content).toContain(MARKER_START);
-    expect(content).toContain("- Company: kob");
-    expect(content).toContain("- Department: payment (dept:kob:payment)");
-    expect(content).toContain("- Role: dev");
+    const repoDir = join(ghqRoot, "github.com", "acme", "payment-dev-oracle");
+    const claudeMd = join(repoDir, "CLAUDE.md");
+    // #19: dept identity is injected only while attached, NOT written to CLAUDE.md.
+    const wroteBlock = existsSync(claudeMd) && readFileSync(claudeMd, "utf-8").includes(MARKER_START);
+    expect(wroteBlock).toBe(false);
 
+    // A pre-#19 oracle may still carry a static block — removeMember must strip it.
+    writeDeptBlock(repoDir, { company: "kob", dept: "payment", role: "dev" });
+    expect(readFileSync(claudeMd, "utf-8")).toContain(MARKER_START);
     h.removeMember("kob", "payment", "payment-dev");
-    content = readFileSync(claudeMd, "utf-8");
-    expect(content).not.toContain(MARKER_START);
+    expect(readFileSync(claudeMd, "utf-8")).not.toContain(MARKER_START);
   });
 
   test("repo-not-found path warns without crashing (no fleet repo on disk)", () => {

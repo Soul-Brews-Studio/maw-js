@@ -7,6 +7,9 @@ import {
   type DeptRole,
 } from "./company-helpers";
 import { attachToDept } from "./company-attach";
+import { syncCompanyPolicy } from "./company-sync";
+import { migrateCompanyPolicy } from "./company-migrate";
+import { clearPolicyAttach } from "../../../core/policy/attach-store";
 import {
   deptLearn, deptKnowledge, deptShare, deptSync,
 } from "./company-knowledge";
@@ -84,13 +87,68 @@ function runCompany(args: string[], logs: string[]): string | undefined {
     return;
   }
 
+  // Pull a policy snapshot from a manager repo's policies/ dir into
+  // ~/.maw/companies/<co>/policy/ so the on-attach inject hook reads it locally.
+  if (sub === "sync") {
+    const flags = parseFlags(args, { "--from": String }, 1);
+    const company = flags._[0];
+    const from = flags["--from"] as string | undefined;
+    if (!company || !from) {
+      logs.push("usage: maw company sync <company> --from <manager-oracle|repo-path>");
+      logs.push(`  ${D}pulls policies/{company.md,<dept>.md} → ~/.maw/companies/<company>/policy/${R}`);
+      return "company and --from required";
+    }
+    const res = syncCompanyPolicy(company, from);
+    if (!res.ok) { logs.push(`${Y}⚠${R} ${res.error}`); return res.error; }
+    logs.push(`${G}✓${R} synced ${res.written.length} policy file(s) for '${company}' ${D}(from ${res.sourceDir})${R}`);
+    for (const w of res.written) logs.push(`  ${G}●${R} ${w}`);
+    if (res.missing.length) logs.push(`  ${D}missing in source: ${res.missing.join(", ")}${R}`);
+    return;
+  }
+
+  // Sweep member CLAUDE.md files: strip the legacy static dept block (#19) so
+  // dept identity is inject-on-attach only. Idempotent; commits CLAUDE.md
+  // path-scoped, NEVER pushes (each oracle/Tony pushes).
+  if (sub === "migrate") {
+    const flags = parseFlags(args, { "--dry-run": Boolean, "--no-commit": Boolean }, 1);
+    const company = flags._[0]; // optional — undefined sweeps every company
+    const res = migrateCompanyPolicy(company, {
+      dryRun: Boolean(flags["--dry-run"]),
+      commit: !flags["--no-commit"],
+    });
+    const mode = flags["--dry-run"] ? ` ${D}(dry-run)${R}` : "";
+    logs.push(`\n  ${C}migrate dept block → conditional inject${R}${mode}  ${D}swept: ${res.companies.join(", ") || "—"}${R}\n`);
+    for (const o of res.outcomes) {
+      if (o.stripped) logs.push(`  ${G}✓${R} ${o.oracle} ${D}— block stripped${o.committed ? " + committed" : ""}${R}`);
+      else if (o.skippedReason === "no-block") logs.push(`  ${D}·${R} ${o.oracle} ${D}— no block (skip)${R}`);
+      else logs.push(`  ${Y}⚠${R} ${o.oracle} ${D}— repo not resolved (skip)${R}`);
+    }
+    logs.push(`\n  ${D}${res.changed} stripped · push left to each oracle/Tony${R}\n`);
+    return;
+  }
+
+  // Turn OFF policy inject for an oracle (pairs with `attach`). Defaults to the
+  // current oracle ($CLAUDE_AGENT_NAME) when no name is given.
+  if (sub === "detach") {
+    const oracle = args[1] ?? process.env.CLAUDE_AGENT_NAME ?? "";
+    if (!oracle) {
+      logs.push("usage: maw company detach [<oracle>]  (defaults to $CLAUDE_AGENT_NAME)");
+      return "oracle required";
+    }
+    const cleared = clearPolicyAttach(oracle);
+    logs.push(cleared
+      ? `${G}✓${R} detached '${oracle}' — policy inject off`
+      : `${D}·${R} '${oracle}' was not attached`);
+    return;
+  }
+
   if (!sub || sub === "ls" || sub === "list") {
     renderList(logs);
     return;
   }
 
   logs.push(`unknown company subcommand: ${sub}`);
-  logs.push("usage: maw company <create|add-dept|ls|tree|attach|rm-dept|delete>");
+  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|rm-dept|delete>");
   return `unknown subcommand: ${sub}`;
 }
 
