@@ -16,6 +16,15 @@ export const DEFAULT_ENGINES = {
   thclaws: { name: "thclaws", cmd: "thclaws", label: "thClaws", processNames: ["thclaws"] },
   opencode: { name: "opencode", cmd: "opencode", label: "OpenCode", processNames: ["opencode"] },
   aider: { name: "aider", cmd: "aider", label: "Aider", processNames: ["aider"] },
+  grok: {
+    name: "grok",
+    cmd: "grok",
+    label: "Grok CLI",
+    processNames: ["grok", "grok-macos"],
+    resume: { flag: "--continue", quoteValue: false },
+    model: { flag: "--model" },
+    capabilities: ["resume", "model", "channels"],
+  },
 } satisfies Record<string, EngineDef>;
 
 export type EngineRegistry = Record<string, EngineDef>;
