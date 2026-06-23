@@ -1,6 +1,14 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdDone, cmdDoneAll } from "./impl";
 
+// Lazy: imported only when we actually poll, so `done`'s module-eval import graph
+// stays minimal (eager-importing pr-watch pulls a getGhqRoot-from-sdk consumer
+// that breaks tests which partial-mock maw-js/sdk, e.g. done-all.test.ts).
+async function onSignalPrPoll(): Promise<void> {
+  const { triggerPrPollNow } = await import("maw-js/core/worklog/pr-watch");
+  await triggerPrPollNow();
+}
+
 export const command = {
   name: ["done", "finish"],
   description: "Finish a worktree session: retrospective/save, kill window, and remove worktree.",
@@ -57,6 +65,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (all) {
       await cmdDoneAll({ force: Boolean(force), dryRun: Boolean(dryRun), cleanBranch: Boolean(cleanBranch), oracle: name, cwd: process.cwd() });
+      // on-signal: worker finished → poll PR state once so the worklog catches a merge
+      if (!dryRun) await onSignalPrPoll();
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
@@ -65,6 +75,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     await cmdDone(name, { force: Boolean(force), dryRun: Boolean(dryRun), cleanBranch: Boolean(cleanBranch), cwd: process.cwd() });
+    // on-signal: worker finished → poll PR state once so the worklog catches a merge
+    if (!dryRun) await onSignalPrPoll();
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

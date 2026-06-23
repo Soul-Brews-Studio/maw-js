@@ -328,6 +328,9 @@ export async function startBunGatewayServer(
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
+  // NOTE: the worklog engine (capture listener + /api/worklog route) is registered
+  // by the `watch` plugin's serve lifecycle hook, not here — so disabling the
+  // plugin turns the engine off. See src/vendor/mpr-plugins/watch/serve.ts.
   feedListeners.add((event) => {
     dispatchEnginePluginEvent(event).catch((err) => {
       log.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);

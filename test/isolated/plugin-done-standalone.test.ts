@@ -38,11 +38,14 @@ describe("done command plugin standalone boundary", () => {
   test("touched done autosave files keep explicit standalone import boundaries", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "done",
-      files: ["impl.ts", "done-autosave.ts", "done-worktree.ts", "retrospective-command.ts"],
+      // index.ts added (#PR24): it now fires an on-signal worklog PR poll, so its
+      // single deep import (maw-js/core/worklog/pr-watch) is pinned explicitly.
+      files: ["index.ts", "impl.ts", "done-autosave.ts", "done-worktree.ts", "retrospective-command.ts"],
       allowRelative: ["./done-autosave", "./done-worktree", "../../../core/xdg"],
       allowMawJs: [
         /^maw-js\/core\/matcher\/normalize-target$/,
         /^maw-js\/core\/fleet\/worktree-layout$/,
+        /^maw-js\/core\/worklog\/pr-watch$/,
         /^maw-js\/commands\/shared\/fleet-load$/,
         /^maw-js\/commands\/shared\/wake-resolve$/,
         /^maw-js\/config\/ghq-root$/,
@@ -53,6 +56,7 @@ describe("done command plugin standalone boundary", () => {
 
     expect(imports).toContain("maw-js/sdk");
     expect(imports).toContain("./retrospective-command");
+    expect(imports).toContain("maw-js/core/worklog/pr-watch");
   });
 
   test("shared retrospective inference covers claude, omx, and codex-style engines", () => {

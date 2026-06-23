@@ -89,6 +89,7 @@
     "./core/gateway": "./src/core/gateway.ts",
     "./core/resolve": "./src/core/resolve.ts",
     "./core/matcher/normalize-target": "./src/core/matcher/normalize-target.ts",
+    "./core/worklog/pr-watch": "./src/core/worklog/pr-watch.ts",
     "./core/matcher/resolve-target": "./src/core/matcher/resolve-target.ts",
     "./core/paths": "./src/core/paths.ts",
     "./core/transport/ssh": "./src/core/transport/ssh.ts",
