@@ -37,6 +37,7 @@ const PROTECTED = new Set([
   "/control/kill",
   "/control/resize",
   "/worklog",         // worklog read/inject — captured prompts + commands are private (Rule 6); loopback hooks bypass, LAN must auth
+  "/policy",          // company/dept policy inject — same surface as worklog (Rule 6); loopback hooks bypass, LAN must auth
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */

@@ -14,7 +14,11 @@ describe("watch command plugin standalone boundary", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "watch",
       allowMawJs: [/^maw-js\/config$/],
-      allowRelative: [/^(?:\.\.\/){3}core\/worklog\//, /^(?:\.\.\/){3}api\/feed$/],
+      allowRelative: [
+        /^(?:\.\.\/){3}core\/worklog\//,
+        /^(?:\.\.\/){3}core\/policy\//, // policy inject route — on-attach context
+        /^(?:\.\.\/){3}api\/feed$/,
+      ],
     }).map((record) => record.spec);
 
     expect(imports).toContain("maw-js/sdk");
@@ -29,6 +33,7 @@ describe("watch command plugin standalone boundary", () => {
     );
     expect(serveSrc).toContain("registerWorklogListener");
     expect(serveSrc).toContain("/api/worklog");
+    expect(serveSrc).toContain("/api/policy");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["']/);
   });
 });
