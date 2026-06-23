@@ -71,7 +71,10 @@ describe("queue-store default coverage", () => {
       sender: "old",
       target: "new",
       message: "still pending",
-      sentAt: "2026-05-20T00:00:00.000Z",
+      // Relative to now — a hardcoded absolute date is a time-bomb: once it ages
+      // past TTL_MS (30d) the loader's lazy GC reaps it and this test fails. Keep
+      // it comfortably inside the window so the legacy-read assertion is stable.
+      sentAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       status: "pending",
     }));
 

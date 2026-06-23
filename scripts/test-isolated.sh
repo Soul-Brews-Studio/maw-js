@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Strategy B: bun test --isolate for test/isolated/.
+# Isolation: one subprocess per test file (`bun test <file>`), with --isolate
+# passed as defense-in-depth.
 #
-# Replaces the per-file subprocess loop (Strategy A) with bun's native
-# --isolate flag (available since bun 1.3.13). Each test file gets a fresh
-# global environment within the same bun process — same isolation guarantee,
-# ~3.4x faster (37s vs ~124s for 620 files on m5).
+# History: Strategy B tried running a whole shard in ONE `bun test --isolate`
+# process for speed (~3.4x). But --isolate gives fresh globals per file WITHOUT
+# preventing mock.module() registrations from bleeding across files in the same
+# process — 140 isolated tests mock the SDK, so the combined run was order-
+# fragile (adding/removing a file reshuffled shards and could link-break a later
+# file's `import { X } from "maw-js/sdk"`). Both the shard and full-suite paths
+# now use the per-file subprocess loop (Strategy A): a process boundary is the
+# only order-independent isolation. Slower, but deterministically green.
 #
 # Usage:
 #   bash scripts/test-isolated.sh                         # normal run
@@ -105,22 +110,41 @@ if [[ -n "$SHARD_TOTAL" ]]; then
     exit 2
   fi
 
-  echo "=== test-isolated.sh: shard ${SHARD_INDEX}/${SHARD_TOTAL} selected $TOTAL file(s), bun --isolate ==="
-  exec bun test "${FILES[@]}" \
-    --path-ignore-patterns '**/agents/**' \
-    "${BUN_EXTRA_ARGS[@]}"
+  # Fall through to the per-file subprocess loop below — do NOT run the whole
+  # shard in one `bun test --isolate` process. `--isolate` gives fresh globals
+  # per file but does NOT prevent `mock.module(...)` registrations from bleeding
+  # across files in the same process: a partial `mock.module("maw-js/sdk", ...)`
+  # in one file makes a later file's top-level `import { X } from "maw-js/sdk"`
+  # fail to link ("Export 'X' not found", unhandled error between tests). 140
+  # isolated tests mock the SDK, so the combined run was order-fragile: adding or
+  # removing any test file reshuffled shards and could co-locate a leaker with a
+  # victim. A true subprocess per file is the only order-independent isolation.
+  echo "=== test-isolated.sh: shard ${SHARD_INDEX}/${SHARD_TOTAL} selected $TOTAL file(s) ==="
 fi
 
 PER_FILE_TIMEOUT="${MAW_TEST_ISOLATED_FILE_TIMEOUT:-60}"
-echo "=== test-isolated.sh: $TOTAL files, bun --isolate, per-file timeout ${PER_FILE_TIMEOUT}s ==="
+
+# Portable timeout: GNU `timeout` (Linux/CI), `gtimeout` (macOS coreutils), or
+# run without a timeout if neither is present (local dev on stock macOS).
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"; fi
+
+echo "=== test-isolated.sh: $TOTAL files, per-file subprocess (--isolate)${TIMEOUT_BIN:+, ${PER_FILE_TIMEOUT}s timeout} ==="
 
 failures=0
 for file in "${FILES[@]}"; do
   echo "--- $file ---"
   set +e
-  timeout "$PER_FILE_TIMEOUT" bun test "$file" \
-    --path-ignore-patterns '**/agents/**' \
-    "${BUN_EXTRA_ARGS[@]}"
+  if [[ -n "$TIMEOUT_BIN" ]]; then
+    "$TIMEOUT_BIN" "$PER_FILE_TIMEOUT" bun test "$file" \
+      --path-ignore-patterns '**/agents/**' \
+      "${BUN_EXTRA_ARGS[@]}"
+  else
+    bun test "$file" \
+      --path-ignore-patterns '**/agents/**' \
+      "${BUN_EXTRA_ARGS[@]}"
+  fi
   status=$?
   set -e
   if [[ "$status" -eq 124 ]]; then
