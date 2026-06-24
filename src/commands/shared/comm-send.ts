@@ -646,21 +646,28 @@ export async function cmdSend(
         s.name === bareAgent ||
         s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
       );
+      // #eq3 P1 (chronic respawn): the naive name-match above misses a LIVE
+      // agent sitting in a non-conventional window (worktree `nai-2-…`, numbered
+      // `24-nai`) → it read as not-live → auto-wake → respawned a live agent.
+      // Fold in the REAL resolver result (`bareResolution.result`, line 622 —
+      // the same target used to deliver the message): deliverable ⇒ live ⇒ never
+      // wake. The bare resolver returns null for node-prefixed / `local:` queries,
+      // so the name-match stays as the signal for those (OR, not replace).
+      const isLive = Boolean(bareResolution.result) || hasLocalSession;
       try {
         // Sub-PR 4 of #841: use the unified OracleManifest as the source of
-        // truth for `isFleetKnown`. We still derive `isLive` from the freshly
-        // captured `listSessions()` because the manifest's loader doesn't
-        // touch tmux (see oracle-manifest.ts file-level docs) — so we enrich
-        // the entry's `isLive` field locally before handing it to the helper.
+        // truth for `isFleetKnown`. `isLive` is derived above from the resolver
+        // (+ name-match fallback) since the manifest loader doesn't touch tmux
+        // (see oracle-manifest.ts file-level docs) — enrich the entry locally.
         const { findOracle } = await import("../../lib/oracle-manifest");
         const { shouldAutoWake } = await import("./should-auto-wake");
         const entry = findOracle(bareAgent);
-        const enriched = entry ? { ...entry, isLive: hasLocalSession } : undefined;
+        const enriched = entry ? { ...entry, isLive } : undefined;
         const decision = shouldAutoWake(bareAgent, {
           site: "hey",
           // Fallback for the unknown-oracle (no manifest entry) branch:
           // preserve existing behavior — unknown ⇒ skip wake.
-          isLive: hasLocalSession,
+          isLive,
           isFleetKnown: false,
           isCanonicalTarget: false,
           manifest: enriched,

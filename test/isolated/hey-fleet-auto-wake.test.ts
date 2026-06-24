@@ -214,6 +214,22 @@ describe("cmdSend — fleet auto-wake (#736 Phase 1.2)", () => {
     expect(sendKeysCalls.length).toBe(1);
   });
 
+  test("does NOT wake a LIVE agent in a non-conventional window — bare resolver (#eq3 P1)", async () => {
+    // The chronic bug: an agent live in a worktree/numbered window whose name
+    // is NOT `<agent>` / `<agent>-oracle` (here `voltwt-2-feature`) was missed
+    // by the naive session/window name-match → read as dead → auto-wake →
+    // respawned a LIVE agent. The bare resolver still resolves it (same target
+    // used to deliver), so isLive is true and we must NOT wake.
+    fleetKnown.add("voltwt");
+    listSessionsReturn = [{ name: "wt-host", windows: [{ index: 0, name: "voltwt-2-feature", active: true }] }];
+    resolveTargetReturn = { type: "local", target: "wt-host:voltwt-2-feature.0" };
+
+    await run(async () => (await getCmdSendModule()).cmdSend("voltwt", "hi"));
+
+    expect(cmdWakeCalls.length).toBe(0); // resolver found it → no respawn
+    expect(sendKeysCalls.length).toBe(1); // delivered
+  });
+
   test("does NOT wake when target is unknown (not in fleet)", async () => {
     // fleetKnown empty
     listSessionsReturn = [];
