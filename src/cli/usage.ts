@@ -23,7 +23,7 @@ function displayLabel(primary: string, aliases: string[]): string {
 }
 
 export function formatUsage(all: LoadedPlugin[]): string {
-  const active = all.filter(p => !p.disabled && p.manifest.cli?.command);
+  const active = all.filter(p => !p.disabled && p.manifest.cli?.command && !p.manifest.cli?.hidden);
   const hasDisabled = all.some(p => p.disabled);
 
   const tiers = [

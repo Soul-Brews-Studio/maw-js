@@ -7,7 +7,8 @@
   "author": "kobo:core",
   "cli": {
     "command": "watch",
-    "help": "maw watch <log|inject|claim|release|sync|setup-hooks> [opts]"
+    "help": "maw watch <claim|release|log|inject|sync> — setup-hooks moved to 'maw company hooks repair'",
+    "hidden": true
   },
   "hooks": {
     "serve": {

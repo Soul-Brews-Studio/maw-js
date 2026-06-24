@@ -11,6 +11,10 @@ import { syncCompanyPolicy } from "./company-sync";
 import { migrateCompanyPolicy } from "./company-migrate";
 import { clearPolicyAttach } from "../../../core/policy/attach-store";
 import {
+  provisionOracleHooks, pruneOracleHooks, hooksStatusForOracle, setupWorklogHooks,
+} from "../../../core/worklog/hook-setup";
+import { companyOracles } from "../../../core/worklog/company-scope";
+import {
   deptLearn, deptKnowledge, deptShare, deptSync,
 } from "./company-knowledge";
 
@@ -142,14 +146,83 @@ function runCompany(args: string[], logs: string[]): string | undefined {
     return;
   }
 
+  // Company-context hook provisioning (re-homed from `maw watch setup-hooks`):
+  //   status  — who has / is missing the unified hook set
+  //   repair  — install the set for every member missing it (sweep)
+  //   prune   — strip the set from an oracle that left the company
+  if (sub === "hooks") {
+    return runHooks(args.slice(1), logs);
+  }
+
   if (!sub || sub === "ls" || sub === "list") {
     renderList(logs);
     return;
   }
 
   logs.push(`unknown company subcommand: ${sub}`);
-  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|rm-dept|delete>");
+  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|hooks|rm-dept|delete>");
   return `unknown subcommand: ${sub}`;
+}
+
+/** True when `oracle` is still a member of ANY company (registry-fresh). */
+function stillInAnyCompany(oracle: string): boolean {
+  return listCompanies().some(c =>
+    Object.values(c.departments).some(d => d.members.some(m => m.oracle === oracle)),
+  );
+}
+
+// ─── company hooks verb: status | repair | prune ─────────────────────────────
+
+function runHooks(args: string[], logs: string[]): string | undefined {
+  const action = args[0]?.toLowerCase();
+
+  if (action === "status") {
+    const company = args[1];
+    if (!company) { logs.push("usage: maw company hooks status <company>"); return "company required"; }
+    const members = companyOracles(company);
+    logs.push(`\n  ${C}${company}${R}  ${D}company-context hooks (${members.length} member${members.length === 1 ? "" : "s"})${R}\n`);
+    if (members.length === 0) { logs.push(`  ${D}(no members)${R}\n`); return; }
+    for (const oracle of members) {
+      const st = hooksStatusForOracle(oracle);
+      if (!st.hasDir) {
+        logs.push(`  ${Y}∅${R} ${oracle.padEnd(24)} ${D}no checkout (deferred)${R}`);
+      } else if (st.missing.length === 0) {
+        logs.push(`  ${G}●${R} ${oracle.padEnd(24)} ${D}all ${st.installed.length} hooks${R}`);
+      } else {
+        logs.push(`  ${Y}◐${R} ${oracle.padEnd(24)} ${D}missing: ${st.missing.join(", ")}${R}`);
+      }
+    }
+    logs.push("");
+    return;
+  }
+
+  if (action === "repair") {
+    const flags = parseFlags(args, { "--company": String }, 1);
+    const company = flags._[0] ?? (flags["--company"] as string | undefined);
+    if (!company) { logs.push("usage: maw company hooks repair <company> [--dry-run]"); return "company required"; }
+    const dryRun = args.includes("--dry-run");
+    const res = setupWorklogHooks({ company, dryRun });
+    logs.push(`\n  ${C}${company}${R}  ${D}hooks repair${dryRun ? " (dry-run)" : ""}${R}\n`);
+    logs.push(`  ${D}scripts: ${res.scriptsInstalled} ${dryRun ? "would install" : "installed/updated"}${R}`);
+    if (res.updated.length) logs.push(`  ${G}${dryRun ? "would update" : "updated"}${R}: ${res.updated.join(", ")}`);
+    if (res.alreadyOk.length) logs.push(`  ${D}ok (already): ${res.alreadyOk.join(", ")}${R}`);
+    if (res.skipped.length) logs.push(`  ${Y}deferred (no checkout)${R}: ${res.skipped.join(", ")}`);
+    logs.push("");
+    return;
+  }
+
+  if (action === "prune") {
+    const oracle = args[1];
+    if (!oracle) { logs.push("usage: maw company hooks prune <oracle>"); return "oracle required"; }
+    const outcome = pruneOracleHooks(oracle);
+    logs.push(outcome === "pruned"
+      ? `${G}✓${R} pruned company-context hooks from '${oracle}'`
+      : `${D}·${R} '${oracle}' had no hooks to prune ${D}(${outcome})${R}`);
+    return;
+  }
+
+  logs.push("usage: maw company hooks <status|repair|prune> ...");
+  return `unknown hooks action: ${action ?? "(none)"}`;
 }
 
 // ─── operate verb: attach (async — shells out to maw attach / maw bud) ───────
@@ -269,6 +342,14 @@ function runDept(args: string[], logs: string[]): string | undefined {
       logs.push(`  ${D}suggested convention: ${res.naming.suggestion}${R}`);
     }
     logs.push(`${G}✓${R} ${res.alreadyMember ? "updated" : "assigned"} ${oracle} → ${company}/${dept} (${role})`);
+    // Auto-provision the company-context hook set (worklog + policy) for this
+    // oracle — best-effort, per-oracle (#2 spec). No checkout yet → defer to
+    // the next `maw company attach`. Never fails the assignment.
+    try {
+      const outcome = provisionOracleHooks(oracle);
+      if (outcome === "updated") logs.push(`  ${D}↳ hooks provisioned (worklog + policy)${R}`);
+      else if (outcome === "skipped") logs.push(`  ${Y}↳ hooks deferred${R} ${D}— no checkout yet; attach to provision${R}`);
+    } catch { /* best-effort — never block assign */ }
     return;
   }
 
@@ -303,6 +384,15 @@ function runDept(args: string[], logs: string[]): string | undefined {
     }
     removeMember(company, dept, oracle);
     logs.push(`${G}✓${R} removed ${oracle} from ${company}/${dept}`);
+    // Prune the company-context hooks for an oracle that left — best-effort,
+    // only when it no longer belongs to ANY company (avoid stripping hooks from
+    // an oracle still assigned elsewhere). Never fails the removal.
+    try {
+      if (!stillInAnyCompany(oracle)) {
+        const outcome = pruneOracleHooks(oracle);
+        if (outcome === "pruned") logs.push(`  ${D}↳ hooks pruned${R}`);
+      }
+    } catch { /* best-effort */ }
     return;
   }
 

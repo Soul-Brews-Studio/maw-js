@@ -94,6 +94,7 @@ export interface PluginManifest {
     aliases?: string[];                    // alternate command names
     help?: string;
     flags?: Record<string, string>;        // flag name → "boolean"|"string"|"number"
+    hidden?: boolean;                      // hide from `maw` help listing while staying callable (escape-hatch)
   };
   api?: { path: string; methods: ("GET" | "POST")[]; };
   description?: string;

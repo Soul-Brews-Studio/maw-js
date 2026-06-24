@@ -102,10 +102,147 @@ export interface SetupHooksResult {
   skipped: string[];
 }
 
-/** Merge all worklog hooks into each company member's settings.json. */
+/** Default fleet repo root (where <oracle>-oracle checkouts live). */
+function defaultGhqRoot(): string {
+  return join(homedir(), "ghq/github.com/meganechan");
+}
+
+/** Resolve an oracle's repo dir by the `<oracle>-oracle` name convention. */
+function oracleRepoDir(oracle: string, ghqRoot: string): string {
+  const repo = oracle.endsWith("-oracle") ? oracle : `${oracle}-oracle`;
+  return join(ghqRoot, repo);
+}
+
+export type ProvisionOutcome = "updated" | "alreadyOk" | "skipped";
+
+/**
+ * Provision the unified company-context hook set (worklog capture/inject +
+ * company-policy inject) into ONE oracle's `.claude/settings.json`, idempotently.
+ *
+ * Returns:
+ *  - "updated"   — installed the missing hooks
+ *  - "alreadyOk" — all hooks already present
+ *  - "skipped"   — repo dir not found (no checkout/window yet) → caller should
+ *                  warn + defer, NEVER error. A later `attach` re-provisions.
+ *
+ * Best-effort: only writes when something changed (and not in dryRun).
+ */
+export function provisionOracleHooks(
+  oracle: string,
+  opts: { dryRun?: boolean; ghqRoot?: string } = {},
+): ProvisionOutcome {
+  const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
+  const dir = oracleRepoDir(oracle, ghqRoot);
+  if (!existsSync(dir)) return "skipped";
+
+  const settingsPath = join(dir, ".claude", "settings.json");
+  let settings: any = {};
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settings = {}; }
+  }
+  settings.hooks ??= {};
+
+  let changed = false;
+  for (const h of HOOKS) {
+    settings.hooks[h.event] ??= [];
+    const entries = settings.hooks[h.event] as any[];
+    if (entries.some(e => e.hooks?.some((hk: any) => isWorklogHook(hk, h.file)))) continue;
+    entries.push({ matcher: h.matcher, hooks: [{ type: "command", command: hookPath(h.file) }] });
+    changed = true;
+  }
+
+  if (!changed) return "alreadyOk";
+  if (opts.dryRun) return "updated";
+  ensureWorklogHookScripts(); // the settings reference these scripts — ensure on disk
+  mkdirSync(join(settingsPath, ".."), { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  return "updated";
+}
+
+export interface OracleHookStatus {
+  oracle: string;
+  /** repo checkout resolved on disk */
+  hasDir: boolean;
+  /** hook files already installed in settings.json */
+  installed: string[];
+  /** hook files missing */
+  missing: string[];
+}
+
+/** Inspect which hooks of the unified set an oracle currently has (read-only). */
+export function hooksStatusForOracle(
+  oracle: string,
+  opts: { ghqRoot?: string } = {},
+): OracleHookStatus {
+  const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
+  const dir = oracleRepoDir(oracle, ghqRoot);
+  if (!existsSync(dir)) {
+    return { oracle, hasDir: false, installed: [], missing: HOOKS.map(h => h.file) };
+  }
+  const settingsPath = join(dir, ".claude", "settings.json");
+  let settings: any = {};
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settings = {}; }
+  }
+  const installed: string[] = [];
+  const missing: string[] = [];
+  for (const h of HOOKS) {
+    const entries = settings?.hooks?.[h.event] as any[] | undefined;
+    const has = Array.isArray(entries)
+      && entries.some(e => e.hooks?.some((hk: any) => isWorklogHook(hk, h.file)));
+    (has ? installed : missing).push(h.file);
+  }
+  return { oracle, hasDir: true, installed, missing };
+}
+
+export type PruneOutcome = "pruned" | "nothing" | "skipped";
+
+/**
+ * Remove the unified hook set from an oracle's settings.json (used when it
+ * leaves a company). Only OUR hooks are stripped — other hooks in the same
+ * event are preserved; an entry is dropped only when it becomes empty.
+ */
+export function pruneOracleHooks(
+  oracle: string,
+  opts: { dryRun?: boolean; ghqRoot?: string } = {},
+): PruneOutcome {
+  const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
+  const dir = oracleRepoDir(oracle, ghqRoot);
+  if (!existsSync(dir)) return "skipped";
+  const settingsPath = join(dir, ".claude", "settings.json");
+  if (!existsSync(settingsPath)) return "nothing";
+  let settings: any = {};
+  try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { return "nothing"; }
+  if (!settings.hooks || typeof settings.hooks !== "object") return "nothing";
+
+  let changed = false;
+  for (const event of Object.keys(settings.hooks)) {
+    const entries = settings.hooks[event];
+    if (!Array.isArray(entries)) continue;
+    const kept: any[] = [];
+    for (const e of entries) {
+      if (Array.isArray(e.hooks)) {
+        const hooksKept = e.hooks.filter((hk: any) => !HOOKS.some(h => isWorklogHook(hk, h.file)));
+        if (hooksKept.length !== e.hooks.length) changed = true;
+        if (hooksKept.length === 0) continue; // entry now empty → drop
+        e.hooks = hooksKept;
+      }
+      kept.push(e);
+    }
+    settings.hooks[event] = kept;
+    if (kept.length === 0) delete settings.hooks[event];
+  }
+
+  if (!changed) return "nothing";
+  if (opts.dryRun) return "pruned";
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  return "pruned";
+}
+
+/** Merge the unified hook set into each company member's settings.json (sweep). */
 export function setupWorklogHooks(opts: SetupHooksOpts = {}): SetupHooksResult {
   const company = opts.company ?? "kobo";
-  const ghqRoot = opts.ghqRoot ?? join(homedir(), "ghq/github.com/meganechan");
+  const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
   const result: SetupHooksResult = { scriptsInstalled: 0, updated: [], alreadyOk: [], skipped: [] };
 
   result.scriptsInstalled = opts.dryRun
@@ -113,39 +250,10 @@ export function setupWorklogHooks(opts: SetupHooksOpts = {}): SetupHooksResult {
     : ensureWorklogHookScripts();
 
   for (const oracle of companyOracles(company)) {
-    const repo = oracle.endsWith("-oracle") ? oracle : `${oracle}-oracle`;
-    const dir = join(ghqRoot, repo);
-    if (!existsSync(dir)) {
-      result.skipped.push(oracle);
-      continue;
-    }
-    const settingsPath = join(dir, ".claude", "settings.json");
-    let settings: any = {};
-    if (existsSync(settingsPath)) {
-      try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settings = {}; }
-    }
-    settings.hooks ??= {};
-
-    let changed = false;
-    for (const h of HOOKS) {
-      settings.hooks[h.event] ??= [];
-      const entries = settings.hooks[h.event] as any[];
-      if (entries.some(e => e.hooks?.some((hk: any) => isWorklogHook(hk, h.file)))) continue;
-      entries.push({ matcher: h.matcher, hooks: [{ type: "command", command: hookPath(h.file) }] });
-      changed = true;
-    }
-
-    if (!changed) {
-      result.alreadyOk.push(oracle);
-      continue;
-    }
-    if (opts.dryRun) {
-      result.updated.push(oracle);
-      continue;
-    }
-    mkdirSync(join(settingsPath, ".."), { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-    result.updated.push(oracle);
+    const outcome = provisionOracleHooks(oracle, { dryRun: opts.dryRun, ghqRoot });
+    if (outcome === "updated") result.updated.push(oracle);
+    else if (outcome === "alreadyOk") result.alreadyOk.push(oracle);
+    else result.skipped.push(oracle);
   }
   return result;
 }
