@@ -212,6 +212,65 @@ describe("checkPaneIdle — heuristic", () => {
     // "git status" is after prompt → not idle
     expect(result.idle).toBe(false);
   });
+
+  // ── Claude Code TUI fixtures (#eq3-003b) ───────────────────────────────────
+  // The regression: the `❯` input row sits ~4 lines ABOVE the divider+footer,
+  // so a last-line-only check always saw the footer and returned idle:true,
+  // making the guard a no-op on the PRIMARY target. These fixtures mirror real
+  // `tmux capture-pane -p` output (somsri/lazy panes, 2026-06-25).
+
+  // Footer carries an OSC 8 hyperlink (PR link) terminated by ST (ESC \), the
+  // exact shape that defeats a CSI-only ANSI strip — verified against real
+  // `capture-pane -e` output (eq3, m5, 2026-06-25).
+  const CC_FOOTER =
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · PR \x1b]8;id=1ixvq14;https://github.com/meganechan/eq3-oracle/pull/1\x1b\\#1\x1b]8;;\x1b\\      221897 tokens";
+
+  const CC_EMPTY = [
+    "✻ Worked for 1m 22s",
+    "",
+    "────────────────────────────────────────────────────────────",
+    "❯ ",
+    "────────────────────────────────────────────────────────────",
+    CC_FOOTER,
+  ].join("\n");
+
+  const CC_TYPING = [
+    "● How is Claude doing this session? (optional)",
+    "  1: Bad    2: Fine   3: Good   0: Dismiss",
+    "",
+    "────────────────────────────────────────────────────────────",
+    "❯ hello world",
+    "────────────────────────────────────────────────────────────",
+    CC_FOOTER,
+  ].join("\n");
+
+  test("Claude Code TUI: idle when the ❯ input row above the footer is empty", async () => {
+    captureResponses = [CC_EMPTY];
+    const result = await checkPaneIdle("test-session:oracle.0");
+    expect(result.idle).toBe(true);
+    expect(result.lastInput).toBe("");
+  });
+
+  test("Claude Code TUI: NOT idle when the ❯ input row holds typed text (regression #eq3-003b)", async () => {
+    captureResponses = [CC_TYPING];
+    const result = await checkPaneIdle("test-session:oracle.0");
+    expect(result.idle).toBe(false);
+    expect(result.lastInput).toBe("hello world");
+  });
+
+  test("Claude Code TUI: a markdown `>` quote in output above the input box does not false-trigger", async () => {
+    captureResponses = [[
+      "  > a quoted line from earlier output",
+      "",
+      "────────────────────────────────────────",
+      "❯ ",
+      "────────────────────────────────────────",
+      "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents      100 tokens",
+    ].join("\n")];
+    const result = await checkPaneIdle("test-session:oracle.0");
+    // Lowest marker row is the empty ❯ input box, not the higher `>` quote.
+    expect(result.idle).toBe(true);
+  });
 });
 
 // ─── cmdSend delivery flow ───────────────────────────────────────────────────

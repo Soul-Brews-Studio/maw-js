@@ -229,10 +229,25 @@ function emitMessageFeed(input: MessageLifecycleInput, port: number) {
 
 /**
  * Check if a pane is idle — i.e., no user input is in progress on the prompt line.
- * Uses capture-pane to inspect the last visible line. If a shell prompt marker
- * ($, %, >, ❯, #) is followed by non-whitespace text, the user is mid-input.
- * Errors and non-shell panes (running agent) conservatively return idle=true.
- * (#405 — idle guard before send-keys)
+ *
+ * #405 originally inspected only the literal last line. That is a NO-OP on a
+ * Claude Code TUI pane (#eq3-003b): its bottom is a divider + footer
+ * (`⏵⏵ … · ← for agents   N tokens`), so the `❯ <input>` row sits ~4 lines
+ * ABOVE the last line — the old check always saw the footer, never matched a
+ * marker, and returned idle:true → the guard overtyped every Claude Code pane.
+ *
+ * Two-pass detection over the captured tail:
+ *   Pass 1 (TUI / modern prompt): scan bottom-up for an input row that STARTS
+ *     (after optional whitespace) with a prompt marker `❯ > › »`. Claude Code's
+ *     input box is always the bottom-most such row — agent output (incl.
+ *     markdown `>` quotes) and the footer/divider sit elsewhere — so the lowest
+ *     start-anchored marker row is the real input line. `❯` + only-whitespace =
+ *     empty (idle); `❯ text` = the operator is typing (not idle).
+ *   Pass 2 (classic shell): the marker sits MID-line (`user@host:~$ cmd`), so
+ *     fall back to the original last-non-empty-line heuristic.
+ *
+ * Capture failure / no prompt visible (agent rendering) → idle:true, so a flaky
+ * pane never blocks delivery permanently.
  */
 export async function checkPaneIdle(
   target: string,
@@ -241,17 +256,38 @@ export async function checkPaneIdle(
 ): Promise<{ idle: boolean; lastInput: string }> {
   const capturePane = deps.captureFn ?? capture;
   try {
-    const content = await capturePane(target, 5, host);
-    const lines = content.split("\n").filter(l => l.trim());
-    const lastLine = lines.at(-1) ?? "";
-    // Strip ANSI escape codes
-    const clean = lastLine.replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "").replace(/\r/g, "");
-    // Idle: last line ends with prompt marker + optional whitespace (nothing typed)
-    if (/[#$%>❯»]\s*$/.test(clean)) return { idle: true, lastInput: "" };
-    // Not idle: prompt marker followed by non-whitespace user content
-    const notIdleMatch = clean.match(/[#$%>❯»]\s+(\S.*)$/);
-    if (notIdleMatch) return { idle: false, lastInput: notIdleMatch[1] };
-    // No prompt visible (command running or agent output) → treat as idle
+    // Capture enough rows to see the TUI input box above its divider+footer.
+    const content = await capturePane(target, 12, host);
+    const lines = content
+      .split("\n")
+      // Strip OSC sequences (e.g. OSC 8 hyperlinks the Claude Code footer wraps
+      // PR links in: ESC ] 8 ; … ST) BEFORE CSI — a CSI-only strip leaves the
+      // URL as literal noise. ST terminator is `ESC \`, BEL is the legacy form.
+      .map(l => l
+        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+        .replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "")
+        .replace(/\r/g, ""));
+
+    // Pass 1 — bottom-up scan for a start-anchored prompt marker (Claude Code
+    // `❯`, modern shells `❯`/`›`, basic `>`). Restricted to these markers so
+    // line-leading `#`/`$`/`%` in agent output (markdown headings, `$ ` code
+    // snippets) can't false-trigger.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(/^\s*[>❯›»]\s?(.*)$/);
+      if (!m) continue;
+      const typed = (m[1] ?? "").trim();
+      return typed.length > 0
+        ? { idle: false, lastInput: typed }
+        : { idle: true, lastInput: "" };
+    }
+
+    // Pass 2 — classic shell prompt, marker mid-line on the last non-empty row.
+    const lastLine = lines.filter(l => l.trim()).at(-1) ?? "";
+    if (/[#$%>❯»›]\s*$/.test(lastLine)) return { idle: true, lastInput: "" };
+    const shellTyping = lastLine.match(/[#$%>❯»›]\s+(\S.*)$/);
+    if (shellTyping) return { idle: false, lastInput: shellTyping[1] };
+
+    // No prompt visible (command running or agent output) → treat as idle.
     return { idle: true, lastInput: "" };
   } catch {
     return { idle: true, lastInput: "" };

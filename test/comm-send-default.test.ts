@@ -146,7 +146,7 @@ describe("checkPaneIdle — default coverage seams", () => {
       },
     });
 
-    expect(seen).toEqual([["mba:48-mawjs:oracle.0", 5, "mba"]]);
+    expect(seen).toEqual([["mba:48-mawjs:oracle.0", 12, "mba"]]);
   });
 });
 

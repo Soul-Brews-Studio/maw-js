@@ -209,7 +209,7 @@ describe("cmdSend — targeted runtime coverage", () => {
 
     expect(exitCode).toBeUndefined();
     // Pane-input guard reads exactly one capture (5 lines) and bails before send.
-    expect(captureCalls.map((call) => call.lines)).toEqual([5]);
+    expect(captureCalls.map((call) => call.lines)).toEqual([12]);
     expect(sendKeysCalls).toEqual([]);
     expect(logs.join("\n")).toContain("operator input mid-edit");
   });

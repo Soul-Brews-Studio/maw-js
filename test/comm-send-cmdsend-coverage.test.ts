@@ -447,7 +447,7 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] hello" } }]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] hello", route: "local" }]);
-    expect(captureCalls.map(c => c.lines)).toEqual([5, 3]);
+    expect(captureCalls.map(c => c.lines)).toEqual([12, 3]);
     expect(emitFeedCalls[0].data.route).toBe("local");
     expect(transportEventCalls).toHaveLength(1);
     expect(transportEventCalls[0]).toMatchObject({
@@ -642,7 +642,7 @@ describe("cmdSend — delivery branch coverage", () => {
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] forced" }]);
-    expect(captureCalls.map(c => c.lines)).toEqual([5, 3]);
+    expect(captureCalls.map(c => c.lines)).toEqual([12, 3]);
   });
 
   test("eq3-003: defers (no overtype) when operator input is mid-edit on the pane", async () => {

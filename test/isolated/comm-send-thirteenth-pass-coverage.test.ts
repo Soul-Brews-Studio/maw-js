@@ -337,7 +337,7 @@ describe("comm-send thirteenth-pass helpers", () => {
   test("checkPaneIdle strips ANSI, detects prompt input, treats output and capture errors as idle", async () => {
     await expect(checkPaneIdle("pane", "remote", {
       captureFn: async (target, lines, host) => {
-        expect({ target, lines, host }).toEqual({ target: "pane", lines: 5, host: "remote" });
+        expect({ target, lines, host }).toEqual({ target: "pane", lines: 12, host: "remote" });
         return "noise\n\x1b[32m❯\x1b[0m deploy now\r";
       },
     })).resolves.toEqual({ idle: false, lastInput: "deploy now" });
