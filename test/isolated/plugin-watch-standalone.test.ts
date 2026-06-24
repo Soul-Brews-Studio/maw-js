@@ -36,4 +36,14 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toContain("/api/policy");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["']/);
   });
+
+  test("watch menu is hidden from help but still callable (#2 re-home escape-hatch)", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/plugin.json"), "utf8"),
+    );
+    // hidden:true removes it from `maw` help; cli.command still present so
+    // `maw watch <sub>` (claim/release/setup-hooks) keeps dispatching.
+    expect(manifest.cli.hidden).toBe(true);
+    expect(manifest.cli.command).toBe("watch");
+  });
 });

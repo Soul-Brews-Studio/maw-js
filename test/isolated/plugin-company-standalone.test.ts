@@ -11,16 +11,27 @@ import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boun
 // plugin may cross, making extraction drift visible instead of silent.
 
 describe("company command plugin standalone boundary", () => {
-  test("company keeps explicit import boundaries (SDK + core/policy attach-store + core/util fuzzy)", () => {
+  test("company keeps explicit import boundaries (SDK + core/policy + core/util + core/worklog)", () => {
     const imports = expectStandalonePluginBoundary({
       plugin: "company",
       allowRelative: [
-        /^(?:\.\.\/){3}core\/policy\//, // attach-store — policy inject gate
-        /^(?:\.\.\/){3}core\/util\//,   // fuzzy matcher for attach resolution
+        /^(?:\.\.\/){3}core\/policy\//,  // attach-store — policy inject gate
+        /^(?:\.\.\/){3}core\/util\//,    // fuzzy matcher for attach resolution
+        /^(?:\.\.\/){3}core\/worklog\//, // hook-setup (provision) + company-scope (#2 re-home)
       ],
     }).map((record) => record.spec);
 
     expect(imports).toContain("maw-js/sdk");
+  });
+
+  test("assign auto-provisions hooks; remove prunes; `company hooks` re-homes setup (#2)", () => {
+    const indexSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
+      "utf8",
+    );
+    expect(indexSrc).toContain("provisionOracleHooks"); // assign + attach auto-provision
+    expect(indexSrc).toContain("pruneOracleHooks");     // remove prunes
+    expect(indexSrc).toContain('sub === "hooks"');      // re-homed status/repair/prune verb
   });
 
   test("attach marks the attach gate; detach clears it (policy inject pairs with attach)", () => {

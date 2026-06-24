@@ -1,6 +1,7 @@
 import { checkBusyGuard } from "maw-js/sdk";
 import { fuzzyMatch } from "../../../core/util/fuzzy";
 import { setPolicyAttach } from "../../../core/policy/attach-store";
+import { provisionOracleHooks } from "../../../core/worklog/hook-setup";
 import {
   loadCompany, listCompanies, departmentMembers,
   type Company, type DeptRole,
@@ -193,6 +194,7 @@ export async function attachToDept(
       "--role", role,
     ]);
     setPolicyAttach(name, { company, dept });
+    try { provisionOracleHooks(name); } catch { /* best-effort */ }
     return { kind: "budded", company, dept, oracle: name };
   }
 
@@ -206,6 +208,9 @@ export async function attachToDept(
   // is the env attach/wake use to auto-follow into the pane after wake.
   await spawnMaw(["attach", idle.oracle], { MAW_ATTACH_FOLLOWS: "1" });
   setPolicyAttach(idle.oracle, { company, dept });
+  // (Re)provision the company-context hook set — covers oracles assigned before
+  // a checkout existed (assign-time provision was deferred). Best-effort.
+  try { provisionOracleHooks(idle.oracle); } catch { /* best-effort */ }
   return { kind: "attached", company, dept, oracle: idle.oracle, status: idle.status };
 }
 

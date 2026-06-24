@@ -64,6 +64,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const dryRun = args.includes("--dry-run");
       const flags = parseFlags(args.slice(1), { "--company": String }, 0);
       const res = setupWorklogHooks({ dryRun, company: flags["--company"] });
+      console.log(`\n\x1b[90m(re-homed → \x1b[0mmaw company hooks repair <company>\x1b[90m — this still works as an escape-hatch)\x1b[0m`);
       console.log(`\n\x1b[36mWorklog hook setup\x1b[0m${dryRun ? " \x1b[90m(dry run)\x1b[0m" : ""}\n`);
       console.log(`  scripts: ${res.scriptsInstalled} ${dryRun ? "would install" : "installed/updated"}`);
       if (res.updated.length) console.log(`  \x1b[32m${dryRun ? "would update" : "updated"}\x1b[0m: ${res.updated.join(", ")}`);
