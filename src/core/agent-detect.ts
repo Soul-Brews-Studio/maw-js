@@ -9,7 +9,13 @@ function firstCommandToken(cmd: string | undefined): string {
 }
 
 function commandBasename(cmd: string): string {
-  return firstCommandToken(cmd).split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+  // Strip the Windows-style executable suffix (.exe/.cmd/.bat) so a pane running
+  // `claude.exe` normalizes to `claude` and matches the engine's process name.
+  // Claude Code reports `claude.exe` via tmux pane_current_command; without this
+  // every live agent reads as dead (fleet-wide false-negative). Suffix-only +
+  // engine-agnostic — `codex.exe` → `codex` too; never hardcodes an engine name.
+  const base = firstCommandToken(cmd).split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+  return base.replace(/\.(exe|cmd|bat)$/i, "");
 }
 
 function normalizedProcessNames(names: Iterable<string>): string[] {

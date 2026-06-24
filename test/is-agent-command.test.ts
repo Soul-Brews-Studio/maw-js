@@ -10,6 +10,24 @@ describe("isAgentCommand", () => {
     expect(isAgentCommand("Claude")).toBe(true);
   });
 
+  test("strips Windows .exe/.cmd/.bat suffix — fleet liveness root cause (eq3)", () => {
+    // Claude Code reports `claude.exe` via tmux pane_current_command; without
+    // suffix-stripping every live agent reads as dead → preflight "0 alive".
+    expect(isAgentCommand("claude.exe")).toBe(true);
+    expect(isAgentCommand("Claude.EXE")).toBe(true);
+    expect(isAgentCommand("/usr/local/bin/claude.exe")).toBe(true);
+    expect(isAgentCommand("claude.cmd")).toBe(true);
+    expect(isAgentCommand("claude.bat")).toBe(true);
+    expect(isAgentCommand("codex.exe")).toBe(true); // engine-agnostic — not hardcoded
+    expect(isAgentCommand("node.exe")).toBe(true);
+  });
+
+  test("no false-positive: dead/non-agent panes stay dead even with a suffix", () => {
+    expect(isAgentCommand("zsh.exe")).toBe(false);
+    expect(isAgentCommand("bash.cmd")).toBe(false);
+    expect(isAgentCommand("notepad.exe")).toBe(false);
+  });
+
   test("matches non-claude/codex fleet engines (#1906)", () => {
     expect(isAgentCommand("thclaws")).toBe(true);
     expect(isAgentCommand("thclaude")).toBe(true);
