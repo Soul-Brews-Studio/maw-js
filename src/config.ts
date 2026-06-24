@@ -1,5 +1,5 @@
 // Barrel — re-exports from split config modules.
-export type { TriggerEvent, TriggerConfig, PeerConfig, MawIntervals, MawTimeouts, MawLimits, MawConfig } from "./config/types";
+export type { TriggerEvent, TriggerConfig, PeerConfig, MawIntervals, MawTimeouts, MawLimits, MawInputGuard, MawConfig } from "./config/types";
 export { D } from "./config/types";
 export { ENGINE_SEED, defaultEngineNameForConfig, resolveEngine } from "./config/engine-registry";
 export type { EngineDef } from "./config/engine-def";

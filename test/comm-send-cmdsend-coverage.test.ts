@@ -288,6 +288,7 @@ mock.module(join(import.meta.dir, "../src/plugin/event-hooks"), () => ({
 }));
 
 const origSleep = Bun.sleep.bind(Bun);
+const origFetch = globalThis.fetch;
 const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
@@ -379,6 +380,10 @@ beforeEach(() => {
   tempDirs = [];
   process.env.CLAUDE_AGENT_NAME = "sender";
   process.env.MAW_TEST_MODE = "1";
+  // eq3-003 — the pane-guard defer path calls checkBusyGuard + queueForDispatch,
+  // both of which use global fetch against localhost:<port>. Stub so the test
+  // never reaches a live maw server.
+  globalThis.fetch = (async () => new Response("{}", { status: 404 })) as typeof fetch;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
   delete process.env.MAW_HEY_INBOX_AUTOWRITE;
@@ -412,6 +417,7 @@ afterEach(() => {
 
 afterAll(() => {
   mockActive = false;
+  globalThis.fetch = origFetch;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
   console.error = origErr;
   console.log = origLog;
@@ -432,14 +438,16 @@ describe("cmdSend — delivery branch coverage", () => {
   });
 
   test("local delivery signs, sends, logs, hooks, captures last line, and emits feed", async () => {
-    captureResponses = ["accepted"];
+    // eq3-003 — first capture is the pre-send pane-input guard (clean → proceed);
+    // second is the post-send last-line snapshot.
+    captureResponses = ["", "accepted"];
     await runCmd(() => cmdSend("local:session:oracle", "hello"));
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] hello" } }]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] hello", route: "local" }]);
-    expect(captureCalls.map(c => c.lines)).toEqual([3]);
+    expect(captureCalls.map(c => c.lines)).toEqual([5, 3]);
     expect(emitFeedCalls[0].data.route).toBe("local");
     expect(transportEventCalls).toHaveLength(1);
     expect(transportEventCalls[0]).toMatchObject({
@@ -625,26 +633,29 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(errs.join("\n")).toContain("inbox locked");
   });
 
-  test("--force bypasses pane command and idle checks", async () => {
+  test("--force bypasses pane command but still delivers to a clean pane", async () => {
     getPaneCommandReturn = "zsh";
-    captureResponses = ["post-send"];
+    // Pre-send guard capture (clean) + post-send last-line snapshot.
+    captureResponses = ["", "post-send"];
 
     await runCmd(() => cmdSend("local:session:oracle", "forced", true));
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] forced" }]);
-    expect(captureCalls.map(c => c.lines)).toEqual([3]);
+    expect(captureCalls.map(c => c.lines)).toEqual([5, 3]);
   });
 
-  test("default delivery does not idle-guard busy panes", async () => {
-    captureResponses = ["❯ git status", "❯ maw hey someone hi"];
+  test("eq3-003: defers (no overtype) when operator input is mid-edit on the pane", async () => {
+    // Status says ready, but the prompt line holds typed-but-unsubmitted text.
+    captureResponses = ["❯ git status"];
 
-    await runCmd(() => cmdSend("local:session:oracle", "blocked"));
+    await runCmd(() => cmdSend("local:session:oracle", "blocked", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
     expect(sleepCalls).not.toContain(500);
-    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] blocked" }]);
-    expect(errs.join("\n")).not.toContain("not idle");
+    // Never inject — the half-typed `git status` must survive untouched.
+    expect(sendKeysCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("operator input mid-edit");
   });
 
   test("--inbox queues to receiver inbox when the pane is busy", async () => {

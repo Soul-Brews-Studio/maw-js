@@ -107,6 +107,7 @@ mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
 }));
 
 const origSleep = Bun.sleep.bind(Bun);
+const origFetch = globalThis.fetch;
 const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
@@ -167,6 +168,8 @@ beforeEach(() => {
   defaultInboxCalls = [];
   defaultInboxResult = null;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  // eq3-003 defer path uses global fetch — stub away from the live local server.
+  globalThis.fetch = (async () => new Response("{}", { status: 404 })) as typeof fetch;
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
   delete process.env.SSH_TTY;
@@ -192,20 +195,31 @@ afterEach(() => {
 
 afterAll(() => {
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  globalThis.fetch = origFetch;
   console.error = origErr;
   console.log = origLog;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
 });
 
 describe("cmdSend — targeted runtime coverage", () => {
-  test("default delivery proceeds without idle guard", async () => {
-    captureResponses = ["❯ partially typed", "❯ ", "delivered line"];
+  test("eq3-003: defers (no overtype) when the prompt holds operator input", async () => {
+    captureResponses = ["❯ partially typed"]; // dirty → defer, not inject
 
     await runCmd(() => cmdSend("local:session:oracle", "recover", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toEqual([150]);
-    expect(captureCalls.map((call) => call.lines)).toEqual([3]);
+    // Pane-input guard reads exactly one capture (5 lines) and bails before send.
+    expect(captureCalls.map((call) => call.lines)).toEqual([5]);
+    expect(sendKeysCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("operator input mid-edit");
+  });
+
+  test("delivers normally when the prompt is clean", async () => {
+    captureResponses = ["❯ ", "delivered line"];
+
+    await runCmd(() => cmdSend("local:session:oracle", "recover", false, { receiverInbox: false }));
+
+    expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] recover" }]);
     expect(logs.join("\n")).toContain("delivered");
   });

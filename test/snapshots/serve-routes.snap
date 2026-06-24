@@ -87,6 +87,7 @@ POST /api/consent/:id/approve -> elysia api
 POST /api/consent/:id/reject -> elysia api
 POST /api/consent/request -> elysia api
 POST /api/feed -> elysia api
+POST /api/flush -> elysia api
 POST /api/pair/:code -> elysia api
 POST /api/pair/auto -> elysia api
 POST /api/pair/generate -> elysia api

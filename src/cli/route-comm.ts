@@ -1,4 +1,4 @@
-import { cmdPeek, cmdSend } from "../commands/shared/comm";
+import { cmdPeek, cmdSend, cmdFlush } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
 function printCommUsage(cmd: "hey" | "send" | "notify", write: (line: string) => void = console.log): void {
@@ -41,6 +41,21 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
   // tmux pane reader; top-level `maw peek <node>:<agent>` must reach cmdPeek.
   if (cmd === "peek") {
     await cmdPeek(args[1]);
+    return true;
+  }
+
+  // eq3-003 — `maw flush [oracle]` drains the deferred-message queue (pane-input
+  // guard). Default oracle = self. Pairs with the periodic server sweep; the
+  // Claude Code hook calls this on UserPromptSubmit/Stop for instant delivery.
+  if (cmd === "flush") {
+    if (args[1] === "--help" || args[1] === "-h" || args[1] === "-help") {
+      console.log("usage: maw flush [oracle]");
+      console.log("  Drain deferred messages held back by the pane-input guard (eq3-003).");
+      console.log("  Re-checks pane-clean before each inject; dirty panes keep their queue.");
+      console.log("  oracle defaults to self (CLAUDE_AGENT_NAME / attached tmux pane).");
+      return true;
+    }
+    await cmdFlush(args[1]);
     return true;
   }
 

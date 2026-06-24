@@ -95,6 +95,10 @@ const { cmdSend } = await import("../../src/commands/shared/comm-send");
 
 const origExit = process.exit;
 const origErr = console.error;
+// eq3-003 — the defer path calls checkBusyGuard + queueForDispatch, both of
+// which hit localhost:<port> via global fetch. Stub it so the test never
+// touches a live maw server (would otherwise enqueue into the real queue).
+const origFetch = globalThis.fetch;
 
 let exitCode: number | undefined;
 let errs: string[] = [];
@@ -125,6 +129,7 @@ beforeEach(() => {
   delete process.env.MAW_QUIET;
   process.env.MAW_QUIET = "1"; // suppress tip output
   process.env.CLAUDE_AGENT_NAME = "test-node";
+  globalThis.fetch = (async () => new Response("{}", { status: 404 })) as typeof fetch;
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
   delete process.env.SSH_TTY;
@@ -133,6 +138,7 @@ beforeEach(() => {
 afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
 afterAll(() => {
   mockActive = false;
+  globalThis.fetch = origFetch;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
@@ -210,15 +216,26 @@ describe("checkPaneIdle — heuristic", () => {
 
 // ─── cmdSend delivery flow ───────────────────────────────────────────────────
 
-describe("cmdSend — default delivery integration (#1860)", () => {
-  test("sends by default without idle-guarding the pane", async () => {
+describe("cmdSend — default delivery integration (#1860 / eq3-003 pane guard)", () => {
+  test("sends when the pane is idle (clean prompt)", async () => {
     captureResponses = [
-      "❯ git push", // post-send capture only; no pre-send idle check
+      "❯ ",          // eq3-003 pre-send idle check → idle, proceed
+      "❯ ",          // post-send verify capture
     ];
     await run(() => cmdSend("test-node:oracle", "hello world"));
     expect(sendKeysCalls.length).toBe(1);
     expect(sendKeysCalls[0].text).toBe("[test-node:test-node] hello world");
     expect(sleepCalls.filter(ms => ms === 500).length).toBe(0);
+    expect(exitCode).toBeUndefined();
+  });
+
+  test("guard-defers-when-dirty: operator input mid-edit → queued, never overtyped (eq3-003)", async () => {
+    captureResponses = [
+      "❯ git push origin main", // pre-send idle check → DIRTY → defer
+    ];
+    await run(() => cmdSend("test-node:oracle", "hello world"));
+    // Zero injection: the half-typed `git push` line must not be clobbered.
+    expect(sendKeysCalls.length).toBe(0);
     expect(exitCode).toBeUndefined();
   });
 

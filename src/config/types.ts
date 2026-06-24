@@ -64,6 +64,26 @@ export interface MawRetentionPolicy {
   maxAgeDays?: number;
 }
 
+/**
+ * Pane-input guard / deferred-delivery tuning (eq3-003).
+ *
+ * `maw hey` never overtypes operator input that is mid-edit on the target
+ * pane. When the pane is "dirty" (a prompt marker followed by typed text) the
+ * message is deferred to the dispatch queue and a 📬 badge appears instantly.
+ * It is delivered later — by the hook (`maw flush`), the busy→ready
+ * DispatchEngine transition, or the periodic sweep (the hook-independent net) —
+ * but only once the pane goes clean. A message stuck behind a dirty pane past
+ * `stallNotifyMs` emits a one-shot notify instead of force-delivering.
+ */
+export interface MawInputGuard {
+  /** Pre-send pane-input guard. When false, restores the pre-eq3-003 always-inject behavior. Default true. */
+  enabled?: boolean;
+  /** Periodic deferred-queue sweep cadence (ms). The hook-independent net: flushes deferred messages once the pane goes clean. Default 5000. */
+  sweepIntervalMs?: number;
+  /** A deferred message older than this (ms) fires a one-shot stall notify (never overtypes). Default 180000 (3 min). */
+  stallNotifyMs?: number;
+}
+
 export interface MawLimits {
   feedMax?: number;
   feedDefault?: number;
@@ -218,6 +238,8 @@ export interface MawConfig {
   timeouts?: MawTimeouts;
   /** Buffer/display limits */
   limits?: MawLimits;
+  /** Pane-input guard / deferred-delivery tuning (eq3-003) */
+  inputGuard?: MawInputGuard;
   /** HMAC auth window (seconds) */
   hmacWindowSeconds?: number;
   /** PIN for web UI */
@@ -245,5 +267,6 @@ export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000, peerRetryBackoff: 300, ptySweep: 300000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000, wsIdleSec: 60 } as const,
   limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200, maxConcurrentAgents: 40, peerProbeRetries: 2 } as const,
+  inputGuard: { enabled: true, sweepIntervalMs: 5_000, stallNotifyMs: 180_000 } as const,
   hmacWindowSeconds: 300,
 } as const;

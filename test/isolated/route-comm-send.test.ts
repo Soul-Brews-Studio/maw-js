@@ -10,12 +10,14 @@ import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 
 const calls: unknown[][] = [];
 const peekCalls: unknown[][] = [];
+const flushCalls: unknown[][] = [];
 const logs: string[] = [];
 const errors: string[] = [];
 
 mock.module("../../src/commands/shared/comm", () => ({
   cmdSend: async (...args: unknown[]) => { calls.push(args); },
   cmdPeek: async (...args: unknown[]) => { peekCalls.push(args); },
+  cmdFlush: async (...args: unknown[]) => { flushCalls.push(args); },
 }));
 
 const origLog = console.log;
@@ -30,6 +32,7 @@ afterAll(() => { console.log = origLog; console.error = origError; });
 beforeEach(() => {
   calls.length = 0;
   peekCalls.length = 0;
+  flushCalls.length = 0;
   logs.length = 0;
   errors.length = 0;
 });
@@ -70,6 +73,18 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
     expect(calls).toEqual([
       ["local:mawjs", "ping", false, { approve: false, trust: false, inboxOnly: false }],
     ]);
+  });
+
+  test("maw flush [oracle] routes through cmdFlush (eq3-003)", async () => {
+    const handled = await routeComm("flush", ["flush", "neo"]);
+    expect(handled).toBe(true);
+    expect(flushCalls).toEqual([["neo"]]);
+  });
+
+  test("maw flush with no arg defaults to self (undefined oracle)", async () => {
+    const handled = await routeComm("flush", ["flush"]);
+    expect(handled).toBe(true);
+    expect(flushCalls).toEqual([[undefined]]);
   });
 
   test("maw send --help prints usage instead of treating --help as a target (#1531)", async () => {

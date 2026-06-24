@@ -1,5 +1,6 @@
 import { MawEngine } from "../engine";
 import { loadConfig, cfgTimeout } from "../config";
+import { D } from "../config/types";
 import { selectGateway, type GatewayKind } from "./gateway";
 import { existsSync, readFileSync } from "fs";
 import { api } from "../api";
@@ -323,8 +324,26 @@ export async function startBunGatewayServer(
     }
   }
 
-  // Start dispatch engine — auto-delivers queued messages when agents become idle
-  if (profileFlag(profile, "intervals")) startDispatchEngine(sendKeys);
+  // Start dispatch engine — auto-delivers queued messages when agents become idle.
+  // eq3-003 — wired with the pane-input guard (never overtype), the tmux 📬
+  // pending badge, and the periodic deferred-queue sweep (hook-independent net).
+  if (profileFlag(profile, "intervals")) {
+    const ig = loadConfig().inputGuard ?? {};
+    startDispatchEngine(sendKeys, {
+      // Dynamic imports keep comm-send / tmux-class out of server.ts's static
+      // link graph (they pull heavy deps that some serve-boot tests mock partially).
+      paneIdle: async (target) => {
+        const { checkPaneIdle } = await import("../commands/shared/comm-send");
+        return (await checkPaneIdle(target)).idle;
+      },
+      setIndicator: async (target, count) => {
+        const { tmux } = await import("./transport/tmux-class");
+        await tmux.setPendingIndicator(target, count);
+      },
+      stallThresholdMs: ig.stallNotifyMs ?? D.inputGuard.stallNotifyMs,
+      sweepIntervalMs: ig.sweepIntervalMs ?? D.inputGuard.sweepIntervalMs,
+    });
+  }
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);

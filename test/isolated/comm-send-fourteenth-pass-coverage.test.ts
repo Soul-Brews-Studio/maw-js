@@ -99,6 +99,7 @@ mock.module(join(srcRoot, "src/commands/shared/receiver-inbox"), () => ({
 }));
 
 const origSleep = Bun.sleep.bind(Bun);
+const origFetch = globalThis.fetch;
 const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
@@ -153,6 +154,9 @@ beforeEach(() => {
   ghqFindCalls = [];
   fleetLoadCalls = 0;
   process.env.CLAUDE_AGENT_NAME = "sender";
+  // eq3-003 defer path uses global fetch (checkBusyGuard + queueForDispatch).
+  // Stub so the test never reaches the live local maw server.
+  globalThis.fetch = (async () => new Response("{}", { status: 404 })) as typeof fetch;
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
   delete process.env.SSH_TTY;
@@ -171,6 +175,7 @@ afterEach(() => {
 
 afterAll(() => {
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  globalThis.fetch = origFetch;
   console.error = origErr;
   console.log = origLog;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
@@ -194,17 +199,16 @@ describe("comm-send fourteenth-pass uncovered branches", () => {
     expect(sendKeysCalls).toEqual([]);
   });
 
-  test("persistently busy local panes deliver by default without the old force hint", async () => {
+  test("eq3-003: operator input mid-edit defers instead of overtyping the pane", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
-    captureResponses = ["❯ drafting a reply", "❯ still typing"];
+    captureResponses = ["❯ drafting a reply"]; // dirty prompt → defer
 
     await runCmd(() => cmdSend("local:session:oracle", "wait for idle", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toContain(150);
-    expect(defaultInboxCalls).toEqual([]);
-    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] wait for idle" }]);
-    expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] wait for idle" } }]);
-    expect(errs.join("\n")).not.toContain("not idle");
+    // Never inject — the half-typed reply must survive, and no after_send fires.
+    expect(sendKeysCalls).toEqual([]);
+    expect(runHookCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("operator input mid-edit");
   });
 });

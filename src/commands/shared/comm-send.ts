@@ -523,6 +523,41 @@ export async function verifySubmitDelivered(
     warning: `submit unverified after ${maxRetries} Enter retries` };
 }
 
+/**
+ * eq3-003 — `maw flush [oracle]`. Drain an oracle's deferred-message queue on
+ * the local maw server, which re-checks pane-clean before each inject. Default
+ * oracle is self (resolved from CLAUDE_AGENT_NAME / the attached tmux pane).
+ *
+ * This is what the Claude Code hook (UserPromptSubmit / Stop) calls to deliver
+ * queued messages the instant the operator's input line clears — the periodic
+ * server sweep is the hook-independent fallback. Idempotent: a clean drained
+ * queue is a no-op; a dirty pane delivers nothing and leaves the queue intact.
+ */
+export async function cmdFlush(oracleArg?: string): Promise<void> {
+  const config = loadConfig();
+  const oracle = oracleArg?.trim() || resolveMyName(config);
+  const bare = oracle.split(":").at(-1)?.replace(/-oracle$/i, "").trim() || oracle;
+  const port = config.port || 3456;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/flush`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oracle: bare }),
+    });
+    const data = await res.json().catch(() => ({})) as {
+      ok?: boolean; delivered?: number; deferred?: number; remaining?: number; error?: string;
+    };
+    if (!res.ok || !data.ok) {
+      console.error(`\x1b[31merror\x1b[0m: flush failed for ${bare}: ${data.error ?? `HTTP ${res.status}`}`);
+      process.exit(1);
+    }
+    console.log(`\x1b[32mflushed\x1b[0m ${bare}: ${data.delivered ?? 0} delivered, ${data.deferred ?? 0} deferred, ${data.remaining ?? 0} remaining`);
+  } catch (e) {
+    console.error(`\x1b[31merror\x1b[0m: cannot reach maw server on :${port} — ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+}
+
 export async function cmdSend(
   query: string,
   message: string,
@@ -930,6 +965,31 @@ export async function cmdSend(
       }
       console.log(`\x1b[33mqueued\x1b[0m target '${guard.oracle}' is busy — will auto-deliver when idle`);
       return;
+    }
+
+    // eq3-003 — pane-input guard: status may say "ready" while the operator is
+    // mid-typing on the prompt line. Injecting now would overtype their input
+    // (and a stray Enter could submit a half-typed line). #1860 dropped the old
+    // #405 hard block in favor of always-inject; this is its queue-based
+    // successor — defer instead of block, then auto-deliver once the pane is
+    // clean (DispatchEngine sweep / busy→ready transition / `maw flush`).
+    // Capture failure falls through to idle=true (checkPaneIdle), so a flaky
+    // pane never blocks delivery permanently. Opt out via inputGuard.enabled=false.
+    // Read off the already-loaded config (not a new barrel helper) so the wide
+    // set of modules that mock `src/config` inline don't all need a new export.
+    if (config.inputGuard?.enabled ?? true) {
+      const pane = await checkPaneIdle(target);
+      if (!pane.idle) {
+        queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
+        const inbox = await writeReceiverInbox(target);
+        const reason = `operator input in progress on '${guard.oracle}'; queued — auto-delivers when the pane clears`;
+        if (logQueuedInbox(inbox, target, reason)) {
+          await notifyQueuedInbox(inbox, target, reason);
+          return;
+        }
+        console.log(`\x1b[33mqueued\x1b[0m '${guard.oracle}' has operator input mid-edit — will auto-deliver when the pane clears \x1b[90m(📬)\x1b[0m`);
+        return;
+      }
     }
 
     // #1967: the receiver inbox is the durable delivery guarantee; pane

@@ -10,6 +10,11 @@ export interface QueuedMessage {
   attempts: number;
   lastAttempt?: number;
   error?: string;
+  /**
+   * eq3-003 — set once a stuck-behind-dirty-input message has fired its
+   * one-shot stall notify, so the periodic sweep doesn't re-ping every tick.
+   */
+  stallNotified?: boolean;
 }
 
 let nextId = 1;
@@ -40,6 +45,17 @@ export class MessageQueue {
   /** Get next pending message for delivery. */
   next(oracle: string): QueuedMessage | undefined {
     return this.queue.find(m => m.to === oracle && m.status === "pending");
+  }
+
+  /** Distinct oracles that currently have at least one pending message. For the sweep. */
+  pendingOracles(): string[] {
+    return [...new Set(this.queue.filter(m => m.status === "pending").map(m => m.to))];
+  }
+
+  /** Mark a message's stall notify as already fired (one-shot dedupe). */
+  markStallNotified(id: string) {
+    const m = this.queue.find(m => m.id === id);
+    if (m) m.stallNotified = true;
   }
 
   markDelivering(id: string) {

@@ -88,7 +88,7 @@ mock.module(import.meta.resolve("../../src/transports"), () => ({
   getTransportRouter: () => null,
   resetTransportRouter: () => {},
 }));
-mock.module(import.meta.resolve("../../src/core/dispatch-engine"), () => ({ startDispatchEngine: () => {} }));
+mock.module(import.meta.resolve("../../src/core/dispatch-engine"), () => ({ startDispatchEngine: () => {}, getDispatchEngine: () => null }));
 mock.module(import.meta.resolve("../../src/plugins/index"), () => ({
   PluginSystem: class { emit() {}; stats() { return { loaded: 0, scopes: {} }; } },
   loadPlugins: async () => {},

@@ -575,6 +575,27 @@ export class Tmux {
   async set(target: string, option: string, value: string): Promise<void> {
     await this.tryRun("set", "-t", target, option, value);
   }
+
+  /**
+   * eq3-003 — surface a "messages waiting" badge on the target's tmux window
+   * via the user option `@maw_pending`. This is deliberately a *user option*,
+   * not the window name: it is inert unless the operator references
+   * `#{@maw_pending}` in `window-status-format` (see PR docs), so an empty
+   * queue is byte-for-byte the operator's original tmux state. Best-effort —
+   * a tmux failure must never block delivery (uses tryRun).
+   *
+   * Scoped to the window (`-w`); the `.pane` suffix is stripped so the badge
+   * tracks the oracle's window regardless of which pane the message targeted.
+   */
+  async setPendingIndicator(target: string, count: number): Promise<void> {
+    const win = target.replace(/\.[0-9]+$/, "");
+    if (count > 0) {
+      await this.tryRun("set-option", "-w", "-t", win, "@maw_pending", `📬${count}`);
+    } else {
+      // Unset → renders as nothing; restores the operator's pristine status bar.
+      await this.tryRun("set-option", "-w", "-u", "-t", win, "@maw_pending");
+    }
+  }
 }
 
 /** Default tmux instance (uses default host from hostExec config). */
