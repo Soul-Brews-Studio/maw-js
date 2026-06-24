@@ -1634,7 +1634,19 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       // Check if agent is actually alive in the pane
       const infos = await getPaneInfos([target]);
       const info = infos[target];
-      const agentAlive = info && isAgentCommand(info.command);
+      let agentAlive = info && isAgentCommand(info.command);
+
+      // #eq3 — defense in depth (pid, not just name): NEVER re-launch into a
+      // pane that still has a live child process, even when its command name
+      // isn't recognized as an agent (a `.exe` engine on a node without the
+      // strip fix, a new engine, or a transient shell mid-exec). Re-launching
+      // there sendText()s the launch command as TEXT into the running agent's
+      // prompt (the operator sees `❯ claude`). A busy pane (pgrep shows
+      // children) is treated as alive; only a genuinely idle pane is safe to
+      // re-launch into. Sibling race already handled by waitForEngine (#1906).
+      if (!agentAlive && info && !(await wakeSession.isPaneIdle(target))) {
+        agentAlive = true;
+      }
 
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching fresh...`);

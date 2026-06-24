@@ -236,6 +236,7 @@ mock.module(import.meta.resolve("../../src/commands/shared/wake-session"), () =>
   attachToSession: async (session: string) => {
     attachCalls.push(session);
   },
+  isPaneIdle: async () => true, // dead-pane scenarios: idle ⇒ safe to relaunch
   reconcileParentClaudeDir: async () => {},
   readWorktreeEngineFile: (wtPath: string) => worktreeEngineFiles[wtPath],
   writeWorktreeEngineFile: () => {},
