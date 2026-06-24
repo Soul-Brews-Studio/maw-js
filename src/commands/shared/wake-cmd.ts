@@ -1636,16 +1636,21 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const info = infos[target];
       let agentAlive = info && isAgentCommand(info.command);
 
-      // #eq3 — defense in depth (pid, not just name): NEVER re-launch into a
-      // pane that still has a live child process, even when its command name
-      // isn't recognized as an agent (a `.exe` engine on a node without the
-      // strip fix, a new engine, or a transient shell mid-exec). Re-launching
-      // there sendText()s the launch command as TEXT into the running agent's
-      // prompt (the operator sees `❯ claude`). A busy pane (pgrep shows
-      // children) is treated as alive; only a genuinely idle pane is safe to
-      // re-launch into. Sibling race already handled by waitForEngine (#1906).
-      if (!agentAlive && info && !(await wakeSession.isPaneIdle(target))) {
-        agentAlive = true;
+      // #eq3 — NEVER sendText a launch command into a pane that isn't a
+      // genuinely idle bare shell, else it lands as TEXT in the running agent's
+      // prompt (operator sees `❯ claude`). A pane is safe to re-launch into ONLY
+      // when its foreground is a bare shell AND it has no live child process.
+      // tmux's `pane_current_command` is the RELIABLE liveness signal: pgrep -P
+      // pane_pid is launch-method dependent and missed `claude` on some nodes
+      // (eq3's 05-eq3: claude.exe live, yet no pane-shell child) — so a node
+      // without the .exe strip would still over-relaunch on pid alone. Treat any
+      // non-shell foreground as alive. Mirrors ensureSessionRunning (wake-session).
+      if (!agentAlive && info) {
+        const cmd = (info.command || "").trim().toLowerCase().replace(/^-/, "");
+        const isIdleShell = cmd === "" || cmd === "zsh" || cmd === "bash" || cmd === "sh" || cmd === "fish";
+        if (!isIdleShell || !(await wakeSession.isPaneIdle(target))) {
+          agentAlive = true;
+        }
       }
 
       if (!agentAlive) {
