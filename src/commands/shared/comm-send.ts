@@ -260,10 +260,17 @@ export async function checkPaneIdle(
     const content = await capturePane(target, 12, host);
     const lines = content
       .split("\n")
-      // Strip OSC sequences (e.g. OSC 8 hyperlinks the Claude Code footer wraps
-      // PR links in: ESC ] 8 ; … ST) BEFORE CSI — a CSI-only strip leaves the
-      // URL as literal noise. ST terminator is `ESC \`, BEL is the legacy form.
       .map(l => l
+        // #eq3-003c — strip DIM spans (text + codes) FIRST. Claude Code renders
+        // ghost/queued/placeholder text on the input row as dim (`ESC[2m … ESC[0m`
+        // or `ESC[22m`, sometimes UNCLOSED to end-of-line). A plain CSI strip
+        // removes only the dim *codes*, leaving the ghost TEXT — which Pass 1
+        // then reads as live operator input → false "typing" → over-defer of
+        // every pane with a queued message. Removing the whole dim span keeps
+        // bright (real) input intact and a truly-empty `❯` empty.
+        .replace(/\x1b\[2m[^\x1b]*(?:\x1b\[(?:0|22)m|$)/g, "")
+        // Strip OSC sequences (e.g. OSC 8 hyperlinks the footer wraps PR links
+        // in: ESC ] 8 ; … ST). ST terminator is `ESC \`, BEL is the legacy form.
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
         .replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "")
         .replace(/\r/g, ""));

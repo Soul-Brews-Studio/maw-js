@@ -1,0 +1,12 @@
+[39m [1m[38;5;153mBash[0m [1m[38;5;153mcommand[0m
+
+   maw inbox list 2>&1 | head -40
+   [38;5;246mList[39m [38;5;246munread[39m [38;5;246minbox[39m [38;5;246mmessages[39m
+
+ Do you want to proceed?
+ [38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes[39m
+   [38;5;246m2.[39m Yes, and don’t ask again for: maw inbox *
+   [38;5;246m3.[39m No
+
+ [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m [38;5;246m·[39m [38;5;246mTab[39m [38;5;246mto[39m [38;5;246mamend[39m [38;5;246m·[39m [38;5;246mctrl+e[39m [38;5;246mto[39m [38;5;246mexplain[39m
+
