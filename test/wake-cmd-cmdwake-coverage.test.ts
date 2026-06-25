@@ -1809,18 +1809,22 @@ describe("cmdWake main-suite coverage", () => {
     expect(rendered).toContain("agent dead, re-launching");
   });
 
-  test("reuses the first window listing so a later tmux list failure cannot create a duplicate", async () => {
-    listWindowsThrowOnCall = 2;
-
+  test("#eq3-wake-awake-guard: a bare wake on an already-live agent no-ops with an attach hint", async () => {
     const { result, logs } = await captureLogs(() =>
       cmdWake("mawjs", {}),
     );
 
+    // No-op: returns the live target, runs none of the wake flow, and tells the
+    // operator how to attach instead of pretending to re-wake.
     expect(result).toBe("54-mawjs:mawjs-oracle");
     expect(listWindowsCalls).toEqual(["54-mawjs"]);
     expect(newWindowCalls).toEqual([]);
     expect(sendTextCalls).toEqual([]);
-    expect(logs.join("\n")).toContain("'mawjs-oracle' running in 54-mawjs");
+    expect(selectWindowCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("mawjs already awake (session 54-mawjs)");
+    expect(logs.join("\n")).toContain("maw wake mawjs --attach");
+    expect(logs.join("\n")).toContain('maw hey mawjs');
   });
 
   test("respawns an existing running window when an explicit engine is requested", async () => {

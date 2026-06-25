@@ -473,6 +473,46 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
     && !opts.snapshotId;
 }
 
+/**
+ * #eq3-wake-awake-guard — true for a *bare* `maw wake <agent>` carrying no
+ * work/handoff intent: the mirror of {@link isAttachOnlyWake} but WITHOUT
+ * `--attach`. When such a wake targets an already-live agent it should no-op
+ * (print an "already awake" hint and return) instead of running the noisy wake
+ * flow that misleadingly looks like a re-wake. Any work flag (--task/--wt/
+ * --prompt/--bud/…), explicit --attach, foreign/snapshot session, or --dry-run
+ * opts out and keeps its existing path.
+ */
+function isBareLiveWakeNoop(opts: WakeOptions): boolean {
+  return !opts.attach
+    && !opts.task
+    && !opts.wt
+    && !opts.prompt
+    && !opts.session
+    // --no-rehydrate / --main / --solo are explicit "run the wake flow but skip
+    // worktree rehydrate" modifiers — not a bare wake; let them through.
+    && !opts.noRehydrate
+    && !opts.incubate
+    && !opts.repoPath
+    && !opts.urlRepoName
+    && !opts.fresh
+    && !opts.pick
+    && !opts.name
+    && !opts.listWt
+    && !opts.dryRun
+    && !opts.split
+    && !opts.splitTarget
+    && !opts.bringAlias
+    && !opts.bring
+    && !opts.tab
+    && !opts.bud
+    && !opts.signalOnBirth
+    && !opts.engine
+    && !opts.channels
+    && !opts.wait
+    && !opts.fromSnapshot
+    && !opts.snapshotId;
+}
+
 type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels"> & {
   /** Strip engine resume/continue placeholders for reboot-rehydrated dead panes (#2391). */
   freshLaunch?: boolean;
@@ -1224,6 +1264,28 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         await wakeSession.attachToSession(liveAttachSession);
         await recordWakeSnapshot(opts);
         return `${liveAttachSession}:${attachWindow}`;
+      }
+    }
+  }
+
+  // #eq3-wake-awake-guard — a bare `maw wake <agent>` (no work/handoff flags) on
+  // an already-live agent is a no-op. The old code fell through to the full wake
+  // flow — inbox drain, "session exists" log, a focus-stealing selectWindow, and
+  // rehydrate — which looked like a re-wake even though idempotency + the #35
+  // current_command guard already prevented any relaunch. Detect the live oracle
+  // window, print an "already awake" hint pointing at --attach / maw hey, and
+  // return before any of that. Work wakes, explicit --attach (handled above),
+  // foreign/snapshot sessions, and --dry-run all opt out via isBareLiveWakeNoop.
+  if (isBareLiveWakeNoop(opts)) {
+    const liveSession = preResolvedSession || await detectSession(oracle, opts.urlRepoName);
+    if (liveSession) {
+      const liveWindow = preResolvedFleetSession?.windowName || mainWindowNameForWakeSession(sessionContext, oracle);
+      const liveWindows = await tmux.listWindows(liveSession).catch(() => [] as { name: string }[]);
+      if (liveWindows.some(w => w.name === liveWindow)) {
+        console.log(`\x1b[36m→\x1b[0m ${oracle} already awake (session ${liveSession})`);
+        console.log(`\x1b[90m  to attach:  maw wake ${oracle} --attach\x1b[0m`);
+        console.log(`\x1b[90m  to message: maw hey ${oracle} "..."\x1b[0m`);
+        return `${liveSession}:${liveWindow}`;
       }
     }
   }
