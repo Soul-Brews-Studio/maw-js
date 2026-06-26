@@ -302,6 +302,43 @@ export async function checkPaneIdle(
 }
 
 /**
+ * eq3-004 — detect a Claude Code permission/confirm MODAL on a pane.
+ *
+ * Deliberately SEPARATE from checkPaneIdle's typing detection (the #38 dim-strip
+ * + Pass1/Pass2 logic, which must stay untouched). A permission menu's selected
+ * row (`❯ 1. Yes`) already reads as "typing" to Pass 1, so it DEFERS correctly —
+ * but the sender is never told why, and a menu never self-clears the way mid-
+ * typed operator input does. This additive layer recognizes the modal so the
+ * dispatch engine can notify the sender immediately instead of waiting out the
+ * stall threshold.
+ *
+ * Signature (stable across confirm prompts — verified on real captures,
+ * kang / demo-web-qa): a numbered selection cursor `❯ <n>.` together with the
+ * modal-only footer `Esc to cancel`. BOTH are required so an operator literally
+ * typing "1. ..." on the prompt line — with no modal footer — can't false-trigger.
+ * We strip only ANSI codes here (not whole dim spans): the footer text must
+ * survive the strip so it can be matched.
+ */
+export async function detectPermissionMenu(
+  target: string,
+  host?: string,
+  deps: { captureFn?: typeof capture } = {},
+): Promise<boolean> {
+  const capturePane = deps.captureFn ?? capture;
+  try {
+    const text = (await capturePane(target, 12, host))
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+      .replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "")
+      .replace(/\r/g, "");
+    const hasModalFooter = /Esc to cancel/i.test(text);
+    const hasNumberedCursor = /❯\s*\d+\./.test(text);
+    return hasModalFooter && hasNumberedCursor;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * #1572 — bare oracle names are allowed only as a same-node convenience.
  *
  * `maw hey <oracle-window> "..."` now resolves locally first. If there is no

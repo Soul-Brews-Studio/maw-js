@@ -27,19 +27,29 @@ function enqueue(message: string, oracle = "neo", target = TARGET) {
   return messageQueue.enqueue({ from: "node:sender", to: oracle, target, message });
 }
 
-function makeEngine(opts: { stallThresholdMs?: number } = {}) {
+function makeEngine(opts: {
+  stallThresholdMs?: number;
+  detectMenu?: (target: string) => Promise<boolean>;
+  resolveSenderTarget?: (from: string) => Promise<{ oracle: string; target: string } | null>;
+} = {}) {
   const sendKeysCalls: Array<{ target: string; text: string }> = [];
   const indicatorCalls: Array<{ target: string; count: number }> = [];
-  const state = { idle: true };
+  // Per-target idle state — default idle:true for any unset target.
+  const idleByTarget = new Map<string, boolean>();
   const engine = new DispatchEngine(
     async (target: string, text: string) => { sendKeysCalls.push({ target, text }); },
     {
-      paneIdle: async () => state.idle,
+      paneIdle: async (target: string) => idleByTarget.get(target) ?? true,
       setIndicator: async (target: string, count: number) => { indicatorCalls.push({ target, count }); },
       stallThresholdMs: opts.stallThresholdMs ?? 180_000,
+      detectMenu: opts.detectMenu,
+      resolveSenderTarget: opts.resolveSenderTarget,
     },
   );
-  return { engine, sendKeysCalls, indicatorCalls, setIdle: (v: boolean) => { state.idle = v; } };
+  return {
+    engine, sendKeysCalls, indicatorCalls,
+    setIdle: (v: boolean, target: string = TARGET) => { idleByTarget.set(target, v); },
+  };
 }
 
 beforeEach(() => {
@@ -128,6 +138,78 @@ describe("stall notify — last-resort, never overtype", () => {
     // Crucially: still never overtyped.
     expect(sendKeysCalls.length).toBe(0);
     expect(messageQueue.pending("neo").length).toBe(1);
+  });
+});
+
+describe("stall notify → sender (eq3-004)", () => {
+  const SENDER = "sess:sender.0";
+
+  test("menu-immediate: a permission modal pings the sender at once, no threshold wait", async () => {
+    enqueue("m1"); // from "node:sender"
+    const { engine, sendKeysCalls, setIdle } = makeEngine({
+      stallThresholdMs: 180_000,              // far away — proves we did NOT wait it out
+      detectMenu: async (t) => t === TARGET,  // recipient pane shows a modal
+      resolveSenderTarget: async () => ({ oracle: "sender", target: SENDER }),
+    });
+    setIdle(false, TARGET);                   // the modal row reads as "typing" → never overtype it
+
+    await engine.runSweepOnce();
+
+    // Recipient never overtyped while the modal is up.
+    expect(sendKeysCalls.find(c => c.target === TARGET)).toBeUndefined();
+    // Sender pinged immediately, with the menu reason.
+    const ping = sendKeysCalls.find(c => c.target === SENDER);
+    expect(ping).toBeDefined();
+    expect(ping!.text).toContain("deliver ไม่ได้");
+    expect(ping!.text).toContain("permission prompt");
+
+    // One-shot — a second sweep does not re-ping.
+    await engine.runSweepOnce();
+    expect(sendKeysCalls.filter(c => c.target === SENDER).length).toBe(1);
+  });
+
+  test("stall-to-sender: a non-menu stall past threshold pings the sender once (feed event too)", async () => {
+    const msg = enqueue("m1");
+    const entry = messageQueue.getAll().find(m => m.id === msg.id)!;
+    entry.queuedAt -= 1_000_000;              // age past the threshold
+    const { engine, sendKeysCalls, setIdle } = makeEngine({
+      stallThresholdMs: 1000,
+      detectMenu: async () => false,          // plain stall, not a modal
+      resolveSenderTarget: async () => ({ oracle: "sender", target: SENDER }),
+    });
+    setIdle(false, TARGET);                   // operator keeps typing on the recipient
+
+    await engine.runSweepOnce();
+    await engine.runSweepOnce();
+
+    const pings = sendKeysCalls.filter(c => c.target === SENDER);
+    expect(pings.length).toBe(1);
+    expect(pings[0].text).toContain("operator input");
+    expect(sendKeysCalls.find(c => c.target === TARGET)).toBeUndefined();   // never overtyped
+    expect(feedEvents.filter(e => e?.data?.kind === "dispatch-stall").length).toBe(1);
+  });
+
+  test("no-overtype-sender: a busy sender pane holds the ping in queue (zero injection)", async () => {
+    const msg = enqueue("m1");
+    const entry = messageQueue.getAll().find(m => m.id === msg.id)!;
+    entry.queuedAt -= 1_000_000;
+    const { engine, sendKeysCalls, setIdle } = makeEngine({
+      stallThresholdMs: 1000,
+      resolveSenderTarget: async () => ({ oracle: "sender", target: SENDER }),
+    });
+    setIdle(false, TARGET);                   // recipient dirty
+    setIdle(false, SENDER);                   // sender ALSO mid-typing → must not overtype
+
+    await engine.runSweepOnce();
+    // Ping enqueued but held — the sender is typing.
+    expect(sendKeysCalls.find(c => c.target === SENDER)).toBeUndefined();
+    expect(messageQueue.pending("sender").length).toBe(1);
+
+    // Once the sender clears, the sweep delivers the held ping (no re-trigger needed).
+    setIdle(true, SENDER);
+    await engine.runSweepOnce();
+    expect(sendKeysCalls.find(c => c.target === SENDER)).toBeDefined();
+    expect(messageQueue.pending("sender").length).toBe(0);
   });
 });
 

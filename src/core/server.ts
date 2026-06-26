@@ -336,6 +336,29 @@ export async function startBunGatewayServer(
         const { checkPaneIdle } = await import("../commands/shared/comm-send");
         return (await checkPaneIdle(target)).idle;
       },
+      // eq3-004 — permission-modal detector (separate from the typing guard) so a
+      // pane stuck on a confirm prompt notifies the sender immediately.
+      detectMenu: async (target) => {
+        const { detectPermissionMenu } = await import("../commands/shared/comm-send");
+        return detectPermissionMenu(target);
+      },
+      // eq3-004 — resolve a stuck message's sender to a local pane so the stall/
+      // menu warning can be injected back. Cross-node / unresolved senders → null
+      // (feed event only). Dynamic imports keep these out of the static graph.
+      resolveSenderTarget: async (from) => {
+        try {
+          const { resolveTarget } = await import("./routing");
+          const { listSessions } = await import("./transport/ssh");
+          const { resolveOraclePane } = await import("../commands/shared/comm-send");
+          const { extractOracleName } = await import("./agent-status-guard");
+          const sessions = await listSessions();
+          const result = resolveTarget(from, loadConfig(), sessions);
+          if (result && (result.type === "local" || result.type === "self-node")) {
+            return { oracle: extractOracleName(from), target: await resolveOraclePane(result.target) };
+          }
+        } catch { /* unresolved sender → feed-only notify */ }
+        return null;
+      },
       setIndicator: async (target, count) => {
         const { tmux } = await import("./transport/tmux-class");
         await tmux.setPendingIndicator(target, count);

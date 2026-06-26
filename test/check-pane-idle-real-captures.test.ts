@@ -17,13 +17,16 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { checkPaneIdle } from "../src/commands/shared/comm-send";
+import { checkPaneIdle, detectPermissionMenu } from "../src/commands/shared/comm-send";
 
 const FX = join(import.meta.dir, "fixtures/pane-captures");
 const probe = (file: string) =>
   checkPaneIdle("pane:0.0", undefined, {
     captureFn: async () => readFileSync(join(FX, file), "utf8"),
   });
+const probeMenu = (content: string) =>
+  detectPermissionMenu("pane:0.0", undefined, { captureFn: async () => content });
+const probeMenuFile = (file: string) => probeMenu(readFileSync(join(FX, file), "utf8"));
 
 describe("checkPaneIdle — real Claude Code pane captures (#eq3-003b/003c)", () => {
   test("dim ghost text (per-word ESC[2m…ESC[0m) is idle, not 'typing'", async () => {
@@ -53,5 +56,31 @@ describe("checkPaneIdle — real Claude Code pane captures (#eq3-003b/003c)", ()
   test("permission menu (not dim) still defers — never inject into an open dialog", async () => {
     const r = await probe("claude-permission-menu.txt");
     expect(r.idle).toBe(false);
+  });
+});
+
+describe("detectPermissionMenu — modal recognition (eq3-004)", () => {
+  test("real Claude Code permission menu is detected (numbered cursor + Esc-to-cancel footer)", async () => {
+    expect(await probeMenuFile("claude-permission-menu.txt")).toBe(true);
+  });
+
+  test("bright operator typing is NOT a menu (no modal footer)", async () => {
+    expect(await probeMenuFile("claude-bright-typing.txt")).toBe(false);
+  });
+
+  test("empty input box is NOT a menu", async () => {
+    expect(await probeMenuFile("claude-empty.txt")).toBe(false);
+  });
+
+  test("operator literally typing '1. ...' without a modal footer does NOT false-trigger", async () => {
+    // The exact false-positive the dual-signal guard exists to prevent: a
+    // numbered list on the prompt line, but none of the modal chrome.
+    const typed = "\x1b[2m… some agent output …\x1b[0m\n❯ 1. buy milk and 2. eggs\n";
+    expect(await probeMenu(typed)).toBe(false);
+  });
+
+  test("modal footer alone, with no numbered cursor, does NOT count as a menu", async () => {
+    const footerOnly = "Press Esc to cancel the running task\n❯ \n";
+    expect(await probeMenu(footerOnly)).toBe(false);
   });
 });

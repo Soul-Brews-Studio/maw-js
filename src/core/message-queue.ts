@@ -15,6 +15,12 @@ export interface QueuedMessage {
    * one-shot stall notify, so the periodic sweep doesn't re-ping every tick.
    */
   stallNotified?: boolean;
+  /**
+   * eq3-004 — set on dispatch-engine-originated stall/menu notifications that
+   * are routed back to a sender's pane. Excluded from stall detection so a
+   * notify that itself stalls never spawns a notify-of-a-notify.
+   */
+  system?: boolean;
 }
 
 let nextId = 1;

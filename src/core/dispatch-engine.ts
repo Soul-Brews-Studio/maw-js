@@ -9,6 +9,14 @@ type SendKeysFn = (target: string, text: string) => Promise<void>;
 type PaneIdleFn = (target: string) => Promise<boolean>;
 /** Surface a pending-message badge on the target (eq3-003); count 0 clears it. */
 type SetIndicatorFn = (target: string, count: number) => Promise<void>;
+/** eq3-004 — true when the target pane is showing a permission/confirm modal. */
+type DetectMenuFn = (target: string) => Promise<boolean>;
+/**
+ * eq3-004 — resolve a queued message's `from` to a locally-injectable pane so a
+ * stall/menu notify can be routed back to the sender. Returns null when the
+ * sender isn't a local pane (e.g. cross-node) — those fall back to the feed event.
+ */
+type ResolveSenderFn = (from: string) => Promise<{ oracle: string; target: string } | null>;
 
 export interface DispatchEngineOptions {
   /** Pane-input guard — when omitted, panes are assumed always idle (legacy behavior). */
@@ -17,6 +25,10 @@ export interface DispatchEngineOptions {
   setIndicator?: SetIndicatorFn;
   /** A deferred message older than this (ms) fires a one-shot stall notify. 0 disables. */
   stallThresholdMs?: number;
+  /** eq3-004 — permission-menu detector; when omitted, no pane is ever treated as a menu. */
+  detectMenu?: DetectMenuFn;
+  /** eq3-004 — sender-pane resolver for routing stall/menu notifies back to msg.from. */
+  resolveSenderTarget?: ResolveSenderFn;
 }
 
 export interface FlushResult {
@@ -50,12 +62,16 @@ export class DispatchEngine {
   private paneIdle: PaneIdleFn;
   private setIndicator: SetIndicatorFn;
   private stallThresholdMs: number;
+  private detectMenu: DetectMenuFn;
+  private resolveSenderTarget: ResolveSenderFn;
 
   constructor(sendKeys: SendKeysFn, opts: DispatchEngineOptions = {}) {
     this.sendKeys = sendKeys;
     this.paneIdle = opts.paneIdle ?? (async () => true);
     this.setIndicator = opts.setIndicator ?? (async () => {});
     this.stallThresholdMs = opts.stallThresholdMs ?? D.inputGuard.stallNotifyMs;
+    this.detectMenu = opts.detectMenu ?? (async () => false);
+    this.resolveSenderTarget = opts.resolveSenderTarget ?? (async () => null);
   }
 
   start() {
@@ -144,6 +160,10 @@ export class DispatchEngine {
     // queued; the sweep / next transition / `maw flush` will retry.
     if (!(await this.paneIdle(msg.target))) {
       await this.refreshIndicator(oracle);
+      // eq3-004 — a busy→ready transition that still can't deliver may mean the
+      // pane popped a permission modal; surface it to the sender right away
+      // instead of waiting for the next sweep tick.
+      await this.checkStall(oracle);
       return;
     }
 
@@ -178,19 +198,35 @@ export class DispatchEngine {
   }
 
   /**
-   * One-shot stall notify: when a message has sat behind dirty input longer
-   * than the threshold, emit a single Notification feed event (deduped via
-   * `stallNotified`). Never escalates to force-delivery.
+   * One-shot stall/menu notify. For each undelivered message on `oracle`:
+   *   (b) target is showing a permission modal → notify NOW (menus never
+   *       self-clear, so there's no point waiting out the threshold), or
+   *   (a) the message has sat behind dirty input past the threshold → notify.
+   * Each fires exactly once (deduped via `stallNotified`) and NEVER escalates to
+   * force-delivery. System notifies (`m.system`) are skipped so a stalled notify
+   * can't spawn a notify-of-a-notify.
    */
   private async checkStall(oracle: string): Promise<void> {
-    if (this.stallThresholdMs <= 0) return;
     const now = Date.now();
-    const stale = messageQueue
-      .pending(oracle)
-      .filter(m => !m.stallNotified && now - m.queuedAt >= this.stallThresholdMs);
-    if (stale.length === 0) return;
-    for (const m of stale) messageQueue.markStallNotified(m.id);
-    const target = stale[0].target;
+    for (const m of messageQueue.pending(oracle)) {
+      if (m.stallNotified || m.system) continue;
+      const menu = await this.detectMenu(m.target);
+      const stalled = this.stallThresholdMs > 0 && now - m.queuedAt >= this.stallThresholdMs;
+      if (!menu && !stalled) continue;
+      await this.notifyStuck(m, oracle, menu ? "permission prompt" : "operator input", now);
+    }
+  }
+
+  /**
+   * eq3-004 — fire the one-shot notify for a stuck message: a central feed
+   * Notification (unchanged from eq3-003) PLUS, when the sender resolves to a
+   * local pane, a warning routed back through the queue to msg.from. Routing the
+   * sender ping through the queue is deliberate — it reuses the SAME zero-overtype
+   * guard, sweep retry, and badge, so the notify itself never overtypes the
+   * sender. Cross-node senders (no local pane) get the feed event only.
+   */
+  private async notifyStuck(m: QueuedMessage, oracle: string, reason: string, now: number): Promise<void> {
+    messageQueue.markStallNotified(m.id);
     const count = messageQueue.pending(oracle).length;
     try {
       pushFeedEvent({
@@ -199,12 +235,27 @@ export class DispatchEngine {
         host: "local",
         event: "Notification",
         project: "",
-        sessionId: target,
-        message: `📬 ${count} message(s) waiting on ${oracle} — operator input pending; not overtyping`,
+        sessionId: m.target,
+        message: `📬 ${count} message(s) waiting on ${oracle} — ${reason}; not overtyping`,
         ts: now,
-        data: { kind: "dispatch-stall", oracle, target, count },
+        data: { kind: "dispatch-stall", oracle, target: m.target, reason, from: m.from, count },
       });
     } catch { /* notify is best-effort; never block */ }
+
+    try {
+      const sender = await this.resolveSenderTarget(m.from);
+      if (sender) {
+        messageQueue.enqueue({
+          from: "maw",
+          to: sender.oracle,
+          target: sender.target,
+          message: `⚠️ ${oracle} ติด ${reason} — ข้อความคุณยัง deliver ไม่ได้ ไปดูหน่อย`,
+          system: true,
+        });
+        await this.refreshIndicator(sender.oracle);
+        await this.flush(sender.oracle);
+      }
+    } catch { /* sender ping is best-effort; the feed event already fired */ }
   }
 
   private emitFeed(msg: QueuedMessage, state: "delivered" | "failed", error?: string) {
