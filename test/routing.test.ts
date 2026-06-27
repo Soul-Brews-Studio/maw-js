@@ -4,7 +4,7 @@
  * See: #201
  */
 import { afterEach, describe, test, expect } from "bun:test";
-import { resolveTarget } from "../src/core/routing";
+import { resolveTarget, resolveLocalFallbackForUnknownNode, type ResolveResult } from "../src/core/routing";
 import type { Session } from "../src/core/runtime/find-window";
 import type { MawConfig } from "../src/config";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -306,5 +306,45 @@ describe("resolveTarget — #758 candidate filtering", () => {
       { name: "09-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: false }] },
     ];
     expect(() => resolveTarget("mawjs-oracle", BASE_CONFIG, sessions)).toThrow(/Ambiguous match/);
+  });
+});
+
+describe("resolveLocalFallbackForUnknownNode (eq3-006)", () => {
+  const unknownNode: ResolveResult = { type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" };
+
+  test("unknown node + bare name live local → returns the local target (inject, don't persist)", () => {
+    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, (bare) =>
+      bare === "nai" ? { type: "local", target: "24-nai:nai-oracle" } : { type: "error", reason: "not_found", detail: "" });
+    expect(r).toEqual({ type: "local", target: "24-nai:nai-oracle" });
+  });
+
+  test("unknown node + bare self-node session is also accepted", () => {
+    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "self-node", target: "24-nai:nai-oracle" }));
+    expect(r).toMatchObject({ type: "self-node", target: "24-nai:nai-oracle" });
+  });
+
+  test("unknown node + bare name offline → null (stays inbox-persist)", () => {
+    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "error", reason: "not_found", detail: "" }));
+    expect(r).toBeNull();
+  });
+
+  test("unknown node + bare name resolves to a peer → null (never routes cross-node)", () => {
+    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "peer", peerUrl: "http://x", target: "nai", node: "elsewhere" }));
+    expect(r).toBeNull();
+  });
+
+  test("primary is a real peer (known node) → null, resolver never consulted", () => {
+    let called = false;
+    const r = resolveLocalFallbackForUnknownNode(
+      "monkut:nai",
+      { type: "peer", peerUrl: "http://monkut", target: "nai", node: "monkut" },
+      () => { called = true; return { type: "local", target: "x" }; });
+    expect(r).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  test("no node prefix → null", () => {
+    const r = resolveLocalFallbackForUnknownNode("nai", unknownNode, () => ({ type: "local", target: "24-nai:nai-oracle" }));
+    expect(r).toBeNull();
   });
 });

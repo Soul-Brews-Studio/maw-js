@@ -8,7 +8,7 @@ import {
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
-import { detectWindowMismatch } from "../../core/routing";
+import { detectWindowMismatch, resolveLocalFallbackForUnknownNode } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
@@ -861,11 +861,17 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const result = bareResolution.result ?? (
+  const baseResult = bareResolution.result ?? (
     isBareLocalHeyTarget(query)
       ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
       : resolveTarget(query, config, sessions, currentSession)
   );
+  // eq3-006 — node:name with an unknown node, but the bare oracle name is a live
+  // local session → inject that pane instead of dropping to the receiver inbox.
+  // Mirrors the server /api/send path; never routes cross-node.
+  const result = resolveLocalFallbackForUnknownNode(
+    query, baseResult, (bare) => resolveTarget(bare, config, sessions, currentSession),
+  ) ?? baseResult;
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //

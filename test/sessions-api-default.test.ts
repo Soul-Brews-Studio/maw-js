@@ -283,6 +283,41 @@ describe("POST /send", () => {
     expect(h.lifecycle[0]).toMatchObject({ state: "queued", signed: false });
   });
 
+  test("eq3-006: node:name with unknown node but bare name live local → injects the live pane, not inbox", async () => {
+    const h = makeHarness({
+      resolveTarget: ((q: string) =>
+        q === "nai"
+          ? { type: "local", target: "24-nai:nai-oracle" }
+          : { type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" }) as any,
+      listSessions: async () => [session("24-nai", [{ index: 0, name: "nai-oracle", active: true }])] as any,
+    });
+
+    const res = await readJson(await h.app.handle(jsonRequest("/send", { target: "mba:nai", text: "hi nai" })));
+
+    expect(res).toMatchObject({ ok: true, target: "24-nai:nai-oracle", source: "local", state: "delivered" });
+    expect(h.calls).toContainEqual(["sendKeys", "24-nai:nai-oracle", "hi nai"]);
+  });
+
+  test("eq3-006: node:name unknown + bare name NOT live → still persists to inbox (no inject)", async () => {
+    const inboxCalls: any[] = [];
+    const h = makeHarness({
+      // unknown for both "mba:nai" and the stripped bare "nai" → no live local pane
+      resolveTarget: (() => ({ type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" })) as any,
+      listSessions: async () => [] as any,
+      findPeerForTarget: async () => null,
+      writeReceiverInbox: (input) => {
+        inboxCalls.push(input);
+        return { ok: true, oracle: "nai", inboxDir: "/repo/ψ/inbox", path: "/repo/ψ/inbox/m.md", filename: "m.md" };
+      },
+    });
+
+    const res = await readJson(await h.app.handle(jsonRequest("/send", { target: "mba:nai", text: "read later" })));
+
+    expect(h.calls.some((c) => c[0] === "sendKeys")).toBe(false);
+    expect(inboxCalls.length).toBe(1);
+    expect(res).toMatchObject({ target: "mba:nai" });
+  });
+
   test("mirrors inbound local /send deliveries to receiver inbox when enabled", async () => {
     const inboxCalls: any[] = [];
     const h = makeHarness({

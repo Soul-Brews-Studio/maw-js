@@ -200,6 +200,43 @@ export function resolveTarget(
   return { type: "error", reason: "not_found", detail: `'${query}' not in local sessions, agents map, or peer aliases`, hint: "check: maw ls" };
 }
 
+/**
+ * eq3-006 — unify the inject path with what the inbox-persist path already knows.
+ *
+ * A `node:name` target whose NODE is unknown (e.g. `mba:nai`, where `mba` is this
+ * host's federation tag, not the configured node `m5`) resolves to an
+ * `unknown_node` error — so the send drops to the receiver inbox even when `name`
+ * is a live LOCAL oracle. The persist path locates `name` by its bare oracle name
+ * and writes to its inbox; the inject path used the full `node:name` and missed.
+ *
+ * This re-resolves the BARE oracle name (prefix stripped) and returns it ONLY
+ * when it's a live local/self-node target — letting the caller inject the live
+ * pane instead of persisting. Returns null in every other case:
+ *   - primary isn't an `unknown_node` error (real peers route out unchanged)
+ *   - no node prefix to strip
+ *   - the bare name isn't a live local/self-node session (stays inbox-persist)
+ *
+ * `resolveBare` is injected so callers reuse their own (possibly mocked)
+ * resolver + live-session list. NEVER routes cross-node: a bare name that
+ * resolves to a peer is rejected (returns null).
+ *
+ * @internal exported for tests.
+ */
+export function resolveLocalFallbackForUnknownNode(
+  query: string,
+  primary: ResolveResult,
+  resolveBare: (bare: string) => ResolveResult,
+): ResolveResult | null {
+  if (!primary || primary.type !== "error" || primary.reason !== "unknown_node") return null;
+  const colonIdx = query.indexOf(":");
+  if (colonIdx < 0) return null;
+  const bare = query.slice(colonIdx + 1);
+  if (!bare || bare.includes(":")) return null;
+  const retry = resolveBare(bare);
+  if (retry && (retry.type === "local" || retry.type === "self-node")) return retry;
+  return null;
+}
+
 
 function findPeerAliasRoute(query: string, config: MawConfig): ResolveResult {
   if (!query || query.includes(":") || query.includes("/")) return null;
