@@ -278,7 +278,7 @@ describe("cmdSend — targeted runtime coverage", () => {
     }]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "path/unknown", message: "[test-node:sender] poll me later", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", target: "path/unknown" });
-    expect(logs.join("\n")).toContain("target not live; persisted for receiver inbox polling");
+    expect(logs.join("\n")).toContain("they'll read it on the next poll");
     expect(errs).toEqual([]);
   });
 });

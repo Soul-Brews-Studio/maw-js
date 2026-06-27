@@ -463,7 +463,7 @@ describe("comm-send thirteenth-pass cmdSend branches", () => {
     expect(defaultInboxCalls[0]).toMatchObject({ query: "local:ghost", target: undefined, message: "[test-node:sender] queue fallback" });
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:ghost", message: "[test-node:sender] queue fallback", route: "inbox" }]);
     expect(errs).toEqual([]);
-    expect(logs.join("\n")).toContain("target not live; persisted for receiver inbox polling");
+    expect(logs.join("\n")).toContain("they'll read it on the next poll");
   });
 
   test("local auto-wake helper errors are best-effort and fall through to normal delivery", async () => {

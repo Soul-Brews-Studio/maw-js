@@ -152,7 +152,7 @@ export function resolveTarget(
     }
 
     // Unknown node
-    return { type: "error", reason: "unknown_node", detail: `node '${nodeName}' not in namedPeers or peers`, hint: "add to maw.config.json namedPeers" };
+    return { type: "error", reason: "unknown_node", detail: `node '${nodeName}' not in namedPeers or peers`, hint: `run 'maw locate ${agentName}' to find where it lives, or add node '${nodeName}' to maw.config.json namedPeers` };
   }
 
   // --- Step 3a (NEW, Sub-PR 3 of #841): OracleManifest as primary lookup ---

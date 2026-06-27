@@ -240,7 +240,7 @@ describe("resolveTarget default routing branches", () => {
     expect(resolveTarget("mars:neo", withPeer, [])).toMatchObject({
       type: "error",
       reason: "unknown_node",
-      hint: "add to maw.config.json namedPeers",
+      hint: "run 'maw locate neo' to find where it lives, or add node 'mars' to maw.config.json namedPeers",
     });
   });
 

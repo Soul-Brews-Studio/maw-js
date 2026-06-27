@@ -74,7 +74,7 @@
       "name": "unknown node fails loudly",
       "query": "unknown:remoteagent",
       "sessions": [],
-      "expected": { "type": "error", "reason": "unknown_node", "detail": "node 'unknown' not in namedPeers or peers", "hint": "add to maw.config.json namedPeers" }
+      "expected": { "type": "error", "reason": "unknown_node", "detail": "node 'unknown' not in namedPeers or peers", "hint": "run 'maw locate remoteagent' to find where it lives, or add node 'unknown' to maw.config.json namedPeers" }
     },
     {
       "name": "bare agent map routes to peer",

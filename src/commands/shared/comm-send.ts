@@ -339,6 +339,21 @@ export async function detectPermissionMenu(
 }
 
 /**
+ * eq3-005 — federation-vs-local guard. When an explicit `node:name` target was
+ * routed to a peer but `name` ALSO has a live local session, surface a hint that
+ * a direct local path exists. We deliberately do NOT auto-redirect: addressing a
+ * specific node may be intentional (a different node's like-named oracle). This
+ * just makes the choice visible. Returns null when no hint applies.
+ *
+ * @internal exported for tests only.
+ */
+export function peerLocalOverrideHint(query: string, bareName: string, localIsLive: boolean): string | null {
+  if (!query.includes(":") || !localIsLive) return null;
+  const node = query.slice(0, query.indexOf(":"));
+  return `'${bareName}' is live locally — use the bare name (\`maw hey ${bareName}\`) to inject directly; you addressed the '${node}' node explicitly so this was sent cross-node`;
+}
+
+/**
  * #1572 — bare oracle names are allowed only as a same-node convenience.
  *
  * `maw hey <oracle-window> "..."` now resolves locally first. If there is no
@@ -1142,6 +1157,13 @@ export async function cmdSend(
 
   // Remote peer → federation HTTP
   if (result?.type === "peer") {
+    // eq3-005 — federation-vs-local guard: explicit node:name routed to a peer,
+    // but the bare name is also live locally. Surface it (no auto-redirect).
+    try {
+      const localIsLive = resolveTarget(result.target, config, sessions)?.type === "local";
+      const overrideHint = peerLocalOverrideHint(query, result.target, localIsLive);
+      if (overrideHint) console.warn(`\x1b[33mhint\x1b[0m:  ${overrideHint}`);
+    } catch { /* hint is best-effort; never block the send */ }
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: result.target, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
@@ -1290,7 +1312,10 @@ export async function cmdSend(
     }
     console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
   } else {
-    const reason = "target not live; persisted for receiver inbox polling";
+    // eq3-005 — human-facing wording: this is NOT a failure. The message lands in
+    // the receiver's inbox and is read on their next poll. (Delivery state stays
+    // "queued" on the feed event; only the operator-visible reason changed.)
+    const reason = `delivered to ${query}'s inbox (not live now) — they'll read it on the next poll`;
     const inbox = await writeReceiverInbox();
     if (logQueuedInbox(inbox, query, reason)) {
       await notifyQueuedInbox(inbox, query, reason);

@@ -2,9 +2,27 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   checkPaneIdle,
   formatSignedMessage,
+  peerLocalOverrideHint,
   resolveMyName,
   resolveOraclePane,
 } from "../src/commands/shared/comm-send";
+
+describe("peerLocalOverrideHint — federation-vs-local guard (eq3-005)", () => {
+  test("node:name routed to a peer while the bare name is live locally → hint", () => {
+    const hint = peerLocalOverrideHint("mba:nai", "nai", true);
+    expect(hint).toContain("'nai' is live locally");
+    expect(hint).toContain("maw hey nai");
+    expect(hint).toContain("'mba'");
+  });
+
+  test("bare name (no node prefix) → no hint, even when live locally", () => {
+    expect(peerLocalOverrideHint("nai", "nai", true)).toBeNull();
+  });
+
+  test("node:name but the bare name is NOT live locally → no hint", () => {
+    expect(peerLocalOverrideHint("mba:nai", "nai", false)).toBeNull();
+  });
+});
 
 describe("resolveOraclePane — default coverage seams", () => {
   test("honors pane-specific targets without consulting tmux", async () => {
