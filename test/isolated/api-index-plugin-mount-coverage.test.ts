@@ -82,6 +82,7 @@ const moduleExports: Record<string, unknown> = {
   engineApi: inertPlugin,
   statusApi: inertPlugin,
   requestReplyApi: inertPlugin,
+  reviewApi: inertPlugin,
 };
 
 const apiModules: Array<[string, string]> = [
@@ -113,6 +114,7 @@ const apiModules: Array<[string, string]> = [
   ["engine", "engineApi"],
   ["status", "statusApi"],
   ["request-reply", "requestReplyApi"],
+  ["review", "reviewApi"],
 ];
 
 for (const [moduleName, exportName] of apiModules) {

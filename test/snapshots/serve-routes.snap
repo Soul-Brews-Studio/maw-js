@@ -51,6 +51,9 @@ GET /api/queue -> elysia api
 GET /api/queue/:oracle -> elysia api
 GET /api/request/:correlationId -> elysia api
 GET /api/requests -> elysia api
+GET /api/review/:token -> elysia api
+GET /api/review/pending -> elysia api
+GET /api/review/stream -> elysia api
 GET /api/sessions -> elysia api
 GET /api/snapshots -> elysia api
 GET /api/snapshots/:id -> elysia api
@@ -103,6 +106,8 @@ POST /api/pulse -> elysia api
 POST /api/queue -> elysia api
 POST /api/reply/:correlationId -> elysia api
 POST /api/request -> elysia api
+POST /api/review -> elysia api
+POST /api/review/:token/decision -> elysia api
 POST /api/select -> elysia api
 POST /api/send -> elysia api
 POST /api/sleep -> elysia api

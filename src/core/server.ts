@@ -366,6 +366,9 @@ export async function startBunGatewayServer(
       stallThresholdMs: ig.stallNotifyMs ?? D.inputGuard.stallNotifyMs,
       sweepIntervalMs: ig.sweepIntervalMs ?? D.inputGuard.sweepIntervalMs,
     });
+    // Review Desk — sweep pending reviews past their deadline → expired + deliver
+    // (never auto-approve). Dynamic import keeps bun:sqlite out of the static graph.
+    void import("../api/review").then(({ startReviewExpirySweep }) => startReviewExpirySweep());
   }
 
   // Hook workflow triggers into feed events
