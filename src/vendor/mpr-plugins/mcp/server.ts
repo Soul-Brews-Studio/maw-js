@@ -21,6 +21,7 @@ import {
   toMcpResult,
   type SpawnFn,
 } from "./tools";
+import { inlineImages, defaultInlineImagesDeps } from "./inline-images";
 
 export interface BuildOptions {
   /** Injectable spawn (default Bun.spawn via runMaw). Mostly for tests. */
@@ -127,6 +128,30 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
     },
     async ({ action, company, dept, oracle, role, text }) =>
       guard(() => deptArgs({ action, company, dept, oracle, role, text })),
+  );
+
+  // Unlike the other tools, this one resolves IN-PROCESS (no `maw` subprocess):
+  // it owns the `maw://` concept and only needs config + fetch. Fail-fast errors
+  // map to an isError result so the caller never receives markdown that still
+  // has an unresolved `maw://` in it.
+  server.registerTool(
+    "maw_inline_images",
+    {
+      title: "Inline maw:// image refs as base64",
+      description:
+        "Scan markdown for maw://<node>/<file> image refs, fetch each from the mesh, and replace them with data:image/...;base64 URIs — returning markdown with NO maw:// left. Fail-fast: if any ref can't be resolved (unknown node, 404, too large, unsupported type) the whole call fails and names the ref. Knows nothing about any downstream consumer; it only returns markdown.",
+      inputSchema: {
+        markdown: z.string().describe("markdown that may contain maw://<node>/<uuid>.<ext> image refs"),
+      },
+    },
+    async ({ markdown }): Promise<CallToolResult> => {
+      try {
+        const out = await inlineImages(markdown, defaultInlineImagesDeps());
+        return { content: [{ type: "text", text: out }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }], isError: true };
+      }
+    },
   );
 
   return server;
