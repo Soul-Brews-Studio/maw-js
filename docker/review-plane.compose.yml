@@ -1,0 +1,56 @@
+# Standalone maw review-plane — serves ONLY the /api/review* endpoints, as its
+# own maw instance. Isolated from the Mac fleet maw-server and the monkut relay
+# (both held / must not restart): this is a separate container with its own
+# MAW_HOME + review-desk.sqlite.
+#
+# Bind: the entrypoint forces MAW_HOST=0.0.0.0 inside the container, so the desk
+# reaches maw over the `review-desk-net` docker network. The host port is
+# published to 127.0.0.1 ONLY — POST /api/review has no auth, so the raw port
+# must never face the public host (desk/asker talk to it in-network; localhost
+# is just for local e2e smoke).
+#
+# Run (secret never committed — pass via shell env or docker/.env):
+#   MAW_REVIEW_DESK_SECRET=<secret> docker compose -f docker/review-plane.compose.yml up -d --build
+#
+# Endpoints (all under /api/review): POST /api/review · GET /api/review/pending
+# · GET /api/review/stream · GET /api/review/:token · POST /api/review/:token/decision
+#
+# Desk side (worker1) joins `review-desk-net` (external) and sets
+#   MAW_BASE_URL=http://maw:3456  +  the SAME MAW_REVIEW_DESK_SECRET.
+
+services:
+  maw:
+    image: maw-js:review-plane
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: maw
+    container_name: maw-review-plane
+    environment:
+      NODE_NAME: review-plane
+      MAW_HOME: /root/.maw
+      MAW_HOST: 0.0.0.0
+      # Required — desk-secret for /pending + /stream (Bearer, constant-time).
+      MAW_REVIEW_DESK_SECRET: ${MAW_REVIEW_DESK_SECRET:?set MAW_REVIEW_DESK_SECRET (see docker/.env.example)}
+      # Base for the returned review url (/r/:token) — points at the desk UI.
+      MAW_REVIEW_DESK_URL: ${MAW_REVIEW_DESK_URL:-http://localhost:5173}
+    ports:
+      # 127.0.0.1 only — never expose the no-auth POST to the public host.
+      - "127.0.0.1:${REVIEW_PLANE_HOST_PORT:-18080}:3456"
+    volumes:
+      - maw-review-data:/root/.maw
+    networks:
+      - review-desk-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3456/api/plugins"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  # Stable, un-prefixed name so the desk compose can join it as `external: true`.
+  review-desk-net:
+    name: review-desk-net
+
+volumes:
+  maw-review-data:

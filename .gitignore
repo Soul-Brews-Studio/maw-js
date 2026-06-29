@@ -28,6 +28,8 @@ agents/
 
 # Local env + accidental self-symlink (cleanup 2026-04-17)
 .envrc
+.env
+docker/.env
 maw-js
 
 # Audio assets — keep local-only, not tracked (cleanup 2026-04-17)
