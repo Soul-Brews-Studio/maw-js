@@ -10,7 +10,7 @@ const prev = process.env.MAW_DATA_DIR;
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
-  const pgwDir = join(dir, "state", "pgw");
+  const pgwDir = join(dir, "companies", "pgw");
   mkdirSync(pgwDir, { recursive: true });
   writeFileSync(join(pgwDir, "state.md"), "# pgw\n\n## COORDINATION\n- DOING: ship company-ui\n");
 });
@@ -46,7 +46,7 @@ describe("handleStateDocRequest (company-ui markdown panel)", () => {
 
   test("company is sanitized to a single safe segment (no path traversal)", () => {
     // ".." / separators collapse to underscores → stays inside <data>/state/.
-    expect(stateDocPath("../../etc")).toBe(join(dir, "state", "______etc", "state.md"));
-    expect(stateDocPath("a/b")).toBe(join(dir, "state", "a_b", "state.md"));
+    expect(stateDocPath("../../etc")).toBe(join(dir, "companies", "______etc", "state.md"));
+    expect(stateDocPath("a/b")).toBe(join(dir, "companies", "a_b", "state.md"));
   });
 });

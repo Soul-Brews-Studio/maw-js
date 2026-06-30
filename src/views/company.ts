@@ -6,7 +6,8 @@ import { Hono } from "hono";
  * ADD route alongside the federation UI (ui/office) — does NOT replace it.
  * Panels, all read-only projections (spec §6 + addendum). The renderer is
  * generic — each panel declares a `type` so new ones drop in later:
- *   - kanban        Open / Claimed / Done   from GET /api/tasks?company=<c>
+ *   - kanban        backlog→todo→in-progress→review→done + needs-attention
+ *                   (off-flow) · wait-for badge derived · from GET /api/tasks
  *   - worklog-feed  activity timeline        from GET /api/worklog/feed?company=<c>
  *   - markdown-file coordination state doc   from GET /api/state?company=<c>
  *                   (hidden when the company has no state.md — never an error)
@@ -36,16 +37,23 @@ export function companyHtml(): string {
     button { cursor:pointer; border-color:#31516b; color:var(--accent); }
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 12px 28px rgba(0,0,0,.25); }
-    .board { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+    .board { display:grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
-    .col h2 { margin:0 0 10px; font-size:13px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; }
+    .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); }
-    .open h2 { color:var(--warn); } .claimed h2 { color:var(--accent); } .done h2 { color:var(--ok); }
+    .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
+    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:#c4a7ff; } .col-done h2 { color:var(--ok); }
+    .attention { margin-top:14px; border:1px solid #6b3a3a; background:#1b1012; border-radius:12px; padding:10px; }
+    .attention h2 { margin:0 0 8px; font-size:12px; color:var(--bad); display:flex; justify-content:space-between; }
+    .attention .lane { display:flex; gap:9px; flex-wrap:wrap; }
+    .attention .task { flex:1 1 220px; max-width:340px; }
     .task { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 10px; margin-bottom:9px; }
     .task .t-title { color:var(--fg); }
-    .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:8px; flex-wrap:wrap; }
+    .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
-    .pill.dept { color:var(--accent); } .pill.assignee { color:var(--ok); } .pill.pr { color:var(--warn); }
+    .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
+    .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
+    .pill.attn { color:var(--bad); border-color:#6b3a3a; }
     .timeline { max-height:72vh; overflow:auto; }
     .entry { padding:8px 4px; border-bottom:1px solid var(--line); }
     .entry:last-child { border-bottom:0; }
@@ -83,9 +91,15 @@ export function companyHtml(): string {
   <main class="layout">
     <section class="card">
       <div class="board">
-        <div class="col open"><h2><span>Open</span><span class="count" id="c-open">0</span></h2><div id="open"></div></div>
-        <div class="col claimed"><h2><span>Claimed</span><span class="count" id="c-claimed">0</span></h2><div id="claimed"></div></div>
-        <div class="col done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
+        <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
+        <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
+        <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
+        <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
+        <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
+      </div>
+      <div class="attention" id="attention-panel" hidden>
+        <h2><span>⚑ Needs attention <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-needs-attention">0</span></h2>
+        <div class="lane" id="needs-attention"></div>
       </div>
     </section>
     <aside class="stack">
@@ -108,34 +122,50 @@ function text(v) { return v == null ? '' : String(v); }
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = String(txt); return e; }
 function currentCompany() { return (companyInput.value || '').trim(); }
 
+// "X รอ Y" — derived, never stored (ADR §4): by≠assignee · state≠done.
+function waitFor(task) {
+  if (task.assignee && task.by && task.by !== task.assignee && task.state !== 'done') {
+    return task.by + '→' + task.assignee;
+  }
+  return null;
+}
+
 function taskCard(task) {
   const card = el('div', 'task');
   card.appendChild(el('div', 't-title', task.title || '(untitled)'));
   const meta = el('div', 't-meta');
-  meta.appendChild(el('span', 'pill', '#' + text(task.id)));
+  meta.appendChild(el('span', 'pill', text(task.id)));
   if (task.dept) meta.appendChild(el('span', 'pill dept', task.dept));
+  if (task.epic) meta.appendChild(el('span', 'pill epic', '⊳' + task.epic));
   if (task.assignee) meta.appendChild(el('span', 'pill assignee', '@' + task.assignee));
+  else meta.appendChild(el('span', 'pill', '(unassigned)'));
+  const wf = waitFor(task);
+  if (wf) meta.appendChild(el('span', 'pill wait', '⏳ ' + wf));
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
-  if (task.repo) meta.appendChild(el('span', 'pill', task.repo));
+  if (task.attention) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.attention.for + (task.attention.reason ? ': ' + task.attention.reason : '')));
   card.appendChild(meta);
   return card;
 }
 
+const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
+
 function renderBoard(tasks) {
-  const cols = { open: $('open'), claimed: $('claimed'), done: $('done') };
-  for (const k of Object.keys(cols)) cols[k].replaceChildren();
-  const counts = { open: 0, claimed: 0, done: 0 };
+  const cols = {};
+  for (const s of FLOW) { cols[s] = $(s); cols[s].replaceChildren(); }
+  const attn = $('needs-attention'); attn.replaceChildren();
+  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, 'needs-attention': 0 };
   for (const task of tasks) {
-    const state = cols[task.state] ? task.state : 'open';
+    if (task.state === 'needs-attention') { attn.appendChild(taskCard(task)); counts['needs-attention']++; continue; }
+    const state = cols[task.state] ? task.state : 'todo';
     cols[state].appendChild(taskCard(task));
     counts[state]++;
   }
-  $('c-open').textContent = counts.open;
-  $('c-claimed').textContent = counts.claimed;
-  $('c-done').textContent = counts.done;
-  for (const k of Object.keys(cols)) {
-    if (counts[k] === 0) cols[k].appendChild(el('div', 'empty', '—'));
+  for (const s of FLOW) {
+    $('c-' + s).textContent = counts[s];
+    if (counts[s] === 0) cols[s].appendChild(el('div', 'empty', '—'));
   }
+  $('c-needs-attention').textContent = counts['needs-attention'];
+  $('attention-panel').hidden = counts['needs-attention'] === 0;
 }
 
 function renderTimeline(entries) {
