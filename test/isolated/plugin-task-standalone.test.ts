@@ -16,24 +16,27 @@ describe("task command plugin standalone boundary", () => {
       allowRelative: [
         /^(?:\.\.\/){3}core\/tasks\//,
         /^(?:\.\.\/){3}core\/worklog\/company-scope$/,
+        /^(?:\.\.\/){3}commands\/shared\/comm-send$/, // actor resolution (same as maw hey)
       ],
     }).map((record) => record.spec);
 
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the four documented subcommands", () => {
+  test("CLI dispatches the five documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "claim"', 'subcmd === "done"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"']) {
       expect(src).toContain(sub);
     }
-    // claim sets assignee via the store; add pings the assignee on delegation
     expect(src).toContain("claimTask");
     expect(src).toContain("addTask");
+    expect(src).toContain("reviewTask");
     expect(src).toContain("completeTask");
+    // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
+    expect(src).toContain("resolveSenderIdentity");
   });
 
   test("manifest registers the `task` command", () => {

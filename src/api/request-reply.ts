@@ -5,6 +5,9 @@ import { messageQueue } from "../core/message-queue";
 import { extractOracleName } from "../core/agent-status-guard";
 import { pushFeedEvent } from "./feed";
 import { buildMessageLifecycleFeedEvent } from "../lib/message-events";
+import { parsePrNumber, setTaskPr } from "../core/tasks/store";
+import { findByRequestId } from "../core/tasks/auto-create";
+import { companyOfOracle } from "../core/worklog/company-scope";
 
 const ALLOWED_CALLBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -127,6 +130,20 @@ export const requestReplyApi = new Elysia()
     if (entry.status === "replied") { return { error: "already replied", correlationId: params.correlationId }; }
 
     requestReplyStore.markReplied(params.correlationId, body.reply, body.data);
+
+    // Track 4 — "done my part, PR up, review me": if the reply carries a PR url
+    // and this correlationId maps to an auto-created task, attach the PR + move
+    // the card to review (PR-watch flips it to done on merge). Best-effort.
+    try {
+      const pr = parsePrNumber(body.reply);
+      if (pr != null) {
+        const company = companyOfOracle(entry.from);
+        if (company) {
+          const task = findByRequestId(company, params.correlationId);
+          if (task) setTaskPr(company, task.id, pr, entry.to);
+        }
+      }
+    } catch { /* never let task wiring break the reply */ }
 
     // Push-based callback if configured (SSRF guard: localhost only)
     if (entry.callbackUrl && isAllowedCallbackUrl(entry.callbackUrl)) {

@@ -26,6 +26,7 @@ export type WorklogKind =
   | "claim"
   | "claim-release"
   | "task-created"
+  | "task-review"
   | "task-done"
   | "interrupt";
 
