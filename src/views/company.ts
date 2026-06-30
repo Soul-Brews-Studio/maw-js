@@ -6,7 +6,7 @@ import { Hono } from "hono";
  * ADD route alongside the federation UI (ui/office) — does NOT replace it.
  * Panels, all read-only projections (spec §6 + addendum). The renderer is
  * generic — each panel declares a `type` so new ones drop in later:
- *   - kanban        backlog→todo→in-progress→review→done + needs-attention
+ *   - kanban        backlog→todo→in-progress→review→done + blocked (off-flow)
  *                   (off-flow) · wait-for badge derived · from GET /api/tasks
  *   - worklog-feed  activity timeline        from GET /api/worklog/feed?company=<c>
  *   - markdown-file coordination state doc   from GET /api/state?company=<c>
@@ -102,8 +102,8 @@ export function companyHtml(): string {
         <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
       </div>
       <div class="attention" id="attention-panel" hidden>
-        <h2><span>⚑ Needs attention <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-needs-attention">0</span></h2>
-        <div class="lane" id="needs-attention"></div>
+        <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
+        <div class="lane" id="blocked"></div>
       </div>
     </section>
     <aside class="stack">
@@ -147,7 +147,7 @@ function taskCard(task) {
   if (wf) meta.appendChild(el('span', 'pill wait', '⏳ ' + wf));
   if (task.checklist && task.checklist.total) meta.appendChild(el('span', 'pill check', '☑ ' + task.checklist.done + '/' + task.checklist.total));
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
-  if (task.attention) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.attention.for + (task.attention.reason ? ': ' + task.attention.reason : '')));
+  if (task.block) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.block.kind + (task.block.for ? ' →' + task.block.for : '') + (task.block.reason ? ': ' + task.block.reason : '')));
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
@@ -159,10 +159,10 @@ const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
 function renderBoard(tasks) {
   const cols = {};
   for (const s of FLOW) { cols[s] = $(s); cols[s].replaceChildren(); }
-  const attn = $('needs-attention'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, 'needs-attention': 0 };
+  const attn = $('blocked'); attn.replaceChildren();
+  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, blocked: 0 };
   for (const task of tasks) {
-    if (task.state === 'needs-attention') { attn.appendChild(taskCard(task)); counts['needs-attention']++; continue; }
+    if (task.state === 'blocked') { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';
     cols[state].appendChild(taskCard(task));
     counts[state]++;
@@ -171,8 +171,8 @@ function renderBoard(tasks) {
     $('c-' + s).textContent = counts[s];
     if (counts[s] === 0) cols[s].appendChild(el('div', 'empty', '—'));
   }
-  $('c-needs-attention').textContent = counts['needs-attention'];
-  $('attention-panel').hidden = counts['needs-attention'] === 0;
+  $('c-blocked').textContent = counts['blocked'];
+  $('attention-panel').hidden = counts['blocked'] === 0;
 }
 
 function renderTimeline(entries) {

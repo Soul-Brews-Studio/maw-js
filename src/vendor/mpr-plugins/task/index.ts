@@ -2,11 +2,13 @@
  * maw task — company task board CLI (ADR 0001 backbone).
  *
  *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...] [--body "...md..."]
- *   maw task ls [--company c] [--mine]     # BLOCKED group for deps · ☑ N/M checklist progress from body
+ *   maw task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
  *   maw task start <id>
  *   maw task claim <id>
- *   maw task done <id>
+ *   maw task done <id>                # also clears an explicit block
  *   maw task archive [--days N]      # sweep done cards older than N days → tasks/archive/
+ *   maw task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
+ *   maw task unblock <id>            # restore prevState
  *
  * State lives in the file-per-card store (companies/<c>/tasks/*.json); every
  * mutation also emits a worklog event so the activity feed stays the single
@@ -21,6 +23,9 @@ import { companyOfOracle } from "../../../core/worklog/company-scope";
 import {
   addTask,
   archiveOldDone,
+  BLOCK_KINDS,
+  blockNextAction,
+  blockTask,
   checklistProgress,
   claimTask,
   completeTask,
@@ -33,6 +38,8 @@ import {
   startTask,
   taskNextAction,
   TASK_FLOW,
+  unblockTask,
+  type BlockKind,
   type DependencyBlock,
   type TaskRecord,
   type TaskState,
@@ -82,7 +89,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   "in-progress": "IN-PROGRESS",
   "review": "REVIEW",
   "done": "DONE",
-  "needs-attention": "NEEDS-ATTENTION",
+  "blocked": "BLOCKED",
 };
 
 function cardHead(t: TaskRecord): string {
@@ -104,16 +111,16 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
 
-  // Derived blocked-by-dependency (ADR 0003 A) — computed at read, never stored.
-  // A card with any pending parent is pulled OFF the flow into BLOCKED.
+  // Off-flow = explicit block (ADR 0003 B, state="blocked") OR derived
+  // blocked-by-dependency (ADR 0003 A, computed at read). Both share ONE group.
   const resolveParent = parentStateResolver(company);
   const dep = new Map(tasks.map((t) => [t.id, dependencyBlock(t, resolveParent)] as const));
-  const isBlocked = (t: TaskRecord) => dep.get(t.id)!.blockedBy.length > 0;
-  const flow = tasks.filter((t) => !isBlocked(t));
-  const blocked = tasks.filter(isBlocked);
+  const isDepBlocked = (t: TaskRecord) => dep.get(t.id)!.blockedBy.length > 0;
+  const offFlow = (t: TaskRecord) => t.state === "blocked" || isDepBlocked(t);
+  const flow = tasks.filter((t) => !offFlow(t));
+  const blocked = tasks.filter(offFlow);
 
-  const order: TaskState[] = [...TASK_FLOW, "needs-attention"];
-  for (const state of order) {
+  for (const state of TASK_FLOW) {
     const inState = flow.filter((t) => t.state === state);
     if (!inState.length) continue;
     lines.push(`\n\x1b[1m${STATE_LABEL[state]}\x1b[0m \x1b[90m(${inState.length})\x1b[0m`);
@@ -129,8 +136,10 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
     lines.push(`\n\x1b[1m\x1b[31mBLOCKED\x1b[0m \x1b[90m(${blocked.length})\x1b[0m`);
     for (const t of blocked) {
       lines.push(cardHead(t));
-      lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m🚫 รอ: ${dep.get(t.id)!.blockedBy.join(", ")}\x1b[0m`);
-      const m = missingLine(dep.get(t.id)!); if (m) lines.push(m);
+      if (t.state === "blocked") lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m${blockNextAction(t)}\x1b[0m`); // explicit (kind/for/reason)
+      const d = dep.get(t.id)!;
+      if (d.blockedBy.length) lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m🚫 รอ: ${d.blockedBy.join(", ")}\x1b[0m`); // derived deps
+      const m = missingLine(d); if (m) lines.push(m);
     }
   }
   return lines.join("\n");
@@ -176,7 +185,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
       }
     } else if (subcmd === "ls") {
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--for": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
@@ -185,6 +194,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       // off here even before the archive sweep physically moves it.
       let tasks = listTasks(company).filter((t) => isOnBoard(t));
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
+      // --for <who> → the decision queue: blocked cards waiting on that person (ADR 0003 B)
+      if (flags["--for"]) tasks = tasks.filter((t) => t.state === "blocked" && t.block?.for === flags["--for"]);
       console.log(renderBoard(tasks, company, mine));
     } else if (subcmd === "start") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
@@ -243,8 +254,34 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`\x1b[32m📦 archived\x1b[0m ${archived.length} done card(s) older than ${days}d \x1b[90m→ tasks/archive/\x1b[0m`);
         for (const t of archived) console.log(`  \x1b[90m${t.id}\x1b[0m ${t.title}`);
       }
+    } else if (subcmd === "block") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--kind": String, "--reason": String, "--for": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: `usage: maw task block <id> --kind <${BLOCK_KINDS.join("|")}> [--reason "<text>"] [--for tony|<oracle>|any]` };
+      const kind = flags["--kind"] as BlockKind | undefined;
+      if (!kind || !BLOCK_KINDS.includes(kind)) return { ok: false, error: `--kind must be one of: ${BLOCK_KINDS.join(", ")}` };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = blockTask(company, id, me, { kind, reason: flags["--reason"], for: flags["--for"] });
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[31m⚑ blocked\x1b[0m ${t.id} \x1b[90m(${blockNextAction(t)})\x1b[0m: ${t.title}`);
+      if (flags["--for"] && flags["--for"] !== me && flags["--for"] !== "any") {
+        ping(flags["--for"], `[task] ${me} blocked ${t.id} → รอคุณ (${kind})${flags["--reason"] ? `: ${flags["--reason"]}` : ""}`);
+        console.log(`  \x1b[36m→ pinged ${flags["--for"]}\x1b[0m`);
+      }
+    } else if (subcmd === "unblock") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw task unblock <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = unblockTask(company, id, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[32m✔ unblocked\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done|archive> — see maw task for flags" };
+      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };

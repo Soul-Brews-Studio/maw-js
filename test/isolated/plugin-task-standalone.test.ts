@@ -23,12 +23,12 @@ describe("task command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the seven documented subcommands", () => {
+  test("CLI dispatches the nine documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"', 'subcmd === "archive"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("addTask");
@@ -43,6 +43,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--parent"'); // add accepts parent deps
     expect(src).toContain("checklistProgress"); // eq3-009c: body checklist N/M on the board
     expect(src).toContain('"--body"'); // add accepts a body
+    expect(src).toContain("blockTask"); // eq3-009b: explicit block/unblock + kinds + for
+    expect(src).toContain("unblockTask");
+    expect(src).toContain("BLOCK_KINDS");
     // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
     expect(src).toContain("resolveSenderIdentity");
   });

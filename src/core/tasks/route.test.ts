@@ -31,7 +31,7 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     for (const t of body.tasks) {
       expect(typeof t.id).toBe("string");
       expect(typeof t.title).toBe("string");
-      expect(["backlog", "todo", "in-progress", "review", "done", "needs-attention"]).toContain(t.state);
+      expect(["backlog", "todo", "in-progress", "review", "done", "blocked"]).toContain(t.state);
       expect("assignee" in t).toBe(true);
       expect("dept" in t && "epic" in t).toBe(true); // ADR fields present
       expect(typeof t.by).toBe("string");

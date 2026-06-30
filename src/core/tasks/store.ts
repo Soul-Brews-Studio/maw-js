@@ -25,7 +25,7 @@ export type TaskState =
   | "in-progress"
   | "review"
   | "done"
-  | "needs-attention";
+  | "blocked"; // off-flow (ADR 0003 B) — renamed from the dead needs-attention slot
 
 export const TASK_STATES: TaskState[] = [
   "backlog",
@@ -33,15 +33,25 @@ export const TASK_STATES: TaskState[] = [
   "in-progress",
   "review",
   "done",
-  "needs-attention",
+  "blocked",
 ];
 
-/** Linear flow columns (needs-attention is off-flow — surfaced separately). */
+/** Linear flow columns (blocked is off-flow — surfaced separately). */
 export const TASK_FLOW: TaskState[] = ["backlog", "todo", "in-progress", "review", "done"];
 
-export interface TaskAttention {
-  for: string; // "tony" | "<oracle>" | "any" — routing for the decision queue
-  reason: string;
+/**
+ * Why a card is held off the flow (ADR 0003 B). `dependency` is also the kind
+ * the board DERIVES for a card waiting on a parent (Card A) — `block` is the
+ * EXPLICIT, human-commanded variant. capability/transient are enum-only for now
+ * (no producer yet). `for` routes the decision queue (≠ assignee, who owns work).
+ */
+export type BlockKind = "dependency" | "needs_input" | "capability" | "transient";
+export const BLOCK_KINDS: BlockKind[] = ["dependency", "needs_input", "capability", "transient"];
+
+export interface TaskBlock {
+  kind: BlockKind;
+  reason?: string;
+  for?: string; // "tony" | "<oracle>" | "any" — who must clear it (decision queue)
 }
 
 export interface TaskRecord {
@@ -55,7 +65,8 @@ export interface TaskRecord {
   assignee: string | null; // who holds the work (SSoT for ownership)
   repo?: string;
   pr?: number;
-  attention?: TaskAttention; // set when state = needs-attention
+  block?: TaskBlock; // set when state = blocked (explicit block — ADR 0003 B)
+  prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
   reviewReason?: string; // why it needs review (optional)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
@@ -328,6 +339,8 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   task.state = "done";
   delete task.reviewer;
   delete task.reviewReason;
+  delete task.block; // done auto-clears an explicit block (ADR 0003 B)
+  delete task.prevState;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
@@ -337,6 +350,44 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
     emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
   }
+  return task;
+}
+
+export interface BlockInput {
+  kind: BlockKind;
+  reason?: string;
+  for?: string;
+}
+
+/**
+ * Explicit block (ADR 0003 B) — pull a card OFF the flow and remember where to
+ * return. Stores `prevState` (the flow state, only on the first block so a
+ * re-block doesn't overwrite it with "blocked") and sets `state = "blocked"` +
+ * `block = {kind, reason, for}`. Distinct from Card A's DERIVED dependency block
+ * (that one never mutates state). Returns null if the card is absent.
+ */
+export function blockTask(company: string, id: string, by: string, input: BlockInput): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.state !== "blocked") task.prevState = task.state; // first block remembers the flow state
+  task.state = "blocked";
+  task.block = { kind: input.kind, ...(input.reason ? { reason: input.reason } : {}), ...(input.for ? { for: input.for } : {}) };
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-blocked", `blocked ${task.id} (${input.kind}${input.for ? ` → ${input.for}` : ""}): ${task.title}`);
+  return task;
+}
+
+/** Restore a blocked card to its prior flow state (ADR 0003 B). null if absent. */
+export function unblockTask(company: string, id: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = task.prevState ?? "todo"; // fall back to todo if somehow unset
+  delete task.block;
+  delete task.prevState;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-unblocked", `unblocked ${task.id} → ${task.state}: ${task.title}`);
   return task;
 }
 
@@ -399,6 +450,15 @@ export function parsePrNumber(text: string): number | null {
   return m ? +m[1] : null;
 }
 
+/** Next-action line for an explicitly blocked card — kind + who-clears + why. */
+export function blockNextAction(task: TaskRecord): string {
+  const b = task.block;
+  if (!b) return "⚑ blocked";
+  const who = b.for ? ` รอ ${b.for}` : "";
+  const why = b.reason ? `: ${b.reason}` : "";
+  return `⚑ [${b.kind}]${who}${why}`;
+}
+
 /**
  * Next-action hint — the board's answer to "what happens next + who". Computed,
  * never stored. Every state returns a non-empty line so no card is ever a dead
@@ -406,10 +466,8 @@ export function parsePrNumber(text: string): number | null {
  */
 export function taskNextAction(task: TaskRecord): string {
   switch (task.state) {
-    case "needs-attention":
-      return task.attention
-        ? `⚑ ขอ ${task.attention.for}: ${task.attention.reason}`
-        : "⚑ ต้องการความช่วยเหลือ";
+    case "blocked":
+      return blockNextAction(task);
     case "review":
       if (task.pr) return `รอ merge PR #${task.pr} → done`;
       return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;

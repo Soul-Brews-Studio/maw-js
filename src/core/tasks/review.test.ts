@@ -77,7 +77,7 @@ describe("review flow (Track 4)", () => {
 
 describe("taskNextAction — every state answers 'what next + who'", () => {
   test("never empty across all states", () => {
-    for (const s of ["backlog", "todo", "in-progress", "review", "done", "needs-attention"] as const) {
+    for (const s of ["backlog", "todo", "in-progress", "review", "done", "blocked"] as const) {
       expect(taskNextAction(mk({ state: s })).length).toBeGreaterThan(0);
     }
   });
@@ -91,7 +91,8 @@ describe("taskNextAction — every state answers 'what next + who'", () => {
     expect(taskNextAction(mk({ state: "review" }))).toBe("รอ ใครก็ได้ ตรวจ");
     expect(taskNextAction(mk({ state: "review", pr: 53 }))).toBe("รอ merge PR #53 → done");
   });
-  test("needs-attention surfaces the ask", () => {
-    expect(taskNextAction(mk({ state: "needs-attention", attention: { for: "tony", reason: "approve" } }))).toBe("⚑ ขอ tony: approve");
+  test("blocked surfaces the kind + who-clears + why", () => {
+    expect(taskNextAction(mk({ state: "blocked", block: { kind: "needs_input", for: "tony", reason: "approve" } }))).toBe("⚑ [needs_input] รอ tony: approve");
+    expect(taskNextAction(mk({ state: "blocked", block: { kind: "transient" } }))).toBe("⚑ [transient]");
   });
 });

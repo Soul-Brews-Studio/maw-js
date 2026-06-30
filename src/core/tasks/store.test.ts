@@ -8,6 +8,9 @@ import {
   archivedTaskFilePath,
   archiveOldDone,
   archiveTask,
+  BLOCK_KINDS,
+  blockNextAction,
+  blockTask,
   checklistProgress,
   claimTask,
   completeTask,
@@ -24,6 +27,7 @@ import {
   taskFilePath,
   tasksDir,
   tryCreateTaskRecord,
+  unblockTask,
   type ParentState,
   type TaskRecord,
 } from "./store";
@@ -300,5 +304,65 @@ describe("body + checklist (ADR 0003 C — markdown checkbox progress)", () => {
       "- [z] not a valid mark",
     ].join("\n");
     expect(checklistProgress(body)).toEqual({ done: 1, total: 3 });
+  });
+});
+
+describe("explicit block / unblock (ADR 0003 B — off-flow, remembers prevState)", () => {
+  test("BLOCK_KINDS = the 4 Hermes kinds", () => {
+    expect(BLOCK_KINDS).toEqual(["dependency", "needs_input", "capability", "transient"]);
+  });
+
+  test("blockTask: → blocked, stores prevState + block, emits task-blocked", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3", assignee: "patchwork", state: "in-progress" });
+    const b = blockTask("pgw", t.id, "eq3", { kind: "needs_input", reason: "merge?", for: "tony" })!;
+    expect(b.state).toBe("blocked");
+    expect(b.prevState).toBe("in-progress"); // remembers where to return
+    expect(b.block).toEqual({ kind: "needs_input", reason: "merge?", for: "tony" });
+    expect(b.assignee).toBe("patchwork"); // `for` is separate from assignee — owner unchanged
+    expect(readWorklog("pgw").some((e) => e.kind === "task-blocked" && e.task === t.id)).toBe(true);
+  });
+
+  test("re-block keeps the ORIGINAL prevState (doesn't capture 'blocked')", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" }); // todo
+    blockTask("pgw", t.id, "eq3", { kind: "needs_input" });
+    blockTask("pgw", t.id, "eq3", { kind: "capability" }); // re-block
+    expect(readTask("pgw", t.id)!.prevState).toBe("todo"); // not "blocked"
+  });
+
+  test("unblockTask: restores prevState, clears block + prevState, emits task-unblocked", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3", assignee: "p", state: "in-progress" });
+    blockTask("pgw", t.id, "eq3", { kind: "transient" });
+    const u = unblockTask("pgw", t.id, "eq3")!;
+    expect(u.state).toBe("in-progress"); // back to the flow state
+    expect(u.block).toBeUndefined();
+    expect(u.prevState).toBeUndefined();
+    expect(readWorklog("pgw").some((e) => e.kind === "task-unblocked" && e.task === t.id)).toBe(true);
+  });
+
+  test("unblock with no prevState falls back to todo (never strands off-flow)", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" });
+    const rec = readTask("pgw", t.id)!;
+    rec.state = "blocked"; rec.block = { kind: "needs_input" }; // hand-crafted, no prevState
+    require("fs").writeFileSync(taskFilePath("pgw", t.id), JSON.stringify(rec));
+    expect(unblockTask("pgw", t.id, "eq3")!.state).toBe("todo");
+  });
+
+  test("done auto-clears an explicit block (+ prevState)", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" });
+    blockTask("pgw", t.id, "eq3", { kind: "needs_input", for: "tony" });
+    const d = completeTask("pgw", t.id, "tony")!;
+    expect(d.state).toBe("done");
+    expect(d.block).toBeUndefined();
+    expect(d.prevState).toBeUndefined();
+  });
+
+  test("block / unblock on a missing id → null (no throw)", () => {
+    expect(blockTask("pgw", "pgw-999", "x", { kind: "transient" })).toBeNull();
+    expect(unblockTask("pgw", "pgw-999", "x")).toBeNull();
+  });
+
+  test("blockNextAction renders kind + who-clears + why", () => {
+    expect(blockNextAction({ state: "blocked", block: { kind: "needs_input", for: "tony", reason: "ok?" } } as TaskRecord)).toBe("⚑ [needs_input] รอ tony: ok?");
+    expect(blockNextAction({ state: "blocked", block: { kind: "capability" } } as TaskRecord)).toBe("⚑ [capability]");
   });
 });
