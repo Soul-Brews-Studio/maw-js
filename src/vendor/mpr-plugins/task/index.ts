@@ -6,6 +6,7 @@
  *   maw task start <id>
  *   maw task claim <id>
  *   maw task done <id>
+ *   maw task archive [--days N]      # sweep done cards older than N days → tasks/archive/
  *
  * State lives in the file-per-card store (companies/<c>/tasks/*.json); every
  * mutation also emits a worklog event so the activity feed stays the single
@@ -19,8 +20,11 @@ import { loadConfig } from "maw-js/config";
 import { companyOfOracle } from "../../../core/worklog/company-scope";
 import {
   addTask,
+  archiveOldDone,
   claimTask,
   completeTask,
+  DEFAULT_ARCHIVE_DAYS,
+  isOnBoard,
   listTasks,
   reviewTask,
   startTask,
@@ -130,7 +134,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const mine = args.includes("--mine") ? me : null;
-      let tasks = listTasks(company);
+      // Board shows done only within the window (ADR 0002 P3) — old done ages
+      // off here even before the archive sweep physically moves it.
+      let tasks = listTasks(company).filter((t) => isOnBoard(t));
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
       console.log(renderBoard(tasks, company, mine));
     } else if (subcmd === "start") {
@@ -177,8 +183,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         ping(flags["--to"], `[task] ${me} ขอให้ review ${t.id}: ${t.title}${flags["--reason"] ? ` — ${flags["--reason"]}` : ""}`);
         console.log(`  \x1b[36m→ pinged ${flags["--to"]}\x1b[0m`);
       }
+    } else if (subcmd === "archive") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--days": Number }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const days = flags["--days"] ?? DEFAULT_ARCHIVE_DAYS;
+      const archived = archiveOldDone(company, days, me);
+      if (!archived.length) {
+        console.log(`\x1b[90m○ nothing to archive\x1b[0m (no done card older than ${days}d)`);
+      } else {
+        console.log(`\x1b[32m📦 archived\x1b[0m ${archived.length} done card(s) older than ${days}d \x1b[90m→ tasks/archive/\x1b[0m`);
+        for (const t of archived) console.log(`  \x1b[90m${t.id}\x1b[0m ${t.title}`);
+      }
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done> — see maw task for flags" };
+      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done|archive> — see maw task for flags" };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };

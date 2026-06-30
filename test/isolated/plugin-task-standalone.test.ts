@@ -23,12 +23,12 @@ describe("task command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the six documented subcommands", () => {
+  test("CLI dispatches the seven documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"', 'subcmd === "archive"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("addTask");
@@ -36,6 +36,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("claimTask");
     expect(src).toContain("reviewTask");
     expect(src).toContain("completeTask");
+    expect(src).toContain("archiveOldDone"); // eq3-008 P3: sweep old done → tasks/archive/
+    expect(src).toContain("isOnBoard"); // board hides done outside the window
     // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
     expect(src).toContain("resolveSenderIdentity");
   });
