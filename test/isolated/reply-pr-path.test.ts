@@ -53,7 +53,8 @@ describe("reply with PR url → task.pr + review", () => {
   test("attaches the PR and moves the mapped task to review", async () => {
     // register the request (the in-band tracking path) + the auto-created task
     requestReplyStore.register({ correlationId: "rp-1", from: "eq3", to: "patchwork", target: "patchwork", message: "[request:rp-1] do x" });
-    addTask({ company: "kobo", title: "do x", by: "eq3", assignee: "patchwork", requestId: "rp-1" });
+    // mirror the dispatch auto-create path: assignee + explicit in-progress
+    addTask({ company: "kobo", title: "do x", by: "eq3", assignee: "patchwork", state: "in-progress", requestId: "rp-1" });
 
     const res = await reply("rp-1", "done → https://github.com/meganechan/maw-js/pull/77 ✅");
     expect(res.status).toBe(200);
@@ -65,11 +66,11 @@ describe("reply with PR url → task.pr + review", () => {
 
   test("a reply with no PR url leaves the task untouched", async () => {
     requestReplyStore.register({ correlationId: "rp-2", from: "eq3", to: "patchwork", target: "patchwork", message: "[request:rp-2] y" });
-    addTask({ company: "kobo", title: "y", by: "eq3", assignee: "patchwork", requestId: "rp-2" });
+    addTask({ company: "kobo", title: "y", by: "eq3", assignee: "patchwork", state: "in-progress", requestId: "rp-2" });
     await reply("rp-2", "looks good, no PR yet");
     const task = readTask("kobo", "kobo-1")!;
     expect(task.pr).toBeUndefined();
-    expect(task.state).toBe("in-progress"); // assignee set at create → in-progress, unchanged
+    expect(task.state).toBe("in-progress"); // dispatched task (in-progress) unchanged by a no-PR reply
   });
 
   test("reply for a correlationId with no task still succeeds (no crash)", async () => {
