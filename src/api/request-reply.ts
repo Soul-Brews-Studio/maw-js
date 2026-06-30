@@ -85,6 +85,31 @@ export const requestReplyApi = new Elysia()
   })
 
   /**
+   * POST /api/request/track — register an in-band `[request:<id>]` dispatch
+   * (from `maw hey`/`send`) into the store under its EXISTING correlationId, so
+   * `maw reply <id>` / `reply --list` can find it. Idempotent. No delivery side
+   * effects — the hey already delivered via the inbox/pane path.
+   */
+  .post("/request/track", ({ body }) => {
+    const oracle = extractOracleName(body.to);
+    const entry = requestReplyStore.register({
+      correlationId: body.correlationId,
+      from: body.from || "unknown",
+      to: oracle,
+      target: body.to,
+      message: body.message ?? "",
+    });
+    return { correlationId: entry.correlationId, status: entry.status, to: entry.to };
+  }, {
+    body: t.Object({
+      correlationId: t.String(),
+      to: t.String(),
+      from: t.Optional(t.String()),
+      message: t.Optional(t.String()),
+    }),
+  })
+
+  /**
    * GET /api/request/:correlationId — poll for reply.
    */
   .get("/request/:correlationId", ({ params, set }) => {

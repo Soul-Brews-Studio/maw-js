@@ -144,30 +144,38 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     }
     const message = msgArgs.join(" ");
 
-    // Track 3 (keystone) — turn a `[request:<id>]` dispatch into a board card so
-    // real work shows up without a manual `maw task add`. This MUST run BEFORE
-    // cmdSend: cmdSend calls process.exit() on many delivery outcomes, so a hook
-    // placed after it never executes (the live #50 bug). Recording the dispatch
-    // first is also the right semantics — the card = "this request was sent",
+    // `[request:<id>]` convention hooks — turn a dispatch into (1) a board card
+    // (Track 3) and (2) a tracked request-reply entry so `maw reply <id>` works.
+    // Both MUST run BEFORE cmdSend: cmdSend calls process.exit() on many delivery
+    // outcomes, so a hook placed after it never executes (the live #50 bug).
+    // Recording first is also the right semantics — "this request was sent",
     // independent of whether delivery then succeeds. Cheap substring gate first
-    // → normal hey/send pay ~nothing; best-effort try/catch so an auto-create
-    // failure never blocks delivery; notify + broadcast excluded.
+    // → normal hey/send pay ~nothing; best-effort try/catch so a hook failure
+    // never blocks delivery; notify + broadcast excluded.
     if (!isNotify && message.includes("[request:")) {
       try {
-        const [{ autoCreateFromDispatch }, { resolveSenderIdentity }, { loadConfig }] = await Promise.all([
+        const [{ autoCreateFromDispatch, parseRequestDispatch }, { resolveSenderIdentity }, { loadConfig }, { trackRequest }] = await Promise.all([
           import("../core/tasks/auto-create"),
           import("../commands/shared/comm-send"),
           import("../config"),
+          import("../core/request-track-client"),
         ]);
-        autoCreateFromDispatch(message, target, () => {
+        const resolveSender = (): string | null => {
           try {
             return resolveSenderIdentity(loadConfig(), from ? { from } : {}).senderName;
           } catch {
             return null; // can't resolve sender (e.g. SSH relay without --from) → skip
           }
-        });
+        };
+        autoCreateFromDispatch(message, target, resolveSender);
+        // register the correlationId into the server store so `maw reply` finds it
+        const parsed = parseRequestDispatch(message);
+        if (parsed) {
+          const sender = resolveSender();
+          if (sender) await trackRequest(parsed.requestId, sender, target, message);
+        }
       } catch {
-        /* auto-create is best-effort — never break hey/send delivery */
+        /* request-convention hooks are best-effort — never break hey/send delivery */
       }
     }
 

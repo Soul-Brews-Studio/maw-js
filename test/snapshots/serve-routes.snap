@@ -106,6 +106,7 @@ POST /api/pulse -> elysia api
 POST /api/queue -> elysia api
 POST /api/reply/:correlationId -> elysia api
 POST /api/request -> elysia api
+POST /api/request/track -> elysia api
 POST /api/review -> elysia api
 POST /api/review/:token/decision -> elysia api
 POST /api/select -> elysia api

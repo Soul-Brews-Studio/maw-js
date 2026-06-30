@@ -60,6 +60,35 @@ export class RequestReplyStore {
     return entry;
   }
 
+  /**
+   * Register a request under an EXPLICIT correlationId — used by the
+   * `maw hey [request:<id>]` convention so the dispatched id is trackable by
+   * `maw reply` / `reply --list` (the in-band path never hit POST /api/request,
+   * so the store was empty). Idempotent: re-registering an existing id returns
+   * it untouched, so a re-send never resets status or clobbers a reply.
+   */
+  register(opts: {
+    correlationId: string;
+    from: string;
+    to: string;
+    target: string;
+    message: string;
+  }): RequestEntry {
+    const existing = this.store.get(opts.correlationId);
+    if (existing) return existing;
+    const entry: RequestEntry = {
+      correlationId: opts.correlationId,
+      from: opts.from,
+      to: opts.to,
+      target: opts.target,
+      message: opts.message,
+      status: "pending",
+      createdAt: Date.now(),
+    };
+    this.store.set(opts.correlationId, entry);
+    return entry;
+  }
+
   get(correlationId: string): RequestEntry | undefined {
     return this.store.get(correlationId);
   }
