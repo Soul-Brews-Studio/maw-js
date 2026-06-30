@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { listTasks, taskNextAction, type TaskRecord } from "./store";
+import { checklistProgress, listTasks, taskNextAction, type ChecklistProgress, type TaskRecord } from "./store";
 
 export interface TaskCard {
   id: string;
@@ -29,6 +29,7 @@ export interface TaskCard {
   ts: number;
   updatedTs?: number;
   nextAction: string; // "what next + who" — computed, always present (Track 4)
+  checklist?: ChecklistProgress; // derived N/M from body markdown (ADR 0003 C); absent when none
 }
 
 function toCard(t: TaskRecord): TaskCard {
@@ -48,6 +49,8 @@ function toCard(t: TaskRecord): TaskCard {
   if (t.attention) card.attention = t.attention;
   if (t.reviewer) card.reviewer = t.reviewer;
   if (t.updatedTs) card.updatedTs = t.updatedTs;
+  const progress = checklistProgress(t.body);
+  if (progress) card.checklist = progress;
   return card;
 }
 

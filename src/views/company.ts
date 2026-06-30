@@ -55,6 +55,7 @@ export function companyHtml(): string {
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
     .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
+    .pill.check { color:#c4a7ff; }
     .pill.attn { color:var(--bad); border-color:#6b3a3a; }
     .timeline { max-height:72vh; overflow:auto; }
     .entry { padding:8px 4px; border-bottom:1px solid var(--line); }
@@ -144,6 +145,7 @@ function taskCard(task) {
   else meta.appendChild(el('span', 'pill', '(unassigned)'));
   const wf = waitFor(task);
   if (wf) meta.appendChild(el('span', 'pill wait', '⏳ ' + wf));
+  if (task.checklist && task.checklist.total) meta.appendChild(el('span', 'pill check', '☑ ' + task.checklist.done + '/' + task.checklist.total));
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
   if (task.attention) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.attention.for + (task.attention.reason ? ': ' + task.attention.reason : '')));
   card.appendChild(meta);

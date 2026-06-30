@@ -60,6 +60,7 @@ export interface TaskRecord {
   reviewReason?: string; // why it needs review (optional)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
+  body?: string; // free text: why/detail + markdown checklist (ADR 0003 C) — git-diff'able
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -204,6 +205,7 @@ export interface AddTaskInput {
   state?: TaskState; // explicit start state — dispatch passes "in-progress"; manual add omits (→ todo)
   requestId?: string; // dispatch correlation id (auto-create idempotency)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — child is blocked until each parent is done/archived
+  body?: string; // free text / markdown checklist (ADR 0003 C)
 }
 
 /**
@@ -230,6 +232,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.repo) task.repo = input.repo;
   if (input.requestId) task.requestId = input.requestId;
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
+  if (input.body?.length) task.body = input.body;
 
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
@@ -471,4 +474,28 @@ export function parentStateResolver(company: string): (id: string) => ParentStat
   const active = new Map(listTasks(company).map((t) => [t.id, t.state] as const));
   const archived = new Set(listArchivedTasks(company).map((t) => t.id));
   return (id) => active.get(id) ?? (archived.has(id) ? "archived" : null);
+}
+
+export interface ChecklistProgress {
+  done: number;
+  total: number;
+}
+
+/**
+ * Count GitHub-style markdown checkboxes in a card body (ADR 0003 C) → `N/M`.
+ * Matches `- [ ]` / `- [x]` (also `*` bullets, case-insensitive x). Lazy: items
+ * carry no id — the body markdown is the source of truth, git-diff'able + hand-
+ * editable. Returns null when there's no body or no checkbox at all, so callers
+ * simply show no progress badge (never an error on a plain card).
+ */
+export function checklistProgress(body?: string): ChecklistProgress | null {
+  if (!body) return null;
+  const re = /^[ \t]*[-*]\s+\[([ xX])\]\s+/gm;
+  let done = 0;
+  let total = 0;
+  for (const m of body.matchAll(re)) {
+    total++;
+    if (m[1] !== " ") done++;
+  }
+  return total ? { done, total } : null;
 }

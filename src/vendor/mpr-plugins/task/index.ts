@@ -1,8 +1,8 @@
 /**
  * maw task — company task board CLI (ADR 0001 backbone).
  *
- *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...]
- *   maw task ls [--company c] [--mine]     # blocked-by-dependency cards pulled into a BLOCKED group
+ *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...] [--body "...md..."]
+ *   maw task ls [--company c] [--mine]     # BLOCKED group for deps · ☑ N/M checklist progress from body
  *   maw task start <id>
  *   maw task claim <id>
  *   maw task done <id>
@@ -21,6 +21,7 @@ import { companyOfOracle } from "../../../core/worklog/company-scope";
 import {
   addTask,
   archiveOldDone,
+  checklistProgress,
   claimTask,
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
@@ -87,7 +88,10 @@ const STATE_LABEL: Record<TaskState, string> = {
 function cardHead(t: TaskRecord): string {
   const who = t.assignee ? `\x1b[32m@${t.assignee}\x1b[0m` : "\x1b[90m(unassigned)\x1b[0m";
   const pr = t.pr ? ` \x1b[33mPR#${t.pr}\x1b[0m` : "";
-  return `  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${pr}`;
+  // checklist progress N/M (ADR 0003 C) — only when the body has checkboxes
+  const cl = checklistProgress(t.body);
+  const prog = cl ? ` \x1b[35m☑ ${cl.done}/${cl.total}\x1b[0m` : "";
+  return `  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${pr}${prog}`;
 }
 
 /** Faint warning line for parent ids that resolve to nothing (ADR 0003 A). */
@@ -143,11 +147,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String],
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a --parent id]' };
+      if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
       // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
@@ -155,9 +159,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const t = addTask({
         company, title, by: me,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds,
+        parentIds, body: flags["--body"],
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
+      const addProg = checklistProgress(t.body);
+      if (addProg) console.log(`  \x1b[35m↳ checklist: ${addProg.done}/${addProg.total}\x1b[0m`);
       if (t.parentIds?.length) {
         console.log(`  \x1b[90m↳ deps: ${t.parentIds.join(", ")}\x1b[0m`);
         // soft hint — a parent that resolves to nothing now will warn faintly on the board too
