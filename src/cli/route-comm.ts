@@ -142,7 +142,31 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
         console.error("\x1b[90mnote: --force is deprecated; maw hey delivers by default. Use --inbox to queue without pane injection.\x1b[0m");
       }
     }
-    await cmdSend(target, msgArgs.join(" "), force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
+    const message = msgArgs.join(" ");
+    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
+
+    // Track 3 (keystone) — turn a `[request:<id>]` dispatch into a board card so
+    // real work shows up without a manual `maw task add`. Cheap substring gate
+    // first → normal hey/send pay ~nothing; best-effort so a task failure never
+    // breaks delivery; notify (routine push) + broadcast (other verb) excluded.
+    if (!isNotify && message.includes("[request:")) {
+      try {
+        const [{ autoCreateFromDispatch }, { resolveSenderIdentity }, { loadConfig }] = await Promise.all([
+          import("../core/tasks/auto-create"),
+          import("../commands/shared/comm-send"),
+          import("../config"),
+        ]);
+        autoCreateFromDispatch(message, target, () => {
+          try {
+            return resolveSenderIdentity(loadConfig(), from ? { from } : {}).senderName;
+          } catch {
+            return null; // can't resolve sender (e.g. SSH relay without --from) → skip
+          }
+        });
+      } catch {
+        /* auto-create is best-effort — never break hey/send delivery */
+      }
+    }
     return true;
   }
   return false;
