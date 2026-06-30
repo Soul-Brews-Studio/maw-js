@@ -8,7 +8,7 @@
  *
  * Reads the real file-per-card store (ADR 0001 §6) — companies/<c>/tasks/*.json.
  * The card shape is the locked contract (spec §6) plus the ADR fields (5-state
- * lifecycle + needs-attention/attention). wait-for is NOT returned — the board
+ * lifecycle + blocked/block). wait-for is NOT returned — the board
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
@@ -23,7 +23,7 @@ export interface TaskCard {
   assignee: string | null;
   repo?: string;
   pr?: number;
-  attention?: TaskRecord["attention"];
+  block?: TaskRecord["block"]; // off-flow block {kind,reason,for} (ADR 0003 B)
   reviewer?: string;
   by: string;
   ts: number;
@@ -46,7 +46,7 @@ function toCard(t: TaskRecord): TaskCard {
   };
   if (t.repo) card.repo = t.repo;
   if (t.pr) card.pr = t.pr;
-  if (t.attention) card.attention = t.attention;
+  if (t.block) card.block = t.block;
   if (t.reviewer) card.reviewer = t.reviewer;
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
