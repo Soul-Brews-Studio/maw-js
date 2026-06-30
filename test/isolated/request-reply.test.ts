@@ -73,4 +73,21 @@ describe("RequestReplyStore", () => {
     store.create({ from: "c", to: "morpheus", target: "morpheus", message: "m2" });
     expect(store.getAll()).toHaveLength(2);
   });
+
+  test("register uses the EXPLICIT correlationId (maw hey [request:id] path)", () => {
+    const e = store.register({ correlationId: "t-1", from: "lek", to: "kang", target: "kang", message: "x" });
+    expect(e.correlationId).toBe("t-1");
+    expect(e.status).toBe("pending");
+    expect(store.get("t-1")).toBeDefined();
+    expect(store.pendingFor("kang")).toHaveLength(1); // visible to reply --list
+  });
+
+  test("register is idempotent — re-register never resets status or clobbers a reply", () => {
+    store.register({ correlationId: "t-2", from: "lek", to: "kang", target: "kang", message: "first" });
+    store.markReplied("t-2", "pong");
+    const again = store.register({ correlationId: "t-2", from: "lek", to: "kang", target: "kang", message: "first" });
+    expect(again.status).toBe("replied"); // untouched
+    expect(again.reply).toBe("pong");
+    expect(store.getAll().filter((e) => e.correlationId === "t-2")).toHaveLength(1); // no dup
+  });
 });
