@@ -25,8 +25,9 @@ export function companyHtml(): string {
   <title>maw company</title>
   <style>
     :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --col:#0e141d; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#7dd3fc; }
+    body.light { color-scheme: light; --bg:#f6f8fb; --card:#ffffff; --col:#eef2f7; --muted:#5b6b77; --fg:#1b2430; --line:#d8e0ea; --ok:#1f9d57; --bad:#c8443a; --warn:#9a6b12; --accent:#1f6fd6; }
     * { box-sizing: border-box; }
-    body { margin:0; padding:24px; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg); }
+    body { margin:0; padding:24px; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg); transition:background .2s ease, color .2s ease; }
     header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap; }
     h1 { margin:0; font-size:22px; letter-spacing:.02em; }
     h1 .co { color:var(--accent); }
@@ -86,6 +87,7 @@ export function companyHtml(): string {
     </div>
     <div class="controls">
       <label>company <input id="company" placeholder="pgw" /></label>
+      <button id="theme" type="button" title="toggle light/dark" aria-label="toggle theme">🌙</button>
       <button id="refresh" type="button">refresh</button>
     </div>
   </header>
@@ -268,6 +270,23 @@ function companyFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return (params.get('company') || '').trim();
 }
+
+// Theme — default dark (the board's native look); persisted per browser.
+const themeBtn = $('theme');
+function applyTheme(theme) {
+  const light = theme === 'light';
+  document.body.classList.toggle('light', light);
+  themeBtn.textContent = light ? '☀️' : '🌙';
+}
+function currentTheme() {
+  try { return localStorage.getItem('maw-company-theme') || 'dark'; } catch (e) { return 'dark'; }
+}
+applyTheme(currentTheme());
+themeBtn.addEventListener('click', () => {
+  const next = document.body.classList.contains('light') ? 'dark' : 'light';
+  try { localStorage.setItem('maw-company-theme', next); } catch (e) { /* private mode — session-only */ }
+  applyTheme(next);
+});
 
 companyInput.value = companyFromUrl();
 companyInput.addEventListener('change', () => {
