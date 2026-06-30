@@ -143,12 +143,15 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       }
     }
     const message = msgArgs.join(" ");
-    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
 
     // Track 3 (keystone) — turn a `[request:<id>]` dispatch into a board card so
-    // real work shows up without a manual `maw task add`. Cheap substring gate
-    // first → normal hey/send pay ~nothing; best-effort so a task failure never
-    // breaks delivery; notify (routine push) + broadcast (other verb) excluded.
+    // real work shows up without a manual `maw task add`. This MUST run BEFORE
+    // cmdSend: cmdSend calls process.exit() on many delivery outcomes, so a hook
+    // placed after it never executes (the live #50 bug). Recording the dispatch
+    // first is also the right semantics — the card = "this request was sent",
+    // independent of whether delivery then succeeds. Cheap substring gate first
+    // → normal hey/send pay ~nothing; best-effort try/catch so an auto-create
+    // failure never blocks delivery; notify + broadcast excluded.
     if (!isNotify && message.includes("[request:")) {
       try {
         const [{ autoCreateFromDispatch }, { resolveSenderIdentity }, { loadConfig }] = await Promise.all([
@@ -167,6 +170,8 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
         /* auto-create is best-effort — never break hey/send delivery */
       }
     }
+
+    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
     return true;
   }
   return false;
