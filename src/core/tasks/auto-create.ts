@@ -91,7 +91,8 @@ export function autoCreateFromDispatch(
     company,
     title: parsed.title,
     by: sender,
-    assignee: targetOracle(target), // dispatch → assignee starts in-progress (store default)
+    assignee: targetOracle(target), // dispatch = work already started
+    state: "in-progress", // dispatch is the start signal (manual add stays todo)
     requestId: parsed.requestId,
     ...(repo ? { repo } : {}),
   });

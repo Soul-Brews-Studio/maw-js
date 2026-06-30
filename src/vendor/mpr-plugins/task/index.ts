@@ -3,6 +3,7 @@
  *
  *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a]
  *   maw task ls [--company c] [--mine]
+ *   maw task start <id>
  *   maw task claim <id>
  *   maw task done <id>
  *
@@ -22,6 +23,7 @@ import {
   completeTask,
   listTasks,
   reviewTask,
+  startTask,
   taskNextAction,
   TASK_FLOW,
   type TaskRecord,
@@ -131,6 +133,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       let tasks = listTasks(company);
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
       console.log(renderBoard(tasks, company, mine));
+    } else if (subcmd === "start") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw task start <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = startTask(company, id, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "claim") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -166,7 +178,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log(`  \x1b[36m→ pinged ${flags["--to"]}\x1b[0m`);
       }
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|claim|review|done> — see maw task for flags" };
+      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done> — see maw task for flags" };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };

@@ -9,12 +9,13 @@ import {
   listTasks,
   nextTaskId,
   readTask,
+  startTask,
   taskFilePath,
   tasksDir,
   tryCreateTaskRecord,
   type TaskRecord,
 } from "./store";
-import { readWorklog } from "../worklog/store";
+import { openClaims, readWorklog } from "../worklog/store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -38,10 +39,34 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(wl.some((e) => e.kind === "task-created" && e.task === "pgw-1")).toBe(true);
   });
 
-  test("addTask with assignee starts in-progress (delegation)", () => {
+  test("addTask pre-assigned still starts todo (delegating ahead ≠ started)", () => {
     const t = addTask({ company: "pgw", title: "fix bug", by: "eq3", assignee: "patchwork" });
-    expect(t.state).toBe("in-progress");
+    expect(t.state).toBe("todo");
     expect(t.assignee).toBe("patchwork");
+  });
+
+  test("addTask with explicit state honors it (dispatch path)", () => {
+    const t = addTask({ company: "pgw", title: "dispatched", by: "eq3", assignee: "patchwork", state: "in-progress" });
+    expect(t.state).toBe("in-progress");
+  });
+
+  test("startTask: todo → in-progress, sets assignee + emits claim", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    const started = startTask("pgw", "pgw-1", "patchwork");
+    expect(started?.state).toBe("in-progress");
+    expect(started?.assignee).toBe("patchwork");
+    expect(openClaims("pgw").some((c) => c.oracle === "patchwork" && c.task === "pgw-1")).toBe(true);
+  });
+
+  test("startTask keeps an existing assignee (assignee picks up their own work)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3", assignee: "tony" });
+    const started = startTask("pgw", "pgw-1", "tony");
+    expect(started?.assignee).toBe("tony");
+    expect(started?.state).toBe("in-progress");
+  });
+
+  test("startTask on a missing id → null (no throw)", () => {
+    expect(startTask("pgw", "pgw-999", "x")).toBeNull();
   });
 
   test("ids increment per company and never collide across companies", () => {
@@ -66,6 +91,20 @@ describe("task store (file-per-card under Company Home)", () => {
     const done = completeTask("pgw", "pgw-1", "tony");
     expect(done?.state).toBe("done");
     expect(readWorklog("pgw").some((e) => e.kind === "task-done" && e.task === "pgw-1")).toBe(true);
+  });
+
+  test("done releases the holder's open claim — maw watch doesn't go stale (handoff fix B)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork");
+    expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(true); // claim is open
+    completeTask("pgw", "pgw-1", "tony"); // closed by someone else — release keys on assignee, not `by`
+    expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(false); // released
+  });
+
+  test("done on a never-claimed card emits no spurious claim-release", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    completeTask("pgw", "pgw-1", "tony");
+    expect(readWorklog("pgw").some((e) => e.kind === "claim-release")).toBe(false);
   });
 
   test("claim/complete on a missing id → null (no throw)", () => {
