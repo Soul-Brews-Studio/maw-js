@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
 import { mawDataPath } from "../xdg";
-import { appendWorklog } from "../worklog/store";
+import { appendWorklog, openClaims } from "../worklog/store";
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 
 export type TaskState =
@@ -174,12 +174,15 @@ export interface AddTaskInput {
   epic?: string;
   repo?: string;
   assignee?: string | null;
+  state?: TaskState; // explicit start state — dispatch passes "in-progress"; manual add omits (→ todo)
   requestId?: string; // dispatch correlation id (auto-create idempotency)
 }
 
 /**
- * Create a card. Default state = todo (ready for pickup). If an assignee is
- * given at creation (delegation — "A hands to B"), it starts in-progress.
+ * Create a card. Default state = todo — a manual `add` records work that has NOT
+ * started yet, even when pre-assigned (delegating ahead ≠ starting). Callers that
+ * mean "started" (the `maw hey [request:]` dispatch path) pass state explicitly.
+ * The assignee picks the work up themselves later via `start`/`claim`.
  */
 export function addTask(input: AddTaskInput): TaskRecord {
   const ts = Date.now();
@@ -188,7 +191,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
     id: "",
     title: input.title,
     company: input.company,
-    state: assignee ? "in-progress" : "todo",
+    state: input.state ?? "todo",
     by: input.by,
     assignee,
     ts,
@@ -228,6 +231,24 @@ export function claimTask(company: string, id: string, oracle: string): TaskReco
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
+  return task;
+}
+
+/**
+ * Start = the assignee picks their own work up: todo → in-progress. If the card
+ * has no assignee yet, the actor becomes it (you started it, you hold it). Emits
+ * a `claim` so the open-claims tracker (maw watch) shows it's being worked —
+ * `done` releases it. Returns null if absent.
+ */
+export function startTask(company: string, id: string, oracle: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const holder = task.assignee ?? oracle;
+  task.assignee = holder;
+  task.state = "in-progress";
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, holder, "claim", `started ${task.id}: ${task.title}`);
   return task;
 }
 
@@ -271,12 +292,19 @@ export function setTaskPr(company: string, id: string, pr: number, by: string): 
 export function completeTask(company: string, id: string, by: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
+  const holder = task.assignee; // capture before clearing — the claim is keyed to them
   task.state = "done";
   delete task.reviewer;
   delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
+  // Release any open claim the holder left on this card so maw watch's open-claims
+  // tracker doesn't go stale (handoff fix B). Only when one is actually open — a
+  // todo→done or never-claimed card emits no spurious release.
+  if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
+    emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
+  }
   return task;
 }
 
