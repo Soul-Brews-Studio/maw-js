@@ -1,8 +1,8 @@
 /**
  * maw task — company task board CLI (ADR 0001 backbone).
  *
- *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a]
- *   maw task ls [--company c] [--mine]
+ *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...]
+ *   maw task ls [--company c] [--mine]     # blocked-by-dependency cards pulled into a BLOCKED group
  *   maw task start <id>
  *   maw task claim <id>
  *   maw task done <id>
@@ -24,12 +24,15 @@ import {
   claimTask,
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
+  dependencyBlock,
   isOnBoard,
   listTasks,
+  parentStateResolver,
   reviewTask,
   startTask,
   taskNextAction,
   TASK_FLOW,
+  type DependencyBlock,
   type TaskRecord,
   type TaskState,
 } from "../../../core/tasks/store";
@@ -81,21 +84,49 @@ const STATE_LABEL: Record<TaskState, string> = {
   "needs-attention": "NEEDS-ATTENTION",
 };
 
+function cardHead(t: TaskRecord): string {
+  const who = t.assignee ? `\x1b[32m@${t.assignee}\x1b[0m` : "\x1b[90m(unassigned)\x1b[0m";
+  const pr = t.pr ? ` \x1b[33mPR#${t.pr}\x1b[0m` : "";
+  return `  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${pr}`;
+}
+
+/** Faint warning line for parent ids that resolve to nothing (ADR 0003 A). */
+function missingLine(info: DependencyBlock): string | null {
+  return info.missing.length ? `    \x1b[90m⚠ parent ไม่พบ: ${info.missing.join(", ")}\x1b[0m` : null;
+}
+
 function renderBoard(tasks: TaskRecord[], company: string, mine: string | null): string {
   const lines: string[] = [];
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
+
+  // Derived blocked-by-dependency (ADR 0003 A) — computed at read, never stored.
+  // A card with any pending parent is pulled OFF the flow into BLOCKED.
+  const resolveParent = parentStateResolver(company);
+  const dep = new Map(tasks.map((t) => [t.id, dependencyBlock(t, resolveParent)] as const));
+  const isBlocked = (t: TaskRecord) => dep.get(t.id)!.blockedBy.length > 0;
+  const flow = tasks.filter((t) => !isBlocked(t));
+  const blocked = tasks.filter(isBlocked);
+
   const order: TaskState[] = [...TASK_FLOW, "needs-attention"];
   for (const state of order) {
-    const inState = tasks.filter((t) => t.state === state);
+    const inState = flow.filter((t) => t.state === state);
     if (!inState.length) continue;
     lines.push(`\n\x1b[1m${STATE_LABEL[state]}\x1b[0m \x1b[90m(${inState.length})\x1b[0m`);
     for (const t of inState) {
-      const who = t.assignee ? `\x1b[32m@${t.assignee}\x1b[0m` : "\x1b[90m(unassigned)\x1b[0m";
-      const pr = t.pr ? ` \x1b[33mPR#${t.pr}\x1b[0m` : "";
-      lines.push(`  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${pr}`);
+      lines.push(cardHead(t));
       // next-action — the board always says what happens next + who (Track 4)
       lines.push(`    \x1b[90m↳\x1b[0m \x1b[36m${taskNextAction(t)}\x1b[0m`);
+      const m = missingLine(dep.get(t.id)!); if (m) lines.push(m);
+    }
+  }
+
+  if (blocked.length) {
+    lines.push(`\n\x1b[1m\x1b[31mBLOCKED\x1b[0m \x1b[90m(${blocked.length})\x1b[0m`);
+    for (const t of blocked) {
+      lines.push(cardHead(t));
+      lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m🚫 รอ: ${dep.get(t.id)!.blockedBy.join(", ")}\x1b[0m`);
+      const m = missingLine(dep.get(t.id)!); if (m) lines.push(m);
     }
   }
   return lines.join("\n");
@@ -112,18 +143,28 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String],
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a]' };
+      if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a --parent id]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
+      // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
+      const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
       const t = addTask({
         company, title, by: me,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
+        parentIds,
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
+      if (t.parentIds?.length) {
+        console.log(`  \x1b[90m↳ deps: ${t.parentIds.join(", ")}\x1b[0m`);
+        // soft hint — a parent that resolves to nothing now will warn faintly on the board too
+        const resolve = parentStateResolver(company);
+        const unknown = t.parentIds.filter((p) => resolve(p) === null);
+        if (unknown.length) console.log(`  \x1b[33m⚠ parent ไม่พบ (ยัง add ได้): ${unknown.join(", ")}\x1b[0m`);
+      }
       if (t.assignee && t.assignee !== me) {
         ping(t.assignee, `[task] ${me} assigned you ${t.id}: ${t.title}`);
         console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);

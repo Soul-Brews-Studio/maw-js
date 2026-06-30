@@ -38,6 +38,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("completeTask");
     expect(src).toContain("archiveOldDone"); // eq3-008 P3: sweep old done → tasks/archive/
     expect(src).toContain("isOnBoard"); // board hides done outside the window
+    expect(src).toContain("dependencyBlock"); // eq3-009a: derived blocked-by-dependency at board read
+    expect(src).toContain("parentStateResolver");
+    expect(src).toContain('"--parent"'); // add accepts parent deps
     // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
     expect(src).toContain("resolveSenderIdentity");
   });

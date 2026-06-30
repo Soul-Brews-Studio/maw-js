@@ -11,15 +11,19 @@ import {
   claimTask,
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
+  dependencyBlock,
+  isBlockedByDependency,
   isOnBoard,
   listArchivedTasks,
   listTasks,
   nextTaskId,
+  parentStateResolver,
   readTask,
   startTask,
   taskFilePath,
   tasksDir,
   tryCreateTaskRecord,
+  type ParentState,
   type TaskRecord,
 } from "./store";
 import { openClaims, readWorklog } from "../worklog/store";
@@ -205,5 +209,65 @@ describe("archive (ADR 0002 P3 — done cards age off the board, never deleted)"
   test("DEFAULT_ARCHIVE_DAYS is 7", () => {
     expect(DEFAULT_ARCHIVE_DAYS).toBe(7);
     expect(archiveDir("pgw").endsWith("/tasks/archive")).toBe(true);
+  });
+});
+
+describe("dependency graph (ADR 0003 A — derived blocked-by-dependency, 1 hop)", () => {
+  test("addTask stores parentIds (deduped); omits the field when none given", () => {
+    const child = addTask({ company: "pgw", title: "child", by: "eq3", parentIds: ["pgw-1", "pgw-1", "pgw-2"] });
+    expect(child.parentIds).toEqual(["pgw-1", "pgw-2"]); // deduped
+    const plain = addTask({ company: "pgw", title: "plain", by: "eq3", parentIds: [] });
+    expect(plain.parentIds).toBeUndefined(); // empty → not written
+    expect(addTask({ company: "pgw", title: "none", by: "eq3" }).parentIds).toBeUndefined();
+  });
+
+  const child = (parentIds: string[]): TaskRecord => ({
+    id: "c", title: "t", company: "pgw", state: "todo", by: "x", assignee: null, ts: 1, parentIds,
+  });
+
+  test("dependencyBlock: pending parent blocks; done/archived satisfy; missing warns (not block)", () => {
+    const states: Record<string, ParentState> = { p1: "in-progress", p2: "done", p3: "archived", p4: null };
+    const resolve = (id: string) => states[id] ?? null;
+    const r = dependencyBlock(child(["p1", "p2", "p3", "p4"]), resolve);
+    expect(r.blockedBy).toEqual(["p1"]); // only the not-done active parent blocks
+    expect(r.missing).toEqual(["p4"]); // unknown id → satisfied + surfaced
+  });
+
+  test("isBlockedByDependency: true while any parent pending, false once all satisfied", () => {
+    expect(isBlockedByDependency(child(["p1"]), () => "review")).toBe(true);
+    expect(isBlockedByDependency(child(["p1"]), () => "done")).toBe(false);
+    expect(isBlockedByDependency(child(["p1"]), () => "archived")).toBe(false);
+    expect(isBlockedByDependency(child(["p1"]), () => null)).toBe(false); // missing ≠ blocked
+    expect(isBlockedByDependency(child([]), () => "todo")).toBe(false); // no parents
+  });
+
+  test("no traversal — only the direct parent's state matters (loop-safe)", () => {
+    // even if a parent itself had parents, dependencyBlock never looks past 1 hop
+    const resolve = (id: string): ParentState => (id === "p1" ? "done" : "in-progress");
+    expect(dependencyBlock(child(["p1"]), resolve).blockedBy).toEqual([]); // p1 done → satisfied, stop
+  });
+
+  test("parentStateResolver: active state, archived, or null", () => {
+    addTask({ company: "pgw", title: "parent-active", by: "x" }); // pgw-1 (todo)
+    const doneP = addTask({ company: "pgw", title: "parent-done", by: "x" }); // pgw-2
+    completeTask("pgw", doneP.id, "x");
+    const arch = addTask({ company: "pgw", title: "parent-arch", by: "x" }); // pgw-3
+    completeTask("pgw", arch.id, "x");
+    archiveTask("pgw", arch.id, "x");
+    const resolve = parentStateResolver("pgw");
+    expect(resolve("pgw-1")).toBe("todo");
+    expect(resolve("pgw-2")).toBe("done");
+    expect(resolve("pgw-3")).toBe("archived");
+    expect(resolve("pgw-999")).toBeNull();
+  });
+
+  test("end-to-end: child unblocks once its parent is done (recomputed each read)", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    addTask({ company: "pgw", title: "child", by: "x", parentIds: [parent.id] });
+    const blockedNow = isBlockedByDependency(readTask("pgw", "pgw-2")!, parentStateResolver("pgw"));
+    expect(blockedNow).toBe(true); // parent still todo
+    completeTask("pgw", parent.id, "x");
+    const blockedAfter = isBlockedByDependency(readTask("pgw", "pgw-2")!, parentStateResolver("pgw"));
+    expect(blockedAfter).toBe(false); // parent done → child free, no stored state touched
   });
 });
