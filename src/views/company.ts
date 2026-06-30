@@ -50,6 +50,7 @@ export function companyHtml(): string {
     .task { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 10px; margin-bottom:9px; }
     .task .t-title { color:var(--fg); }
     .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
+    .task .t-na { color:var(--accent); font-size:12px; margin-top:6px; }
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
     .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
@@ -144,6 +145,8 @@ function taskCard(task) {
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
   if (task.attention) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.attention.for + (task.attention.reason ? ': ' + task.attention.reason : '')));
   card.appendChild(meta);
+  // next-action — the board always says what happens next + who (Track 4)
+  if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
   return card;
 }
 

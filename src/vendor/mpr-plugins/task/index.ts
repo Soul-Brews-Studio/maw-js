@@ -21,6 +21,8 @@ import {
   claimTask,
   completeTask,
   listTasks,
+  reviewTask,
+  taskNextAction,
   TASK_FLOW,
   type TaskRecord,
   type TaskState,
@@ -31,13 +33,28 @@ export const command = {
   description: "Company task board — create/claim/done first-class work items.",
 };
 
-function myOracle(): string {
-  const cfg = loadConfig() as Record<string, unknown>;
-  return (cfg.oracle as string) || process.env.CLAUDE_AGENT_NAME || "unknown";
+/**
+ * Resolve the acting oracle the SAME way `maw hey` does (resolveSenderIdentity),
+ * so the board shows the real name (eq3 / patchwork) — the old config.oracle-first
+ * resolver returned the bare node default "mawjs". A raw CLI with no agent
+ * identity (no --from / MAW_SENDER / CLAUDE_AGENT_NAME / tmux) is a person →
+ * label "human", not the node default. Dynamic import keeps comm-send out of the
+ * plugin's static link graph (widely-mocked module).
+ */
+async function resolveActor(from?: string): Promise<string> {
+  try {
+    const { resolveSenderIdentity } = await import("../../../commands/shared/comm-send");
+    const id = resolveSenderIdentity(loadConfig(), from ? { from } : {});
+    if (id.source !== "auto") return id.senderName; // explicit --from / MAW_SENDER
+    if (process.env.CLAUDE_AGENT_NAME || process.env.TMUX) return id.senderName; // real agent / pane
+    return "human"; // bare node default — a person at the CLI, not an oracle
+  } catch {
+    return process.env.CLAUDE_AGENT_NAME || "human";
+  }
 }
 
-function resolveCompany(flag?: string): string | null {
-  return flag ?? companyOfOracle(myOracle()) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
+function resolveCompany(flag: string | undefined, me: string): string | null {
+  return flag ?? companyOfOracle(me) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
 }
 
 /** Best-effort ping (assignee notified on assignment) — never blocks the CLI. */
@@ -58,12 +75,6 @@ const STATE_LABEL: Record<TaskState, string> = {
   "needs-attention": "NEEDS-ATTENTION",
 };
 
-/** "X รอ Y" — derived, never stored (ADR §4). */
-function waitFor(t: TaskRecord): string | null {
-  if (t.assignee && t.by !== t.assignee && t.state !== "done") return `${t.by}→${t.assignee}`;
-  return null;
-}
-
 function renderBoard(tasks: TaskRecord[], company: string, mine: string | null): string {
   const lines: string[] = [];
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
@@ -75,10 +86,10 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
     lines.push(`\n\x1b[1m${STATE_LABEL[state]}\x1b[0m \x1b[90m(${inState.length})\x1b[0m`);
     for (const t of inState) {
       const who = t.assignee ? `\x1b[32m@${t.assignee}\x1b[0m` : "\x1b[90m(unassigned)\x1b[0m";
-      const wf = waitFor(t);
-      const att = t.attention ? ` \x1b[33m⚑ ${t.attention.for}: ${t.attention.reason}\x1b[0m` : "";
       const pr = t.pr ? ` \x1b[33mPR#${t.pr}\x1b[0m` : "";
-      lines.push(`  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${wf ? ` \x1b[90m[${wf}]\x1b[0m` : ""}${pr}${att}`);
+      lines.push(`  \x1b[90m${t.id}\x1b[0m ${t.title} ${who}${pr}`);
+      // next-action — the board always says what happens next + who (Track 4)
+      lines.push(`    \x1b[90m↳\x1b[0m \x1b[36m${taskNextAction(t)}\x1b[0m`);
     }
   }
   return lines.join("\n");
@@ -95,49 +106,67 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String,
       }, 0);
+      const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
       if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a]' };
-      const company = resolveCompany(flags["--company"]);
+      const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
       const t = addTask({
-        company, title, by: myOracle(),
+        company, title, by: me,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
-      if (t.assignee && t.assignee !== myOracle()) {
-        ping(t.assignee, `[task] ${myOracle()} assigned you ${t.id}: ${t.title}`);
+      if (t.assignee && t.assignee !== me) {
+        ping(t.assignee, `[task] ${me} assigned you ${t.id}: ${t.title}`);
         console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
       }
     } else if (subcmd === "ls") {
-      const flags = parseFlags(args.slice(1), { "--company": String }, 0);
-      const company = resolveCompany(flags["--company"]);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const mine = args.includes("--mine") ? myOracle() : null;
+      const mine = args.includes("--mine") ? me : null;
       let tasks = listTasks(company);
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
       console.log(renderBoard(tasks, company, mine));
     } else if (subcmd === "claim") {
-      const flags = parseFlags(args.slice(1), { "--company": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       if (!id) return { ok: false, error: "usage: maw task claim <id>" };
-      const company = resolveCompany(flags["--company"]);
+      const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = claimTask(company, id, myOracle());
+      const t = claimTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "done") {
-      const flags = parseFlags(args.slice(1), { "--company": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       if (!id) return { ok: false, error: "usage: maw task done <id>" };
-      const company = resolveCompany(flags["--company"]);
+      const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = completeTask(company, id, myOracle());
+      const t = completeTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ done\x1b[0m ${t.id}: ${t.title}`);
+    } else if (subcmd === "review") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--reason": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: 'usage: maw task review <id> [--to <oracle>] [--reason "<text>"]' };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = reviewTask(company, id, me, { to: flags["--to"], reason: flags["--reason"] });
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
+      if (flags["--to"] && flags["--to"] !== me) {
+        ping(flags["--to"], `[task] ${me} ขอให้ review ${t.id}: ${t.title}${flags["--reason"] ? ` — ${flags["--reason"]}` : ""}`);
+        console.log(`  \x1b[36m→ pinged ${flags["--to"]}\x1b[0m`);
+      }
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|claim|done> — see maw task for flags" };
+      return { ok: false, error: "usage: maw task <add|ls|claim|review|done> — see maw task for flags" };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };

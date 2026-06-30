@@ -36,6 +36,8 @@ describe("handleTasksRequest (real file-per-card store)", () => {
       expect("dept" in t && "epic" in t).toBe(true); // ADR fields present
       expect(typeof t.by).toBe("string");
       expect(typeof t.ts).toBe("number");
+      expect(typeof t.nextAction).toBe("string"); // Track 4 — always present
+      expect((t.nextAction as string).length).toBeGreaterThan(0);
     }
   });
 

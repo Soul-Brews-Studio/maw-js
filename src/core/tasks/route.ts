@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { listTasks, type TaskRecord } from "./store";
+import { listTasks, taskNextAction, type TaskRecord } from "./store";
 
 export interface TaskCard {
   id: string;
@@ -24,9 +24,11 @@ export interface TaskCard {
   repo?: string;
   pr?: number;
   attention?: TaskRecord["attention"];
+  reviewer?: string;
   by: string;
   ts: number;
   updatedTs?: number;
+  nextAction: string; // "what next + who" — computed, always present (Track 4)
 }
 
 function toCard(t: TaskRecord): TaskCard {
@@ -39,10 +41,12 @@ function toCard(t: TaskRecord): TaskCard {
     assignee: t.assignee ?? null,
     by: t.by,
     ts: t.ts,
+    nextAction: taskNextAction(t),
   };
   if (t.repo) card.repo = t.repo;
   if (t.pr) card.pr = t.pr;
   if (t.attention) card.attention = t.attention;
+  if (t.reviewer) card.reviewer = t.reviewer;
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   return card;
 }

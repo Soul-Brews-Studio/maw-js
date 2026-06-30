@@ -17,6 +17,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
+import { completeTask, findTaskByPr } from "../tasks/store";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -147,6 +148,11 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         recorded.push(entry);
         const lead = author ? scopeOfOracle(author)?.lead ?? null : null;
         pingOnMerge({ lead, author: author ?? null, pr: pr.number, repo, by });
+        // Track 4 — merge = approval → auto-done the task that owns this PR.
+        try {
+          const task = company ? findTaskByPr(company, pr.number) : null;
+          if (task) completeTask(company, task.id, by || author || "pr-watch");
+        } catch { /* never let task auto-done break PR-watch */ }
       } else if (cur === "CLOSED") {
         const entry: WorklogEntry = { ...base, kind: "pr-closed", summary: `closed #${pr.number} ${pr.title}` };
         record(entry);

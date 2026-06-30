@@ -56,6 +56,8 @@ export interface TaskRecord {
   repo?: string;
   pr?: number;
   attention?: TaskAttention; // set when state = needs-attention
+  reviewer?: string; // who should review/take over (set when state = review, optional)
+  reviewReason?: string; // why it needs review (optional)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
@@ -211,25 +213,108 @@ export function addTask(input: AddTaskInput): TaskRecord {
   return task;
 }
 
-/** Claim = set assignee + move to in-progress (ADR §1). Returns null if absent. */
+/**
+ * Claim = set assignee + move to in-progress (ADR §1). Doubles as the review
+ * hand-off exit: a new person claiming a review task takes it back to
+ * in-progress. Clears any review flag. Returns null if absent.
+ */
 export function claimTask(company: string, id: string, oracle: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   task.assignee = oracle;
   task.state = "in-progress";
+  delete task.reviewer;
+  delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
   return task;
 }
 
-/** Mark done. `by` is whoever closed it (worker/lead/Tony). */
+export interface ReviewInput {
+  to?: string; // requested reviewer / next person (optional → anyone)
+  reason?: string;
+}
+
+/**
+ * Move a task into review — "needs another person" to check or hand off (ADR
+ * refined). Manual (no PR required). Records who should review (`to`) + why.
+ */
+export function reviewTask(company: string, id: string, by: string, opts: ReviewInput = {}): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = "review";
+  if (opts.to) task.reviewer = opts.to; else delete task.reviewer;
+  if (opts.reason) task.reviewReason = opts.reason; else delete task.reviewReason;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `review ${task.id}${opts.to ? ` → ${opts.to}` : ""}: ${task.title}`);
+  return task;
+}
+
+/**
+ * Attach a PR to a task and move it to review (the auto path — "done my part,
+ * PR up, review me"). PR-watch flips it to done on merge. Returns null if absent.
+ */
+export function setTaskPr(company: string, id: string, pr: number, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.pr = pr;
+  task.state = "review";
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
+  return task;
+}
+
+/** Mark done. `by` is whoever closed it (worker/lead/Tony). Clears review flag. */
 export function completeTask(company: string, id: string, by: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   task.state = "done";
+  delete task.reviewer;
+  delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
   return task;
+}
+
+/** Find the task in a company carrying this PR number (for PR-watch auto-done). */
+export function findTaskByPr(company: string, pr: number): TaskRecord | null {
+  return listTasks(company).find((t) => t.pr === pr && t.state !== "done") ?? null;
+}
+
+/** Pull a GitHub PR number out of a reply message (…/pull/<n>). null if none. */
+export function parsePrNumber(text: string): number | null {
+  const m = /github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)/i.exec(text);
+  return m ? +m[1] : null;
+}
+
+/**
+ * Next-action hint — the board's answer to "what happens next + who". Computed,
+ * never stored. Every state returns a non-empty line so no card is ever a dead
+ * end (Track 4 goal). Thai to match the fleet's board copy.
+ */
+export function taskNextAction(task: TaskRecord): string {
+  switch (task.state) {
+    case "needs-attention":
+      return task.attention
+        ? `⚑ ขอ ${task.attention.for}: ${task.attention.reason}`
+        : "⚑ ต้องการความช่วยเหลือ";
+    case "review":
+      if (task.pr) return `รอ merge PR #${task.pr} → done`;
+      return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
+    case "in-progress":
+      if (task.assignee && task.by !== task.assignee) return `${task.by} รอ ${task.assignee}`;
+      return task.assignee ? `${task.assignee} กำลังทำ` : "รอคนหยิบ";
+    case "todo":
+      return "รอคนหยิบ";
+    case "backlog":
+      return "ยังไม่พร้อม (backlog)";
+    case "done":
+      return "เสร็จแล้ว ✓";
+    default:
+      return "";
+  }
 }
