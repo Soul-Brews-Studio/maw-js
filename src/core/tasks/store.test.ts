@@ -4,8 +4,15 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   addTask,
+  archiveDir,
+  archivedTaskFilePath,
+  archiveOldDone,
+  archiveTask,
   claimTask,
   completeTask,
+  DEFAULT_ARCHIVE_DAYS,
+  isOnBoard,
+  listArchivedTasks,
   listTasks,
   nextTaskId,
   readTask,
@@ -137,5 +144,66 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(list[0].title).toBe("second"); // newest first
     // file content is valid JSON
     expect(() => JSON.parse(readFileSync(taskFilePath("pgw", "pgw-1"), "utf-8"))).not.toThrow();
+  });
+});
+
+describe("archive (ADR 0002 P3 — done cards age off the board, never deleted)", () => {
+  const DAY = 86_400_000;
+
+  test("archiveTask MOVES the card to tasks/archive/ (not delete) + emits task-archived", () => {
+    addTask({ company: "pgw", title: "old", by: "eq3" });
+    const a = archiveTask("pgw", "pgw-1", "system");
+    expect(a?.id).toBe("pgw-1");
+    expect(existsSync(taskFilePath("pgw", "pgw-1"))).toBe(false); // gone from active
+    expect(existsSync(archivedTaskFilePath("pgw", "pgw-1"))).toBe(true); // preserved in archive
+    expect(readWorklog("pgw").some((e) => e.kind === "task-archived" && e.task === "pgw-1")).toBe(true);
+  });
+
+  test("archived cards drop off listTasks but show in listArchivedTasks", () => {
+    addTask({ company: "pgw", title: "a", by: "x" });
+    addTask({ company: "pgw", title: "b", by: "x" });
+    archiveTask("pgw", "pgw-1", "system");
+    expect(listTasks("pgw").map((t) => t.id)).toEqual(["pgw-2"]);
+    expect(listArchivedTasks("pgw").map((t) => t.id)).toEqual(["pgw-1"]);
+  });
+
+  test("nextTaskId never reuses an archived id", () => {
+    addTask({ company: "pgw", title: "a", by: "x" }); // pgw-1
+    addTask({ company: "pgw", title: "b", by: "x" }); // pgw-2 (highest)
+    archiveTask("pgw", "pgw-2", "system"); // archive the highest id
+    expect(nextTaskId("pgw")).toBe("pgw-3"); // not pgw-2 again
+  });
+
+  test("isOnBoard: non-done always on board; done only within the window", () => {
+    const now = 10 * DAY;
+    const done = (updatedTs: number): TaskRecord => ({ id: "x", title: "t", company: "pgw", state: "done", by: "x", assignee: null, ts: 0, updatedTs });
+    expect(isOnBoard({ ...done(0), state: "in-progress" }, 7, now)).toBe(true); // non-done always
+    expect(isOnBoard(done(now - 3 * DAY), 7, now)).toBe(true); // recent done
+    expect(isOnBoard(done(now - 8 * DAY), 7, now)).toBe(false); // aged-out done
+  });
+
+  test("archiveOldDone sweeps only done cards older than N days", () => {
+    const now = 100 * DAY;
+    // fresh done (kept), old done (swept), old in-progress (kept — not done)
+    const fresh = addTask({ company: "pgw", title: "fresh", by: "x" });
+    completeTask("pgw", fresh.id, "x"); // updatedTs ~ now-ish (Date.now during test)
+    const old = addTask({ company: "pgw", title: "old", by: "x" });
+    completeTask("pgw", old.id, "x");
+    // backdate the "old" done card well past the window
+    const rec = readTask("pgw", old.id)!;
+    rec.updatedTs = now - 30 * DAY;
+    require("fs").writeFileSync(taskFilePath("pgw", old.id), JSON.stringify(rec));
+    addTask({ company: "pgw", title: "wip", by: "x", assignee: "y", state: "in-progress" });
+
+    const archived = archiveOldDone("pgw", 7, "system", now);
+    expect(archived.map((t) => t.id)).toEqual([old.id]); // only the old done one
+    expect(listArchivedTasks("pgw").map((t) => t.id)).toEqual([old.id]);
+    expect(listTasks("pgw").some((t) => t.id === old.id)).toBe(false);
+    expect(listTasks("pgw").some((t) => t.title === "wip")).toBe(true); // in-progress untouched
+  });
+
+  test("DEFAULT_ARCHIVE_DAYS is 7", () => {
+    expect(DEFAULT_ARCHIVE_DAYS).toBe(7);
+    expect(archiveDir("pgw").endsWith("/tasks/archive")).toBe(true);
   });
 });

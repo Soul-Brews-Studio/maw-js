@@ -17,6 +17,7 @@ const ICON: Record<WorklogEntry["kind"], string> = {
   "pr-closed": "✗",
   claim: "⛏",
   "claim-release": "✔",
+  "task-archived": "📦",
   interrupt: "⚠",
 };
 

@@ -28,6 +28,7 @@ export type WorklogKind =
   | "task-created"
   | "task-review"
   | "task-done"
+  | "task-archived"
   | "interrupt";
 
 export interface WorklogEntry {

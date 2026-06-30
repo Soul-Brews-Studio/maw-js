@@ -121,9 +121,8 @@ export function readTask(company: string, id: string): TaskRecord | null {
   }
 }
 
-/** All cards for a company, newest first (by created ts). */
-export function listTasks(company: string): TaskRecord[] {
-  const dir = tasksDir(company);
+/** Read every `*.json` card in a directory (flat, non-recursive). */
+function readCardsIn(dir: string): TaskRecord[] {
   if (!existsSync(dir)) return [];
   const out: TaskRecord[] = [];
   for (const file of readdirSync(dir)) {
@@ -134,13 +133,40 @@ export function listTasks(company: string): TaskRecord[] {
       /* skip a corrupt/half card — atomic writes should prevent this */
     }
   }
-  return out.sort((a, b) => b.ts - a.ts);
+  return out;
 }
 
-/** Next id `<company>-<n>` — max existing numeric suffix + 1. */
+/**
+ * Active cards for a company, newest first (by created ts). Reads the flat
+ * tasks/ dir only — the `archive/` SUBDIR is skipped (it isn't a `.json`), so
+ * archived done cards drop off the board automatically (ADR 0002 P3).
+ */
+export function listTasks(company: string): TaskRecord[] {
+  return readCardsIn(tasksDir(company)).sort((a, b) => b.ts - a.ts);
+}
+
+/** Where archived (off-board, still git-tracked) cards live. */
+export function archiveDir(company: string): string {
+  return mawDataPath("companies", safeSegment(company), "tasks", "archive");
+}
+
+export function archivedTaskFilePath(company: string, id: string): string {
+  return `${archiveDir(company)}/${safeSegment(id)}.json`;
+}
+
+/** Archived cards — moved out of the board but preserved (principle 1). */
+export function listArchivedTasks(company: string): TaskRecord[] {
+  return readCardsIn(archiveDir(company)).sort((a, b) => b.ts - a.ts);
+}
+
+/**
+ * Next id `<company>-<n>` — max numeric suffix + 1 across BOTH active and
+ * archived cards. Archived ids must still count or a sweep that moves the
+ * highest id would let a later add REUSE it (two cards, one id).
+ */
 export function nextTaskId(company: string): string {
   let max = 0;
-  for (const t of listTasks(company)) {
+  for (const t of [...listTasks(company), ...listArchivedTasks(company)]) {
     const m = t.id.match(/-(\d+)$/);
     if (m) max = Math.max(max, +m[1]);
   }
@@ -306,6 +332,54 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
     emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
   }
   return task;
+}
+
+/** Default board window for done cards (ADR 0002 P3) — tunable per sweep. */
+export const DEFAULT_ARCHIVE_DAYS = 7;
+const DAY_MS = 86_400_000;
+
+/**
+ * Whether a card belongs on the board. Non-done cards always do; a done card
+ * only while it's within `days` of being closed. Older done cards age off the
+ * board (and a sweep moves them to archive/). `now` is injectable for tests.
+ */
+export function isOnBoard(task: TaskRecord, days = DEFAULT_ARCHIVE_DAYS, now = Date.now()): boolean {
+  if (task.state !== "done") return true;
+  const when = task.updatedTs ?? task.ts;
+  return when >= now - days * DAY_MS;
+}
+
+/**
+ * Archive a card: MOVE tasks/<id>.json → tasks/archive/<id>.json (principle 1 —
+ * preserved, still git-tracked, never deleted). Off the board, but readable via
+ * listArchivedTasks. Returns null if the active card is absent.
+ */
+export function archiveTask(company: string, id: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  mkdirSync(archiveDir(company), { recursive: true });
+  renameSync(taskFilePath(company, id), archivedTaskFilePath(company, id));
+  emit(task, by, "task-archived", `archived ${task.id}: ${task.title}`);
+  return task;
+}
+
+/**
+ * Sweep done cards closed more than `days` ago into archive/ (the cron /
+ * clock-out caller, NOT the engine hot-path). Returns the archived cards.
+ */
+export function archiveOldDone(
+  company: string,
+  days = DEFAULT_ARCHIVE_DAYS,
+  by = "system",
+  now = Date.now(),
+): TaskRecord[] {
+  const archived: TaskRecord[] = [];
+  for (const t of listTasks(company)) {
+    if (isOnBoard(t, days, now)) continue; // skips non-done + recent done
+    const a = archiveTask(company, t.id, by);
+    if (a) archived.push(a);
+  }
+  return archived;
 }
 
 /** Find the task in a company carrying this PR number (for PR-watch auto-done). */
