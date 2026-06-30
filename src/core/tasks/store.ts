@@ -56,6 +56,7 @@ export interface TaskRecord {
   repo?: string;
   pr?: number;
   attention?: TaskAttention; // set when state = needs-attention
+  requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -171,6 +172,7 @@ export interface AddTaskInput {
   epic?: string;
   repo?: string;
   assignee?: string | null;
+  requestId?: string; // dispatch correlation id (auto-create idempotency)
 }
 
 /**
@@ -193,6 +195,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.dept) task.dept = input.dept;
   if (input.epic) task.epic = input.epic;
   if (input.repo) task.repo = input.repo;
+  if (input.requestId) task.requestId = input.requestId;
 
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
