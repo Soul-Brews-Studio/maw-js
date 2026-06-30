@@ -59,6 +59,7 @@ export interface TaskRecord {
   reviewer?: string; // who should review/take over (set when state = review, optional)
   reviewReason?: string; // why it needs review (optional)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
+  parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -202,6 +203,7 @@ export interface AddTaskInput {
   assignee?: string | null;
   state?: TaskState; // explicit start state — dispatch passes "in-progress"; manual add omits (→ todo)
   requestId?: string; // dispatch correlation id (auto-create idempotency)
+  parentIds?: string[]; // card→card deps (ADR 0003 A) — child is blocked until each parent is done/archived
 }
 
 /**
@@ -227,6 +229,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.epic) task.epic = input.epic;
   if (input.repo) task.repo = input.repo;
   if (input.requestId) task.requestId = input.requestId;
+  if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
 
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
@@ -419,4 +422,53 @@ export function taskNextAction(task: TaskRecord): string {
     default:
       return "";
   }
+}
+
+/** Parent card's state for dependency resolution: its TaskState, "archived", or null (not found). */
+export type ParentState = TaskState | "archived" | null;
+
+export interface DependencyBlock {
+  blockedBy: string[]; // parents not yet done/archived → they block the child
+  missing: string[]; // parent ids that resolve to nothing → satisfied, but surfaced faintly
+}
+
+/**
+ * Derived blocked-by-dependency (ADR 0003 A) — computed at board read, NEVER
+ * stored (same pattern as wait-for / next-action). 1 hop only: we never traverse
+ * a parent's own parents, which keeps it loop-safe by construction. A parent
+ * satisfies the child when it's `done` OR `archived`; a parent that can't be
+ * resolved counts as satisfied but is reported in `missing` for a faint warning.
+ */
+export function dependencyBlock(
+  task: TaskRecord,
+  getParentState: (id: string) => ParentState,
+): DependencyBlock {
+  const blockedBy: string[] = [];
+  const missing: string[] = [];
+  for (const p of task.parentIds ?? []) {
+    const st = getParentState(p);
+    if (st === null) { missing.push(p); continue; } // unknown id → satisfied + warn
+    if (st === "done" || st === "archived") continue; // satisfied
+    blockedBy.push(p); // a real, not-yet-done parent → blocks
+  }
+  return { blockedBy, missing };
+}
+
+/** True when any parent is still pending (the card is held off the flow). */
+export function isBlockedByDependency(
+  task: TaskRecord,
+  getParentState: (id: string) => ParentState,
+): boolean {
+  return dependencyBlock(task, getParentState).blockedBy.length > 0;
+}
+
+/**
+ * Build a parent-state resolver for a company: active card state, "archived" for
+ * archived cards, or null when the id matches nothing. Reads active + archived
+ * once so a whole board render shares one lookup.
+ */
+export function parentStateResolver(company: string): (id: string) => ParentState {
+  const active = new Map(listTasks(company).map((t) => [t.id, t.state] as const));
+  const archived = new Set(listArchivedTasks(company).map((t) => t.id));
+  return (id) => active.get(id) ?? (archived.has(id) ? "archived" : null);
 }
