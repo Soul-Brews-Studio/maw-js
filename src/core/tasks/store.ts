@@ -77,13 +77,35 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Atomic write — temp file in the same dir, then rename over the target. */
+/**
+ * Overwrite an EXISTING card atomically — temp file in the same dir, then rename
+ * over the target. Used by updates (claim/complete) where the id already exists.
+ */
 function writeTaskRecord(task: TaskRecord): void {
   const path = taskFilePath(task.company, task.id);
   mkdirSync(tasksDir(task.company), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(task, null, 2) + "\n");
   renameSync(tmp, path);
+}
+
+/**
+ * Create a NEW card, claiming its id atomically via an exclusive open (O_EXCL,
+ * the "wx" flag). If a concurrent writer already took this id the open throws
+ * EEXIST — we report the collision so the caller can pick the next id and retry.
+ * This makes id-allocation race-safe: nextTaskId alone (max+1) is not, because
+ * two adds can compute the same id before either writes.
+ */
+export function tryCreateTaskRecord(task: TaskRecord): boolean {
+  const path = taskFilePath(task.company, task.id);
+  mkdirSync(tasksDir(task.company), { recursive: true });
+  try {
+    writeFileSync(path, JSON.stringify(task, null, 2) + "\n", { flag: "wx" });
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false; // id taken — caller retries
+    throw e;
+  }
 }
 
 export function readTask(company: string, id: string): TaskRecord | null {
@@ -159,7 +181,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   const ts = Date.now();
   const assignee = input.assignee ?? null;
   const task: TaskRecord = {
-    id: nextTaskId(input.company),
+    id: "",
     title: input.title,
     company: input.company,
     state: assignee ? "in-progress" : "todo",
@@ -171,7 +193,17 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.dept) task.dept = input.dept;
   if (input.epic) task.epic = input.epic;
   if (input.repo) task.repo = input.repo;
-  writeTaskRecord(task);
+
+  // Race-safe id allocation: compute candidate, claim it exclusively; on a
+  // collision recompute and retry. Bounded so a pathological loop can't hang.
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; ; attempt++) {
+    task.id = nextTaskId(input.company);
+    if (tryCreateTaskRecord(task)) break;
+    if (attempt >= MAX_ATTEMPTS - 1) {
+      throw new Error(`task id allocation failed for ${input.company} after ${MAX_ATTEMPTS} attempts (id collisions)`);
+    }
+  }
   emit(task, input.by, "task-created", `created ${task.id}: ${task.title}`);
   return task;
 }

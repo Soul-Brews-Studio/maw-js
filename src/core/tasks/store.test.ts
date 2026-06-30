@@ -11,6 +11,8 @@ import {
   readTask,
   taskFilePath,
   tasksDir,
+  tryCreateTaskRecord,
+  type TaskRecord,
 } from "./store";
 import { readWorklog } from "../worklog/store";
 
@@ -69,6 +71,22 @@ describe("task store (file-per-card under Company Home)", () => {
   test("claim/complete on a missing id → null (no throw)", () => {
     expect(claimTask("pgw", "pgw-999", "x")).toBeNull();
     expect(completeTask("pgw", "pgw-999", "x")).toBeNull();
+  });
+
+  test("exclusive create claims an id atomically — a collision never overwrites", () => {
+    const a: TaskRecord = { id: "pgw-7", title: "first", company: "pgw", state: "todo", by: "x", assignee: null, ts: 1 };
+    const b: TaskRecord = { id: "pgw-7", title: "RACER", company: "pgw", state: "todo", by: "y", assignee: null, ts: 2 };
+    expect(tryCreateTaskRecord(a)).toBe(true); // wins the id
+    expect(tryCreateTaskRecord(b)).toBe(false); // EEXIST → reports collision
+    expect(readTask("pgw", "pgw-7")!.title).toBe("first"); // loser did NOT clobber
+  });
+
+  test("burst of adds yields unique ids with no loss (race guard)", () => {
+    const N = 25;
+    const ids = new Set<string>();
+    for (let i = 0; i < N; i++) ids.add(addTask({ company: "pgw", title: `t${i}`, by: "x" }).id);
+    expect(ids.size).toBe(N); // every add got a distinct id
+    expect(listTasks("pgw").length).toBe(N); // every card persisted — none overwritten
   });
 
   test("atomic write leaves no .tmp behind; listTasks newest-first", () => {
