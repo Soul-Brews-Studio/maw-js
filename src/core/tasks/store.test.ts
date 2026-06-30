@@ -8,6 +8,7 @@ import {
   archivedTaskFilePath,
   archiveOldDone,
   archiveTask,
+  checklistProgress,
   claimTask,
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
@@ -269,5 +270,35 @@ describe("dependency graph (ADR 0003 A — derived blocked-by-dependency, 1 hop)
     completeTask("pgw", parent.id, "x");
     const blockedAfter = isBlockedByDependency(readTask("pgw", "pgw-2")!, parentStateResolver("pgw"));
     expect(blockedAfter).toBe(false); // parent done → child free, no stored state touched
+  });
+});
+
+describe("body + checklist (ADR 0003 C — markdown checkbox progress)", () => {
+  test("addTask stores a non-empty body; omits when empty/absent", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3", body: "why: ship it\n- [ ] a\n- [x] b" });
+    expect(t.body).toContain("- [x] b");
+    expect(readTask("pgw", t.id)!.body).toBe(t.body); // persisted
+    expect(addTask({ company: "pgw", title: "y", by: "eq3", body: "" }).body).toBeUndefined();
+    expect(addTask({ company: "pgw", title: "z", by: "eq3" }).body).toBeUndefined();
+  });
+
+  test("checklistProgress counts checked/total; null when no body or no checkbox", () => {
+    expect(checklistProgress("- [ ] a\n- [x] b\n- [X] c")).toEqual({ done: 2, total: 3 });
+    expect(checklistProgress("just prose, no boxes")).toBeNull();
+    expect(checklistProgress("")).toBeNull();
+    expect(checklistProgress(undefined)).toBeNull();
+  });
+
+  test("counts only real checkbox lines — bullets, indentation, ignores prose + inline brackets", () => {
+    const body = [
+      "# plan",
+      "intro line [x] not a checkbox (no bullet)",
+      "- [ ] top todo",
+      "  * [x] indented star done",
+      "    - [ ] deeper todo",
+      "- regular bullet, not a checkbox",
+      "- [z] not a valid mark",
+    ].join("\n");
+    expect(checklistProgress(body)).toEqual({ done: 1, total: 3 });
   });
 });

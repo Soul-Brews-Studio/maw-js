@@ -50,6 +50,19 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect(claimed?.assignee).toBe("patchwork");
   });
 
+  test("derives checklist N/M from body; absent when no checkbox (ADR 0003 C)", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    addTask({ company: "kobo", title: "with checklist", by: "eq3", body: "plan\n- [ ] a\n- [x] b\n- [x] c" });
+    addTask({ company: "kobo", title: "plain", by: "eq3", body: "just a note, no boxes" });
+    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=kobo")).json()) as {
+      tasks: Array<{ title: string; checklist?: { done: number; total: number } }>;
+    };
+    const withList = body.tasks.find((t) => t.title === "with checklist");
+    const plain = body.tasks.find((t) => t.title === "plain");
+    expect(withList?.checklist).toEqual({ done: 2, total: 3 });
+    expect("checklist" in (plain as object)).toBe(false); // no badge on a plain card
+  });
+
   test("unknown company → empty (no throw)", async () => {
     const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=nope")).json()) as {
       tasks: unknown[];
