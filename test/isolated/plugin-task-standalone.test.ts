@@ -23,16 +23,17 @@ describe("task command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the five documented subcommands", () => {
+  test("CLI dispatches the six documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"']) {
       expect(src).toContain(sub);
     }
-    expect(src).toContain("claimTask");
     expect(src).toContain("addTask");
+    expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
+    expect(src).toContain("claimTask");
     expect(src).toContain("reviewTask");
     expect(src).toContain("completeTask");
     // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
