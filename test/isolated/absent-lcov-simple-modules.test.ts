@@ -45,6 +45,7 @@ describe("absent-from-LCOV simple modules", { timeout: 30000 }, () => {
       "/timemachine",
       "/federation",
       "/messages",
+      "/company",
     ]);
     expect(routes.find((route) => route.path === "/timemachine")?.view).toBe(timemachineView);
     expect(routes.find((route) => route.path === "/federation")?.view).toBe(federationView);

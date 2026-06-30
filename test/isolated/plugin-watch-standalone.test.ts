@@ -16,6 +16,8 @@ describe("watch command plugin standalone boundary", () => {
       allowMawJs: [/^maw-js\/config$/],
       allowRelative: [
         /^(?:\.\.\/){3}core\/worklog\//,
+        /^(?:\.\.\/){3}core\/tasks\//, // company-ui board (stub now, backbone later)
+        /^(?:\.\.\/){3}core\/state-doc\//, // company-ui coordination markdown panel
         /^(?:\.\.\/){3}core\/policy\//, // policy inject route — on-attach context
         /^(?:\.\.\/){3}api\/feed$/,
       ],
@@ -37,6 +39,21 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["']/);
   });
 
+  test("serve hook also wires the company-ui read-only routes (feed timeline + board)", () => {
+    const serveSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/serve.ts"),
+      "utf8",
+    );
+    // company-ui (spec §6) reads these two from the same plugin so they toggle
+    // with the worklog engine; backbone replaces the /api/tasks stub later.
+    expect(serveSrc).toContain("/api/worklog/feed");
+    expect(serveSrc).toContain("/api/tasks");
+    expect(serveSrc).toContain("/api/state");
+    expect(serveSrc).toContain("handleWorklogFeedRequest");
+    expect(serveSrc).toContain("handleTasksRequest");
+    expect(serveSrc).toContain("handleStateDocRequest");
+  });
+
   test("watch menu is hidden from help but still callable (#2 re-home escape-hatch)", () => {
     const manifest = JSON.parse(
       readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/plugin.json"), "utf8"),
@@ -45,5 +62,9 @@ describe("watch command plugin standalone boundary", () => {
     // `maw watch <sub>` (claim/release/setup-hooks) keeps dispatching.
     expect(manifest.cli.hidden).toBe(true);
     expect(manifest.cli.command).toBe("watch");
+    // ensures advertises the company-ui routes alongside the worklog/policy ones.
+    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/worklog/feed");
+    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/tasks");
+    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/state");
   });
 });

@@ -6,6 +6,8 @@
  *
  *   GET /api/worklog?oracle=<name>          → { inject: "<slice text>" }
  *   GET /api/worklog?company=<name>&limit=N → { entries: [...] }   (debug)
+ *   GET /api/worklog/feed?company=<name>&limit=N → { company, entries: [...] }
+ *       timeline projection for company-ui (read-only) — see spec §6
  */
 
 import { buildInjectSlice } from "./slice";
@@ -23,4 +25,25 @@ export function handleWorklogRequest(request: Request): Response {
   const lim = url.searchParams.get("limit");
   const limit = lim ? Math.max(1, Math.min(500, +lim || 50)) : 50;
   return Response.json({ entries: readWorklog(company, { limit }) });
+}
+
+/**
+ * Worklog feed — timeline projection for the company-ui view. Distinct from the
+ * dual-purpose /api/worklog (whose primary mode is the inject string): this one
+ * always returns the raw entry list, projected to the locked timeline contract
+ * { ts, iso, oracle, kind, summary } so the UI shape stays pinned (spec §6).
+ */
+export function handleWorklogFeedRequest(request: Request): Response {
+  const url = new URL(request.url);
+  const company = url.searchParams.get("company");
+  const lim = url.searchParams.get("limit");
+  const limit = lim ? Math.max(1, Math.min(500, +lim || 50)) : 50;
+  const entries = readWorklog(company, { limit }).map((e) => ({
+    ts: e.ts,
+    iso: e.iso,
+    oracle: e.oracle,
+    kind: e.kind,
+    summary: e.summary,
+  }));
+  return Response.json({ company: company ?? null, entries });
 }

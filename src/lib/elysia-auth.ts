@@ -38,6 +38,8 @@ const PROTECTED = new Set([
   "/control/resize",
   "/worklog",         // worklog read/inject — captured prompts + commands are private (Rule 6); loopback hooks bypass, LAN must auth
   "/policy",          // company/dept policy inject — same surface as worklog (Rule 6); loopback hooks bypass, LAN must auth
+  "/tasks",           // company-ui board — reveals who-works-on-what within a company (Rule 6); loopback UI bypasses, LAN must auth
+  "/state",           // company-ui coordination markdown — company-internal state doc (Rule 6); loopback UI bypasses, LAN must auth
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
@@ -52,6 +54,8 @@ const PROTECTED_POST = new Set([
 export function isProtected(path: string, method: string): boolean {
   if (PROTECTED.has(path)) return true;
   if (path.startsWith("/control/")) return true;
+  // /worklog/feed (company-ui timeline) is the same private surface as /worklog (Rule 6)
+  if (path.startsWith("/worklog/")) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation
   if (method === "POST" && path.startsWith("/plugins/")) return true;
