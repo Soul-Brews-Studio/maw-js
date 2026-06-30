@@ -11,6 +11,7 @@
  *   - conversation  a decision/instruction (UserPromptSubmit, "Tony→oracle: X")
  *   - pr-opened/merged/closed   PR lifecycle (gh ground truth)
  *   - claim / claim-release     soft-lock announce + release (collision guard)
+ *   - task-created / task-done  task lifecycle (board backbone, ADR 0001)
  *   - interrupt     reserved — no clean CC hook (deferred)
  *
  * See thread `eq3-lead-dispatch-lock`.
@@ -24,6 +25,8 @@ export type WorklogKind =
   | "pr-closed"
   | "claim"
   | "claim-release"
+  | "task-created"
+  | "task-done"
   | "interrupt";
 
 export interface WorklogEntry {

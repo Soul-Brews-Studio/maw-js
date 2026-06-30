@@ -6,8 +6,9 @@
  *
  *   GET /api/state?company=<name> → { company, exists, markdown }
  *
- * Reads `<mawData>/state/<company>/state.md` (≈ ~/.maw/state/<company>/state.md
- * in the default layout). Read-only: the file is owned by the company, this just
+ * Reads `<mawData>/companies/<company>/state.md` (≈ ~/.maw/companies/<company>/
+ * state.md in the default layout) — the Company Home (ADR 0001 §6), beside
+ * policy/ and tasks/. Read-only: the file is owned by the company, this just
  * surfaces it. Returns raw markdown — the company-ui panel renders md→HTML so the
  * endpoint stays a dumb, generic file-read (panel type = markdown-file). Missing
  * file → { exists:false, markdown:"" } (panel hides; never an error). See spec §6
@@ -23,7 +24,7 @@ function safeSegment(company: string): string {
 }
 
 export function stateDocPath(company: string): string {
-  return mawDataPath("state", safeSegment(company), "state.md");
+  return mawDataPath("companies", safeSegment(company), "state.md");
 }
 
 export function handleStateDocRequest(request: Request): Response {

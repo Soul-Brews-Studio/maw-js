@@ -51,3 +51,6 @@ coverage/
 
 # Rust gateway build artifacts
 packages/maw-gateway/target/
+
+# local dev runtime home (preview override symlinks, plugin cache) — never commit
+.maw/
