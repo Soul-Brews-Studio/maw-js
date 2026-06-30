@@ -1,0 +1,17 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "home",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Company Home git repo — init a private remote, commit/push snapshots (ADR 0002).",
+  "author": "meganechan:patchwork",
+  "cli": {
+    "command": "home",
+    "help": "maw home <init|commit> [<company>] — init [--org o --repo org/name --branch b] · commit [-m msg --no-push]"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);
