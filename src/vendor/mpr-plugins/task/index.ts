@@ -33,6 +33,7 @@ import {
   dependencyBlock,
   isOnBoard,
   listTasks,
+  needsOwner,
   parentStateResolver,
   reviewTask,
   startTask,
@@ -112,11 +113,12 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
 
   // Off-flow = explicit block (ADR 0003 B, state="blocked") OR derived
-  // blocked-by-dependency (ADR 0003 A, computed at read). Both share ONE group.
+  // blocked-by-dependency (ADR 0003 A) OR derived needs-owner (eq3-011 kobo-14,
+  // todo+unassigned). All three share ONE group — computed at read.
   const resolveParent = parentStateResolver(company);
   const dep = new Map(tasks.map((t) => [t.id, dependencyBlock(t, resolveParent)] as const));
   const isDepBlocked = (t: TaskRecord) => dep.get(t.id)!.blockedBy.length > 0;
-  const offFlow = (t: TaskRecord) => t.state === "blocked" || isDepBlocked(t);
+  const offFlow = (t: TaskRecord) => t.state === "blocked" || isDepBlocked(t) || needsOwner(t);
   const flow = tasks.filter((t) => !offFlow(t));
   const blocked = tasks.filter(offFlow);
 
@@ -139,6 +141,7 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
       if (t.state === "blocked") lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m${blockNextAction(t)}\x1b[0m`); // explicit (kind/for/reason)
       const d = dep.get(t.id)!;
       if (d.blockedBy.length) lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m🚫 รอ: ${d.blockedBy.join(", ")}\x1b[0m`); // derived deps
+      if (needsOwner(t)) lines.push(`    \x1b[90m↳\x1b[0m \x1b[31m⚑ ยังไม่มีเจ้าของ — รอ assign\x1b[0m`); // derived needs-owner (kobo-14)
       const m = missingLine(d); if (m) lines.push(m);
     }
   }

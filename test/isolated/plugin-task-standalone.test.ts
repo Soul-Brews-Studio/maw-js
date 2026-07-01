@@ -39,6 +39,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("archiveOldDone"); // eq3-008 P3: sweep old done → tasks/archive/
     expect(src).toContain("isOnBoard"); // board hides done outside the window
     expect(src).toContain("dependencyBlock"); // eq3-009a: derived blocked-by-dependency at board read
+    expect(src).toContain("needsOwner"); // eq3-011 kobo-14: todo+unassigned → Blocked lane
     expect(src).toContain("parentStateResolver");
     expect(src).toContain('"--parent"'); // add accepts parent deps
     expect(src).toContain("checklistProgress"); // eq3-009c: body checklist N/M on the board

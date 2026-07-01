@@ -156,6 +156,7 @@ function taskCard(task) {
   // derived blocked-by-dependency (ADR 0003 A on web) — NOT a block state; the card waits on a parent
   if (task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
   if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
+  if (task.needsOwner) meta.appendChild(el('span', 'pill attn', '⚑ ยังไม่มีเจ้าของ')); // derived needs-owner (kobo-14)
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
@@ -185,7 +186,7 @@ function renderBoard(tasks) {
   // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
   // flow state but are pulled out while a parent is pending; when the parent is
   // done the next poll drops the dependency field and the card returns.
-  const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0);
+  const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0) || task.needsOwner;
   for (const task of tasks) {
     if (isOffFlow(task)) { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';

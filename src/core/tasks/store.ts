@@ -471,6 +471,17 @@ export function parsePrNumber(text: string): number | null {
   return m ? +m[1] : null;
 }
 
+/**
+ * Derived "needs an owner" block (eq3-011 kobo-14 — Tony's rule: no one doing it
+ * → it must show as blocked, not sit silently in todo). A `todo` card with no
+ * assignee is off-flow: nobody's on it. Derived at read (like dependency-block),
+ * NEVER stored → auto-clears the moment someone is assigned. `backlog` is exempt
+ * (intentionally not-ready), and any non-todo state has its own real owner/flow.
+ */
+export function needsOwner(task: TaskRecord): boolean {
+  return task.state === "todo" && !task.assignee;
+}
+
 /** Next-action line for an explicitly blocked card — kind + who-clears + why. */
 export function blockNextAction(task: TaskRecord): string {
   const b = task.block;
@@ -496,7 +507,9 @@ export function taskNextAction(task: TaskRecord): string {
       if (task.assignee && task.by !== task.assignee) return `${task.by} รอ ${task.assignee}`;
       return task.assignee ? `${task.assignee} กำลังทำ` : "รอคนหยิบ";
     case "todo":
-      return "รอคนหยิบ";
+      // assigned todo → waiting on that person to START (was wrongly "รอคนหยิบ");
+      // unassigned todo → needs an owner (surfaced off-flow in the Blocked lane).
+      return task.assignee ? `รอ ${task.assignee} เริ่ม` : "⚑ ยังไม่มีเจ้าของ — รอ assign";
     case "backlog":
       return "ยังไม่พร้อม (backlog)";
     case "done":

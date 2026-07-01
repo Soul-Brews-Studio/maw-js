@@ -20,6 +20,7 @@ import {
   isOnBoard,
   listArchivedTasks,
   listTasks,
+  needsOwner,
   nextTaskId,
   parentStateResolver,
   prOpenedReview,
@@ -27,6 +28,7 @@ import {
   setTaskPr,
   startTask,
   taskFilePath,
+  taskNextAction,
   tasksDir,
   tryCreateTaskRecord,
   unblockTask,
@@ -397,5 +399,30 @@ describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to 
 
   test("missing id → null (no throw)", () => {
     expect(prOpenedReview("pgw", "pgw-999", "x")).toBeNull();
+  });
+});
+
+describe("needs-owner block (eq3-011 kobo-14 — derived, todo+unassigned off-flow)", () => {
+  const mk = (over: Partial<TaskRecord>): TaskRecord =>
+    ({ id: "x", title: "t", company: "pgw", state: "todo", by: "eq3", assignee: null, ts: 1, ...over });
+
+  test("needsOwner: only todo + unassigned; auto-clears when assigned; backlog/other states exempt", () => {
+    expect(needsOwner(mk({ state: "todo", assignee: null }))).toBe(true);
+    expect(needsOwner(mk({ state: "todo", assignee: "patchwork" }))).toBe(false); // has an owner
+    expect(needsOwner(mk({ state: "backlog", assignee: null }))).toBe(false); // backlog exempt (not ready)
+    expect(needsOwner(mk({ state: "in-progress", assignee: null }))).toBe(false); // its own flow
+    expect(needsOwner(mk({ state: "done", assignee: null }))).toBe(false);
+  });
+
+  test("assigning an owner flips it off (derived, no stored flag)", () => {
+    const t = addTask({ company: "pgw", title: "orphan", by: "eq3" }); // todo, unassigned
+    expect(needsOwner(readTask("pgw", t.id)!)).toBe(true);
+    startTask("pgw", t.id, "patchwork"); // now owned + in-progress
+    expect(needsOwner(readTask("pgw", t.id)!)).toBe(false);
+  });
+
+  test("taskNextAction — assigned todo says 'รอ <assignee> เริ่ม'; unassigned flags no-owner (side-bug fix)", () => {
+    expect(taskNextAction(mk({ state: "todo", assignee: "patchwork" }))).toBe("รอ patchwork เริ่ม");
+    expect(taskNextAction(mk({ state: "todo", assignee: null }))).toContain("ยังไม่มีเจ้าของ");
   });
 });

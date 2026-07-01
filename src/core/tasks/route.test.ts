@@ -110,6 +110,22 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect(tasks.find((t) => t.title === "child")?.dependency).toEqual({ blockedBy: [], missing: ["ghost-9"] });
   });
 
+  test("derives needsOwner for todo+unassigned; absent once owned or non-todo (eq3-011 kobo-14)", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    addTask({ company: "own", title: "orphan", by: "eq3" }); // todo, unassigned → needs owner
+    addTask({ company: "own", title: "owned", by: "eq3", assignee: "patchwork" }); // todo, assigned
+    const read = async () => (await handleTasksRequest(new Request("http://x/api/tasks?company=own")).json()) as {
+      tasks: Array<{ title: string; needsOwner?: true }>;
+    };
+    let tasks = (await read()).tasks;
+    expect(tasks.find((t) => t.title === "orphan")?.needsOwner).toBe(true);
+    expect("needsOwner" in (tasks.find((t) => t.title === "owned") as object)).toBe(false); // has owner
+    // assign the orphan → needsOwner drops on the next read (derived, auto-return)
+    claimTask("own", "own-1", "patchwork");
+    tasks = (await read()).tasks;
+    expect("needsOwner" in (tasks.find((t) => t.title === "orphan") as object)).toBe(false);
+  });
+
   test("unknown company → empty (no throw)", async () => {
     const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=nope")).json()) as {
       tasks: unknown[];
