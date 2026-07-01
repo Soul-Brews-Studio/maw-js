@@ -1,15 +1,17 @@
 /**
- * maw task — company task board CLI (ADR 0001 backbone).
+ * maw company task — company task board CLI (ADR 0001 backbone; cli-reorg ADR
+ * docs/company/0001). Agents use the maw_task MCP tool; the top-level `maw task`
+ * is a deprecation shim (one release) that forwards to the shared runner.
  *
- *   maw task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...] [--body "...md..."]
- *   maw task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
- *   maw task start <id>
- *   maw task claim <id>
- *   maw task pr <id> <pr-number>     # worker links the PR → card.pr + review (pr-watch drives merge→done)
- *   maw task done <id>                # also clears an explicit block
- *   maw task archive [--days N]      # sweep done cards older than N days → tasks/archive/
- *   maw task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
- *   maw task unblock <id>            # restore prevState
+ *   maw company task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...] [--body "...md..."]
+ *   maw company task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
+ *   maw company task start <id>
+ *   maw company task claim <id>
+ *   maw company task pr <id> <pr-number>   # worker links the PR → card.pr + review (pr-watch drives merge→done)
+ *   maw company task done <id>             # also clears an explicit block
+ *   maw company task archive [--days N]    # sweep done cards older than N days → tasks/archive/
+ *   maw company task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
+ *   maw company task unblock <id>          # restore prevState
  *
  * State lives in the file-per-card store (companies/<c>/tasks/*.json); every
  * mutation also emits a worklog event so the activity feed stays the single
@@ -151,13 +153,20 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
   return lines.join("\n");
 }
 
-export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
-  const logs: string[] = [];
+/**
+ * Shared task-board CLI runner — the single source of truth for the task verbs.
+ * Both `maw company task` (company plugin) and the top-level `maw task` shim call
+ * this, so the two surfaces can never diverge (cli-reorg ADR docs/company/0001).
+ * `emit` receives user-facing lines; returns an ok/error result.
+ */
+export async function runTask(
+  args: string[],
+  emit: (line: string) => void,
+): Promise<{ ok: boolean; error?: string }> {
   const origLog = console.log;
-  console.log = (...a: unknown[]) => { if (ctx.writer) ctx.writer(...a); else logs.push(a.map(String).join(" ")); };
+  console.log = (...a: unknown[]) => emit(a.map(String).join(" "));
 
   try {
-    const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const subcmd = args[0];
 
     if (subcmd === "add") {
@@ -166,7 +175,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text]' };
+      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
       // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
@@ -207,7 +216,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: "usage: maw task start <id>" };
+      if (!id) return { ok: false, error: "usage: maw company task start <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = startTask(company, id, me);
@@ -217,7 +226,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: "usage: maw task claim <id>" };
+      if (!id) return { ok: false, error: "usage: maw company task claim <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = claimTask(company, id, me);
@@ -227,7 +236,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: "usage: maw task done <id>" };
+      if (!id) return { ok: false, error: "usage: maw company task done <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = completeTask(company, id, me);
@@ -237,7 +246,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--reason": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: 'usage: maw task review <id> [--to <oracle>] [--reason "<text>"]' };
+      if (!id) return { ok: false, error: 'usage: maw company task review <id> [--to <oracle>] [--reason "<text>"]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = reviewTask(company, id, me, { to: flags["--to"], reason: flags["--reason"] });
@@ -256,7 +265,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const prArg = flags._[1];
-      if (!id || !prArg) return { ok: false, error: "usage: maw task pr <id> <pr-number>" };
+      if (!id || !prArg) return { ok: false, error: "usage: maw company task pr <id> <pr-number>" };
       // accept a bare number or a full github PR url (…/pull/<n>)
       const pr = /^\d+$/.test(prArg) ? Number(prArg) : parsePrNumber(prArg);
       if (!pr) return { ok: false, error: `invalid PR: ${prArg} (pass a number or a github PR url)` };
@@ -282,7 +291,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--kind": String, "--reason": String, "--for": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: `usage: maw task block <id> --kind <${BLOCK_KINDS.join("|")}> [--reason "<text>"] [--for tony|<oracle>|any]` };
+      if (!id) return { ok: false, error: `usage: maw company task block <id> --kind <${BLOCK_KINDS.join("|")}> [--reason "<text>"] [--for tony|<oracle>|any]` };
       const kind = flags["--kind"] as BlockKind | undefined;
       if (!kind || !BLOCK_KINDS.includes(kind)) return { ok: false, error: `--kind must be one of: ${BLOCK_KINDS.join(", ")}` };
       const company = resolveCompany(flags["--company"], me);
@@ -298,21 +307,39 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: "usage: maw task unblock <id>" };
+      if (!id) return { ok: false, error: "usage: maw company task unblock <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = unblockTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ unblocked\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|pr|done|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|claim|review|pr|done|archive|block|unblock> — see maw task for flags" };
     }
 
-    return { ok: true, output: logs.join("\n") || undefined };
+    return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: logs.join("\n") || msg, output: logs.join("\n") || undefined };
+    return { ok: false, error: msg };
   } finally {
     console.log = origLog;
   }
+}
+
+// Top-level `maw task` — DEPRECATION SHIM (ADR docs/company/0001, OQ1=b). Prints
+// "moved" then forwards to the shared runner. Removed next release; new callers
+// use `maw company task` (agents: the maw_task MCP tool).
+export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
+  const logs: string[] = [];
+  const emit = (line: string) => { if (ctx.writer) ctx.writer(line); else logs.push(line); };
+  emit(`\x1b[33m⚠ 'maw task' moved → 'maw company task'\x1b[0m \x1b[90m(agents: use the maw_task MCP tool; this alias is removed next release)\x1b[0m`);
+
+  const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+  const r = await runTask(args, emit);
+  const output = logs.join("\n") || undefined;
+  // Transparent forward: surface runTask's clean error (usage / not-found) in
+  // `error` — the notice lives in `output` and must NOT shadow it (the shim
+  // forwards ALL input, not just the happy path).
+  if (!r.ok) return { ok: false, error: r.error, output };
+  return { ok: true, output };
 }

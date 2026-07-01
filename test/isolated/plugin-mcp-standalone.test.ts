@@ -54,10 +54,11 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(readFileSync(join(root, MCP_DIR, "inline-images.ts"), "utf8")).toContain('from "maw-js/sdk"');
   });
 
-  // kobo-21: the maw_task tool wraps the CLI task board (spawns `maw task <verb>`
-  // via runMaw, like the other verb tools) — it must NOT reach into core task
-  // logic directly. Pin the registration + that taskArgs maps every verb.
-  test("server registers maw_task and delegates through taskArgs", () => {
+  // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
+  // `maw company task <verb>` via runMaw, like the other verb tools) — it must
+  // NOT reach into core task logic directly. Pin the registration + that taskArgs
+  // maps every verb + targets the canonical company surface.
+  test("server registers maw_task and delegates through taskArgs → maw company task", () => {
     const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
     expect(server).toContain('"maw_task"');
     expect(server).toContain("taskArgs");
@@ -66,6 +67,10 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     for (const verb of ['"add"', '"ls"', '"start"', '"claim"', '"review"', '"pr"', '"done"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // cli-reorg kobo-24: targets the canonical `maw company task`, NOT the
+    // `maw task` deprecation shim (so no "moved" notice leaks into MCP output).
+    expect(tools).toContain('["company", "task"');
+    expect(tools).not.toMatch(/\[\s*"task"\s*,/);
   });
 });
 

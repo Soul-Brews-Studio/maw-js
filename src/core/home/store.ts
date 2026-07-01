@@ -8,7 +8,7 @@
  * Design locks (ADR 0002):
  *   - single-writer (1 company = 1 machine) → NO conflict/merge handling here.
  *   - git NEVER runs in the engine hot-path — commit is an explicit verb only
- *     (`maw home commit`, called by cron / clock-out), never per `maw task` op.
+ *     (`maw home commit`, called by cron / clock-out), never per `maw company task` op.
  *   - per-company repo (NOT monorepo — a shared remote reintroduces push-race
  *     multi-writer) and PRIVATE (home carries internal policy/state — no leak).
  *   - worklog.jsonl is gitignored: high-churn (every tool call) + ~MBs of noise;

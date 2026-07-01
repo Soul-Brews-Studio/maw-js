@@ -171,7 +171,7 @@ function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.innerHTML = mdToHtml(task.body); }
-  else { const p = el('p', '', '(no detail — add one with: maw task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
+  else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
   $('detail-panel').hidden = false;
 }
 

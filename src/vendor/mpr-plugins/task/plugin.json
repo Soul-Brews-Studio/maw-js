@@ -7,7 +7,8 @@
   "author": "meganechan:patchwork",
   "cli": {
     "command": "task",
-    "help": "maw task <add|ls|claim|review|pr|done> — add \"<title>\" [--repo r --dept d --epic e --assignee a] · ls [--company c] [--mine] · claim <id> · review <id> [--to oracle --reason text] · pr <id> <pr-number> · done <id>"
+    "help": "DEPRECATED alias → agents use the maw_task MCP tool; humans use 'maw company task <add|ls|start|claim|review|pr|done|block|unblock|archive>' (this top-level 'maw task' is removed next release)",
+    "hidden": true
   },
   "weight": 0,
   "license": "MIT",

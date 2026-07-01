@@ -128,15 +128,14 @@ export function deptArgs(input: DeptInput): string[] {
 }
 
 /**
- * Map a task-board tool call to `maw task <verb> …` argv — 1:1 with the CLI, no
- * new behavior. `--company`/`--from` apply to every verb; the rest are
- * per-action. `--from` is optional: when the `maw mcp` subprocess spawns `maw
- * task`, CLAUDE_AGENT_NAME is inherited so the actor already resolves; `from`
- * only overrides it (tests / explicit sender).
+ * Map a task-board tool call to `maw company task <verb> …` argv — 1:1 with the
+ * CLI, no new behavior. `--company`/`--from` apply to every verb; the rest are
+ * per-action. `--from` is optional: when the `maw mcp` subprocess spawns
+ * `maw company task`, CLAUDE_AGENT_NAME is inherited so the actor already
+ * resolves; `from` only overrides it (tests / explicit sender).
  *
- * NOTE (kobo-24): this targets top-level `maw task`. When `task` moves under
- * `company`, change the leading `["task", …]` here to `["company", "task", …]`
- * in the same atomic PR that adds the new command + removes the old.
+ * Targets the canonical `maw company task` (cli-reorg kobo-24) — NOT the
+ * `maw task` deprecation shim, so no "moved" notice leaks into MCP output.
  */
 export function taskArgs(input: TaskInput): string[] {
   const { action, id, company, from } = input;
@@ -155,7 +154,7 @@ export function taskArgs(input: TaskInput): string[] {
   switch (action) {
     case "add": {
       if (!input.title) throw new Error("task add requires a title");
-      const argv = ["task", "add", input.title];
+      const argv = ["company", "task", "add", input.title];
       if (input.repo) argv.push("--repo", input.repo);
       if (input.dept) argv.push("--dept", input.dept);
       if (input.epic) argv.push("--epic", input.epic);
@@ -165,21 +164,21 @@ export function taskArgs(input: TaskInput): string[] {
       return [...argv, ...common()];
     }
     case "ls": {
-      const argv = ["task", "ls", ...common()];
+      const argv = ["company", "task", "ls", ...common()];
       if (input.mine) argv.push("--mine");
       if (input.for) argv.push("--for", input.for);
       return argv;
     }
     case "start":
-      return ["task", "start", needId("start"), ...common()];
+      return ["company", "task", "start", needId("start"), ...common()];
     case "claim":
-      return ["task", "claim", needId("claim"), ...common()];
+      return ["company", "task", "claim", needId("claim"), ...common()];
     case "done":
-      return ["task", "done", needId("done"), ...common()];
+      return ["company", "task", "done", needId("done"), ...common()];
     case "unblock":
-      return ["task", "unblock", needId("unblock"), ...common()];
+      return ["company", "task", "unblock", needId("unblock"), ...common()];
     case "review": {
-      const argv = ["task", "review", needId("review")];
+      const argv = ["company", "task", "review", needId("review")];
       if (input.to) argv.push("--to", input.to);
       if (input.reason) argv.push("--reason", input.reason);
       return [...argv, ...common()];
@@ -187,18 +186,18 @@ export function taskArgs(input: TaskInput): string[] {
     case "pr": {
       const pid = needId("pr");
       if (input.pr === undefined) throw new Error("task pr requires a pr number");
-      return ["task", "pr", pid, String(input.pr), ...common()];
+      return ["company", "task", "pr", pid, String(input.pr), ...common()];
     }
     case "block": {
       const bid = needId("block");
       if (!input.kind) throw new Error("task block requires a kind");
-      const argv = ["task", "block", bid, "--kind", input.kind];
+      const argv = ["company", "task", "block", bid, "--kind", input.kind];
       if (input.reason) argv.push("--reason", input.reason);
       if (input.for) argv.push("--for", input.for);
       return [...argv, ...common()];
     }
     case "archive": {
-      const argv = ["task", "archive", ...common()];
+      const argv = ["company", "task", "archive", ...common()];
       if (input.days !== undefined) argv.push("--days", String(input.days));
       return argv;
     }

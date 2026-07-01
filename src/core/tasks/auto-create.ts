@@ -1,6 +1,6 @@
 /**
  * Auto-create a board task from a `maw hey [request:<id>]` dispatch (Track 3,
- * the keystone). The board was empty because tasks needed a manual `maw task
+ * the keystone). The board was empty because tasks needed a manual `maw company task
  * add` — the same trap that left the claim log empty. Real dispatch already
  * happens via `maw hey [request:<id>] …`, so that IS the signal: turn it into a
  * card automatically.
@@ -9,7 +9,7 @@
  *   - ONLY messages matching `[request:<id>]` at the start. A `re:[request:…]`
  *     reply, a normal hey, or a broadcast create nothing.
  *   - idempotent by requestId — re-sending the same `[request:<id>]` is a no-op.
- *   - create-only — no auto-done (PR-watch / manual `maw task done` own that).
+ *   - create-only — no auto-done (PR-watch / manual `maw company task done` own that).
  * The cheap regex gate runs first so non-request sends pay ~nothing.
  */
 

@@ -133,7 +133,7 @@ describe("argv mappers", () => {
 
 describe("taskArgs", () => {
   test("add: title only", () => {
-    expect(taskArgs({ action: "add", title: "fix login" })).toEqual(["task", "add", "fix login"]);
+    expect(taskArgs({ action: "add", title: "fix login" })).toEqual(["company", "task", "add", "fix login"]);
   });
 
   test("add: all flags in CLI order + common company/from", () => {
@@ -151,7 +151,7 @@ describe("taskArgs", () => {
         from: "eq3",
       }),
     ).toEqual([
-      "task", "add", "big work",
+      "company", "task", "add", "big work",
       "--repo", "acme/app",
       "--dept", "eng",
       "--epic", "auth",
@@ -169,20 +169,20 @@ describe("taskArgs", () => {
   });
 
   test("ls: bare", () => {
-    expect(taskArgs({ action: "ls" })).toEqual(["task", "ls"]);
+    expect(taskArgs({ action: "ls" })).toEqual(["company", "task", "ls"]);
   });
 
   test("ls: --mine + --for + --company (mine is a bare flag)", () => {
     expect(taskArgs({ action: "ls", company: "kobo", mine: true, for: "tony" })).toEqual([
-      "task", "ls", "--company", "kobo", "--mine", "--for", "tony",
+      "company", "task", "ls", "--company", "kobo", "--mine", "--for", "tony",
     ]);
   });
 
   test("start / claim / done / unblock take an id + common flags", () => {
-    expect(taskArgs({ action: "start", id: "kobo-3" })).toEqual(["task", "start", "kobo-3"]);
-    expect(taskArgs({ action: "claim", id: "kobo-3", from: "eq3" })).toEqual(["task", "claim", "kobo-3", "--from", "eq3"]);
-    expect(taskArgs({ action: "done", id: "kobo-3" })).toEqual(["task", "done", "kobo-3"]);
-    expect(taskArgs({ action: "unblock", id: "kobo-3" })).toEqual(["task", "unblock", "kobo-3"]);
+    expect(taskArgs({ action: "start", id: "kobo-3" })).toEqual(["company", "task", "start", "kobo-3"]);
+    expect(taskArgs({ action: "claim", id: "kobo-3", from: "eq3" })).toEqual(["company", "task", "claim", "kobo-3", "--from", "eq3"]);
+    expect(taskArgs({ action: "done", id: "kobo-3" })).toEqual(["company", "task", "done", "kobo-3"]);
+    expect(taskArgs({ action: "unblock", id: "kobo-3" })).toEqual(["company", "task", "unblock", "kobo-3"]);
   });
 
   test("id-required verbs throw without an id", () => {
@@ -193,13 +193,13 @@ describe("taskArgs", () => {
 
   test("review: id + optional --to/--reason", () => {
     expect(taskArgs({ action: "review", id: "kobo-3", to: "eq3", reason: "check auth" })).toEqual([
-      "task", "review", "kobo-3", "--to", "eq3", "--reason", "check auth",
+      "company", "task", "review", "kobo-3", "--to", "eq3", "--reason", "check auth",
     ]);
-    expect(taskArgs({ action: "review", id: "kobo-3" })).toEqual(["task", "review", "kobo-3"]);
+    expect(taskArgs({ action: "review", id: "kobo-3" })).toEqual(["company", "task", "review", "kobo-3"]);
   });
 
   test("pr: id + pr number (stringified)", () => {
-    expect(taskArgs({ action: "pr", id: "kobo-3", pr: 66 })).toEqual(["task", "pr", "kobo-3", "66"]);
+    expect(taskArgs({ action: "pr", id: "kobo-3", pr: 66 })).toEqual(["company", "task", "pr", "kobo-3", "66"]);
   });
 
   test("pr: missing pr number throws", () => {
@@ -208,7 +208,7 @@ describe("taskArgs", () => {
 
   test("block: id + required --kind + optional --reason/--for", () => {
     expect(taskArgs({ action: "block", id: "kobo-3", kind: "dependency", reason: "waits #66", for: "tony" })).toEqual([
-      "task", "block", "kobo-3", "--kind", "dependency", "--reason", "waits #66", "--for", "tony",
+      "company", "task", "block", "kobo-3", "--kind", "dependency", "--reason", "waits #66", "--for", "tony",
     ]);
   });
 
@@ -217,9 +217,9 @@ describe("taskArgs", () => {
   });
 
   test("archive: bare + --days + --company", () => {
-    expect(taskArgs({ action: "archive" })).toEqual(["task", "archive"]);
+    expect(taskArgs({ action: "archive" })).toEqual(["company", "task", "archive"]);
     expect(taskArgs({ action: "archive", days: 7, company: "kobo" })).toEqual([
-      "task", "archive", "--company", "kobo", "--days", "7",
+      "company", "task", "archive", "--company", "kobo", "--days", "7",
     ]);
   });
 });

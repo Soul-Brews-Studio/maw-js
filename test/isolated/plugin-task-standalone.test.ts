@@ -52,11 +52,25 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("resolveSenderIdentity");
   });
 
-  test("manifest registers the `task` command", () => {
+  // cli-reorg (ADR docs/company/0001): dispatch is a shared `runTask` runner so
+  // `maw company task` (company plugin) and the top-level `maw task` shim share
+  // ONE copy. Top-level handler is now a deprecation shim → the maw_task MCP tool.
+  test("exports a shared runTask runner and the top-level handler is a deprecation shim", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("export async function runTask");
+    expect(src).toContain("moved → 'maw company task'"); // shim notice
+    expect(src).toContain("await runTask("); // handler forwards to the shared runner
+  });
+
+  test("manifest keeps the `task` command as a deprecation alias", () => {
     const manifest = JSON.parse(
       readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/task/plugin.json"), "utf8"),
     );
     expect(manifest.name).toBe("task");
-    expect(manifest.cli.command).toBe("task");
+    expect(manifest.cli.command).toBe("task"); // still registered — it's the shim
+    expect(manifest.cli.help).toMatch(/DEPRECATED/);
   });
 });
