@@ -9,7 +9,7 @@
  * setup-hooks. Thin CLI shell over src/core/worklog/*.
  */
 
-import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
+import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
 import { readWorklog } from "../../../core/worklog/store";
 import { renderTimeline } from "../../../core/worklog/render";
@@ -19,11 +19,6 @@ import { companyOfOracle } from "../../../core/worklog/company-scope";
 import { addClaim, releaseClaim } from "../../../core/worklog/claim";
 import { pingCollision } from "../../../core/worklog/ping";
 import { buildInjectSlice } from "../../../core/worklog/slice";
-
-export const command = {
-  name: "watch",
-  description: "Activity worklog — debug/fallback view of the engine (capture+inject runs via hooks).",
-};
 
 function myOracle(): string {
   const cfg = loadConfig() as any;
@@ -105,19 +100,7 @@ export async function runWorklog(
   return { ok: false, error: 'usage: maw company worklog <log|inject|claim|release|sync|setup-hooks> [opts]' };
 }
 
-// Top-level `maw watch` — DEPRECATION SHIM (ADR docs/company/0001, OQ1=b). Prints
-// "moved" then forwards to the shared runner. Removed next release; new callers
-// use `maw company worklog`.
-export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
-  const logs: string[] = [];
-  const emit = (line: string) => { if (ctx.writer) ctx.writer(line); else logs.push(line); };
-  emit(`\x1b[33m⚠ 'maw watch' moved → 'maw company worklog'\x1b[0m \x1b[90m(this alias will be removed next release)\x1b[0m`);
-
-  const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-  const r = await runWorklog(args, emit);
-  const output = logs.join("\n") || undefined;
-  // Transparent forward: surface runWorklog's clean error (usage) — the notice
-  // lives in `output` and must NOT shadow it (the shim forwards ALL input).
-  if (!r.ok) return { ok: false, error: r.error, output };
-  return { ok: true, output };
-}
+// cli-reorg kobo-26: the top-level `maw watch` shim is REMOVED (Tony: hard-cut,
+// no alias). This plugin keeps its serve hook (HTTP routes) and is a MODULE
+// surface — `runWorklog` is imported by the company plugin (`maw company
+// worklog`). No cli command, so `maw watch` → unknown command.

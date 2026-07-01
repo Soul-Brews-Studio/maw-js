@@ -1,24 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import handler from "../../src/vendor/mpr-plugins/watch/index";
+import { runWorklog } from "../../src/vendor/mpr-plugins/watch/index";
 
-// Behavioural test for the `maw watch` DEPRECATION SHIM. The shim prints the
-// "moved → maw company worklog" notice AND must forward ALL input transparently
-// — bad input's clean error still surfaces in `.error`, not swallowed by the
-// notice (regression: `error: output ?? r.error` let the notice shadow it).
-// Uses an unknown subcommand so no verb touches the network (log/sync poll PRs).
+// Behavioural test for the worklog runner `runWorklog` — the shared engine that
+// `maw company worklog` drives. cli-reorg kobo-26 removed the top-level
+// `maw watch` command (now a module + serve-hook surface), so we exercise the
+// runner directly. Uses an unknown subcommand so no verb touches the network
+// (log/sync poll PRs); bad input returns a clean error, not a throw.
 
-const run = (args: string[]) =>
-  handler({ source: "cli", args } as never) as Promise<{ ok: boolean; error?: string; output?: string }>;
+const run = async (args: string[]): Promise<{ ok: boolean; error?: string }> => {
+  const out: string[] = [];
+  return runWorklog(args, (l) => out.push(l));
+};
 
-describe("maw watch shim", () => {
-  test("prints the moved notice on every call", async () => {
-    const r = await run(["bogus"]);
-    expect(r.output).toContain("moved → 'maw company worklog'");
-  });
-
-  test("unknown subcommand → clean usage error surfaces (not masked by the notice)", async () => {
+describe("maw company worklog runner (runWorklog)", () => {
+  test("unknown subcommand → clean usage error, not a throw", async () => {
     const r = await run(["bogus"]);
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("usage"); // the forwarded clean error, transparent
+    expect(r.error).toContain("usage");
   });
 });

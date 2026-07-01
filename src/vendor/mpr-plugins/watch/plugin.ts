@@ -5,11 +5,11 @@ export default definePlugin({
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Activity worklog — desync-killer timeline (tool-calls + PR status).",
+  "description": "Activity worklog — serve hook (HTTP routes) + `runWorklog` module for `maw company worklog`. NOT a top-level command (cli-reorg kobo-26).",
   "author": "kobo:core",
-  "cli": {
-    "command": "watch",
-    "help": "maw watch <log|inject|claim|release|sync|setup-hooks> [opts]"
+  "module": {
+    "path": "./index.ts",
+    "exports": ["runWorklog"],
   },
   "hooks": {
     "serve": {

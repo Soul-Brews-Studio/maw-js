@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Company task board backbone — create/claim/done first-class work items (ADR 0001).",
+  "description": "Company task board backbone (ADR 0001). Module surface — `runTask` is invoked by `maw company task`; NOT a top-level command (cli-reorg kobo-26).",
   "author": "meganechan:patchwork",
-  "cli": {
-    "command": "task",
-    "help": "DEPRECATED alias → agents use the maw_task MCP tool; humans use 'maw company task <add|ls|start|claim|review|pr|done|block|unblock|archive>' (this top-level 'maw task' is removed next release)",
-    "hidden": true
+  "module": {
+    "path": "./index.ts",
+    "exports": ["runTask"]
   },
   "weight": 0,
   "license": "MIT",

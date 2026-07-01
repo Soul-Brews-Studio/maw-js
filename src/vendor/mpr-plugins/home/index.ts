@@ -14,15 +14,10 @@
  * Company is a positional, or resolved from config like `maw task`.
  */
 
-import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
+import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
 import { companyOfOracle } from "../../../core/worklog/company-scope";
 import { commitHome, initHome } from "../../../core/home/store";
-
-export const command = {
-  name: "home",
-  description: "Company Home git repo — init a private remote, commit/push snapshots (ADR 0002).",
-};
 
 function resolveCompany(positional: string | undefined, flag: string | undefined): string | null {
   if (positional) return positional;
@@ -70,19 +65,7 @@ export async function runHome(
   return { ok: false, error: "usage: maw company home <init|commit> [<company>] — init [--org o --repo org/name --branch b] · commit [-m msg --no-push]" };
 }
 
-// Top-level `maw home` — DEPRECATION SHIM (ADR docs/company/0001, OQ1=b). Prints
-// "moved" then forwards to the shared runner. Removed next release; new callers
-// use `maw company home`.
-export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
-  const logs: string[] = [];
-  const emit = (line: string) => { if (ctx.writer) ctx.writer(line); else logs.push(line); };
-  emit(`\x1b[33m⚠ 'maw home' moved → 'maw company home'\x1b[0m \x1b[90m(this alias will be removed next release)\x1b[0m`);
-
-  const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-  const r = await runHome(args, emit);
-  const output = logs.join("\n") || undefined;
-  // Transparent forward: surface runHome's clean error (usage / not-found) — the
-  // notice lives in `output` and must NOT shadow it (the shim forwards ALL input).
-  if (!r.ok) return { ok: false, error: r.error, output };
-  return { ok: true, output };
-}
+// cli-reorg kobo-26: the top-level `maw home` shim is REMOVED (Tony: hard-cut,
+// no alias). This plugin is now a MODULE surface — `runHome` is imported by the
+// company plugin (`maw company home`). No default handler / no cli command, so
+// `maw home` → unknown command.

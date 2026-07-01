@@ -20,7 +20,7 @@
  * assignee is pinged on assignment (ADR §5).
  */
 
-import { parseFlags, type InvokeContext, type InvokeResult } from "maw-js/sdk";
+import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
 import { companyOfOracle } from "../../../core/worklog/company-scope";
 import {
@@ -50,11 +50,6 @@ import {
   type TaskRecord,
   type TaskState,
 } from "../../../core/tasks/store";
-
-export const command = {
-  name: "task",
-  description: "Company task board — create/claim/done first-class work items.",
-};
 
 /**
  * Resolve the acting oracle the SAME way `maw hey` does (resolveSenderIdentity),
@@ -326,20 +321,7 @@ export async function runTask(
   }
 }
 
-// Top-level `maw task` — DEPRECATION SHIM (ADR docs/company/0001, OQ1=b). Prints
-// "moved" then forwards to the shared runner. Removed next release; new callers
-// use `maw company task` (agents: the maw_task MCP tool).
-export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
-  const logs: string[] = [];
-  const emit = (line: string) => { if (ctx.writer) ctx.writer(line); else logs.push(line); };
-  emit(`\x1b[33m⚠ 'maw task' moved → 'maw company task'\x1b[0m \x1b[90m(agents: use the maw_task MCP tool; this alias is removed next release)\x1b[0m`);
-
-  const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-  const r = await runTask(args, emit);
-  const output = logs.join("\n") || undefined;
-  // Transparent forward: surface runTask's clean error (usage / not-found) in
-  // `error` — the notice lives in `output` and must NOT shadow it (the shim
-  // forwards ALL input, not just the happy path).
-  if (!r.ok) return { ok: false, error: r.error, output };
-  return { ok: true, output };
-}
+// cli-reorg kobo-26: the top-level `maw task` shim is REMOVED (Tony: hard-cut,
+// no alias). This plugin is now a MODULE surface — `runTask` is imported by the
+// company plugin (`maw company task`); agents use the maw_task MCP tool. There is
+// no default handler and no cli command, so `maw task` → unknown command.

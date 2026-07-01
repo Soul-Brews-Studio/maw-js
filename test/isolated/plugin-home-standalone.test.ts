@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 
 // #2316 plugin-coverage-gate: the Company-Home git engine lives in src/core/home/*
 // (+ the worklog company-scope resolver). The `home` plugin is the thin CLI shell
@@ -34,27 +35,25 @@ describe("home command plugin standalone boundary", () => {
     expect(src).toContain("commitHome");
   });
 
-  // cli-reorg (ADR docs/company/0001): dispatch is a shared `runHome` runner so
-  // `maw company home` (company plugin) and the top-level shim share ONE copy.
-  // The top-level handler is now a deprecation shim that prints "moved" + forwards.
-  test("exports a shared runHome runner and the top-level handler is a deprecation shim", () => {
+  // cli-reorg kobo-26: `maw home` is HARD-REMOVED (no shim). The plugin exports
+  // the shared `runHome` runner (imported by the company plugin for
+  // `maw company home`) but registers NO cli command and NO default handler.
+  test("exports runHome but has no shim handler / no default export", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/home/index.ts"),
       "utf8",
     );
     expect(src).toContain("export async function runHome");
-    expect(src).toContain("moved → 'maw company home'"); // shim notice
-    expect(src).toContain("await runHome("); // handler forwards to the shared runner
-    // transparent forward: bad-input error surfaces (notice must not shadow it)
-    expect(src).toContain("error: r.error");
+    expect(src).not.toContain("export default"); // no top-level command handler
+    expect(src).not.toContain("moved →"); // no deprecation shim notice
   });
 
-  test("manifest keeps the `home` command as a deprecation alias", () => {
-    const manifest = JSON.parse(
-      readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/home/plugin.json"), "utf8"),
-    );
+  // Authoritative manifest via loadManifestFromDir (plugin.ts-first) — guards
+  // against plugin.ts/json drift hiding a still-registered `maw home` (kobo-26).
+  test("loaded manifest is a module surface with NO cli command (maw home → unknown)", () => {
+    const manifest = loadManifestFromDir(join(import.meta.dir, "../../src/vendor/mpr-plugins/home"))!.manifest;
     expect(manifest.name).toBe("home");
-    expect(manifest.cli.command).toBe("home"); // still registered — it's the shim
-    expect(manifest.cli.help).toMatch(/DEPRECATED/);
+    expect(manifest.cli).toBeUndefined(); // hard-removed — not dispatchable as `maw home`
+    expect(manifest.module?.exports).toContain("runHome"); // company imports this
   });
 });

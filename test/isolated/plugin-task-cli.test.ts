@@ -2,11 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import handler from "../../src/vendor/mpr-plugins/task/index";
+import { runTask } from "../../src/vendor/mpr-plugins/task/index";
 import { listTasks, readTask } from "../../src/core/tasks/store";
 
-// Behavioural test for the `maw task` CLI shell. No --assignee is used, so no
-// ping (Bun.spawn maw hey) ever fires — keeps the test hermetic.
+// Behavioural test for the task-board runner `runTask` — the shared engine that
+// `maw company task` (and the maw_task MCP tool) drive. cli-reorg kobo-26 removed
+// the top-level `maw task` command, so we exercise the runner directly (no
+// default handler). No --assignee is used, so no ping ever fires — hermetic.
 
 const dir = mkdtempSync(join(tmpdir(), "maw-taskcli-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -19,10 +21,14 @@ afterAll(() => {
 });
 beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); });
 
-const run = (args: string[]) =>
-  handler({ source: "cli", args } as never) as Promise<{ ok: boolean; error?: string; output?: string }>;
+// Collect emitted lines into `output` so the same assertions (output/ok/error) hold.
+const run = async (args: string[]): Promise<{ ok: boolean; error?: string; output: string }> => {
+  const out: string[] = [];
+  const r = await runTask(args, (l) => out.push(l));
+  return { ...r, output: out.join("\n") };
+};
 
-describe("maw task CLI", () => {
+describe("maw company task runner (runTask)", () => {
   test("add stores ONLY the title — flag values never leak into it (regression)", async () => {
     const r = await run(["add", "ship the board", "--company", "pgw", "--dept", "core", "--epic", "kanban"]);
     expect(r.ok).toBe(true);

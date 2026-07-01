@@ -2,13 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import handler from "../../src/vendor/mpr-plugins/task/index";
+import { runTask } from "../../src/vendor/mpr-plugins/task/index";
 import { readTask } from "../../src/core/tasks/store";
 
-// In-process handler test for the `maw task` plugin (Track 4). The plugin is
-// loaded from source here, so this reliably tests CURRENT code — a subprocess
-// `maw task` would load the INSTALLED plugin (a deploy artifact), so binary
-// verify of the CLI belongs to the post-merge deploy step, not CI.
+// In-process test for the task-board runner `runTask` (Track 4) — the shared
+// engine `maw company task` drives. cli-reorg kobo-26 removed the top-level
+// `maw task` default handler, so we exercise the runner directly (loaded from
+// source = tests CURRENT code; binary verify belongs to the post-merge deploy).
 
 const dir = mkdtempSync(join(tmpdir(), "maw-taskrev-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -28,12 +28,15 @@ afterAll(() => {
 });
 beforeEach(() => { rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }); });
 
-const run = (args: string[]) =>
-  handler({ source: "cli", args } as never) as Promise<{ ok: boolean; error?: string; output?: string }>;
+const run = async (args: string[]): Promise<{ ok: boolean; error?: string; output: string }> => {
+  const out: string[] = [];
+  const r = await runTask(args, (l) => out.push(l));
+  return { ...r, output: out.join("\n") };
+};
 // every call passes --from local:eq3 → actor resolves to the real oracle, not the node default
 const task = (args: string[]) => run([...args, "--company", "kobo", "--from", "local:eq3"]);
 
-describe("maw task review + actor + next-action (Track 4)", () => {
+describe("maw company task review + actor + next-action (Track 4)", () => {
   test("actor = real oracle via --from (by=eq3, not the node default mawjs)", async () => {
     await task(["add", "ship the thing"]);
     expect(readTask("kobo", "kobo-1")!.by).toBe("eq3");

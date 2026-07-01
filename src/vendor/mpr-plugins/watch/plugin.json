@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Activity worklog — desync-killer timeline (tool-calls + PR status).",
+  "description": "Activity worklog — serve hook (HTTP routes) + `runWorklog` module for `maw company worklog`. NOT a top-level command (cli-reorg kobo-26).",
   "author": "kobo:core",
-  "cli": {
-    "command": "watch",
-    "help": "DEPRECATED alias → use 'maw company worklog <log|inject|claim|release|sync|setup-hooks>' (this top-level 'maw watch' is removed next release)",
-    "hidden": true
+  "module": {
+    "path": "./index.ts",
+    "exports": ["runWorklog"]
   },
   "hooks": {
     "serve": {

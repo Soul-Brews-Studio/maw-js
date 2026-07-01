@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import { loadManifestFromDir } from "../../src/plugin/manifest-load";
 
 // #2316 plugin-coverage-gate: the worklog engine lives in src/core/worklog/* +
 // the feed singleton (src/api/feed). The `watch` plugin is its thin CLI + serve
@@ -54,34 +55,31 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toContain("handleStateDocRequest");
   });
 
-  test("watch menu is hidden from help but still callable (deprecation shim)", () => {
-    const manifest = JSON.parse(
-      readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/plugin.json"), "utf8"),
-    );
-    // hidden:true removes it from `maw` help; cli.command still present so the
-    // `maw watch <sub>` deprecation shim keeps dispatching for one release.
-    expect(manifest.cli.hidden).toBe(true);
-    expect(manifest.cli.command).toBe("watch");
-    expect(manifest.cli.help).toMatch(/DEPRECATED/);
-    // ensures advertises the company-ui routes alongside the worklog/policy ones.
-    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/worklog/feed");
-    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/tasks");
-    expect(manifest.hooks.serve.ensures).toContain("http:route:/api/state");
+  // cli-reorg kobo-26: `maw watch` is HARD-REMOVED (no cli command). The plugin
+  // keeps its serve hook (HTTP routes) — hooks make it non-dispatchable as a
+  // command — and exposes `runWorklog` as a module for `maw company worklog`.
+  // Authoritative manifest via loadManifestFromDir (plugin.ts-first) — guards
+  // against plugin.ts/json drift hiding a still-registered `maw watch` (kobo-26).
+  test("no cli command (maw watch → unknown), serve hook + module surface intact", () => {
+    const manifest = loadManifestFromDir(join(import.meta.dir, "../../src/vendor/mpr-plugins/watch"))!.manifest;
+    expect(manifest.cli).toBeUndefined(); // hard-removed — not dispatchable as `maw watch`
+    expect(manifest.module?.exports).toContain("runWorklog"); // company imports this
+    // serve hook untouched — the worklog/board HTTP routes still toggle with the plugin.
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/worklog/feed");
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks");
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
   });
 
-  // cli-reorg (ADR docs/company/0001): dispatch is a shared `runWorklog` runner
-  // so `maw company worklog` (company plugin) and the top-level `maw watch` shim
-  // share ONE copy. All verbs preserved (OQ2 — no cull). Serve hook untouched.
-  test("exports a shared runWorklog runner (all verbs) and the top-level handler is a deprecation shim", () => {
+  // cli-reorg kobo-26: exports the shared `runWorklog` runner (all verbs, OQ2 —
+  // no cull), imported by the company plugin. No default handler / no shim.
+  test("exports runWorklog (all verbs) with no shim handler / no default export", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/index.ts"),
       "utf8",
     );
     expect(src).toContain("export async function runWorklog");
-    expect(src).toContain("moved → 'maw company worklog'"); // shim notice
-    expect(src).toContain("await runWorklog("); // handler forwards to the shared runner
-    // transparent forward: bad-input error surfaces (notice must not shadow it)
-    expect(src).toContain("error: r.error");
+    expect(src).not.toContain("export default"); // no top-level command handler
+    expect(src).not.toContain("moved →"); // no deprecation shim notice
     for (const verb of ['subcmd === "log"', 'subcmd === "inject"', 'subcmd === "claim"', 'subcmd === "release"', 'subcmd === "sync"', 'subcmd === "setup-hooks"']) {
       expect(src).toContain(verb);
     }
