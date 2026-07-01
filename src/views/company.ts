@@ -201,6 +201,18 @@ function renderBoard(tasks) {
   $('attention-panel').hidden = counts['blocked'] === 0;
 }
 
+// Worklog ts is stored UTC (ISO). This renders in the browser, so format in the
+// VIEWER's local timezone (Tony = Asia/Bangkok = GMT+7) — same compact
+// YYYY-MM-DD HH:MM:SS shape, just shifted off raw UTC. Falls back to the raw
+// string if the ISO won't parse.
+function localTs(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+    ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
 function renderTimeline(entries) {
   const tl = $('timeline');
   tl.replaceChildren();
@@ -210,7 +222,7 @@ function renderTimeline(entries) {
     const head = el('div', 'e-head');
     head.appendChild(el('span', 'e-oracle', e.oracle || '?'));
     head.appendChild(el('span', 'e-kind', e.kind || ''));
-    const ts = e.iso ? e.iso.replace('T', ' ').slice(0, 19) : text(e.ts);
+    const ts = e.iso ? localTs(e.iso) : text(e.ts);
     head.appendChild(el('span', 'e-ts', ts));
     row.appendChild(head);
     row.appendChild(el('div', 'e-summary', e.summary || ''));
