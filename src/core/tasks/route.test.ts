@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { handleTasksRequest } from "./route";
-import { addTask, claimTask, completeTask } from "./store";
+import { addTask, claimTask, completeTask, prOpenedReview, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -48,6 +48,22 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     const claimed = body.tasks.find((t) => t.title === "claimed item");
     expect(claimed?.state).toBe("in-progress");
     expect(claimed?.assignee).toBe("patchwork");
+  });
+
+  test("PR-open lifecycle shows on /api/tasks — UI ↔ store match (eq3-011 kobo-13)", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "prw", title: "ship feature", by: "eq3" }); // todo, unassigned
+    setTaskPr("prw", t.id, 88, "patchwork"); // worker attaches the PR (card.pr link)
+    prOpenedReview("prw", t.id, "patchwork"); // pr-watch drives it on OPEN
+    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=prw")).json()) as {
+      tasks: Array<{ title: string; state: string; assignee: string | null; reviewer?: string; pr?: number; nextAction: string }>;
+    };
+    const card = body.tasks.find((c) => c.title === "ship feature")!;
+    expect(card.state).toBe("review"); // board no longer says "todo รอคนหยิบ"
+    expect(card.assignee).toBe("patchwork"); // owner = PR author
+    expect(card.reviewer).toBe("human"); // waiting on the human
+    expect(card.pr).toBe(88);
+    expect(card.nextAction).toContain("PR #88"); // "รอ merge PR #88 → done"
   });
 
   test("derives checklist N/M from body; absent when no checkbox (ADR 0003 C)", async () => {

@@ -22,7 +22,9 @@ import {
   listTasks,
   nextTaskId,
   parentStateResolver,
+  prOpenedReview,
   readTask,
+  setTaskPr,
   startTask,
   taskFilePath,
   tasksDir,
@@ -364,5 +366,36 @@ describe("explicit block / unblock (ADR 0003 B — off-flow, remembers prevState
   test("blockNextAction renders kind + who-clears + why", () => {
     expect(blockNextAction({ state: "blocked", block: { kind: "needs_input", for: "tony", reason: "ok?" } } as TaskRecord)).toBe("⚑ [needs_input] รอ tony: ok?");
     expect(blockNextAction({ state: "blocked", block: { kind: "capability" } } as TaskRecord)).toBe("⚑ [capability]");
+  });
+});
+
+describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to review + owner)", () => {
+  test("linked card → review, assignee=author, reviewer=human + emits task-review", () => {
+    const t = addTask({ company: "pgw", title: "ship it", by: "eq3" }); // todo, unassigned
+    setTaskPr("pgw", t.id, 77, "patchwork"); // worker attaches PR at open (the card.pr link)
+    const r = prOpenedReview("pgw", t.id, "patchwork")!;
+    expect(r.state).toBe("review");
+    expect(r.assignee).toBe("patchwork"); // owner = PR author
+    expect(r.reviewer).toBe("human"); // Tony reviews
+    expect(readWorklog("pgw").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+
+  test("idempotent — re-run leaves the card exactly as-is (PR-watch re-polls don't churn)", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" });
+    prOpenedReview("pgw", t.id, "patchwork");
+    const before = readTask("pgw", t.id)!.updatedTs;
+    const again = prOpenedReview("pgw", t.id, "patchwork")!;
+    expect(again.updatedTs).toBe(before); // no write on the idempotent no-op
+  });
+
+  test("never resurrects a done card", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" });
+    completeTask("pgw", t.id, "tony");
+    const r = prOpenedReview("pgw", t.id, "patchwork")!;
+    expect(r.state).toBe("done"); // left closed
+  });
+
+  test("missing id → null (no throw)", () => {
+    expect(prOpenedReview("pgw", "pgw-999", "x")).toBeNull();
   });
 });

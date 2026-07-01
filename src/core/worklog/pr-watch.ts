@@ -17,7 +17,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeTask, findTaskByPr } from "../tasks/store";
+import { completeTask, findTaskByPr, prOpenedReview } from "../tasks/store";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -161,6 +161,13 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         const entry: WorklogEntry = { ...base, kind: "pr-opened", summary: `opened #${pr.number} ${pr.title}` };
         record(entry);
         recorded.push(entry);
+        // eq3-011 kobo-13: PR open = truth → drive the linked card to review,
+        // owned by the PR author, reviewer = human. Mirrors the merge→done path;
+        // acts off the card.pr link, fires once on this OPEN transition.
+        try {
+          const task = company && author ? findTaskByPr(company, pr.number) : null;
+          if (task && author) prOpenedReview(company, task.id, author);
+        } catch { /* never let task lifecycle break PR-watch */ }
       }
     }
   }

@@ -331,6 +331,27 @@ export function setTaskPr(company: string, id: string, pr: number, by: string): 
   return task;
 }
 
+/**
+ * PR opened → drive the linked card to review, owned by the PR author, reviewer
+ * = the human (eq3-011 kobo-13). Driven by PR-watch off the card.pr link (the
+ * SAME link merge→done uses) so the board tracks the PR (truth), not a manual
+ * step. Idempotent: a card already review-by-this-author-for-this-reviewer is a
+ * no-op, and a done card is never resurrected — so re-polls never churn.
+ */
+export function prOpenedReview(company: string, id: string, author: string, reviewer = "human"): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.state === "done") return task; // never resurrect a merged/closed card
+  if (task.state === "review" && task.assignee === author && task.reviewer === reviewer) return task; // idempotent
+  task.state = "review";
+  task.assignee = author;
+  task.reviewer = reviewer;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${reviewer}: ${task.title}`);
+  return task;
+}
+
 /** Mark done. `by` is whoever closed it (worker/lead/Tony). Clears review flag. */
 export function completeTask(company: string, id: string, by: string): TaskRecord | null {
   const task = readTask(company, id);
