@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { handleTasksRequest } from "./route";
-import { addTask, claimTask } from "./store";
+import { addTask, claimTask, completeTask } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -61,6 +61,26 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     const plain = body.tasks.find((t) => t.title === "plain");
     expect(withList?.checklist).toEqual({ done: 2, total: 3 });
     expect("checklist" in (plain as object)).toBe(false); // no badge on a plain card
+  });
+
+  test("derives dependency block from parents (ADR 0003 A on web); reuses the store helper", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const parent = addTask({ company: "dep", title: "parent", by: "eq3" }); // dep-1, todo
+    addTask({ company: "dep", title: "child", by: "eq3", parentIds: [parent.id, "ghost-9"] }); // dep-2
+    addTask({ company: "dep", title: "free", by: "eq3" }); // dep-3, no parents
+    const read = async () => (await handleTasksRequest(new Request("http://x/api/tasks?company=dep")).json()) as {
+      tasks: Array<{ title: string; state: string; dependency?: { blockedBy: string[]; missing: string[] } }>;
+    };
+    let tasks = (await read()).tasks;
+    const child = tasks.find((t) => t.title === "child");
+    const free = tasks.find((t) => t.title === "free");
+    expect(child?.dependency).toEqual({ blockedBy: ["dep-1"], missing: ["ghost-9"] }); // parent pending + ghost missing
+    expect(child?.state).toBe("todo"); // derived ≠ a block state — real state untouched
+    expect("dependency" in (free as object)).toBe(false); // no parents → no field
+    // parent done → child auto-returns (field drops to missing-only, no blockedBy)
+    completeTask("dep", parent.id, "eq3");
+    tasks = (await read()).tasks;
+    expect(tasks.find((t) => t.title === "child")?.dependency).toEqual({ blockedBy: [], missing: ["ghost-9"] });
   });
 
   test("unknown company → empty (no throw)", async () => {

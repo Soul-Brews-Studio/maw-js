@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { checklistProgress, listTasks, taskNextAction, type ChecklistProgress, type TaskRecord } from "./store";
+import { checklistProgress, dependencyBlock, listTasks, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type ParentState, type TaskRecord } from "./store";
 
 export interface TaskCard {
   id: string;
@@ -30,9 +30,10 @@ export interface TaskCard {
   updatedTs?: number;
   nextAction: string; // "what next + who" — computed, always present (Track 4)
   checklist?: ChecklistProgress; // derived N/M from body markdown (ADR 0003 C); absent when none
+  dependency?: DependencyBlock; // derived blocked-by-dependency (ADR 0003 A) — present only when blockedBy/missing non-empty. NOTE: derived, NOT state==="blocked"
 }
 
-function toCard(t: TaskRecord): TaskCard {
+function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState): TaskCard {
   const card: TaskCard = {
     id: t.id,
     title: t.title,
@@ -51,6 +52,11 @@ function toCard(t: TaskRecord): TaskCard {
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
   if (progress) card.checklist = progress;
+  // Derived dependency block (ADR 0003 A) — reuse the SAME store helper the CLI
+  // board uses, so web + CLI never disagree. Emitted only when there's something
+  // to show; the card's real state stays todo/in-progress (this is NOT a block state).
+  const dep = dependencyBlock(t, resolveParent);
+  if (dep.blockedBy.length || dep.missing.length) card.dependency = dep;
   return card;
 }
 
@@ -58,5 +64,6 @@ export function handleTasksRequest(request: Request): Response {
   const url = new URL(request.url);
   const company = url.searchParams.get("company");
   if (!company) return Response.json({ company: null, tasks: [] });
-  return Response.json({ company, tasks: listTasks(company).map(toCard) });
+  const resolveParent = parentStateResolver(company); // active state | "archived" | null — shared across the board
+  return Response.json({ company, tasks: listTasks(company).map((t) => toCard(t, resolveParent)) });
 }

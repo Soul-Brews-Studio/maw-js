@@ -148,6 +148,9 @@ function taskCard(task) {
   if (task.checklist && task.checklist.total) meta.appendChild(el('span', 'pill check', '☑ ' + task.checklist.done + '/' + task.checklist.total));
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
   if (task.block) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.block.kind + (task.block.for ? ' →' + task.block.for : '') + (task.block.reason ? ': ' + task.block.reason : '')));
+  // derived blocked-by-dependency (ADR 0003 A on web) — NOT a block state; the card waits on a parent
+  if (task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
+  if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
@@ -161,8 +164,13 @@ function renderBoard(tasks) {
   for (const s of FLOW) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
   const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, blocked: 0 };
+  // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
+  // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
+  // flow state but are pulled out while a parent is pending; when the parent is
+  // done the next poll drops the dependency field and the card returns.
+  const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0);
   for (const task of tasks) {
-    if (task.state === 'blocked') { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
+    if (isOffFlow(task)) { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';
     cols[state].appendChild(taskCard(task));
     counts[state]++;
