@@ -6,6 +6,7 @@ import {
   lsArgs,
   companyArgs,
   deptArgs,
+  taskArgs,
   runMaw,
   toMcpResult,
   type SpawnFn,
@@ -124,6 +125,101 @@ describe("argv mappers", () => {
       "knowledge",
       "acme",
       "eng",
+    ]);
+  });
+});
+
+// ── task board argv mappers (kobo-21) — 1:1 with the CLI ─────────────────────
+
+describe("taskArgs", () => {
+  test("add: title only", () => {
+    expect(taskArgs({ action: "add", title: "fix login" })).toEqual(["task", "add", "fix login"]);
+  });
+
+  test("add: all flags in CLI order + common company/from", () => {
+    expect(
+      taskArgs({
+        action: "add",
+        title: "big work",
+        repo: "acme/app",
+        dept: "eng",
+        epic: "auth",
+        assignee: "patchwork",
+        parent: ["kobo-1", "kobo-2"],
+        body: "- [ ] step",
+        company: "kobo",
+        from: "eq3",
+      }),
+    ).toEqual([
+      "task", "add", "big work",
+      "--repo", "acme/app",
+      "--dept", "eng",
+      "--epic", "auth",
+      "--assignee", "patchwork",
+      "--parent", "kobo-1",
+      "--parent", "kobo-2",
+      "--body", "- [ ] step",
+      "--company", "kobo",
+      "--from", "eq3",
+    ]);
+  });
+
+  test("add: missing title throws", () => {
+    expect(() => taskArgs({ action: "add" })).toThrow(/title/);
+  });
+
+  test("ls: bare", () => {
+    expect(taskArgs({ action: "ls" })).toEqual(["task", "ls"]);
+  });
+
+  test("ls: --mine + --for + --company (mine is a bare flag)", () => {
+    expect(taskArgs({ action: "ls", company: "kobo", mine: true, for: "tony" })).toEqual([
+      "task", "ls", "--company", "kobo", "--mine", "--for", "tony",
+    ]);
+  });
+
+  test("start / claim / done / unblock take an id + common flags", () => {
+    expect(taskArgs({ action: "start", id: "kobo-3" })).toEqual(["task", "start", "kobo-3"]);
+    expect(taskArgs({ action: "claim", id: "kobo-3", from: "eq3" })).toEqual(["task", "claim", "kobo-3", "--from", "eq3"]);
+    expect(taskArgs({ action: "done", id: "kobo-3" })).toEqual(["task", "done", "kobo-3"]);
+    expect(taskArgs({ action: "unblock", id: "kobo-3" })).toEqual(["task", "unblock", "kobo-3"]);
+  });
+
+  test("id-required verbs throw without an id", () => {
+    for (const action of ["start", "claim", "done", "unblock", "review", "pr", "block"] as const) {
+      expect(() => taskArgs({ action })).toThrow(/requires an id/);
+    }
+  });
+
+  test("review: id + optional --to/--reason", () => {
+    expect(taskArgs({ action: "review", id: "kobo-3", to: "eq3", reason: "check auth" })).toEqual([
+      "task", "review", "kobo-3", "--to", "eq3", "--reason", "check auth",
+    ]);
+    expect(taskArgs({ action: "review", id: "kobo-3" })).toEqual(["task", "review", "kobo-3"]);
+  });
+
+  test("pr: id + pr number (stringified)", () => {
+    expect(taskArgs({ action: "pr", id: "kobo-3", pr: 66 })).toEqual(["task", "pr", "kobo-3", "66"]);
+  });
+
+  test("pr: missing pr number throws", () => {
+    expect(() => taskArgs({ action: "pr", id: "kobo-3" })).toThrow(/pr number/);
+  });
+
+  test("block: id + required --kind + optional --reason/--for", () => {
+    expect(taskArgs({ action: "block", id: "kobo-3", kind: "dependency", reason: "waits #66", for: "tony" })).toEqual([
+      "task", "block", "kobo-3", "--kind", "dependency", "--reason", "waits #66", "--for", "tony",
+    ]);
+  });
+
+  test("block: missing kind throws", () => {
+    expect(() => taskArgs({ action: "block", id: "kobo-3" })).toThrow(/kind/);
+  });
+
+  test("archive: bare + --days + --company", () => {
+    expect(taskArgs({ action: "archive" })).toEqual(["task", "archive"]);
+    expect(taskArgs({ action: "archive", days: 7, company: "kobo" })).toEqual([
+      "task", "archive", "--company", "kobo", "--days", "7",
     ]);
   });
 });

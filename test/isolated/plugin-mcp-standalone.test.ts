@@ -53,6 +53,20 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // inline-images reaches config via the SDK boundary, not a deep import.
     expect(readFileSync(join(root, MCP_DIR, "inline-images.ts"), "utf8")).toContain('from "maw-js/sdk"');
   });
+
+  // kobo-21: the maw_task tool wraps the CLI task board (spawns `maw task <verb>`
+  // via runMaw, like the other verb tools) — it must NOT reach into core task
+  // logic directly. Pin the registration + that taskArgs maps every verb.
+  test("server registers maw_task and delegates through taskArgs", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    expect(server).toContain('"maw_task"');
+    expect(server).toContain("taskArgs");
+    const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
+    expect(tools).toContain("export function taskArgs");
+    for (const verb of ['"add"', '"ls"', '"start"', '"claim"', '"review"', '"pr"', '"done"', '"block"', '"unblock"', '"archive"']) {
+      expect(tools).toContain(verb);
+    }
+  });
 });
 
 describe("parseMawRef", () => {

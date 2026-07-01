@@ -17,6 +17,7 @@ import {
   lsArgs,
   companyArgs,
   deptArgs,
+  taskArgs,
   runMaw,
   toMcpResult,
   type SpawnFn,
@@ -128,6 +129,41 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
     },
     async ({ action, company, dept, oracle, role, text }) =>
       guard(() => deptArgs({ action, company, dept, oracle, role, text })),
+  );
+
+  server.registerTool(
+    "maw_task",
+    {
+      title: "Company task board — add/ls/start/claim/review/pr/done/block/unblock/archive",
+      description:
+        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive ([--days N]). --company/--from apply to any verb.",
+      inputSchema: {
+        action: z
+          .enum(["add", "ls", "start", "claim", "review", "pr", "done", "block", "unblock", "archive"])
+          .describe("task board action"),
+        id: z.string().optional().describe("card id (start/claim/done/review/pr/block/unblock)"),
+        title: z.string().optional().describe("card title (required for add)"),
+        pr: z.number().optional().describe("PR number (required for pr)"),
+        company: z.string().optional().describe("company (else resolved from config)"),
+        from: z.string().optional().describe("acting oracle override (else inherited from env)"),
+        repo: z.string().optional().describe("add: repo"),
+        dept: z.string().optional().describe("add: department"),
+        epic: z.string().optional().describe("add: epic"),
+        assignee: z.string().optional().describe("add: assignee oracle"),
+        parent: z.array(z.string()).optional().describe("add: parent/dep card ids"),
+        body: z.string().optional().describe("add: markdown body (supports checklist)"),
+        mine: z.boolean().optional().describe("ls: only my cards"),
+        for: z.string().optional().describe("ls: decision queue for who · block: --for"),
+        to: z.string().optional().describe("review: reviewer oracle"),
+        reason: z.string().optional().describe("review/block: reason text"),
+        kind: z
+          .enum(["dependency", "needs_input", "capability", "transient"])
+          .optional()
+          .describe("block: block kind (required for block)"),
+        days: z.number().optional().describe("archive: sweep done older than N days"),
+      },
+    },
+    async (input) => guard(() => taskArgs(input)),
   );
 
   // Unlike the other tools, this one resolves IN-PROCESS (no `maw` subprocess):
