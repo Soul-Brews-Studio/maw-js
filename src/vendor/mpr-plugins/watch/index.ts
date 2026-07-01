@@ -116,6 +116,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
   const r = await runWorklog(args, emit);
   const output = logs.join("\n") || undefined;
-  if (!r.ok) return { ok: false, error: ctx.writer ? undefined : (output ?? r.error), output };
+  // Transparent forward: surface runWorklog's clean error (usage) — the notice
+  // lives in `output` and must NOT shadow it (the shim forwards ALL input).
+  if (!r.ok) return { ok: false, error: r.error, output };
   return { ok: true, output };
 }

@@ -80,6 +80,8 @@ describe("watch command plugin standalone boundary", () => {
     expect(src).toContain("export async function runWorklog");
     expect(src).toContain("moved → 'maw company worklog'"); // shim notice
     expect(src).toContain("await runWorklog("); // handler forwards to the shared runner
+    // transparent forward: bad-input error surfaces (notice must not shadow it)
+    expect(src).toContain("error: r.error");
     for (const verb of ['subcmd === "log"', 'subcmd === "inject"', 'subcmd === "claim"', 'subcmd === "release"', 'subcmd === "sync"', 'subcmd === "setup-hooks"']) {
       expect(src).toContain(verb);
     }
