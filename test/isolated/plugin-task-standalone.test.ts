@@ -23,18 +23,19 @@ describe("task command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the nine documented subcommands", () => {
+  test("CLI dispatches the ten documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "done"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("addTask");
     expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
     expect(src).toContain("claimTask");
     expect(src).toContain("reviewTask");
+    expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("completeTask");
     expect(src).toContain("archiveOldDone"); // eq3-008 P3: sweep old done → tasks/archive/
     expect(src).toContain("isOnBoard"); // board hides done outside the window

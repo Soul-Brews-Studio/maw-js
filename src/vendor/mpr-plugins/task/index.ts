@@ -5,6 +5,7 @@
  *   maw task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
  *   maw task start <id>
  *   maw task claim <id>
+ *   maw task pr <id> <pr-number>     # worker links the PR → card.pr + review (pr-watch drives merge→done)
  *   maw task done <id>                # also clears an explicit block
  *   maw task archive [--days N]      # sweep done cards older than N days → tasks/archive/
  *   maw task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
@@ -35,7 +36,9 @@ import {
   listTasks,
   needsOwner,
   parentStateResolver,
+  parsePrNumber,
   reviewTask,
+  setTaskPr,
   startTask,
   taskNextAction,
   TASK_FLOW,
@@ -244,6 +247,24 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         ping(flags["--to"], `[task] ${me} ขอให้ review ${t.id}: ${t.title}${flags["--reason"] ? ` — ${flags["--reason"]}` : ""}`);
         console.log(`  \x1b[36m→ pinged ${flags["--to"]}\x1b[0m`);
       }
+    } else if (subcmd === "pr") {
+      // Worker links the PR to the card directly (eq3-013): the ONLY prod path
+      // that sets card.pr — `maw reply` can't (replier≠requester bug), so
+      // pr-watch's open→review→done never fired. Reuse setTaskPr (state=review);
+      // pr-watch's prOpenedReview is idempotent, so no double-transition.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const prArg = flags._[1];
+      if (!id || !prArg) return { ok: false, error: "usage: maw task pr <id> <pr-number>" };
+      // accept a bare number or a full github PR url (…/pull/<n>)
+      const pr = /^\d+$/.test(prArg) ? Number(prArg) : parsePrNumber(prArg);
+      if (!pr) return { ok: false, error: `invalid PR: ${prArg} (pass a number or a github PR url)` };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = setTaskPr(company, id, pr, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
     } else if (subcmd === "archive") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--days": Number }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -284,7 +305,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ unblocked\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|done|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw task <add|ls|start|claim|review|pr|done|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };

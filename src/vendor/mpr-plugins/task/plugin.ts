@@ -9,7 +9,7 @@ export default definePlugin({
   "author": "meganechan:patchwork",
   "cli": {
     "command": "task",
-    "help": "maw task <add|ls|claim|review|done> — add \"<title>\" [--repo r --dept d --epic e --assignee a] · ls [--company c] [--mine] · claim <id> · review <id> [--to oracle --reason text] · done <id>"
+    "help": "maw task <add|ls|claim|review|pr|done> — add \"<title>\" [--repo r --dept d --epic e --assignee a] · ls [--company c] [--mine] · claim <id> · review <id> [--to oracle --reason text] · pr <id> <pr-number> · done <id>"
   },
   "weight": 0,
   "license": "MIT",
