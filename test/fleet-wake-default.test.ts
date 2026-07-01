@@ -130,6 +130,14 @@ function repo(slug: string) {
   return dir;
 }
 
+/** Repo that only exists under the github.com-nested ghq layout (no flat dir). */
+function repoNested(slug: string) {
+  const dir = join(ghqRoot, "github.com", slug);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".keep"), "x");
+  return dir;
+}
+
 beforeEach(() => {
   rmSync(fixedFleetDir, { recursive: true, force: true });
   mkdirSync(fixedFleetDir, { recursive: true });
@@ -265,5 +273,17 @@ describe("fleet wake default coverage", () => {
     expect(logs.join("\n")).toContain("refusing to spawn 01-bad");
     expect(newSessions).toEqual([]);
     expect(logs.join("\n")).toContain("0 sessions, 0 windows woke up");
+  });
+
+  test("falls back to github.com-nested layout when the flat repo path doesn't exist", async () => {
+    // Only the nested path exists — no <ghqRoot>/org/nested-only dir.
+    repoNested("org/nested-only");
+    sessions = [{ name: "01-nested", windows: [{ name: "main", repo: "org/nested-only" }] }];
+
+    await cmdWakeAll();
+
+    expect(newSessions).toEqual([["01-nested", { window: "main", cwd: join(ghqRoot, "github.com", "org/nested-only") }]]);
+    expect(logs.join("\n")).not.toContain("refusing to spawn");
+    expect(logs.join("\n")).toContain("1 sessions, 1 windows woke up");
   });
 });
