@@ -1,7 +1,14 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
+import {
+  COMPANIES_DIR,
+  _setCompaniesDir,
+  loadCompany,
+  saveCompany,
+} from "../../src/vendor/mpr-plugins/company/company-helpers";
 
 // #2316 plugin-coverage-gate: the `company`/`dept` plugin is the org layer
 // (registry, assign, attach, dept knowledge) plus the company/dept POLICY
@@ -63,5 +70,42 @@ describe("company command plugin standalone boundary", () => {
     // moved to the on-attach policy inject. (removeDeptBlockFromRepo stays, used
     // by clearOracleAssignment + the migrate sweep.)
     expect(helpersSrc).not.toContain("writeDeptBlock");
+  });
+
+  // eq3-014: the company-level manager/PM tier (a slot ABOVE the depts) must
+  // survive the save/load round-trip so company-scope can resolve it. Pinned
+  // here because it's the vendor-side half of the worklog manager-resolution fix.
+  describe("company manager tier round-trips through the registry (eq3-014)", () => {
+    const ORIGINAL_DIR = COMPANIES_DIR;
+    let tmp: string;
+
+    beforeEach(() => {
+      tmp = mkdtempSync(join(tmpdir(), "company-standalone-"));
+      _setCompaniesDir(tmp);
+    });
+    afterEach(() => {
+      _setCompaniesDir(ORIGINAL_DIR);
+      try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+    });
+
+    test("saveCompany persists `manager` and loadCompany returns it (not a dept member)", () => {
+      saveCompany({
+        name: "pgw",
+        manager: "thawanban",
+        departments: {
+          core: { kbTag: "dept:pgw:core", lead: "nai", members: [{ oracle: "nai", role: "lead" }] },
+        },
+      });
+      const loaded = loadCompany("pgw")!;
+      expect(loaded.manager).toBe("thawanban");
+      // the manager is the tier above — must NOT be smuggled into a dept roster
+      const inRoster = Object.values(loaded.departments).some(d => d.members.some(m => m.oracle === "thawanban"));
+      expect(inRoster).toBe(false);
+    });
+
+    test("a company with no manager loads cleanly (field is optional)", () => {
+      saveCompany({ name: "acme", departments: {} });
+      expect(loadCompany("acme")!.manager).toBeUndefined();
+    });
   });
 });

@@ -33,6 +33,9 @@ export interface Department {
 
 export interface Company {
   name: string;
+  /** Optional company-level manager/PM — a tier ABOVE the depts (not a dept
+   * member). Scoped to the company for worklog/policy without joining a roster. */
+  manager?: string;
   departments: Record<string, Department>;
 }
 

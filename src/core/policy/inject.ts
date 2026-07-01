@@ -26,12 +26,17 @@ export function buildPolicyInject(oracle: string): string {
   const { company, dept, lead } = scope;
 
   // Identity header — the dept identity moved out of the static CLAUDE.md block.
-  const role =
-    loadCompany(company)?.departments[dept]?.members.find(m => m.oracle === oracle)?.role ?? null;
+  // A company-level manager (dept === null) gets the company header + company
+  // policy only — no dept role/policy (they sit above the depts).
+  const role = dept
+    ? loadCompany(company)?.departments[dept]?.members.find(m => m.oracle === oracle)?.role ?? null
+    : "manager";
   const header = [
-    "## Department (company policy — active while attached)",
+    dept
+      ? "## Department (company policy — active while attached)"
+      : "## Company (policy — active while attached)",
     `- Company: ${company}`,
-    `- Department: ${dept} (${kbTagFor(company, dept)})`,
+    ...(dept ? [`- Department: ${dept} (${kbTagFor(company, dept)})`] : []),
     `- Role: ${role ?? "—"}`,
     ...(lead ? [`- Lead: ${lead}`] : []),
   ].join("\n");
@@ -41,7 +46,7 @@ export function buildPolicyInject(oracle: string): string {
   const companyPolicy = readCompanyPolicy(company);
   if (companyPolicy) sections.push(companyPolicy.trim());
 
-  const deptPolicy = readDeptPolicy(company, dept);
+  const deptPolicy = dept ? readDeptPolicy(company, dept) : null;
   if (deptPolicy) sections.push(deptPolicy.trim());
 
   return sections.join("\n\n");
