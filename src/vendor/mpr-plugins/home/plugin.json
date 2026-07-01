@@ -7,7 +7,7 @@
   "author": "meganechan:patchwork",
   "cli": {
     "command": "home",
-    "help": "maw home <init|commit> [<company>] — init [--org o --repo org/name --branch b] · commit [-m msg --no-push]"
+    "help": "DEPRECATED alias → use 'maw company home <init|commit>' (this top-level 'maw home' is removed next release)"
   },
   "weight": 0,
   "license": "MIT",

@@ -34,11 +34,25 @@ describe("home command plugin standalone boundary", () => {
     expect(src).toContain("commitHome");
   });
 
-  test("manifest registers the `home` command", () => {
+  // cli-reorg (ADR docs/company/0001): dispatch is a shared `runHome` runner so
+  // `maw company home` (company plugin) and the top-level shim share ONE copy.
+  // The top-level handler is now a deprecation shim that prints "moved" + forwards.
+  test("exports a shared runHome runner and the top-level handler is a deprecation shim", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/home/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("export async function runHome");
+    expect(src).toContain("moved → 'maw company home'"); // shim notice
+    expect(src).toContain("await runHome("); // handler forwards to the shared runner
+  });
+
+  test("manifest keeps the `home` command as a deprecation alias", () => {
     const manifest = JSON.parse(
       readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/home/plugin.json"), "utf8"),
     );
     expect(manifest.name).toBe("home");
-    expect(manifest.cli.command).toBe("home");
+    expect(manifest.cli.command).toBe("home"); // still registered — it's the shim
+    expect(manifest.cli.help).toMatch(/DEPRECATED/);
   });
 });

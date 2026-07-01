@@ -17,6 +17,10 @@ import { companyOracles } from "../../../core/worklog/company-scope";
 import {
   deptLearn, deptKnowledge, deptShare, deptSync,
 } from "./company-knowledge";
+// cli-reorg (ADR docs/company/0001): `maw company home` delegates to the home
+// plugin's shared runner — one logic copy, no duplication. Sibling-plugin import
+// (not a core/* reach), so it's outside the standalone-boundary guard.
+import { runHome } from "../home/index";
 
 export const command = {
   name: ["company", "dept"],
@@ -160,7 +164,7 @@ function runCompany(args: string[], logs: string[]): string | undefined {
   }
 
   logs.push(`unknown company subcommand: ${sub}`);
-  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|hooks|rm-dept|delete>");
+  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|hooks|home|rm-dept|delete>");
   return `unknown subcommand: ${sub}`;
 }
 
@@ -511,15 +515,19 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const asDept = ctx.matchedName === "dept";
     // `attach` is an async company verb (shells out to maw attach / maw bud).
     const isAttach = !asDept && args[0]?.toLowerCase() === "attach";
+    // cli-reorg: `maw company home <verb>` → home plugin's shared runner (async).
+    const isHome = !asDept && args[0]?.toLowerCase() === "home";
     // learn/knowledge/share/sync are async dept verbs (KB HTTP / soul-sync / hey).
     const isAsyncDept = asDept && ASYNC_DEPT_VERBS.has(args[0]?.toLowerCase() ?? "");
     const err = isAttach
       ? await runAttach(args, logs)
-      : isAsyncDept
-        ? await runDeptAsync(args, logs)
-        : asDept
-          ? runDept(args, logs)
-          : runCompany(args, logs);
+      : isHome
+        ? (await runHome(args.slice(1), (l) => logs.push(l))).error
+        : isAsyncDept
+          ? await runDeptAsync(args, logs)
+          : asDept
+            ? runDept(args, logs)
+            : runCompany(args, logs);
     const output = logs.join("\n");
     if (ctx.writer && output) ctx.writer(output);
     // When a writer streamed the output, return undefined so the dispatcher
