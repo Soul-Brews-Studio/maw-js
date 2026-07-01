@@ -115,6 +115,11 @@ export function companyHtml(): string {
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">coordination state</h2>
         <div class="md" id="state-md"></div>
       </div>
+      <div class="card" id="detail-panel" hidden>
+        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <span id="detail-close" style="cursor:pointer;color:var(--muted)">✕</span></h2>
+        <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
+        <div class="md" id="detail-body"></div>
+      </div>
     </aside>
   </main>
 <script>
@@ -154,7 +159,19 @@ function taskCard(task) {
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
+  // click → read-only detail panel (eq3-010 kobo-11)
+  card.style.cursor = 'pointer';
+  card.addEventListener('click', () => openDetail(task));
   return card;
+}
+
+// Read-only card detail — title + meta + body markdown (reuses mdToHtml).
+function openDetail(task) {
+  $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
+  const bodyEl = $('detail-body');
+  if (task.body) { bodyEl.innerHTML = mdToHtml(task.body); }
+  else { const p = el('p', '', '(no detail — add one with: maw task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
+  $('detail-panel').hidden = false;
 }
 
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
@@ -306,6 +323,7 @@ companyInput.addEventListener('change', () => {
   load();
 });
 $('refresh').addEventListener('click', load);
+$('detail-close').addEventListener('click', () => { $('detail-panel').hidden = true; });
 load();
 </script>
 </body>

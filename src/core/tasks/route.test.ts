@@ -63,6 +63,17 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect("checklist" in (plain as object)).toBe(false); // no badge on a plain card
   });
 
+  test("passes body through for the detail view; absent when no body (eq3-010 kobo-11)", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    addTask({ company: "det", title: "has body", by: "eq3", body: "# why\n- [ ] step a" });
+    addTask({ company: "det", title: "no body", by: "eq3" });
+    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=det")).json()) as {
+      tasks: Array<{ title: string; body?: string }>;
+    };
+    expect(body.tasks.find((t) => t.title === "has body")?.body).toBe("# why\n- [ ] step a"); // raw markdown passthrough
+    expect("body" in (body.tasks.find((t) => t.title === "no body") as object)).toBe(false); // absent when none
+  });
+
   test("derives dependency block from parents (ADR 0003 A on web); reuses the store helper", async () => {
     process.env.MAW_DATA_DIR = dir;
     const parent = addTask({ company: "dep", title: "parent", by: "eq3" }); // dep-1, todo
