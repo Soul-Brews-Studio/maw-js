@@ -54,17 +54,34 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toContain("handleStateDocRequest");
   });
 
-  test("watch menu is hidden from help but still callable (#2 re-home escape-hatch)", () => {
+  test("watch menu is hidden from help but still callable (deprecation shim)", () => {
     const manifest = JSON.parse(
       readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/plugin.json"), "utf8"),
     );
-    // hidden:true removes it from `maw` help; cli.command still present so
-    // `maw watch <sub>` (claim/release/setup-hooks) keeps dispatching.
+    // hidden:true removes it from `maw` help; cli.command still present so the
+    // `maw watch <sub>` deprecation shim keeps dispatching for one release.
     expect(manifest.cli.hidden).toBe(true);
     expect(manifest.cli.command).toBe("watch");
+    expect(manifest.cli.help).toMatch(/DEPRECATED/);
     // ensures advertises the company-ui routes alongside the worklog/policy ones.
     expect(manifest.hooks.serve.ensures).toContain("http:route:/api/worklog/feed");
     expect(manifest.hooks.serve.ensures).toContain("http:route:/api/tasks");
     expect(manifest.hooks.serve.ensures).toContain("http:route:/api/state");
+  });
+
+  // cli-reorg (ADR docs/company/0001): dispatch is a shared `runWorklog` runner
+  // so `maw company worklog` (company plugin) and the top-level `maw watch` shim
+  // share ONE copy. All verbs preserved (OQ2 — no cull). Serve hook untouched.
+  test("exports a shared runWorklog runner (all verbs) and the top-level handler is a deprecation shim", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("export async function runWorklog");
+    expect(src).toContain("moved → 'maw company worklog'"); // shim notice
+    expect(src).toContain("await runWorklog("); // handler forwards to the shared runner
+    for (const verb of ['subcmd === "log"', 'subcmd === "inject"', 'subcmd === "claim"', 'subcmd === "release"', 'subcmd === "sync"', 'subcmd === "setup-hooks"']) {
+      expect(src).toContain(verb);
+    }
   });
 });

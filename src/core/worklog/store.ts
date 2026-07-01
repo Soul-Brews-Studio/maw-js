@@ -5,7 +5,7 @@
  * Track 2 cutover: the file moved from the old `<mawData>/worklog/<c>.jsonl`.
  * Migration is automatic, idempotent, and zero-loss — see ensureWorklogMigrated.
  *
- * WRITERS ARE MULTIPLE (not single): the server feed listener, the `maw watch
+ * WRITERS ARE MULTIPLE (not single): the server feed listener, the `maw company worklog
  * claim/release` CLI, and the `maw done` → PR poller all append the same
  * <company>.jsonl, across processes. Append safety = each entry is serialized to
  * a single line whose byte length is bounded < PIPE_BUF (4 KB), so the O_APPEND

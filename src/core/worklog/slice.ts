@@ -25,7 +25,7 @@ export function buildInjectSlice(oracle: string, opts: SliceOpts = {}): string {
 
   if (!claims.length && !recent.length) return "";
 
-  const parts: string[] = ["📋 maw watch — company activity (auto-injected, read before acting):"];
+  const parts: string[] = ["📋 maw worklog — company activity (auto-injected, read before acting):"];
   if (claims.length) {
     parts.push("", "open claims (someone is already on these):");
     for (const c of claims) parts.push(`  ⛏ ${c.oracle}: ${c.task ?? c.summary}`);

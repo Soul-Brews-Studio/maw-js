@@ -7,7 +7,7 @@
   "author": "kobo:core",
   "cli": {
     "command": "watch",
-    "help": "maw watch <claim|release|log|inject|sync> — setup-hooks moved to 'maw company hooks repair'",
+    "help": "DEPRECATED alias → use 'maw company worklog <log|inject|claim|release|sync|setup-hooks>' (this top-level 'maw watch' is removed next release)",
     "hidden": true
   },
   "hooks": {

@@ -280,7 +280,7 @@ export function claimTask(company: string, id: string, oracle: string): TaskReco
 /**
  * Start = the assignee picks their own work up: todo → in-progress. If the card
  * has no assignee yet, the actor becomes it (you started it, you hold it). Emits
- * a `claim` so the open-claims tracker (maw watch) shows it's being worked —
+ * a `claim` so the open-claims tracker (maw company worklog) shows it's being worked —
  * `done` releases it. Returns null if absent.
  */
 export function startTask(company: string, id: string, oracle: string): TaskRecord | null {
@@ -365,7 +365,7 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
-  // Release any open claim the holder left on this card so maw watch's open-claims
+  // Release any open claim the holder left on this card so maw company worklog's open-claims
   // tracker doesn't go stale (handoff fix B). Only when one is actually open — a
   // todo→done or never-claimed card emits no spurious release.
   if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {

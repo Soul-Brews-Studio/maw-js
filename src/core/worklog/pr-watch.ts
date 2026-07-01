@@ -1,7 +1,7 @@
 /**
  * PR watcher — on-demand (NO background loop).
  *
- * Triggered by: `maw done` (on-signal), `maw watch log` (on-read), `maw watch sync`.
+ * Triggered by: `maw done` (on-signal), `maw company worklog log` (on-read), `maw company worklog sync`.
  * `gh pr list` is ground truth for open/merged/closed; we diff against a snapshot
  * so each transition logs exactly once. On merge we ping the author's dept lead +
  * the author (carrying content), so the log gets read.

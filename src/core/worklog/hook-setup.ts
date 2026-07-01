@@ -1,7 +1,7 @@
 /**
  * Install the worklog CC hooks into company oracles' Claude Code settings.
  *
- * Engine-first: `maw watch setup-hooks` provisions the hook scripts + merges the
+ * Engine-first: `maw company worklog setup-hooks` provisions the hook scripts + merges the
  * hooks into each company member's .claude/settings.json, idempotently, so the
  * capture+inject engine runs without anyone configuring anything.
  *

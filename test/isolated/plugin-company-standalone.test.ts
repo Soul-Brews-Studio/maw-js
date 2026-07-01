@@ -41,17 +41,20 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain('sub === "hooks"');      // re-homed status/repair/prune verb
   });
 
-  // cli-reorg (ADR docs/company/0001): `maw company home` delegates to the home
-  // plugin's shared runner (one logic copy). Sibling-plugin import, dispatched
-  // like the async `attach` verb.
-  test("company dispatches `home` to the home plugin's runHome runner", () => {
+  // cli-reorg (ADR docs/company/0001): `maw company home` / `maw company worklog`
+  // delegate to their plugins' shared runners (one logic copy each). Sibling-plugin
+  // imports, dispatched like the async `attach` verb.
+  test("company dispatches `home` and `worklog` to their plugins' shared runners", () => {
     const indexSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
       "utf8",
     );
     expect(indexSrc).toContain('from "../home/index"'); // sibling-plugin delegation
     expect(indexSrc).toContain("runHome");
-    expect(indexSrc).toContain('=== "home"'); // routed in the handler
+    expect(indexSrc).toContain('=== "home"');
+    expect(indexSrc).toContain('from "../watch/index"');
+    expect(indexSrc).toContain("runWorklog");
+    expect(indexSrc).toContain('=== "worklog"');
   });
 
   test("attach marks the attach gate; detach clears it (policy inject pairs with attach)", () => {

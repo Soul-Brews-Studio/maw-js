@@ -11,7 +11,7 @@
       "dept",
       "co"
     ],
-    "help": "maw company <create|add-dept|ls|tree|attach|hooks|home|rm-dept|delete> · maw company home <init|commit> · maw dept <assign|members|remove|learn|knowledge|share|sync>"
+    "help": "maw company <create|add-dept|ls|tree|attach|hooks|home|worklog|rm-dept|delete> · maw company home <init|commit> · maw company worklog <log|inject|claim|release|sync|setup-hooks> · maw dept <assign|members|remove|learn|knowledge|share|sync>"
   },
   "weight": 30,
   "tier": "standard",
