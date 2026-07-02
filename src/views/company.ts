@@ -94,6 +94,13 @@ export function companyHtml(): string {
     .col h2 .count { background:var(--col); border:1px solid var(--line); border-radius:999px; padding:0 8px; font-size:11px; font-weight:600; }
     #detail-panel { border-left:3px solid var(--accent); }
     #detail-notes .notes-head { margin:12px 0 4px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    /* kobo-44: card detail as a modal overlay (was an inline sidebar panel). */
+    .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
+    .overlay[hidden] { display:none; }
+    .modal { width:min(680px, 100%); max-height:85vh; overflow:auto; margin:0; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+    .modal .md { max-height:none; }
+    #detail-close { cursor:pointer; color:var(--muted); background:none; border:0; font:inherit; line-height:1; padding:2px 6px; border-radius:6px; }
+    #detail-close:hover, #detail-close:focus-visible { color:var(--fg); outline:none; box-shadow:0 0 0 2px var(--accent); }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
   </style>
@@ -125,12 +132,6 @@ export function companyHtml(): string {
       </div>
     </section>
     <aside class="stack">
-      <div class="card" id="detail-panel" hidden>
-        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <span id="detail-close" style="cursor:pointer;color:var(--muted)">✕</span></h2>
-        <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
-        <div class="md" id="detail-body"></div>
-        <div id="detail-notes"></div>
-      </div>
       <div class="card">
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">worklog timeline</h2>
         <div class="timeline" id="timeline"></div>
@@ -141,6 +142,14 @@ export function companyHtml(): string {
       </div>
     </aside>
   </main>
+  <div class="overlay" id="detail-overlay" hidden>
+    <div class="card modal" id="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
+      <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
+      <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
+      <div class="md" id="detail-body"></div>
+      <div id="detail-notes"></div>
+    </div>
+  </div>
 <script>
 const $ = (id) => document.getElementById(id);
 const companyInput = $('company');
@@ -250,12 +259,21 @@ function openDetail(task) {
       notesEl.appendChild(row);
     }
   }
-  const panel = $('detail-panel');
-  panel.hidden = false;
-  // kobo-38: on a full board the sidebar timeline is tall (72vh), so an
-  // un-hidden panel used to open below the fold — the click felt dead. Now the
-  // panel sits atop the stack; scroll it into view too (mobile = single column).
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  openModal();
+}
+
+// kobo-44: card detail is a modal overlay. Open = show backdrop, remember the
+// trigger to restore focus, move focus into the dialog. Close = hide + restore.
+let detailReturnFocus = null;
+function openModal() {
+  detailReturnFocus = document.activeElement;
+  $('detail-overlay').hidden = false;
+  $('detail-panel').focus();
+}
+function closeDetail() {
+  $('detail-overlay').hidden = true;
+  if (detailReturnFocus && detailReturnFocus.focus) detailReturnFocus.focus();
+  detailReturnFocus = null;
 }
 
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
@@ -419,7 +437,22 @@ companyInput.addEventListener('change', () => {
   load();
 });
 $('refresh').addEventListener('click', load);
-$('detail-close').addEventListener('click', () => { $('detail-panel').hidden = true; });
+// kobo-44 modal close paths: ✕ button, backdrop click (target === overlay only,
+// not clicks inside the dialog), Esc, and a basic focus trap so Tab stays inside.
+$('detail-close').addEventListener('click', closeDetail);
+$('detail-overlay').addEventListener('click', (ev) => { if (ev.target === $('detail-overlay')) closeDetail(); });
+document.addEventListener('keydown', (ev) => {
+  if ($('detail-overlay').hidden) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); closeDetail(); return; }
+  if (ev.key !== 'Tab') return;
+  const panel = $('detail-panel');
+  const focusable = panel.querySelectorAll('button, a[href], [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) { ev.preventDefault(); panel.focus(); return; }
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (ev.shiftKey && (active === first || active === panel)) { ev.preventDefault(); last.focus(); }
+  else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
+});
 load();
 
 // kobo-37: auto-refresh — poll every 5s so the board tracks changes without F5.
