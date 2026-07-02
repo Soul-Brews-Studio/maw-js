@@ -81,6 +81,19 @@ export function companyHtml(): string {
     .md blockquote { border-left:3px solid var(--line); margin:8px 0; padding:2px 0 2px 12px; color:var(--muted); }
     .md a { color:var(--accent); } .md hr { border:0; border-top:1px solid var(--line); margin:12px 0; }
     .md strong { color:var(--fg); } .md em { color:var(--warn); }
+    .md li.chk { list-style:none; display:flex; gap:8px; align-items:baseline; margin-left:-16px; }
+    .md li.chk input { accent-color:var(--accent); margin:0; transform:translateY(2px); flex:0 0 auto; }
+    .md li.chk .done { color:var(--muted); text-decoration:line-through; }
+    /* kobo-42 polish — hover/focus affordance so cards read as clickable, refined
+       column headers + count chips, and an accent on the active detail panel.
+       All token-driven so the light theme inherits the same treatment. */
+    .task { transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+    .task:hover { border-color:var(--accent); box-shadow:0 6px 16px rgba(0,0,0,.28); transform:translateY(-1px); }
+    .task:focus-visible { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+    .col h2 { text-transform:uppercase; letter-spacing:.07em; border-bottom:1px solid var(--line); padding-bottom:8px; }
+    .col h2 .count { background:var(--col); border:1px solid var(--line); border-radius:999px; padding:0 8px; font-size:11px; font-weight:600; }
+    #detail-panel { border-left:3px solid var(--accent); }
+    @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
   </style>
 </head>
@@ -111,6 +124,11 @@ export function companyHtml(): string {
       </div>
     </section>
     <aside class="stack">
+      <div class="card" id="detail-panel" hidden>
+        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <span id="detail-close" style="cursor:pointer;color:var(--muted)">✕</span></h2>
+        <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
+        <div class="md" id="detail-body"></div>
+      </div>
       <div class="card">
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">worklog timeline</h2>
         <div class="timeline" id="timeline"></div>
@@ -118,11 +136,6 @@ export function companyHtml(): string {
       <div class="card" id="state-panel" hidden>
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">coordination state</h2>
         <div class="md" id="state-md"></div>
-      </div>
-      <div class="card" id="detail-panel" hidden>
-        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <span id="detail-close" style="cursor:pointer;color:var(--muted)">✕</span></h2>
-        <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
-        <div class="md" id="detail-body"></div>
       </div>
     </aside>
   </main>
@@ -176,9 +189,13 @@ function taskCard(task) {
     actions.appendChild(btn);
     card.appendChild(actions);
   }
-  // click → read-only detail panel (eq3-010 kobo-11)
+  // click → read-only detail panel (eq3-010 kobo-11). Keyboard-reachable too
+  // (kobo-42): the card is the control, so give it a role + focus + Enter/Space.
   card.style.cursor = 'pointer';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
   card.addEventListener('click', () => openDetail(task));
+  card.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDetail(task); } });
   return card;
 }
 
@@ -213,7 +230,12 @@ function openDetail(task) {
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.innerHTML = mdToHtml(task.body); }
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
-  $('detail-panel').hidden = false;
+  const panel = $('detail-panel');
+  panel.hidden = false;
+  // kobo-38: on a full board the sidebar timeline is tall (72vh), so an
+  // un-hidden panel used to open below the fold — the click felt dead. Now the
+  // panel sits atop the stack; scroll it into view too (mobile = single column).
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
@@ -299,7 +321,7 @@ function mdToHtml(src) {
     if ((m = line.match(/^(#{1,6})\\s+(.*)$/))) { closeList(); const lv = m[1].length; out.push('<h' + lv + '>' + inlineMd(m[2]) + '</h' + lv + '>'); i++; continue; }
     if (/^\\s*(-{3,}|\\*{3,}|_{3,})\\s*$/.test(line)) { closeList(); out.push('<hr/>'); i++; continue; }
     if ((m = line.match(/^\\s*>\\s?(.*)$/))) { closeList(); out.push('<blockquote>' + inlineMd(m[1]) + '</blockquote>'); i++; continue; }
-    if ((m = line.match(/^\\s*[-*+]\\s+(.*)$/))) { if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
+    if ((m = line.match(/^\\s*[-*+]\\s+(.*)$/))) { if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; } const cb = m[1].match(/^\\[([ xX])\\]\\s+(.*)$/); if (cb) { const done = cb[1] !== ' '; out.push('<li class="chk"><input type="checkbox" disabled' + (done ? ' checked' : '') + '/>' + (done ? '<span class="done">' + inlineMd(cb[2]) + '</span>' : inlineMd(cb[2])) + '</li>'); } else { out.push('<li>' + inlineMd(m[1]) + '</li>'); } i++; continue; }
     if ((m = line.match(/^\\s*\\d+\\.\\s+(.*)$/))) { if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
     closeList(); out.push('<p>' + inlineMd(line) + '</p>'); i++;
   }
