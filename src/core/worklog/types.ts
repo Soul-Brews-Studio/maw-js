@@ -37,6 +37,10 @@ export interface WorklogEntry {
   ts: number; // epoch ms (sort key)
   iso: string; // ISO-8601 timestamp
   oracle: string; // who produced the event
+  pane?: string; // tmux pane index (#{pane_index}) — distinguishes multiple panes
+  //              of one oracle (human/coord/worker). Optional: old entries + non-tmux
+  //              contexts omit it. NEVER folded into `oracle` (that string feeds
+  //              company/scope lookups) — the `name.N` suffix is a DISPLAY concern.
   company?: string; // routing key — which company's log this belongs to
   kind: WorklogKind;
   summary: string; // human one-liner

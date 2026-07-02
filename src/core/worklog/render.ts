@@ -28,9 +28,15 @@ function hhmm(e: WorklogEntry): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Display name — appends the `.N` pane suffix when present (back-compat: bare
+ *  `oracle` for old entries / non-tmux contexts that never stamped a pane). */
+function displayName(e: WorklogEntry): string {
+  return e.pane ? `${e.oracle}.${e.pane}` : e.oracle;
+}
+
 function line(e: WorklogEntry): string {
   const icon = ICON[e.kind] ?? "·";
-  let text = `${hhmm(e)}  ${icon}  ${e.oracle}  ${e.summary}`;
+  let text = `${hhmm(e)}  ${icon}  ${displayName(e)}  ${e.summary}`;
   if (e.kind === "pr-merged" && e.by) text += ` (by ${e.by})`;
   return text;
 }

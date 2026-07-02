@@ -55,6 +55,24 @@ describe("significant filter (filter b)", () => {
   it("ignores pr-* Notification (poller writes those directly)", () => {
     expect(eventToWorklog(feed({ event: "Notification", data: { kind: "pr-merged", pr: 1 } }))).toBeNull();
   });
+
+  it("stamps the pane index from data.pane WITHOUT touching oracle (company/scope safe)", () => {
+    const e = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git status" }, pane: "1" } }));
+    expect(e?.oracle).toBe("eq3"); // oracle string stays clean — feeds company/scope lookup
+    expect(e?.pane).toBe("1");
+  });
+
+  it("distinguishes two panes of the SAME oracle (acceptance b)", () => {
+    const p1 = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git log" }, pane: "1" } }));
+    const p2 = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git log" }, pane: "2" } }));
+    expect(p1?.pane).not.toBe(p2?.pane);
+    expect(p1?.oracle).toBe(p2?.oracle); // same oracle, different pane
+  });
+
+  it("back-compat: no data.pane → no pane field (old capture format)", () => {
+    const e = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git status" } } }));
+    expect(e?.pane).toBeUndefined();
+  });
 });
 
 describe("timeline render", () => {
@@ -66,6 +84,19 @@ describe("timeline render", () => {
     expect(out).toContain("Tony: keep field");
     expect(out).toContain("merged #123 (by tony)");
   });
+
+  it("renders the name.N pane suffix, and stays bare when pane absent (acceptance a/c)", () => {
+    const out = renderTimeline([
+      { ts: 1, iso: "2026-06-22T10:05:00.000Z", oracle: "eq3", pane: "1", kind: "tool", summary: "git status" },
+      { ts: 2, iso: "2026-06-22T10:06:00.000Z", oracle: "eq3", pane: "2", kind: "tool", summary: "git log" },
+      { ts: 3, iso: "2026-06-22T10:07:00.000Z", oracle: "eq3", kind: "tool", summary: "git diff" }, // old entry, no pane
+    ]);
+    expect(out).toContain("eq3.1  git status");
+    expect(out).toContain("eq3.2  git log");
+    expect(out).toContain("eq3  git diff"); // back-compat: no suffix, no stray dot
+    expect(out).not.toContain("eq3.  git diff");
+  });
+
   it("handles empty log", () => { expect(renderTimeline([])).toContain("ว่าง"); });
 });
 

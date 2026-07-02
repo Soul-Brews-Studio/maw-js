@@ -42,6 +42,7 @@ export function handleWorklogFeedRequest(request: Request): Response {
     ts: e.ts,
     iso: e.iso,
     oracle: e.oracle,
+    ...(e.pane ? { pane: e.pane } : {}), // optional pane suffix — omitted for old entries
     kind: e.kind,
     summary: e.summary,
   }));

@@ -41,13 +41,17 @@ export function toolSummary(toolName: string, input: any): string | null {
 
 /** Convert a capture feed event into a worklog entry, or null to skip. */
 export function eventToWorklog(event: FeedEvent): WorklogEntry | null {
+  const data: any = event.data;
+  // Pane index rides in on the capture hook's `data.pane` (tmux #{pane_index}).
+  // Kept OUT of `oracle` on purpose — that string feeds company/scope lookups.
+  const pane = data?.pane != null ? String(data.pane).trim() : "";
   const base = {
     ts: event.ts || Date.now(),
     iso: event.timestamp || new Date().toISOString(),
     oracle: event.oracle || "unknown",
+    ...(pane ? { pane } : {}),
     company: companyOfOracle(event.oracle) ?? undefined,
   };
-  const data: any = event.data;
 
   // interrupt — emitted by worklog-convo.sh when the CC transcript shows the
   // prior turn ended with "[Request interrupted by user...]". (pr-* Notification

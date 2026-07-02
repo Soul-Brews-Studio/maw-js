@@ -20,19 +20,22 @@ if [ -z "$ORACLE" ]; then
 fi
 [ -z "$ORACLE" ] && ORACLE="unknown"
 PROJECT=$(basename "${PWD}" 2>/dev/null)
+# Pane index distinguishes multiple panes of one oracle (human/coord/worker).
+# Empty outside tmux — the server treats a missing pane as back-compat.
+PANE=$(tmux display-message -p '#{pane_index}' 2>/dev/null)
 
 # capture (fire-and-forget)
 if [ -n "$PROMPT" ]; then
-  CAP=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg pr "$PROMPT" \
-    '{oracle:$o, event:"UserPromptSubmit", project:$p, host:"local", message:"prompt", data:{prompt:$pr}}')
+  CAP=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg pr "$PROMPT" --arg pane "$PANE" \
+    '{oracle:$o, event:"UserPromptSubmit", project:$p, host:"local", message:"prompt", data:({prompt:$pr} + (if $pane != "" then {pane:$pane} else {} end))}')
   curl -s -X POST "$BASE/api/feed" -H 'Content-Type: application/json' -d "$CAP" >/dev/null 2>&1 &
 fi
 
 # interrupt detection — the prior turn left the marker as the last transcript entry
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   if tail -n 2 "$TRANSCRIPT" 2>/dev/null | grep -q "Request interrupted by user"; then
-    IEV=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg pr "$PROMPT" \
-      '{oracle:$o, event:"Notification", project:$p, host:"local", message:"interrupt", data:{kind:"interrupt", prompt:$pr}}')
+    IEV=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg pr "$PROMPT" --arg pane "$PANE" \
+      '{oracle:$o, event:"Notification", project:$p, host:"local", message:"interrupt", data:({kind:"interrupt", prompt:$pr} + (if $pane != "" then {pane:$pane} else {} end))}')
     curl -s -X POST "$BASE/api/feed" -H 'Content-Type: application/json' -d "$IEV" >/dev/null 2>&1 &
   fi
 fi
