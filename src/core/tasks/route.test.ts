@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskArchiveRequest, handleTaskNoteRequest, handleTasksRequest } from "./route";
+import { handleTaskArchiveRequest, handleTaskCreateRequest, handleTaskNoteRequest, handleTasksRequest } from "./route";
 import { addTask, claimTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -219,5 +219,56 @@ describe("handleTaskNoteRequest (POST /api/tasks/note — kobo-46)", () => {
     expect(epicCard.familyNotes).toEqual([{ from: child.id, text: "child progress", by: "patchwork", ts: expect.any(Number), iso: expect.any(String) }]);
     // a plain task carries no familyNotes
     expect(body.tasks.find((c) => c.id === child.id)!.familyNotes).toBeUndefined();
+  });
+});
+
+describe("handleTaskCreateRequest (POST /api/tasks/create — kobo-48)", () => {
+  const post = (body: unknown) =>
+    handleTaskCreateRequest(new Request("http://x/api/tasks/create", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+
+  test("creates a subtask (epic = parent) by=tony → appears on the board under the epic", async () => {
+    const epic = addTask({ company: "cr", title: "epic root", by: "eq3", kind: "epic" });
+    const res = await post({ company: "cr", title: "web subtask", epic: epic.id });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; task: { id: string; epic: string | null; state: string } };
+    expect(json.ok).toBe(true);
+    expect(json.task.epic).toBe(epic.id);
+    // stored with the containment parent + default todo state + by=tony
+    const stored = readTask("cr", json.task.id)!;
+    expect(stored.epic).toBe(epic.id);
+    expect(stored.by).toBe("tony");
+    expect(stored.state).toBe("todo");
+    // shows on the board as a child of the epic
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=cr")).json()) as { tasks: Array<{ id: string; epic: string | null }> };
+    expect(board.tasks.find((c) => c.id === json.task.id)!.epic).toBe(epic.id);
+  });
+
+  test("plain create (no epic) works; missing title/company → 400; bad JSON → 400", async () => {
+    const res = await post({ company: "cr", title: "standalone" });
+    expect(res.status).toBe(200);
+    expect((await (await post({ company: "cr" })).json() as { ok: boolean }).ok).toBe(false); // no title
+    expect((await post({ company: "cr" })).status).toBe(400);
+    expect((await post({ title: "orphan" })).status).toBe(400); // no company
+    const bad = await handleTaskCreateRequest(new Request("http://x/api/tasks/create", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
+    expect(bad.status).toBe(400);
+  });
+});
+
+describe("handleTaskArchiveRequest guard a (kobo-48 — epic with open children → 409)", () => {
+  test("archiving an epic that still has open children → 409 + blockedBy list (not a 500)", async () => {
+    const epic = addTask({ company: "guard", title: "epic", by: "eq3", kind: "epic" });
+    const a = addTask({ company: "guard", title: "open child", by: "eq3", epic: epic.id });
+    completeTask("guard", epic.id, "tony"); // epic done, but child a still open
+    const res = await handleTaskArchiveRequest(new Request("http://x/api/tasks/archive", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ company: "guard", id: epic.id }),
+    }));
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { ok: boolean; blockedBy: string[] };
+    expect(json.ok).toBe(false);
+    expect(json.blockedBy).toEqual([a.id]);
+    // epic NOT archived — still on the board
+    expect(listTasks("guard").map((c) => c.id)).toContain(epic.id);
   });
 });

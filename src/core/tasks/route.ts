@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { archiveTask, checklistProgress, dependencyBlock, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskRecord } from "./store";
+import { addTask, archiveTask, checklistProgress, dependencyBlock, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -143,9 +143,49 @@ export async function handleTaskArchiveRequest(request: Request): Promise<Respon
   if (!company || !id) {
     return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
   }
-  const archived = archiveTask(company, id, "web");
+  // Guard a (kobo-45): archiving an epic with still-open children throws
+  // EpicArchiveBlockedError. Surface it as 409 + the blocking child ids so the
+  // web board can show "can't archive — N children still open" (kobo-48 guard UX)
+  // instead of a bare 500.
+  let archived: TaskRecord | null;
+  try {
+    archived = archiveTask(company, id, "web");
+  } catch (e) {
+    if (e instanceof EpicArchiveBlockedError) {
+      return Response.json({ ok: false, error: e.message, blockedBy: e.activeChildren }, { status: 409 });
+    }
+    throw e;
+  }
   if (!archived) {
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   }
   return Response.json({ ok: true, id: archived.id, title: archived.title });
+}
+
+/**
+ * POST /api/tasks/create — create a card from the web board (kobo-48 §Web write).
+ * The card modal's "+ subtask" button posts { company, title, epic } to make a
+ * child card (epic = the parent's id → c1 containment). `by` is "tony" — the web
+ * board is Tony's surface (mirrors the note/archive endpoints). A fresh id can't
+ * form a containment loop (its id is new), so no loop check is needed here.
+ * Behind auth via PROTECTED POST "/tasks/…" (loopback UI bypasses; LAN must auth).
+ *
+ * Body: { company, title, epic?, kind? } → { ok:true, task } | { ok:false, error }.
+ */
+export async function handleTaskCreateRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; title?: unknown; epic?: unknown; kind?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; title?: unknown; epic?: unknown; kind?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company : "";
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const epic = typeof body.epic === "string" && body.epic.trim() ? body.epic.trim() : undefined;
+  const kind: TaskKind | undefined = body.kind === "epic" ? "epic" : undefined; // only "epic" is meaningful; task is the default
+  if (!company || !title) {
+    return Response.json({ ok: false, error: "company and title are required" }, { status: 400 });
+  }
+  const task = addTask({ company, title, by: "tony", epic, kind });
+  return Response.json({ ok: true, task: { id: task.id, title: task.title, epic: task.epic ?? null, state: task.state } });
 }

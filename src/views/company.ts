@@ -112,6 +112,18 @@ export function companyHtml(): string {
     .modal .md { max-height:none; }
     #detail-close { cursor:pointer; color:var(--muted); background:none; border:0; font:inherit; line-height:1; padding:2px 6px; border-radius:6px; }
     #detail-close:hover, #detail-close:focus-visible { color:var(--fg); outline:none; box-shadow:0 0 0 2px var(--accent); }
+    /* kobo-48 web write — +subtask + comment box inside the modal. */
+    .detail-write { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; display:flex; flex-direction:column; gap:12px; }
+    .write-row { display:flex; flex-direction:column; gap:6px; }
+    .write-row > label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+    .write-row .row { display:flex; gap:8px; align-items:flex-start; }
+    .write-row input[type=text], .write-row textarea { flex:1; background:#0d131c; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; }
+    .write-row input[type=text]:focus, .write-row textarea:focus { outline:none; border-color:var(--accent); }
+    .write-row textarea { resize:vertical; min-height:52px; }
+    .write-row button { white-space:nowrap; }
+    .write-row button:disabled { opacity:.55; cursor:default; }
+    .write-msg { font-size:12px; min-height:16px; }
+    .write-msg.err { color:var(--bad); } .write-msg.ok { color:var(--ok); }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
   </style>
@@ -160,6 +172,7 @@ export function companyHtml(): string {
       <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
       <div class="md" id="detail-body"></div>
       <div id="detail-notes"></div>
+      <div class="detail-write" id="detail-write"></div>
     </div>
   </div>
 <script>
@@ -347,17 +360,18 @@ async function archiveCard(task, btn) {
   const prev = btn.textContent;
   btn.textContent = '…';
   try {
-    const res = await fetch('/api/tasks/archive', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ company: company, id: task.id }),
-    });
-    if (!res.ok) throw new Error('archive → ' + res.status);
+    // postJson throws on !ok with the server's error message. Guard a (kobo-45):
+    // archiving an epic with open children → 409 { error, blockedBy:[ids] }; the
+    // thrown message already carries the reason, and we append the child list so
+    // the board says exactly which children still block it (kobo-48 guard UX).
+    await postJson('/api/tasks/archive', { company: company, id: task.id });
     await load(); // re-read board + timeline; the archived card drops off Done
   } catch (err) {
     btn.disabled = false;
     btn.textContent = prev;
-    statusEl.textContent = 'archive failed: ' + (err && err.message ? err.message : err);
+    const kids = (err && err.data && err.data.blockedBy) || [];
+    const detail = kids.length ? ' — ลูกที่ยังค้าง: ' + kids.join(', ') : '';
+    statusEl.textContent = 'archive blocked: ' + errMsg(err) + detail;
     statusEl.className = 'error';
   }
 }
@@ -404,14 +418,110 @@ function openDetail(task) {
       notesEl.appendChild(row);
     }
   }
+  // kobo-48: write controls (+ subtask, comment box) live inside the modal.
+  buildWriteSection(task);
   openModal();
+}
+
+// kobo-48 web write — the modal's write controls: a "+ subtask" input (creates a
+// child card, epic = this card) and a comment box (POST /api/tasks/note, notifies
+// the assignee via c2). Rebuilt on every openDetail so it always targets the
+// currently-open card. All values go out as JSON (no innerHTML) → XSS-safe.
+function buildWriteSection(task) {
+  const wrap = $('detail-write');
+  wrap.replaceChildren();
+  const msg = el('div', 'write-msg');
+  const setMsg = (t, ok) => { msg.textContent = t; msg.className = 'write-msg ' + (ok ? 'ok' : 'err'); };
+
+  // + subtask
+  const subRow = el('div', 'write-row');
+  subRow.appendChild(el('label', '', '+ subtask (child of ' + task.id + ')'));
+  const subLine = el('div', 'row');
+  const subInput = el('input'); subInput.type = 'text'; subInput.placeholder = 'short subtask title…'; subInput.maxLength = 200;
+  const subBtn = el('button', '', '+ add'); subBtn.type = 'button';
+  subLine.appendChild(subInput); subLine.appendChild(subBtn);
+  subRow.appendChild(subLine);
+
+  // comment
+  const cmtRow = el('div', 'write-row');
+  cmtRow.appendChild(el('label', '', 'comment (notifies the assignee)'));
+  const cmtLine = el('div', 'row');
+  const cmtInput = el('textarea'); cmtInput.placeholder = 'comment… (⌘/Ctrl+Enter to send)';
+  const cmtBtn = el('button', '', 'comment'); cmtBtn.type = 'button';
+  cmtLine.appendChild(cmtInput); cmtLine.appendChild(cmtBtn);
+  cmtRow.appendChild(cmtLine);
+
+  wrap.appendChild(subRow); wrap.appendChild(cmtRow); wrap.appendChild(msg);
+
+  async function submitSub() {
+    const company = currentCompany();
+    const title = subInput.value.trim();
+    if (!company || !title) { setMsg('enter a subtask title', false); return; }
+    subBtn.disabled = true;
+    try {
+      const res = await postJson('/api/tasks/create', { company: company, title: title, epic: task.id });
+      subInput.value = '';
+      setMsg('created ' + ((res.task && res.task.id) || 'subtask'), true);
+      await load();          // board picks up the new child + this card's rollup badge
+      reopenDetail(task.id); // refresh the modal in place
+    } catch (err) { setMsg('create failed: ' + errMsg(err), false); }
+    finally { subBtn.disabled = false; }
+  }
+  async function submitCmt() {
+    const company = currentCompany();
+    const t = cmtInput.value.trim();
+    if (!company || !t) { setMsg('enter a comment', false); return; }
+    cmtBtn.disabled = true;
+    try {
+      await postJson('/api/tasks/note', { company: company, id: task.id, text: t });
+      cmtInput.value = '';
+      setMsg('comment added', true);
+      await load();
+      reopenDetail(task.id); // refresh the notes timeline
+    } catch (err) { setMsg('comment failed: ' + errMsg(err), false); }
+    finally { cmtBtn.disabled = false; }
+  }
+  subBtn.addEventListener('click', submitSub);
+  subInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); submitSub(); } });
+  cmtBtn.addEventListener('click', submitCmt);
+  cmtInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submitCmt(); } });
+}
+
+// Re-open the modal for a card id from the freshest payload (after a write +
+// load()), so rollup/notes reflect the change. No-op if the card vanished.
+function reopenDetail(id) {
+  const t = (lastTasks || []).find((x) => x.id === id);
+  if (t) openDetail(t);
+}
+
+function errMsg(err) { return (err && err.message) ? err.message : String(err); }
+
+// POST JSON → parsed body. Throws on !ok with the server's { error } message
+// (and stashes .status/.data) so callers surface a real reason, not just a code.
+async function postJson(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON error body */ }
+  if (!res.ok) {
+    const e = new Error((data && data.error) || (url + ' → ' + res.status));
+    e.status = res.status; e.data = data;
+    throw e;
+  }
+  return data || { ok: true };
 }
 
 // kobo-44: card detail is a modal overlay. Open = show backdrop, remember the
 // trigger to restore focus, move focus into the dialog. Close = hide + restore.
 let detailReturnFocus = null;
 function openModal() {
-  detailReturnFocus = document.activeElement;
+  // Only capture the return-focus trigger on a FRESH open — reopening in place
+  // (kobo-48: after a write, to refresh the modal) must not clobber it with the
+  // panel itself, or Esc/close would restore focus to nowhere useful.
+  if ($('detail-overlay').hidden) detailReturnFocus = document.activeElement;
   $('detail-overlay').hidden = false;
   $('detail-panel').focus();
 }

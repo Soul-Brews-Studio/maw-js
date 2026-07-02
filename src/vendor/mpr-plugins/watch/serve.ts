@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCreateRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
 import { feedListeners } from "../../../api/feed";
@@ -33,6 +33,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // company-ui card comment (kobo-46): Tony posts a note from the modal → append
   // + poke assignee on task-events (behind auth — PROTECTED POST "/tasks/…").
   ctx.http?.route("POST", "/api/tasks/note", (request: Request) => handleTaskNoteRequest(request));
+  // company-ui card create (kobo-48): the modal "+ subtask" button posts a child
+  // card (epic = parent id) → c1 containment (behind auth — PROTECTED POST "/tasks/…").
+  ctx.http?.route("POST", "/api/tasks/create", (request: Request) => handleTaskCreateRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company/dept policy inject route — on-attach context (separate concern,
