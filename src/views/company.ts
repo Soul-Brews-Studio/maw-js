@@ -61,6 +61,17 @@ export function companyHtml(): string {
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
     .pill.check { color:#c4a7ff; }
     .pill.attn { color:var(--bad); border-color:#6b3a3a; }
+    /* kobo-47 kanban c3 — epic rollup badge, parent chip (click = filter family). */
+    .pill.epic-badge { color:#c4a7ff; border-color:#4a3a6b; }
+    .pill.epic-badge.all-done { color:var(--ok); border-color:#2f5a3f; }
+    .pill.parent-chip { color:var(--accent); }
+    .pill.parent-chip.unresolved { color:var(--muted); }
+    .pill.epic-badge:hover, .pill.parent-chip:hover { border-color:var(--accent); }
+    .pill.epic-badge:focus-visible, .pill.parent-chip:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); }
+    .family-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:6px 11px; border:1px solid #4a3a6b; border-radius:10px; background:var(--col); color:var(--muted); font-size:12px; }
+    .family-bar[hidden] { display:none; }
+    .family-bar .fam-root { color:#c4a7ff; }
+    .family-clear { font-size:11px; padding:2px 9px; border-radius:8px; color:var(--accent); }
     .timeline { max-height:72vh; overflow:auto; }
     .entry { padding:8px 4px; border-bottom:1px solid var(--line); }
     .entry:last-child { border-bottom:0; }
@@ -119,6 +130,7 @@ export function companyHtml(): string {
   </header>
   <main class="layout">
     <section class="card">
+      <div class="family-bar" id="family-bar" hidden></div>
       <div class="board">
         <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
         <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
@@ -159,6 +171,104 @@ function text(v) { return v == null ? '' : String(v); }
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = String(txt); return e; }
 function currentCompany() { return (companyInput.value || '').trim(); }
 
+// kobo-47 kanban c3 — epic containment is DERIVED for display. The board already
+// receives every active card via GET /api/tasks (each carries its containment
+// parent in its epic field, plus state + notes), so rollup/parent-chip/child-notes are
+// computed client-side from that one payload. When the backend projection (c2)
+// starts sending richer fields (task.rollup / task.epicParent / task.childNotes —
+// e.g. archived-parent detection, notes from swept-done children), we PREFER them
+// and fall back to the client derivation. Same spec shape either way.
+let taskIndex = { byId: new Map(), childrenOf: new Map() };
+let lastTasks = [];
+let familyFilter = null; // root card id while filtering to one family, else null
+
+function buildIndex(tasks) {
+  const byId = new Map();
+  const childrenOf = new Map();
+  for (const t of tasks) byId.set(t.id, t);
+  for (const t of tasks) {
+    if (t.epic) { if (!childrenOf.has(t.epic)) childrenOf.set(t.epic, []); childrenOf.get(t.epic).push(t); }
+  }
+  taskIndex = { byId: byId, childrenOf: childrenOf };
+}
+
+// Derived N/M rollup — mirrors store.epicRollup: null when the card has no
+// children (a plain card, no badge). Prefer a server-sent task.rollup.
+function rollupOf(task) {
+  if (task.rollup && typeof task.rollup.total === 'number') return task.rollup;
+  const kids = taskIndex.childrenOf.get(task.id) || [];
+  if (!kids.length) return null;
+  const done = kids.filter((c) => c.state === 'done').length;
+  return { done: done, total: kids.length, allDone: done === kids.length };
+}
+
+// Parent reference for the "↳ <parent-id>" chip — mirrors store.resolveEpicParent.
+// Prefer server task.epicParent (knows archived vs. truly-missing); else derive:
+// a parent present in the active payload = resolved, absent = plain backward-compat
+// tag (client-side can't tell archived from deleted — that precision arrives w/ c2).
+function parentRefOf(task) {
+  if (!task.epic) return null;
+  if (task.epicParent && typeof task.epicParent === 'object') return task.epicParent;
+  const parent = taskIndex.byId.get(task.epic);
+  return { id: task.epic, resolved: !!parent, archived: false };
+}
+
+// Notes aggregated from every child card, oldest-first, each tagged with its
+// source child id (spec §Comment: parent modal รวม notes ลูก, tag ว่ามาจาก sub ไหน).
+// Prefer a server-sent task.childNotes (can include swept-done children).
+function childNotesOf(task) {
+  if (Array.isArray(task.childNotes)) return task.childNotes;
+  const kids = taskIndex.childrenOf.get(task.id) || [];
+  const out = [];
+  for (const k of kids) for (const n of (k.notes || [])) out.push(Object.assign({}, n, { from: k.id }));
+  out.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  return out;
+}
+
+// Family = root card + all transitive descendants (BFS over containment).
+function familyMembers(rootId) {
+  const members = new Set([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const child of (taskIndex.childrenOf.get(cur) || [])) {
+      if (!members.has(child.id)) { members.add(child.id); queue.push(child.id); }
+    }
+  }
+  return members;
+}
+
+// Make a meta pill act as a button: pointer + keyboard-reachable, and stopPropagation
+// so activating it filters instead of opening the card's detail modal.
+function makeChip(node, onActivate) {
+  node.style.cursor = 'pointer';
+  node.setAttribute('role', 'button');
+  node.tabIndex = 0;
+  node.addEventListener('click', (ev) => { ev.stopPropagation(); onActivate(); });
+  node.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); onActivate(); } });
+}
+
+// Clicking an epic badge or a parent chip filters the board to that family. Re-render
+// from the cached payload (no refetch) — the poll keeps lastTasks fresh underneath.
+function setFamilyFilter(rootId) { familyFilter = rootId; renderBoard(lastTasks); }
+function clearFamilyFilter() { familyFilter = null; renderBoard(lastTasks); }
+
+function updateFamilyBar() {
+  const bar = $('family-bar');
+  if (!familyFilter) { bar.hidden = true; bar.replaceChildren(); return; }
+  const fam = familyMembers(familyFilter);
+  bar.replaceChildren();
+  const label = el('span', '', '👪 filtering family ');
+  label.appendChild(el('span', 'fam-root', familyFilter));
+  label.appendChild(document.createTextNode(' · ' + fam.size + ' card' + (fam.size === 1 ? '' : 's')));
+  bar.appendChild(label);
+  const clear = el('button', 'family-clear', '✕ clear');
+  clear.type = 'button';
+  clear.addEventListener('click', clearFamilyFilter);
+  bar.appendChild(clear);
+  bar.hidden = false;
+}
+
 // "X รอ Y" — derived, never stored (ADR §4): by≠assignee · state≠done.
 function waitFor(task) {
   if (task.assignee && task.by && task.by !== task.assignee && task.state !== 'done') {
@@ -173,7 +283,24 @@ function taskCard(task) {
   const meta = el('div', 't-meta');
   meta.appendChild(el('span', 'pill', text(task.id)));
   if (task.dept) meta.appendChild(el('span', 'pill dept', task.dept));
-  if (task.epic) meta.appendChild(el('span', 'pill epic', '⊳' + task.epic));
+  // kobo-47: epic rollup badge (▣ N/M) — shown on any card that contains children.
+  // allDone → green "ลูกครบ รอปิด" (close stays manual). Click = filter its family.
+  const roll = rollupOf(task);
+  if (roll) {
+    const badge = el('span', 'pill epic-badge' + (roll.allDone ? ' all-done' : ''), '▣ ' + roll.done + '/' + roll.total);
+    badge.title = roll.allDone ? 'epic — ลูกครบ รอปิด (' + roll.done + '/' + roll.total + ' children done)' : 'epic rollup — ' + roll.done + '/' + roll.total + ' children done · click to filter family';
+    makeChip(badge, () => setFamilyFilter(task.id));
+    meta.appendChild(badge);
+  }
+  // kobo-47: parent chip (↳ <parent-id>) on child cards. Archived parent → "(archived)"
+  // (never blocks, guard c); unresolved parent → plain backward-compat tag. Click = filter family.
+  const pref = parentRefOf(task);
+  if (pref) {
+    const chip = el('span', 'pill parent-chip' + (pref.resolved ? '' : ' unresolved'), '↳ ' + pref.id + (pref.archived ? ' (archived)' : ''));
+    chip.title = pref.archived ? 'parent archived · click to filter this family' : (pref.resolved ? 'containment parent · click to filter this family' : 'parent id not on the board (backward-compat tag) · click to filter');
+    makeChip(chip, () => setFamilyFilter(pref.id));
+    meta.appendChild(chip);
+  }
   if (task.assignee) meta.appendChild(el('span', 'pill assignee', '@' + task.assignee));
   else meta.appendChild(el('span', 'pill', '(unassigned)'));
   const wf = waitFor(task);
@@ -259,6 +386,24 @@ function openDetail(task) {
       notesEl.appendChild(row);
     }
   }
+  // kobo-47: an epic's modal also gathers notes from every child card, oldest-first,
+  // each tagged with its source child id. Derived at read (childNotesOf prefers a
+  // server task.childNotes, else aggregates the payload's children). Own vs. sub
+  // notes are kept in separate sections so the source is never ambiguous.
+  const childNotes = childNotesOf(task);
+  if (childNotes.length) {
+    notesEl.appendChild(el('div', 'notes-head', 'notes from subtasks (' + childNotes.length + ')'));
+    for (const n of childNotes) {
+      const row = el('div', 'entry');
+      const head = el('div', 'e-head');
+      head.appendChild(el('span', 'e-oracle', n.by || '?'));
+      if (n.from) head.appendChild(el('span', 'e-kind', '↳ ' + n.from));
+      head.appendChild(el('span', 'e-ts', n.iso ? localTs(n.iso) : text(n.ts)));
+      row.appendChild(head);
+      row.appendChild(el('div', 'e-summary', n.text || ''));
+      notesEl.appendChild(row);
+    }
+  }
   openModal();
 }
 
@@ -279,6 +424,11 @@ function closeDetail() {
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
 
 function renderBoard(tasks) {
+  // Family filter is display-only — taskIndex stays built over the FULL list so
+  // rollup / parent-chip / family membership still resolve against every card.
+  updateFamilyBar();
+  const fam = familyFilter ? familyMembers(familyFilter) : null;
+  const shown = fam ? tasks.filter((t) => fam.has(t.id)) : tasks;
   const cols = {};
   for (const s of FLOW) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
@@ -288,7 +438,7 @@ function renderBoard(tasks) {
   // flow state but are pulled out while a parent is pending; when the parent is
   // done the next poll drops the dependency field and the card returns.
   const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0) || task.needsOwner;
-  for (const task of tasks) {
+  for (const task of shown) {
     if (isOffFlow(task)) { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';
     cols[state].appendChild(taskCard(task));
@@ -384,7 +534,7 @@ async function getJson(url) {
 async function load() {
   const company = currentCompany();
   $('co-name').textContent = company || '—';
-  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; renderBoard([]); renderTimeline([]); renderState(null); return; }
+  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); return; }
   statusEl.textContent = 'loading…';
   statusEl.className = '';
   try {
@@ -397,6 +547,8 @@ async function load() {
     ]);
     const tasks = Array.isArray(tasksRes.tasks) ? tasksRes.tasks : [];
     const entries = Array.isArray(feedRes.entries) ? feedRes.entries : [];
+    lastTasks = tasks;
+    buildIndex(tasks); // full-list index for rollup / parent-chip / family derivation
     renderBoard(tasks);
     renderTimeline(entries);
     renderState(stateRes);
