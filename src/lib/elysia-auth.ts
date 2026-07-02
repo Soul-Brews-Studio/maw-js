@@ -57,6 +57,9 @@ export function isProtected(path: string, method: string): boolean {
   // /worklog/feed (company-ui timeline) is the same private surface as /worklog (Rule 6)
   if (path.startsWith("/worklog/")) return true;
   if (PROTECTED_POST.has(path) && method === "POST") return true;
+  // company-ui board write (kobo-35: POST /tasks/archive) — a mutation on the
+  // same private surface as the board (Rule 6); loopback UI bypasses, LAN auths.
+  if (method === "POST" && path.startsWith("/tasks/")) return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation
   if (method === "POST" && path.startsWith("/plugins/")) return true;
   // Protect plugin tarball download (Task #1) — serves full artifact bytes.

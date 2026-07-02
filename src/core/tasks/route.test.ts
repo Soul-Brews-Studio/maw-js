@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTasksRequest } from "./route";
-import { addTask, claimTask, completeTask, prOpenedReview, setTaskPr } from "./store";
+import { handleTaskArchiveRequest, handleTasksRequest } from "./route";
+import { addTask, claimTask, completeTask, listArchivedTasks, listTasks, prOpenedReview, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -140,5 +140,40 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     };
     expect(body.company).toBeNull();
     expect(body.tasks).toEqual([]);
+  });
+});
+
+describe("handleTaskArchiveRequest (POST /api/tasks/archive — kobo-35)", () => {
+  const post = (payload: unknown) =>
+    handleTaskArchiveRequest(new Request("http://x/api/tasks/archive", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+
+  test("archives one done card → gone from /api/tasks AND the store (board-truth both sides)", async () => {
+    const t = addTask({ company: "arc", title: "reviewed card", by: "tony" });
+    completeTask("arc", t.id, "tony");
+    // present on the board before archive
+    const before = (await handleTasksRequest(new Request("http://x/api/tasks?company=arc")).json()) as { tasks: Array<{ id: string }> };
+    expect(before.tasks.map((c) => c.id)).toContain(t.id);
+
+    const res = await post({ company: "arc", id: t.id });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, id: t.id, title: "reviewed card" });
+
+    // UI side: no longer returned by /api/tasks
+    const after = (await handleTasksRequest(new Request("http://x/api/tasks?company=arc")).json()) as { tasks: Array<{ id: string }> };
+    expect(after.tasks.map((c) => c.id)).not.toContain(t.id);
+    // store side: moved out of active tasks, preserved in archive/ (principle 1)
+    expect(listTasks("arc").map((c) => c.id)).not.toContain(t.id);
+    expect(listArchivedTasks("arc").map((c) => c.id)).toContain(t.id);
+  });
+
+  test("missing id → 404, missing fields → 400, bad JSON → 400", async () => {
+    expect((await post({ company: "arc", id: "arc-999" })).status).toBe(404);
+    expect((await post({ company: "arc" })).status).toBe(400);
+    const bad = await handleTaskArchiveRequest(new Request("http://x/api/tasks/archive", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
+    expect(bad.status).toBe(400);
   });
 });

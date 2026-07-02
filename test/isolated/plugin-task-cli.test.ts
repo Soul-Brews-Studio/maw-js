@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runTask } from "../../src/vendor/mpr-plugins/task/index";
-import { listTasks, readTask } from "../../src/core/tasks/store";
+import { listArchivedTasks, listTasks, readTask } from "../../src/core/tasks/store";
 
 // Behavioural test for the task-board runner `runTask` — the shared engine that
 // `maw company task` (and the maw_task MCP tool) drive. cli-reorg kobo-26 removed
@@ -56,6 +56,35 @@ describe("maw company task runner (runTask)", () => {
     expect(all.output).toContain("unassigned");
     expect(mine.output).toContain("mine");
     expect(mine.output).not.toContain("unassigned");
+  });
+
+  test("archive <id> moves ONE card off the board into archive/ (kobo-35)", async () => {
+    await run(["add", "keep me", "--company", "pgw"]);       // pgw-1
+    await run(["add", "review me", "--company", "pgw"]);     // pgw-2
+    await run(["done", "pgw-2", "--company", "pgw"]);
+    const r = await run(["archive", "pgw-2", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("archived");
+    expect(r.output).toContain("pgw-2");
+    // gone from the active store, preserved in archive/ (principle 1) — never deleted
+    expect(readTask("pgw", "pgw-2")).toBeNull();
+    expect(listTasks("pgw").map((t) => t.id)).toEqual(["pgw-1"]);
+    expect(listArchivedTasks("pgw").map((t) => t.id)).toContain("pgw-2");
+  });
+
+  test("archive <id> for a missing card → clean error, not a throw", async () => {
+    const r = await run(["archive", "pgw-999", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("not found");
+  });
+
+  test("archive with no id still runs the bulk --days sweep (unchanged)", async () => {
+    await run(["add", "fresh done", "--company", "pgw"]); // pgw-1
+    await run(["done", "pgw-1", "--company", "pgw"]);
+    const r = await run(["archive", "--company", "pgw"]); // default window — nothing old enough
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("nothing to archive");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("done"); // recent done stays on the board
   });
 
   test("missing id / unknown subcommand → clean error, not a throw", async () => {

@@ -71,6 +71,8 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // `maw task` deprecation shim (so no "moved" notice leaks into MCP output).
     expect(tools).toContain('["company", "task"');
     expect(tools).not.toMatch(/\[\s*"task"\s*,/);
+    // kobo-35: archive accepts a per-card id (positional), not only the bulk --days sweep.
+    expect(tools).toContain('["company", "task", "archive", id');
   });
 
   // eq3-020: the maw_hey `target` describe must document every routing format the

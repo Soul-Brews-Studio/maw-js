@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
 import { feedListeners } from "../../../api/feed";
@@ -27,6 +27,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   ctx.http?.route("GET", "/api/worklog/feed", (request: Request) => handleWorklogFeedRequest(request));
   // company-ui kanban board — stub now, backbone later (behind auth — PROTECTED "/tasks")
   ctx.http?.route("GET", "/api/tasks", (request: Request) => handleTasksRequest(request));
+  // company-ui per-card archive (kobo-35): Tony reviews a done card + clicks
+  // archive → moves it off the board (behind auth — PROTECTED POST "/tasks/…").
+  ctx.http?.route("POST", "/api/tasks/archive", (request: Request) => handleTaskArchiveRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company/dept policy inject route — on-attach context (separate concern,

@@ -197,6 +197,9 @@ export function taskArgs(input: TaskInput): string[] {
       return [...argv, ...common()];
     }
     case "archive": {
+      // Per-card archive by id (kobo-35) takes precedence over the bulk --days
+      // sweep — an id is a positional, the two forms never mix in one call.
+      if (id) return ["company", "task", "archive", id, ...common()];
       const argv = ["company", "task", "archive", ...common()];
       if (input.days !== undefined) argv.push("--days", String(input.days));
       return argv;

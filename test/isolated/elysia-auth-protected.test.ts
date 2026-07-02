@@ -42,4 +42,10 @@ describe("elysia-auth — isProtected (#798)", () => {
     expect(isProtected("/feed", "GET")).toBe(false);
     expect(isProtected("/feed", "POST")).toBe(true);
   });
+
+  test("/tasks/archive: POST protected (kobo-35 board write), GET board still gated too", () => {
+    expect(isProtected("/tasks/archive", "POST")).toBe(true); // board mutation on the private surface
+    expect(isProtected("/tasks/archive", "GET")).toBe(false); // no such GET; not gated by the POST rule
+    expect(isProtected("/tasks", "GET")).toBe(true); // board read stays PROTECTED (loopback bypasses)
+  });
 });

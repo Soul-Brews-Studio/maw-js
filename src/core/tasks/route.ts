@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { checklistProgress, dependencyBlock, listTasks, needsOwner, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type ParentState, type TaskRecord } from "./store";
+import { archiveTask, checklistProgress, dependencyBlock, listTasks, needsOwner, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type ParentState, type TaskRecord } from "./store";
 
 export interface TaskCard {
   id: string;
@@ -70,4 +70,34 @@ export function handleTasksRequest(request: Request): Response {
   if (!company) return Response.json({ company: null, tasks: [] });
   const resolveParent = parentStateResolver(company); // active state | "archived" | null — shared across the board
   return Response.json({ company, tasks: listTasks(company).map((t) => toCard(t, resolveParent)) });
+}
+
+/**
+ * POST /api/tasks/archive — per-card archive from the web board (kobo-35). The
+ * board shows an "archive" button on each done card; clicking it means "Tony
+ * reviewed this and signs it off". Archiving MOVES tasks/<id>.json →
+ * tasks/archive/<id>.json (principle 1 — preserved, git-tracked, never deleted),
+ * so the very next GET /api/tasks no longer returns it (UI ↔ store stay in sync).
+ * Behind auth via PROTECTED "/tasks" (loopback UI bypasses; LAN must auth).
+ *
+ * Body: { company: string, id: string } → { ok: true, id, title } | { ok:false, error }.
+ * `by` is "web" — the actor on this surface is a human at the board, not an oracle.
+ */
+export async function handleTaskArchiveRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  if (!company || !id) {
+    return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  }
+  const archived = archiveTask(company, id, "web");
+  if (!archived) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  return Response.json({ ok: true, id: archived.id, title: archived.title });
 }

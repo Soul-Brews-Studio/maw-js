@@ -52,6 +52,10 @@ export function companyHtml(): string {
     .task .t-title { color:var(--fg); }
     .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
     .task .t-na { color:var(--accent); font-size:12px; margin-top:6px; }
+    .task .t-actions { margin-top:8px; display:flex; justify-content:flex-end; }
+    .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid #2f5a3f; color:var(--ok); background:#0d131c; cursor:pointer; }
+    .archive-btn:hover { border-color:var(--ok); }
+    .archive-btn:disabled { opacity:.55; cursor:default; }
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
     .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
@@ -160,10 +164,47 @@ function taskCard(task) {
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
+  // archive button — ONLY on done cards (kobo-35). done = finished, awaiting
+  // human review; clicking archive = Tony signs "checked" → the card moves off
+  // the board (store + UI). stopPropagation so it never opens the detail panel.
+  if (task.state === 'done') {
+    const actions = el('div', 't-actions');
+    const btn = el('button', 'archive-btn', '📦 archive');
+    btn.type = 'button';
+    btn.title = 'reviewed — archive off the board';
+    btn.addEventListener('click', (ev) => { ev.stopPropagation(); archiveCard(task, btn); });
+    actions.appendChild(btn);
+    card.appendChild(actions);
+  }
   // click → read-only detail panel (eq3-010 kobo-11)
   card.style.cursor = 'pointer';
   card.addEventListener('click', () => openDetail(task));
   return card;
+}
+
+// Archive a reviewed done card (kobo-35). POST /api/tasks/archive → the store
+// moves it to tasks/archive/; on success we reload so the board (GET /api/tasks)
+// and the store agree — the card is gone from Done on the very next read.
+async function archiveCard(task, btn) {
+  const company = currentCompany();
+  if (!company || !task.id) return;
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const res = await fetch('/api/tasks/archive', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ company: company, id: task.id }),
+    });
+    if (!res.ok) throw new Error('archive → ' + res.status);
+    await load(); // re-read board + timeline; the archived card drops off Done
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = prev;
+    statusEl.textContent = 'archive failed: ' + (err && err.message ? err.message : err);
+    statusEl.className = 'error';
+  }
 }
 
 // Read-only card detail — title + meta + body markdown (reuses mdToHtml).

@@ -9,7 +9,8 @@
  *   maw company task claim <id>
  *   maw company task pr <id> <pr-number>   # worker links the PR → card.pr + review (pr-watch drives merge→done)
  *   maw company task done <id>             # also clears an explicit block
- *   maw company task archive [--days N]    # sweep done cards older than N days → tasks/archive/
+ *   maw company task archive <id>          # per-card: human reviewed this done card → tasks/archive/ (kobo-35)
+ *   maw company task archive [--days N]    # bulk: sweep done cards older than N days → tasks/archive/
  *   maw company task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
  *   maw company task unblock <id>          # restore prevState
  *
@@ -26,6 +27,7 @@ import { companyOfOracle } from "../../../core/worklog/company-scope";
 import {
   addTask,
   archiveOldDone,
+  archiveTask,
   BLOCK_KINDS,
   blockNextAction,
   blockTask,
@@ -282,13 +284,23 @@ export async function runTask(
       const me = await resolveActor(flags["--from"]);
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const days = flags["--days"] ?? DEFAULT_ARCHIVE_DAYS;
-      const archived = archiveOldDone(company, days, me);
-      if (!archived.length) {
-        console.log(`\x1b[90m○ nothing to archive\x1b[0m (no done card older than ${days}d)`);
+      const id = flags._[0];
+      if (id) {
+        // Per-card archive by id (kobo-35): "checked" = human reviewed this done
+        // card and signs it off the board. A positional id takes precedence over
+        // the bulk --days sweep — the two forms never mix in one call.
+        const t = archiveTask(company, id, me);
+        if (!t) return { ok: false, error: `task not found: ${id}` };
+        console.log(`\x1b[32m📦 archived\x1b[0m ${t.id}: ${t.title} \x1b[90m→ tasks/archive/\x1b[0m`);
       } else {
-        console.log(`\x1b[32m📦 archived\x1b[0m ${archived.length} done card(s) older than ${days}d \x1b[90m→ tasks/archive/\x1b[0m`);
-        for (const t of archived) console.log(`  \x1b[90m${t.id}\x1b[0m ${t.title}`);
+        const days = flags["--days"] ?? DEFAULT_ARCHIVE_DAYS;
+        const archived = archiveOldDone(company, days, me);
+        if (!archived.length) {
+          console.log(`\x1b[90m○ nothing to archive\x1b[0m (no done card older than ${days}d)`);
+        } else {
+          console.log(`\x1b[32m📦 archived\x1b[0m ${archived.length} done card(s) older than ${days}d \x1b[90m→ tasks/archive/\x1b[0m`);
+          for (const t of archived) console.log(`  \x1b[90m${t.id}\x1b[0m ${t.title}`);
+        }
       }
     } else if (subcmd === "block") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--kind": String, "--reason": String, "--for": String }, 0);

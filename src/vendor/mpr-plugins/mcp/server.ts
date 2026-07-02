@@ -146,12 +146,12 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
     {
       title: "Company task board — add/ls/start/claim/review/pr/done/block/unblock/archive",
       description:
-        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive ([--days N]). --company/--from apply to any verb.",
+        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
       inputSchema: {
         action: z
           .enum(["add", "ls", "start", "claim", "review", "pr", "done", "block", "unblock", "archive"])
           .describe("task board action"),
-        id: z.string().optional().describe("card id (start/claim/done/review/pr/block/unblock)"),
+        id: z.string().optional().describe("card id (start/claim/done/review/pr/block/unblock; archive = per-card by id)"),
         title: z.string().optional().describe("card title (required for add)"),
         pr: z.number().optional().describe("PR number (required for pr)"),
         company: z.string().optional().describe("company (else resolved from config)"),

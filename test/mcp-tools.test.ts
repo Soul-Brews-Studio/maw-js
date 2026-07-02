@@ -222,6 +222,19 @@ describe("taskArgs", () => {
       "company", "task", "archive", "--company", "kobo", "--days", "7",
     ]);
   });
+
+  test("archive: per-card by id (kobo-35) — id is positional, precedes --days", () => {
+    expect(taskArgs({ action: "archive", id: "kobo-35" })).toEqual([
+      "company", "task", "archive", "kobo-35",
+    ]);
+    expect(taskArgs({ action: "archive", id: "kobo-35", company: "kobo", from: "tony" })).toEqual([
+      "company", "task", "archive", "kobo-35", "--company", "kobo", "--from", "tony",
+    ]);
+    // id wins over --days: per-card archive is unambiguous, the sweep flag is ignored
+    expect(taskArgs({ action: "archive", id: "kobo-35", days: 7 })).toEqual([
+      "company", "task", "archive", "kobo-35",
+    ]);
+  });
 });
 
 // ── runMaw result mapping (injected fake spawn) ──────────────────────────────

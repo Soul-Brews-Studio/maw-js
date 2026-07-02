@@ -53,6 +53,10 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toContain("handleWorklogFeedRequest");
     expect(serveSrc).toContain("handleTasksRequest");
     expect(serveSrc).toContain("handleStateDocRequest");
+    // kobo-35: per-card archive write route (POST) lives on the same plugin so it
+    // toggles with the worklog engine + the board it mutates.
+    expect(serveSrc).toContain("handleTaskArchiveRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/archive["']/);
   });
 
   // cli-reorg kobo-26: `maw watch` is HARD-REMOVED (no cli command). The plugin
@@ -67,6 +71,7 @@ describe("watch command plugin standalone boundary", () => {
     // serve hook untouched — the worklog/board HTTP routes still toggle with the plugin.
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/worklog/feed");
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks");
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/archive"); // kobo-35
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
   });
 
