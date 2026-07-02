@@ -33,6 +33,7 @@ export type WorklogKind =
   | "task-blocked"
   | "task-unblocked"
   | "task-note"
+  | "task-updated"
   | "interrupt";
 
 export interface WorklogEntry {

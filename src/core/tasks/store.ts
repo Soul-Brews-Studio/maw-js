@@ -68,12 +68,22 @@ export interface TaskNote {
   text: string; // note content (rendered escape-first on the web)
 }
 
+/** Card role (kobo-45). `epic` = a container card; children point up to it via
+ * the `epic` field. Absent/`task` = a normal card. epic is NOT a new entity — it
+ * reuses TaskRecord, so it gets timeline/comment/state for free (spec). */
+export type TaskKind = "epic" | "task";
+
 export interface TaskRecord {
   id: string; // <company>-<n>
   title: string;
   company: string;
   dept?: string;
-  epic?: string; // tag, not an entity (glossary)
+  kind?: TaskKind; // "epic" = container card; absent/"task" = normal card (kobo-45)
+  epic?: string; // CONTAINMENT parent — the card id this one lives under (epic→task
+  //              →subtask, one mechanism; kobo-45). Unresolvable id → rendered as a
+  //              plain tag (backward-compat with pre-containment cards). This is a
+  //              DIFFERENT axis from parentIds[] deps below: containment = "lives
+  //              under", dependency = "waits for". Set via setTaskEpic (loop-guarded).
   state: TaskState;
   by: string; // who created / delegated
   assignee: string | null; // who holds the work (SSoT for ownership)
@@ -236,7 +246,8 @@ export interface AddTaskInput {
   title: string;
   by: string;
   dept?: string;
-  epic?: string;
+  kind?: TaskKind; // "epic" for a container card (kobo-45) — omit for a normal task
+  epic?: string; // containment parent card id (kobo-45) — the "+subtask" path sets this
   repo?: string;
   assignee?: string | null;
   state?: TaskState; // explicit start state — dispatch passes "in-progress"; manual add omits (→ todo)
@@ -265,7 +276,8 @@ export function addTask(input: AddTaskInput): TaskRecord {
     updatedTs: ts,
   };
   if (input.dept) task.dept = input.dept;
-  if (input.epic) task.epic = input.epic;
+  if (input.kind && input.kind !== "task") task.kind = input.kind; // only persist "epic" — task is the default
+  if (input.epic) task.epic = input.epic; // a fresh id can't be its own ancestor → no loop possible at create
   if (input.repo) task.repo = input.repo;
   if (input.requestId) task.requestId = input.requestId;
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
@@ -476,10 +488,19 @@ export function isOnBoard(task: TaskRecord, days = DEFAULT_ARCHIVE_DAYS, now = D
  * Archive a card: MOVE tasks/<id>.json → tasks/archive/<id>.json (principle 1 —
  * preserved, still git-tracked, never deleted). Off the board, but readable via
  * listArchivedTasks. Returns null if the active card is absent.
+ *
+ * Guard a (kobo-45): archiving an epic with still-open children is BLOCKED —
+ * throws EpicArchiveBlockedError listing them, so the family isn't hidden while
+ * work is in flight. `force` bypasses the guard (the aging sweep, which already
+ * pre-checks). A leaf card or an epic whose children are all done archives freely.
  */
-export function archiveTask(company: string, id: string, by: string): TaskRecord | null {
+export function archiveTask(company: string, id: string, by: string, opts: { force?: boolean } = {}): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
+  if (!opts.force) {
+    const open = openEpicChildren(id, listTasks(company));
+    if (open.length) throw new EpicArchiveBlockedError(id, open.map((c) => c.id));
+  }
   mkdirSync(archiveDir(company), { recursive: true });
   renameSync(taskFilePath(company, id), archivedTaskFilePath(company, id));
   emit(task, by, "task-archived", `archived ${task.id}: ${task.title}`);
@@ -496,10 +517,12 @@ export function archiveOldDone(
   by = "system",
   now = Date.now(),
 ): TaskRecord[] {
+  const active = listTasks(company);
   const archived: TaskRecord[] = [];
-  for (const t of listTasks(company)) {
+  for (const t of active) {
     if (isOnBoard(t, days, now)) continue; // skips non-done + recent done
-    const a = archiveTask(company, t.id, by);
+    if (openEpicChildren(t.id, active).length) continue; // keep a parent on-board while children are alive (kobo-45)
+    const a = archiveTask(company, t.id, by, { force: true }); // guard already satisfied above
     if (a) archived.push(a);
   }
   return archived;
@@ -640,4 +663,136 @@ export function checklistProgress(body?: string): ChecklistProgress | null {
     if (m[1] !== " ") done++;
   }
   return total ? { done, total } : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Containment (kobo-45) — epic→task→subtask via the `epic` parent-id field. A
+// SEPARATE axis from parentIds[] deps: containment = "lives under", dep = "waits
+// for". Only the `epic` id is stored; rollup + parent-chip are derived at read,
+// the loop check + archive block are enforced at write. Close stays MANUAL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Raised when archiving an epic that still has open (not-done) children (guard a). */
+export class EpicArchiveBlockedError extends Error {
+  constructor(
+    public readonly epicId: string,
+    public readonly activeChildren: string[],
+  ) {
+    super(
+      `cannot archive ${epicId}: ${activeChildren.length} open child card(s) — ${activeChildren.join(", ")}`,
+    );
+    this.name = "EpicArchiveBlockedError";
+  }
+}
+
+/**
+ * Would setting `id`'s containment parent to `newEpic` create a cycle? Walks the
+ * ancestor chain UP from newEpic via `getEpic`; if it reaches `id`, then `id` is
+ * already an ancestor of newEpic and the link would close a loop. A visited set
+ * guards a pre-existing upstream cycle (returns false — not the loop we're about
+ * to create). `getEpic` returns a card's own parent id, or undefined at the root
+ * / when the id resolves to nothing.
+ */
+export function createsEpicLoop(
+  id: string,
+  newEpic: string | undefined,
+  getEpic: (cardId: string) => string | undefined,
+): boolean {
+  let cur = newEpic;
+  const visited = new Set<string>();
+  while (cur) {
+    if (cur === id) return true; // id reachable by walking up from newEpic → cycle
+    if (visited.has(cur)) return false; // pre-existing cycle above, not through id
+    visited.add(cur);
+    cur = getEpic(cur);
+  }
+  return false;
+}
+
+/**
+ * Set (or clear, with empty/undefined) a card's containment parent — the ONLY
+ * write path that can create a cycle (a fresh `add` can't, its id is new). Rejects
+ * a self- or ancestor-loop by throwing (spec: reject on write). A parent id that
+ * doesn't resolve is allowed — it renders as a plain tag (backward-compat).
+ * Returns null if the card is absent; throws on a loop.
+ */
+export function setTaskEpic(
+  company: string,
+  id: string,
+  epicId: string | undefined,
+  by: string,
+): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const next = epicId?.trim() || undefined;
+  if (next) {
+    if (next === id || createsEpicLoop(id, next, (cid) => readTask(company, cid)?.epic ?? undefined)) {
+      throw new Error(`epic loop rejected: ${id} ↳ ${next} would create a containment cycle`);
+    }
+    task.epic = next;
+  } else {
+    delete task.epic;
+  }
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", next ? `set parent ${id} ↳ ${next}` : `cleared parent of ${id}`);
+  return task;
+}
+
+/**
+ * Direct containment children of a card — those whose `epic` === id. Pure over a
+ * given card set so the CALLER controls scope: pass `listTasks` for on-board
+ * children, or active+archived when a rollup must count swept-done children too.
+ */
+export function epicChildren(id: string, cards: TaskRecord[]): TaskRecord[] {
+  return cards.filter((c) => c.epic === id);
+}
+
+/**
+ * Children that are NOT done — the set that blocks archiving (guard a) and drives
+ * the done-confirm prompt (guard b — the store allows the close, the caller
+ * confirms). `done` is the only satisfied state; every other (incl. blocked) is open.
+ */
+export function openEpicChildren(id: string, cards: TaskRecord[]): TaskRecord[] {
+  return epicChildren(id, cards).filter((c) => c.state !== "done");
+}
+
+export interface EpicRollup {
+  done: number;
+  total: number;
+  allDone: boolean; // total>0 && every child done → badge "ลูกครบ รอปิด" (close is still MANUAL)
+}
+
+/**
+ * Derived N/M rollup for an epic. Null when it has no children (a plain card — no
+ * badge). NEVER stored, and never flips the epic's state: closing an epic is
+ * manual (pr-watch lesson — automation that flips state ends up lying). `allDone`
+ * is the "ลูกครบ รอปิด" signal, not an auto-close trigger.
+ */
+export function epicRollup(id: string, cards: TaskRecord[]): EpicRollup | null {
+  const kids = epicChildren(id, cards);
+  if (!kids.length) return null;
+  const done = kids.filter((c) => c.state === "done").length;
+  return { done, total: kids.length, allDone: done === kids.length };
+}
+
+export interface EpicParentRef {
+  id: string;
+  state: ParentState; // resolved parent state, "archived", or null when unresolvable
+  archived: boolean; // parent archived → chip shows "(archived)", never blocks (guard c)
+  resolved: boolean; // false → id shown as a plain backward-compat tag
+}
+
+/**
+ * Resolve a card's containment parent for display (guard c + backward-compat).
+ * Reuses parentStateResolver's states: an archived parent yields a chip that
+ * reads "(archived)" but never blocks; an unresolvable id yields resolved:false
+ * so the caller shows it as a plain tag rather than erroring.
+ */
+export function resolveEpicParent(
+  epicId: string,
+  getState: (id: string) => ParentState,
+): EpicParentRef {
+  const st = getState(epicId);
+  return { id: epicId, state: st, archived: st === "archived", resolved: st !== null };
 }

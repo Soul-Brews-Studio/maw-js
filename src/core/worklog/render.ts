@@ -20,6 +20,7 @@ const ICON: Record<WorklogEntry["kind"], string> = {
   "task-archived": "📦",
   "task-blocked": "⚑",
   "task-unblocked": "🔓",
+  "task-updated": "↳",
   interrupt: "⚠",
 };
 

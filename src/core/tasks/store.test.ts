@@ -14,8 +14,12 @@ import {
   checklistProgress,
   claimTask,
   completeTask,
+  createsEpicLoop,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
+  epicChildren,
+  EpicArchiveBlockedError,
+  epicRollup,
   isBlockedByDependency,
   isOnBoard,
   listArchivedTasks,
@@ -23,9 +27,12 @@ import {
   needsOwner,
   nextTaskId,
   noteTask,
+  openEpicChildren,
   parentStateResolver,
   prOpenedReview,
   readTask,
+  resolveEpicParent,
+  setTaskEpic,
   setTaskPr,
   startTask,
   taskFilePath,
@@ -448,5 +455,123 @@ describe("needs-owner block (eq3-011 kobo-14 — derived, todo+unassigned off-fl
   test("taskNextAction — assigned todo says 'รอ <assignee> เริ่ม'; unassigned flags no-owner (side-bug fix)", () => {
     expect(taskNextAction(mk({ state: "todo", assignee: "patchwork" }))).toBe("รอ patchwork เริ่ม");
     expect(taskNextAction(mk({ state: "todo", assignee: null }))).toContain("ยังไม่มีเจ้าของ");
+  });
+});
+
+describe("containment / epic (kobo-45)", () => {
+  // helper: make an epic + N children under it, return their ids
+  const family = () => {
+    const epic = addTask({ company: "pgw", title: "epic root", by: "eq3", kind: "epic" });
+    const a = addTask({ company: "pgw", title: "child a", by: "eq3", epic: epic.id });
+    const b = addTask({ company: "pgw", title: "child b", by: "eq3", epic: epic.id });
+    return { epic: epic.id, a: a.id, b: b.id };
+  };
+
+  test("kind:epic + epic parent id persist; a plain task stores neither", () => {
+    const { epic, a } = family();
+    expect(readTask("pgw", epic)!.kind).toBe("epic");
+    expect(readTask("pgw", a)!.epic).toBe(epic);
+    expect(readTask("pgw", a)!.kind).toBeUndefined(); // default task not persisted
+    // parentIds (deps) is a separate axis — untouched by containment
+    expect(readTask("pgw", a)!.parentIds).toBeUndefined();
+  });
+
+  test("epicChildren / openEpicChildren derive containment (epic ≠ parentIds)", () => {
+    const { epic, a, b } = family();
+    const cards = listTasks("pgw");
+    expect(epicChildren(epic, cards).map((c) => c.id).sort()).toEqual([a, b].sort());
+    expect(openEpicChildren(epic, cards).length).toBe(2); // both open
+    completeTask("pgw", a, "eq3");
+    expect(openEpicChildren(epic, listTasks("pgw")).map((c) => c.id)).toEqual([b]);
+  });
+
+  test("epicRollup = N/M done; allDone flips only when every child done (still no auto-close)", () => {
+    const { epic, a, b } = family();
+    expect(epicRollup(epic, listTasks("pgw"))).toEqual({ done: 0, total: 2, allDone: false });
+    completeTask("pgw", a, "eq3");
+    expect(epicRollup(epic, listTasks("pgw"))).toEqual({ done: 1, total: 2, allDone: false });
+    completeTask("pgw", b, "eq3");
+    expect(epicRollup(epic, listTasks("pgw"))).toEqual({ done: 2, total: 2, allDone: true });
+    // allDone is a badge signal, NOT a state flip — epic stays open
+    expect(readTask("pgw", epic)!.state).not.toBe("done");
+  });
+
+  test("epicRollup null for a card with no children (plain card, no badge)", () => {
+    const t = addTask({ company: "pgw", title: "lonely", by: "eq3" });
+    expect(epicRollup(t.id, listTasks("pgw"))).toBeNull();
+  });
+
+  test("createsEpicLoop: self, direct, and deep ancestor cycles are caught; a valid parent is not", () => {
+    // chain g <- p <- c  (getEpic returns each card's parent)
+    const parent: Record<string, string | undefined> = { c: "p", p: "g", g: undefined };
+    const getEpic = (id: string) => parent[id];
+    expect(createsEpicLoop("c", "c", getEpic)).toBe(true); // self
+    expect(createsEpicLoop("g", "c", getEpic)).toBe(true); // g under c → g is c's ancestor → loop
+    expect(createsEpicLoop("p", "c", getEpic)).toBe(true); // deep: p under c
+    expect(createsEpicLoop("c", "g", getEpic)).toBe(false); // c under g is fine (already is)
+    expect(createsEpicLoop("x", "g", getEpic)).toBe(false); // unrelated new child
+  });
+
+  test("setTaskEpic rejects a loop on write; accepts a valid reparent; clears with undefined", () => {
+    const { epic, a, b } = family();
+    // b under a is fine
+    expect(setTaskEpic("pgw", b, a, "eq3")!.epic).toBe(a);
+    // now epic <- a <- b ; making epic a child of b would loop → reject
+    expect(() => setTaskEpic("pgw", epic, b, "eq3")).toThrow(/loop/i);
+    expect(readTask("pgw", epic)!.epic).toBeUndefined(); // unchanged after reject
+    // clear
+    expect(setTaskEpic("pgw", a, undefined, "eq3")!.epic).toBeUndefined();
+  });
+
+  test("setTaskEpic to an unresolvable id is allowed (plain tag, backward-compat)", () => {
+    const t = addTask({ company: "pgw", title: "orphan child", by: "eq3" });
+    expect(setTaskEpic("pgw", t.id, "pgw-ghost", "eq3")!.epic).toBe("pgw-ghost");
+    expect(resolveEpicParent("pgw-ghost", parentStateResolver("pgw")).resolved).toBe(false);
+  });
+
+  test("guard a: archiving an epic with open children is BLOCKED + lists them", () => {
+    const { epic, a, b } = family();
+    let err: unknown;
+    try { archiveTask("pgw", epic, "eq3"); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(EpicArchiveBlockedError);
+    expect((err as EpicArchiveBlockedError).activeChildren.sort()).toEqual([a, b].sort());
+    expect(readTask("pgw", epic)).not.toBeNull(); // still on board — not moved
+  });
+
+  test("guard a: once all children done, the epic archives freely", () => {
+    const { epic, a, b } = family();
+    completeTask("pgw", a, "eq3");
+    completeTask("pgw", b, "eq3");
+    expect(() => archiveTask("pgw", epic, "eq3")).not.toThrow();
+    expect(readTask("pgw", epic)).toBeNull(); // moved to archive
+  });
+
+  test("guard b: done epic with children incomplete is ALLOWED (store permits; caller confirms)", () => {
+    const { epic, a } = family();
+    completeTask("pgw", a, "eq3"); // b still open
+    expect(completeTask("pgw", epic, "eq3")!.state).toBe("done"); // no block on close
+    expect(openEpicChildren(epic, listTasks("pgw")).length).toBe(1); // b still open, surfaced
+  });
+
+  test("guard c: an archived parent resolves to a chip (archived), never a block", () => {
+    const { epic, a, b } = family();
+    completeTask("pgw", a, "eq3");
+    completeTask("pgw", b, "eq3");
+    archiveTask("pgw", epic, "eq3"); // now archived
+    const child = addTask({ company: "pgw", title: "late child", by: "eq3", epic });
+    const ref = resolveEpicParent(child.epic!, parentStateResolver("pgw"));
+    expect(ref.archived).toBe(true);
+    expect(ref.resolved).toBe(true);
+  });
+
+  test("aging sweep keeps a done epic on-board while a child is still open (no orphaning)", () => {
+    const { epic, a, b } = family();
+    completeTask("pgw", a, "eq3");
+    completeTask("pgw", epic, "eq3"); // epic done but b still open
+    const long_ago = Date.now() + DEFAULT_ARCHIVE_DAYS * 86_400_000 + 1; // "now" far in the future
+    const archived = archiveOldDone("pgw", DEFAULT_ARCHIVE_DAYS, "system", long_ago);
+    expect(archived.map((t) => t.id)).toContain(a); // the leaf done child sweeps
+    expect(archived.map((t) => t.id)).not.toContain(epic); // epic stays — b (open) still points to it
+    expect(readTask("pgw", epic)).not.toBeNull();
   });
 });
