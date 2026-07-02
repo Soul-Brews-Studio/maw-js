@@ -210,6 +210,7 @@ const realServeCorePluginNames = [
   "serve-engine-health-polling",
   "serve-maintenance",
   "serve-peer-startup-warnings",
+  "serve-pr-watch",
   "serve-session-reaper",
 ] as const;
 

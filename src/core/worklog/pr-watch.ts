@@ -1,14 +1,17 @@
 /**
- * PR watcher — on-demand (NO background loop).
+ * PR watcher — poll-based (snapshot diff, each transition logs once).
  *
- * Triggered by: `maw done` (on-signal), `maw company worklog log` (on-read), `maw company worklog sync`.
+ * Triggered by: `maw done` (on-signal), `maw company worklog log` (on-read),
+ * `maw company worklog sync`, AND — on a running server — the `serve-pr-watch`
+ * plugin's periodic tick (kobo-33), so a plain github.com web-merge drives the
+ * linked card to done with NO human `maw` command.
  * `gh pr list` is ground truth for open/merged/closed; we diff against a snapshot
  * so each transition logs exactly once. On merge we ping the author's dept lead +
  * the author (carrying content), so the log gets read.
  *
- * Tradeoff (accepted): an out-of-band github.com web merge with no trigger is
- * picked up on the next trigger. In-pane `gh pr merge` is caught immediately by
- * the PostToolUse hook.
+ * An out-of-band github.com web merge is picked up within one server tick (or on
+ * the next on-demand trigger when no server runs). In-pane `gh pr merge` is
+ * caught immediately by the PostToolUse hook.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
