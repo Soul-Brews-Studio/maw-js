@@ -12,7 +12,8 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { archiveTask, checklistProgress, dependencyBlock, listTasks, needsOwner, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type ParentState, type TaskRecord } from "./store";
+import { archiveTask, checklistProgress, dependencyBlock, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskRecord } from "./store";
+import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
   id: string;
@@ -34,9 +35,11 @@ export interface TaskCard {
   body?: string; // raw markdown body (ADR 0003 C) — passthrough for the detail view (eq3-010 kobo-11)
   notes?: TaskRecord["notes"]; // append-only notes (kobo-39) — passthrough for the detail-panel timeline
   needsOwner?: true; // derived (eq3-011 kobo-14): todo + unassigned → off-flow "needs an owner". Absent otherwise.
+  kind?: TaskRecord["kind"]; // "epic" for a container card (kobo-45) — absent for a normal task
+  familyNotes?: FamilyNote[]; // derived (kobo-46): descendant notes tagged by source, for the epic's parent modal. Epics only, when non-empty.
 }
 
-function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState): TaskCard {
+function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[]): TaskCard {
   const card: TaskCard = {
     id: t.id,
     title: t.title,
@@ -63,6 +66,13 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState): Task
   // to show; the card's real state stays todo/in-progress (this is NOT a block state).
   const dep = dependencyBlock(t, resolveParent);
   if (dep.blockedBy.length || dep.missing.length) card.dependency = dep;
+  if (t.kind) card.kind = t.kind; // "epic" (kobo-45) — task default is left absent
+  // Epic parent modal (kobo-46 §Comment): descendant notes tagged by source,
+  // ready for c3 to merge with the card's own `notes`. Only when there are any.
+  if (t.kind === "epic") {
+    const fam = familyNotes(t.id, cards);
+    if (fam.length) card.familyNotes = fam;
+  }
   return card;
 }
 
@@ -71,7 +81,43 @@ export function handleTasksRequest(request: Request): Response {
   const company = url.searchParams.get("company");
   if (!company) return Response.json({ company: null, tasks: [] });
   const resolveParent = parentStateResolver(company); // active state | "archived" | null — shared across the board
-  return Response.json({ company, tasks: listTasks(company).map((t) => toCard(t, resolveParent)) });
+  const cards = listTasks(company);
+  return Response.json({ company, tasks: cards.map((t) => toCard(t, resolveParent, cards)) });
+}
+
+/**
+ * POST /api/tasks/note — append a comment from the web board (kobo-46 §Comment).
+ * Tony types in the card modal; body { company, id, text } → noteTask(by="tony"),
+ * the web board being Tony's surface (spec: "Tony พิมพ์จาก web, by=tony"). A
+ * comment by someone other than the assignee pokes the assignee on the
+ * task-events channel (comment = poke). Behind auth via PROTECTED POST "/tasks/…"
+ * (loopback UI bypasses; LAN must auth).
+ *
+ * ponytail: id travels in the body (not a `:id` path param) to match the sibling
+ * POST /api/tasks/archive — the http router registers exact paths, no param seam.
+ *
+ * Body: { company, id, text } → { ok:true, id, notes } | { ok:false, error }.
+ */
+export async function handleTaskNoteRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; text?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; text?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!company || !id || !text) {
+    return Response.json({ ok: false, error: "company, id, and text are required" }, { status: 400 });
+  }
+  const by = "tony"; // the web board is Tony's surface (spec §Comment)
+  const task = noteTask(company, id, by, text);
+  if (!task) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  notifyTaskComment(task, by, text); // comment = poke assignee (non-author only, task-events → coord pane)
+  return Response.json({ ok: true, id: task.id, notes: task.notes });
 }
 
 /**

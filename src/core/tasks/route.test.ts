@@ -2,14 +2,16 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskArchiveRequest, handleTasksRequest } from "./route";
-import { addTask, claimTask, completeTask, listArchivedTasks, listTasks, prOpenedReview, setTaskPr } from "./store";
+import { handleTaskArchiveRequest, handleTaskNoteRequest, handleTasksRequest } from "./route";
+import { addTask, claimTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
+const prevTest = process.env.MAW_TEST_MODE;
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
+  process.env.MAW_TEST_MODE = "1"; // notifyTaskComment must not fire a real `maw hey` subprocess
   addTask({ company: "pgw", title: "backlog item", by: "eq3", dept: "core" });
   const t = addTask({ company: "pgw", title: "claimed item", by: "eq3", repo: "meganechan/maw-js" });
   claimTask("pgw", t.id, "patchwork");
@@ -17,6 +19,8 @@ beforeAll(() => {
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
+  if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
+  else process.env.MAW_TEST_MODE = prevTest;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -175,5 +179,45 @@ describe("handleTaskArchiveRequest (POST /api/tasks/archive — kobo-35)", () =>
     expect((await post({ company: "arc" })).status).toBe(400);
     const bad = await handleTaskArchiveRequest(new Request("http://x/api/tasks/archive", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("handleTaskNoteRequest (POST /api/tasks/note — kobo-46)", () => {
+  const post = (body: unknown) =>
+    handleTaskNoteRequest(new Request("http://x/api/tasks/note", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+
+  test("appends a note by=tony + returns the updated notes", async () => {
+    const t = addTask({ company: "note", title: "web comment target", by: "eq3", assignee: "patchwork" });
+    const res = await post({ company: "note", id: t.id, text: "please rebase onto alpha" });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; id: string; notes: Array<{ by: string; text: string }> };
+    expect(json.ok).toBe(true);
+    expect(json.notes).toHaveLength(1);
+    expect(json.notes[0]).toMatchObject({ by: "tony", text: "please rebase onto alpha" });
+    // durably stored (append-only) — the very next read sees it
+    expect(readTask("note", t.id)!.notes?.[0]?.by).toBe("tony");
+  });
+
+  test("missing fields → 400, unknown id → 404, bad JSON → 400", async () => {
+    expect((await post({ company: "note", id: "note-1" })).status).toBe(400); // no text
+    expect((await post({ company: "note", id: "note-999", text: "hi" })).status).toBe(404);
+    const bad = await handleTaskNoteRequest(new Request("http://x/api/tasks/note", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
+    expect(bad.status).toBe(400);
+  });
+
+  test("epic card projection carries derived familyNotes (descendant notes, tagged)", async () => {
+    const epic = addTask({ company: "fam", title: "epic", by: "eq3", kind: "epic" });
+    const child = addTask({ company: "fam", title: "child", by: "eq3", epic: epic.id });
+    noteTask("fam", child.id, "patchwork", "child progress");
+    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=fam")).json()) as {
+      tasks: Array<{ id: string; kind?: string; familyNotes?: Array<{ from: string; text: string }> }>;
+    };
+    const epicCard = body.tasks.find((c) => c.id === epic.id)!;
+    expect(epicCard.kind).toBe("epic");
+    expect(epicCard.familyNotes).toEqual([{ from: child.id, text: "child progress", by: "patchwork", ts: expect.any(Number), iso: expect.any(String) }]);
+    // a plain task carries no familyNotes
+    expect(body.tasks.find((c) => c.id === child.id)!.familyNotes).toBeUndefined();
   });
 });

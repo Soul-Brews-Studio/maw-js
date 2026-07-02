@@ -796,3 +796,48 @@ export function resolveEpicParent(
   const st = getState(epicId);
   return { id: epicId, state: st, archived: st === "archived", resolved: st !== null };
 }
+
+/**
+ * All descendant cards under an epic — direct children AND their children, etc.
+ * (epic→task→subtask nests arbitrarily). A visited set makes it safe even if a
+ * cycle somehow slipped in (setTaskEpic guards writes, but a hand-edited file
+ * could still loop). Pure over a given card set — the caller picks the scope.
+ */
+export function descendantCards(epicId: string, cards: TaskRecord[]): TaskRecord[] {
+  const byParent = new Map<string, TaskRecord[]>();
+  for (const c of cards) {
+    if (!c.epic) continue;
+    (byParent.get(c.epic) ?? byParent.set(c.epic, []).get(c.epic)!).push(c);
+  }
+  const out: TaskRecord[] = [];
+  const seen = new Set<string>([epicId]);
+  const stack = [...(byParent.get(epicId) ?? [])];
+  while (stack.length) {
+    const c = stack.pop()!;
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    out.push(c);
+    stack.push(...(byParent.get(c.id) ?? []));
+  }
+  return out;
+}
+
+/** A note carried up to an ancestor's modal, tagged with the card it came from. */
+export interface FamilyNote extends TaskNote {
+  from: string; // source card id (a descendant of the epic)
+}
+
+/**
+ * Descendant notes for an epic's parent modal (kobo-46 §Comment) — every note on
+ * every card under this epic, tagged with `from` and merged oldest-first. The
+ * epic's OWN notes are NOT included (they're already on the card as `notes`); the
+ * renderer (c3) concatenates the two for the full family timeline. Derived at
+ * read, never stored.
+ */
+export function familyNotes(epicId: string, cards: TaskRecord[]): FamilyNote[] {
+  const out: FamilyNote[] = [];
+  for (const c of descendantCards(epicId, cards)) {
+    for (const n of c.notes ?? []) out.push({ ...n, from: c.id });
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}

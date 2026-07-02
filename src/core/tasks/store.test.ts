@@ -17,9 +17,11 @@ import {
   createsEpicLoop,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
+  descendantCards,
   epicChildren,
   EpicArchiveBlockedError,
   epicRollup,
+  familyNotes,
   isBlockedByDependency,
   isOnBoard,
   listArchivedTasks,
@@ -573,5 +575,36 @@ describe("containment / epic (kobo-45)", () => {
     expect(archived.map((t) => t.id)).toContain(a); // the leaf done child sweeps
     expect(archived.map((t) => t.id)).not.toContain(epic); // epic stays — b (open) still points to it
     expect(readTask("pgw", epic)).not.toBeNull();
+  });
+});
+
+describe("family notes (kobo-46 — parent modal derived data)", () => {
+  test("descendantCards walks the whole containment tree (epic→task→subtask)", () => {
+    const epic = addTask({ company: "pgw", title: "epic", by: "eq3", kind: "epic" });
+    const task = addTask({ company: "pgw", title: "task", by: "eq3", epic: epic.id });
+    const sub = addTask({ company: "pgw", title: "subtask", by: "eq3", epic: task.id });
+    const other = addTask({ company: "pgw", title: "unrelated", by: "eq3" });
+    const cards = listTasks("pgw");
+    const ids = descendantCards(epic.id, cards).map((c) => c.id).sort();
+    expect(ids).toEqual([task.id, sub.id].sort()); // both levels, not `other`
+    expect(descendantCards(epic.id, cards).map((c) => c.id)).not.toContain(other.id);
+  });
+
+  test("familyNotes merges descendant notes oldest-first, tagged by source; epic's OWN notes excluded", () => {
+    const epic = addTask({ company: "pgw", title: "epic", by: "eq3", kind: "epic" });
+    const a = addTask({ company: "pgw", title: "a", by: "eq3", epic: epic.id });
+    const b = addTask({ company: "pgw", title: "b", by: "eq3", epic: a.id }); // nested
+    noteTask("pgw", epic.id, "tony", "epic own note"); // must NOT appear in familyNotes
+    noteTask("pgw", a.id, "patchwork", "child a note");
+    noteTask("pgw", b.id, "tony", "sub b note");
+    const fam = familyNotes(epic.id, listTasks("pgw"));
+    expect(fam.map((n) => n.from)).toEqual([a.id, b.id]); // oldest-first, tagged; epic's own excluded
+    expect(fam.map((n) => n.text)).toEqual(["child a note", "sub b note"]);
+  });
+
+  test("familyNotes empty when no descendant has notes", () => {
+    const epic = addTask({ company: "pgw", title: "epic", by: "eq3", kind: "epic" });
+    addTask({ company: "pgw", title: "quiet child", by: "eq3", epic: epic.id });
+    expect(familyNotes(epic.id, listTasks("pgw"))).toEqual([]);
   });
 });
