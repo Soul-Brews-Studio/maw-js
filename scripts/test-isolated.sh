@@ -135,9 +135,18 @@ echo "=== test-isolated.sh: $TOTAL files, per-file subprocess (--isolate)${TIMEO
 failures=0
 for file in "${FILES[@]}"; do
   echo "--- $file ---"
+  # gateway-proxy compiles Rust: its beforeAll runs a cold `cargo build
+  # --release` of ~92 crates (axum/hyper/tokio) and budgets 120s for it
+  # (BUILD_TIMEOUT_MS). The default 60s guard SIGKILLs it mid-build (exit 124)
+  # on CI, which has no cargo cache and rebuilds cold every run. Give this one
+  # file room for the build + tests. ponytail: cold rust build, not a hang.
+  file_timeout="$PER_FILE_TIMEOUT"
+  case "$file" in
+    */gateway-proxy.test.ts) file_timeout="${MAW_TEST_GATEWAY_FILE_TIMEOUT:-240}" ;;
+  esac
   set +e
   if [[ -n "$TIMEOUT_BIN" ]]; then
-    "$TIMEOUT_BIN" "$PER_FILE_TIMEOUT" bun test "$file" \
+    "$TIMEOUT_BIN" "$file_timeout" bun test "$file" \
       --path-ignore-patterns '**/agents/**' \
       "${BUN_EXTRA_ARGS[@]}"
   else
@@ -148,7 +157,7 @@ for file in "${FILES[@]}"; do
   status=$?
   set -e
   if [[ "$status" -eq 124 ]]; then
-    echo "error: isolated test timed out after ${PER_FILE_TIMEOUT}s: $file" >&2
+    echo "error: isolated test timed out after ${file_timeout}s: $file" >&2
     failures=$((failures + 1))
   elif [[ "$status" -ne 0 ]]; then
     echo "error: isolated test failed with exit $status: $file" >&2
