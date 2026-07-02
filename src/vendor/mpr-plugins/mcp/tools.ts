@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "claim" | "review" | "pr" | "done" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "claim" | "review" | "pr" | "done" | "note" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -46,6 +46,7 @@ export interface TaskInput {
   reason?: string;     // review / block
   kind?: string;       // block (required)
   days?: number;       // archive
+  text?: string;       // note (required) — append-only note content
 }
 
 export interface DeptInput {
@@ -177,6 +178,11 @@ export function taskArgs(input: TaskInput): string[] {
       return ["company", "task", "done", needId("done"), ...common()];
     case "unblock":
       return ["company", "task", "unblock", needId("unblock"), ...common()];
+    case "note": {
+      const nid = needId("note");
+      if (!input.text) throw new Error("task note requires text");
+      return ["company", "task", "note", nid, input.text, ...common()];
+    }
     case "review": {
       const argv = ["company", "task", "review", needId("review")];
       if (input.to) argv.push("--to", input.to);

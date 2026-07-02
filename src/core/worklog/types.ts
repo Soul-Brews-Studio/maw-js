@@ -12,6 +12,7 @@
  *   - pr-opened/merged/closed   PR lifecycle (gh ground truth)
  *   - claim / claim-release     soft-lock announce + release (collision guard)
  *   - task-created / task-done  task lifecycle (board backbone, ADR 0001)
+ *   - task-note     append-only note on a card (kobo-39 — mid-flight truth)
  *   - interrupt     reserved — no clean CC hook (deferred)
  *
  * See thread `eq3-lead-dispatch-lock`.
@@ -31,6 +32,7 @@ export type WorklogKind =
   | "task-archived"
   | "task-blocked"
   | "task-unblocked"
+  | "task-note"
   | "interrupt";
 
 export interface WorklogEntry {

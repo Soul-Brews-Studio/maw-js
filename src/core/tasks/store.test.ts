@@ -22,6 +22,7 @@ import {
   listTasks,
   needsOwner,
   nextTaskId,
+  noteTask,
   parentStateResolver,
   prOpenedReview,
   readTask,
@@ -119,6 +120,29 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(true); // claim is open
     completeTask("pgw", "pgw-1", "tony"); // closed by someone else — release keys on assignee, not `by`
     expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(false); // released
+  });
+
+  test("noteTask appends notes (append-only) with author + ts, keeps prior notes, emits task-note", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    const a = noteTask("pgw", "pgw-1", "patchwork", "first note");
+    const b = noteTask("pgw", "pgw-1", "tony", "second note");
+    expect(b?.notes?.length).toBe(2);
+    // append-only: first note is preserved verbatim, order is oldest-first
+    expect(b?.notes?.[0].text).toBe("first note");
+    expect(b?.notes?.[0].by).toBe("patchwork");
+    expect(b?.notes?.[1].text).toBe("second note");
+    expect(b?.notes?.[1].by).toBe("tony");
+    expect(b?.notes?.[0].ts).toBeLessThanOrEqual(b!.notes![1].ts);
+    // persisted to disk, not just returned
+    expect(readTask("pgw", "pgw-1")?.notes?.length).toBe(2);
+    // existing fields untouched
+    expect(readTask("pgw", "pgw-1")?.state).toBe("todo");
+    expect(readWorklog("pgw").filter((e) => e.kind === "task-note" && e.task === "pgw-1").length).toBe(2);
+    void a;
+  });
+
+  test("noteTask on a missing id → null (no throw)", () => {
+    expect(noteTask("pgw", "pgw-999", "x", "hi")).toBeNull();
   });
 
   test("done on a never-claimed card emits no spurious claim-release", () => {

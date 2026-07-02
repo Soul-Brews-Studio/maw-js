@@ -64,9 +64,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"claim"', '"review"', '"pr"', '"done"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"claim"', '"review"', '"pr"', '"done"', '"note"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-39: append-only note verb — needs an id + text; taskArgs targets the
+    // canonical company surface (`maw company task note <id> <text>`).
+    expect(tools).toContain('["company", "task", "note", nid');
+    expect(server).toContain('"note"'); // enum + title advertise the verb
     // cli-reorg kobo-24: targets the canonical `maw company task`, NOT the
     // `maw task` deprecation shim (so no "moved" notice leaks into MCP output).
     expect(tools).toContain('["company", "task"');

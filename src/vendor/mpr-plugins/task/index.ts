@@ -9,6 +9,7 @@
  *   maw company task claim <id>
  *   maw company task pr <id> <pr-number>   # worker links the PR → card.pr + review (pr-watch drives merge→done)
  *   maw company task done <id>             # also clears an explicit block
+ *   maw company task note <id> "<text>"    # append-only note — mid-flight truth (kobo-39)
  *   maw company task archive <id>          # per-card: human reviewed this done card → tasks/archive/ (kobo-35)
  *   maw company task archive [--days N]    # bulk: sweep done cards older than N days → tasks/archive/
  *   maw company task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
@@ -39,6 +40,7 @@ import {
   isOnBoard,
   listTasks,
   needsOwner,
+  noteTask,
   parentStateResolver,
   parsePrNumber,
   reviewTask,
@@ -328,8 +330,23 @@ export async function runTask(
       const t = unblockTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ unblocked\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
+    } else if (subcmd === "note") {
+      // Append-only note (kobo-39) — the ONLY non-terminal verb: records mid-flight
+      // truth (needs_input answer, decision loopback, progress) on the card so the
+      // board reflects reality. id = first positional, text = the rest joined (so
+      // an unquoted multi-word note still works, mirroring `add`'s title join).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const noteText = flags._.slice(1).join(" ").trim();
+      if (!id || !noteText) return { ok: false, error: 'usage: maw company task note <id> "<text>"' };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = noteTask(company, id, me, noteText);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m📝 note\x1b[0m ${t.id} \x1b[90m(${t.notes?.length} total)\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|claim|review|pr|done|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|claim|review|pr|done|note|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

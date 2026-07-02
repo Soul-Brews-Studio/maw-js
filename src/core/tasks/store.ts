@@ -54,6 +54,20 @@ export interface TaskBlock {
   for?: string; // "tony" | "<oracle>" | "any" — who must clear it (decision queue)
 }
 
+/**
+ * Append-only note on a card (kobo-39). The task verbs are all terminal state
+ * transitions; a note is the ONLY way the board carries mid-flight truth —
+ * an answer to a needs_input block, a decision loopback, a progress line.
+ * Principle 1 (Nothing is Deleted): notes are only ever APPENDED, never edited
+ * or removed. Each is stamped with author + time (who / when / what).
+ */
+export interface TaskNote {
+  ts: number; // epoch ms (sort key)
+  iso: string; // ISO-8601 timestamp
+  by: string; // author (oracle / human)
+  text: string; // note content (rendered escape-first on the web)
+}
+
 export interface TaskRecord {
   id: string; // <company>-<n>
   title: string;
@@ -72,6 +86,7 @@ export interface TaskRecord {
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
   body?: string; // free text: why/detail + markdown checklist (ADR 0003 C) — git-diff'able
+  notes?: TaskNote[]; // append-only notes (kobo-39) — mid-flight truth, oldest first, NEVER mutated/deleted
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -382,6 +397,25 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
     emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
   }
+  return task;
+}
+
+/**
+ * Append a note to a card (kobo-39) — APPEND-ONLY (principle 1). Never edits or
+ * removes an existing note: the prior array is spread into a new one with the
+ * note pushed on the end (oldest first). Stamps author + time so the timeline
+ * reads who/when/what. Bumps updatedTs (a note IS activity) and emits a
+ * `task-note` worklog event. Returns null if the card is absent.
+ */
+export function noteTask(company: string, id: string, by: string, text: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text };
+  task.notes = [...(task.notes ?? []), note]; // append-only — prior notes are untouched
+  task.updatedTs = note.ts;
+  writeTaskRecord(task);
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  emit(task, by, "task-note", `note ${task.id}: ${oneLine.length > 60 ? oneLine.slice(0, 57) + "…" : oneLine}`);
   return task;
 }
 

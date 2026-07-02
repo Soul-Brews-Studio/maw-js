@@ -93,6 +93,7 @@ export function companyHtml(): string {
     .col h2 { text-transform:uppercase; letter-spacing:.07em; border-bottom:1px solid var(--line); padding-bottom:8px; }
     .col h2 .count { background:var(--col); border:1px solid var(--line); border-radius:999px; padding:0 8px; font-size:11px; font-weight:600; }
     #detail-panel { border-left:3px solid var(--accent); }
+    #detail-notes .notes-head { margin:12px 0 4px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
   </style>
@@ -128,6 +129,7 @@ export function companyHtml(): string {
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <span id="detail-close" style="cursor:pointer;color:var(--muted)">✕</span></h2>
         <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
         <div class="md" id="detail-body"></div>
+        <div id="detail-notes"></div>
       </div>
       <div class="card">
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">worklog timeline</h2>
@@ -230,6 +232,24 @@ function openDetail(task) {
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.innerHTML = mdToHtml(task.body); }
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
+  // kobo-39: append-only notes timeline (who / when / what) below the body. Reuse
+  // the worklog .entry/.e-* classes. el() sets textContent → escape-first, XSS-safe.
+  const notesEl = $('detail-notes');
+  notesEl.replaceChildren();
+  const notes = task.notes || [];
+  if (notes.length) {
+    const hd = el('div', 'notes-head', 'notes (' + notes.length + ')');
+    notesEl.appendChild(hd);
+    for (const n of notes) { // append-only array is oldest-first — reads as a timeline
+      const row = el('div', 'entry');
+      const head = el('div', 'e-head');
+      head.appendChild(el('span', 'e-oracle', n.by || '?'));
+      head.appendChild(el('span', 'e-ts', n.iso ? localTs(n.iso) : text(n.ts)));
+      row.appendChild(head);
+      row.appendChild(el('div', 'e-summary', n.text || ''));
+      notesEl.appendChild(row);
+    }
+  }
   const panel = $('detail-panel');
   panel.hidden = false;
   // kobo-38: on a full board the sidebar timeline is tall (72vh), so an

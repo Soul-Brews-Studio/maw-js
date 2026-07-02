@@ -144,12 +144,12 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
   server.registerTool(
     "maw_task",
     {
-      title: "Company task board — add/ls/start/claim/review/pr/done/block/unblock/archive",
+      title: "Company task board — add/ls/start/claim/review/pr/done/note/block/unblock/archive",
       description:
-        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
+        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · note (<id> + text = append-only note, mid-flight truth) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
       inputSchema: {
         action: z
-          .enum(["add", "ls", "start", "claim", "review", "pr", "done", "block", "unblock", "archive"])
+          .enum(["add", "ls", "start", "claim", "review", "pr", "done", "note", "block", "unblock", "archive"])
           .describe("task board action"),
         id: z.string().optional().describe("card id (start/claim/done/review/pr/block/unblock; archive = per-card by id)"),
         title: z.string().optional().describe("card title (required for add)"),
@@ -166,6 +166,7 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         for: z.string().optional().describe("ls: decision queue for who · block: --for"),
         to: z.string().optional().describe("review: reviewer oracle"),
         reason: z.string().optional().describe("review/block: reason text"),
+        text: z.string().optional().describe("note: append-only note text (required for note)"),
         kind: z
           .enum(["dependency", "needs_input", "capability", "transient"])
           .optional()
