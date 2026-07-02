@@ -401,6 +401,25 @@ companyInput.addEventListener('change', () => {
 $('refresh').addEventListener('click', load);
 $('detail-close').addEventListener('click', () => { $('detail-panel').hidden = true; });
 load();
+
+// kobo-37: auto-refresh — poll every 5s so the board tracks changes without F5.
+// Pause while the tab is hidden (don't hammer in the background); on re-show,
+// reload immediately + resume so a returning tab is never stale.
+// ponytail: setInterval poll, not SSE/websocket — one viewer on localhost, 3
+// tiny GETs every 5s is far cheaper than building+maintaining a push channel.
+// The open detail panel survives a poll for free: load() re-renders
+// board/timeline/state but never touches #detail-panel, so a card you're
+// reading stays open. Upgrade path if the board ever grows many live viewers:
+// swap this block for an SSE endpoint fed by the worklog append.
+const POLL_MS = 5000;
+let pollTimer = null;
+function startPoll() { if (!pollTimer) pollTimer = setInterval(load, POLL_MS); }
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') stopPoll();
+  else { load(); startPoll(); }
+});
+startPoll();
 </script>
 </body>
 </html>`;
