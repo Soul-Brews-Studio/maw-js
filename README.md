@@ -314,5 +314,3 @@ registry required). See
 For fresh-install bootstrap, plugin source tiers, vendored registry plugins,
 and `maw plugin install` trust/lock behavior, see
 [`docs/plugins/install-architecture.md`](docs/plugins/install-architecture.md).
-
-<!-- e2e kobo-33 pr-watch probe 79dc00e4 -->

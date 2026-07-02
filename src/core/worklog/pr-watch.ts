@@ -20,7 +20,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeTask, findTaskByPr, prOpenedReview } from "../tasks/store";
+import { completeTask, findTaskByPr, prOpenedReview, listTasks, listCompanies } from "../tasks/store";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -102,15 +102,35 @@ async function mergedBy(repo: string, num: number): Promise<string | undefined> 
   }
 }
 
+/**
+ * Repos referenced by open (non-done) PR-linked cards, across every company on
+ * this machine. The board's card→PR link is the source of truth for which repos
+ * matter, independent of what worktrees/fleet windows happen to exist locally.
+ */
+export function openPrLinkedRepos(): string[] {
+  return listCompanies().flatMap(company =>
+    listTasks(company)
+      .filter(t => typeof t.pr === "number" && t.state !== "done" && Boolean(t.repo))
+      .map(t => t.repo as string),
+  );
+}
+
 /** One poll pass over the fleet's repos. Returns the entries recorded. */
 export async function pollPrsOnce(): Promise<WorklogEntry[]> {
   const cfg = loadConfig() as any;
   const fallbackCompany: string | undefined = cfg.company;
 
+  // Repos to poll = local worktree repos ∪ repos referenced by open PR-linked
+  // cards. Worktree scan alone misses a repo whose PRs drive the board when no
+  // .wt-*/agents worktree or fleet window exists for it on this host (e.g. a
+  // served maw-server on a box that only has its own repo checked out) — the
+  // card→PR link is the board's own source of truth, so poll exactly what the
+  // board points at. Generic on task.repo (any company/repo), never hardcoded.
   let repos: string[];
   try {
     const wts = await scanWorktrees();
-    repos = [...new Set(wts.map(w => w.mainRepo).filter(Boolean))];
+    const worktreeRepos = wts.map(w => w.mainRepo).filter(Boolean);
+    repos = [...new Set([...worktreeRepos, ...openPrLinkedRepos()])];
   } catch {
     return [];
   }

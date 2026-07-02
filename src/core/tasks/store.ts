@@ -158,6 +158,17 @@ export function listTasks(company: string): TaskRecord[] {
   return readCardsIn(tasksDir(company)).sort((a, b) => b.ts - a.ts);
 }
 
+/** All companies that have a Company Home on this machine (board dirs). */
+export function listCompanies(): string[] {
+  try {
+    return readdirSync(mawDataPath("companies"), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+
 /** Where archived (off-board, still git-tracked) cards live. */
 export function archiveDir(company: string): string {
   return mawDataPath("companies", safeSegment(company), "tasks", "archive");
