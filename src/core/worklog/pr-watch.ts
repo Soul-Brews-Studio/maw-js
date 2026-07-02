@@ -20,7 +20,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeTask, findTaskByPr, prOpenedReview, listTasks, listCompanies } from "../tasks/store";
+import { completeTask, findTasksByPr, prOpenedReview, listTasks, listCompanies } from "../tasks/store";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -116,17 +116,23 @@ export function openPrLinkedRepos(): string[] {
 }
 
 /**
- * Locate the card linked to a PR across every company on this machine. The
- * card→PR link (task.pr) is globally unique, so this deliberately does NOT
- * depend on mapping the PR author to a company — a github merge login often maps
- * to none, which previously stranded the merge→done flip.
+ * Locate EVERY card linked to a PR across every company on this machine. The
+ * card→PR link (task.pr) is globally unique per (company, card) but a single PR
+ * can bind SEVERAL cards (kobo-43: PR #85 = kobo-38 + kobo-42) — so return all,
+ * not the first, or merge→done strands every card past the first. Deliberately
+ * does NOT map the PR author to a company: a github merge login often maps to
+ * none, which previously stranded the flip.
  */
-export function findCardByPrAnywhere(pr: number): { company: string; taskId: string } | null {
+export function findCardsByPrAnywhere(pr: number): { company: string; taskId: string }[] {
+  const hits: { company: string; taskId: string }[] = [];
   for (const company of listCompanies()) {
-    const task = findTaskByPr(company, pr);
-    if (task) return { company, taskId: task.id };
+    for (const task of findTasksByPr(company, pr)) hits.push({ company, taskId: task.id });
   }
-  return null;
+  return hits;
+}
+
+export function findCardByPrAnywhere(pr: number): { company: string; taskId: string } | null {
+  return findCardsByPrAnywhere(pr)[0] ?? null;
 }
 
 /** One poll pass over the fleet's repos. Returns the entries recorded. */
@@ -181,8 +187,8 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       // belongs to no company), which stranded the merge→done flip in _unscoped
       // and never reached the card (kobo-33 e2e). Prefer the card's own company
       // for the worklog entry too, so the event lands on that board's timeline.
-      const cardHit = findCardByPrAnywhere(pr.number);
-      const company = cardHit?.company ?? (author ? companyOfOracle(author) : null) ?? fallbackCompany;
+      const cardHits = findCardsByPrAnywhere(pr.number);
+      const company = cardHits[0]?.company ?? (author ? companyOfOracle(author) : null) ?? fallbackCompany;
       const base = { ts: Date.now(), iso: new Date().toISOString(), oracle: author || "unknown", company, repo, pr: pr.number };
 
       if (cur === "MERGED") {
@@ -192,9 +198,11 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         recorded.push(entry);
         const lead = author ? scopeOfOracle(author)?.lead ?? null : null;
         pingOnMerge({ lead, author: author ?? null, pr: pr.number, repo, by });
-        // Track 4 — merge = approval → auto-done the task that owns this PR.
+        // Track 4 — merge = approval → auto-done EVERY card that owns this PR
+        // (kobo-43: one PR can bind several cards; flip them all, not just the
+        // first, or the rest strand in review until a human hand-flips).
         try {
-          if (cardHit) completeTask(cardHit.company, cardHit.taskId, by || author || "pr-watch");
+          for (const hit of cardHits) completeTask(hit.company, hit.taskId, by || author || "pr-watch");
         } catch { /* never let task auto-done break PR-watch */ }
       } else if (cur === "CLOSED") {
         const entry: WorklogEntry = { ...base, kind: "pr-closed", summary: `closed #${pr.number} ${pr.title}` };
@@ -204,11 +212,12 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         const entry: WorklogEntry = { ...base, kind: "pr-opened", summary: `opened #${pr.number} ${pr.title}` };
         record(entry);
         recorded.push(entry);
-        // eq3-011 kobo-13: PR open = truth → drive the linked card to review,
+        // eq3-011 kobo-13: PR open = truth → drive the linked card(s) to review,
         // owned by the PR author, reviewer = human. Mirrors the merge→done path;
-        // acts off the card.pr link, fires once on this OPEN transition.
+        // acts off the card.pr link, fires once on this OPEN transition. kobo-43:
+        // flip every card the PR binds, not just the first.
         try {
-          if (cardHit && author) prOpenedReview(cardHit.company, cardHit.taskId, author);
+          if (author) for (const hit of cardHits) prOpenedReview(hit.company, hit.taskId, author);
         } catch { /* never let task lifecycle break PR-watch */ }
       }
     }

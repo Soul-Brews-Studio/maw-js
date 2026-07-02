@@ -75,3 +75,33 @@ describe("findCardByPrAnywhere", () => {
     expect(findCardByPrAnywhere(999)).toBeNull();
   });
 });
+
+// kobo-43: one PR can bind SEVERAL cards (PR #85 = kobo-38 + kobo-42). The old
+// single-card finder + single completeTask flipped only the first, stranding the
+// rest in review until a human hand-flipped. This is the gap single-card tests
+// green-washed.
+describe("findCardsByPrAnywhere + merge→done (kobo-43 multi-card)", () => {
+  it("returns EVERY non-done card bound to one PR, excluding already-done", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?findcards-multi");
+    card("kobo", "kobo-38", { state: "review", pr: 85, repo: "meganechan/maw-js" });
+    card("kobo", "kobo-42", { state: "review", pr: 85, repo: "meganechan/maw-js" });
+    card("kobo", "kobo-99", { state: "review", pr: 90, repo: "meganechan/maw-js" }); // other PR
+    card("kobo", "done-85", { state: "done", pr: 85, repo: "meganechan/maw-js" });   // already done
+
+    const hits = findCardsByPrAnywhere(85);
+    expect(hits.map((h) => h.taskId).sort()).toEqual(["kobo-38", "kobo-42"]);
+  });
+
+  it("merge → done flips ALL cards bound to the PR, none stranded", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?flip-multi");
+    const { completeTask, readTask } = await import("../tasks/store.ts?flip-multi");
+    card("kobo", "kobo-38", { state: "review", pr: 85, repo: "meganechan/maw-js", assignee: "patchwork" });
+    card("kobo", "kobo-42", { state: "review", pr: 85, repo: "meganechan/maw-js", assignee: "patchwork" });
+
+    // the exact action pr-watch runs on a MERGED transition — no human, no gh.
+    for (const hit of findCardsByPrAnywhere(85)) completeTask(hit.company, hit.taskId, "pr-watch");
+
+    expect(readTask("kobo", "kobo-38")?.state).toBe("done");
+    expect(readTask("kobo", "kobo-42")?.state).toBe("done"); // was stranded pre-fix
+  });
+});

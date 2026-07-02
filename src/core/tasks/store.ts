@@ -506,8 +506,13 @@ export function archiveOldDone(
 }
 
 /** Find the task in a company carrying this PR number (for PR-watch auto-done). */
+/** All non-done cards carrying this PR (one PR may bind several cards). */
+export function findTasksByPr(company: string, pr: number): TaskRecord[] {
+  return listTasks(company).filter((t) => t.pr === pr && t.state !== "done");
+}
+
 export function findTaskByPr(company: string, pr: number): TaskRecord | null {
-  return listTasks(company).find((t) => t.pr === pr && t.state !== "done") ?? null;
+  return findTasksByPr(company, pr)[0] ?? null;
 }
 
 /** Pull a GitHub PR number out of a reply message (…/pull/<n>). null if none. */
