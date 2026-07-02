@@ -72,6 +72,21 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('["company", "task"');
     expect(tools).not.toMatch(/\[\s*"task"\s*,/);
   });
+
+  // eq3-020: the maw_hey `target` describe must document every routing format the
+  // CLI honors — bare, session:window, `.N` pane-address, and cross-node
+  // `<node>:<oracle>` — plus the auto `[node:oracle]` sender envelope. MCP-only
+  // callers otherwise never discover pane addressing (discoverability gap).
+  test("maw_hey documents pane-address (.N) + cross-node target formats + sender envelope", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    // find the maw_hey registration block
+    const heyIdx = server.indexOf('"maw_hey"');
+    expect(heyIdx).toBeGreaterThan(-1);
+    const heyBlock = server.slice(heyIdx, heyIdx + 1200);
+    expect(heyBlock).toContain("<session>:<window>.<pane>"); // .N pane addressing
+    expect(heyBlock).toContain("<node>:<oracle>"); // cross-node prefix
+    expect(heyBlock).toContain("[node:oracle]"); // sender envelope
+  });
 });
 
 describe("parseMawRef", () => {

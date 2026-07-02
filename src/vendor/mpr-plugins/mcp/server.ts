@@ -49,9 +49,19 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
     "maw_hey",
     {
       title: "Send a message to another oracle",
-      description: "Send a message to a target oracle/peer (maw hey <target> <message>).",
+      description:
+        "Send a message to a target oracle/peer (maw hey <target> <message>). " +
+        "Sender is auto-signed as a [node:oracle] envelope (derived from CLAUDE_AGENT_NAME / the tmux session).",
       inputSchema: {
-        target: z.string().describe("target oracle/peer name"),
+        target: z
+          .string()
+          .describe(
+            "Target address. Formats: `<oracle>` (bare local name); `<session>:<window>`; " +
+              "`<session>:<window>.<pane>` — the `.N` suffix routes to a SPECIFIC pane (needed when a " +
+              "window has multiple panes, e.g. a coordinator in pane 1 beside a PM in pane 0; without it, " +
+              "delivery auto-picks the lowest-index agent pane, NOT necessarily the one you replied from); " +
+              "`<node>:<oracle>` for a cross-node peer (the explicit `<node>:` prefix is required to leave the local node).",
+          ),
         message: z.string().describe("message body"),
       },
     },
