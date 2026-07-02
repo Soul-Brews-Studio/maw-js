@@ -51,6 +51,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("BLOCK_KINDS");
     // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
     expect(src).toContain("resolveSenderIdentity");
+    // kobo-36 (eq3-036): task-event pings are tagged with the coord channel so a
+    // multi-pane warroom routes them to the target's declared coord pane, not .0.
+    expect(src).toContain('"--channel", "task-events"');
   });
 
   // cli-reorg kobo-26: `maw task` is HARD-REMOVED (no shim). The plugin exports

@@ -75,10 +75,18 @@ function resolveCompany(flag: string | undefined, me: string): string | null {
   return flag ?? companyOfOracle(me) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
 }
 
-/** Best-effort ping (assignee notified on assignment) — never blocks the CLI. */
+/**
+ * Best-effort ping (assignee/reviewer notified on task events) — never blocks
+ * the CLI. kobo-36 (eq3-036): tagged with `--channel task-events` so, in a
+ * multi-pane warroom, the notification lands in the target's coordinator pane
+ * (if it declared one via `maw route set task-events .N`) instead of the default
+ * main pane. No mapping registered → `maw hey` keeps its default-pane behavior.
+ */
 function ping(target: string, message: string): void {
   try {
-    Bun.spawn(["maw", "hey", target, message], { stdout: "ignore", stderr: "ignore" });
+    // ponytail: channel is hard-coded "task-events" — all task board pings are
+    // coord-plane events; a per-event channel split isn't needed yet.
+    Bun.spawn(["maw", "hey", "--channel", "task-events", target, message], { stdout: "ignore", stderr: "ignore" });
   } catch {
     /* worklog already recorded the event — delivery is best effort */
   }

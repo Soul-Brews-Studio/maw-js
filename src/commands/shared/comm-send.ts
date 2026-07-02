@@ -24,6 +24,7 @@ import {
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
+import { getPaneRoute } from "../../core/pane-routes";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -41,6 +42,13 @@ import { notifyLiveInboxReceiver } from "./live-inbox-notify";
  * what they want — pass through untouched. If no agent pane is found,
  * return the target unchanged so the existing "no active Claude session"
  * error path surfaces correctly.
+ *
+ * kobo-36 (eq3-036) — channel→pane routing. When the caller supplies a
+ * `route: { oracle, channel }`, we first consult the pane-route registry:
+ * if that oracle declared a pane for the channel AND that pane is live in
+ * the window, deliver there (e.g. board/task/federation events → the coord
+ * pane, not the default `.0` main pane). No mapping / stale pane → fall
+ * through to the existing lowest-agent-pane default (backward-compatible).
  */
 /** @internal */
 export async function resolveOraclePane(
@@ -48,7 +56,9 @@ export async function resolveOraclePane(
   deps: {
     tmuxRun?: (...args: string[]) => Promise<string>;
     isAgentCommandFn?: typeof isAgentCommand;
+    getPaneRouteFn?: typeof getPaneRoute;
   } = {},
+  route: { oracle?: string; channel?: string } = {},
 ): Promise<string> {
   // Already pane-specific — honor caller's choice.
   if (/\.[0-9]+$/.test(target)) return target;
@@ -60,16 +70,28 @@ export async function resolveOraclePane(
     const lines = raw.split("\n").map((l: string) => l.trim()).filter(Boolean);
     if (lines.length <= 1) return target; // single-pane window: active pane is the only pane
 
+    const paneIndexes = new Set<number>();
     const agentIndexes: number[] = [];
     for (const line of lines) {
       const spaceIdx = line.indexOf(" ");
       if (spaceIdx < 0) continue;
       const idx = parseInt(line.slice(0, spaceIdx), 10);
+      if (!Number.isFinite(idx)) continue;
+      paneIndexes.add(idx);
       const cmd = line.slice(spaceIdx + 1);
-      if (Number.isFinite(idx) && isAgent(cmd)) {
-        agentIndexes.push(idx);
-      }
+      if (isAgent(cmd)) agentIndexes.push(idx);
     }
+
+    // kobo-36 — channel→pane registry consult. Only overrides the default when a
+    // mapping exists AND the declared pane is actually present (guards stale
+    // layouts: a closed coord pane routes to default, not a dead index). No route
+    // context / no mapping → skip straight to the existing default.
+    if (route.oracle && route.channel) {
+      const getRoute = deps.getPaneRouteFn ?? getPaneRoute;
+      const mapped = getRoute(route.oracle, route.channel);
+      if (mapped !== null && paneIndexes.has(mapped)) return `${target}.${mapped}`;
+    }
+
     if (agentIndexes.length === 0) return target;
     return `${target}.${Math.min(...agentIndexes)}`;
   } catch {
@@ -545,6 +567,13 @@ export interface CmdSendOptions {
    * loops where the +800ms verify cost is unacceptable.
    */
   noVerifySubmit?: boolean;
+  /**
+   * kobo-36 (eq3-036) — logical channel for this send (e.g. "task-events").
+   * When set, local pane resolution consults the target oracle's pane-route
+   * registry so a role-specific pane (coord vs worker) receives the message
+   * instead of the default main pane. Unset → default pane behavior.
+   */
+  channel?: string;
 }
 
 /** @internal — exported for test injection only. */
@@ -1043,7 +1072,13 @@ export async function cmdSend(
   // would otherwise land in whichever pane is currently active, not the
   // oracle's claude pane. See resolveOraclePane.
   if (result?.type === "local" || result?.type === "self-node") {
-    const target = await resolveOraclePane(result.target);
+    // kobo-36 — pass the target oracle + channel so pane resolution can honor a
+    // registered channel→pane mapping (e.g. task-events → coord pane). The oracle
+    // key derives from the user's query (bare name; node prefix / -oracle suffix
+    // stripped by the registry). No channel → registry consult is a no-op.
+    const target = await resolveOraclePane(
+      result.target, {}, { oracle: query, channel: opts.channel },
+    );
     if (opts.inboxOnly) {
       const inbox = await writeReceiverInbox(target);
       if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) {

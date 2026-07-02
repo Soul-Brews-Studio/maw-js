@@ -86,6 +86,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     let trust = false;
     let noVerifySubmit = false;
     let from: string | undefined;
+    let channel: string | undefined;
     let target: string | undefined;
     const msgArgs: string[] = [];
 
@@ -96,6 +97,17 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       if (arg === "--approve") { approve = true; continue; }
       if (arg === "--trust") { trust = true; continue; }
       if (arg === "--no-verify-submit") { noVerifySubmit = true; continue; }
+      // kobo-36 — logical channel; delivery consults the target's channel→pane map.
+      if (arg === "--channel") {
+        if (!rest[i + 1] || rest[i + 1].startsWith("--")) {
+          console.error("✗ missing value for --channel");
+          throw new UserError("missing value for --channel");
+        }
+        channel = rest[i + 1];
+        i += 1;
+        continue;
+      }
+      if (arg.startsWith("--channel=")) { channel = arg.slice("--channel=".length); continue; }
       if (arg === "--from") {
         if (!rest[i + 1] || rest[i + 1].startsWith("--")) {
           console.error("✗ missing value for --from");
@@ -179,8 +191,83 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       }
     }
 
-    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}) });
+    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}), ...(channel ? { channel } : {}) });
     return true;
   }
+
+  // kobo-36 (eq3-036) — `maw route` declares a channel→pane mapping so inbound
+  // notifications (task events / federation push) land in the pane that plays the
+  // matching role (e.g. coord pane) instead of the default main pane.
+  if (cmd === "route") {
+    return await routePaneRoute(args.slice(1));
+  }
   return false;
+}
+
+/**
+ * `maw route` — manage the channel→pane registry (kobo-36 / eq3-036).
+ *
+ *   maw route set <channel> <pane> [--oracle <name>]   # declare (pane = N or .N)
+ *   maw route ls [--oracle <name>]                       # list mappings
+ *   maw route rm <channel> [--oracle <name>]             # remove a mapping
+ *
+ * Oracle defaults to self (CLAUDE_AGENT_NAME / attached tmux pane / config).
+ */
+async function routePaneRoute(args: string[]): Promise<boolean> {
+  const [{ setPaneRoute, removePaneRoute, listPaneRoutes }, { resolveMyName }, { loadConfig }] = await Promise.all([
+    import("../core/pane-routes"),
+    import("../commands/shared/comm-send"),
+    import("../config"),
+  ]);
+
+  const sub = args[0];
+  const usage = (write: (l: string) => void = console.log) => {
+    write("usage: maw route set <channel> <pane> [--oracle <name>]");
+    write("       maw route ls [--oracle <name>]");
+    write("       maw route rm <channel> [--oracle <name>]");
+    write("  Declare which pane plays a role for inbound events (kobo-36).");
+    write("  channels: task-events (board/task/federation → coord pane), or any label.");
+    write("  pane: a pane index (N or .N). oracle defaults to self.");
+  };
+
+  if (!sub || sub === "--help" || sub === "-h") { usage(); return true; }
+
+  // Parse --oracle out of the positionals.
+  const rest: string[] = [];
+  let oracleFlag: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--oracle") { oracleFlag = args[i + 1]; i += 1; continue; }
+    if (args[i].startsWith("--oracle=")) { oracleFlag = args[i].slice("--oracle=".length); continue; }
+    rest.push(args[i]);
+  }
+  const oracle = (oracleFlag ?? resolveMyName(loadConfig())).trim();
+
+  if (sub === "set") {
+    const channel = rest[1];
+    const paneRaw = rest[2];
+    if (!channel || paneRaw === undefined) { usage(console.error); throw new UserError("route set requires <channel> <pane>"); }
+    const paneIndex = parseInt(paneRaw.replace(/^\./, ""), 10);
+    if (!Number.isInteger(paneIndex) || paneIndex < 0) { console.error(`✗ invalid pane '${paneRaw}' (expected N or .N)`); throw new UserError("invalid pane index"); }
+    setPaneRoute(oracle, channel, paneIndex);
+    console.log(`\x1b[32m✓\x1b[0m route ${oracle}: ${channel} → .${paneIndex}`);
+    return true;
+  }
+  if (sub === "ls" || sub === "list") {
+    const map = listPaneRoutes(oracleFlag ? oracle : undefined);
+    const entries = Object.entries(map);
+    if (entries.length === 0) { console.log("(no pane routes declared)"); return true; }
+    for (const [orc, channels] of entries) {
+      for (const [ch, idx] of Object.entries(channels)) console.log(`${orc}: ${ch} → .${idx}`);
+    }
+    return true;
+  }
+  if (sub === "rm" || sub === "remove" || sub === "delete") {
+    const channel = rest[1];
+    if (!channel) { usage(console.error); throw new UserError("route rm requires <channel>"); }
+    const removed = removePaneRoute(oracle, channel);
+    console.log(removed ? `\x1b[32m✓\x1b[0m removed ${oracle}: ${channel}` : `(no mapping ${oracle}: ${channel})`);
+    return true;
+  }
+  usage(console.error);
+  throw new UserError(`unknown route subcommand '${sub}'`);
 }

@@ -130,3 +130,65 @@ describe("resolveOraclePane — H1 defensive refactor", () => {
     (_rTmuxAgain.Tmux.prototype as any).run = origRun;
   });
 });
+
+describe("resolveOraclePane — kobo-36 channel→pane routing", () => {
+  beforeEach(() => {
+    runCalls = [];
+    runReturnValue = "";
+  });
+
+  // 4-pane warroom: coord (agent) at .1, worker (agent) at .2, main at .0.
+  const WARROOM = "0 claude\n1 claude\n2 claude\n3 zsh\n";
+
+  test("channel with a live mapped pane → routes there (overrides default .0)", async () => {
+    runReturnValue = WARROOM;
+    const result = await resolveOraclePane(
+      "eq3:eq3-oracle",
+      { getPaneRouteFn: (oracle, channel) => (oracle === "eq3" && channel === "task-events" ? 1 : null) },
+      { oracle: "eq3", channel: "task-events" },
+    );
+    expect(result).toBe("eq3:eq3-oracle.1"); // coord pane, NOT .0
+  });
+
+  test("mapped pane not present in window → falls back to default lowest-agent pane", async () => {
+    runReturnValue = WARROOM; // panes 0..3; mapping points at 9 (stale/closed)
+    const result = await resolveOraclePane(
+      "eq3:eq3-oracle",
+      { getPaneRouteFn: () => 9 },
+      { oracle: "eq3", channel: "task-events" },
+    );
+    expect(result).toBe("eq3:eq3-oracle.0"); // stale → default, never a dead index
+  });
+
+  test("no mapping for the channel → default behavior unchanged (backward-compat)", async () => {
+    runReturnValue = WARROOM;
+    const result = await resolveOraclePane(
+      "eq3:eq3-oracle",
+      { getPaneRouteFn: () => null },
+      { oracle: "eq3", channel: "task-events" },
+    );
+    expect(result).toBe("eq3:eq3-oracle.0");
+  });
+
+  test("no channel supplied → registry is never consulted", async () => {
+    runReturnValue = WARROOM;
+    let consulted = false;
+    const result = await resolveOraclePane(
+      "eq3:eq3-oracle",
+      { getPaneRouteFn: () => { consulted = true; return 1; } },
+      { oracle: "eq3" }, // channel omitted
+    );
+    expect(consulted).toBe(false);
+    expect(result).toBe("eq3:eq3-oracle.0");
+  });
+
+  test("explicit .N suffix still wins over any channel mapping", async () => {
+    const result = await resolveOraclePane(
+      "eq3:eq3-oracle.2",
+      { getPaneRouteFn: () => 1 },
+      { oracle: "eq3", channel: "task-events" },
+    );
+    expect(result).toBe("eq3:eq3-oracle.2");
+    expect(runCalls).toHaveLength(0); // short-circuits before list-panes
+  });
+});
