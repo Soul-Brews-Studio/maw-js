@@ -124,6 +124,27 @@ export function companyHtml(): string {
     .write-row button:disabled { opacity:.55; cursor:default; }
     .write-msg { font-size:12px; min-height:16px; }
     .write-msg.err { color:var(--bad); } .write-msg.ok { color:var(--ok); }
+    /* kobo-49 c5 — tab shell (Kanban / Worklog / Presence). */
+    .tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    .tab { background:none; border:0; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; padding:8px 16px; color:var(--muted); cursor:pointer; }
+    .tab:hover { color:var(--fg); }
+    .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .tab:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); }
+    .tab .tab-count { font-size:11px; color:var(--muted); margin-left:6px; }
+    .tabpanel[hidden] { display:none; }
+    .timeline-full { max-height:78vh; }
+    /* kobo-49 c5 — Presence tab, derived from the worklog feed (no /api/presence). */
+    .presence-note { font-size:12px; color:var(--muted); background:var(--col); border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:14px; line-height:1.5; }
+    .presence-note b { color:var(--warn); }
+    .presence-list { display:flex; flex-direction:column; gap:8px; }
+    .presence-row { display:flex; align-items:baseline; gap:10px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); flex-wrap:wrap; }
+    .presence-row .p-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; align-self:center; }
+    .presence-row .p-dot.active { background:var(--ok); }
+    .presence-row .p-oracle { color:var(--accent); font-weight:600; }
+    .presence-row .p-when { color:var(--muted); font-size:12px; }
+    .presence-row .p-count { color:var(--muted); font-size:11px; margin-left:auto; }
+    .presence-row .p-status { color:var(--ok); font-size:12px; width:100%; }
+    .presence-row .p-last { color:var(--fg); font-size:12px; width:100%; white-space:pre-wrap; word-break:break-word; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
   </style>
@@ -140,31 +161,44 @@ export function companyHtml(): string {
       <button id="refresh" type="button">refresh</button>
     </div>
   </header>
-  <main class="layout">
-    <section class="card">
-      <div class="family-bar" id="family-bar" hidden></div>
-      <div class="board">
-        <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
-        <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
-        <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
-        <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
-        <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
-      </div>
-      <div class="attention" id="attention-panel" hidden>
-        <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
-        <div class="lane" id="blocked"></div>
-      </div>
-    </section>
-    <aside class="stack">
+  <nav class="tabs" role="tablist" aria-label="views">
+    <button type="button" class="tab active" data-tab="kanban" role="tab" aria-selected="true">Kanban</button>
+    <button type="button" class="tab" data-tab="worklog" role="tab" aria-selected="false">Worklog<span class="tab-count" id="tab-count-worklog"></span></button>
+    <button type="button" class="tab" data-tab="presence" role="tab" aria-selected="false">Presence<span class="tab-count" id="tab-count-presence"></span></button>
+  </nav>
+  <main>
+    <section class="tabpanel" data-tab="kanban" role="tabpanel">
       <div class="card">
-        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">worklog timeline</h2>
-        <div class="timeline" id="timeline"></div>
+        <div class="family-bar" id="family-bar" hidden></div>
+        <div class="board">
+          <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
+          <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
+          <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
+          <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
+          <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
+        </div>
+        <div class="attention" id="attention-panel" hidden>
+          <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
+          <div class="lane" id="blocked"></div>
+        </div>
       </div>
-      <div class="card" id="state-panel" hidden>
+      <div class="card" id="state-panel" style="margin-top:16px" hidden>
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">coordination state</h2>
         <div class="md" id="state-md"></div>
       </div>
-    </aside>
+    </section>
+    <section class="tabpanel" data-tab="worklog" role="tabpanel" hidden>
+      <div class="card">
+        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">worklog timeline</h2>
+        <div class="timeline timeline-full" id="timeline"></div>
+      </div>
+    </section>
+    <section class="tabpanel" data-tab="presence" role="tabpanel" hidden>
+      <div class="card">
+        <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">presence · who's around</h2>
+        <div id="presence"></div>
+      </div>
+    </section>
   </main>
   <div class="overlay" id="detail-overlay" hidden>
     <div class="card modal" id="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
@@ -193,6 +227,7 @@ function currentCompany() { return (companyInput.value || '').trim(); }
 // and fall back to the client derivation. Same spec shape either way.
 let taskIndex = { byId: new Map(), childrenOf: new Map() };
 let lastTasks = [];
+let lastEntries = []; // cached worklog feed — powers the Worklog + Presence tabs (kobo-49)
 let familyFilter = null; // root card id while filtering to one family, else null
 
 function buildIndex(tasks) {
@@ -591,6 +626,80 @@ function renderTimeline(entries) {
   }
 }
 
+// kobo-49 c5 — compact "5m ago" relative time from an epoch ms; falls back to '' .
+function relTime(ts) {
+  if (!ts) return '';
+  const s = Math.max(0, Math.round((nowMs() - ts) / 1000));
+  if (s < 60) return s + 's ago';
+  const m = Math.round(s / 60); if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+// Wall clock read once per render (Date.now is fine in the browser).
+function nowMs() { return Date.now(); }
+
+// kobo-49 c5 — Presence, DERIVED from the worklog feed. There is no /api/presence
+// or /api/roster (only federation TransportPresence heartbeat, not exposed), and
+// clock-in/out/toilet/seat/hey are NOT distinct worklog kinds — they only appear
+// as free text inside tool/conversation summaries. So presence here = per-oracle
+// activity: last-seen + pane + event count + last action, over the fetched window.
+// A best-effort scan surfaces clock-in/out/seat/toilet lines when present, clearly
+// labelled. We DO NOT invent a roster: an oracle with no worklog activity in the
+// window simply won't appear (flagged in the note). No store, no guessing.
+const STATUS_RE = /(clock[ -]?in|clock[ -]?out|clocked in|clocked out|\\/toilet|\\btoilet\\b|\\/seat|\\bseat\\b|\\bflush\\b|clock-out)/i;
+const ACTIVE_MS = 10 * 60 * 1000; // green dot = active within 10 min
+
+function renderPresence(entries) {
+  const host = $('presence');
+  host.replaceChildren();
+  const note = el('div', 'presence-note');
+  note.innerHTML = 'Derived from the worklog activity feed — there is no <b>/api/presence</b> or <b>/api/roster</b>. Shows who has activity in the last ' + entries.length + ' events (last-seen · pane · count · last action). Oracles with no recent worklog activity do not appear; clock-in/out/seat/toilet are best-effort text matches, not structured events.';
+  host.appendChild(note);
+  if (!entries.length) { host.appendChild(el('div', 'empty', 'no worklog activity to derive presence from')); return; }
+  // Fold the feed to one row per oracle: newest entry wins for last-seen + pane.
+  const byOracle = new Map();
+  for (const e of entries) {
+    const key = e.oracle || '?';
+    let o = byOracle.get(key);
+    if (!o) { o = { oracle: key, pane: e.pane, last: e, count: 0, status: null }; byOracle.set(key, o); }
+    o.count++;
+    if ((e.ts || 0) >= (o.last.ts || 0)) { o.last = e; o.pane = e.pane; }
+    if (STATUS_RE.test(e.summary || '') && (!o.status || (e.ts || 0) >= (o.status.ts || 0))) o.status = e;
+  }
+  const rows = [...byOracle.values()].sort((a, b) => (b.last.ts || 0) - (a.last.ts || 0));
+  const list = el('div', 'presence-list');
+  for (const o of rows) {
+    const row = el('div', 'presence-row');
+    const active = (nowMs() - (o.last.ts || 0)) <= ACTIVE_MS;
+    const dot = el('span', 'p-dot' + (active ? ' active' : '')); dot.title = active ? 'active (last 10 min)' : 'idle';
+    row.appendChild(dot);
+    row.appendChild(el('span', 'p-oracle', o.oracle + (o.pane ? '.' + o.pane : '')));
+    row.appendChild(el('span', 'p-when', o.last.iso ? relTime(o.last.ts) + ' · ' + localTs(o.last.iso) : text(o.last.ts)));
+    row.appendChild(el('span', 'p-count', o.count + ' event' + (o.count === 1 ? '' : 's')));
+    row.appendChild(el('div', 'p-last', (o.last.kind || 'tool') + ' · ' + (o.last.summary || '')));
+    if (o.status) row.appendChild(el('div', 'p-status', '⚑ status: ' + (o.status.summary || '') + ' (' + relTime(o.status.ts) + ')'));
+    list.appendChild(row);
+  }
+  host.appendChild(list);
+}
+
+// kobo-49 c5 — tab shell. Only one tabpanel visible at a time; the dynamic tabs
+// (worklog/presence) re-render from the cached feed on show + on each poll while active.
+let activeTab = 'kanban';
+function showTab(name) {
+  activeTab = name;
+  for (const p of document.querySelectorAll('.tabpanel')) p.hidden = (p.dataset.tab !== name);
+  for (const b of document.querySelectorAll('.tab')) { const on = b.dataset.tab === name; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
+  if (name === 'worklog') renderTimeline(lastEntries);
+  else if (name === 'presence') renderPresence(lastEntries);
+  try { localStorage.setItem('maw-company-tab', name); } catch (e) { /* private mode */ }
+}
+function updateTabCounts() {
+  $('tab-count-worklog').textContent = lastEntries.length ? '(' + lastEntries.length + ')' : '';
+  const oracles = new Set(lastEntries.map((e) => e.oracle || '?'));
+  $('tab-count-presence').textContent = oracles.size ? '(' + oracles.size + ')' : '';
+}
+
 // Minimal, escape-first markdown→HTML for the markdown-file panel. We escape & <
 // > FIRST, then apply formatting, so company state.md can never inject HTML.
 function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -644,7 +753,7 @@ async function getJson(url) {
 async function load() {
   const company = currentCompany();
   $('co-name').textContent = company || '—';
-  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); return; }
+  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([]); return; }
   statusEl.textContent = 'loading…';
   statusEl.className = '';
   try {
@@ -652,16 +761,19 @@ async function load() {
     // state panel is optional — a failed/absent state.md must not break the page.
     const [tasksRes, feedRes, stateRes] = await Promise.all([
       getJson('/api/tasks' + q),
-      getJson('/api/worklog/feed' + q + '&limit=50'),
+      getJson('/api/worklog/feed' + q + '&limit=200'), // wider window feeds the Worklog + Presence tabs (kobo-49)
       getJson('/api/state' + q).catch(() => null),
     ]);
     const tasks = Array.isArray(tasksRes.tasks) ? tasksRes.tasks : [];
     const entries = Array.isArray(feedRes.entries) ? feedRes.entries : [];
     lastTasks = tasks;
+    lastEntries = entries;
     buildIndex(tasks); // full-list index for rollup / parent-chip / family derivation
     renderBoard(tasks);
     renderTimeline(entries);
     renderState(stateRes);
+    updateTabCounts();
+    if (activeTab === 'presence') renderPresence(entries); // keep the live tab fresh on poll
     statusEl.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · ' + entries.length + ' worklog entr' + (entries.length === 1 ? 'y' : 'ies') + (stateRes && stateRes.exists ? ' · state.md' : '');
   } catch (err) {
     statusEl.textContent = 'failed to load: ' + (err && err.message ? err.message : err);
@@ -699,6 +811,9 @@ companyInput.addEventListener('change', () => {
   load();
 });
 $('refresh').addEventListener('click', load);
+// kobo-49 c5 — tab switching + restore the last-used tab per browser.
+for (const b of document.querySelectorAll('.tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
+(function () { let t = 'kanban'; try { t = localStorage.getItem('maw-company-tab') || 'kanban'; } catch (e) { /* private mode */ } if (!document.querySelector('.tab[data-tab="' + t + '"]')) t = 'kanban'; showTab(t); })();
 // kobo-44 modal close paths: ✕ button, backdrop click (target === overlay only,
 // not clicks inside the dialog), Esc, and a basic focus trap so Tab stays inside.
 $('detail-close').addEventListener('click', closeDetail);
