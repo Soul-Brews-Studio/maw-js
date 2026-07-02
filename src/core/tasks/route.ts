@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, checklistProgress, dependencyBlock, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, checklistProgress, dependencyBlock, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -170,8 +170,17 @@ export async function handleTaskArchiveRequest(request: Request): Promise<Respon
  * form a containment loop (its id is new), so no loop check is needed here.
  * Behind auth via PROTECTED POST "/tasks/…" (loopback UI bypasses; LAN must auth).
  *
+ * Validation (trust boundary — this is a NEW web write surface): title required +
+ * trimmed + length-capped; kind coerced to the "epic"|undefined enum. The epic
+ * PARENT is set through c1's loop-guarded setTaskEpic (REUSED, not reimplemented)
+ * so a self/ancestor cycle → 409. A fresh id normally can't cycle, but a caller
+ * passing epic = the just-allocated id would self-loop — setTaskEpic catches it.
+ * An unresolvable epic id is allowed (renders as a plain tag — c1 backward-compat).
+ *
  * Body: { company, title, epic?, kind? } → { ok:true, task } | { ok:false, error }.
  */
+const MAX_TITLE_LEN = 500;
+
 export async function handleTaskCreateRequest(request: Request): Promise<Response> {
   let body: { company?: unknown; title?: unknown; epic?: unknown; kind?: unknown };
   try {
@@ -179,13 +188,28 @@ export async function handleTaskCreateRequest(request: Request): Promise<Respons
   } catch {
     return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
-  const company = typeof body.company === "string" ? body.company : "";
+  const company = typeof body.company === "string" ? body.company.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const epic = typeof body.epic === "string" && body.epic.trim() ? body.epic.trim() : undefined;
   const kind: TaskKind | undefined = body.kind === "epic" ? "epic" : undefined; // only "epic" is meaningful; task is the default
   if (!company || !title) {
     return Response.json({ ok: false, error: "company and title are required" }, { status: 400 });
   }
-  const task = addTask({ company, title, by: "tony", epic, kind });
-  return Response.json({ ok: true, task: { id: task.id, title: task.title, epic: task.epic ?? null, state: task.state } });
+  if (title.length > MAX_TITLE_LEN) {
+    return Response.json({ ok: false, error: `title too long (max ${MAX_TITLE_LEN})` }, { status: 400 });
+  }
+  // Create the card, then attach the containment parent through c1's loop-guarded
+  // setter. On a cycle it throws → 409 (the card is still created, just unparented
+  // — a valid standalone card; the only trigger is a pathological epic = own id).
+  const task = addTask({ company, title, by: "tony", kind });
+  let created = task;
+  if (epic) {
+    try {
+      const parented = setTaskEpic(company, task.id, epic, "tony");
+      if (parented) created = parented;
+    } catch (e) {
+      return Response.json({ ok: false, error: e instanceof Error ? e.message : "epic loop rejected" }, { status: 409 });
+    }
+  }
+  return Response.json({ ok: true, task: { id: created.id, title: created.title, epic: created.epic ?? null, state: created.state } });
 }

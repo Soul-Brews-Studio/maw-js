@@ -254,6 +254,32 @@ describe("handleTaskCreateRequest (POST /api/tasks/create — kobo-48)", () => {
     const bad = await handleTaskCreateRequest(new Request("http://x/api/tasks/create", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
     expect(bad.status).toBe(400);
   });
+
+  test("validation (trust boundary): whitespace-only title → 400, over-long title → 400", async () => {
+    expect((await post({ company: "cr", title: "   " })).status).toBe(400); // trims to empty
+    expect((await post({ company: "cr", title: "x".repeat(501) })).status).toBe(400); // over MAX_TITLE_LEN
+    expect((await post({ company: "cr", title: "x".repeat(500) })).status).toBe(200); // exactly at the cap is fine
+  });
+
+  test("unresolvable epic id is allowed (plain tag — c1 backward-compat), not a reject", async () => {
+    const res = await post({ company: "cr2", title: "orphan child", epic: "cr2-ghost" });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; task: { epic: string | null } };
+    expect(json.ok).toBe(true);
+    expect(json.task.epic).toBe("cr2-ghost"); // kept as a tag, resolves to nothing on the board
+  });
+
+  test("cyclic epic (epic = the card's own freshly-allocated id) → 409, reusing c1's loop guard", async () => {
+    // A fresh company allocates <c>-1 first; passing epic = that same id makes the
+    // new card its own parent → setTaskEpic (c1) rejects the self-loop.
+    const res = await post({ company: "cyc", title: "would self-loop", epic: "cyc-1" });
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { ok: boolean; error: string };
+    expect(json.ok).toBe(false);
+    expect(json.error).toMatch(/loop/i);
+    // the card was created but left unparented (never self-referential)
+    expect(readTask("cyc", "cyc-1")!.epic).toBeUndefined();
+  });
 });
 
 describe("handleTaskArchiveRequest guard a (kobo-48 — epic with open children → 409)", () => {
