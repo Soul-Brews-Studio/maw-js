@@ -115,6 +115,20 @@ export function openPrLinkedRepos(): string[] {
   );
 }
 
+/**
+ * Locate the card linked to a PR across every company on this machine. The
+ * card→PR link (task.pr) is globally unique, so this deliberately does NOT
+ * depend on mapping the PR author to a company — a github merge login often maps
+ * to none, which previously stranded the merge→done flip.
+ */
+export function findCardByPrAnywhere(pr: number): { company: string; taskId: string } | null {
+  for (const company of listCompanies()) {
+    const task = findTaskByPr(company, pr);
+    if (task) return { company, taskId: task.id };
+  }
+  return null;
+}
+
 /** One poll pass over the fleet's repos. Returns the entries recorded. */
 export async function pollPrsOnce(): Promise<WorklogEntry[]> {
   const cfg = loadConfig() as any;
@@ -161,7 +175,14 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       if (firstRun) continue; // seed baseline only — no retroactive spam
       if (prev === cur) continue;
 
-      const company = (author ? companyOfOracle(author) : null) ?? fallbackCompany;
+      // The card→PR link is globally unique, so locate the card by PR number
+      // across ALL companies rather than mapping the PR author to a company: a
+      // github web-merge's author is the merging login (often a bot/human that
+      // belongs to no company), which stranded the merge→done flip in _unscoped
+      // and never reached the card (kobo-33 e2e). Prefer the card's own company
+      // for the worklog entry too, so the event lands on that board's timeline.
+      const cardHit = findCardByPrAnywhere(pr.number);
+      const company = cardHit?.company ?? (author ? companyOfOracle(author) : null) ?? fallbackCompany;
       const base = { ts: Date.now(), iso: new Date().toISOString(), oracle: author || "unknown", company, repo, pr: pr.number };
 
       if (cur === "MERGED") {
@@ -173,8 +194,7 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         pingOnMerge({ lead, author: author ?? null, pr: pr.number, repo, by });
         // Track 4 — merge = approval → auto-done the task that owns this PR.
         try {
-          const task = company ? findTaskByPr(company, pr.number) : null;
-          if (task) completeTask(company, task.id, by || author || "pr-watch");
+          if (cardHit) completeTask(cardHit.company, cardHit.taskId, by || author || "pr-watch");
         } catch { /* never let task auto-done break PR-watch */ }
       } else if (cur === "CLOSED") {
         const entry: WorklogEntry = { ...base, kind: "pr-closed", summary: `closed #${pr.number} ${pr.title}` };
@@ -188,8 +208,7 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         // owned by the PR author, reviewer = human. Mirrors the merge→done path;
         // acts off the card.pr link, fires once on this OPEN transition.
         try {
-          const task = company && author ? findTaskByPr(company, pr.number) : null;
-          if (task && author) prOpenedReview(company, task.id, author);
+          if (cardHit && author) prOpenedReview(cardHit.company, cardHit.taskId, author);
         } catch { /* never let task lifecycle break PR-watch */ }
       }
     }

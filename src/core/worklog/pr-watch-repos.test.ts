@@ -57,3 +57,21 @@ describe("openPrLinkedRepos", () => {
     expect(openPrLinkedRepos()).toEqual([]);
   });
 });
+
+describe("findCardByPrAnywhere", () => {
+  it("finds the card by PR across companies, independent of PR author", async () => {
+    const { findCardByPrAnywhere } = await import("./pr-watch.ts?findcard-hit");
+    card("kobo", "kobo-34", { state: "review", pr: 80, repo: "meganechan/maw-js" });
+    card("pgw", "pgw-9", { state: "in-progress", pr: 5, repo: "acme/pgw" });
+
+    expect(findCardByPrAnywhere(80)).toEqual({ company: "kobo", taskId: "kobo-34" });
+    expect(findCardByPrAnywhere(5)).toEqual({ company: "pgw", taskId: "pgw-9" });
+  });
+
+  it("ignores done cards and returns null when no card owns the PR", async () => {
+    const { findCardByPrAnywhere } = await import("./pr-watch.ts?findcard-miss");
+    card("kobo", "done-card", { state: "done", pr: 80, repo: "x/y" });
+    expect(findCardByPrAnywhere(80)).toBeNull(); // done cards excluded (findTaskByPr)
+    expect(findCardByPrAnywhere(999)).toBeNull();
+  });
+});
