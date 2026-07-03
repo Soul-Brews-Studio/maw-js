@@ -175,12 +175,20 @@ function companyBody(): string {
     .family-bar .fam-root { color:var(--epic); }
     .family-clear { font-size:11px; padding:2px 9px; border-radius:8px; color:var(--accent); }
     .timeline { max-height:72vh; overflow:auto; }
-    .entry { padding:8px 4px; border-bottom:1px solid var(--line); }
+    /* kobo-63 — worklog timeline aligned to Foundation tokens (--s-*/--t-*/--r-*)
+       + the maw-pane palette (kobo-71). Each row carries its author's pane color as
+       a compact avatar (initials, avatarText auto-contrast) + a matching left accent,
+       so oracles read apart at a glance. Color is SUPPLEMENTARY — the full oracle
+       name is always shown (color-not-only). Read-only: feed/flow unchanged. */
+    .entry { display:flex; gap:var(--s-3); padding:var(--s-3) var(--s-2); border-bottom:1px solid var(--line); border-left:2px solid transparent; }
     .entry:last-child { border-bottom:0; }
-    .entry .e-head { display:flex; gap:8px; align-items:baseline; }
-    .entry .e-oracle { color:var(--accent); } .entry .e-kind { color:var(--muted); font-size:12px; }
-    .entry .e-ts { color:var(--muted); font-size:11px; margin-left:auto; }
-    .entry .e-summary { color:var(--fg); margin-top:3px; white-space:pre-wrap; word-break:break-word; }
+    .entry .e-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; letter-spacing:.02em; }
+    .entry .e-main { flex:1 1 auto; min-width:0; }
+    .entry .e-head { display:flex; gap:var(--s-3); align-items:baseline; flex-wrap:wrap; }
+    .entry .e-oracle { color:var(--fg); font-weight:600; }
+    .entry .e-kind { color:var(--muted); font-size:var(--t-xs); border:1px solid var(--line); border-radius:var(--r-pill); padding:0 var(--s-2); }
+    .entry .e-ts { color:var(--muted); font-size:var(--t-xs); margin-left:auto; font-variant-numeric:tabular-nums; }
+    .entry .e-summary { color:var(--fg); font-size:var(--t-sm); margin-top:var(--s-1); line-height:1.5; white-space:pre-wrap; word-break:break-word; }
     .empty, .error { color:var(--muted); padding:18px; text-align:center; }
     .error { color:var(--bad); }
     .stack { display:flex; flex-direction:column; gap:16px; }
@@ -913,13 +921,23 @@ function renderTimeline(entries) {
   if (!entries.length) { tl.appendChild(el('div', 'empty', 'no worklog entries')); return; }
   for (const e of entries.slice().reverse()) {
     const row = el('div', 'entry');
+    // kobo-63: author's pane color (hash) on avatar + left accent — supplementary,
+    // the oracle name below is always shown (color-not-only). Same helpers as notes.
+    const color = authorColor(e.oracle);
+    row.style.borderLeftColor = color;
+    const av = el('div', 'e-avatar', authorInitials(e.oracle));
+    av.style.background = color; av.style.color = avatarText(color);
+    row.appendChild(av);
+    const main = el('div', 'e-main');
     const head = el('div', 'e-head');
     head.appendChild(el('span', 'e-oracle', e.oracle || '?'));
     head.appendChild(el('span', 'e-kind', e.kind || ''));
-    const ts = e.iso ? localTs(e.iso) : text(e.ts);
+    // "5m ago · 2026-07-03 17:12:03" — relative for scan speed, absolute for record.
+    const ts = e.iso ? (relTime(e.ts) + ' · ' + localTs(e.iso)) : text(e.ts);
     head.appendChild(el('span', 'e-ts', ts));
-    row.appendChild(head);
-    row.appendChild(el('div', 'e-summary', e.summary || ''));
+    main.appendChild(head);
+    main.appendChild(el('div', 'e-summary', e.summary || ''));
+    row.appendChild(main);
     tl.appendChild(row);
   }
 }
