@@ -168,6 +168,18 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "add" })).toThrow(/title/);
   });
 
+  test("add: --state backlog (kobo-70) is passed through", () => {
+    expect(taskArgs({ action: "add", title: "later", state: "backlog" }))
+      .toEqual(["company", "task", "add", "later", "--state", "backlog"]);
+  });
+
+  test("move: id + state → company task move argv (kobo-70)", () => {
+    expect(taskArgs({ action: "move", id: "kobo-5", state: "backlog", company: "kobo" }))
+      .toEqual(["company", "task", "move", "kobo-5", "backlog", "--company", "kobo"]);
+    expect(() => taskArgs({ action: "move", state: "todo" })).toThrow(/id/);
+    expect(() => taskArgs({ action: "move", id: "kobo-5" })).toThrow(/state/);
+  });
+
   test("ls: bare", () => {
     expect(taskArgs({ action: "ls" })).toEqual(["company", "task", "ls"]);
   });

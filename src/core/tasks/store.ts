@@ -333,6 +333,23 @@ export function startTask(company: string, id: string, oracle: string): TaskReco
   return task;
 }
 
+/**
+ * Move a card between the flow "parking" states — backlog ⇄ todo (kobo-70) —
+ * without the work-pickup semantics of start (no assignee change) or the cleanup
+ * of done. The other flow states have dedicated verbs (start→in-progress, review,
+ * done); `blocked` has block()/unblock(). Callers (CLI/MCP) restrict `state` to
+ * the parking set; the store just records the transition. null if the card is absent.
+ */
+export function moveTask(company: string, id: string, state: TaskState, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = state;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `moved ${task.id} → ${state}: ${task.title}`);
+  return task;
+}
+
 export interface ReviewInput {
   to?: string; // requested reviewer / next person (optional → anyone)
   reason?: string;

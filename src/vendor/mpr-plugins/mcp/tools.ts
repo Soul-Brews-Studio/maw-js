@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "claim" | "review" | "pr" | "done" | "note" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "review" | "pr" | "done" | "note" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -37,6 +37,7 @@ export interface TaskInput {
   repo?: string;       // add
   dept?: string;       // add
   epic?: string;       // add
+  state?: string;      // add (backlog|todo) / move (target flow state)
   assignee?: string;   // add
   parent?: string[];   // add (repeatable deps)
   body?: string;       // add
@@ -159,10 +160,16 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.repo) argv.push("--repo", input.repo);
       if (input.dept) argv.push("--dept", input.dept);
       if (input.epic) argv.push("--epic", input.epic);
+      if (input.state) argv.push("--state", input.state);
       if (input.assignee) argv.push("--assignee", input.assignee);
       for (const p of input.parent ?? []) argv.push("--parent", p);
       if (input.body) argv.push("--body", input.body);
       return [...argv, ...common()];
+    }
+    case "move": {
+      const mid = needId("move");
+      if (!input.state) throw new Error("task move requires a state (backlog|todo)");
+      return ["company", "task", "move", mid, input.state, ...common()];
     }
     case "ls": {
       const argv = ["company", "task", "ls", ...common()];

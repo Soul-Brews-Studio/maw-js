@@ -45,6 +45,7 @@ import {
   parsePrNumber,
   reviewTask,
   setTaskPr,
+  moveTask,
   startTask,
   taskNextAction,
   TASK_FLOW,
@@ -179,19 +180,26 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text]' };
+      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
+      // --state (kobo-70): manual add opens on todo; --state backlog parks it. Only
+      // the two "not-yet-in-flow" states are addable here (in-progress/review/done
+      // are reached via start/review/done). blocked has its own verb.
+      const addState = flags["--state"] as TaskState | undefined;
+      if (addState && addState !== "backlog" && addState !== "todo") {
+        return { ok: false, error: `--state must be backlog or todo (in-progress/review/done via start/review/done)` };
+      }
       // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
       const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
       const t = addTask({
         company, title, by: me,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds, body: flags["--body"],
+        parentIds, body: flags["--body"], state: addState,
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
       const addProg = checklistProgress(t.body);
@@ -230,6 +238,23 @@ export async function runTask(
       const t = startTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
+    } else if (subcmd === "move") {
+      // kobo-70 — re-file between the "parking" flow states backlog ⇄ todo (the two
+      // without a dedicated pick-up verb). in-progress/review/done use start/review/
+      // done; blocked uses block. Pure state set — no assignee change.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const state = flags._[1] as TaskState | undefined;
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo>" };
+      if (state !== "backlog" && state !== "todo") {
+        return { ok: false, error: `move target must be backlog or todo (in-progress/review/done via start/review/done; blocked via block)` };
+      }
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = moveTask(company, id, state, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m⇄ moved\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
     } else if (subcmd === "claim") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -350,7 +375,7 @@ export async function runTask(
       // the assignee on task-events → coord pane. Shared with the web POST path.
       if (notifyTaskComment(t, me, noteText)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|claim|review|pr|done|note|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|review|pr|done|note|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

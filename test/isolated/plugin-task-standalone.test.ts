@@ -29,9 +29,11 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "note"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "note"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
+    expect(src).toContain("moveTask"); // kobo-70: re-file backlog ⇄ todo parking states
+    expect(src).toContain('"--state"'); // kobo-70: add --state backlog|todo
     expect(src).toContain("addTask");
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events

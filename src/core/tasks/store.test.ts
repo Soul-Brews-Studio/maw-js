@@ -35,6 +35,7 @@ import {
   readTask,
   resolveEpicParent,
   reviewTask,
+  moveTask,
   setTaskEpic,
   setTaskPr,
   startTask,
@@ -652,5 +653,32 @@ describe("family notes (kobo-46 — parent modal derived data)", () => {
     const epic = addTask({ company: "pgw", title: "epic", by: "eq3", kind: "epic" });
     addTask({ company: "pgw", title: "quiet child", by: "eq3", epic: epic.id });
     expect(familyNotes(epic.id, listTasks("pgw"))).toEqual([]);
+  });
+});
+
+describe("backlog state (kobo-70)", () => {
+  test("addTask --state backlog parks the card in backlog (default is todo)", () => {
+    expect(addTask({ company: "pgw", title: "later", by: "eq3" }).state).toBe("todo");
+    const b = addTask({ company: "pgw", title: "parked", by: "eq3", state: "backlog" });
+    expect(b.state).toBe("backlog");
+    expect(readTask("pgw", b.id)!.state).toBe("backlog");
+  });
+
+  test("moveTask re-files backlog ⇄ todo, emits a task-updated event, no assignee change", () => {
+    const t = addTask({ company: "pgw", title: "roam", by: "eq3", assignee: "patchwork", state: "backlog" });
+    const toTodo = moveTask("pgw", t.id, "todo", "eq3")!;
+    expect(toTodo.state).toBe("todo");
+    expect(toTodo.assignee).toBe("patchwork"); // move never touches ownership
+    expect(moveTask("pgw", t.id, "backlog", "eq3")!.state).toBe("backlog");
+    expect(readTask("pgw", t.id)!.state).toBe("backlog");
+    expect(readWorklog("pgw").some((e) => e.kind === "task-updated" && e.task === t.id)).toBe(true);
+    expect(moveTask("pgw", "pgw-999", "todo", "eq3")).toBeNull(); // absent
+  });
+
+  test("backlog is a parking lot — NEVER derives needs-owner (board-truth exempt)", () => {
+    const b = addTask({ company: "pgw", title: "parked no owner", by: "eq3", state: "backlog" }); // unassigned
+    expect(needsOwner(readTask("pgw", b.id)!)).toBe(false); // backlog exempt
+    // for contrast: an unassigned TODO does need an owner
+    expect(needsOwner(addTask({ company: "pgw", title: "todo no owner", by: "eq3" }))).toBe(true);
   });
 });

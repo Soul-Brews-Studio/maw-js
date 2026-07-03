@@ -144,12 +144,12 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
   server.registerTool(
     "maw_task",
     {
-      title: "Company task board — add/ls/start/claim/review/pr/done/note/block/unblock/archive",
+      title: "Company task board — add/ls/start/move/claim/review/pr/done/note/block/unblock/archive",
       description:
-        "Company task board ops (maw task <verb>). action=add (title required) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · note (<id> + text = append-only note, mid-flight truth) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
+        "Company task board ops (maw task <verb>). action=add (title required · [--state backlog|todo]) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · move (<id> + state backlog|todo — re-file parking states) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · note (<id> + text = append-only note, mid-flight truth) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
       inputSchema: {
         action: z
-          .enum(["add", "ls", "start", "claim", "review", "pr", "done", "note", "block", "unblock", "archive"])
+          .enum(["add", "ls", "start", "move", "claim", "review", "pr", "done", "note", "block", "unblock", "archive"])
           .describe("task board action"),
         id: z.string().optional().describe("card id (start/claim/done/review/pr/block/unblock; archive = per-card by id)"),
         title: z.string().optional().describe("card title (required for add)"),
@@ -159,6 +159,7 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         repo: z.string().optional().describe("add: repo"),
         dept: z.string().optional().describe("add: department"),
         epic: z.string().optional().describe("add: epic"),
+        state: z.enum(["backlog", "todo"]).optional().describe("add: start state (default todo) · move: target parking state"),
         assignee: z.string().optional().describe("add: assignee oracle"),
         parent: z.array(z.string()).optional().describe("add: parent/dep card ids"),
         body: z.string().optional().describe("add: markdown body (supports checklist)"),
