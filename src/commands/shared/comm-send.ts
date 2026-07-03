@@ -290,6 +290,11 @@ export async function checkPaneIdle(
     const lines = content
       .split("\n")
       .map(l => l
+        // eq3-003c follow-up — the cursor block sits ON the first ghost char:
+        // `ESC[7m<char>` immediately followed by a dim opener is autosuggest,
+        // not typed input; strip the char with the span. A permission menu's
+        // selected row (`❯ 1. Yes`) is 7m over PLAIN text — untouched.
+        .replace(/\x1b\[7m[^\x1b](?=\x1b\[(?:\d+;)*2(?:;\d+)*m)/g, "\x1b[7m")
         // #eq3-003c — strip DIM spans (text + codes) FIRST. Claude Code renders
         // ghost/queued/placeholder text on the input row as dim (`ESC[2m … ESC[0m`
         // or `ESC[22m`, sometimes UNCLOSED to end-of-line). A plain CSI strip
@@ -297,7 +302,10 @@ export async function checkPaneIdle(
         // then reads as live operator input → false "typing" → over-defer of
         // every pane with a queued message. Removing the whole dim span keeps
         // bright (real) input intact and a truly-empty `❯` empty.
-        .replace(/\x1b\[2m[^\x1b]*(?:\x1b\[(?:0|22)m|$)/g, "")
+        // The opener may be COMPOUND (`ESC[0;2m` = reset+dim in one code,
+        // Claude Code ≥2026-06 autosuggest): match any param list containing
+        // a standalone 2 — `2m`, `0;2m`, `2;38m` — but never `22m`/`42m`.
+        .replace(/\x1b\[(?:\d+;)*2(?:;\d+)*m[^\x1b]*(?:\x1b\[(?:0|22)m|$)/g, "")
         // Strip OSC sequences (e.g. OSC 8 hyperlinks the footer wraps PR links
         // in: ESC ] 8 ; … ST). ST terminator is `ESC \`, BEL is the legacy form.
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
