@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "review" | "pr" | "done" | "note" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -189,6 +189,12 @@ export function taskArgs(input: TaskInput): string[] {
       const nid = needId("note");
       if (!input.text) throw new Error("task note requires text");
       return ["company", "task", "note", nid, input.text, ...common()];
+    }
+    case "epic": {
+      // kobo-72 — set/clear containment parent. epic set → re-link; omit → --clear.
+      const eid = needId("epic");
+      if (input.epic) return ["company", "task", "epic", eid, input.epic, ...common()];
+      return ["company", "task", "epic", eid, "--clear", ...common()];
     }
     case "review": {
       const argv = ["company", "task", "review", needId("review")];

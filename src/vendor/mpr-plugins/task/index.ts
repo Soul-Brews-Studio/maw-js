@@ -44,6 +44,7 @@ import {
   parentStateResolver,
   parsePrNumber,
   reviewTask,
+  setTaskEpic,
   setTaskPr,
   moveTask,
   startTask,
@@ -52,6 +53,7 @@ import {
   unblockTask,
   type BlockKind,
   type DependencyBlock,
+  type TaskKind,
   type TaskRecord,
   type TaskState,
 } from "../../../core/tasks/store";
@@ -180,13 +182,18 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo]' };
+      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--kind epic|task --repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
+      // --kind (kobo-72): mark a container card (epic). Default/absent = task.
+      const addKind = flags["--kind"] as TaskKind | undefined;
+      if (addKind && addKind !== "epic" && addKind !== "task") {
+        return { ok: false, error: `--kind must be epic or task` };
+      }
       // --state (kobo-70): manual add opens on todo; --state backlog parks it. Only
       // the two "not-yet-in-flow" states are addable here (in-progress/review/done
       // are reached via start/review/done). blocked has its own verb.
@@ -197,7 +204,7 @@ export async function runTask(
       // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
       const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
       const t = addTask({
-        company, title, by: me,
+        company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
         parentIds, body: flags["--body"], state: addState,
       });
@@ -374,8 +381,25 @@ export async function runTask(
       // comment = poke (kobo-46): a note by someone other than the assignee pokes
       // the assignee on task-events → coord pane. Shared with the web POST path.
       if (notifyTaskComment(t, me, noteText)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+    } else if (subcmd === "epic") {
+      // kobo-72 — set/clear a card's containment parent AFTER create (the axis
+      // hand-edited JSON before). Reuses setTaskEpic (loop-guarded, re-links a
+      // stale same-id dependency onto containment). `--clear` removes the parent.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--clear": Boolean }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const clear = flags["--clear"] === true;
+      const epicId = clear ? undefined : flags._[1];
+      if (!id || (!clear && !epicId)) return { ok: false, error: "usage: maw company task epic <id> <epicId|--clear>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = setTaskEpic(company, id, epicId, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(epicId
+        ? `\x1b[36m↳ epic\x1b[0m ${t.id} ↳ ${epicId}: ${t.title}`
+        : `\x1b[36m↳ epic\x1b[0m ${t.id} \x1b[90m(cleared)\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|review|pr|done|note|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

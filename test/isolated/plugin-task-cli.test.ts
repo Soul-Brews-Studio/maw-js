@@ -87,6 +87,48 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("done"); // recent done stays on the board
   });
 
+  test("add --kind epic marks a container card; default add is a plain task (kobo-72)", async () => {
+    expect((await run(["add", "the epic", "--company", "pgw", "--kind", "epic"])).ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.kind).toBe("epic");
+    await run(["add", "a task", "--company", "pgw"]); // pgw-2, no --kind
+    expect(readTask("pgw", "pgw-2")!.kind).toBeUndefined(); // task is the default (not persisted)
+    const bad = await run(["add", "nope", "--company", "pgw", "--kind", "bogus"]);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("epic or task");
+  });
+
+  test("epic <id> <epicId> sets containment; --clear removes it (kobo-72)", async () => {
+    await run(["add", "parent epic", "--company", "pgw", "--kind", "epic"]); // pgw-1
+    await run(["add", "child", "--company", "pgw"]);                          // pgw-2
+    const set = await run(["epic", "pgw-2", "pgw-1", "--company", "pgw"]);
+    expect(set.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.epic).toBe("pgw-1");
+    const clr = await run(["epic", "pgw-2", "--clear", "--company", "pgw"]);
+    expect(clr.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.epic).toBeUndefined();
+  });
+
+  test("epic re-links a same-id dependency onto containment (the hand-edit gap, kobo-72)", async () => {
+    await run(["add", "epic", "--company", "pgw", "--kind", "epic"]);              // pgw-1
+    await run(["add", "child", "--company", "pgw", "--parent", "pgw-1"]);          // pgw-2 wrongly dep'd on pgw-1
+    expect(readTask("pgw", "pgw-2")!.parentIds).toEqual(["pgw-1"]);
+    await run(["epic", "pgw-2", "pgw-1", "--company", "pgw"]);
+    const t = readTask("pgw", "pgw-2")!;
+    expect(t.epic).toBe("pgw-1");
+    expect(t.parentIds).toBeUndefined(); // stale dep on the same id dropped
+  });
+
+  test("epic rejects a containment loop; usage/not-found errors are clean (kobo-72)", async () => {
+    await run(["add", "a", "--company", "pgw"]); // pgw-1
+    await run(["add", "b", "--company", "pgw"]); // pgw-2
+    await run(["epic", "pgw-2", "pgw-1", "--company", "pgw"]); // b under a
+    const loop = await run(["epic", "pgw-1", "pgw-2", "--company", "pgw"]); // a under b → cycle
+    expect(loop.ok).toBe(false);
+    expect(loop.error).toMatch(/loop/i);
+    expect((await run(["epic", "pgw-1", "--company", "pgw"])).error).toContain("usage"); // no epicId, no --clear
+    expect((await run(["epic", "pgw-999", "pgw-1", "--company", "pgw"])).error).toContain("not found");
+  });
+
   test("missing id / unknown subcommand → clean error, not a throw", async () => {
     expect((await run(["claim", "--company", "pgw"])).error).toContain("usage");
     expect((await run(["bogus"])).ok).toBe(false);

@@ -578,6 +578,19 @@ describe("containment / epic (kobo-45)", () => {
     expect(resolveEpicParent("pgw-ghost", parentStateResolver("pgw")).resolved).toBe(false);
   });
 
+  test("setTaskEpic re-links a same-id dependency onto containment; keeps other deps (kobo-72)", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "eq3" });
+    const other = addTask({ company: "pgw", title: "other dep", by: "eq3" });
+    // card wrongly used the DEPENDENCY axis for what should be containment (+ a real dep)
+    const child = addTask({ company: "pgw", title: "child", by: "eq3", parentIds: [parent.id, other.id] });
+    const t = setTaskEpic("pgw", child.id, parent.id, "eq3")!;
+    expect(t.epic).toBe(parent.id);
+    expect(t.parentIds).toEqual([other.id]); // stale same-id dep dropped, unrelated dep kept
+    // sole-dep re-link removes parentIds entirely
+    const solo = addTask({ company: "pgw", title: "solo", by: "eq3", parentIds: [parent.id] });
+    expect(setTaskEpic("pgw", solo.id, parent.id, "eq3")!.parentIds).toBeUndefined();
+  });
+
   test("guard a: archiving an epic with open children is BLOCKED + lists them", () => {
     const { epic, a, b } = family();
     let err: unknown;

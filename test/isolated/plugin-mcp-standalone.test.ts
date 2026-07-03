@@ -64,9 +64,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"review"', '"pr"', '"done"', '"note"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-72: epic verb sets/clears containment; epic present → re-link, omit → --clear.
+    expect(tools).toContain('["company", "task", "epic", eid, input.epic');
+    expect(tools).toContain('["company", "task", "epic", eid, "--clear"');
+    expect(server).toContain('"epic"'); // enum + title advertise the verb
     // kobo-70: backlog state — `move <id> <state>` re-files parking states, and
     // `add` accepts `--state`. taskArgs maps both to the canonical company surface.
     expect(tools).toContain('["company", "task", "move", mid, input.state');

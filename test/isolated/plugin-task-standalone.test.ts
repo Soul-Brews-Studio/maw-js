@@ -24,14 +24,16 @@ describe("task command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
-  test("CLI dispatches the eleven documented subcommands", () => {
+  test("CLI dispatches the documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "note"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
+    expect(src).toContain("setTaskEpic"); // kobo-72: set/clear containment parent post-create
+    expect(src).toContain('"--kind"'); // kobo-72: add --kind epic|task
     expect(src).toContain("moveTask"); // kobo-70: re-file backlog ⇄ todo parking states
     expect(src).toContain('"--state"'); // kobo-70: add --state backlog|todo
     expect(src).toContain("addTask");

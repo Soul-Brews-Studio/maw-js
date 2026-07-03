@@ -759,6 +759,14 @@ export function setTaskEpic(
       throw new Error(`epic loop rejected: ${id} ↳ ${next} would create a containment cycle`);
     }
     task.epic = next;
+    // Re-link (kobo-72): a card can't both wait-for (dependency) and live-under
+    // (containment) the same parent — moving `next` onto the containment axis drops
+    // a stale `next` dependency so the axes never contradict. Other deps are kept.
+    if (task.parentIds?.length) {
+      const kept = task.parentIds.filter((p) => p !== next);
+      if (kept.length) task.parentIds = kept;
+      else delete task.parentIds;
+    }
   } else {
     delete task.epic;
   }
