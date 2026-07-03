@@ -41,6 +41,15 @@ describe("checkPaneIdle — real Claude Code pane captures (#eq3-003b/003c)", ()
     expect(r.lastInput).toBe("");
   });
 
+  test("autosuggest with compound dim opener (ESC[7m<char> + ESC[0;2m…) is idle", async () => {
+    // Real eq3 capture, m5 2026-07-04: the cursor block sits ON the first ghost
+    // char (`ESC[7mร`) and the rest opens with COMPOUND reset+dim `ESC[0;2m`,
+    // which the plain `ESC[2m` span-strip missed → false "typing".
+    const r = await probe("claude-autosuggest-compound-dim.txt");
+    expect(r.idle).toBe(true);
+    expect(r.lastInput).toBe("");
+  });
+
   test("truly-empty input box is idle", async () => {
     const r = await probe("claude-empty.txt");
     expect(r.idle).toBe(true);

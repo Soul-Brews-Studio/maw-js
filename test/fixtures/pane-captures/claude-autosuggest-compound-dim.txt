@@ -1,0 +1,7 @@
+[38;5;246m✻[39m [38;5;246mBaked for 1m 19s[39m
+                                          [38;5;246m100% context used[39m
+[38;5;244m────────────────
+[39m❯ [7mร[0;2mอ patchwork report แล้วสรุปผลให้หน่อย[0m
+[38;5;244m────────────────
+
+[39m  [38;5;211m⏵⏵ bypass permissions on[38;5;246m (shift+tab to cycle) · ← for agents[39m
