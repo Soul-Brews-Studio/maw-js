@@ -43,6 +43,7 @@ import {
   noteTask,
   parentStateResolver,
   parsePrNumber,
+  parsePrRepo,
   reviewTask,
   setTaskEpic,
   setTaskPr,
@@ -58,6 +59,24 @@ import {
   type TaskState,
 } from "../../../core/tasks/store";
 import { notifyTaskComment } from "../../../core/tasks/notify";
+
+/**
+ * Best-effort `owner/repo` of the git repo at CWD (kobo-80). The worker links a PR
+ * from inside its worktree, so the origin remote names the repo the PR lives in —
+ * used to stamp card.repo when `task pr` gets a bare number (no url to parse from).
+ * Never throws: outside a repo / no origin → undefined, and the caller just skips.
+ */
+function currentRepoSlug(): string | undefined {
+  try {
+    const p = Bun.spawnSync(["git", "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode !== 0) return undefined;
+    const url = p.stdout.toString().trim();
+    const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?$/i.exec(url);
+    return m?.[1];
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Resolve the acting oracle the SAME way `maw hey` does (resolveSenderIdentity),
@@ -301,19 +320,24 @@ export async function runTask(
       // that sets card.pr — `maw reply` can't (replier≠requester bug), so
       // pr-watch's open→review→done never fired. Reuse setTaskPr (state=review);
       // pr-watch's prOpenedReview is idempotent, so no double-transition.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--repo": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const prArg = flags._[1];
-      if (!id || !prArg) return { ok: false, error: "usage: maw company task pr <id> <pr-number>" };
+      if (!id || !prArg) return { ok: false, error: "usage: maw company task pr <id> <pr-number|pr-url> [--repo owner/name]" };
       // accept a bare number or a full github PR url (…/pull/<n>)
       const pr = /^\d+$/.test(prArg) ? Number(prArg) : parsePrNumber(prArg);
       if (!pr) return { ok: false, error: `invalid PR: ${prArg} (pass a number or a github PR url)` };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = setTaskPr(company, id, pr, me);
+      // kobo-80: stamp the PR's repo so pr-watch can flip merge→done for cards
+      // created without --repo. Priority: explicit --repo > repo in the PR url >
+      // the git remote at CWD (the worker links from inside the repo's worktree).
+      // setTaskPr only fills a MISSING repo — an existing card.repo always wins.
+      const linkRepo = flags["--repo"] || parsePrRepo(prArg) || currentRepoSlug();
+      const t = setTaskPr(company, id, pr, me, linkRepo);
       if (!t) return { ok: false, error: `task not found: ${id}` };
-      console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
+      console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m${t.repo ? ` \x1b[90m${t.repo}\x1b[0m` : ""} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
     } else if (subcmd === "archive") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--days": Number }, 0);
       const me = await resolveActor(flags["--from"]);

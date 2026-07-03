@@ -20,7 +20,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeTask, findTasksByPr, prOpenedReview, listTasks, listCompanies } from "../tasks/store";
+import { completeTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -202,7 +202,10 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         // (kobo-43: one PR can bind several cards; flip them all, not just the
         // first, or the rest strand in review until a human hand-flips).
         try {
-          for (const hit of cardHits) completeTask(hit.company, hit.taskId, by || author || "pr-watch");
+          for (const hit of cardHits) {
+            setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: heal repo-less card so future polls find it
+            completeTask(hit.company, hit.taskId, by || author || "pr-watch");
+          }
         } catch { /* never let task auto-done break PR-watch */ }
       } else if (cur === "CLOSED") {
         const entry: WorklogEntry = { ...base, kind: "pr-closed", summary: `closed #${pr.number} ${pr.title}` };
@@ -217,7 +220,10 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         // acts off the card.pr link, fires once on this OPEN transition. kobo-43:
         // flip every card the PR binds, not just the first.
         try {
-          if (author) for (const hit of cardHits) prOpenedReview(hit.company, hit.taskId, author);
+          if (author) for (const hit of cardHits) {
+            setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: bind repo on the open→review flip → merge poll is guaranteed later
+            prOpenedReview(hit.company, hit.taskId, author);
+          }
         } catch { /* never let task lifecycle break PR-watch */ }
       }
     }

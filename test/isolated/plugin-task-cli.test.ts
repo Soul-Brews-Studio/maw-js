@@ -129,6 +129,20 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["epic", "pgw-999", "pgw-1", "--company", "pgw"])).error).toContain("not found");
   });
 
+  test("pr links a card + stamps repo from the PR url; --repo overrides (kobo-80)", async () => {
+    await run(["add", "url card", "--company", "pgw"]); // pgw-1, no repo
+    const r = await run(["pr", "pgw-1", "https://github.com/meganechan/maw-js/pull/106", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.pr).toBe(106);
+    expect(t.repo).toBe("meganechan/maw-js"); // stamped from the url → pr-watch can now poll it
+    expect(t.state).toBe("review");
+
+    await run(["add", "override card", "--company", "pgw"]); // pgw-2
+    await run(["pr", "pgw-2", "5", "--repo", "acme/thing", "--company", "pgw"]);
+    expect(readTask("pgw", "pgw-2")!.repo).toBe("acme/thing"); // explicit --repo with a bare number
+  });
+
   test("missing id / unknown subcommand → clean error, not a throw", async () => {
     expect((await run(["claim", "--company", "pgw"])).error).toContain("usage");
     expect((await run(["bogus"])).ok).toBe(false);

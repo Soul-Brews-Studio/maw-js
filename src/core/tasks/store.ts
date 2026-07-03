@@ -375,14 +375,37 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
  * Attach a PR to a task and move it to review (the auto path — "done my part,
  * PR up, review me"). PR-watch flips it to done on merge. Returns null if absent.
  */
-export function setTaskPr(company: string, id: string, pr: number, by: string): TaskRecord | null {
+export function setTaskPr(company: string, id: string, pr: number, by: string, repo?: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   task.pr = pr;
+  // kobo-80: bind the PR's repo so pr-watch can resolve merge status even when the
+  // card was created with no --repo. Only fills a MISSING repo — never overwrites a
+  // repo the card already carries. Without this, a repo-less pr card is invisible to
+  // openPrLinkedRepos → its merge is never polled → it strands in review (board lie).
+  if (repo && !task.repo) task.repo = repo;
   task.state = "review";
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
+  return task;
+}
+
+/**
+ * Backfill a card's repo IFF it's currently missing — the pr-watch heal path
+ * (kobo-80). When a poll flips a repo-less card (found by PR number), we now know
+ * the repo it lives in, so record it: the next poll includes the card in
+ * openPrLinkedRepos so the merge→done transition is still seen even after the
+ * worktree that first surfaced the PR is gone. Silent (no worklog event) — a data
+ * repair, not a user action; a no-op once the repo is present (no churn).
+ */
+export function setTaskRepoIfMissing(company: string, id: string, repo: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.repo || !repo) return task; // already set, or nothing to set → no write
+  task.repo = repo;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
   return task;
 }
 
@@ -571,6 +594,12 @@ export function findTaskByPr(company: string, pr: number): TaskRecord | null {
 export function parsePrNumber(text: string): number | null {
   const m = /github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)/i.exec(text);
   return m ? +m[1] : null;
+}
+
+/** Pull `owner/repo` out of a full GitHub PR url (kobo-80 — enforce repo on pr-link). */
+export function parsePrRepo(text: string): string | undefined {
+  const m = /github\.com\/([^/\s]+\/[^/\s]+)\/pull\/\d+/i.exec(text);
+  return m?.[1];
 }
 
 /**

@@ -105,3 +105,37 @@ describe("findCardsByPrAnywhere + merge→done (kobo-43 multi-card)", () => {
     expect(readTask("kobo", "kobo-42")?.state).toBe("done"); // was stranded pre-fix
   });
 });
+
+// kobo-80: a repo-less pr card is INVISIBLE to openPrLinkedRepos → its merge is
+// never polled → it strands in review (the kobo-71/38 hand-flip). The heal: when a
+// poll DOES surface the PR (via a worktree/sibling repo) it backfills the card's
+// repo, so from then on openPrLinkedRepos includes it and the flip is guaranteed.
+describe("repo-less card heal (kobo-80)", () => {
+  it("setTaskRepoIfMissing makes a repo-less pr card discoverable, without overwriting", async () => {
+    const { openPrLinkedRepos } = await import("./pr-watch.ts?heal-discover");
+    const { setTaskRepoIfMissing, readTask } = await import("../tasks/store.ts?heal-discover");
+    card("kobo", "kobo-71", { state: "review", pr: 71 });                       // no repo → invisible
+    card("kobo", "kobo-9", { state: "review", pr: 9, repo: "acme/keep" });      // repo set already
+    expect(openPrLinkedRepos()).toEqual(["acme/keep"]);                         // kobo-71 absent (ROOT)
+
+    setTaskRepoIfMissing("kobo", "kobo-71", "meganechan/maw-js");               // pr-watch heal
+    setTaskRepoIfMissing("kobo", "kobo-9", "other/nope");                       // must NOT clobber
+    expect(readTask("kobo", "kobo-71")?.repo).toBe("meganechan/maw-js");
+    expect(readTask("kobo", "kobo-9")?.repo).toBe("acme/keep");                 // unchanged
+    expect(openPrLinkedRepos().sort()).toEqual(["acme/keep", "meganechan/maw-js"]);
+  });
+
+  it("merge → done flips a repo-less card AND backfills its repo (the exact pr-watch sequence)", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?heal-flip");
+    const { completeTask, setTaskRepoIfMissing, readTask } = await import("../tasks/store.ts?heal-flip");
+    card("kobo", "kobo-71", { state: "review", pr: 71, assignee: "patchwork" }); // no repo
+
+    // what pollPrsOnce runs on a MERGED transition once the PR is seen in `repo`:
+    for (const hit of findCardsByPrAnywhere(71)) {
+      setTaskRepoIfMissing(hit.company, hit.taskId, "meganechan/maw-js");
+      completeTask(hit.company, hit.taskId, "pr-watch");
+    }
+    expect(readTask("kobo", "kobo-71")?.state).toBe("done");                    // no hand-flip
+    expect(readTask("kobo", "kobo-71")?.repo).toBe("meganechan/maw-js");        // healed for next time
+  });
+});

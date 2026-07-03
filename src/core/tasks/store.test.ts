@@ -33,11 +33,13 @@ import {
   parentStateResolver,
   prOpenedReview,
   readTask,
+  parsePrRepo,
   resolveEpicParent,
   reviewTask,
   moveTask,
   setTaskEpic,
   setTaskPr,
+  setTaskRepoIfMissing,
   startTask,
   taskFilePath,
   taskNextAction,
@@ -448,6 +450,33 @@ describe("explicit block / unblock (ADR 0003 B — off-flow, remembers prevState
   test("blockNextAction renders kind + who-clears + why", () => {
     expect(blockNextAction({ state: "blocked", block: { kind: "needs_input", for: "tony", reason: "ok?" } } as TaskRecord)).toBe("⚑ [needs_input] รอ tony: ok?");
     expect(blockNextAction({ state: "blocked", block: { kind: "capability" } } as TaskRecord)).toBe("⚑ [capability]");
+  });
+});
+
+describe("pr-link repo binding (kobo-80 — enforce/backfill card.repo so pr-watch can flip)", () => {
+  test("parsePrRepo extracts owner/repo from a PR url; ignores a bare number", () => {
+    expect(parsePrRepo("https://github.com/meganechan/maw-js/pull/106")).toBe("meganechan/maw-js");
+    expect(parsePrRepo("106")).toBeUndefined();
+    expect(parsePrRepo("see meganechan/maw-js#106")).toBeUndefined(); // not a /pull/ url
+  });
+
+  test("setTaskPr fills a MISSING repo but never overwrites an existing one", () => {
+    const a = addTask({ company: "pgw", title: "no repo", by: "eq3" });
+    expect(setTaskPr("pgw", a.id, 1, "patchwork", "meganechan/maw-js")!.repo).toBe("meganechan/maw-js");
+    const b = addTask({ company: "pgw", title: "has repo", by: "eq3", repo: "acme/keep" });
+    expect(setTaskPr("pgw", b.id, 2, "patchwork", "other/nope")!.repo).toBe("acme/keep"); // existing wins
+    const c = addTask({ company: "pgw", title: "no arg", by: "eq3" });
+    expect(setTaskPr("pgw", c.id, 3, "patchwork")!.repo).toBeUndefined(); // no repo passed → still none
+  });
+
+  test("setTaskRepoIfMissing backfills only when absent; no-op (no write) otherwise", () => {
+    const a = addTask({ company: "pgw", title: "heal me", by: "eq3" });
+    expect(setTaskRepoIfMissing("pgw", a.id, "meganechan/maw-js")!.repo).toBe("meganechan/maw-js");
+    const b = addTask({ company: "pgw", title: "keep mine", by: "eq3", repo: "acme/keep" });
+    const before = readTask("pgw", b.id)!.updatedTs;
+    expect(setTaskRepoIfMissing("pgw", b.id, "other/nope")!.repo).toBe("acme/keep"); // unchanged
+    expect(readTask("pgw", b.id)!.updatedTs).toBe(before); // no-op → no write
+    expect(setTaskRepoIfMissing("pgw", "pgw-nope", "x/y")).toBeNull(); // absent card
   });
 });
 
