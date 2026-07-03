@@ -418,6 +418,15 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
  * note pushed on the end (oldest first). Stamps author + time so the timeline
  * reads who/when/what. Bumps updatedTs (a note IS activity) and emits a
  * `task-note` worklog event. Returns null if the card is absent.
+ *
+ * Auto-advance (kobo-54, board-truth): a note by the card's ASSIGNEE on a `todo`
+ * card is unambiguous "I'm working on this" evidence tied to THIS card, so it
+ * also flips todo→in-progress (+ a `claim` worklog event, mirroring startTask).
+ * Gates keep it from lying (pr-watch rule): only `todo` (backlog stays
+ * intentionally not-ready; other states already have an owner/flow), and only
+ * when the author IS the assignee — a note by anyone else (e.g. eq3 asking a
+ * question on the card) is NOT the doer working, so the card holds. An
+ * unassigned card never auto-advances (fall back to explicit `task start`).
  */
 export function noteTask(company: string, id: string, by: string, text: string): TaskRecord | null {
   const task = readTask(company, id);
@@ -425,9 +434,12 @@ export function noteTask(company: string, id: string, by: string, text: string):
   const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text };
   task.notes = [...(task.notes ?? []), note]; // append-only — prior notes are untouched
   task.updatedTs = note.ts;
+  const advance = task.state === "todo" && !!task.assignee && task.assignee === by;
+  if (advance) task.state = "in-progress"; // assignee working their own todo card (kobo-54)
   writeTaskRecord(task);
   const oneLine = text.replace(/\s+/g, " ").trim();
   emit(task, by, "task-note", `note ${task.id}: ${oneLine.length > 60 ? oneLine.slice(0, 57) + "…" : oneLine}`);
+  if (advance) emit(task, by, "claim", `started ${task.id}: ${task.title}`); // open-claims tracker (mirrors startTask)
   return task;
 }
 
