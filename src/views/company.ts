@@ -287,17 +287,21 @@ function companyBody(): string {
     .tabpanel[hidden] { display:none; }
     .timeline-full { max-height:78vh; }
     /* kobo-49 c5 — Presence tab, derived from the worklog feed (no /api/presence). */
-    .presence-note { font-size:12px; color:var(--muted); background:var(--col); border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:14px; line-height:1.5; }
+    /* kobo-64 — Presence polish: Foundation tokens + maw-pane per-oracle avatar
+       (same authorColor/avatarText contract as note bubbles). Presentation only;
+       roster/derive/status logic unchanged. */
+    .presence-note { font-size:var(--t-sm); color:var(--muted); background:var(--col); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-5); margin-bottom:var(--s-6); line-height:1.5; }
     .presence-note b { color:var(--warn); }
-    .presence-list { display:flex; flex-direction:column; gap:8px; }
-    .presence-row { display:flex; align-items:baseline; gap:10px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); flex-wrap:wrap; }
-    .presence-row .p-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; align-self:center; }
+    .presence-list { display:flex; flex-direction:column; gap:var(--s-3); }
+    .presence-row { display:flex; align-items:baseline; gap:var(--s-4); padding:var(--s-3) var(--s-5); border:1px solid var(--line); border-radius:var(--r-md); background:var(--card); flex-wrap:wrap; }
+    .presence-row .p-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:var(--r-pill); display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; align-self:center; }
+    .presence-row .p-dot { width:8px; height:8px; border-radius:var(--r-pill); background:var(--muted); flex:0 0 auto; align-self:center; }
     .presence-row .p-dot.active { background:var(--ok); }
     .presence-row .p-oracle { color:var(--accent); font-weight:600; }
-    .presence-row .p-when { color:var(--muted); font-size:12px; }
-    .presence-row .p-count { color:var(--muted); font-size:11px; margin-left:auto; }
-    .presence-row .p-status { color:var(--ok); font-size:12px; width:100%; }
-    .presence-row .p-last { color:var(--fg); font-size:12px; width:100%; white-space:pre-wrap; word-break:break-word; }
+    .presence-row .p-when { color:var(--muted); font-size:var(--t-sm); }
+    .presence-row .p-count { color:var(--muted); font-size:var(--t-xs); margin-left:auto; }
+    .presence-row .p-status { color:var(--st-meta); font-size:var(--t-sm); width:100%; }
+    .presence-row .p-last { color:var(--fg); font-size:var(--t-sm); width:100%; white-space:pre-wrap; word-break:break-word; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
     /* kobo-57 new-version reload banner — kobo-61 folds it into the header zone:
@@ -1000,6 +1004,12 @@ function renderPresence(entries, roster) {
     const active = act && (nowMs() - (act.last.ts || 0)) <= ACTIVE_MS;
     const dot = el('span', 'p-dot' + (active ? ' active' : '')); dot.title = active ? 'active (last 10 min)' : (act ? 'idle' : 'no recent activity');
     row.appendChild(dot);
+    // kobo-64 — per-oracle avatar (same palette/contrast as note bubbles): color =
+    // identity, initials + full name always shown (color-not-only). Presentation only.
+    const avc = authorColor(member.oracle);
+    const av = el('span', 'p-avatar', authorInitials(member.oracle));
+    av.style.background = avc; av.style.color = avatarText(avc);
+    row.appendChild(av);
     row.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
     const roleTxt = member.role ? (member.role + (member.dept ? ' · ' + member.dept : '')) : (member.dept || '');
     if (roleTxt) row.appendChild(el('span', 'p-when', roleTxt));
