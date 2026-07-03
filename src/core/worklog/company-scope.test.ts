@@ -16,7 +16,8 @@ import {
   saveCompany,
   type Company,
 } from "../../vendor/mpr-plugins/company/company-helpers";
-import { scopeOfOracle, companyOfOracle, _clearScopeCache } from "./company-scope";
+import { scopeOfOracle, companyOfOracle, companyRoster, _clearScopeCache } from "./company-scope";
+import { handleRosterRequest } from "../roster/route";
 
 const ORIGINAL_DIR = COMPANIES_DIR;
 let tmp: string;
@@ -61,6 +62,31 @@ describe("company-scope resolution", () => {
   it("returns null for an unknown oracle", () => {
     saveCompany(pgw());
     expect(companyOfOracle("stranger")).toBeNull();
+  });
+});
+
+describe("companyRoster + /api/roster (kobo-50 — authoritative membership)", () => {
+  it("returns the manager (dept null, role manager) + every dept member with dept+role", () => {
+    saveCompany(pgw());
+    const roster = companyRoster("pgw");
+    expect(roster).toContainEqual({ oracle: "thawanban", dept: null, role: "manager" });
+    expect(roster).toContainEqual({ oracle: "nai", dept: "core", role: "lead" });
+    expect(roster).toContainEqual({ oracle: "lek", dept: "core", role: "dev" });
+    expect(roster).toHaveLength(3); // no dupes, manager not smuggled into a dept
+  });
+
+  it("unknown company → empty roster (never throws)", () => {
+    expect(companyRoster("nope")).toEqual([]);
+  });
+
+  it("handleRosterRequest serves the roster; no company → empty", async () => {
+    saveCompany(pgw());
+    const res = await handleRosterRequest(new Request("http://x/api/roster?company=pgw"));
+    const json = (await res.json()) as { company: string; roster: Array<{ oracle: string }> };
+    expect(json.company).toBe("pgw");
+    expect(json.roster.map((r) => r.oracle).sort()).toEqual(["lek", "nai", "thawanban"]);
+    const none = (await handleRosterRequest(new Request("http://x/api/roster")).json()) as { roster: unknown[] };
+    expect(none.roster).toEqual([]);
   });
 });
 

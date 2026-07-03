@@ -40,6 +40,7 @@ const PROTECTED = new Set([
   "/policy",          // company/dept policy inject — same surface as worklog (Rule 6); loopback hooks bypass, LAN must auth
   "/tasks",           // company-ui board — reveals who-works-on-what within a company (Rule 6); loopback UI bypasses, LAN must auth
   "/state",           // company-ui coordination markdown — company-internal state doc (Rule 6); loopback UI bypasses, LAN must auth
+  "/roster",          // company-ui presence roster — company org membership (Rule 6, kobo-50); loopback UI bypasses, LAN must auth
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */

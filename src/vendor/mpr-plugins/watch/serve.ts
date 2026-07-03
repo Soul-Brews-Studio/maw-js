@@ -13,8 +13,9 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCreateRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCreateRequest, handleTaskDoneRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
+import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
 import { feedListeners } from "../../../api/feed";
 
@@ -36,8 +37,15 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // company-ui card create (kobo-48): the modal "+ subtask" button posts a child
   // card (epic = parent id) → c1 containment (behind auth — PROTECTED POST "/tasks/…").
   ctx.http?.route("POST", "/api/tasks/create", (request: Request) => handleTaskCreateRequest(request));
+  // company-ui mark-done (kobo-50): the modal "mark done" button posts a card→done
+  // transition; an epic w/ incomplete children → 409 needsConfirm (guard b). Behind
+  // auth via PROTECTED POST "/tasks/…".
+  ctx.http?.route("POST", "/api/tasks/done", (request: Request) => handleTaskDoneRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
+  // company-ui presence roster (kobo-50): authoritative company membership for the
+  // Presence tab (behind auth — PROTECTED "/roster").
+  ctx.http?.route("GET", "/api/roster", (request: Request) => handleRosterRequest(request));
   // company/dept policy inject route — on-attach context (separate concern,
   // toggles with this plugin). Behind auth via PROTECTED "/policy".
   ctx.http?.route("GET", "/api/policy", (request: Request) => handlePolicyRequest(request));

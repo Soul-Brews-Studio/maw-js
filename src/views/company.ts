@@ -56,6 +56,10 @@ export function companyHtml(): string {
     .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid #2f5a3f; color:var(--ok); background:#0d131c; cursor:pointer; }
     .archive-btn:hover { border-color:var(--ok); }
     .archive-btn:disabled { opacity:.55; cursor:default; }
+    /* kobo-50 — mark-done button in the modal write section (pairs with archive). */
+    .done-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid #2f5a3f; color:var(--ok); background:#0d131c; cursor:pointer; }
+    .done-btn:hover { border-color:var(--ok); }
+    .done-btn:disabled { opacity:.55; cursor:default; }
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
     .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
@@ -228,6 +232,7 @@ function currentCompany() { return (companyInput.value || '').trim(); }
 let taskIndex = { byId: new Map(), childrenOf: new Map() };
 let lastTasks = [];
 let lastEntries = []; // cached worklog feed — powers the Worklog + Presence tabs (kobo-49)
+let lastRoster = []; // cached company roster (GET /api/roster) — authoritative Presence membership (kobo-50)
 let familyFilter = null; // root card id while filtering to one family, else null
 
 function buildIndex(tasks) {
@@ -486,6 +491,48 @@ function buildWriteSection(task) {
   cmtLine.appendChild(cmtInput); cmtLine.appendChild(cmtBtn);
   cmtRow.appendChild(cmtLine);
 
+  // mark done (kobo-50, item 1) — only on a card not already done. Gives c1 guard b
+  // its web trigger: an epic whose children aren't all done → server 409 needsConfirm
+  // + rollup, and we ask before forcing the close (scope collapse).
+  if (task.state !== 'done') {
+    const doneRow = el('div', 'write-row');
+    const doneBtn = el('button', 'done-btn', '✓ mark done'); doneBtn.type = 'button';
+    doneRow.appendChild(doneBtn);
+    wrap.appendChild(doneRow);
+    async function postDone(confirm) {
+      await postJson('/api/tasks/done', { company: currentCompany(), id: task.id, confirm: confirm });
+      setMsg('marked done', true);
+      await load(); closeDetail(); // card is done → shows in the Done column
+    }
+    // Inline (non-blocking) confirm — a native confirm() blocks the page thread and
+    // is unreachable to assistive tech / e2e drivers. Guard b: server 409s with the
+    // rollup, we render "children N/M — confirm?" with yes/no in the message area.
+    function askConfirm(r) {
+      msg.className = 'write-msg';
+      msg.replaceChildren();
+      msg.appendChild(el('span', '', 'epic ' + task.id + ' ลูกเสร็จ ' + (r.done || 0) + '/' + (r.total != null ? r.total : '?') + ' — mark done? (scope ยุบได้) '));
+      const yes = el('button', 'done-btn confirm-yes', 'confirm done'); yes.type = 'button';
+      const no = el('button', '', 'cancel'); no.type = 'button'; no.style.marginLeft = '6px';
+      msg.appendChild(yes); msg.appendChild(no);
+      no.addEventListener('click', () => setMsg('ยกเลิก', false));
+      yes.addEventListener('click', async () => {
+        yes.disabled = true;
+        try { await postDone(true); } catch (e2) { setMsg('mark done failed: ' + errMsg(e2), false); }
+      });
+    }
+    async function submitDone() {
+      if (!currentCompany()) return;
+      doneBtn.disabled = true;
+      try {
+        await postDone(false);
+      } catch (err) {
+        if (err && err.status === 409 && err.data && err.data.needsConfirm) askConfirm(err.data.rollup || {});
+        else setMsg('mark done failed: ' + errMsg(err), false);
+      } finally { doneBtn.disabled = false; }
+    }
+    doneBtn.addEventListener('click', submitDone);
+  }
+
   wrap.appendChild(subRow); wrap.appendChild(cmtRow); wrap.appendChild(msg);
 
   async function submitSub() {
@@ -638,25 +685,23 @@ function relTime(ts) {
 // Wall clock read once per render (Date.now is fine in the browser).
 function nowMs() { return Date.now(); }
 
-// kobo-49 c5 — Presence, DERIVED from the worklog feed. There is no /api/presence
-// or /api/roster (only federation TransportPresence heartbeat, not exposed), and
-// clock-in/out/toilet/seat/hey are NOT distinct worklog kinds — they only appear
-// as free text inside tool/conversation summaries. So presence here = per-oracle
-// activity: last-seen + pane + event count + last action, over the fetched window.
-// A best-effort scan surfaces clock-in/out/seat/toilet lines when present, clearly
-// labelled. We DO NOT invent a roster: an oracle with no worklog activity in the
-// window simply won't appear (flagged in the note). No store, no guessing.
+// kobo-50 — Presence = the AUTHORITATIVE company roster (GET /api/roster, from the
+// company registry) overlaid with worklog-derived activity. Every registered oracle
+// appears even with zero recent activity (the c5 gap: clock-in/out/seat/toilet are
+// free-text, not distinct worklog kinds, so activity alone under-counts membership).
+// Live status (last-seen · pane · count · last action) is still derived from the
+// worklog feed; a best-effort scan surfaces clock-in/out/seat/toilet lines when present.
 const STATUS_RE = /(clock[ -]?in|clock[ -]?out|clocked in|clocked out|\\/toilet|\\btoilet\\b|\\/seat|\\bseat\\b|\\bflush\\b|clock-out)/i;
 const ACTIVE_MS = 10 * 60 * 1000; // green dot = active within 10 min
 
-function renderPresence(entries) {
+function renderPresence(entries, roster) {
+  entries = entries || []; roster = roster || [];
   const host = $('presence');
   host.replaceChildren();
   const note = el('div', 'presence-note');
-  note.innerHTML = 'Derived from the worklog activity feed — there is no <b>/api/presence</b> or <b>/api/roster</b>. Shows who has activity in the last ' + entries.length + ' events (last-seen · pane · count · last action). Oracles with no recent worklog activity do not appear; clock-in/out/seat/toilet are best-effort text matches, not structured events.';
+  note.innerHTML = 'Company roster from <b>/api/roster</b> (authoritative membership) — every registered oracle appears, even with no recent activity. Live status (last-seen · pane · count · last action) is derived from the worklog feed; clock-in/out/seat/toilet are best-effort text matches, not structured events.';
   host.appendChild(note);
-  if (!entries.length) { host.appendChild(el('div', 'empty', 'no worklog activity to derive presence from')); return; }
-  // Fold the feed to one row per oracle: newest entry wins for last-seen + pane.
+  // Fold the feed to one activity record per oracle: newest entry wins for last-seen + pane.
   const byOracle = new Map();
   for (const e of entries) {
     const key = e.oracle || '?';
@@ -666,18 +711,37 @@ function renderPresence(entries) {
     if ((e.ts || 0) >= (o.last.ts || 0)) { o.last = e; o.pane = e.pane; }
     if (STATUS_RE.test(e.summary || '') && (!o.status || (e.ts || 0) >= (o.status.ts || 0))) o.status = e;
   }
-  const rows = [...byOracle.values()].sort((a, b) => (b.last.ts || 0) - (a.last.ts || 0));
+  // Roster is the authoritative membership; overlay activity. An oracle with
+  // activity but NOT in the roster (e.g. a cross-company visitor) is still shown.
+  const rosterNames = new Set(roster.map((r) => r.oracle));
+  const rows = [];
+  for (const r of roster) rows.push({ member: r, act: byOracle.get(r.oracle) || null });
+  for (const [name, act] of byOracle) if (!rosterNames.has(name)) rows.push({ member: { oracle: name, dept: null, role: null }, act: act });
+  if (!rows.length) { host.appendChild(el('div', 'empty', 'no roster + no worklog activity')); return; }
+  // active first, then most-recent activity, then roster-only alphabetical.
+  rows.sort((a, b) => {
+    const ta = a.act ? (a.act.last.ts || 0) : 0, tb = b.act ? (b.act.last.ts || 0) : 0;
+    if (tb !== ta) return tb - ta;
+    return a.member.oracle.localeCompare(b.member.oracle);
+  });
   const list = el('div', 'presence-list');
-  for (const o of rows) {
+  for (const item of rows) {
+    const member = item.member, act = item.act;
     const row = el('div', 'presence-row');
-    const active = (nowMs() - (o.last.ts || 0)) <= ACTIVE_MS;
-    const dot = el('span', 'p-dot' + (active ? ' active' : '')); dot.title = active ? 'active (last 10 min)' : 'idle';
+    const active = act && (nowMs() - (act.last.ts || 0)) <= ACTIVE_MS;
+    const dot = el('span', 'p-dot' + (active ? ' active' : '')); dot.title = active ? 'active (last 10 min)' : (act ? 'idle' : 'no recent activity');
     row.appendChild(dot);
-    row.appendChild(el('span', 'p-oracle', o.oracle + (o.pane ? '.' + o.pane : '')));
-    row.appendChild(el('span', 'p-when', o.last.iso ? relTime(o.last.ts) + ' · ' + localTs(o.last.iso) : text(o.last.ts)));
-    row.appendChild(el('span', 'p-count', o.count + ' event' + (o.count === 1 ? '' : 's')));
-    row.appendChild(el('div', 'p-last', (o.last.kind || 'tool') + ' · ' + (o.last.summary || '')));
-    if (o.status) row.appendChild(el('div', 'p-status', '⚑ status: ' + (o.status.summary || '') + ' (' + relTime(o.status.ts) + ')'));
+    row.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
+    const roleTxt = member.role ? (member.role + (member.dept ? ' · ' + member.dept : '')) : (member.dept || '');
+    if (roleTxt) row.appendChild(el('span', 'p-when', roleTxt));
+    if (act) {
+      row.appendChild(el('span', 'p-when', act.last.iso ? relTime(act.last.ts) + ' · ' + localTs(act.last.iso) : text(act.last.ts)));
+      row.appendChild(el('span', 'p-count', act.count + ' event' + (act.count === 1 ? '' : 's')));
+      row.appendChild(el('div', 'p-last', (act.last.kind || 'tool') + ' · ' + (act.last.summary || '')));
+      if (act.status) row.appendChild(el('div', 'p-status', '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')'));
+    } else {
+      row.appendChild(el('span', 'p-count', 'no recent activity'));
+    }
     list.appendChild(row);
   }
   host.appendChild(list);
@@ -691,13 +755,15 @@ function showTab(name) {
   for (const p of document.querySelectorAll('.tabpanel')) p.hidden = (p.dataset.tab !== name);
   for (const b of document.querySelectorAll('.tab')) { const on = b.dataset.tab === name; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
   if (name === 'worklog') renderTimeline(lastEntries);
-  else if (name === 'presence') renderPresence(lastEntries);
+  else if (name === 'presence') renderPresence(lastEntries, lastRoster);
   try { localStorage.setItem('maw-company-tab', name); } catch (e) { /* private mode */ }
 }
 function updateTabCounts() {
   $('tab-count-worklog').textContent = lastEntries.length ? '(' + lastEntries.length + ')' : '';
-  const oracles = new Set(lastEntries.map((e) => e.oracle || '?'));
-  $('tab-count-presence').textContent = oracles.size ? '(' + oracles.size + ')' : '';
+  // Presence count = full membership (roster ∪ any active-but-unrostered oracle), kobo-50.
+  const names = new Set(lastRoster.map((r) => r.oracle));
+  for (const e of lastEntries) names.add(e.oracle || '?');
+  $('tab-count-presence').textContent = names.size ? '(' + names.size + ')' : '';
 }
 
 // Minimal, escape-first markdown→HTML for the markdown-file panel. We escape & <
@@ -753,27 +819,30 @@ async function getJson(url) {
 async function load() {
   const company = currentCompany();
   $('co-name').textContent = company || '—';
-  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([]); return; }
+  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; lastRoster = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([], []); return; }
   statusEl.textContent = 'loading…';
   statusEl.className = '';
   try {
     const q = '?company=' + encodeURIComponent(company);
-    // state panel is optional — a failed/absent state.md must not break the page.
-    const [tasksRes, feedRes, stateRes] = await Promise.all([
+    // state panel + roster are optional — a failed/absent one must not break the page.
+    const [tasksRes, feedRes, stateRes, rosterRes] = await Promise.all([
       getJson('/api/tasks' + q),
       getJson('/api/worklog/feed' + q + '&limit=200'), // wider window feeds the Worklog + Presence tabs (kobo-49)
       getJson('/api/state' + q).catch(() => null),
+      getJson('/api/roster' + q).catch(() => null), // authoritative company membership (kobo-50)
     ]);
     const tasks = Array.isArray(tasksRes.tasks) ? tasksRes.tasks : [];
     const entries = Array.isArray(feedRes.entries) ? feedRes.entries : [];
+    const roster = rosterRes && Array.isArray(rosterRes.roster) ? rosterRes.roster : [];
     lastTasks = tasks;
     lastEntries = entries;
+    lastRoster = roster;
     buildIndex(tasks); // full-list index for rollup / parent-chip / family derivation
     renderBoard(tasks);
     renderTimeline(entries);
     renderState(stateRes);
     updateTabCounts();
-    if (activeTab === 'presence') renderPresence(entries); // keep the live tab fresh on poll
+    if (activeTab === 'presence') renderPresence(entries, roster); // keep the live tab fresh on poll
     statusEl.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · ' + entries.length + ' worklog entr' + (entries.length === 1 ? 'y' : 'ies') + (stateRes && stateRes.exists ? ' · state.md' : '');
   } catch (err) {
     statusEl.textContent = 'failed to load: ' + (err && err.message ? err.message : err);

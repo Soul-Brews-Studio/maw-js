@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, checklistProgress, dependencyBlock, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, parentStateResolver, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, checklistProgress, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -212,4 +212,52 @@ export async function handleTaskCreateRequest(request: Request): Promise<Respons
     }
   }
   return Response.json({ ok: true, task: { id: created.id, title: created.title, epic: created.epic ?? null, state: created.state } });
+}
+
+/**
+ * POST /api/tasks/done — mark a card done from the web board (kobo-50, item 1).
+ * Gives c1's guard b ("done an epic whose children aren't all finished → allow +
+ * CONFIRM") its missing web trigger. The store guard is REUSED (openEpicChildren /
+ * epicRollup), not reimplemented:
+ *   - a card with open (not-done) children AND no { confirm:true } → 409
+ *     { needsConfirm:true, rollup:{done,total}, openChildren:[ids] } so the UI can
+ *     ask "children N/M — close anyway?" before collapsing the scope.
+ *   - confirm:true (or no open children) → completeTask → 200.
+ * `by` is "tony" — the web board is Tony's surface (mirrors the sibling routes).
+ * Behind auth via PROTECTED POST "/tasks/…" (loopback UI bypasses; LAN must auth).
+ *
+ * Body: { company, id, confirm? } → { ok:true, task } | 409 needsConfirm | error.
+ */
+export async function handleTaskDoneRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; confirm?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; confirm?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const confirm = body.confirm === true;
+  if (!company || !id) {
+    return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  }
+  if (!readTask(company, id)) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  // Guard b (kobo-45): an epic whose children aren't all done needs an explicit
+  // confirm before we collapse its scope. Derived at read from the store helpers.
+  const open = openEpicChildren(id, listTasks(company));
+  if (open.length && !confirm) {
+    const rollup = epicRollup(id, listTasks(company)); // {done,total} — present since it has children
+    return Response.json(
+      { ok: false, needsConfirm: true, rollup, openChildren: open.map((c) => c.id),
+        error: `epic has ${open.length} child card(s) not done` },
+      { status: 409 },
+    );
+  }
+  const task = completeTask(company, id, "tony");
+  if (!task) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  return Response.json({ ok: true, task: { id: task.id, title: task.title, state: task.state } });
 }

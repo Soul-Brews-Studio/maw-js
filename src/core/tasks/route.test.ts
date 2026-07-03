@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskArchiveRequest, handleTaskCreateRequest, handleTaskNoteRequest, handleTasksRequest } from "./route";
+import { handleTaskArchiveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskNoteRequest, handleTasksRequest } from "./route";
 import { addTask, claimTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -296,5 +296,50 @@ describe("handleTaskArchiveRequest guard a (kobo-48 — epic with open children 
     expect(json.blockedBy).toEqual([a.id]);
     // epic NOT archived — still on the board
     expect(listTasks("guard").map((c) => c.id)).toContain(epic.id);
+  });
+});
+
+describe("handleTaskDoneRequest (POST /api/tasks/done — kobo-50 guard b web trigger)", () => {
+  const post = (body: unknown) =>
+    handleTaskDoneRequest(new Request("http://x/api/tasks/done", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+
+  test("a plain card marks done → 200, state=done", async () => {
+    const t = addTask({ company: "dn", title: "leaf", by: "eq3", assignee: "patchwork" });
+    const res = await post({ company: "dn", id: t.id });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: { state: string } }).task.state).toBe("done");
+    expect(readTask("dn", t.id)!.state).toBe("done");
+  });
+
+  test("epic with open children + no confirm → 409 needsConfirm + rollup N/M + openChildren (guard b)", async () => {
+    const epic = addTask({ company: "dn", title: "epic", by: "eq3", kind: "epic" });
+    const a = addTask({ company: "dn", title: "child a", by: "eq3", epic: epic.id });
+    addTask({ company: "dn", title: "child b", by: "eq3", epic: epic.id });
+    completeTask("dn", a.id, "eq3"); // 1 of 2 children done
+    const res = await post({ company: "dn", id: epic.id });
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { ok: boolean; needsConfirm: boolean; rollup: { done: number; total: number }; openChildren: string[] };
+    expect(json.needsConfirm).toBe(true);
+    expect(json.rollup.done).toBe(1);
+    expect(json.rollup.total).toBe(2);
+    expect(json.openChildren).toHaveLength(1);
+    expect(readTask("dn", epic.id)!.state).not.toBe("done"); // NOT closed without confirm
+  });
+
+  test("epic with open children + confirm:true → 200 (scope collapse allowed)", async () => {
+    const epic = addTask({ company: "dn2", title: "epic", by: "eq3", kind: "epic" });
+    addTask({ company: "dn2", title: "still open", by: "eq3", epic: epic.id });
+    const res = await post({ company: "dn2", id: epic.id, confirm: true });
+    expect(res.status).toBe(200);
+    expect(readTask("dn2", epic.id)!.state).toBe("done");
+  });
+
+  test("missing fields → 400, unknown id → 404, bad JSON → 400", async () => {
+    expect((await post({ company: "dn" })).status).toBe(400);
+    expect((await post({ company: "dn", id: "dn-999" })).status).toBe(404);
+    const bad = await handleTaskDoneRequest(new Request("http://x/api/tasks/done", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
+    expect(bad.status).toBe(400);
   });
 });

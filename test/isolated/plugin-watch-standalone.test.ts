@@ -19,6 +19,7 @@ describe("watch command plugin standalone boundary", () => {
         /^(?:\.\.\/){3}core\/worklog\//,
         /^(?:\.\.\/){3}core\/tasks\//, // company-ui board (stub now, backbone later)
         /^(?:\.\.\/){3}core\/state-doc\//, // company-ui coordination markdown panel
+        /^(?:\.\.\/){3}core\/roster\//, // company-ui presence roster (kobo-50)
         /^(?:\.\.\/){3}core\/policy\//, // policy inject route — on-attach context
         /^(?:\.\.\/){3}api\/feed$/,
       ],
@@ -63,6 +64,11 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-48: web create POST → +subtask (child card, epic = parent).
     expect(serveSrc).toContain("handleTaskCreateRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/create["']/);
+    // kobo-50: mark-done POST (guard b web trigger) + presence roster GET.
+    expect(serveSrc).toContain("handleTaskDoneRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/done["']/);
+    expect(serveSrc).toContain("handleRosterRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
   });
 
   // cli-reorg kobo-26: `maw watch` is HARD-REMOVED (no cli command). The plugin
@@ -80,6 +86,8 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/archive"); // kobo-35
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/note"); // kobo-46
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/create"); // kobo-48
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
   });
 

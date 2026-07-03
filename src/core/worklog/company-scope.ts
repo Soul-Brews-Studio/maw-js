@@ -67,6 +67,40 @@ export function companyOracles(company: string): string[] {
   return [...set];
 }
 
+/** One roster entry — an oracle's place in the company org (kobo-50 presence). */
+export interface RosterMember {
+  oracle: string;
+  dept: string | null; // null = a company-level manager/PM (a tier above the depts)
+  role: string; // dept role ("lead"|"dev"|"qa") or "manager" for the company PM
+}
+
+/**
+ * The AUTHORITATIVE company roster (kobo-50, item 3) — every oracle in the
+ * registry with its dept + role, so the web Presence tab can show the full
+ * membership (incl. oracles with no recent worklog activity, the c5 gap). Reads
+ * the company registry (loadCompany), NOT `maw ls` — `maw ls` is fleet/tmux-wide
+ * live sessions, not company membership. First dept a name appears in wins (a
+ * name shouldn't be in two, but be deterministic if it is). Never throws.
+ */
+export function companyRoster(company: string): RosterMember[] {
+  const c = loadCompany(company);
+  if (!c) return [];
+  const out: RosterMember[] = [];
+  const seen = new Set<string>();
+  if (c.manager && !seen.has(c.manager)) {
+    seen.add(c.manager);
+    out.push({ oracle: c.manager, dept: null, role: "manager" });
+  }
+  for (const [dept, d] of Object.entries(c.departments)) {
+    for (const m of d.members) {
+      if (seen.has(m.oracle)) continue;
+      seen.add(m.oracle);
+      out.push({ oracle: m.oracle, dept, role: m.role });
+    }
+  }
+  return out;
+}
+
 /** @internal — tests */
 export function _clearScopeCache(): void {
   scopeCache.clear();
