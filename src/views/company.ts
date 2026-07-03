@@ -51,29 +51,59 @@ function companyBody(): string {
   <style>
     :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --col:#0e141d; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#7dd3fc; }
     body.light { color-scheme: light; --bg:#f6f8fb; --card:#ffffff; --col:#eef2f7; --muted:#5b6b77; --fg:#1b2430; --line:#d8e0ea; --ok:#1f9d57; --bad:#c8443a; --warn:#9a6b12; --accent:#1f6fd6; }
+    /* ── kobo-59 UI Foundation — design tokens (epic kobo-58 root; subtasks 2-6 build on these).
+       Hybrid identity: modern structure + terminal accent. The color vars above stay the
+       theme-switched base (--bg/--card/--accent…); below are the SEMANTIC colors + SCALE tokens
+       every primitive shares. Values MATCH the current look — this PR changes no appearance/behavior;
+       subtasks migrate views onto the tokens incrementally. Primitives (shared classes) that consume
+       these: .card (Card) · .pill (Badge) · .tab (Tab) · button/.archive-btn/.done-btn (Button) ·
+       .overlay+.modal (Modal shell) · .task (board card) · #detail-notes .note (note bubble). */
+    :root {
+      /* semantic accent colors — recurring inline hex, de-duplicated to one source */
+      --epic:#c4a7ff;                 /* epic / subtask purple */
+      --field-bg:#0d131c;             /* input / textarea / code / button surface */
+      --bd-ok:#2f5a3f; --bd-bad:#6b3a3a; --bd-epic:#4a3a6b; --bd-warn:#5a4a22; --bd-accent:#31516b; /* badge/button border tints */
+      /* semantic STATUS colors — modal-body structured blocks (kobo-58 #4, worker-3 design).
+         Aliases onto the base palette so the whole epic shares one color contract; the base
+         tokens (--card/--accent/--ok/--bad/--warn/--line/--muted) stay unchanged. */
+      --st-source:var(--accent);   /* source / target / host — provenance */
+      --st-premise:var(--warn);    /* premise / interim — provisional / caution */
+      --st-bug:var(--bad);         /* bug / broken */
+      --st-accept:var(--ok);       /* accept / decision — settled / go */
+      --st-meta:var(--muted);      /* meta / secondary detail */
+      /* radius scale */
+      --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:12px; --r-xl:14px; --r-pill:999px;
+      /* spacing scale (the px steps actually in use, ranked xs→xl) */
+      --s-1:4px; --s-2:6px; --s-3:8px; --s-4:10px; --s-5:12px; --s-6:14px; --s-7:16px; --s-8:18px; --s-9:24px;
+      /* type scale */
+      --t-xs:11px; --t-sm:12px; --t-base:13px; --t-md:14px; --t-lg:15px; --t-xl:18px; --t-2xl:22px;
+      /* fonts — mono is the terminal accent (ids/code) and the board's default UI face */
+      --font-mono: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
     * { box-sizing: border-box; }
-    body { margin:0; padding:24px; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg); transition:background .2s ease, color .2s ease; }
+    body { margin:0; padding:var(--s-9); font:var(--t-md)/1.45 var(--font-mono); background:var(--bg); color:var(--fg); transition:background .2s ease, color .2s ease; }
     header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap; }
     h1 { margin:0; font-size:22px; letter-spacing:.02em; }
     h1 .co { color:var(--accent); }
     .sub { color:var(--muted); margin-top:4px; }
     .controls { display:flex; gap:10px; align-items:flex-end; }
     label { color:var(--muted); font-size:12px; display:flex; flex-direction:column; gap:5px; }
-    input, button { background:#0d131c; color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font:inherit; }
-    button { cursor:pointer; border-color:#31516b; color:var(--accent); }
+    input, button { background:var(--field-bg); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font:inherit; }
+    button { cursor:pointer; border-color:var(--bd-accent); color:var(--accent); }
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 12px 28px rgba(0,0,0,.25); }
+    /* Card primitive — surface for panels/columns/modals. */
+    .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
     .board { display:grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
     .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
-    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:#c4a7ff; } .col-done h2 { color:var(--ok); }
+    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-done h2 { color:var(--ok); }
     /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
        tab) so blocked/needs-attention cards are seen immediately, not below-fold on
        a busy board. Hidden entirely when nothing is off-flow (renderBoard toggles
        [hidden]) so it costs no space then. margin-bottom separates it from the board. */
-    .attention { margin-bottom:14px; border:1px solid #6b3a3a; background:#1b1012; border-radius:12px; padding:10px; }
+    .attention { margin-bottom:14px; border:1px solid var(--bd-bad); background:#1b1012; border-radius:12px; padding:10px; }
     body.light .attention { border-color:#e6b3ad; background:#fdeeec; } /* light-theme tint (was dark-only hex) */
     .attention h2 { margin:0 0 8px; font-size:12px; color:var(--bad); display:flex; justify-content:space-between; }
     .attention .lane { display:flex; gap:9px; flex-wrap:wrap; }
@@ -83,28 +113,28 @@ function companyBody(): string {
     .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
     .task .t-na { color:var(--accent); font-size:12px; margin-top:6px; }
     .task .t-actions { margin-top:8px; display:flex; justify-content:flex-end; }
-    .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid #2f5a3f; color:var(--ok); background:#0d131c; cursor:pointer; }
+    .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
     .archive-btn:hover { border-color:var(--ok); }
     .archive-btn:disabled { opacity:.55; cursor:default; }
     /* kobo-50 — mark-done button in the modal write section (pairs with archive). */
-    .done-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid #2f5a3f; color:var(--ok); background:#0d131c; cursor:pointer; }
+    .done-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
     .done-btn:hover { border-color:var(--ok); }
     .done-btn:disabled { opacity:.55; cursor:default; }
     .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
-    .pill.dept { color:var(--accent); } .pill.epic { color:#c4a7ff; } .pill.assignee { color:var(--ok); }
-    .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:#5a4a22; }
-    .pill.check { color:#c4a7ff; }
-    .pill.attn { color:var(--bad); border-color:#6b3a3a; }
+    .pill.dept { color:var(--accent); } .pill.epic { color:var(--epic); } .pill.assignee { color:var(--ok); }
+    .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:var(--bd-warn); }
+    .pill.check { color:var(--epic); }
+    .pill.attn { color:var(--bad); border-color:var(--bd-bad); }
     /* kobo-47 kanban c3 — epic rollup badge, parent chip (click = filter family). */
-    .pill.epic-badge { color:#c4a7ff; border-color:#4a3a6b; }
-    .pill.epic-badge.all-done { color:var(--ok); border-color:#2f5a3f; }
+    .pill.epic-badge { color:var(--epic); border-color:var(--bd-epic); }
+    .pill.epic-badge.all-done { color:var(--ok); border-color:var(--bd-ok); }
     .pill.parent-chip { color:var(--accent); }
     .pill.parent-chip.unresolved { color:var(--muted); }
     .pill.epic-badge:hover, .pill.parent-chip:hover { border-color:var(--accent); }
     .pill.epic-badge:focus-visible, .pill.parent-chip:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); }
-    .family-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:6px 11px; border:1px solid #4a3a6b; border-radius:10px; background:var(--col); color:var(--muted); font-size:12px; }
+    .family-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:6px 11px; border:1px solid var(--bd-epic); border-radius:10px; background:var(--col); color:var(--muted); font-size:12px; }
     .family-bar[hidden] { display:none; }
-    .family-bar .fam-root { color:#c4a7ff; }
+    .family-bar .fam-root { color:var(--epic); }
     .family-clear { font-size:11px; padding:2px 9px; border-radius:8px; color:var(--accent); }
     .timeline { max-height:72vh; overflow:auto; }
     .entry { padding:8px 4px; border-bottom:1px solid var(--line); }
@@ -120,8 +150,8 @@ function companyBody(): string {
     .md h1,.md h2,.md h3,.md h4 { color:var(--accent); margin:14px 0 8px; line-height:1.3; }
     .md h1 { font-size:18px; } .md h2 { font-size:15px; } .md h3 { font-size:13px; } .md h4 { font-size:12px; color:var(--muted); }
     .md p { margin:8px 0; } .md ul,.md ol { margin:8px 0; padding-left:20px; } .md li { margin:3px 0; }
-    .md code { background:#0d131c; border:1px solid var(--line); border-radius:6px; padding:1px 5px; }
-    .md pre { background:#0d131c; border:1px solid var(--line); border-radius:9px; padding:10px; overflow:auto; }
+    .md code { background:var(--field-bg); border:1px solid var(--line); border-radius:6px; padding:1px 5px; }
+    .md pre { background:var(--field-bg); border:1px solid var(--line); border-radius:9px; padding:10px; overflow:auto; }
     .md pre code { background:none; border:0; padding:0; }
     .md blockquote { border-left:3px solid var(--line); margin:8px 0; padding:2px 0 2px 12px; color:var(--muted); }
     .md a { color:var(--accent); } .md hr { border:0; border-top:1px solid var(--line); margin:12px 0; }
@@ -165,7 +195,7 @@ function companyBody(): string {
     .write-row { display:flex; flex-direction:column; gap:6px; }
     .write-row > label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
     .write-row .row { display:flex; gap:8px; align-items:flex-start; }
-    .write-row input[type=text], .write-row textarea { flex:1; background:#0d131c; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; }
+    .write-row input[type=text], .write-row textarea { flex:1; background:var(--field-bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; }
     .write-row input[type=text]:focus, .write-row textarea:focus { outline:none; border-color:var(--accent); }
     .write-row textarea { resize:vertical; min-height:52px; }
     .write-row button { white-space:nowrap; }
