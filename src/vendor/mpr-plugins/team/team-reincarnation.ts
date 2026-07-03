@@ -17,7 +17,7 @@ function printClaimedTeam(name: string, claim: TeamLeadClaim): void {
   console.log(`  teammates: ${claim.teammates.length}${claim.teammates.length ? ` (${claim.teammates.join(", ")})` : ""}`);
 }
 
-export function cmdTeamResume(name: string, opts: { model?: string } = {}) {
+export async function cmdTeamResume(name: string, opts: { model?: string } = {}) {
   const PSI = resolvePsi();
   const manifestPath = join(PSI, "memory", "mailbox", "teams", name, "manifest.json");
   const claim = claimOrphanedTeamLead(name);
@@ -52,7 +52,11 @@ export function cmdTeamResume(name: string, opts: { model?: string } = {}) {
   console.log(`\x1b[36m⏳\x1b[0m resuming team '${name}' — ${members.length} agent(s)...\n`);
 
   for (const member of members) {
-    cmdTeamSpawn(name, member, { model: opts.model });
+    // kobo-81 — reincarnate a LIVE pane (exec) so the worker actually respawns,
+    // and Fix A re-binds its NEW pane id onto the roster member → addressing
+    // survives respawn. Outside tmux, cmdTeamSpawn falls back to printing the
+    // run command (no-op split), so this stays safe everywhere.
+    await cmdTeamSpawn(name, member, { model: opts.model, exec: true });
     console.log();
   }
 

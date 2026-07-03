@@ -270,6 +270,29 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 }
 
 // ─── maw team spawn <team> <role> ───
+/**
+ * kobo-81 — bind a freshly-split tmux pane id onto the roster member so
+ * addressing (`maw hey <role>`, `maw team send <team> <role>`) can reach the
+ * worker's real pane. Writes `tmuxPaneId` + `agentId` into the tool-store
+ * config.json (the record the send/hey resolvers read). Idempotent AND
+ * re-bindable: re-spawning a member overwrites its pane id, so reincarnation
+ * survives respawn (a new pane each life). Best-effort — a config miss never
+ * breaks the spawn.
+ */
+export function bindMemberPaneId(teamName: string, role: string, paneId: string): void {
+  const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
+  if (!existsSync(toolConfigPath)) return;
+  try {
+    const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
+    const member = toolConfig.members?.find((m: any) => m.name === role);
+    if (!member) return;
+    member.tmuxPaneId = paneId;
+    member.agentId = `${role}@${teamName}`;
+    // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393)
+    writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
+  } catch { /* best effort — pane binding is additive, never blocks spawn */ }
+}
+
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
@@ -379,9 +402,21 @@ export async function cmdTeamSpawn(
     }
     try {
       const { hostExec } = await import("maw-js/sdk");
-      await hostExec(`tmux split-window -h -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`);
+      // kobo-81 — capture the new pane id (`-P -F '#{pane_id}'`) and anchor the
+      // split to THIS pane (`-t $TMUX_PANE`) so it lands beside the spawner, not
+      // the session's active pane (POC gotcha #1). The captured %id is bound to
+      // the roster member below so `maw hey <role>` / `maw team send` reach the
+      // worker's real pane — previously the id was discarded and never bound.
+      const spawner = process.env.TMUX_PANE;
+      const targetFlag = spawner ? ` -t '${spawner.replace(/'/g, "'\\''")}'` : "";
+      // String(... ?? "") tolerates a transport that resolves void (e.g. a test
+      // double or an SSH host that returns no stdout) — never let .trim() throw.
+      const paneId = String((await hostExec(
+        `tmux split-window -h${targetFlag} -P -F '#{pane_id}' -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`,
+      )) ?? "").trim();
+      if (paneId) bindMemberPaneId(teamName, role, paneId);
       console.log();
-      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane (right, 50%)`);
+      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane${paneId ? ` (${paneId})` : " (right, 50%)"}`);
     } catch (e: any) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);

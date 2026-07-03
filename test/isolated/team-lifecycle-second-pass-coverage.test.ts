@@ -320,7 +320,11 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     await lifecycle.cmdTeamSpawn("qa-team", "builder-λ", { exec: true, model: "opus" });
 
     expect(hostExecCalls).toHaveLength(1);
-    expect(hostExecCalls[0]).toContain("tmux split-window -h -l 50%");
+    // kobo-81 — the split now captures the new pane id (`-P -F '#{pane_id}'`) so
+    // it can be bound to the roster member for addressing.
+    expect(hostExecCalls[0]).toContain("tmux split-window -h");
+    expect(hostExecCalls[0]).toContain("-P -F '#{pane_id}'");
+    expect(hostExecCalls[0]).toContain("-l 50%");
     expect(hostExecCalls[0]).toContain("--model opus");
     expect(hostExecCalls[0]).toContain("--system-prompt-file");
     expect(hostExecCalls[0]).not.toContain("--continue");
@@ -351,6 +355,25 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(logs.join("\n")).toContain("--model haiku");
     expect(logs.join("\n")).toContain("--system-prompt-file");
     expect(logs.join("\n")).not.toContain("--continue");
+  });
+
+  test("spawn --exec targets the spawner pane and binds the captured pane id (kobo-81)", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+    process.env.TMUX = "/tmp/tmux,1,0";
+    process.env.TMUX_PANE = "%88"; // the pane running the command
+    hostExecImpl = async (cmd: string) => { hostExecCalls.push(cmd); return "%99"; }; // tmux prints the new pane id
+
+    await lifecycle.cmdTeamSpawn("qa-team", "builder", { exec: true, model: "opus" });
+
+    // split anchors to the spawner pane and captures the new pane id
+    expect(hostExecCalls[0]).toContain("-t '%88'");
+    expect(hostExecCalls[0]).toContain("-P -F '#{pane_id}'");
+    // the captured id is bound onto the roster member for addressing
+    const cfg = JSON.parse(readFileSync(join(teamsDir, "qa-team", "config.json"), "utf-8"));
+    const member = cfg.members.find((m: any) => m.name === "builder");
+    expect(member.tmuxPaneId).toBe("%99");
+    expect(member.agentId).toBe("builder@qa-team");
+    expect(logs.join("\n")).toContain("%99");
   });
 
 

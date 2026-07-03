@@ -160,7 +160,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const sendMode = resolveTeamSendMode(args.slice(2), teamMessageTargets(args[1]));
       if (sendMode.mode === "single") {
-        cmdTeamSend(args[1], sendMode.agent, sendMode.message);
+        await cmdTeamSend(args[1], sendMode.agent, sendMode.message);
       } else {
         await cmdTeamBroadcast(args[1], sendMode.message);
       }
@@ -191,7 +191,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
-      cmdTeamResume(args[1], { model });
+      await cmdTeamResume(args[1], { model });
     } else if (sub === "lives" || sub === "history") {
       if (!args[1]) {
         logs.push("usage: maw team lives <agent>");

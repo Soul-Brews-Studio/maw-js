@@ -66,10 +66,12 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/impl.ts"), ()
   cmdTeamSpawn: async (...args: unknown[]) => calls.push({ name: "spawn", args }),
   cmdTeamShutdown: async (...args: unknown[]) => calls.push({ name: "shutdown", args }),
   cmdTeamList: async () => record("list"),
-  cmdTeamSend: (...args: unknown[]) => calls.push({ name: "send", args }),
+  // kobo-81 — cmdTeamSend + cmdTeamResume are now async (single-send routes a
+  // live-pane delivery; resume execs to reincarnate + re-bind pane ids).
+  cmdTeamSend: async (...args: unknown[]) => calls.push({ name: "send", args }),
   cmdTeamBroadcast: async (...args: unknown[]) => calls.push({ name: "broadcast", args }),
   cmdTeamBring: async (...args: unknown[]) => calls.push({ name: "bring", args }),
-  cmdTeamResume: (...args: unknown[]) => calls.push({ name: "resume", args }),
+  cmdTeamResume: async (...args: unknown[]) => calls.push({ name: "resume", args }),
   cmdTeamLives: (...args: unknown[]) => calls.push({ name: "lives", args }),
 }));
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/team/team-comms.ts"), () => ({
@@ -382,5 +384,27 @@ agents:
     expect(result.ok).toBe(true);
     expect(hostExecCalls).toEqual(["tmux send-keys -t '%42' Enter"]);
     expect(stripAnsi(result.output)).toContain("enter sent to builder@avengers");
+  });
+});
+
+// kobo-81 — spawn --exec pane binding: the roster member gets its %pane-id so
+// `maw hey <role>` / `maw team send` can reach the worker's real pane. Exercises
+// the real binding helper (fs-only; unaffected by the sdk/impl mocks above).
+describe("kobo-81 pane binding (spawn → roster tmuxPaneId)", () => {
+  test("bindMemberPaneId writes + re-binds the pane id onto the member", async () => {
+    const { bindMemberPaneId } = await import("../../src/vendor/mpr-plugins/team/team-lifecycle.ts");
+    const { _setDirs } = await import("../../src/vendor/mpr-plugins/team/team-helpers.ts");
+    const dir = mkdtempSync(join(tmpdir(), "kobo81-bind-"));
+    _setDirs(dir, join(dir, "tasks"));
+    mkdirSync(join(dir, "crew"), { recursive: true });
+    writeFileSync(join(dir, "crew", "config.json"), JSON.stringify({ name: "crew", members: [{ name: "worker-3" }] }));
+    bindMemberPaneId("crew", "worker-3", "%603");
+    let cfg = JSON.parse(readFileSync(join(dir, "crew", "config.json"), "utf-8"));
+    expect(cfg.members[0].tmuxPaneId).toBe("%603");
+    expect(cfg.members[0].agentId).toBe("worker-3@crew");
+    bindMemberPaneId("crew", "worker-3", "%777"); // reincarnation → new pane
+    cfg = JSON.parse(readFileSync(join(dir, "crew", "config.json"), "utf-8"));
+    expect(cfg.members[0].tmuxPaneId).toBe("%777");
+    rmSync(dir, { recursive: true, force: true });
   });
 });

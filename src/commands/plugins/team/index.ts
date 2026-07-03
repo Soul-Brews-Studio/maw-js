@@ -119,7 +119,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         logs.push("usage: maw team send <team> <agent> <message>");
         return { ok: false, error: "team, agent, and message required", output: logs.join("\n") };
       }
-      cmdTeamSend(args[1], args[2], args.slice(3).join(" "));
+      await cmdTeamSend(args[1], args[2], args.slice(3).join(" "));
     } else if (sub === "resume") {
       if (!args[1]) {
         logs.push("usage: maw team resume <name> [--model <model>]");
@@ -127,7 +127,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
-      cmdTeamResume(args[1], { model });
+      await cmdTeamResume(args[1], { model });
     } else if (sub === "lives" || sub === "history") {
       if (!args[1]) {
         logs.push("usage: maw team lives <agent>");

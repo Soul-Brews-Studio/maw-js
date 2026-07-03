@@ -531,6 +531,18 @@ async function resolveBareLocalTarget(
   if (locate.result) return { result: locate.result, locate };
   if (locate.repoPath) return { result: null, locate };
 
+  // kobo-81 — fallback: a live maw-team member's bound tmux pane is a valid local
+  // target even though the worker isn't a federation oracle (no repo → the locate
+  // path above can't find it). Placed LAST so no existing oracle/locate target is
+  // affected — only names that would otherwise miss (the "bare = local-only fail"
+  // symptom) now resolve to the worker's real pane. Dynamic import keeps comm-send
+  // free of the fs/path/os top-level import (mock.module link-time safety).
+  try {
+    const { resolveTeamMemberPane } = await import("./team-member-pane");
+    const memberPane = resolveTeamMemberPane(query);
+    if (memberPane) return { result: { type: "local", target: memberPane }, locate: null };
+  } catch { /* fall through to the miss error */ }
+
   rejectBareMiss(query);
 }
 

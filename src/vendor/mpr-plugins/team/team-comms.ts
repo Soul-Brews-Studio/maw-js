@@ -37,7 +37,7 @@ export function resolveTeamSendMode(args: string[], knownTargets: string[]): Tea
 
 // ─── maw team send <team> <agent> <message> ───
 
-export function cmdTeamSend(teamName: string, agent: string, message: string) {
+export async function cmdTeamSend(teamName: string, agent: string, message: string) {
   if (!message) {
     throw new Error("usage: maw team send <team> <agent> <message>");
   }
@@ -45,7 +45,26 @@ export function cmdTeamSend(teamName: string, agent: string, message: string) {
   // Try CC team inbox first (live team), fallback to vault mailbox
   const team = loadTeam(teamName);
   if (team) {
+    // Durable inbox first (unchanged) so the message survives an unreachable pane.
     writeMessage(teamName, agent, "maw-team-send", message);
+    // kobo-81 Root B — actually DELIVER to the member's live pane. This path used
+    // to be inbox-file-only → it "claimed ✓" but never reached the worker. Route
+    // through cmdSend, the same mechanism broadcast already uses; the bare-name
+    // resolver now maps a live team member → its bound pane. Best-effort: a dead
+    // or unbound pane leaves the durable inbox write intact. process.exit is
+    // trapped so a send miss can't kill the CLI (mirrors cmdTeamBroadcast).
+    try {
+      const { cmdSend } = await import("maw-js/commands/shared/comm-send");
+      const origExit = process.exit;
+      process.exit = ((code?: number) => {
+        throw new Error(`send exited${code === undefined ? "" : ` with ${code}`}`);
+      }) as never;
+      try {
+        await cmdSend(agent, message, false);
+      } finally {
+        process.exit = origExit;
+      }
+    } catch { /* inbox already written; live pane delivery is best-effort */ }
     console.log(`\x1b[32m✓\x1b[0m message sent to ${agent} in live team '${teamName}'`);
     return;
   }
