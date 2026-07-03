@@ -44,7 +44,12 @@ export function companyHtml(): string {
     .col h2 .count { color:var(--fg); }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:#c4a7ff; } .col-done h2 { color:var(--ok); }
-    .attention { margin-top:14px; border:1px solid #6b3a3a; background:#1b1012; border-radius:12px; padding:10px; }
+    /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
+       tab) so blocked/needs-attention cards are seen immediately, not below-fold on
+       a busy board. Hidden entirely when nothing is off-flow (renderBoard toggles
+       [hidden]) so it costs no space then. margin-bottom separates it from the board. */
+    .attention { margin-bottom:14px; border:1px solid #6b3a3a; background:#1b1012; border-radius:12px; padding:10px; }
+    body.light .attention { border-color:#e6b3ad; background:#fdeeec; } /* light-theme tint (was dark-only hex) */
     .attention h2 { margin:0 0 8px; font-size:12px; color:var(--bad); display:flex; justify-content:space-between; }
     .attention .lane { display:flex; gap:9px; flex-wrap:wrap; }
     .attention .task { flex:1 1 220px; max-width:340px; }
@@ -188,16 +193,16 @@ export function companyHtml(): string {
     <section class="tabpanel" data-tab="kanban" role="tabpanel">
       <div class="card">
         <div class="family-bar" id="family-bar" hidden></div>
+        <div class="attention" id="attention-panel" hidden>
+          <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
+          <div class="lane" id="blocked"></div>
+        </div>
         <div class="board">
           <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
           <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
-        </div>
-        <div class="attention" id="attention-panel" hidden>
-          <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
-          <div class="lane" id="blocked"></div>
         </div>
       </div>
       <div class="card" id="state-panel" style="margin-top:16px" hidden>
