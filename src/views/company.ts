@@ -108,7 +108,21 @@ export function companyHtml(): string {
     .col h2 { text-transform:uppercase; letter-spacing:.07em; border-bottom:1px solid var(--line); padding-bottom:8px; }
     .col h2 .count { background:var(--col); border:1px solid var(--line); border-radius:999px; padding:0 8px; font-size:11px; font-weight:600; }
     #detail-panel { border-left:3px solid var(--accent); }
-    #detail-notes .notes-head { margin:12px 0 4px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    #detail-notes .notes-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    /* kobo-56 — comment/note timeline as author-coded bubbles (was flat monospace
+       rows). Author identity is triple-encoded: avatar color + initials + full name
+       (never color alone), so eq3/tony/patchwork/worker read apart. Color lives on
+       the self-contained avatar circle + left border (not on text) → no dual-theme
+       contrast risk; the name stays high-contrast --fg. Token-driven both themes. */
+    #detail-notes .note { display:flex; gap:10px; padding:9px 12px; margin-bottom:10px; background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; }
+    #detail-notes .note:last-child { margin-bottom:2px; }
+    #detail-notes .note-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; letter-spacing:.02em; }
+    #detail-notes .note-main { flex:1 1 auto; min-width:0; }
+    #detail-notes .note-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+    #detail-notes .note-author { font-weight:600; color:var(--fg); }
+    #detail-notes .note-src { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 7px; }
+    #detail-notes .note-ts { color:var(--muted); font-size:11px; margin-left:auto; font-variant-numeric:tabular-nums; }
+    #detail-notes .note-body { color:var(--fg); font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
     /* kobo-44: card detail as a modal overlay (was an inline sidebar panel). */
     .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
     .overlay[hidden] { display:none; }
@@ -417,6 +431,43 @@ async function archiveCard(task, btn) {
 }
 
 // Read-only card detail — title + meta + body markdown (reuses mdToHtml).
+// kobo-56 — deterministic per-author color from a fixed palette (hash → index),
+// so each author reads as a distinct bubble. Colors are saturated mid-darks that
+// carry WHITE text legibly on the avatar circle in BOTH themes (the circle brings
+// its own background, so page theme doesn't affect its contrast). Color is only
+// ever SUPPLEMENTARY — initials + full author name are always shown (color-not-only).
+const AUTHOR_COLORS = ['#2563eb', '#059669', '#7c3aed', '#b45309', '#dc2626', '#0891b2', '#db2777', '#475569'];
+function authorColor(name) {
+  const s = String(name == null ? '?' : name);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AUTHOR_COLORS[h % AUTHOR_COLORS.length];
+}
+function authorInitials(name) {
+  const a = String(name == null ? '?' : name).replace(/[^a-z0-9]/gi, '');
+  return (a.slice(0, 2) || '?').toUpperCase();
+}
+// Build one note bubble: avatar (author color + initials) · author name · optional
+// ↳source chip (subtask notes) · timestamp; then the note body. el() sets
+// textContent → escape-first, XSS-safe. src = source card id for subtask notes.
+function noteBubble(n, src) {
+  const color = authorColor(n.by);
+  const note = el('div', 'note');
+  note.style.borderLeftColor = color; // color assignment is a hashed palette index, not user HTML
+  const av = el('div', 'note-avatar', authorInitials(n.by));
+  av.style.background = color;
+  note.appendChild(av);
+  const main = el('div', 'note-main');
+  const head = el('div', 'note-head');
+  head.appendChild(el('span', 'note-author', n.by || '?'));
+  if (src) head.appendChild(el('span', 'note-src', '↳ ' + src));
+  head.appendChild(el('span', 'note-ts', n.iso ? (relTime(n.ts) + ' · ' + localTs(n.iso)) : text(n.ts)));
+  main.appendChild(head);
+  main.appendChild(el('div', 'note-body', n.text || ''));
+  note.appendChild(main);
+  return note;
+}
+
 function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   const bodyEl = $('detail-body');
@@ -428,17 +479,8 @@ function openDetail(task) {
   notesEl.replaceChildren();
   const notes = task.notes || [];
   if (notes.length) {
-    const hd = el('div', 'notes-head', 'notes (' + notes.length + ')');
-    notesEl.appendChild(hd);
-    for (const n of notes) { // append-only array is oldest-first — reads as a timeline
-      const row = el('div', 'entry');
-      const head = el('div', 'e-head');
-      head.appendChild(el('span', 'e-oracle', n.by || '?'));
-      head.appendChild(el('span', 'e-ts', n.iso ? localTs(n.iso) : text(n.ts)));
-      row.appendChild(head);
-      row.appendChild(el('div', 'e-summary', n.text || ''));
-      notesEl.appendChild(row);
-    }
+    notesEl.appendChild(el('div', 'notes-head', 'notes (' + notes.length + ')'));
+    for (const n of notes) notesEl.appendChild(noteBubble(n)); // oldest-first = a timeline
   }
   // kobo-47: an epic's modal also gathers notes from every child card, oldest-first,
   // each tagged with its source child id. Derived at read (childNotesOf prefers a
@@ -447,16 +489,7 @@ function openDetail(task) {
   const childNotes = childNotesOf(task);
   if (childNotes.length) {
     notesEl.appendChild(el('div', 'notes-head', 'notes from subtasks (' + childNotes.length + ')'));
-    for (const n of childNotes) {
-      const row = el('div', 'entry');
-      const head = el('div', 'e-head');
-      head.appendChild(el('span', 'e-oracle', n.by || '?'));
-      if (n.from) head.appendChild(el('span', 'e-kind', '↳ ' + n.from));
-      head.appendChild(el('span', 'e-ts', n.iso ? localTs(n.iso) : text(n.ts)));
-      row.appendChild(head);
-      row.appendChild(el('div', 'e-summary', n.text || ''));
-      notesEl.appendChild(row);
-    }
+    for (const n of childNotes) notesEl.appendChild(noteBubble(n, n.from));
   }
   // kobo-48: write controls (+ subtask, comment box) live inside the modal.
   buildWriteSection(task);
