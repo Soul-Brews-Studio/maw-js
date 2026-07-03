@@ -87,13 +87,21 @@ function companyBody(): string {
     }
     * { box-sizing: border-box; }
     body { margin:0; padding:var(--s-9); font:var(--t-md)/1.45 var(--font-mono); background:var(--bg); color:var(--fg); transition:background .2s ease, color .2s ease; }
-    header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap; }
-    h1 { margin:0; font-size:22px; letter-spacing:.02em; }
+    /* kobo-61 — global header bar (brand · switcher · theme-toggle). Token-driven
+       so both themes inherit; presentation only — company-switch/theme logic and
+       every id are untouched. The tab row below keeps its own underline rail, so
+       the header stays borderless to avoid a double divider. */
+    header { display:flex; align-items:center; justify-content:space-between; gap:var(--s-7); margin:0 0 var(--s-5); flex-wrap:wrap; }
+    .brand { display:flex; flex-direction:column; gap:var(--s-1); }
+    h1 { margin:0; font-size:var(--t-2xl); letter-spacing:.02em; display:flex; align-items:center; gap:var(--s-3); }
+    h1 .logo { color:var(--accent); font-size:var(--t-xl); }
     h1 .co { color:var(--accent); }
-    .sub { color:var(--muted); margin-top:4px; }
-    .controls { display:flex; gap:10px; align-items:flex-end; }
+    .sub { color:var(--muted); font-size:var(--t-sm); }
+    .controls { display:flex; gap:var(--s-4); align-items:center; }
+    .controls .switcher { color:var(--muted); font-size:var(--t-xs); }
     label { color:var(--muted); font-size:12px; display:flex; flex-direction:column; gap:5px; }
-    input, button { background:var(--field-bg); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font:inherit; }
+    input, button { background:var(--field-bg); color:var(--fg); border:1px solid var(--line); border-radius:var(--r-sm); padding:var(--s-3) var(--s-4); font:inherit; }
+    .controls input:focus { outline:none; border-color:var(--accent); }
     button { cursor:pointer; border-color:var(--bd-accent); color:var(--accent); }
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     /* Card primitive — surface for panels/columns/modals. */
@@ -237,7 +245,7 @@ function companyBody(): string {
     .write-msg { font-size:12px; min-height:16px; }
     .write-msg.err { color:var(--bad); } .write-msg.ok { color:var(--ok); }
     /* kobo-49 c5 — tab shell (Kanban / Worklog / Presence). */
-    .tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    .tabs { display:flex; gap:var(--s-1); margin-bottom:var(--s-7); border-bottom:1px solid var(--line); flex-wrap:wrap; }
     .tab { background:none; border:0; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; padding:8px 16px; color:var(--muted); cursor:pointer; }
     .tab:hover { color:var(--fg); }
     .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
@@ -259,8 +267,11 @@ function companyBody(): string {
     .presence-row .p-last { color:var(--fg); font-size:12px; width:100%; white-space:pre-wrap; word-break:break-word; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
-    /* kobo-57 — new-version reload banner (both themes via CSS vars) */
-    #update-banner { position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:12px; margin:-24px -24px 18px; padding:10px 24px; background:var(--card); border-bottom:1px solid var(--accent); color:var(--fg); box-shadow:0 6px 16px rgba(0,0,0,.25); }
+    /* kobo-57 new-version reload banner — kobo-61 folds it into the header zone:
+       token-aligned presentation only (padding/gap/margin → --s-*), logic (version
+       poll + per-version dismiss) untouched. Breaks out to full width above the
+       header via negative body-padding margin (body pad = --s-9). */
+    #update-banner { position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:var(--s-5); margin:calc(-1 * var(--s-9)) calc(-1 * var(--s-9)) var(--s-7); padding:var(--s-4) var(--s-9); background:var(--card); border-bottom:1px solid var(--accent); color:var(--fg); box-shadow:0 6px 16px rgba(0,0,0,.25); }
     #update-banner[hidden] { display:none; }
     #update-banner span { flex:1; }
     #update-banner #update-reload { border-color:var(--accent); color:var(--accent); }
@@ -275,12 +286,12 @@ function companyBody(): string {
     <button type="button" id="update-dismiss" aria-label="dismiss">✕</button>
   </div>
   <header>
-    <div>
-      <h1>maw company <span class="co" id="co-name">—</span></h1>
+    <div class="brand">
+      <h1><span class="logo" aria-hidden="true">◈</span> maw company <span class="co" id="co-name">—</span></h1>
       <div class="sub">read-only board + worklog timeline · <code id="status">loading…</code></div>
     </div>
     <div class="controls">
-      <label>company <input id="company" placeholder="pgw" /></label>
+      <label class="switcher">company <input id="company" placeholder="pgw" /></label>
       <button id="theme" type="button" title="toggle light/dark" aria-label="toggle theme">🌙</button>
       <button id="refresh" type="button">refresh</button>
     </div>
