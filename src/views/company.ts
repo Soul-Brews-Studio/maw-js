@@ -79,6 +79,11 @@ function companyBody(): string {
       --t-xs:11px; --t-sm:12px; --t-base:13px; --t-md:14px; --t-lg:15px; --t-xl:18px; --t-2xl:22px;
       /* fonts — mono is the terminal accent (ids/code) and the board's default UI face */
       --font-mono: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      /* kobo-60 — a readable sans for long prose (card-detail body). Spec §1 locked
+         "mono เฉพาะ code/id": the modal body is the one long-prose surface, so it
+         reads sans while ids/code/labels stay mono. Scoped to #detail-body only —
+         the rest of the board keeps its terminal (mono) face. */
+      --font-ui: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     }
     * { box-sizing: border-box; }
     body { margin:0; padding:var(--s-9); font:var(--t-md)/1.45 var(--font-mono); background:var(--bg); color:var(--fg); transition:background .2s ease, color .2s ease; }
@@ -159,6 +164,35 @@ function companyBody(): string {
     .md li.chk { list-style:none; display:flex; gap:8px; align-items:baseline; margin-left:-16px; }
     .md li.chk input { accent-color:var(--accent); margin:0; transform:translateY(2px); flex:0 0 auto; }
     .md li.chk .done { color:var(--muted); text-decoration:line-through; }
+    /* kobo-60 — structured card-detail body: field lines → inner-card blocks,
+       scope checklist → progress block. Foundation tokens (st, r, s, t scales).
+       Color lives on the LEFT BORDER only; label + value text stay high-contrast
+       (--muted / --fg) so meaning never rides on color alone (color-not-only, same
+       proven pattern as the kobo-56 note bubbles). Escape-first: values go through
+       escapeHtml→inlineMd. Prose reads sans; ids/code/labels stay mono. */
+    #detail-body { font-family:var(--font-ui); }
+    #detail-body code, #detail-body pre, #detail-body .field-label, #detail-body .scope-title { font-family:var(--font-mono); }
+    .field { background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:var(--r-md); padding:var(--s-4) var(--s-5); margin:var(--s-3) 0; }
+    .field-label { display:block; font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:700; margin-bottom:var(--s-1); }
+    .field-val { color:var(--fg); font-size:var(--t-base); line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+    .field-val code { background:var(--field-bg); border:1px solid var(--line); border-radius:var(--r-xs); padding:1px 5px; }
+    .field-val a { color:var(--accent); }
+    .field-source { border-left-color:var(--st-source); }
+    .field-premise { border-left-color:var(--st-premise); }
+    .field-bug { border-left-color:var(--st-bug); }
+    .field-accept { border-left-color:var(--st-accept); }
+    .field-meta { border-left-color:var(--st-meta); }
+    .scope-block { background:var(--col); border:1px solid var(--line); border-radius:var(--r-lg); padding:var(--s-4) var(--s-5); margin:var(--s-4) 0; }
+    .scope-head { display:flex; align-items:center; gap:var(--s-4); margin-bottom:var(--s-3); }
+    .scope-title { font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--accent); font-weight:700; }
+    .scope-prog { display:flex; align-items:center; gap:var(--s-3); margin-left:auto; }
+    .scope-count { font-size:var(--t-xs); color:var(--muted); font-variant-numeric:tabular-nums; }
+    .scope-bar { width:84px; height:6px; background:var(--field-bg); border:1px solid var(--line); border-radius:var(--r-pill); overflow:hidden; }
+    .scope-fill { height:100%; background:var(--accent); }
+    .scope-item { display:flex; gap:var(--s-3); align-items:baseline; padding:var(--s-1) 0; }
+    .scope-item input { accent-color:var(--accent); margin:0; transform:translateY(1px); flex:0 0 auto; }
+    .scope-item.done .scope-txt { color:var(--muted); text-decoration:line-through; }
+    .scope-txt { color:var(--fg); }
     /* kobo-42 polish — hover/focus affordance so cards read as clickable, refined
        column headers + count chips, and an accent on the active detail panel.
        All token-driven so the light theme inherits the same treatment. */
@@ -566,7 +600,7 @@ function noteBubble(n, src) {
 function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   const bodyEl = $('detail-body');
-  if (task.body) { bodyEl.innerHTML = mdToHtml(task.body); }
+  if (task.body) { bodyEl.replaceChildren(renderCardBody(task.body)); } // kobo-60: structured field/scope blocks + prose
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
   // kobo-39: append-only notes timeline (who / when / what) below the body. Reuse
   // the worklog .entry/.e-* classes. el() sets textContent → escape-first, XSS-safe.
@@ -929,6 +963,108 @@ function mdToHtml(src) {
   if (inCode) out.push('</code></pre>');
   closeList();
   return out.join('\\n');
+}
+
+// kobo-60 — structured card-detail body. Fleet card bodies are dominated by
+// "**field:** value" lines + a "**scope:**" checklist; mdToHtml flattened those
+// into an undifferentiated mono wall (Tony's daily pain). Split BEFORE markdown:
+//   - "**label:** value"           → fieldBlock (colored left-border + label + value)
+//   - "**scope:**" + "- [ ] …" run → scopeBlock (progress bar + checklist)
+//   - everything else              → prose chunk via mdToHtml (sans, .md)
+// Escape-first throughout (escapeHtml→inlineMd); structure via el()/textContent.
+function fieldKind(label) {
+  const l = label.toLowerCase();
+  if (/source|target|host|repo|origin|from\\b/.test(l)) return 'source';
+  if (/premise|interim|assumption|caution|workaround|temp\\b/.test(l)) return 'premise';
+  if (/bug|อาการ|problem|issue|broken|error|risk/.test(l)) return 'bug';
+  if (/accept|acceptance|decision|verdict|เลือก|go\\b|result/.test(l)) return 'accept';
+  if (/dep|epic|parent|queue|meta|ref|link|note/.test(l)) return 'meta';
+  return '';
+}
+function fieldBlock(label, value) {
+  const kind = fieldKind(label);
+  const block = el('div', 'field' + (kind ? ' field-' + kind : ''));
+  block.appendChild(el('span', 'field-label', label));
+  const val = el('div', 'field-val');
+  if (value) val.innerHTML = inlineMd(escapeHtml(value)); // escape-first → XSS-safe
+  block.appendChild(val);
+  return block;
+}
+function scopeBlock(label, items) {
+  const total = items.length;
+  const done = items.filter(function (x) { return x.done; }).length;
+  const block = el('div', 'scope-block');
+  const head = el('div', 'scope-head');
+  head.appendChild(el('span', 'scope-title', label));
+  if (total) {
+    const prog = el('div', 'scope-prog');
+    prog.setAttribute('role', 'progressbar');
+    prog.setAttribute('aria-label', done + ' of ' + total + ' done');
+    prog.setAttribute('aria-valuemin', '0');
+    prog.setAttribute('aria-valuemax', String(total));
+    prog.setAttribute('aria-valuenow', String(done));
+    prog.appendChild(el('span', 'scope-count', done + '/' + total));
+    const bar = el('div', 'scope-bar');
+    const fill = el('div', 'scope-fill');
+    fill.style.width = Math.round((done / total) * 100) + '%';
+    bar.appendChild(fill);
+    prog.appendChild(bar);
+    head.appendChild(prog);
+  }
+  block.appendChild(head);
+  const list = el('div', 'scope-list');
+  for (const it of items) {
+    const row = el('div', 'scope-item' + (it.done ? ' done' : ''));
+    const box = el('input'); box.type = 'checkbox'; box.disabled = true; box.checked = it.done;
+    const txt = el('span', 'scope-txt');
+    txt.innerHTML = inlineMd(escapeHtml(it.text)); // escape-first
+    row.appendChild(box); row.appendChild(txt);
+    list.appendChild(row);
+  }
+  block.appendChild(list);
+  return block;
+}
+function renderCardBody(body) {
+  const frag = document.createDocumentFragment();
+  const lines = String(body).split(/\\r?\\n/);
+  let prose = [];
+  const flushProse = function () {
+    const txt = prose.join('\\n').trim();
+    prose = [];
+    if (!txt) return;
+    const d = el('div', 'md');
+    d.innerHTML = mdToHtml(txt); // mdToHtml is escape-first
+    frag.appendChild(d);
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const fm = lines[i].match(/^\\s*\\*\\*\\s*([^*:]+?)\\s*:\\*\\*\\s*(.*)$/);
+    if (fm) {
+      const label = fm[1].trim();
+      const rest = fm[2].trim();
+      // scope/checklist header (value empty) → gather the following "- [ ] …" run
+      if (/^(scope|checklist|steps?|todo)\\b/i.test(label) && !rest) {
+        i++;
+        const items = [];
+        let cm;
+        while (i < lines.length && (cm = lines[i].match(/^\\s*[-*+]\\s+\\[([ xX])\\]\\s+(.*)$/))) {
+          items.push({ done: cm[1] !== ' ', text: cm[2].trim() });
+          i++;
+        }
+        if (items.length) { flushProse(); frag.appendChild(scopeBlock(label, items)); continue; }
+        // no checklist followed → fall through as a plain field
+        flushProse(); frag.appendChild(fieldBlock(label, rest)); continue;
+      }
+      flushProse();
+      frag.appendChild(fieldBlock(label, rest));
+      i++;
+      continue;
+    }
+    prose.push(lines[i]);
+    i++;
+  }
+  flushProse();
+  return frag;
 }
 
 function renderState(state) {
