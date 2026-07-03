@@ -8,7 +8,7 @@ export function messagesHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>maw messages</title>
   <style>
-    :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#7dd3fc; }
+    :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#ff5f87; --link:#ffd700; } /* kobo-71 palette retune (mirror of company.ts) */
     * { box-sizing: border-box; }
     body { margin:0; padding:24px; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg); }
     header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px; }

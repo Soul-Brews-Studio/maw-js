@@ -49,8 +49,12 @@ function companyBody(): string {
   <meta name="app-version" content="${VERSION_TOKEN}" />
   <title>maw company</title>
   <style>
-    :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --col:#0e141d; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#7dd3fc; }
-    body.light { color-scheme: light; --bg:#f6f8fb; --card:#ffffff; --col:#eef2f7; --muted:#5b6b77; --fg:#1b2430; --line:#d8e0ea; --ok:#1f9d57; --bad:#c8443a; --warn:#9a6b12; --accent:#1f6fd6; }
+    /* kobo-71 palette retune (maw-pane anchor, Tony color direction): --accent =
+       coral/pink (PANE pink), and interactive LINKS split out to --link (amber) so
+       accent is brand/state only. Light-theme variants are darkened to keep AA
+       contrast on the light bg. Names locked — values only; every view inherits. */
+    :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --col:#0e141d; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#ff5f87; --link:#ffd700; }
+    body.light { color-scheme: light; --bg:#f6f8fb; --card:#ffffff; --col:#eef2f7; --muted:#5b6b77; --fg:#1b2430; --line:#d8e0ea; --ok:#1f9d57; --bad:#c8443a; --warn:#9a6b12; --accent:#d6336c; --link:#a67c00; }
     /* ── kobo-59 UI Foundation — design tokens (epic kobo-58 root; subtasks 2-6 build on these).
        Hybrid identity: modern structure + terminal accent. The color vars above stay the
        theme-switched base (--bg/--card/--accent…); below are the SEMANTIC colors + SCALE tokens
@@ -167,7 +171,7 @@ function companyBody(): string {
     .md pre { background:var(--field-bg); border:1px solid var(--line); border-radius:9px; padding:10px; overflow:auto; }
     .md pre code { background:none; border:0; padding:0; }
     .md blockquote { border-left:3px solid var(--line); margin:8px 0; padding:2px 0 2px 12px; color:var(--muted); }
-    .md a { color:var(--accent); } .md hr { border:0; border-top:1px solid var(--line); margin:12px 0; }
+    .md a { color:var(--link); } .md hr { border:0; border-top:1px solid var(--line); margin:12px 0; }
     .md strong { color:var(--fg); } .md em { color:var(--warn); }
     .md li.chk { list-style:none; display:flex; gap:8px; align-items:baseline; margin-left:-16px; }
     .md li.chk input { accent-color:var(--accent); margin:0; transform:translateY(2px); flex:0 0 auto; }
@@ -571,17 +575,27 @@ async function archiveCard(task, btn) {
 }
 
 // Read-only card detail — title + meta + body markdown (reuses mdToHtml).
-// kobo-56 — deterministic per-author color from a fixed palette (hash → index),
-// so each author reads as a distinct bubble. Colors are saturated mid-darks that
-// carry WHITE text legibly on the avatar circle in BOTH themes (the circle brings
-// its own background, so page theme doesn't affect its contrast). Color is only
-// ever SUPPLEMENTARY — initials + full author name are always shown (color-not-only).
-const AUTHOR_COLORS = ['#2563eb', '#059669', '#7c3aed', '#b45309', '#dc2626', '#0891b2', '#db2777', '#475569'];
+// kobo-56/kobo-71 — deterministic per-author color (hash → index), so each author
+// reads as a distinct bubble. kobo-71 swaps to the maw-pane palette (Tony anchor).
+// These are BRIGHT pane colors, so the avatar text color is no longer a fixed white:
+// avatarText() picks black/white per color luminance (WCAG) so initials stay legible
+// on light (yellow/lime/cyan) AND dark (pink/red/purple) avatars. Color stays
+// SUPPLEMENTARY — initials + full author name are always shown (color-not-only).
+const PANE_COLORS = ['#ff5f87', '#87d787', '#5fd7ff', '#ffd700', '#d787ff', '#ff8700', '#00d7d7', '#ff0000', '#5fff5f', '#af87ff'];
+/** Readable text color (#000/#fff) for initials sitting on a pane-color avatar. */
+function avatarText(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  // Relative luminance (sRGB, perceptual) → dark text on bright bg, else white.
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 150 ? '#111' : '#fff';
+}
 function authorColor(name) {
   const s = String(name == null ? '?' : name);
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AUTHOR_COLORS[h % AUTHOR_COLORS.length];
+  return PANE_COLORS[h % PANE_COLORS.length];
 }
 function authorInitials(name) {
   const a = String(name == null ? '?' : name).replace(/[^a-z0-9]/gi, '');
@@ -596,6 +610,7 @@ function noteBubble(n, src) {
   note.style.borderLeftColor = color; // color assignment is a hashed palette index, not user HTML
   const av = el('div', 'note-avatar', authorInitials(n.by));
   av.style.background = color;
+  av.style.color = avatarText(color); // kobo-71 — legible initials on bright pane colors
   note.appendChild(av);
   const main = el('div', 'note-main');
   const head = el('div', 'note-head');
