@@ -125,10 +125,31 @@ function companyBody(): string {
     .attention h2 { margin:0 0 8px; font-size:12px; color:var(--bad); display:flex; justify-content:space-between; }
     .attention .lane { display:flex; gap:9px; flex-wrap:wrap; }
     .attention .task { flex:1 1 220px; max-width:340px; }
-    .task { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 10px; margin-bottom:9px; }
-    .task .t-title { color:var(--fg); }
-    .task .t-meta { color:var(--muted); font-size:12px; margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
-    .task .t-na { color:var(--accent); font-size:12px; margin-top:6px; }
+    .task { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-3); }
+    /* kobo-62 — state-accent left border: the card tells its own state at a glance
+       (redundant with the column, so state is never conveyed by color alone). */
+    .task.st-backlog { border-left-color:var(--muted); }
+    .task.st-todo { border-left-color:var(--warn); }
+    .task.st-in-progress { border-left-color:var(--accent); }
+    .task.st-review { border-left-color:var(--epic); }
+    .task.st-done { border-left-color:var(--ok); }
+    .task.st-blocked { border-left-color:var(--bad); }
+    /* kobo-62 — progressive card face: title + assignee avatar on one row. */
+    .task .t-head { display:flex; align-items:flex-start; gap:var(--s-3); }
+    .task .t-title { color:var(--fg); flex:1 1 auto; min-width:0; }
+    .task .t-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; }
+    .task .t-avatar.unassigned { background:var(--field-bg); border:1px dashed var(--line); color:var(--muted); }
+    .task .t-meta { color:var(--muted); font-size:var(--t-sm); margin-top:var(--s-2); display:flex; gap:var(--s-2); flex-wrap:wrap; align-items:center; }
+    .task .t-id { margin-left:auto; font-family:var(--font-mono); font-size:var(--t-xs); color:var(--muted); opacity:.8; }
+    /* kobo-62 — checklist mini progress bar (was ☑N/M text). */
+    .check-bar { display:inline-flex; align-items:center; gap:var(--s-2); }
+    .check-track { width:56px; height:5px; background:var(--field-bg); border:1px solid var(--line); border-radius:var(--r-pill); overflow:hidden; }
+    .check-fill { display:block; height:100%; background:var(--epic); }
+    .check-count { font-size:var(--t-xs); color:var(--muted); font-variant-numeric:tabular-nums; }
+    /* kobo-62 — detail modal meta row (dept / parent / wait moved off the face). */
+    #detail-meta { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    #detail-meta[hidden] { display:none; }
+    .task .t-na { color:var(--accent); font-size:var(--t-sm); margin-top:var(--s-2); }
     .task .t-actions { margin-top:8px; display:flex; justify-content:flex-end; }
     .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
     .archive-btn:hover { border-color:var(--ok); }
@@ -343,6 +364,7 @@ function companyBody(): string {
     <div class="card modal" id="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
       <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
       <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
+      <div id="detail-meta"></div>
       <div class="md" id="detail-body"></div>
       <div id="detail-notes"></div>
       <div class="detail-write" id="detail-write"></div>
@@ -488,41 +510,81 @@ function waitFor(task) {
   return null;
 }
 
-function taskCard(task) {
-  const card = el('div', 'task');
-  card.appendChild(el('div', 't-title', task.title || '(untitled)'));
-  const meta = el('div', 't-meta');
-  meta.appendChild(el('span', 'pill', text(task.id)));
-  if (task.dept) meta.appendChild(el('span', 'pill dept', task.dept));
-  // kobo-47: epic rollup badge (▣ N/M) — shown on any card that contains children.
-  // allDone → green "ลูกครบ รอปิด" (close stays manual). Click = filter its family.
-  const roll = rollupOf(task);
-  if (roll) {
-    const badge = el('span', 'pill epic-badge' + (roll.allDone ? ' all-done' : ''), '▣ ' + roll.done + '/' + roll.total);
-    badge.title = roll.allDone ? 'epic — ลูกครบ รอปิด (' + roll.done + '/' + roll.total + ' children done)' : 'epic rollup — ' + roll.done + '/' + roll.total + ' children done · click to filter family';
-    makeChip(badge, () => setFamilyFilter(task.id));
-    meta.appendChild(badge);
-  }
-  // kobo-47: parent chip (↳ <parent-id>) on child cards. Archived parent → "(archived)"
-  // (never blocks, guard c); unresolved parent → plain backward-compat tag. Click = filter family.
+// kobo-62 — card metadata relocated OFF the board face into the detail modal:
+// dept · parent-chip (↳ epic, click = filter family) · wait (X→Y). The parent-chip
+// keeps its filter action here; family-filter from the BOARD stays on the epic badge.
+function renderDetailMeta(task) {
+  const bar = $('detail-meta');
+  bar.replaceChildren();
+  if (task.dept) bar.appendChild(el('span', 'pill dept', task.dept));
   const pref = parentRefOf(task);
   if (pref) {
     const chip = el('span', 'pill parent-chip' + (pref.resolved ? '' : ' unresolved'), '↳ ' + pref.id + (pref.archived ? ' (archived)' : ''));
     chip.title = pref.archived ? 'parent archived · click to filter this family' : (pref.resolved ? 'containment parent · click to filter this family' : 'parent id not on the board (backward-compat tag) · click to filter');
-    makeChip(chip, () => setFamilyFilter(pref.id));
-    meta.appendChild(chip);
+    makeChip(chip, () => { closeDetail(); setFamilyFilter(pref.id); });
+    bar.appendChild(chip);
   }
-  if (task.assignee) meta.appendChild(el('span', 'pill assignee', '@' + task.assignee));
-  else meta.appendChild(el('span', 'pill', '(unassigned)'));
   const wf = waitFor(task);
-  if (wf) meta.appendChild(el('span', 'pill wait', '⏳ ' + wf));
-  if (task.checklist && task.checklist.total) meta.appendChild(el('span', 'pill check', '☑ ' + task.checklist.done + '/' + task.checklist.total));
+  if (wf) bar.appendChild(el('span', 'pill wait', '⏳ ' + wf));
+  bar.hidden = !bar.childNodes.length;
+}
+// kobo-62 — assignee avatar (core face). Reuses the maw-pane color hash + kobo-71
+// auto-contrast text; initials + title=full name keep it color-not-only. Unassigned
+// = a muted dashed circle so "no owner" still reads without color.
+function assigneeAvatar(name) {
+  if (!name) { const a = el('div', 't-avatar unassigned', '·'); a.title = 'unassigned'; return a; }
+  const color = authorColor(name);
+  const a = el('div', 't-avatar', authorInitials(name));
+  a.style.background = color;
+  a.style.color = avatarText(color);
+  a.title = '@' + name;
+  return a;
+}
+// kobo-62 — checklist as a mini progress BAR (was "☑ N/M" text). Reuses the
+// scope-bar visual language from kobo-60; aria makes the ratio non-visual too.
+function checklistBar(done, total) {
+  const wrap = el('span', 'check-bar');
+  wrap.setAttribute('role', 'progressbar');
+  wrap.setAttribute('aria-label', done + ' of ' + total + ' checklist done');
+  wrap.setAttribute('aria-valuemin', '0');
+  wrap.setAttribute('aria-valuemax', String(total));
+  wrap.setAttribute('aria-valuenow', String(done));
+  const track = el('span', 'check-track');
+  const fill = el('span', 'check-fill');
+  fill.style.width = total ? Math.round((done / total) * 100) + '%' : '0%';
+  track.appendChild(fill);
+  wrap.appendChild(track);
+  wrap.appendChild(el('span', 'check-count', done + '/' + total));
+  return wrap;
+}
+// kobo-62 — progressive + signal card face (spec #3). Core = title + assignee
+// avatar + demoted id + state-accent left-border. Only SIGNAL badges stay on the
+// face (epic rollup, checklist bar, PR#, and the blocked-lane reason badges);
+// metadata (dept / parent-chip / wait) moves into the detail modal (openDetail).
+function taskCard(task) {
+  const card = el('div', 'task st-' + (task.state || 'todo')); // state-accent (left border)
+  const head = el('div', 't-head');
+  head.appendChild(el('div', 't-title', task.title || '(untitled)'));
+  head.appendChild(assigneeAvatar(task.assignee)); // core: who owns it
+  card.appendChild(head);
+  const meta = el('div', 't-meta');
+  // kobo-47: epic rollup badge (▣ N/M) — a SIGNAL (this card contains children) and
+  // the on-face filter entry. allDone → green "ลูกครบ รอปิด". Click = filter family.
+  const roll = rollupOf(task);
+  if (roll) {
+    const badge = el('span', 'pill epic-badge' + (roll.allDone ? ' all-done' : ''), '▣ ' + roll.done + '/' + roll.total);
+    badge.title = roll.allDone ? 'epic — ลูกครบ รอปิด (' + roll.done + '/' + roll.total + ' children done)' : 'epic rollup — ' + roll.done + '/' + roll.total + ' children done · click to filter family';
+    makeChip(badge, () => setFamilyFilter(task.id)); // filter-family stays reachable from the board
+    meta.appendChild(badge);
+  }
+  if (task.checklist && task.checklist.total) meta.appendChild(checklistBar(task.checklist.done, task.checklist.total));
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
+  // blocked-lane reason signals — explain WHY a card is off-flow (only set on such cards).
   if (task.block) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.block.kind + (task.block.for ? ' →' + task.block.for : '') + (task.block.reason ? ': ' + task.block.reason : '')));
-  // derived blocked-by-dependency (ADR 0003 A on web) — NOT a block state; the card waits on a parent
   if (task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
   if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
   if (task.needsOwner) meta.appendChild(el('span', 'pill attn', '⚑ ยังไม่มีเจ้าของ')); // derived needs-owner (kobo-14)
+  meta.appendChild(el('span', 't-id', text(task.id))); // id demoted — subtle, pushed right
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
@@ -625,6 +687,7 @@ function noteBubble(n, src) {
 
 function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
+  renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.replaceChildren(renderCardBody(task.body)); } // kobo-60: structured field/scope blocks + prose
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
