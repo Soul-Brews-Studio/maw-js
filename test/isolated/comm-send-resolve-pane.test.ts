@@ -108,6 +108,16 @@ describe("resolveOraclePane — H1 defensive refactor", () => {
     expect(runCalls).toHaveLength(0);
   });
 
+  test("kobo-83 — a %NNN pane-id passes through untouched, no .index suffix (no Tmux.run call)", async () => {
+    // Multi-agent-pane output would otherwise trigger a `.{index}` append; a
+    // pane-id must short-circuit BEFORE that so `send-keys -t '%678.1'` (invalid)
+    // is never constructed for a kobo-81 team-member pane.
+    runReturnValue = "0 zsh\n1 claude\n2 claude\n";
+    const result = await resolveOraclePane("%678");
+    expect(result).toBe("%678");
+    expect(runCalls).toHaveLength(0);
+  });
+
   test("Case 4 — single-pane window: returns target unchanged", async () => {
     runReturnValue = "0 zsh\n";
     const result = await resolveOraclePane("my-session:oracle");

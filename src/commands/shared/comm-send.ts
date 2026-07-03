@@ -63,6 +63,13 @@ export async function resolveOraclePane(
   // Already pane-specific — honor caller's choice.
   if (/\.[0-9]+$/.test(target)) return target;
 
+  // kobo-83 — a tmux pane-id (`%NNN`, e.g. a maw-team member's bound pane from
+  // kobo-81) is ALREADY an exact send-keys target. It must NOT get a
+  // `.{pane_index}` suffix: `tmux send-keys -t '%678.1'` is invalid (there is no
+  // window `%678`). Only session:window targets get the lowest-agent-pane index
+  // appended below; a `%`-prefixed pane id is passed straight through.
+  if (target.startsWith("%")) return target;
+
   try {
     const run = deps.tmuxRun ?? ((...args: string[]) => new Tmux().run(...args));
     const isAgent = deps.isAgentCommandFn ?? isAgentCommand;
