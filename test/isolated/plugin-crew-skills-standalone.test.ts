@@ -68,6 +68,24 @@ describe("crew-skills global asset contract", () => {
       expect(before).toContain("$HOME/.claude/");
     }
   });
+
+  // kobo-95: warroom workers write to ψ/active/warroom/ — the hook state hint
+  // must follow via CREW_STATE_DIR, or a coord that trusts the hint reads the
+  // wrong path. Both halves must ship together or the parametrize is a no-op.
+  test("warroom spawn sets CREW_STATE_DIR and hook honors it", () => {
+    const warroom = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
+    expect(warroom).toContain("CREW_STATE_DIR=ψ/active/warroom");
+
+    const hook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
+    expect(hook).toContain("${CREW_STATE_DIR:-ψ/active/crew}/$CREW_ROLE.md");
+    // no lingering hardcoded crew path in the hint
+    expect(hook).not.toContain("state: ψ/active/crew/$CREW_ROLE.md");
+  });
+
+  test("crew skill relies on the default state dir (no override needed)", () => {
+    const crew = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    expect(crew).not.toContain("CREW_STATE_DIR=");
+  });
 });
 
 describe("crew-skills sync", () => {

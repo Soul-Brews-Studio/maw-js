@@ -7,5 +7,5 @@ case "$CREW_ROLE" in worker-*) ;; *) exit 0 ;; esac
 # resolve coord addr fresh from stable pane-id (index shifts, pane-id doesn't)
 ADDR=$(tmux display-message -t "$CREW_COORD_PANE" -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
 [ -z "$ADDR" ] && exit 0
-maw hey "$ADDR" "[hook] $CREW_ROLE idle (turn end) — state: ψ/active/crew/$CREW_ROLE.md" >/dev/null 2>&1 &
+maw hey "$ADDR" "[hook] $CREW_ROLE idle (turn end) — state: ${CREW_STATE_DIR:-ψ/active/crew}/$CREW_ROLE.md" >/dev/null 2>&1 &
 exit 0

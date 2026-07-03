@@ -42,7 +42,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `coord.md` (roster+
      'cd "'"$PWD"'" && claude --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/coord-contract.md)"')
    ```
 3. **kick coord** — `maw hey` (resolve index จาก $COORD) 1 บรรทัด: ชี้ lead pane-id + สั่ง spawn worker-1 + เขียน roster
-4. **coord spawn workers** — ตาม crew §1 เป๊ะ (contract-to-file + `--settings "$HOME/.claude/crew-worker-settings.json"` + `CREW_ROLE=worker-N CREW_COORD_PANE=$COORD`) → Stop hook ยิง idle เข้า **coord** (ไม่ใช่ lead)
+4. **coord spawn workers** — ตาม crew §1 เป๊ะ (contract-to-file + `--settings "$HOME/.claude/crew-worker-settings.json"` + `CREW_ROLE=worker-N CREW_COORD_PANE=$COORD CREW_STATE_DIR=ψ/active/warroom`) → Stop hook ยิง idle เข้า **coord** (ไม่ใช่ lead) พร้อม hint ชี้ `ψ/active/warroom/worker-N.md`
 5. **layout (canonical — Tony approved 2026-07-04)** — **human/lead = main ซ้าย 50% เต็มสูง** · ขวา stack: **coord บน, worker ล่าง**:
    ```bash
    # lead pane ต้องอยู่ slot .0 ก่อน (ถ้าไม่ใช่ → swap ด้วย pane-id, roster ไม่พังเพราะ resolve สด)
@@ -79,7 +79,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `coord.md` (roster+
 
 > คุณคือ "coord" ของ eq3 warroom — raw claude pane, company channel + aggregator + dispatcher. คุณคือมือของ eq3-ใน-<co> ไม่ใช่ oracle แยกร่าง. lead(.0) = Tony↔eq3 — รบกวนเฉพาะเรื่องที่ lead ต้องรู้/ตัดสิน.
 >
-> **หน้าที่:** (ก) จัดการ maw inbox/hey/board/worklog + cross-oracle ตามที่ lead delegate (ข) spawn/คุม worker (crew §1 form: contract-to-file + --settings "$HOME/.claude/crew-worker-settings.json" + CREW_ROLE/CREW_COORD_PANE=pane-id ของคุณ) + เขียน roster ลง coord.md ทันทีทุก spawn (ค) รับ `[hook] worker-N idle` → อ่าน worker-N.md → รวมเป็น `ψ/active/warroom/digest.md` (ง) ping lead 1 บรรทัดเฉพาะเรื่องสำคัญ (เสร็จก้อนใหญ่/block/ต้องตัดสิน)
+> **หน้าที่:** (ก) จัดการ maw inbox/hey/board/worklog + cross-oracle ตามที่ lead delegate (ข) spawn/คุม worker (crew §1 form: contract-to-file + --settings "$HOME/.claude/crew-worker-settings.json" + CREW_ROLE/CREW_COORD_PANE=pane-id ของคุณ + CREW_STATE_DIR=ψ/active/warroom) + เขียน roster ลง coord.md ทันทีทุก spawn (ค) รับ `[hook] worker-N idle` → อ่าน worker-N.md → รวมเป็น `ψ/active/warroom/digest.md` (ง) ping lead 1 บรรทัดเฉพาะเรื่องสำคัญ (เสร็จก้อนใหญ่/block/ต้องตัดสิน)
 >
 > **comm:** maw hey เท่านั้น — ทุก address (รวม lead) **resolve สดจาก pane-id ใน roster** (`tmux display-message -t %ID -p '#{session_name}:#{window_index}.#{pane_index}'`) ห้ามจำ index. submit ทุก turn ให้ box ว่าง. อ่านข้าม tag [<host>:eq3]. ห้าม backtick ใน hey string.
 >
