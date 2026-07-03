@@ -69,6 +69,10 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/done["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
+    // kobo-57: cache-bust version GET — the board polls it to detect a new deploy
+    // and offer a reload. Served from companyVersion() (content hash of the board).
+    expect(serveSrc).toContain("companyVersion");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/version["']/);
   });
 
   // cli-reorg kobo-26: `maw watch` is HARD-REMOVED (no cli command). The plugin
@@ -89,6 +93,7 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/version"); // kobo-57 cache-bust
   });
 
   // cli-reorg kobo-26: exports the shared `runWorklog` runner (all verbs, OQ2 —

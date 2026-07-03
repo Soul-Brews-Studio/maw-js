@@ -17,6 +17,7 @@ import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, ha
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
+import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
 
 export function serve(ctx: PluginLifecycleContext): { ok: true } {
@@ -49,5 +50,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // company/dept policy inject route — on-attach context (separate concern,
   // toggles with this plugin). Behind auth via PROTECTED "/policy".
   ctx.http?.route("GET", "/api/policy", (request: Request) => handlePolicyRequest(request));
+  // cache-bust version (kobo-57): the board polls this + compares to the version
+  // it loaded with → a "reload" banner after a deploy. Public (just a content
+  // hash — no company data), so it works before/without auth.
+  ctx.http?.route("GET", "/api/version", () => Response.json({ version: companyVersion() }));
   return { ok: true };
 }

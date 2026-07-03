@@ -1,4 +1,23 @@
 import { Hono } from "hono";
+import { createHash } from "crypto";
+
+// kobo-57 cache-bust — the served board is a static HTML/CSS/JS blob. A deploy
+// changes it, but a viewer with an open tab keeps the OLD copy (the 5s poll only
+// refreshes DATA, not the page shell) until they hard-reload by hand. Fix: stamp
+// the page with a content hash + expose it at GET /api/version; the client polls
+// it and shows a "reload" banner when the served version differs from the one it
+// loaded with. Content hash (not git sha / boot time) → changes IFF the HTML
+// actually changed, so an identical redeploy raises no false banner.
+const VERSION_TOKEN = "__APP_VERSION__";
+let _companyVersion: string | null = null;
+
+/** Memoized content hash of the served board — the cache-bust version (kobo-57). */
+export function companyVersion(): string {
+  if (!_companyVersion) {
+    _companyVersion = createHash("sha1").update(companyBody()).digest("hex").slice(0, 12);
+  }
+  return _companyVersion;
+}
 
 /**
  * company-ui (read-only) — board + worklog timeline for one company.
@@ -16,12 +35,18 @@ import { Hono } from "hono";
  * drag/write is a later phase (see spec §6/§9). For now: poll + refresh.
  */
 
+/** Render the board HTML, stamping the live version into the placeholders. */
 export function companyHtml(): string {
+  return companyBody().replaceAll(VERSION_TOKEN, companyVersion());
+}
+
+function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="app-version" content="${VERSION_TOKEN}" />
   <title>maw company</title>
   <style>
     :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --col:#0e141d; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --warn:#ffd37a; --accent:#7dd3fc; }
@@ -170,9 +195,21 @@ export function companyHtml(): string {
     .presence-row .p-last { color:var(--fg); font-size:12px; width:100%; white-space:pre-wrap; word-break:break-word; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
+    /* kobo-57 — new-version reload banner (both themes via CSS vars) */
+    #update-banner { position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:12px; margin:-24px -24px 18px; padding:10px 24px; background:var(--card); border-bottom:1px solid var(--accent); color:var(--fg); box-shadow:0 6px 16px rgba(0,0,0,.25); }
+    #update-banner[hidden] { display:none; }
+    #update-banner span { flex:1; }
+    #update-banner #update-reload { border-color:var(--accent); color:var(--accent); }
+    #update-banner #update-dismiss { border-color:var(--line); color:var(--muted); }
+    @media (max-width: 880px) { #update-banner { margin:-12px -12px 12px; padding:10px 12px; } }
   </style>
 </head>
 <body>
+  <div id="update-banner" role="status" hidden>
+    <span>🔄 New version deployed — reload to get the latest board.</span>
+    <button type="button" id="update-reload">reload</button>
+    <button type="button" id="update-dismiss" aria-label="dismiss">✕</button>
+  </div>
   <header>
     <div>
       <h1>maw company <span class="co" id="co-name">—</span></h1>
@@ -236,6 +273,29 @@ export function companyHtml(): string {
 const $ = (id) => document.getElementById(id);
 const companyInput = $('company');
 const statusEl = $('status');
+
+// kobo-57 cache-bust — the version this page shell loaded with. GET /api/version
+// returns the server's live version; when they diverge, a deploy has happened
+// and this tab is stale → offer a reload (honest: the user clicks, we never
+// auto-refresh mid-work). Dismiss is per-version so a dismissed banner doesn't
+// nag until the NEXT deploy.
+const APP_VERSION = '${VERSION_TOKEN}';
+let dismissedVersion = null;
+async function checkVersion() {
+  try {
+    const r = await fetch('/api/version', { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const live = d && d.version;
+    const banner = $('update-banner');
+    if (live && live !== APP_VERSION && live !== dismissedVersion) banner.hidden = false;
+  } catch (e) { /* offline/transient — try again next poll */ }
+}
+$('update-reload').addEventListener('click', () => location.reload());
+$('update-dismiss').addEventListener('click', async () => {
+  $('update-banner').hidden = true;
+  try { const r = await fetch('/api/version', { cache: 'no-store' }); dismissedVersion = r.ok ? (await r.json()).version : null; } catch (e) { /* ignore */ }
+});
 
 function text(v) { return v == null ? '' : String(v); }
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = String(txt); return e; }
@@ -950,12 +1010,15 @@ load();
 // swap this block for an SSE endpoint fed by the worklog append.
 const POLL_MS = 5000;
 let pollTimer = null;
-function startPoll() { if (!pollTimer) pollTimer = setInterval(load, POLL_MS); }
+// Poll data + version together (kobo-57) — one timer, same 5s cadence.
+function tick() { load(); checkVersion(); }
+function startPoll() { if (!pollTimer) pollTimer = setInterval(tick, POLL_MS); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') stopPoll();
-  else { load(); startPoll(); }
+  else { tick(); startPoll(); }
 });
+checkVersion();
 startPoll();
 </script>
 </body>
