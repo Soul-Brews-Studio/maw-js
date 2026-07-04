@@ -128,6 +128,8 @@ export interface ReadWorklogOpts {
   since?: number;
   oracle?: string;
   kinds?: WorklogEntry["kind"][];
+  excludeKinds?: WorklogEntry["kind"][]; // drop these BEFORE limit (kobo-109: keep idle out
+  //                                        of the inject window so real events aren't starved)
 }
 
 export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
@@ -151,6 +153,7 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
   if (opts.since != null) entries = entries.filter(e => e.ts >= opts.since!);
   if (opts.oracle) entries = entries.filter(e => e.oracle === opts.oracle);
   if (opts.kinds) entries = entries.filter(e => opts.kinds!.includes(e.kind));
+  if (opts.excludeKinds) entries = entries.filter(e => !opts.excludeKinds!.includes(e.kind));
   if (opts.limit != null && entries.length > opts.limit) entries = entries.slice(-opts.limit);
   return entries;
 }

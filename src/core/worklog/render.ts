@@ -42,13 +42,20 @@ function line(e: WorklogEntry): string {
   return text;
 }
 
+// 'idle' (CC Stop) is a per-pane state signal for the board badge, never a
+// timeline/inject line — drop it from every text render (kobo-109).
+function visible(entries: WorklogEntry[]): WorklogEntry[] {
+  return entries.filter(e => e.kind !== "idle");
+}
+
 /** Full chronological timeline. */
 export function renderTimeline(entries: WorklogEntry[]): string {
-  if (!entries.length) return "worklog ว่าง — ยังไม่มี activity บันทึก";
-  return entries.map(line).join("\n");
+  const rows = visible(entries);
+  if (!rows.length) return "worklog ว่าง — ยังไม่มี activity บันทึก";
+  return rows.map(line).join("\n");
 }
 
 /** Compact render used for hook injection (each line prefixed for context). */
 export function renderLines(entries: WorklogEntry[]): string[] {
-  return entries.map(line);
+  return visible(entries).map(line);
 }

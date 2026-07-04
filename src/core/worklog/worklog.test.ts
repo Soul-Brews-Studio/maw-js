@@ -73,6 +73,30 @@ describe("significant filter (filter b)", () => {
     const e = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git status" } } }));
     expect(e?.pane).toBeUndefined();
   });
+
+  it("persists Stop as a durable per-pane idle entry keyed by paneId (kobo-109, decision B)", () => {
+    const e = eventToWorklog(feed({ event: "Stop", oracle: "eq3", data: { paneId: "%40" } }));
+    expect(e?.kind).toBe("idle");
+    expect(e?.paneId).toBe("%40"); // idle joins by paneId (%N), the stable per-pane key
+    expect(e?.pane).toBeUndefined(); // no display index on a Stop — idle is never a feed line
+    expect(e?.oracle).toBe("eq3");
+  });
+
+  it("paneless Stop still yields an idle entry (non-tmux, no per-pane signal)", () => {
+    const e = eventToWorklog(feed({ event: "Stop", oracle: "eq3" }));
+    expect(e?.kind).toBe("idle");
+    expect(e?.paneId).toBeUndefined();
+  });
+
+  it("stamps paneId (%N join key) alongside pane (display index) on activity", () => {
+    const e = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git status" }, pane: "1", paneId: "%40" } }));
+    expect(e?.pane).toBe("1");    // display → oracle.1 in the feed
+    expect(e?.paneId).toBe("%40"); // join → matches the presence file per-pane
+  });
+
+  it("SessionStart stays dropped (orientation, not a state transition)", () => {
+    expect(eventToWorklog(feed({ event: "SessionStart" }))).toBeNull();
+  });
 });
 
 describe("timeline render", () => {
@@ -98,6 +122,15 @@ describe("timeline render", () => {
   });
 
   it("handles empty log", () => { expect(renderTimeline([])).toContain("ว่าง"); });
+
+  it("drops 'idle' rows from the text render — pane-state signal, not a line (kobo-109)", () => {
+    const out = renderTimeline([
+      { ts: 1, iso: "2026-06-22T10:05:00.000Z", oracle: "eq3", pane: "0", kind: "tool", summary: "git status" },
+      { ts: 2, iso: "2026-06-22T10:06:00.000Z", oracle: "eq3", paneId: "%40", kind: "idle", summary: "idle" },
+    ]);
+    expect(out).toContain("git status");
+    expect(out).not.toContain("idle");
+  });
 });
 
 describe("ping", () => {
@@ -163,6 +196,26 @@ describe("inject slice", () => {
     expect(out).toContain("slice-task");
     expect(out).toContain("git slice-marker");
     expect(out).toContain("read before acting");
+  });
+
+  it("excludes 'idle' from the inject window so real activity isn't starved (kobo-109)", () => {
+    // 20 idle events (one per turn-end) would otherwise fill the 12-event window and
+    // push the single real event out entirely — the auto-inject must never show idle.
+    for (let i = 0; i < 20; i++) {
+      appendWorklog({ ts: 100 + i, iso: "i", oracle: "floody", paneId: "%9", kind: "idle", summary: "idle" });
+    }
+    appendWorklog({ ts: 90, iso: "i", oracle: "floody", pane: "0", kind: "tool", summary: "git real-work-marker" });
+    const out = buildInjectSlice("floody");
+    expect(out).toContain("git real-work-marker"); // survives despite 20 idles after it
+    expect(out).not.toContain("idle");
+  });
+
+  it("readWorklog excludeKinds drops before the limit slice", () => {
+    for (let i = 0; i < 15; i++) appendWorklog({ ts: 200 + i, iso: "i", oracle: "ek", kind: "idle", summary: "idle" });
+    appendWorklog({ ts: 199, iso: "i", oracle: "ek", kind: "tool", summary: "git keep-me" });
+    const rows = readWorklog(null, { limit: 5, excludeKinds: ["idle"], oracle: "ek" });
+    expect(rows.some(r => r.summary === "git keep-me")).toBe(true);
+    expect(rows.every(r => r.kind !== "idle")).toBe(true);
   });
 });
 

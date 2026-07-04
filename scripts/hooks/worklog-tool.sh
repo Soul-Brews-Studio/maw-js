@@ -24,12 +24,16 @@ if [ -z "$ORACLE" ]; then
 fi
 [ -z "$ORACLE" ] && ORACLE="unknown"
 PROJECT=$(basename "${PWD}" 2>/dev/null)
-# Pane index distinguishes multiple panes of one oracle (human/coord/worker).
+# Pane index (#{pane_index}, e.g. "0"/"1") — DISPLAY key: the feed shows oracle.0/.1.
 # Empty outside tmux — the server treats a missing pane as back-compat.
 PANE=$(tmux display-message -p '#{pane_index}' 2>/dev/null)
+# Pane id ($TMUX_PANE, e.g. "%40") — JOIN key: unique + stable, SAME as the statusline
+# presence file, so the board joins feed activity to a presence pane per-pane (kobo-109).
+# Separate field from `pane` so display stays .0/.1 while the badge joins by paneId.
+PANEID="${TMUX_PANE:-}"
 
-PAYLOAD=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg t "$TOOL" --arg pane "$PANE" --argjson ti "$TOOL_INPUT" \
-  '{oracle:$o, event:"PostToolUse", project:$p, host:"local", message:("tool:"+$t), data:({tool_name:$t, tool_input:$ti} + (if $pane != "" then {pane:$pane} else {} end))}')
+PAYLOAD=$(jq -n --arg o "$ORACLE" --arg p "$PROJECT" --arg t "$TOOL" --arg pane "$PANE" --arg paneid "$PANEID" --argjson ti "$TOOL_INPUT" \
+  '{oracle:$o, event:"PostToolUse", project:$p, host:"local", message:("tool:"+$t), data:({tool_name:$t, tool_input:$ti} + (if $pane != "" then {pane:$pane} else {} end) + (if $paneid != "" then {paneId:$paneid} else {} end))}')
 
 curl -s -X POST "$MAW_URL" \
   -H 'Content-Type: application/json' \

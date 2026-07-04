@@ -329,6 +329,11 @@ function companyBody(): string {
     .presence-cell .p-pane-id { flex:0 0 auto; color:var(--st-meta); font-variant-numeric:tabular-nums; }
     .presence-cell .p-pane-model { flex:1 1 auto; color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .presence-cell .p-pane-ctx { flex:0 0 auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+    /* kobo-109 — per-pane busy/idle badge (feed recency per %N), so one oracle's
+       active + idle panes read apart. green=busy, muted=idle; text label, not color-only. */
+    .presence-cell .p-pane-badge { flex:0 0 auto; margin-left:auto; font-size:var(--t-xs); font-weight:600; padding:0 var(--s-2); border-radius:var(--r-pill); border:1px solid var(--line); color:var(--st-meta); white-space:nowrap; }
+    .presence-cell .p-pane-badge.busy { color:var(--ok); border-color:var(--ok); }
+    .presence-cell .p-pane-row.is-pane-busy .p-pane-id { color:var(--ok); }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
     /* kobo-57 new-version reload banner — kobo-61 folds it into the header zone:
@@ -953,6 +958,9 @@ function localTs(iso) {
 }
 
 function renderTimeline(entries) {
+  // kobo-109 — 'idle' events (CC Stop) are a per-pane state signal for the Presence tab,
+  // not timeline activity. Drop them here so the Worklog feed stays real work only.
+  entries = (entries || []).filter(e => e.kind !== 'idle');
   const tl = $('timeline');
   tl.replaceChildren();
   if (!entries.length) { tl.appendChild(el('div', 'empty', 'no worklog entries')); return; }
@@ -1030,8 +1038,21 @@ function renderPresence(entries, roster, presence, held) {
   note.innerHTML = 'Company roster from <b>/api/roster</b> (authoritative membership) — every registered oracle appears, even with no recent activity. Live status (last-seen · pane · count · last action) is derived from the worklog feed; clock-in/out/seat/toilet are best-effort text matches, not structured events.';
   host.appendChild(note);
   // Fold the feed to one activity record per oracle: newest entry wins for last-seen + pane.
+  // kobo-109 — ALSO derive a durable busy/idle state PER PANE, keyed by paneId (%N, the
+  // stable TMUX_PANE join key — NOT the display pane index). The newest event for a pane
+  // decides: an 'idle' event (CC Stop hook, persisted to worklog.jsonl) → idle, any other
+  // activity → busy. Reading it from the persisted feed (not volatile recency) is what makes
+  // the badge survive a maw-server restart (decision B). paneId matches the presence file's
+  // pane (%N) so the two join per-pane. 'idle' events are kept OUT of the oracle-level fold
+  // (count/last/active) — they are a pane-state signal, not real activity.
   const byOracle = new Map();
+  const paneState = new Map(); // paneId (%N) → { ts, idle } from the newest event touching it
   for (const e of entries) {
+    if (e.paneId) {
+      const cur = paneState.get(e.paneId);
+      if (!cur || (e.ts || 0) >= cur.ts) paneState.set(e.paneId, { ts: e.ts || 0, idle: e.kind === 'idle' });
+    }
+    if (e.kind === 'idle') continue; // pane-state only — never an oracle activity record
     const key = e.oracle || '?';
     let o = byOracle.get(key);
     if (!o) { o = { oracle: key, pane: e.pane, last: e, count: 0, status: null }; byOracle.set(key, o); }
@@ -1115,14 +1136,23 @@ function renderPresence(entries, roster, presence, held) {
     if (panes.length) {
       const box = el('div', 'p-panes');
       for (const p of panes) {
-        const row = el('div', 'p-pane-row' + (p.stale ? ' is-stale' : ''));
-        if (p.stale) row.title = 'last known — statusline has not updated in 5+ min (idle pane)';
+        // kobo-109 — per-pane busy/idle from THIS pane's newest persisted event (%N join):
+        // idle event (Stop) → idle, any activity → busy. Durable across restart (decision B).
+        // A pane with no event yet (statusline present, no worklog activity) → idle.
+        const st = paneState.get(p.pane);
+        const pBusy = !!st && !st.idle;
+        const row = el('div', 'p-pane-row' + (p.stale ? ' is-stale' : '') + (pBusy ? ' is-pane-busy' : ''));
+        if (p.stale) row.title = 'last known — statusline stale 5+ min (context readout may be outdated)';
         row.appendChild(el('span', 'p-pane-id', '.' + (p.pane || '?')));
         row.appendChild(el('span', 'p-pane-model', p.model || '—'));
         const pct = ctxPct(p);
         const ctx = el('span', 'p-pane-ctx', pct == null ? 'ctx —' : 'ctx ' + pct + '%');
         if (pct != null && !p.stale) { ctx.title = pct + '% context remaining'; }
         row.appendChild(ctx);
+        const pbadge = el('span', 'p-pane-badge ' + (pBusy ? 'busy' : 'idle'), pBusy ? '● busy' : '○ idle');
+        pbadge.title = pBusy ? 'busy — feed activity from this pane in the last 10 min'
+                             : 'idle — no feed activity from this pane in the last 10 min';
+        row.appendChild(pbadge);
         box.appendChild(row);
       }
       cell.appendChild(box);
@@ -1144,7 +1174,8 @@ function showTab(name) {
   try { localStorage.setItem('maw-company-tab', name); } catch (e) { /* private mode */ }
 }
 function updateTabCounts() {
-  $('tab-count-worklog').textContent = lastEntries.length ? '(' + lastEntries.length + ')' : '';
+  const wlCount = lastEntries.filter((e) => e.kind !== 'idle').length; // kobo-109: idle = pane-state, not timeline
+  $('tab-count-worklog').textContent = wlCount ? '(' + wlCount + ')' : '';
   // Presence count = full membership (roster ∪ any active-but-unrostered oracle), kobo-50.
   const names = new Set(lastRoster.map((r) => r.oracle));
   for (const e of lastEntries) names.add(e.oracle || '?');
@@ -1335,7 +1366,8 @@ async function load() {
     renderState(stateRes);
     updateTabCounts();
     if (activeTab === 'presence') renderPresence(entries, roster, presence, held); // keep the live tab fresh on poll
-    statusEl.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · ' + entries.length + ' worklog entr' + (entries.length === 1 ? 'y' : 'ies') + (stateRes && stateRes.exists ? ' · state.md' : '');
+    const wlN = entries.filter((e) => e.kind !== 'idle').length; // kobo-109: exclude pane-state idle events
+    statusEl.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · ' + wlN + ' worklog entr' + (wlN === 1 ? 'y' : 'ies') + (stateRes && stateRes.exists ? ' · state.md' : '');
   } catch (err) {
     statusEl.textContent = 'failed to load: ' + (err && err.message ? err.message : err);
     statusEl.className = 'error';
