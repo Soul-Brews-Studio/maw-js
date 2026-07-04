@@ -64,9 +64,12 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // mawjs-5: assign = pass-the-ball. maps to `maw company task assign <id> --to <who>`.
+    expect(tools).toContain('["company", "task", "assign", aid, "--to", input.to');
+    expect(server).toContain('"assign"'); // enum + title advertise the verb
     // kobo-72: epic verb sets/clears containment; epic present → re-link, omit → --clear.
     expect(tools).toContain('["company", "task", "epic", eid, input.epic');
     expect(tools).toContain('["company", "task", "epic", eid, "--clear"');

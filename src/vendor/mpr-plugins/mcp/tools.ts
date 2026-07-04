@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -43,7 +43,7 @@ export interface TaskInput {
   body?: string;       // add
   mine?: boolean;      // ls
   for?: string;        // ls (decision queue) / block (--for)
-  to?: string;         // review
+  to?: string;         // review / assign (target ball-holder)
   reason?: string;     // review / block
   kind?: string;       // block (required)
   days?: number;       // archive
@@ -181,6 +181,11 @@ export function taskArgs(input: TaskInput): string[] {
       return ["company", "task", "start", needId("start"), ...common()];
     case "claim":
       return ["company", "task", "claim", needId("claim"), ...common()];
+    case "assign": {
+      const aid = needId("assign");
+      if (!input.to) throw new Error("task assign requires --to <who>");
+      return ["company", "task", "assign", aid, "--to", input.to, ...common()];
+    }
     case "done":
       return ["company", "task", "done", needId("done"), ...common()];
     case "unblock":

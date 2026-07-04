@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
 import { mawDataPath } from "../xdg";
-import { appendWorklog, openClaims } from "../worklog/store";
+import { appendWorklog, openClaims, readWorklog } from "../worklog/store";
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 
 export type TaskState =
@@ -315,6 +315,26 @@ export function claimTask(company: string, id: string, oracle: string): TaskReco
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
+  return task;
+}
+
+/**
+ * Assign = hand the ball to someone else without taking it yourself (mawjs-5).
+ * The pass-ball gesture for a no-PR decision/gate card: the owner finishes their
+ * part and reassigns the card to the current ball-holder (assignee=human when the
+ * next move is Tony's). Unlike claim (assignee=me) this sets assignee=`to` while
+ * `by` stays the real actor — no impersonation. State is untouched (an in-progress
+ * decision card stays in-progress, and nextAction reads "`by` รอ `to`" = waiting on
+ * the new holder), so Tony's `ls --mine` (assignee===me) surfaces his whole
+ * decision queue in one filter. Returns null if absent.
+ */
+export function assignTask(company: string, id: string, to: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.assignee = to;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `assigned ${task.id} → ${to}: ${task.title}`);
   return task;
 }
 
@@ -703,6 +723,36 @@ export function taskNextAction(task: TaskRecord): string {
     default:
       return "";
   }
+}
+
+/** Silence window for the stuck-decision badge (mawjs-5) — mirrors presence ACTIVE_MS. */
+export const STALE_DECISION_MS = 10 * 60 * 1000; // 10 min
+
+/**
+ * Newest worklog ts per oracle (mawjs-5 backstop). Excludes 'idle' — a pane-state
+ * signal fired every turn-end, not real work — so an owner who wandered off reads
+ * as silent even while the pane heartbeats. Read once, reused across every card.
+ */
+export function lastActivityByOracle(company: string | null | undefined): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const e of readWorklog(company, { excludeKinds: ["idle"] })) {
+    if (e.oracle && (map[e.oracle] === undefined || e.ts > map[e.oracle])) map[e.oracle] = e.ts;
+  }
+  return map;
+}
+
+/**
+ * Soft "stuck? ball on?" badge (mawjs-5 BACKSTOP) — DERIVED, NEVER mutates state.
+ * A no-PR card sitting in-progress whose owner has emitted no real worklog event
+ * for STALE_DECISION_MS is *maybe* a decision card the owner finished but forgot to
+ * hand off (the assign gesture). Visual only: silence is ambiguous (thinking / away /
+ * done look identical), so we never auto-flip — just flag it for a human glance.
+ * Unassigned / PR-linked / non-in-progress cards are never stale here.
+ */
+export function isStaleDecisionCard(task: TaskRecord, lastActivityTs: number | undefined, now: number): boolean {
+  if (task.state !== "in-progress" || task.pr || !task.assignee) return false;
+  if (lastActivityTs === undefined) return true; // no real activity in the log at all → silent
+  return now - lastActivityTs > STALE_DECISION_MS;
 }
 
 /** Parent card's state for dependency resolution: its TaskState, "archived", or null (not found). */

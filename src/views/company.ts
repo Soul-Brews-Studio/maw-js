@@ -635,6 +635,7 @@ function taskCard(task) {
   if (task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
   if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
   if (task.needsOwner) meta.appendChild(el('span', 'pill attn', '⚑ ยังไม่มีเจ้าของ')); // derived needs-owner (kobo-14)
+  if (task.stale) meta.appendChild(el('span', 'pill wait', '⏳ stuck? ball on?')); // soft stuck-decision badge (mawjs-5) — visual only
   meta.appendChild(el('span', 't-id', text(task.id))); // id demoted — subtle, pushed right
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)

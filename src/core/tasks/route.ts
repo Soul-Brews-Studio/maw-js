@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, checklistProgress, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, checklistProgress, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -37,9 +37,10 @@ export interface TaskCard {
   needsOwner?: true; // derived (eq3-011 kobo-14): todo + unassigned → off-flow "needs an owner". Absent otherwise.
   kind?: TaskRecord["kind"]; // "epic" for a container card (kobo-45) — absent for a normal task
   familyNotes?: FamilyNote[]; // derived (kobo-46): descendant notes tagged by source, for the epic's parent modal. Epics only, when non-empty.
+  stale?: true; // derived (mawjs-5): in-progress + no-PR + owner worklog silent → "⏳ stuck? ball on?" soft badge. Visual only, never a state.
 }
 
-function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[]): TaskCard {
+function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[], stale = false): TaskCard {
   const card: TaskCard = {
     id: t.id,
     title: t.title,
@@ -73,6 +74,7 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
     const fam = familyNotes(t.id, cards);
     if (fam.length) card.familyNotes = fam;
   }
+  if (stale) card.stale = true; // soft stuck-decision badge (mawjs-5) — visual only
   return card;
 }
 
@@ -82,7 +84,10 @@ export function handleTasksRequest(request: Request): Response {
   if (!company) return Response.json({ company: null, tasks: [] });
   const resolveParent = parentStateResolver(company); // active state | "archived" | null — shared across the board
   const cards = listTasks(company);
-  return Response.json({ company, tasks: cards.map((t) => toCard(t, resolveParent, cards)) });
+  // stuck-decision badge (mawjs-5 backstop) — derived at read, one worklog scan for all cards
+  const activity = lastActivityByOracle(company);
+  const now = Date.now();
+  return Response.json({ company, tasks: cards.map((t) => toCard(t, resolveParent, cards, isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now))) });
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   archivedTaskFilePath,
   archiveOldDone,
   archiveTask,
+  assignTask,
   BLOCK_KINDS,
   blockNextAction,
   archiveTask,
@@ -15,6 +16,9 @@ import {
   checklistProgress,
   claimTask,
   completeTask,
+  isStaleDecisionCard,
+  lastActivityByOracle,
+  STALE_DECISION_MS,
   createsEpicLoop,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
@@ -120,6 +124,48 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(claimed?.state).toBe("in-progress");
     expect(readTask("pgw", "pgw-1")?.assignee).toBe("patchwork");
     expect(readWorklog("pgw").some((e) => e.kind === "claim" && e.task === "pgw-1")).toBe(true);
+  });
+
+  test("assignTask hands the ball: sets assignee=to, keeps state, by stays real actor (mawjs-5)", () => {
+    addTask({ company: "pgw", title: "decide the thing", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork"); // owner takes it → in-progress @patchwork
+    const assigned = assignTask("pgw", "pgw-1", "human", "patchwork");
+    expect(assigned?.assignee).toBe("human"); // ball flipped to the human decider
+    expect(assigned?.state).toBe("in-progress"); // state untouched — NOT taken, just handed
+    expect(readTask("pgw", "pgw-1")?.assignee).toBe("human");
+    // board next-action reads "<creator> รอ <assignee>" — waiting on the human decider
+    expect(taskNextAction(readTask("pgw", "pgw-1")!)).toBe("eq3 รอ human");
+    // the worklog event is stamped with the REAL assigner (patchwork) — no impersonation of human
+    expect(readWorklog("pgw").some((e) => e.kind === "task-updated" && e.task === "pgw-1" && e.oracle === "patchwork")).toBe(true);
+  });
+
+  test("assignTask on a missing id → null (no throw)", () => {
+    expect(assignTask("pgw", "pgw-999", "human", "x")).toBeNull();
+  });
+
+  test("isStaleDecisionCard: in-progress + no-PR + owner silent past window → true (visual only)", () => {
+    const now = 10_000_000;
+    const card = { state: "in-progress", assignee: "patchwork", pr: undefined } as TaskRecord;
+    expect(isStaleDecisionCard(card, now - STALE_DECISION_MS - 1, now)).toBe(true); // silent past window
+    expect(isStaleDecisionCard(card, now - 1000, now)).toBe(false); // just active
+    expect(isStaleDecisionCard(card, undefined, now)).toBe(true); // no activity at all = silent
+  });
+
+  test("isStaleDecisionCard: PR / unassigned / non-in-progress cards are never stale", () => {
+    const now = 10_000_000;
+    const old = now - STALE_DECISION_MS - 1;
+    expect(isStaleDecisionCard({ state: "in-progress", assignee: "p", pr: 42 } as TaskRecord, old, now)).toBe(false); // has PR (pr-watch drives it)
+    expect(isStaleDecisionCard({ state: "in-progress", assignee: null } as TaskRecord, old, now)).toBe(false); // unassigned
+    expect(isStaleDecisionCard({ state: "todo", assignee: "p" } as TaskRecord, old, now)).toBe(false); // not in-progress
+  });
+
+  test("lastActivityByOracle: newest ts per oracle, excludes idle heartbeats", () => {
+    addTask({ company: "pgw", title: "a", by: "eq3" }); // eq3 emits task-created
+    claimTask("pgw", "pgw-1", "patchwork"); // patchwork emits claim
+    const map = lastActivityByOracle("pgw");
+    expect(map["patchwork"]).toBeGreaterThan(0);
+    expect(map["eq3"]).toBeGreaterThan(0);
+    expect(map["patchwork"]).toBeGreaterThanOrEqual(map["eq3"]); // claim came after create
   });
 
   test("completeTask → done + emits task-done", () => {

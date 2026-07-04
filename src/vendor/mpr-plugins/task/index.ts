@@ -7,6 +7,7 @@
  *   maw company task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
  *   maw company task start <id>
  *   maw company task claim <id>
+ *   maw company task assign <id> --to <who>  # pass the ball — set assignee=<who> (e.g. human) without taking it; by stays the real actor (mawjs-5)
  *   maw company task pr <id> <pr-number>   # worker links the PR → card.pr + review (pr-watch drives merge→done)
  *   maw company task done <id>             # also clears an explicit block
  *   maw company task note <id> "<text>"    # append-only note — mid-flight truth (kobo-39)
@@ -29,6 +30,7 @@ import {
   addTask,
   archiveOldDone,
   archiveTask,
+  assignTask,
   BLOCK_KINDS,
   blockNextAction,
   blockTask,
@@ -38,6 +40,8 @@ import {
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
   isOnBoard,
+  isStaleDecisionCard,
+  lastActivityByOracle,
   listTasks,
   needsOwner,
   noteTask,
@@ -145,7 +149,7 @@ function missingLine(info: DependencyBlock): string | null {
   return info.missing.length ? `    \x1b[90m⚠ parent ไม่พบ: ${info.missing.join(", ")}\x1b[0m` : null;
 }
 
-function renderBoard(tasks: TaskRecord[], company: string, mine: string | null): string {
+function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, stale: Set<string> = new Set()): string {
   const lines: string[] = [];
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
@@ -168,6 +172,8 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
       lines.push(cardHead(t));
       // next-action — the board always says what happens next + who (Track 4)
       lines.push(`    \x1b[90m↳\x1b[0m \x1b[36m${taskNextAction(t)}\x1b[0m`);
+      // soft stuck-decision badge (mawjs-5) — visual only, no state change
+      if (stale.has(t.id)) lines.push(`    \x1b[90m↳\x1b[0m \x1b[33m⏳ stuck? ball on?\x1b[0m`);
       const m = missingLine(dep.get(t.id)!); if (m) lines.push(m);
     }
   }
@@ -268,7 +274,11 @@ export async function runTask(
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
       // --for <who> → the decision queue: blocked cards waiting on that person (ADR 0003 B)
       if (flags["--for"]) tasks = tasks.filter((t) => t.state === "blocked" && t.block?.for === flags["--for"]);
-      console.log(renderBoard(tasks, company, mine));
+      // stuck-decision badge (mawjs-5 backstop) — DERIVED at read, never mutates state
+      const activity = lastActivityByOracle(company);
+      const now = Date.now();
+      const stale = new Set(tasks.filter((t) => isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now)).map((t) => t.id));
+      console.log(renderBoard(tasks, company, mine, stale));
     } else if (subcmd === "start") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -306,6 +316,26 @@ export async function runTask(
       const t = claimTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
+    } else if (subcmd === "assign") {
+      // Pass-the-ball (mawjs-5): hand a no-PR decision/gate card to the current
+      // ball-holder (assignee=human when the next move is Tony's) without taking
+      // it yourself. Unlike claim (assignee=me), `by` stays the real actor — no
+      // impersonation — so the board reads "<by> รอ <to>" and Tony's `ls --mine`
+      // (assignee===me) surfaces his whole decision queue in one filter.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--to": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const to = flags["--to"];
+      if (!id || !to) return { ok: false, error: "usage: maw company task assign <id> --to <who>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = assignTask(company, id, to, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m→ assigned\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
+      if (to !== me) {
+        ping(to, `[task] ${me} handed you ${t.id}: ${t.title}`);
+        console.log(`  \x1b[36m→ pinged ${to}\x1b[0m`);
+      }
     } else if (subcmd === "done") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -470,7 +500,7 @@ export async function runTask(
         ? `\x1b[36m↳ epic\x1b[0m ${t.id} ↳ ${epicId}: ${t.title}`
         : `\x1b[36m↳ epic\x1b[0m ${t.id} \x1b[90m(cleared)\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };
