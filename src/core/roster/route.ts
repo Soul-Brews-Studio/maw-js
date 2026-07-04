@@ -14,10 +14,13 @@
  */
 
 import { companyRoster } from "../worklog/company-scope";
+import { heldWorkByOracle } from "../presence/held";
 
 export function handleRosterRequest(request: Request): Response {
   const url = new URL(request.url);
   const company = url.searchParams.get("company");
-  if (!company) return Response.json({ company: null, roster: [] });
-  return Response.json({ company, roster: companyRoster(company) });
+  if (!company) return Response.json({ company: null, roster: [], held: {} });
+  // `held` (kobo-105): { oracle → open claims + in-progress cards } so the
+  // Presence tab can flag an idle-looking oracle that is actually holding work.
+  return Response.json({ company, roster: companyRoster(company), held: heldWorkByOracle(company) });
 }

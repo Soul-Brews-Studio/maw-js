@@ -299,17 +299,23 @@ function companyBody(): string {
     .presence-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:var(--s-4); align-items:start; }
     .presence-cell { display:flex; flex-direction:column; gap:var(--s-2); padding:var(--s-4) var(--s-5); border:1px solid var(--line); border-radius:var(--r-md); background:var(--card); }
     .presence-cell.is-active { border-left:3px solid var(--ok); }
+    .presence-cell.is-idle-work { border-left:3px solid var(--warn); }
     .presence-cell .p-head { display:flex; align-items:center; gap:var(--s-3); }
     .presence-cell .p-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:var(--r-pill); display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; }
     .presence-cell .p-oracle { color:var(--accent); font-weight:600; font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .presence-cell .p-badge { margin-left:auto; flex:0 0 auto; font-size:var(--t-xs); font-weight:600; padding:2px var(--s-3); border-radius:var(--r-pill); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
     .presence-cell .p-badge.active { color:var(--ok); border-color:var(--ok); }
     .presence-cell .p-badge.idle { color:var(--st-meta); }
+    .presence-cell .p-badge.idle-work { color:var(--warn); border-color:var(--warn); }
     .presence-cell .p-role { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-when { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-count { color:var(--muted); font-size:var(--t-xs); }
     .presence-cell .p-status { color:var(--st-meta); font-size:var(--t-sm); }
     .presence-cell .p-last { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }
+    /* kobo-105 — idle-with-work: the held claims/cards behind the ⚠️ badge */
+    .presence-cell .p-held { display:flex; flex-wrap:wrap; align-items:center; gap:var(--s-2); margin-top:var(--s-1); font-size:var(--t-xs); }
+    .presence-cell .p-held-label { color:var(--warn); font-weight:600; }
+    .presence-cell .p-held-item { color:var(--fg); background:var(--col); border:1px solid var(--line); border-radius:var(--r-sm); padding:0 var(--s-2); font-variant-numeric:tabular-nums; }
     /* kobo-104 — per-pane model + context% sub-rows */
     .presence-cell .p-panes { display:flex; flex-direction:column; gap:var(--s-1); margin-top:var(--s-1); padding-top:var(--s-2); border-top:1px dashed var(--line); }
     .presence-cell .p-pane-row { display:flex; align-items:baseline; gap:var(--s-2); font-size:var(--t-xs); }
@@ -441,6 +447,7 @@ let taskIndex = { byId: new Map(), childrenOf: new Map() };
 let lastTasks = [];
 let lastEntries = []; // cached worklog feed — powers the Worklog + Presence tabs (kobo-49)
 let lastRoster = []; // cached company roster (GET /api/roster) — authoritative Presence membership (kobo-50)
+let lastHeld = {}; // cached { oracle → held work } from /api/roster (kobo-105) — idle-with-work signal
 let lastPresence = []; // cached per-pane presence rows (GET /api/presence) — model + ctx% overlay (kobo-104)
 let familyFilter = null; // root card id while filtering to one family, else null
 
@@ -996,8 +1003,8 @@ function ctxPct(p) {
   if (typeof p.used_percentage === 'number') return Math.round(100 - p.used_percentage);
   return null;
 }
-function renderPresence(entries, roster, presence) {
-  entries = entries || []; roster = roster || []; presence = presence || [];
+function renderPresence(entries, roster, presence, held) {
+  entries = entries || []; roster = roster || []; presence = presence || []; held = held || {};
   // kobo-104 — per-pane model + context% overlay. Group the host-wide presence
   // rows by oracle so each roster card can list its live pane(s): an oracle with
   // one pane shows one sub-row, a crew/warroom oracle shows N (KEY = pane).
@@ -1027,20 +1034,34 @@ function renderPresence(entries, roster, presence) {
   // ROSTER-ONLY (kobo-104, Tony): show ONLY /api/roster members — a worklog actor
   // NOT in the roster (a cross-company visitor: human/meganechan/tony) is no longer
   // surfaced here. Roster is authoritative membership; worklog only overlays activity.
+  // kobo-105 — classify each row up front: active / idle-with-work / idle / offline.
+  // idle-with-work = LOOKS idle (no worklog activity for ACTIVE_MS) but holds an
+  // open claim or in-progress card → a possible deadlock, surfaced amber. offline
+  // (no worklog activity at all) is left unchanged even if it holds work: that is
+  // a different signal (pane gone), a later iteration if wanted (spec, YAGNI).
+  const now = nowMs();
   const rows = [];
-  for (const r of roster) rows.push({ member: r, act: byOracle.get(r.oracle) || null });
+  for (const r of roster) {
+    const act = byOracle.get(r.oracle) || null;
+    const active = !!(act && (now - (act.last.ts || 0)) <= ACTIVE_MS);
+    const heldWork = held[r.oracle] || [];
+    const idleWithWork = !active && !!act && heldWork.length > 0;
+    rows.push({ member: r, act, active, heldWork, idleWithWork });
+  }
   if (!rows.length) { host.appendChild(el('div', 'empty', 'no roster members')); return; }
-  // active first, then most-recent activity, then roster-only alphabetical.
+  // active first, then idle-with-work (⚠️ surface deadlocks high), then by
+  // most-recent activity, then roster-only alphabetical.
   rows.sort((a, b) => {
+    const ra = a.active ? 0 : (a.idleWithWork ? 1 : 2), rb = b.active ? 0 : (b.idleWithWork ? 1 : 2);
+    if (ra !== rb) return ra - rb;
     const ta = a.act ? (a.act.last.ts || 0) : 0, tb = b.act ? (b.act.last.ts || 0) : 0;
     if (tb !== ta) return tb - ta;
     return a.member.oracle.localeCompare(b.member.oracle);
   });
   const grid = el('div', 'presence-grid');
   for (const item of rows) {
-    const member = item.member, act = item.act;
-    const active = act && (nowMs() - (act.last.ts || 0)) <= ACTIVE_MS;
-    const cell = el('div', 'presence-cell' + (active ? ' is-active' : ''));
+    const member = item.member, act = item.act, active = item.active, idleWithWork = item.idleWithWork;
+    const cell = el('div', 'presence-cell' + (active ? ' is-active' : (idleWithWork ? ' is-idle-work' : '')));
     // header row: avatar + name.pane + explicit status badge (active/idle/offline)
     const head = el('div', 'p-head');
     // kobo-64 — per-oracle avatar (same palette/contrast as note bubbles): color =
@@ -1050,10 +1071,13 @@ function renderPresence(entries, roster, presence) {
     av.style.background = avc; av.style.color = avatarText(avc);
     head.appendChild(av);
     head.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
-    // kobo-103 — status is a labelled badge, not just a dot: active / idle / offline.
-    const badgeCls = active ? 'p-badge active' : (act ? 'p-badge idle' : 'p-badge');
-    const badge = el('span', badgeCls, active ? '● active' : (act ? '○ idle' : '— offline'));
-    badge.title = active ? 'active (activity in the last 10 min)' : (act ? 'idle (no activity in the last 10 min)' : 'no recent activity');
+    // kobo-103/105 — labelled status badge: active / idle-with-work (⚠️) / idle / offline.
+    const badgeCls = active ? 'p-badge active' : (idleWithWork ? 'p-badge idle-work' : (act ? 'p-badge idle' : 'p-badge'));
+    const badgeTxt = active ? '● active' : (idleWithWork ? '⚠️ idle · มีงานค้าง' : (act ? '○ idle' : '— offline'));
+    const badge = el('span', badgeCls, badgeTxt);
+    badge.title = active ? 'active (activity in the last 10 min)'
+      : (idleWithWork ? 'idle for 10+ min but still holding work (open claim / in-progress card) — possible deadlock'
+      : (act ? 'idle (no activity in the last 10 min)' : 'no recent activity'));
     head.appendChild(badge);
     cell.appendChild(head);
     const roleTxt = member.role ? (member.role + (member.dept ? ' · ' + member.dept : '')) : (member.dept || '');
@@ -1064,6 +1088,16 @@ function renderPresence(entries, roster, presence) {
       if (act.status) cell.appendChild(el('div', 'p-status', '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')'));
     } else {
       cell.appendChild(el('div', 'p-count', 'no recent activity'));
+    }
+    // kobo-105 — when idle-but-holding-work, list what it holds so a human can
+    // see WHAT is stuck (claim/card ids), not just that something is.
+    if (idleWithWork) {
+      const box = el('div', 'p-held');
+      box.appendChild(el('span', 'p-held-label', 'holding:'));
+      for (const h of item.heldWork) {
+        box.appendChild(el('span', 'p-held-item', h.id + ' (' + h.kind + ')'));
+      }
+      cell.appendChild(box);
     }
     // kobo-104 — per-pane model + context% sub-rows (option C). A ghost pane
     // (statusline stopped) is marked stale → "unknown" rather than a frozen %.
@@ -1095,7 +1129,7 @@ function showTab(name) {
   for (const p of document.querySelectorAll('.tabpanel')) p.hidden = (p.dataset.tab !== name);
   for (const b of document.querySelectorAll('.tab')) { const on = b.dataset.tab === name; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
   if (name === 'worklog') renderTimeline(lastEntries);
-  else if (name === 'presence') renderPresence(lastEntries, lastRoster, lastPresence);
+  else if (name === 'presence') renderPresence(lastEntries, lastRoster, lastPresence, lastHeld);
   try { localStorage.setItem('maw-company-tab', name); } catch (e) { /* private mode */ }
 }
 function updateTabCounts() {
@@ -1261,7 +1295,7 @@ async function getJson(url) {
 async function load() {
   const company = currentCompany();
   $('co-name').textContent = company || '—';
-  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; lastRoster = []; lastPresence = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([], [], []); return; }
+  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; lastRoster = []; lastHeld = {}; lastPresence = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([], [], [], {}); return; }
   statusEl.textContent = 'loading…';
   statusEl.className = '';
   try {
@@ -1277,17 +1311,19 @@ async function load() {
     const tasks = Array.isArray(tasksRes.tasks) ? tasksRes.tasks : [];
     const entries = Array.isArray(feedRes.entries) ? feedRes.entries : [];
     const roster = rosterRes && Array.isArray(rosterRes.roster) ? rosterRes.roster : [];
+    const held = rosterRes && rosterRes.held && typeof rosterRes.held === 'object' ? rosterRes.held : {}; // kobo-105
     const presence = presenceRes && Array.isArray(presenceRes.rows) ? presenceRes.rows : [];
     lastTasks = tasks;
     lastEntries = entries;
     lastRoster = roster;
+    lastHeld = held;
     lastPresence = presence;
     buildIndex(tasks); // full-list index for rollup / parent-chip / family derivation
     renderBoard(tasks);
     renderTimeline(entries);
     renderState(stateRes);
     updateTabCounts();
-    if (activeTab === 'presence') renderPresence(entries, roster, presence); // keep the live tab fresh on poll
+    if (activeTab === 'presence') renderPresence(entries, roster, presence, held); // keep the live tab fresh on poll
     statusEl.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · ' + entries.length + ' worklog entr' + (entries.length === 1 ? 'y' : 'ies') + (stateRes && stateRes.exists ? ' · state.md' : '');
   } catch (err) {
     statusEl.textContent = 'failed to load: ' + (err && err.message ? err.message : err);
