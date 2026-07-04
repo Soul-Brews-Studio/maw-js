@@ -1,7 +1,7 @@
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { fleetLoadDirForWrite, loadFleetEntries } from "maw-js/sdk";
-import { ensureStatusReporterScript } from "../../../core/status-reporter";
+import { ensureStatusReporterScript, ensureMawMcpNudgeScript } from "../../../core/status-reporter";
 
 /** Step 2: Create ψ/ vault directory structure. Returns the psiDir path. */
 export function initVault(budRepoPath: string): string {
@@ -102,6 +102,12 @@ export function generateClaudeSettings(budRepoPath: string): void {
   const reporter = ensureStatusReporterScript();
   if (reporter.created) console.log(`  \x1b[32m✓\x1b[0m status-reporter.sh installed`);
 
+  // maw MCP nudge (mawjs-2) — universal PreToolUse(Bash) forcing function, shipped here
+  // so a new bud inherits it at birth (worklog/company hooks stay company-provisioned via
+  // setup-hooks — not inlined). The settings below reference it via literal $HOME.
+  const nudge = ensureMawMcpNudgeScript();
+  if (nudge.created) console.log(`  \x1b[32m✓\x1b[0m maw-mcp-nudge.sh installed`);
+
   const settingsDir = join(budRepoPath, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
   if (existsSync(settingsPath)) {
@@ -123,6 +129,12 @@ export function generateClaudeSettings(budRepoPath: string): void {
     hooks: {
       SessionStart: [makeHook("SessionStart")],
       Stop: [makeHook("Stop")],
+      // maw MCP nudge (mawjs-2) — deny bash `maw hey/reply/inbox/ls`, redirect to maw_* MCP.
+      // Standalone script (no CLAUDE_HOOK_EVENT); literal $HOME for cross-machine portability.
+      PreToolUse: [{
+        matcher: "Bash",
+        hooks: [{ type: "command", command: "$HOME/.config/maw/hooks/maw-mcp-nudge.sh" }],
+      }],
     },
   };
 

@@ -11,7 +11,7 @@
  * `scripts/hooks/status-reporter.sh`, and status-reporter.test.ts asserts the
  * two stay in sync.
  */
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 
@@ -46,6 +46,41 @@ export function ensureStatusReporterScript(home = homedir()): EnsureResult {
   }
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, STATUS_REPORTER_SH);
+  try { chmodSync(path, 0o755); } catch {}
+  return { path, created: true };
+}
+
+// ── maw MCP nudge (mawjs-2) ──────────────────────────────────────────────────
+// A universal PreToolUse(Bash) forcing function that denies bash `maw hey/reply/
+// inbox/ls` and redirects to the maw_* MCP tools. Co-located with status-reporter
+// (both are universal, per-oracle provisioned hooks — NOT company/worklog scoped)
+// so bud-init can ship it without importing the heavy worklog hook-setup chain.
+// Single source of truth: scripts/hooks/maw-mcp-nudge.sh; hook-setup re-exports
+// MAW_MCP_NUDGE_B64 for its HOOKS table, and worklog.test asserts byte-identity.
+export const MAW_MCP_NUDGE_B64 =
+  "IyEvYmluL2Jhc2gKIyBQcmVUb29sVXNlKEJhc2gpIOKAlCBmb3JjZSB0aGUgbWF3XyogTUNQIHRvb2xzIG9uIHRoZSBob3QgcGF0aCBpbnN0ZWFkIG9mIGBtYXcgPGNtZD5gCiMgdmlhIGJhc2ggKGZsZWV0IHRva2VuLWF1ZGl0IDIwMjYtMDctMDU6IDY5NTQgYmFzaC1tYXcgY2FsbHMsIE1DUCB1c2FnZSAwKS4gVGhlIHJ1bGUKIyBhbHJlYWR5IGxpdmVkIGluIENMQVVERS5tZCBhbmQgd2FzIGlnbm9yZWQg4oaSIHRoaXMgaXMgdGhlIHN0cnVjdHVyYWwgZm9yY2luZyBmdW5jdGlvbgojIChkZW55KSwgbm90IGFub3RoZXIgaW50ZW50aW9uLiBERU5ZIG9ubHkgdGhlIHN1YmNvbW1hbmRzIHRoYXQgaGF2ZSBhIDE6MSBNQ1Agc3VyZmFjZQojIHdpdGggbm8gYmFzaC1vbmx5IHNpYmxpbmc7IGFsbG93IGV2ZXJ5dGhpbmcgZWxzZSAocGVlay93YWtlL2Jyb2FkY2FzdC90ZWFtL3F1b3RhICsKIyBpbmJveCBhcmNoaXZlIGhhdmUgbm8gTUNQIGVxdWl2YWxlbnQpLgojCiMgT3JhY2xlLWFnbm9zdGljOiBubyBoYXJkY29kZWQgb3JhY2xlIG5hbWUuIFByb3Zpc2lvbmVkIHRvCiMgJEhPTUUvLmNvbmZpZy9tYXcvaG9va3MvbWF3LW1jcC1udWRnZS5zaCBieSBgbWF3IGNvbXBhbnkgd29ya2xvZyBzZXR1cC1ob29rc2AgKyBidWQtaW5pdC4KIwojIHBvbnl0YWlsOiBzdWJzdHJpbmcgbWF0Y2ggb24gdGhlIHdob2xlIGNvbW1hbmQuIEEgY29tbWFuZCB0aGF0IG1lcmVseSBxdW90ZXMKIyAibWF3IGhleSIgaW5zaWRlIGEgc3RyaW5nIGNvdWxkIGZhbHNlLWRlbnkg4oCUIHJhcmU7IHJlLXdvcmQgb3IgdXNlIHRoZSBNQ1AgdG9vbC4KCklOUFVUPSQoY2F0KQpjb21tYW5kIC12IGpxID4vZGV2L251bGwgMj4mMSB8fCBleGl0IDAKQ01EPSQocHJpbnRmICclcycgIiRJTlBVVCIgfCBqcSAtciAnc2VsZWN0KC50b29sX25hbWU9PSJCYXNoIikgfCAudG9vbF9pbnB1dC5jb21tYW5kIC8vIGVtcHR5JyAyPi9kZXYvbnVsbCkKWyAteiAiJENNRCIgXSAmJiBleGl0IDAKCmNhc2UgIiRDTUQiIGluCiAgKiJtYXcgaW5ib3ggYXJjaGl2ZSIqKSBleGl0IDAgOzsgICAgICAgICAgICAgICAgICMgbm8gTUNQIOKGkiBhbGxvdwogICoibWF3IGhleSAiKnwqIm1hdyBoZXkiKSAgICAgVE9PTD0ibWF3X2hleSIgOzsKICAqIm1hdyByZXBseSIqKSAgICAgICAgICAgICAgIFRPT0w9Im1hd19yZXBseSIgOzsKICAqIm1hdyBpbmJveCIqKSAgICAgICAgICAgICAgIFRPT0w9Im1hd19pbmJveCIgOzsKICAqIm1hdyBscyIqKSAgICAgICAgICAgICAgICAgIFRPT0w9Im1hd19scyIgOzsKICAqKSBleGl0IDAgOzsKZXNhYwoKUkVBU09OPSJtYXcgaG90LXBhdGgg4oaSIHVzZSB0aGUgJHtUT09MfSBNQ1AgdG9vbCwgbm90IGJhc2ggKHN0cnVjdHVyZWQgKyBza2lwcyBydGsgcGFyc2U7IHRva2VuLWF1ZGl0KS4gSWYgJHtUT09MfSBpc24ndCBsb2FkZWQgeWV0OiBUb29sU2VhcmNoIFwic2VsZWN0Om1jcF9fbWF3X18ke1RPT0x9XCIgdGhlbiBjYWxsIGl0LiBiYXNoIG1hdyBpcyBhbGxvd2VkIG9ubHkgZm9yIHBlZWsvd2FrZS9icm9hZGNhc3QvdGVhbS9xdW90YSArIGluYm94IGFyY2hpdmUuIgoKcHJpbnRmICd7Imhvb2tTcGVjaWZpY091dHB1dCI6eyJob29rRXZlbnROYW1lIjoiUHJlVG9vbFVzZSIsInBlcm1pc3Npb25EZWNpc2lvbiI6ImRlbnkiLCJwZXJtaXNzaW9uRGVjaXNpb25SZWFzb24iOiVzfX1cbicgXAogICIkKHByaW50ZiAnJXMnICIkUkVBU09OIiB8IGpxIC1ScyAuKSIKZXhpdCAwCg==";
+
+/** The maw-mcp-nudge shell script content. */
+export const MAW_MCP_NUDGE_SH = Buffer.from(MAW_MCP_NUDGE_B64, "base64").toString("utf8");
+
+/** Canonical install path: $HOME/.config/maw/hooks/maw-mcp-nudge.sh */
+export function mawMcpNudgePath(home = homedir()): string {
+  return join(home, ".config", "maw", "hooks", "maw-mcp-nudge.sh");
+}
+
+/**
+ * Create the maw-mcp-nudge script if missing (or refresh a stale copy), and make
+ * it executable. Idempotent. Ships the universal MCP-nudge hook so a freshly-budded
+ * oracle whose settings.json wires it doesn't point at a missing script.
+ */
+export function ensureMawMcpNudgeScript(home = homedir()): EnsureResult {
+  const path = mawMcpNudgePath(home);
+  if (existsSync(path) && readFileSync(path, "utf-8") === MAW_MCP_NUDGE_SH) {
+    try { chmodSync(path, 0o755); } catch {}
+    return { path, created: false };
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, MAW_MCP_NUDGE_SH);
   try { chmodSync(path, 0o755); } catch {}
   return { path, created: true };
 }

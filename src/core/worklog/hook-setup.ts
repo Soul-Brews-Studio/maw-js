@@ -18,9 +18,10 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { mawConfigPath } from "../xdg";
 import { companyOracles } from "./company-scope";
+import { MAW_MCP_NUDGE_B64 } from "../status-reporter";
 
 interface HookSpec {
-  event: "PostToolUse" | "UserPromptSubmit" | "SessionStart";
+  event: "PostToolUse" | "PreToolUse" | "UserPromptSubmit" | "SessionStart";
   matcher: string;
   file: string; // basename under ~/.config/maw/hooks/
   b64: string; // base64 of scripts/hooks/<file>
@@ -54,6 +55,17 @@ const HOOKS: HookSpec[] = [
     matcher: "",
     file: "company-policy.sh",
     b64: "IyEvYmluL2Jhc2gKIyBDbGF1ZGUgQ29kZSBVc2VyUHJvbXB0U3VibWl0IGhvb2sg4oaSIG1hdyBwb2xpY3k6IGluamVjdCBjb21wYW55ICsgZGVwdCBwb2xpY3kKIyBiYWNrIGludG8gY29udGV4dCwgYnV0IE9OTFkgd2hpbGUgdGhlIG9yYWNsZSBpcyBhdHRhY2hlZCAoc2VydmVyIGRlY2lkZXM7CiMgZGV0YWNoZWQg4oaSIGVtcHR5IOKGkiBub3RoaW5nIGluamVjdGVkKS4gSW5qZWN0LW9ubHkg4oCUIG5vIGNhcHR1cmUuCiMgUHJvdmlzaW9uZWQgYnkgYG1hdyB3YXRjaCBzZXR1cC1ob29rc2AuCgpNQVdfUE9SVD0iJHtNQVdfUE9SVDotMzQ1Nn0iCkJBU0U9Imh0dHA6Ly9sb2NhbGhvc3Q6JHtNQVdfUE9SVH0iCmNvbW1hbmQgLXYganEgPi9kZXYvbnVsbCAyPiYxIHx8IGV4aXQgMAoKT1JBQ0xFPSIke0NMQVVERV9BR0VOVF9OQU1FOi19IgppZiBbIC16ICIkT1JBQ0xFIiBdOyB0aGVuCiAgT1JBQ0xFPSQodG11eCBkaXNwbGF5LW1lc3NhZ2UgLXAgJyN7c2Vzc2lvbl9uYW1lfScgMj4vZGV2L251bGwgfCBzZWQgJ3MvXlswLTldKi0vLycpCmZpClsgLXogIiRPUkFDTEUiIF0gJiYgZXhpdCAwCgpJTkpFQ1Q9JChjdXJsIC1zIC0tbWF4LXRpbWUgMiAiJEJBU0UvYXBpL3BvbGljeT9vcmFjbGU9JHtPUkFDTEV9IiAyPi9kZXYvbnVsbCB8IGpxIC1yICcuaW5qZWN0IC8vIGVtcHR5JykKWyAteiAiJElOSkVDVCIgXSAmJiBleGl0IDAKanEgLW4gLS1hcmcgY3R4ICIkSU5KRUNUIiAne2hvb2tTcGVjaWZpY091dHB1dDp7aG9va0V2ZW50TmFtZToiVXNlclByb21wdFN1Ym1pdCIsIGFkZGl0aW9uYWxDb250ZXh0OiRjdHh9fScKZXhpdCAwCg==",
+  },
+  {
+    // maw MCP nudge (mawjs-2) — PreToolUse(Bash) deny of `maw hey/reply/inbox/ls` via
+    // bash, redirecting to the maw_* MCP tools (structured + no rtk parse; fleet
+    // token-audit). Allows peek/wake/broadcast/team/quota + inbox archive (no MCP).
+    // Universal behavior (not company-scoped) — also inlined by bud-init so new buds
+    // inherit it without hand-wiring.
+    event: "PreToolUse",
+    matcher: "Bash",
+    file: "maw-mcp-nudge.sh",
+    b64: MAW_MCP_NUDGE_B64, // single source of truth in status-reporter.ts (co-located universal hook)
   },
 ];
 

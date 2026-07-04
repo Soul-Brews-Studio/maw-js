@@ -69,6 +69,11 @@ describe("bud init helper coverage", () => {
     expect(stopCmd).toBe("CLAUDE_HOOK_EVENT=Stop $HOME/.config/maw/hooks/status-reporter.sh");
     // Must NOT bake the bud machine's resolved home dir into the committed file.
     expect(startCmd).not.toContain(process.env.HOME as string);
+    // mawjs-2 — a new bud inherits the maw MCP nudge (PreToolUse/Bash), literal $HOME too.
+    const pre = settings.hooks.PreToolUse[0];
+    expect(pre.matcher).toBe("Bash");
+    expect(pre.hooks[0].command).toBe("$HOME/.config/maw/hooks/maw-mcp-nudge.sh");
+    expect(pre.hooks[0].command).not.toContain(process.env.HOME as string);
     expect(logs.join("\n")).toContain(".claude/settings.json + status hooks");
   });
 

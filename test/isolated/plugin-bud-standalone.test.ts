@@ -121,6 +121,14 @@ describe("bud plugin standalone boundary (#2314)", () => {
     expect(readFileSync(join(budDir, "plugin.ts"), "utf8")).toContain('"aliases": [\n      "buddy"\n    ]');
     expect(forbidden).toEqual([]);
     expect(imports).toContain("maw-js/sdk");
+
+    // mawjs-2 — a new bud provisions the universal maw-mcp-nudge hook via the
+    // co-located status-reporter module (a light leaf), NOT the heavy worklog
+    // hook-setup chain (which pulls company-scope → the SDK barrel and breaks the
+    // standalone import boundary). Keep this explicit so a future re-route trips here.
+    const budInit = readFileSync(join(budDir, "bud-init.ts"), "utf8");
+    expect(budInit).toContain("ensureMawMcpNudgeScript");
+    expect(budInit).not.toContain("worklog/hook-setup");
   });
 
   test("CLI usage and invalid argument paths return InvokeResult errors without side effects", async () => {
