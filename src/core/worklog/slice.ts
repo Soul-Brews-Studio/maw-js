@@ -21,9 +21,9 @@ export interface SliceOpts {
 export function buildInjectSlice(oracle: string, opts: SliceOpts = {}): string {
   const company = companyOfOracle(oracle);
   const claims = openClaims(company);
-  // Exclude 'idle' (kobo-109): a pane-state signal fired every turn-end, it would
-  // otherwise dominate the small inject window and starve real activity out of it.
-  const recent = readWorklog(company, { limit: opts.events ?? DEFAULT_EVENTS, excludeKinds: ["idle"] });
+  // Exclude 'idle' (kobo-109) + 'away' (mawjs-3): per-pane state signals, not activity —
+  // they'd otherwise dominate the small inject window and starve real activity out of it.
+  const recent = readWorklog(company, { limit: opts.events ?? DEFAULT_EVENTS, excludeKinds: ["idle", "away"] });
 
   if (!claims.length && !recent.length) return "";
 

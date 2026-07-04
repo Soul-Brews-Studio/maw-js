@@ -37,7 +37,8 @@ export type WorklogKind =
   | "task-updated"
   | "interrupt"
   | "idle" // pane went idle (CC Stop hook) — durable per-pane state (kobo-109)
-  | "error"; // turn ended on an API error (CC Stop + isApiErrorMessage) — durable pane state (kobo-111)
+  | "error" // turn ended on an API error (CC Stop + isApiErrorMessage) — durable pane state (kobo-111)
+  | "away"; // oracle stepped away (toilet/flush) — park hey to inbox, deliver on seat (mawjs-3)
 
 export interface WorklogEntry {
   ts: number; // epoch ms (sort key)

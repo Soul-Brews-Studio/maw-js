@@ -1122,11 +1122,11 @@ function renderPresence(entries, roster, presence, held) {
     if (e.paneId) {
       const cur = paneState.get(e.paneId);
       if (!cur || (e.ts || 0) >= cur.ts) {
-        const state = e.kind === 'error' ? 'error' : (e.kind === 'idle' ? 'idle' : 'busy');
+        const state = e.kind === 'error' ? 'error' : (e.kind === 'idle' ? 'idle' : (e.kind === 'away' ? 'away' : 'busy'));
         paneState.set(e.paneId, { ts: e.ts || 0, state, oracle: e.oracle || '?' });
       }
     }
-    if (e.kind === 'idle' || e.kind === 'error') continue; // turn-ending states — not an oracle activity record
+    if (e.kind === 'idle' || e.kind === 'error' || e.kind === 'away') continue; // pane-state signals — not an oracle activity record
     const key = e.oracle || '?';
     let o = byOracle.get(key);
     if (!o) { o = { oracle: key, pane: e.pane, last: e, count: 0, status: null }; byOracle.set(key, o); }

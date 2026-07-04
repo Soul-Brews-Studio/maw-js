@@ -1,0 +1,12 @@
+{
+  "name": "presence",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Set this pane's presence (away/back) — a silent local write; parks incoming hey to inbox until seat.",
+  "cli": {
+    "command": "presence",
+    "help": "maw presence <away|back> — mark this pane away (incoming hey parks to inbox until seat) or back"
+  },
+  "weight": 5
+}

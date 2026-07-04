@@ -24,6 +24,7 @@ const ICON: Record<WorklogEntry["kind"], string> = {
   interrupt: "⚠",
   idle: "·", // filtered from renders (visible()) — present for completeness
   error: "🛑", // kobo-111 — turn-ending API error; kept in the feed (rare + actionable)
+  away: "○", // mawjs-3 — pane stepped away; filtered from renders like idle
 };
 
 function hhmm(e: WorklogEntry): string {
@@ -44,10 +45,10 @@ function line(e: WorklogEntry): string {
   return text;
 }
 
-// 'idle' (CC Stop) is a per-pane state signal for the board badge, never a
-// timeline/inject line — drop it from every text render (kobo-109).
+// 'idle' (kobo-109) + 'away' (mawjs-3) are per-pane state signals for the board,
+// never a timeline/inject line — drop them from every text render.
 function visible(entries: WorklogEntry[]): WorklogEntry[] {
-  return entries.filter(e => e.kind !== "idle");
+  return entries.filter(e => e.kind !== "idle" && e.kind !== "away");
 }
 
 /** Full chronological timeline. */

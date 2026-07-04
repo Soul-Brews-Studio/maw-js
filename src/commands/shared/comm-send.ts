@@ -21,7 +21,7 @@ import {
   resolveBareHeyByLocatePath,
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
-import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
+import { checkBusyGuard, queueForDispatch, extractOracleName } from "../../core/agent-status-guard";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 import { getPaneRoute } from "../../core/pane-routes";
@@ -1116,6 +1116,23 @@ export async function cmdSend(
       console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
       process.exit(1);
     }
+    // mawjs-3 — presence "away" gate. If the target stepped out (`maw presence away`
+    // from /toilet), PARK the message to its inbox and tell the SENDER only. Placed
+    // BEFORE the busy guard and deliberately WITHOUT queueForDispatch / receiver
+    // notify: away ≠ busy. Auto-delivering on idle (busy path) or injecting a "you
+    // have mail" line would overtype a pane that is mid-/clear or /seat (eq3 FLAG 1).
+    // The message is durable in the inbox; /seat drains it on return.
+    // Lazy import: keeps presence-away out of comm-send's static module graph so the
+    // plugin-standalone / cache-busting isolated re-imports don't surface a barrel cycle.
+    const { isOracleAway } = await import("../../core/worklog/presence-away");
+    if (isOracleAway(extractOracleName(query))) {
+      const inbox = await writeReceiverInbox(target);
+      const reason = `'${extractOracleName(query)}' is away (stepped out) — parked to inbox, delivered on their /seat`;
+      if (logQueuedInbox(inbox, target, reason)) return; // sender-side notice + feed; NO pane injection
+      console.log(`\x1b[33mparked\x1b[0m '${extractOracleName(query)}' is away — queued to inbox; they'll get it on /seat`);
+      return;
+    }
+
     // Phase 2 busy guard — queue to inbox + dispatch queue if target is actively working
     const guard = await checkBusyGuard(query);
     if (guard.busy) {
