@@ -995,10 +995,12 @@ const STATUS_RE = /(clock[ -]?in|clock[ -]?out|clocked in|clocked out|\\/toilet|
 const ACTIVE_MS = 10 * 60 * 1000; // green dot = active within 10 min
 
 // Context % remaining for a presence pane: prefer remaining_percentage, fall back
-// to 100-used_percentage. null (pre-first-API-call / post-compact) or stale → null
-// → the UI renders "—" instead of a misleading number. (kobo-104)
+// to 100-used_percentage. null (pre-first-API-call / post-compact) → the UI
+// renders "—". A STALE pane still shows its last-known % (kobo-108) — the file
+// data isn't gone, the statusline just stopped re-rendering while idle; the row's
+// is-stale dimming already signals "last known", so blanking it hid live info.
 function ctxPct(p) {
-  if (!p || p.stale) return null;
+  if (!p) return null;
   if (typeof p.remaining_percentage === 'number') return Math.round(p.remaining_percentage);
   if (typeof p.used_percentage === 'number') return Math.round(100 - p.used_percentage);
   return null;
@@ -1099,18 +1101,21 @@ function renderPresence(entries, roster, presence, held) {
       }
       cell.appendChild(box);
     }
-    // kobo-104 — per-pane model + context% sub-rows (option C). A ghost pane
-    // (statusline stopped) is marked stale → "unknown" rather than a frozen %.
+    // kobo-104/108 — per-pane model + context% sub-rows (option C). A stale pane
+    // (statusline stopped re-rendering while idle → frozen ts) still shows its
+    // LAST-KNOWN model + ctx%, dimmed via is-stale — the file data is intact, so
+    // blanking it to "unknown"/"—" only hid live info (kobo-108).
     const panes = panesByOracle.get(member.oracle) || [];
     if (panes.length) {
       const box = el('div', 'p-panes');
       for (const p of panes) {
         const row = el('div', 'p-pane-row' + (p.stale ? ' is-stale' : ''));
+        if (p.stale) row.title = 'last known — statusline has not updated in 5+ min (idle pane)';
         row.appendChild(el('span', 'p-pane-id', '.' + (p.pane || '?')));
-        row.appendChild(el('span', 'p-pane-model', p.stale ? 'unknown' : (p.model || '—')));
+        row.appendChild(el('span', 'p-pane-model', p.model || '—'));
         const pct = ctxPct(p);
         const ctx = el('span', 'p-pane-ctx', pct == null ? 'ctx —' : 'ctx ' + pct + '%');
-        if (pct != null) { ctx.title = pct + '% context remaining'; }
+        if (pct != null && !p.stale) { ctx.title = pct + '% context remaining'; }
         row.appendChild(ctx);
         box.appendChild(row);
       }
