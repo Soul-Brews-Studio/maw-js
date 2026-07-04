@@ -44,6 +44,8 @@ import {
   parentStateResolver,
   parsePrNumber,
   parsePrRepo,
+  readTask,
+  rejectTask,
   reviewTask,
   setTaskEpic,
   setTaskPr,
@@ -125,6 +127,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   "in-progress": "IN-PROGRESS",
   "review": "REVIEW",
   "done": "DONE",
+  "rejected": "REJECTED",
   "blocked": "BLOCKED",
 };
 
@@ -166,6 +169,18 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null):
       // next-action — the board always says what happens next + who (Track 4)
       lines.push(`    \x1b[90m↳\x1b[0m \x1b[36m${taskNextAction(t)}\x1b[0m`);
       const m = missingLine(dep.get(t.id)!); if (m) lines.push(m);
+    }
+  }
+
+  // Rejected lane (kobo-101) — terminal "not accepted", parallel to DONE. Not in
+  // TASK_FLOW (it's off the linear flow), so surface it in its own lane or the
+  // flow loop above drops it silently.
+  const rejected = flow.filter((t) => t.state === "rejected");
+  if (rejected.length) {
+    lines.push(`\n\x1b[1m\x1b[33m${STATE_LABEL.rejected}\x1b[0m \x1b[90m(${rejected.length})\x1b[0m`);
+    for (const t of rejected) {
+      lines.push(cardHead(t));
+      lines.push(`    \x1b[90m↳\x1b[0m \x1b[33m${taskNextAction(t)}\x1b[0m`);
     }
   }
 
@@ -301,6 +316,32 @@ export async function runTask(
       const t = completeTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ done\x1b[0m ${t.id}: ${t.title}`);
+    } else if (subcmd === "reject") {
+      // Terminal "done but NOT accepted" (kobo-101) — like closing a PR without
+      // merging. --reason is MANDATORY (why it wasn't accepted, kept to learn).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const reason = flags["--reason"]?.trim();
+      if (!id) return { ok: false, error: 'usage: maw company task reject <id> --reason "<why>"' };
+      if (!reason) return { ok: false, error: "--reason is required (why the card was not accepted — kept to learn)" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const before = readTask(company, id);
+      const t = rejectTask(company, id, me, reason);
+      if (!t) {
+        // rejectTask returns null for not-found OR already-terminal — disambiguate.
+        if (before && (before.state === "done" || before.state === "rejected")) {
+          return { ok: false, error: `cannot reject ${id}: already ${before.state} (terminal)` };
+        }
+        return { ok: false, error: `task not found: ${id}` };
+      }
+      console.log(`\x1b[33m✗ rejected\x1b[0m ${t.id}: ${t.title} \x1b[90m— ${reason}\x1b[0m`);
+      // Poke the doer whose work was rejected so they see the decision + reason.
+      if (t.assignee && t.assignee !== me && t.assignee !== "any") {
+        ping(t.assignee, `[task] ${me} rejected ${t.id}: ${reason}`);
+        console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+      }
     } else if (subcmd === "review") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--reason": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);

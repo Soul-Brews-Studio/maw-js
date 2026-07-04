@@ -74,6 +74,18 @@ describe("findCardByPrAnywhere", () => {
     expect(findCardByPrAnywhere(80)).toBeNull(); // done cards excluded (findTaskByPr)
     expect(findCardByPrAnywhere(999)).toBeNull();
   });
+
+  // kobo-101: a rejected card is terminal ("closed, not accepted"). If a PR linked
+  // to it later merges, pr-watch must NOT resurrect it to done — the kobo-99
+  // resurrection bug in a new guise. findTasksByPr excludes rejected exactly like
+  // done, so the merged→done flip never reaches a rejected card.
+  it("excludes a REJECTED card so a later PR merge can't resurrect it to done", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?reject-noresurrect");
+    card("kobo", "rejected-90", { state: "rejected", pr: 90, repo: "meganechan/maw-js" });
+    card("kobo", "review-91", { state: "review", pr: 91, repo: "meganechan/maw-js" }); // live control
+    expect(findCardsByPrAnywhere(90, "meganechan/maw-js")).toEqual([]); // rejected → never flipped
+    expect(findCardsByPrAnywhere(91, "meganechan/maw-js").map((h) => h.taskId)).toEqual(["review-91"]);
+  });
 });
 
 // kobo-99: a PR number is unique only WITHIN a repo. Merged owner/a#5 previously

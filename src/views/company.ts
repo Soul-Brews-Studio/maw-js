@@ -110,12 +110,13 @@ function companyBody(): string {
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     /* Card primitive — surface for panels/columns/modals. */
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
-    .board { display:grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
+    .board { display:grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
     .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-done h2 { color:var(--ok); }
+    .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
     /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
        tab) so blocked/needs-attention cards are seen immediately, not below-fold on
        a busy board. Hidden entirely when nothing is off-flow (renderBoard toggles
@@ -352,6 +353,7 @@ function companyBody(): string {
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
+          <div class="col col-rejected"><h2><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
         </div>
       </div>
       <div class="card" id="state-panel" style="margin-top:16px" hidden>
@@ -603,7 +605,7 @@ function taskCard(task) {
   // archive button — ONLY on done cards (kobo-35). done = finished, awaiting
   // human review; clicking archive = Tony signs "checked" → the card moves off
   // the board (store + UI). stopPropagation so it never opens the detail panel.
-  if (task.state === 'done') {
+  if (task.state === 'done' || task.state === 'rejected') {
     const actions = el('div', 't-actions');
     const btn = el('button', 'archive-btn', '📦 archive');
     btn.type = 'button';
@@ -757,7 +759,7 @@ function buildWriteSection(task) {
   // mark done (kobo-50, item 1) — only on a card not already done. Gives c1 guard b
   // its web trigger: an epic whose children aren't all done → server 409 needsConfirm
   // + rollup, and we ask before forcing the close (scope collapse).
-  if (task.state !== 'done') {
+  if (task.state !== 'done' && task.state !== 'rejected') {
     const doneRow = el('div', 'write-row');
     const doneBtn = el('button', 'done-btn', '✓ mark done'); doneBtn.type = 'button';
     doneRow.appendChild(doneBtn);
@@ -877,6 +879,7 @@ function closeDetail() {
 }
 
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
+const COLS = ['backlog', 'todo', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
 
 function renderBoard(tasks) {
   // Family filter is display-only — taskIndex stays built over the FULL list so
@@ -885,9 +888,11 @@ function renderBoard(tasks) {
   const fam = familyFilter ? familyMembers(familyFilter) : null;
   const shown = fam ? tasks.filter((t) => fam.has(t.id)) : tasks;
   const cols = {};
-  for (const s of FLOW) { cols[s] = $(s); cols[s].replaceChildren(); }
+  // COLS = the linear flow + the parallel terminal Rejected lane (kobo-101). Both
+  // are real board columns; the Blocked lane is separate (off-flow, below).
+  for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, blocked: 0 };
+  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, rejected: 0, blocked: 0 };
   // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
   // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
   // flow state but are pulled out while a parent is pending; when the parent is
@@ -899,7 +904,7 @@ function renderBoard(tasks) {
     cols[state].appendChild(taskCard(task));
     counts[state]++;
   }
-  for (const s of FLOW) {
+  for (const s of COLS) {
     $('c-' + s).textContent = counts[s];
     if (counts[s] === 0) cols[s].appendChild(el('div', 'empty', '—'));
   }

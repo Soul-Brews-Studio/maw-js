@@ -154,10 +154,39 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
   });
 
+  test("reject sets state=rejected + stores the reason (kobo-101)", async () => {
+    await run(["add", "over-scoped plan", "--company", "pgw"]); // pgw-1
+    await run(["claim", "pgw-1", "--company", "pgw"]);          // in-progress
+    const r = await run(["reject", "pgw-1", "--reason", "เกิน scope", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("rejected");
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("rejected");
+    expect(t.rejectReason).toBe("เกิน scope");
+  });
+
+  test("reject WITHOUT --reason is refused — reason is mandatory (kobo-101)", async () => {
+    await run(["add", "no reason", "--company", "pgw"]); // pgw-1
+    const r = await run(["reject", "pgw-1", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--reason is required");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo"); // untouched
+  });
+
+  test("reject on a done card is refused — terminal, no resurrection (kobo-101)", async () => {
+    await run(["add", "shipped", "--company", "pgw"]); // pgw-1
+    await run(["done", "pgw-1", "--company", "pgw"]);
+    const r = await run(["reject", "pgw-1", "--reason", "too late", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("already done");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("done"); // stays done
+  });
+
   test("missing id / unknown subcommand → clean error, not a throw", async () => {
     expect((await run(["claim", "--company", "pgw"])).error).toContain("usage");
     expect((await run(["bogus"])).ok).toBe(false);
     expect((await run(["done", "pgw-999", "--company", "pgw"])).error).toContain("not found");
+    expect((await run(["reject", "pgw-999", "--reason", "x", "--company", "pgw"])).error).toContain("not found");
     expect(listTasks("pgw")).toEqual([]);
   });
 });

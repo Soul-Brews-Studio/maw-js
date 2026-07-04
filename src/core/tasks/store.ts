@@ -25,6 +25,7 @@ export type TaskState =
   | "in-progress"
   | "review"
   | "done"
+  | "rejected" // terminal disposition (kobo-101) — "done but not accepted", parallel to done
   | "blocked"; // off-flow (ADR 0003 B) — renamed from the dead needs-attention slot
 
 export const TASK_STATES: TaskState[] = [
@@ -33,6 +34,7 @@ export const TASK_STATES: TaskState[] = [
   "in-progress",
   "review",
   "done",
+  "rejected",
   "blocked",
 ];
 
@@ -93,6 +95,7 @@ export interface TaskRecord {
   prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
   reviewReason?: string; // why it needs review (optional)
+  rejectReason?: string; // why the card was rejected (kobo-101) — MANDATORY on reject, kept to learn (Nothing is Deleted)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
   body?: string; // free text: why/detail + markdown checklist (ADR 0003 C) — git-diff'able
@@ -453,6 +456,36 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
 }
 
 /**
+ * Reject a card (kobo-101) — the "done but NOT accepted" terminal disposition
+ * (like closing a PR without merging). Allowed from any NON-terminal state
+ * (backlog/todo/in-progress/review/blocked); a done or already-rejected card is
+ * terminal, so this is a no-op that returns null so the CLI can report it. The
+ * `reason` is MANDATORY (why it wasn't accepted — kept to learn, Nothing is
+ * Deleted) and stored in rejectReason. Clears review/block flags and releases any
+ * open claim, exactly like completeTask. Returns null if the card is absent OR
+ * already terminal.
+ */
+export function rejectTask(company: string, id: string, by: string, reason: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.state === "done" || task.state === "rejected") return null; // terminal — can't reject
+  const holder = task.assignee; // capture before clearing — the claim is keyed to them
+  task.state = "rejected";
+  task.rejectReason = reason;
+  delete task.reviewer;
+  delete task.reviewReason;
+  delete task.block; // reject auto-clears an explicit block (mirrors done)
+  delete task.prevState;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-rejected", `rejected ${task.id}: ${task.title} — ${reason}`);
+  if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
+    emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
+  }
+  return task;
+}
+
+/**
  * Append a note to a card (kobo-39) — APPEND-ONLY (principle 1). Never edits or
  * removes an existing note: the prior array is spread into a new one with the
  * note pushed on the end (oldest first). Stamps author + time so the timeline
@@ -531,7 +564,7 @@ const DAY_MS = 86_400_000;
  * board (and a sweep moves them to archive/). `now` is injectable for tests.
  */
 export function isOnBoard(task: TaskRecord, days = DEFAULT_ARCHIVE_DAYS, now = Date.now()): boolean {
-  if (task.state !== "done") return true;
+  if (task.state !== "done" && task.state !== "rejected") return true; // rejected is terminal too (kobo-101)
   const when = task.updatedTs ?? task.ts;
   return when >= now - days * DAY_MS;
 }
@@ -590,8 +623,11 @@ export function archiveOldDone(
  * the pr-watch heal (kobo-80) backfills it on the flip.
  */
 export function findTasksByPr(company: string, pr: number, repo?: string): TaskRecord[] {
+  // Skip BOTH terminal states: a done OR rejected card must never be resurrected
+  // by a later PR-merge poll. Rejected = "closed, not accepted" — flipping it to
+  // done on merge would be the kobo-99 resurrection bug in a new guise (kobo-101).
   return listTasks(company).filter(
-    (t) => t.pr === pr && t.state !== "done" && (!repo || !t.repo || t.repo === repo),
+    (t) => t.pr === pr && t.state !== "done" && t.state !== "rejected" && (!repo || !t.repo || t.repo === repo),
   );
 }
 
@@ -654,6 +690,8 @@ export function taskNextAction(task: TaskRecord): string {
       return "ยังไม่พร้อม (backlog)";
     case "done":
       return "เสร็จแล้ว ✓";
+    case "rejected":
+      return `ไม่รับ ✗${task.rejectReason ? ` (${task.rejectReason})` : ""}`;
     default:
       return "";
   }

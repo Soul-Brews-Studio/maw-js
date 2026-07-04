@@ -29,6 +29,7 @@ export type WorklogKind =
   | "task-created"
   | "task-review"
   | "task-done"
+  | "task-rejected"
   | "task-archived"
   | "task-blocked"
   | "task-unblocked"

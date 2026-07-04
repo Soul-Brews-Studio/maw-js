@@ -29,7 +29,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskEpic"); // kobo-72: set/clear containment parent post-create
@@ -47,6 +47,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given
     expect(src).toContain("(use owner/name"); // kobo-99: reject a bare repo at link → never bind an unpollable repo
     expect(src).toContain("completeTask");
+    expect(src).toContain("rejectTask"); // kobo-101: terminal "done but not accepted"
+    expect(src).toContain("--reason is required"); // kobo-101: reason is mandatory on reject
     expect(src).toContain("archiveOldDone"); // eq3-008 P3: sweep old done → tasks/archive/
     expect(src).toContain("archiveTask"); // kobo-35: per-card archive by id (human "checked" a done card)
     expect(src).toContain("isOnBoard"); // board hides done outside the window

@@ -33,6 +33,7 @@ import {
   parentStateResolver,
   prOpenedReview,
   readTask,
+  rejectTask,
   parsePrRepo,
   resolveEpicParent,
   reviewTask,
@@ -300,6 +301,67 @@ describe("archive (ADR 0002 P3 — done cards age off the board, never deleted)"
   test("DEFAULT_ARCHIVE_DAYS is 7", () => {
     expect(DEFAULT_ARCHIVE_DAYS).toBe(7);
     expect(archiveDir("pgw").endsWith("/tasks/archive")).toBe(true);
+  });
+
+  test("isOnBoard: rejected is terminal too — windowed like done (kobo-101)", () => {
+    const now = 10 * DAY;
+    const rej = (updatedTs: number): TaskRecord => ({ id: "x", title: "t", company: "pgw", state: "rejected", by: "x", assignee: null, ts: 0, updatedTs });
+    expect(isOnBoard(rej(now - 3 * DAY), 7, now)).toBe(true);  // recent rejected shown (learn)
+    expect(isOnBoard(rej(now - 8 * DAY), 7, now)).toBe(false); // aged-out rejected sweeps
+  });
+
+  test("archiveOldDone sweeps old rejected cards too (kobo-101)", () => {
+    const now = 100 * DAY;
+    const r = addTask({ company: "pgw", title: "not accepted", by: "x", assignee: "y", state: "in-progress" });
+    rejectTask("pgw", r.id, "tony", "scope creep");
+    const rec = readTask("pgw", r.id)!;
+    rec.updatedTs = now - 30 * DAY; // backdate past the window
+    require("fs").writeFileSync(taskFilePath("pgw", r.id), JSON.stringify(rec));
+    const archived = archiveOldDone("pgw", 7, "system", now);
+    expect(archived.map((t) => t.id)).toEqual([r.id]);
+    expect(listArchivedTasks("pgw").map((t) => t.id)).toContain(r.id);
+  });
+});
+
+describe("reject (kobo-101 — terminal 'done but not accepted', parallel to done)", () => {
+  test("reject from a non-terminal state sets state=rejected + stores the reason", () => {
+    const t = addTask({ company: "pgw", title: "over-scoped plan", by: "eq3", assignee: "patchwork", state: "in-progress" });
+    const r = rejectTask("pgw", t.id, "tony", "เกิน scope — ไม่เอา");
+    expect(r?.state).toBe("rejected");
+    expect(r?.rejectReason).toBe("เกิน scope — ไม่เอา");
+    expect(readTask("pgw", t.id)?.state).toBe("rejected");
+    // emits a task-rejected worklog event
+    expect(readWorklog("pgw").some((e) => e.kind === "task-rejected" && e.task === t.id)).toBe(true);
+  });
+
+  test("reject is allowed from todo / review / blocked (any non-terminal)", () => {
+    for (const state of ["todo", "review", "blocked"] as const) {
+      const t = addTask({ company: "pgw", title: state, by: "eq3", assignee: "patchwork", state });
+      expect(rejectTask("pgw", t.id, "tony", "no")?.state).toBe("rejected");
+    }
+  });
+
+  test("reject releases the doer's open claim (board-truth — no stale claim)", () => {
+    const t = addTask({ company: "pgw", title: "claimed", by: "eq3" });
+    claimTask("pgw", t.id, "patchwork"); // opens a claim
+    rejectTask("pgw", t.id, "tony", "not needed");
+    expect(readWorklog("pgw").some((e) => e.kind === "claim-release" && e.task === t.id)).toBe(true);
+  });
+
+  test("a done or already-rejected card is terminal — reject is a no-op returning null", () => {
+    const d = addTask({ company: "pgw", title: "shipped", by: "eq3" });
+    completeTask("pgw", d.id, "x");
+    expect(rejectTask("pgw", d.id, "tony", "too late")).toBeNull(); // done stays done
+    expect(readTask("pgw", d.id)?.state).toBe("done");
+
+    const r = addTask({ company: "pgw", title: "already rejected", by: "eq3" });
+    rejectTask("pgw", r.id, "tony", "no");
+    expect(rejectTask("pgw", r.id, "tony", "again")?.rejectReason).toBeUndefined(); // null → no re-reject
+    expect(readTask("pgw", r.id)?.rejectReason).toBe("no"); // original reason untouched
+  });
+
+  test("missing card → null (not a throw)", () => {
+    expect(rejectTask("pgw", "pgw-999", "tony", "x")).toBeNull();
   });
 });
 
