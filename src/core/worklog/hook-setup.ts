@@ -101,7 +101,7 @@ export function ensureStatuslineScript(): number {
  */
 export function provisionOracleStatusline(
   oracle: string,
-  opts: { dryRun?: boolean; ghqRoot?: string } = {},
+  opts: { dryRun?: boolean; ghqRoot?: string; globalSettingsPath?: string } = {},
 ): ProvisionOutcome {
   const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
   const dir = oracleRepoDir(oracle, ghqRoot);
@@ -115,17 +115,39 @@ export function provisionOracleStatusline(
   const mawPath = hookPath(STATUSLINE_FILE);
   const cur = settings.statusLine;
   const curCmd = typeof cur?.command === "string" ? cur.command : "";
-  if (curCmd.includes(STATUSLINE_FILE)) return "alreadyOk"; // already ours — don't re-wrap
+  if (curCmd.includes(STATUSLINE_FILE)) return "alreadyOk"; // project already ours — don't re-wrap
 
-  // Wrap a pre-existing (non-maw) statusLine by encoding its whole command as our
-  // arg; empty when there was none (fresh install of maw's default line).
-  const delegateArg = curCmd ? " " + Buffer.from(curCmd, "utf8").toString("base64") : "";
+  // EFFECTIVE existing statusLine = project's own, else the user's GLOBAL
+  // ~/.claude/settings.json (kobo-106). Claude Code falls back to global when a
+  // project has none, so an agent like patchwork keeps its statusline (a
+  // limit-tracker) in global only — wrapping just the project would leave the
+  // global line to be shadowed by maw's default. Resolve effective FIRST, then
+  // wrap it as our delegate. Skip if it's already maw's (never wrap maw-in-maw)
+  // or absent (fresh install of maw's default line).
+  const effectiveCmd = curCmd || globalStatuslineCommand(opts.globalSettingsPath);
+  const delegateArg = effectiveCmd && !effectiveCmd.includes(STATUSLINE_FILE)
+    ? " " + Buffer.from(effectiveCmd, "utf8").toString("base64")
+    : "";
   if (opts.dryRun) return "updated";
   ensureStatuslineScript(); // the setting references this script — ensure on disk
   settings.statusLine = { type: "command", command: mawPath + delegateArg };
   mkdirSync(join(settingsPath, ".."), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   return "updated";
+}
+
+/** The user's GLOBAL statusLine command (~/.claude/settings.json), or "" if
+ *  none/unreadable. The fallback delegate when a project has no own statusLine
+ *  (kobo-106). Path is injectable for tests. */
+function globalStatuslineCommand(globalSettingsPath?: string): string {
+  const p = globalSettingsPath ?? join(homedir(), ".claude", "settings.json");
+  try {
+    if (!existsSync(p)) return "";
+    const s = JSON.parse(readFileSync(p, "utf-8"));
+    return typeof s?.statusLine?.command === "string" ? s.statusLine.command : "";
+  } catch {
+    return "";
+  }
 }
 
 /** Provision all hook scripts to the config dir (idempotent). Returns count written. */
