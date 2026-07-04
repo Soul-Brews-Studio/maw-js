@@ -293,16 +293,23 @@ function companyBody(): string {
        roster/derive/status logic unchanged. */
     .presence-note { font-size:var(--t-sm); color:var(--muted); background:var(--col); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-5); margin-bottom:var(--s-6); line-height:1.5; }
     .presence-note b { color:var(--warn); }
-    .presence-list { display:flex; flex-direction:column; gap:var(--s-3); }
-    .presence-row { display:flex; align-items:baseline; gap:var(--s-4); padding:var(--s-3) var(--s-5); border:1px solid var(--line); border-radius:var(--r-md); background:var(--card); flex-wrap:wrap; }
-    .presence-row .p-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:var(--r-pill); display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; align-self:center; }
-    .presence-row .p-dot { width:8px; height:8px; border-radius:var(--r-pill); background:var(--muted); flex:0 0 auto; align-self:center; }
-    .presence-row .p-dot.active { background:var(--ok); }
-    .presence-row .p-oracle { color:var(--accent); font-weight:600; }
-    .presence-row .p-when { color:var(--muted); font-size:var(--t-sm); }
-    .presence-row .p-count { color:var(--muted); font-size:var(--t-xs); margin-left:auto; }
-    .presence-row .p-status { color:var(--st-meta); font-size:var(--t-sm); width:100%; }
-    .presence-row .p-last { color:var(--fg); font-size:var(--t-sm); width:100%; white-space:pre-wrap; word-break:break-word; }
+    /* kobo-103 — Presence as a responsive GRID (rows were hard to scan). Each cell
+       is one oracle card; the status is an explicit active/idle badge, not just a
+       dot. Data/derive unchanged (roster + worklog fold) — presentation only. */
+    .presence-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:var(--s-4); align-items:start; }
+    .presence-cell { display:flex; flex-direction:column; gap:var(--s-2); padding:var(--s-4) var(--s-5); border:1px solid var(--line); border-radius:var(--r-md); background:var(--card); }
+    .presence-cell.is-active { border-left:3px solid var(--ok); }
+    .presence-cell .p-head { display:flex; align-items:center; gap:var(--s-3); }
+    .presence-cell .p-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:var(--r-pill); display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; }
+    .presence-cell .p-oracle { color:var(--accent); font-weight:600; font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .presence-cell .p-badge { margin-left:auto; flex:0 0 auto; font-size:var(--t-xs); font-weight:600; padding:2px var(--s-3); border-radius:var(--r-pill); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+    .presence-cell .p-badge.active { color:var(--ok); border-color:var(--ok); }
+    .presence-cell .p-badge.idle { color:var(--st-meta); }
+    .presence-cell .p-role { color:var(--muted); font-size:var(--t-sm); }
+    .presence-cell .p-when { color:var(--muted); font-size:var(--t-sm); }
+    .presence-cell .p-count { color:var(--muted); font-size:var(--t-xs); }
+    .presence-cell .p-status { color:var(--st-meta); font-size:var(--t-sm); }
+    .presence-cell .p-last { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
     /* kobo-57 new-version reload banner — kobo-61 folds it into the header zone:
@@ -1002,33 +1009,38 @@ function renderPresence(entries, roster) {
     if (tb !== ta) return tb - ta;
     return a.member.oracle.localeCompare(b.member.oracle);
   });
-  const list = el('div', 'presence-list');
+  const grid = el('div', 'presence-grid');
   for (const item of rows) {
     const member = item.member, act = item.act;
-    const row = el('div', 'presence-row');
     const active = act && (nowMs() - (act.last.ts || 0)) <= ACTIVE_MS;
-    const dot = el('span', 'p-dot' + (active ? ' active' : '')); dot.title = active ? 'active (last 10 min)' : (act ? 'idle' : 'no recent activity');
-    row.appendChild(dot);
+    const cell = el('div', 'presence-cell' + (active ? ' is-active' : ''));
+    // header row: avatar + name.pane + explicit status badge (active/idle/offline)
+    const head = el('div', 'p-head');
     // kobo-64 — per-oracle avatar (same palette/contrast as note bubbles): color =
     // identity, initials + full name always shown (color-not-only). Presentation only.
     const avc = authorColor(member.oracle);
     const av = el('span', 'p-avatar', authorInitials(member.oracle));
     av.style.background = avc; av.style.color = avatarText(avc);
-    row.appendChild(av);
-    row.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
+    head.appendChild(av);
+    head.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
+    // kobo-103 — status is a labelled badge, not just a dot: active / idle / offline.
+    const badgeCls = active ? 'p-badge active' : (act ? 'p-badge idle' : 'p-badge');
+    const badge = el('span', badgeCls, active ? '● active' : (act ? '○ idle' : '— offline'));
+    badge.title = active ? 'active (activity in the last 10 min)' : (act ? 'idle (no activity in the last 10 min)' : 'no recent activity');
+    head.appendChild(badge);
+    cell.appendChild(head);
     const roleTxt = member.role ? (member.role + (member.dept ? ' · ' + member.dept : '')) : (member.dept || '');
-    if (roleTxt) row.appendChild(el('span', 'p-when', roleTxt));
+    if (roleTxt) cell.appendChild(el('div', 'p-role', roleTxt));
     if (act) {
-      row.appendChild(el('span', 'p-when', act.last.iso ? relTime(act.last.ts) + ' · ' + localTs(act.last.iso) : text(act.last.ts)));
-      row.appendChild(el('span', 'p-count', act.count + ' event' + (act.count === 1 ? '' : 's')));
-      row.appendChild(el('div', 'p-last', (act.last.kind || 'tool') + ' · ' + (act.last.summary || '')));
-      if (act.status) row.appendChild(el('div', 'p-status', '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')'));
+      cell.appendChild(el('div', 'p-when', (act.last.iso ? relTime(act.last.ts) + ' · ' + localTs(act.last.iso) : text(act.last.ts)) + ' · ' + act.count + ' event' + (act.count === 1 ? '' : 's')));
+      cell.appendChild(el('div', 'p-last', (act.last.kind || 'tool') + ' · ' + (act.last.summary || '')));
+      if (act.status) cell.appendChild(el('div', 'p-status', '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')'));
     } else {
-      row.appendChild(el('span', 'p-count', 'no recent activity'));
+      cell.appendChild(el('div', 'p-count', 'no recent activity'));
     }
-    list.appendChild(row);
+    grid.appendChild(cell);
   }
-  host.appendChild(list);
+  host.appendChild(grid);
 }
 
 // kobo-49 c5 — tab shell. Only one tabpanel visible at a time; the dynamic tabs
