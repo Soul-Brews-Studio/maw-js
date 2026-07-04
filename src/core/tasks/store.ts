@@ -433,11 +433,26 @@ export function prOpenedReview(company: string, id: string, author: string, revi
   return task;
 }
 
+/**
+ * Release EVERY open claim on this card, whoever holds it (kobo-107) — not just
+ * the assignee's. A card claimed by A but closed/archived/rejected by B (or when
+ * assignee ≠ the claim holder) used to leave A's claim open → stale in maw's
+ * open-claims tracker + a false-positive idle-with-work badge (kobo-105). Emits
+ * one claim-release per holder; a never-claimed / already-released card emits
+ * nothing (openClaims already excludes released ones + dedups per holder).
+ */
+function releaseAllClaims(task: TaskRecord): void {
+  for (const c of openClaims(task.company)) {
+    if ((c.task ?? c.summary) === task.id) {
+      emit(task, c.oracle, "claim-release", `release ${task.id}: ${task.title}`);
+    }
+  }
+}
+
 /** Mark done. `by` is whoever closed it (worker/lead/Tony). Clears review flag. */
 export function completeTask(company: string, id: string, by: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
-  const holder = task.assignee; // capture before clearing — the claim is keyed to them
   task.state = "done";
   delete task.reviewer;
   delete task.reviewReason;
@@ -446,12 +461,7 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
-  // Release any open claim the holder left on this card so maw company worklog's open-claims
-  // tracker doesn't go stale (handoff fix B). Only when one is actually open — a
-  // todo→done or never-claimed card emits no spurious release.
-  if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
-    emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
-  }
+  releaseAllClaims(task); // free every claim on this card so open-claims doesn't go stale
   return task;
 }
 
@@ -469,7 +479,6 @@ export function rejectTask(company: string, id: string, by: string, reason: stri
   const task = readTask(company, id);
   if (!task) return null;
   if (task.state === "done" || task.state === "rejected") return null; // terminal — can't reject
-  const holder = task.assignee; // capture before clearing — the claim is keyed to them
   task.state = "rejected";
   task.rejectReason = reason;
   delete task.reviewer;
@@ -479,9 +488,7 @@ export function rejectTask(company: string, id: string, by: string, reason: stri
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-rejected", `rejected ${task.id}: ${task.title} — ${reason}`);
-  if (holder && openClaims(task.company).some((c) => c.oracle === holder && (c.task ?? c.summary) === task.id)) {
-    emit(task, holder, "claim-release", `release ${task.id}: ${task.title}`);
-  }
+  releaseAllClaims(task);
   return task;
 }
 
@@ -589,6 +596,7 @@ export function archiveTask(company: string, id: string, by: string, opts: { for
   mkdirSync(archiveDir(company), { recursive: true });
   renameSync(taskFilePath(company, id), archivedTaskFilePath(company, id));
   emit(task, by, "task-archived", `archived ${task.id}: ${task.title}`);
+  releaseAllClaims(task); // an archived card must leave no open claim behind (kobo-107)
   return task;
 }
 

@@ -10,6 +10,7 @@ import {
   archiveTask,
   BLOCK_KINDS,
   blockNextAction,
+  archiveTask,
   blockTask,
   checklistProgress,
   claimTask,
@@ -134,6 +135,35 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(true); // claim is open
     completeTask("pgw", "pgw-1", "tony"); // closed by someone else — release keys on assignee, not `by`
     expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(false); // released
+  });
+
+  // kobo-107 — release ALL open claims on a card, not just the current assignee's.
+  // A card claimed by A then re-claimed by B leaves TWO open claims (A + B, keyed
+  // per holder); closing/rejecting/archiving used to free only the assignee's,
+  // leaving the other stale (→ false-positive idle-with-work, kobo-105).
+  test("done releases ALL open claims on the card, not just the assignee's (kobo-107)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork"); // holder A
+    claimTask("pgw", "pgw-1", "human");     // holder B — assignee is now human
+    expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(2);
+    completeTask("pgw", "pgw-1", "eq3");     // closed by a THIRD party
+    expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(0); // both gone
+  });
+
+  test("reject releases ALL open claims on the card (kobo-107)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork");
+    claimTask("pgw", "pgw-1", "human");
+    rejectTask("pgw", "pgw-1", "eq3", "not needed");
+    expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(0);
+  });
+
+  test("archive releases ALL open claims on the card (kobo-107)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork");
+    claimTask("pgw", "pgw-1", "human");
+    archiveTask("pgw", "pgw-1", "eq3");
+    expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(0);
   });
 
   test("noteTask appends notes (append-only) with author + ts, keeps prior notes, emits task-note", () => {
