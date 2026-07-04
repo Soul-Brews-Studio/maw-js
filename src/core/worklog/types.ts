@@ -36,7 +36,8 @@ export type WorklogKind =
   | "task-note"
   | "task-updated"
   | "interrupt"
-  | "idle"; // pane went idle (CC Stop hook) — durable per-pane state (kobo-109)
+  | "idle" // pane went idle (CC Stop hook) — durable per-pane state (kobo-109)
+  | "error"; // turn ended on an API error (CC Stop + isApiErrorMessage) — durable pane state (kobo-111)
 
 export interface WorklogEntry {
   ts: number; // epoch ms (sort key)

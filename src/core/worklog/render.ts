@@ -22,6 +22,8 @@ const ICON: Record<WorklogEntry["kind"], string> = {
   "task-unblocked": "🔓",
   "task-updated": "↳",
   interrupt: "⚠",
+  idle: "·", // filtered from renders (visible()) — present for completeness
+  error: "🛑", // kobo-111 — turn-ending API error; kept in the feed (rare + actionable)
 };
 
 function hhmm(e: WorklogEntry): string {

@@ -306,6 +306,7 @@ function companyBody(): string {
     .presence-cell { display:flex; flex-direction:column; gap:var(--s-2); padding:var(--s-4) var(--s-5); border:1px solid var(--line); border-radius:var(--r-md); background:var(--card); }
     .presence-cell.is-active { border-left:3px solid var(--ok); }
     .presence-cell.is-idle-work { border-left:3px solid var(--warn); }
+    .presence-cell.is-error { border-left:3px solid var(--bad); } /* kobo-111 — turn-ending API error */
     .presence-cell .p-head { display:flex; align-items:center; gap:var(--s-3); }
     .presence-cell .p-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:var(--r-pill); display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; }
     .presence-cell .p-oracle { color:var(--accent); font-weight:600; font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -313,6 +314,7 @@ function companyBody(): string {
     .presence-cell .p-badge.active { color:var(--ok); border-color:var(--ok); }
     .presence-cell .p-badge.idle { color:var(--st-meta); }
     .presence-cell .p-badge.idle-work { color:var(--warn); border-color:var(--warn); }
+    .presence-cell .p-badge.error { color:var(--bad); border-color:var(--bad); } /* kobo-111 */
     .presence-cell .p-role { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-when { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-count { color:var(--muted); font-size:var(--t-xs); }
@@ -333,7 +335,9 @@ function companyBody(): string {
        active + idle panes read apart. green=busy, muted=idle; text label, not color-only. */
     .presence-cell .p-pane-badge { flex:0 0 auto; margin-left:auto; font-size:var(--t-xs); font-weight:600; padding:0 var(--s-2); border-radius:var(--r-pill); border:1px solid var(--line); color:var(--st-meta); white-space:nowrap; }
     .presence-cell .p-pane-badge.busy { color:var(--ok); border-color:var(--ok); }
+    .presence-cell .p-pane-badge.error { color:var(--bad); border-color:var(--bad); } /* kobo-111 */
     .presence-cell .p-pane-row.is-pane-busy .p-pane-id { color:var(--ok); }
+    .presence-cell .p-pane-row.is-pane-error .p-pane-id { color:var(--bad); }
     @media (prefers-reduced-motion: reduce) { .task, body { transition:none; } }
     @media (max-width: 880px) { body { padding:12px; } .layout { grid-template-columns: 1fr; } .board { grid-template-columns: 1fr; } .timeline, .md { max-height:none; } }
     /* kobo-57 new-version reload banner — kobo-61 folds it into the header zone:
@@ -1046,13 +1050,22 @@ function renderPresence(entries, roster, presence, held) {
   // pane (%N) so the two join per-pane. 'idle' events are kept OUT of the oracle-level fold
   // (count/last/active) — they are a pane-state signal, not real activity.
   const byOracle = new Map();
-  const paneState = new Map(); // paneId (%N) → { ts, idle } from the newest event touching it
+  // paneId (%N) → { ts, state } from the newest event touching the pane. state is the
+  // 3-state work-state (kobo-111): 'error' (turn ended on an API error) / 'idle' (turn
+  // ended) / 'busy' (any activity). newest-wins, so the next prompt (busy) auto-clears
+  // an error or idle. Both 'idle' and 'error' are turn-ending states kept OUT of the
+  // oracle activity fold below — 'error' still rides the feed/inject (rare + actionable).
+  const paneState = new Map();
+  const oraclesWithError = new Set(); // any oracle whose newest per-pane state is 'error'
   for (const e of entries) {
     if (e.paneId) {
       const cur = paneState.get(e.paneId);
-      if (!cur || (e.ts || 0) >= cur.ts) paneState.set(e.paneId, { ts: e.ts || 0, idle: e.kind === 'idle' });
+      if (!cur || (e.ts || 0) >= cur.ts) {
+        const state = e.kind === 'error' ? 'error' : (e.kind === 'idle' ? 'idle' : 'busy');
+        paneState.set(e.paneId, { ts: e.ts || 0, state, oracle: e.oracle || '?' });
+      }
     }
-    if (e.kind === 'idle') continue; // pane-state only — never an oracle activity record
+    if (e.kind === 'idle' || e.kind === 'error') continue; // turn-ending states — not an oracle activity record
     const key = e.oracle || '?';
     let o = byOracle.get(key);
     if (!o) { o = { oracle: key, pane: e.pane, last: e, count: 0, status: null }; byOracle.set(key, o); }
@@ -1060,6 +1073,10 @@ function renderPresence(entries, roster, presence, held) {
     if ((e.ts || 0) >= (o.last.ts || 0)) { o.last = e; o.pane = e.pane; }
     if (STATUS_RE.test(e.summary || '') && (!o.status || (e.ts || 0) >= (o.status.ts || 0))) o.status = e;
   }
+  // kobo-111 — an oracle is in error if ANY of its panes' newest state is 'error'.
+  // Drives the oracle-level precedence error > active > idle > offline, so a single
+  // dead pane stays visible even while the oracle's other panes are busy.
+  for (const st of paneState.values()) if (st.state === 'error') oraclesWithError.add(st.oracle);
   // ROSTER-ONLY (kobo-104, Tony): show ONLY /api/roster members — a worklog actor
   // NOT in the roster (a cross-company visitor: human/meganechan/tony) is no longer
   // surfaced here. Roster is authoritative membership; worklog only overlays activity.
@@ -1072,16 +1089,18 @@ function renderPresence(entries, roster, presence, held) {
   const rows = [];
   for (const r of roster) {
     const act = byOracle.get(r.oracle) || null;
-    const active = !!(act && (now - (act.last.ts || 0)) <= ACTIVE_MS);
+    const errored = oraclesWithError.has(r.oracle); // kobo-111 — highest precedence
+    const active = !errored && !!(act && (now - (act.last.ts || 0)) <= ACTIVE_MS);
     const heldWork = held[r.oracle] || [];
-    const idleWithWork = !active && !!act && heldWork.length > 0;
-    rows.push({ member: r, act, active, heldWork, idleWithWork });
+    const idleWithWork = !errored && !active && !!act && heldWork.length > 0;
+    rows.push({ member: r, act, errored, active, heldWork, idleWithWork });
   }
   if (!rows.length) { host.appendChild(el('div', 'empty', 'no roster members')); return; }
-  // active first, then idle-with-work (⚠️ surface deadlocks high), then by
-  // most-recent activity, then roster-only alphabetical.
+  // kobo-111 precedence: error first (🛑 a dead pane must not hide), then active, then
+  // idle-with-work (⚠️ surface deadlocks), then by most-recent activity, then alphabetical.
   rows.sort((a, b) => {
-    const ra = a.active ? 0 : (a.idleWithWork ? 1 : 2), rb = b.active ? 0 : (b.idleWithWork ? 1 : 2);
+    const rank = (x) => x.errored ? 0 : (x.active ? 1 : (x.idleWithWork ? 2 : 3));
+    const ra = rank(a), rb = rank(b);
     if (ra !== rb) return ra - rb;
     const ta = a.act ? (a.act.last.ts || 0) : 0, tb = b.act ? (b.act.last.ts || 0) : 0;
     if (tb !== ta) return tb - ta;
@@ -1089,9 +1108,9 @@ function renderPresence(entries, roster, presence, held) {
   });
   const grid = el('div', 'presence-grid');
   for (const item of rows) {
-    const member = item.member, act = item.act, active = item.active, idleWithWork = item.idleWithWork;
-    const cell = el('div', 'presence-cell' + (active ? ' is-active' : (idleWithWork ? ' is-idle-work' : '')));
-    // header row: avatar + name.pane + explicit status badge (active/idle/offline)
+    const member = item.member, act = item.act, active = item.active, idleWithWork = item.idleWithWork, errored = item.errored;
+    const cell = el('div', 'presence-cell' + (errored ? ' is-error' : (active ? ' is-active' : (idleWithWork ? ' is-idle-work' : ''))));
+    // header row: avatar + name.pane + explicit status badge (error/active/idle/offline)
     const head = el('div', 'p-head');
     // kobo-64 — per-oracle avatar (same palette/contrast as note bubbles): color =
     // identity, initials + full name always shown (color-not-only). Presentation only.
@@ -1100,13 +1119,14 @@ function renderPresence(entries, roster, presence, held) {
     av.style.background = avc; av.style.color = avatarText(avc);
     head.appendChild(av);
     head.appendChild(el('span', 'p-oracle', member.oracle + (act && act.pane ? '.' + act.pane : '')));
-    // kobo-103/105 — labelled status badge: active / idle-with-work (⚠️) / idle / offline.
-    const badgeCls = active ? 'p-badge active' : (idleWithWork ? 'p-badge idle-work' : (act ? 'p-badge idle' : 'p-badge'));
-    const badgeTxt = active ? '● active' : (idleWithWork ? '⚠️ idle · มีงานค้าง' : (act ? '○ idle' : '— offline'));
+    // kobo-103/105/111 — labelled status badge: error (🛑) / active / idle-with-work (⚠️) / idle / offline.
+    const badgeCls = errored ? 'p-badge error' : (active ? 'p-badge active' : (idleWithWork ? 'p-badge idle-work' : (act ? 'p-badge idle' : 'p-badge')));
+    const badgeTxt = errored ? '🛑 error' : (active ? '● active' : (idleWithWork ? '⚠️ idle · มีงานค้าง' : (act ? '○ idle' : '— offline')));
     const badge = el('span', badgeCls, badgeTxt);
-    badge.title = active ? 'active (activity in the last 10 min)'
+    badge.title = errored ? 'a pane ended its last turn on an API error (rate-limit / overload) — see the red pane below; clears on the next prompt'
+      : (active ? 'active (activity in the last 10 min)'
       : (idleWithWork ? 'idle for 10+ min but still holding work (open claim / in-progress card) — possible deadlock'
-      : (act ? 'idle (no activity in the last 10 min)' : 'no recent activity'));
+      : (act ? 'idle (no activity in the last 10 min)' : 'no recent activity')));
     head.appendChild(badge);
     cell.appendChild(head);
     const roleTxt = member.role ? (member.role + (member.dept ? ' · ' + member.dept : '')) : (member.dept || '');
@@ -1136,12 +1156,13 @@ function renderPresence(entries, roster, presence, held) {
     if (panes.length) {
       const box = el('div', 'p-panes');
       for (const p of panes) {
-        // kobo-109 — per-pane busy/idle from THIS pane's newest persisted event (%N join):
-        // idle event (Stop) → idle, any activity → busy. Durable across restart (decision B).
-        // A pane with no event yet (statusline present, no worklog activity) → idle.
+        // kobo-109/111 — per-pane work-state from THIS pane's newest persisted event (%N join):
+        // error event (Stop + API error) → error, idle event (Stop) → idle, any activity → busy.
+        // Durable across restart. A pane with no event yet (statusline present, no worklog
+        // activity) → idle. 3 states mutually-exclusive, newest-wins (next prompt clears error).
         const st = paneState.get(p.pane);
-        const pBusy = !!st && !st.idle;
-        const row = el('div', 'p-pane-row' + (p.stale ? ' is-stale' : '') + (pBusy ? ' is-pane-busy' : ''));
+        const pState = st ? st.state : 'idle'; // 'busy' | 'idle' | 'error'
+        const row = el('div', 'p-pane-row' + (p.stale ? ' is-stale' : '') + (pState === 'busy' ? ' is-pane-busy' : '') + (pState === 'error' ? ' is-pane-error' : ''));
         if (p.stale) row.title = 'last known — statusline stale 5+ min (context readout may be outdated)';
         row.appendChild(el('span', 'p-pane-id', '.' + (p.pane || '?')));
         row.appendChild(el('span', 'p-pane-model', p.model || '—'));
@@ -1149,9 +1170,11 @@ function renderPresence(entries, roster, presence, held) {
         const ctx = el('span', 'p-pane-ctx', pct == null ? 'ctx —' : 'ctx ' + pct + '%');
         if (pct != null && !p.stale) { ctx.title = pct + '% context remaining'; }
         row.appendChild(ctx);
-        const pbadge = el('span', 'p-pane-badge ' + (pBusy ? 'busy' : 'idle'), pBusy ? '● busy' : '○ idle');
-        pbadge.title = pBusy ? 'busy — feed activity from this pane in the last 10 min'
-                             : 'idle — no feed activity from this pane in the last 10 min';
+        const pbTxt = pState === 'error' ? '🛑 error' : (pState === 'busy' ? '● busy' : '○ idle');
+        const pbadge = el('span', 'p-pane-badge ' + pState, pbTxt);
+        pbadge.title = pState === 'error' ? 'this pane ended its last turn on an API error (rate-limit / overload) — clears on the next prompt'
+                     : (pState === 'busy' ? 'busy — feed activity from this pane in the last 10 min'
+                     : 'idle — no feed activity from this pane in the last 10 min');
         row.appendChild(pbadge);
         box.appendChild(row);
       }

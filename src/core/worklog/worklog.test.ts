@@ -88,6 +88,18 @@ describe("significant filter (filter b)", () => {
     expect(e?.paneId).toBeUndefined();
   });
 
+  it("Stop + data.error → kind 'error' (turn-ending API error, kobo-111)", () => {
+    const e = eventToWorklog(feed({ event: "Stop", oracle: "eq3", data: { paneId: "%40", error: true } }));
+    expect(e?.kind).toBe("error");
+    expect(e?.paneId).toBe("%40"); // error joins by paneId like idle
+    expect(e?.oracle).toBe("eq3");
+  });
+
+  it("Stop without data.error stays idle (mid-turn error that recovered)", () => {
+    const e = eventToWorklog(feed({ event: "Stop", oracle: "eq3", data: { paneId: "%40" } }));
+    expect(e?.kind).toBe("idle"); // only an explicit error flag trips 'error'
+  });
+
   it("stamps paneId (%N join key) alongside pane (display index) on activity", () => {
     const e = eventToWorklog(feed({ oracle: "eq3", data: { tool_name: "Bash", tool_input: { command: "git status" }, pane: "1", paneId: "%40" } }));
     expect(e?.pane).toBe("1");    // display → oracle.1 in the feed
@@ -123,13 +135,15 @@ describe("timeline render", () => {
 
   it("handles empty log", () => { expect(renderTimeline([])).toContain("ว่าง"); });
 
-  it("drops 'idle' rows from the text render — pane-state signal, not a line (kobo-109)", () => {
+  it("drops 'idle' but KEEPS 'error' in the text render (kobo-109/111 — error is rare + actionable)", () => {
     const out = renderTimeline([
       { ts: 1, iso: "2026-06-22T10:05:00.000Z", oracle: "eq3", pane: "0", kind: "tool", summary: "git status" },
       { ts: 2, iso: "2026-06-22T10:06:00.000Z", oracle: "eq3", paneId: "%40", kind: "idle", summary: "idle" },
+      { ts: 3, iso: "2026-06-22T10:07:00.000Z", oracle: "eq3", paneId: "%41", kind: "error", summary: "API error (turn ended)" },
     ]);
     expect(out).toContain("git status");
     expect(out).not.toContain("idle");
+    expect(out).toContain("API error (turn ended)"); // error survives the render filter
   });
 });
 
@@ -216,6 +230,12 @@ describe("inject slice", () => {
     const rows = readWorklog(null, { limit: 5, excludeKinds: ["idle"], oracle: "ek" });
     expect(rows.some(r => r.summary === "git keep-me")).toBe(true);
     expect(rows.every(r => r.kind !== "idle")).toBe(true);
+  });
+
+  it("KEEPS 'error' in the inject (only idle is excluded) — rare + actionable (kobo-111)", () => {
+    appendWorklog({ ts: 300, iso: "i", oracle: "errq", paneId: "%7", kind: "error", summary: "API error (turn ended)" });
+    const out = buildInjectSlice("errq");
+    expect(out).toContain("API error (turn ended)"); // error must reach the agent's inject
   });
 });
 

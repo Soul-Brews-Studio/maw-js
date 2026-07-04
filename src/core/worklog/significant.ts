@@ -83,13 +83,17 @@ export function eventToWorklog(event: FeedEvent): WorklogEntry | null {
     return { ...base, kind: "conversation", summary: clip(prompt) };
   }
 
-  // Stop — the pane finished its turn and went idle (kobo-109, decision B). Persisted
-  // (not dropped) so the board's per-pane busy/idle survives a maw-server restart: the
-  // newest event for a pane in worklog.jsonl is the source of truth, not volatile
-  // recency. Needs the pane id to attribute idle to the right pane; a paneless Stop
-  // (non-tmux) carries no per-pane signal but is harmless. SessionStart stays dropped
-  // (orientation, not a state transition).
+  // Stop — the pane finished its turn. Persisted (not dropped) so the board's per-pane
+  // work-state survives a maw-server restart: the newest event for a pane in worklog.jsonl
+  // is the source of truth, not volatile recency. Two turn-ending states:
+  //   - data.error (CC last assistant message was isApiErrorMessage) → kind:"error"
+  //     (kobo-111) — the turn died on an API/rate-limit error; kept in the feed/inject
+  //     (rare + actionable), unlike idle which is filtered out.
+  //   - otherwise → kind:"idle" (kobo-109, decision B).
+  // Needs the pane id to attribute the state to the right pane; a paneless Stop (non-tmux)
+  // carries no per-pane signal but is harmless. SessionStart stays dropped (orientation).
   if (event.event === "Stop") {
+    if (data?.error === true) return { ...base, kind: "error", summary: "API error (turn ended)" };
     return { ...base, kind: "idle", summary: "idle" };
   }
 
