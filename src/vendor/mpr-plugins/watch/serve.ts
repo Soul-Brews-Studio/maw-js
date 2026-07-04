@@ -16,6 +16,7 @@ import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/wo
 import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCreateRequest, handleTaskDoneRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
+import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -47,6 +48,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // company-ui presence roster (kobo-50): authoritative company membership for the
   // Presence tab (behind auth — PROTECTED "/roster").
   ctx.http?.route("GET", "/api/roster", (request: Request) => handleRosterRequest(request));
+  // company-ui presence detail (kobo-104): per-pane model + context% from the
+  // statusLine capture files (behind auth — PROTECTED "/presence").
+  ctx.http?.route("GET", "/api/presence", (request: Request) => handlePresenceRequest(request));
   // company/dept policy inject route — on-attach context (separate concern,
   // toggles with this plugin). Behind auth via PROTECTED "/policy".
   ctx.http?.route("GET", "/api/policy", (request: Request) => handlePolicyRequest(request));

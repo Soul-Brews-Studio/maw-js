@@ -15,7 +15,7 @@ export default definePlugin({
     "serve": {
       "script": "./serve.ts",
       "handler": "serve",
-      "ensures": ["http:route:/api/worklog", "http:route:/api/worklog/feed", "http:route:/api/tasks", "http:route:/api/tasks/archive", "http:route:/api/tasks/note", "http:route:/api/tasks/create", "http:route:/api/tasks/done", "http:route:/api/state", "http:route:/api/roster", "http:route:/api/policy", "http:route:/api/version"],
+      "ensures": ["http:route:/api/worklog", "http:route:/api/worklog/feed", "http:route:/api/tasks", "http:route:/api/tasks/archive", "http:route:/api/tasks/note", "http:route:/api/tasks/create", "http:route:/api/tasks/done", "http:route:/api/state", "http:route:/api/roster", "http:route:/api/presence", "http:route:/api/policy", "http:route:/api/version"],
       "policy": "best-effort"
     }
   },

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks } from "./hook-setup";
+import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks, provisionOracleStatusline } from "./hook-setup";
 
 // Per-oracle provisioning of the unified company-context hook set (worklog +
 // company-policy). Isolated via a temp ghqRoot (repo dirs) + temp MAW_HOME (so
@@ -84,5 +84,41 @@ describe("per-oracle hook provisioning", () => {
 
   it("prune skipped when repo dir absent", () => {
     expect(pruneOracleHooks("ghost", { ghqRoot: ghq })).toBe("skipped");
+  });
+
+  // kobo-104 — statusLine presence-capture provisioning (settings.json FIELD).
+  describe("statusLine provisioning (presence capture)", () => {
+    it("fresh install sets statusLine → maw-statusline.sh, no delegate arg", () => {
+      mkRepo("dave");
+      expect(provisionOracleStatusline("dave", { ghqRoot: ghq })).toBe("updated");
+      const cmd = readSettings("dave").statusLine.command as string;
+      expect(cmd).toContain("maw-statusline.sh");
+      expect(cmd.trim().endsWith("maw-statusline.sh")).toBe(true); // nothing wrapped → no arg
+      // idempotent — already ours, never re-wraps
+      expect(provisionOracleStatusline("dave", { ghqRoot: ghq })).toBe("alreadyOk");
+    });
+
+    it("WRAPS a pre-existing statusLine (RTK/token) instead of clobbering it", () => {
+      const dir = mkRepo("erin");
+      writeFileSync(
+        join(dir, ".claude", "settings.json"),
+        JSON.stringify({ statusLine: { type: "command", command: "rtk statusline --fancy" } }, null, 2),
+      );
+      expect(provisionOracleStatusline("erin", { ghqRoot: ghq })).toBe("updated");
+      const cmd = readSettings("erin").statusLine.command as string;
+      expect(cmd).toContain("maw-statusline.sh");
+      // the original command survives — base64-encoded as maw-statusline.sh's arg
+      const arg = cmd.split(/\s+/).pop()!;
+      expect(Buffer.from(arg, "base64").toString("utf8")).toBe("rtk statusline --fancy");
+      // idempotent — a second pass sees it's already wrapped, no double-encode
+      expect(provisionOracleStatusline("erin", { ghqRoot: ghq })).toBe("alreadyOk");
+    });
+
+    it("dryRun reports updated but writes nothing; skipped when repo absent", () => {
+      mkRepo("frank");
+      expect(provisionOracleStatusline("frank", { ghqRoot: ghq, dryRun: true })).toBe("updated");
+      expect(readSettings("frank")).toBeNull();
+      expect(provisionOracleStatusline("ghost", { ghqRoot: ghq })).toBe("skipped");
+    });
   });
 });

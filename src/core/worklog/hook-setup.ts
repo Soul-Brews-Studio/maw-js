@@ -59,12 +59,73 @@ const HOOKS: HookSpec[] = [
 
 export function hookScriptBody(file: string): string {
   const h = HOOKS.find(x => x.file === file);
-  if (!h) throw new Error(`unknown worklog hook: ${file}`);
-  return Buffer.from(h.b64, "base64").toString("utf8");
+  if (h) return Buffer.from(h.b64, "base64").toString("utf8");
+  if (file === STATUSLINE_FILE) return Buffer.from(STATUSLINE_B64, "base64").toString("utf8");
+  throw new Error(`unknown worklog hook: ${file}`);
 }
 
 function hookPath(file: string): string {
   return mawConfigPath("hooks", file);
+}
+
+// ── statusLine capture (kobo-104) ────────────────────────────────────────────
+// The presence pipeline's capture side: a CC statusLine command that writes a
+// per-pane presence file (model + context%). statusLine is a settings.json FIELD
+// (not a hooks event), so it provisions separately from HOOKS but ships through
+// the SAME setup-hooks sweep + attach path. base64 of scripts/hooks/maw-statusline.sh
+// — kept in sync by worklog.test.ts.
+const STATUSLINE_FILE = "maw-statusline.sh";
+const STATUSLINE_B64 = "IyEvYmluL2Jhc2gKIyBDbGF1ZGUgQ29kZSBzdGF0dXNMaW5lIGNvbW1hbmQg4oaSIG1hdyBwcmVzZW5jZSBjYXB0dXJlIChrb2JvLTEwNCkuCiMKIyBSZWFkcyB0aGUgQ0Mgc3RhdHVzTGluZSBKU09OIG9uIHN0ZGluLCB3cml0ZXMgYSBzbWFsbCBwcmVzZW5jZSBmaWxlIGtleWVkIGJ5CiMgdGhlIHRtdXggcGFuZSBpZCAoJFRNVVhfUEFORSkgdG8gfi8ubWF3L3ByZXNlbmNlLzxwYW5lPi5qc29uIChhdG9taWMgd3JpdGUpLAojIHRoZW4gRUlUSEVSIGRlbGVnYXRlcyB0byB0aGUgb3JpZ2luYWwgc3RhdHVzTGluZSBjb21tYW5kIHRoaXMgb25lIHdyYXBwZWQKIyAocGFzc2VkIGJhc2U2NC1lbmNvZGVkIGFzICQxKSBPUiBwcmludHMgbWF3J3Mgb3duIGRlZmF1bHQgbGluZS4KIwojIEJlc3QtZWZmb3J0IGJ5IGRlc2lnbjogYSBtaXNzaW5nIGpxLCBubyB0bXV4LCBvciBhIHdyaXRlIGVycm9yIG11c3QgTkVWRVIKIyBicmVhayB0aGUgc3RhdHVzbGluZSDigJQgdGhlIHNjcmlwdCBhbHdheXMgZW1pdHMgYSBsaW5lIGFuZCBleGl0cyAwLiBDYXB0dXJlIGlzCiMgaW5kZXBlbmRlbnQgb2Ygb3V0cHV0ICh3ZSB3cml0ZSB0aGUgZmlsZSB3aGV0aGVyIHdlIGRlbGVnYXRlIG9yIHByaW50KS4KIwojIEtFWSA9IHBhbmUsIE5PVCBjd2Q6IGNyZXcvd2Fycm9vbSB3b3JrZXJzIHNoYXJlIG9uZSByZXBvIChjd2QgY29sbGlkZXMpIGJ1dAojIGVhY2ggaGFzIGEgdW5pcXVlIHRtdXggcGFuZS4gJFRNVVhfUEFORSAoZS5nLiAiJTQwIikgaXMgdGhlIHN0YWJsZSBqb2luIGtleS4KIwojIFByb3Zpc2lvbmVkIGJ5IGBtYXcgY29tcGFueSB3b3JrbG9nIHNldHVwLWhvb2tzYC4gU291cmNlIG9mIHRydXRoOgojIHNjcmlwdHMvaG9va3MvbWF3LXN0YXR1c2xpbmUuc2ggKGtlcHQgYnl0ZS1pZGVudGljYWwgdG8gdGhlIGVtYmVkZGVkIGNvcHkgYnkKIyB3b3JrbG9nLnRlc3QudHMpLgoKSU5QVVQ9JChjYXQpCgojIE9yYWNsZSBpZGVudGl0eSDigJQgc2VsZi1kZXNjcmliZSB0aGUgcHJlc2VuY2UgZmlsZSBzbyB0aGUgcmVhZCBzaWRlICh0aGUgYm9hcmQpCiMgZ3JvdXBzIHBlci1vcmFjbGUgYnkgYSBmaWxlIGZpZWxkLCB3aXRoIE5PIHRtdXggam9pbiBhdCByZWFkIHRpbWUgKGEgZGVhZCBhZ2VudAojIGp1c3Qgc3RvcHMgdXBkYXRpbmcg4oaSIG10aW1lIGdvZXMgc3RhbGUpLiBTYW1lIHJlc29sdXRpb24gdGhlIHdvcmtsb2cgaG9va3MgdXNlOgojIENMQVVERV9BR0VOVF9OQU1FLCBlbHNlIHRoZSB0bXV4IHNlc3Npb24gbmFtZSBtaW51cyBpdHMgbnVtZXJpYyBwYW5lIHByZWZpeC4KT1JBQ0xFPSIke0NMQVVERV9BR0VOVF9OQU1FOi19IgpbIC16ICIkT1JBQ0xFIiBdICYmIE9SQUNMRT0iJCh0bXV4IGRpc3BsYXktbWVzc2FnZSAtcCAnI3tzZXNzaW9uX25hbWV9JyAyPi9kZXYvbnVsbCB8IHNlZCAncy9eWzAtOV0qLS8vJykiClsgLXogIiRPUkFDTEUiIF0gJiYgT1JBQ0xFPSI/IgoKIyAtLS0gY2FwdHVyZSAoZ3VhcmRlZCBzbyBpdCBjYW4gbmV2ZXIgZmF1bHQgdGhlIHN0YXR1c2xpbmUpIC0tLS0tLS0tLS0tLS0tLS0tLQpQQU5FPSIke1RNVVhfUEFORTotfSIKaWYgY29tbWFuZCAtdiBqcSA+L2Rldi9udWxsIDI+JjEgJiYgWyAtbiAiJFBBTkUiIF07IHRoZW4KICBESVI9IiR7TUFXX0RBVEFfRElSOi0kSE9NRS8ubWF3fS9wcmVzZW5jZSIKICBpZiBta2RpciAtcCAiJERJUiIgMj4vZGV2L251bGw7IHRoZW4KICAgIE9VVD0iJERJUi8ke1BBTkV9Lmpzb24iCiAgICBUTVA9IiRPVVQuJCQudG1wIgogICAgVFM9IiQoZGF0ZSArJXMpMDAwIiAjIGVwb2NoIG1zIChiZXN0LWVmZm9ydCDigJQgc2Vjb25kcyBwcmVjaXNpb24gaXMgZW5vdWdoIGZvciBzdGFsZW5lc3MpCiAgICAjIHJlbWFpbmluZ19wZXJjZW50YWdlIGlzIG51bGwgYmVmb3JlIHRoZSBmaXJzdCBBUEkgY2FsbCArIHJpZ2h0IGFmdGVyIC9jb21wYWN0CiAgICAjIChDQyBoYXNuJ3QgY29tcHV0ZWQgaXQgeWV0KSDigJQgY2FycnkgdGhlIG51bGwgdGhyb3VnaCBzbyB0aGUgVUkgY2FuIHNob3cgIuKAlCIuCiAgICAjIGpxIHBhdGhzIGFyZSB0b2xlcmFudCBvZiBuZXN0aW5nIChjb250ZXh0X3dpbmRvdy5YIC8vIHRvcC1sZXZlbCBYKSBzbyBhIHNjaGVtYQogICAgIyB0d2VhayBvbiB0aGUgQ0Mgc2lkZSBkZWdyYWRlcyB0byBudWxsIGluc3RlYWQgb2YgYnJlYWtpbmcgY2FwdHVyZS4KICAgIGlmIHByaW50ZiAnJXMnICIkSU5QVVQiIHwganEgLWMgXAogICAgICAgIC0tYXJnIHBhbmUgIiRQQU5FIiAtLWFyZyB0cyAiJFRTIiAtLWFyZyBvcmFjbGUgIiRPUkFDTEUiICd7CiAgICAgICAgICBwYW5lOiAkcGFuZSwKICAgICAgICAgIG9yYWNsZTogJG9yYWNsZSwKICAgICAgICAgIHRzOiAoJHRzIHwgdG9udW1iZXIpLAogICAgICAgICAgbW9kZWw6ICgubW9kZWwuZGlzcGxheV9uYW1lIC8vIC5tb2RlbC5pZCAvLyBudWxsKSwKICAgICAgICAgIG1vZGVsX2lkOiAoLm1vZGVsLmlkIC8vIG51bGwpLAogICAgICAgICAgcmVtYWluaW5nX3BlcmNlbnRhZ2U6ICguY29udGV4dF93aW5kb3cucmVtYWluaW5nX3BlcmNlbnRhZ2UgLy8gLnJlbWFpbmluZ19wZXJjZW50YWdlIC8vIG51bGwpLAogICAgICAgICAgdXNlZF9wZXJjZW50YWdlOiAoLmNvbnRleHRfd2luZG93LnVzZWRfcGVyY2VudGFnZSAvLyAudXNlZF9wZXJjZW50YWdlIC8vIG51bGwpLAogICAgICAgICAgdG90YWxfaW5wdXRfdG9rZW5zOiAoLmNvbnRleHRfd2luZG93LnRvdGFsX2lucHV0X3Rva2VucyAvLyAudG90YWxfaW5wdXRfdG9rZW5zIC8vIG51bGwpLAogICAgICAgICAgY29udGV4dF93aW5kb3dfc2l6ZTogKC5jb250ZXh0X3dpbmRvdy5jb250ZXh0X3dpbmRvd19zaXplIC8vIC5jb250ZXh0X3dpbmRvd19zaXplIC8vIG51bGwpLAogICAgICAgICAgc2Vzc2lvbl9pZDogKC5zZXNzaW9uX2lkIC8vIG51bGwpLAogICAgICAgICAgY3dkOiAoLmN3ZCAvLyAud29ya3NwYWNlLmN1cnJlbnRfZGlyIC8vIG51bGwpCiAgICAgICAgfScgPiAiJFRNUCIgMj4vZGV2L251bGw7IHRoZW4KICAgICAgbXYgLWYgIiRUTVAiICIkT1VUIiAyPi9kZXYvbnVsbCB8fCBybSAtZiAiJFRNUCIgMj4vZGV2L251bGwKICAgIGVsc2UKICAgICAgcm0gLWYgIiRUTVAiIDI+L2Rldi9udWxsCiAgICBmaQogIGZpCmZpCgojIC0tLSBvdXRwdXQ6IGRlbGVnYXRlIHRvIHRoZSB3cmFwcGVkIHN0YXR1c2xpbmUsIG9yIHByaW50IG1hdydzIGRlZmF1bHQgLS0tLS0tCkRFTEVHQVRFX0I2ND0iJHsxOi19IgppZiBbIC1uICIkREVMRUdBVEVfQjY0IiBdOyB0aGVuCiAgREVMRUdBVEU9IiQocHJpbnRmICclcycgIiRERUxFR0FURV9CNjQiIHwgYmFzZTY0IC1kIDI+L2Rldi9udWxsKSIKICBpZiBbIC1uICIkREVMRUdBVEUiIF07IHRoZW4KICAgIHByaW50ZiAnJXMnICIkSU5QVVQiIHwgZXZhbCAiJERFTEVHQVRFIiAjIGVtaXQgdGhlIG9yaWdpbmFsIHN0YXR1c2xpbmUgdmVyYmF0aW0KICAgIGV4aXQgMAogIGZpCmZpCgojIG1hdyBkZWZhdWx0IGxpbmUg4oCUIG9ubHkgcmVhY2hlZCB3aGVuIG5vIHByaW9yIHN0YXR1c2xpbmUgd2FzIHdyYXBwZWQuCmlmIGNvbW1hbmQgLXYganEgPi9kZXYvbnVsbCAyPiYxOyB0aGVuCiAgTU9ERUw9IiQocHJpbnRmICclcycgIiRJTlBVVCIgfCBqcSAtciAnLm1vZGVsLmRpc3BsYXlfbmFtZSAvLyAubW9kZWwuaWQgLy8gIj8iJyAyPi9kZXYvbnVsbCkiCiAgUENUPSIkKHByaW50ZiAnJXMnICIkSU5QVVQiIHwganEgLXIgJyguY29udGV4dF93aW5kb3cucmVtYWluaW5nX3BlcmNlbnRhZ2UgLy8gLnJlbWFpbmluZ19wZXJjZW50YWdlKSBhcyAkcCB8IGlmICRwID09IG51bGwgdGhlbiAi4oCUIiBlbHNlICJcKCRwIHwgZmxvb3IpJSIgZW5kJyAyPi9kZXYvbnVsbCkiCmVsc2UKICBNT0RFTD0iPyI7IFBDVD0i4oCUIgpmaQpwcmludGYgJyVzIMK3IGN0eCAlcyDCtyAlcycgIiRNT0RFTCIgIiRQQ1QiICIkT1JBQ0xFIgpleGl0IDAK";
+
+/** Provision the statusLine capture script to the config dir. Returns count written. */
+export function ensureStatuslineScript(): number {
+  const p = hookPath(STATUSLINE_FILE);
+  const body = hookScriptBody(STATUSLINE_FILE);
+  if (existsSync(p) && readFileSync(p, "utf-8") === body) {
+    try { chmodSync(p, 0o755); } catch {}
+    return 0;
+  }
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, body);
+  try { chmodSync(p, 0o755); } catch {}
+  return 1;
+}
+
+/**
+ * Provision the maw statusLine into ONE oracle's settings.json (kobo-104).
+ * WRAPS an existing statusLine instead of clobbering it: the prior command is
+ * base64-encoded and passed to maw-statusline.sh as $1, which runs it verbatim
+ * after writing the presence file (RTK/token statuslines keep working). Already
+ * maw-wrapped → "alreadyOk" (idempotent, never double-wraps). Same skipped/repo
+ * semantics as provisionOracleHooks.
+ */
+export function provisionOracleStatusline(
+  oracle: string,
+  opts: { dryRun?: boolean; ghqRoot?: string } = {},
+): ProvisionOutcome {
+  const ghqRoot = opts.ghqRoot ?? defaultGhqRoot();
+  const dir = oracleRepoDir(oracle, ghqRoot);
+  if (!existsSync(dir)) return "skipped";
+
+  const settingsPath = join(dir, ".claude", "settings.json");
+  let settings: any = {};
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settings = {}; }
+  }
+  const mawPath = hookPath(STATUSLINE_FILE);
+  const cur = settings.statusLine;
+  const curCmd = typeof cur?.command === "string" ? cur.command : "";
+  if (curCmd.includes(STATUSLINE_FILE)) return "alreadyOk"; // already ours — don't re-wrap
+
+  // Wrap a pre-existing (non-maw) statusLine by encoding its whole command as our
+  // arg; empty when there was none (fresh install of maw's default line).
+  const delegateArg = curCmd ? " " + Buffer.from(curCmd, "utf8").toString("base64") : "";
+  if (opts.dryRun) return "updated";
+  ensureStatuslineScript(); // the setting references this script — ensure on disk
+  settings.statusLine = { type: "command", command: mawPath + delegateArg };
+  mkdirSync(join(settingsPath, ".."), { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  return "updated";
 }
 
 /** Provision all hook scripts to the config dir (idempotent). Returns count written. */
@@ -246,14 +307,18 @@ export function setupWorklogHooks(opts: SetupHooksOpts = {}): SetupHooksResult {
   const result: SetupHooksResult = { scriptsInstalled: 0, updated: [], alreadyOk: [], skipped: [] };
 
   result.scriptsInstalled = opts.dryRun
-    ? HOOKS.filter(h => !existsSync(hookPath(h.file))).length
-    : ensureWorklogHookScripts();
+    ? HOOKS.filter(h => !existsSync(hookPath(h.file))).length + (existsSync(hookPath(STATUSLINE_FILE)) ? 0 : 1)
+    : ensureWorklogHookScripts() + ensureStatuslineScript();
 
   for (const oracle of companyOracles(company)) {
-    const outcome = provisionOracleHooks(oracle, { dryRun: opts.dryRun, ghqRoot });
-    if (outcome === "updated") result.updated.push(oracle);
-    else if (outcome === "alreadyOk") result.alreadyOk.push(oracle);
-    else result.skipped.push(oracle);
+    // Two provisioners per oracle: worklog hooks (events) + statusLine (presence
+    // capture, kobo-104). "updated" if EITHER installed something; "skipped" only
+    // when the repo checkout is missing (both agree — same dir resolution).
+    const hooks = provisionOracleHooks(oracle, { dryRun: opts.dryRun, ghqRoot });
+    const sline = provisionOracleStatusline(oracle, { dryRun: opts.dryRun, ghqRoot });
+    if (hooks === "skipped" && sline === "skipped") result.skipped.push(oracle);
+    else if (hooks === "updated" || sline === "updated") result.updated.push(oracle);
+    else result.alreadyOk.push(oracle);
   }
   return result;
 }

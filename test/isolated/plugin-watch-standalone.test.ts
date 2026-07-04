@@ -20,6 +20,7 @@ describe("watch command plugin standalone boundary", () => {
         /^(?:\.\.\/){3}core\/tasks\//, // company-ui board (stub now, backbone later)
         /^(?:\.\.\/){3}core\/state-doc\//, // company-ui coordination markdown panel
         /^(?:\.\.\/){3}core\/roster\//, // company-ui presence roster (kobo-50)
+        /^(?:\.\.\/){3}core\/presence\//, // company-ui presence detail — per-pane model + ctx% (kobo-104)
         /^(?:\.\.\/){3}core\/policy\//, // policy inject route — on-attach context
         /^(?:\.\.\/){3}api\/feed$/,
       ],
@@ -69,6 +70,9 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/done["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
+    // kobo-104: per-pane presence detail GET (model + context%).
+    expect(serveSrc).toContain("handlePresenceRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/presence["']/);
     // kobo-57: cache-bust version GET — the board polls it to detect a new deploy
     // and offer a reload. Served from companyVersion() (content hash of the board).
     expect(serveSrc).toContain("companyVersion");
@@ -92,6 +96,7 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/create"); // kobo-48
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/presence"); // kobo-104
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/version"); // kobo-57 cache-bust
   });

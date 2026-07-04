@@ -41,6 +41,7 @@ const PROTECTED = new Set([
   "/tasks",           // company-ui board — reveals who-works-on-what within a company (Rule 6); loopback UI bypasses, LAN must auth
   "/state",           // company-ui coordination markdown — company-internal state doc (Rule 6); loopback UI bypasses, LAN must auth
   "/roster",          // company-ui presence roster — company org membership (Rule 6, kobo-50); loopback UI bypasses, LAN must auth
+  "/presence",        // company-ui presence detail — per-pane model + context% (Rule 6, kobo-104); loopback UI bypasses, LAN must auth
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
