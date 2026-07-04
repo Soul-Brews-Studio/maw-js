@@ -148,7 +148,7 @@ function companyBody(): string {
     .check-fill { display:block; height:100%; background:var(--epic); }
     .check-count { font-size:var(--t-xs); color:var(--muted); font-variant-numeric:tabular-nums; }
     /* kobo-62 — detail modal meta row (dept / parent / wait moved off the face). */
-    #detail-meta { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    #detail-meta { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-5); }
     #detail-meta[hidden] { display:none; }
     .task .t-na { color:var(--accent); font-size:var(--t-sm); margin-top:var(--s-2); }
     .task .t-actions { margin-top:8px; display:flex; justify-content:flex-end; }
@@ -262,8 +262,14 @@ function companyBody(): string {
     /* kobo-44: card detail as a modal overlay (was an inline sidebar panel). */
     .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
     .overlay[hidden] { display:none; }
-    .modal { width:min(680px, 100%); max-height:85vh; overflow:auto; margin:0; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+    .modal { width:min(680px, 100%); max-height:85vh; overflow:auto; margin:0; padding:var(--s-8); box-shadow:0 12px 40px rgba(0,0,0,.5); }
     .modal .md { max-height:none; }
+    /* kobo-110 — detail modal reading rhythm: title stands out + wraps, sections
+       separated by space + a hairline so the eye flows title → meta → body → actions. */
+    #detail-title { font-size:var(--t-xl); font-weight:600; line-height:1.35; color:var(--fg); overflow-wrap:anywhere; margin-bottom:var(--s-5); }
+    #detail-body:not(:empty) { padding-top:var(--s-5); border-top:1px solid var(--line); }
+    #detail-body p { line-height:1.65; margin:var(--s-4) 0; }
+    #detail-body p:first-child { margin-top:0; }
     #detail-close { cursor:pointer; color:var(--muted); background:none; border:0; font:inherit; line-height:1; padding:2px 6px; border-radius:6px; }
     #detail-close:hover, #detail-close:focus-visible { color:var(--fg); outline:none; box-shadow:0 0 0 2px var(--accent); }
     /* kobo-48 web write — +subtask + comment box inside the modal. */
@@ -397,7 +403,7 @@ function companyBody(): string {
   <div class="overlay" id="detail-overlay" hidden>
     <div class="card modal" id="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
       <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
-      <div id="detail-title" style="font-weight:600;margin-bottom:8px"></div>
+      <div id="detail-title"></div>
       <div id="detail-meta"></div>
       <div class="md" id="detail-body"></div>
       <div id="detail-notes"></div>
