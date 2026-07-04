@@ -335,6 +335,12 @@ export async function runTask(
       // the git remote at CWD (the worker links from inside the repo's worktree).
       // setTaskPr only fills a MISSING repo — an existing card.repo always wins.
       const linkRepo = flags["--repo"] || parsePrRepo(prArg) || currentRepoSlug();
+      // kobo-99 DEFECT #1: a bare repo ("helm-charts", no owner) makes every
+      // `gh pr list --repo <bare>` fail → the card is never polled and strands
+      // silently. Reject at link time so the board never binds an unpollable repo.
+      if (linkRepo && !/^[^/\s]+\/[^/\s]+$/.test(linkRepo)) {
+        return { ok: false, error: `invalid repo: ${linkRepo} (use owner/name, e.g. meganechan/maw-js)` };
+      }
       const t = setTaskPr(company, id, pr, me, linkRepo);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m${t.repo ? ` \x1b[90m${t.repo}\x1b[0m` : ""} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);

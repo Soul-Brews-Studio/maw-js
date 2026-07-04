@@ -581,13 +581,22 @@ export function archiveOldDone(
 }
 
 /** Find the task in a company carrying this PR number (for PR-watch auto-done). */
-/** All non-done cards carrying this PR (one PR may bind several cards). */
-export function findTasksByPr(company: string, pr: number): TaskRecord[] {
-  return listTasks(company).filter((t) => t.pr === pr && t.state !== "done");
+/**
+ * All non-done cards carrying this PR (one PR may bind several cards). When
+ * `repo` is given, a card that carries a DIFFERENT repo is excluded — PR numbers
+ * are only unique within a repo, so a merged owner/a#5 must not flip a card
+ * bound to owner/b#5 (kobo-99: cross-repo PR# collision → false done, board lie).
+ * A repo-less card still matches by number alone: it has no repo to conflict and
+ * the pr-watch heal (kobo-80) backfills it on the flip.
+ */
+export function findTasksByPr(company: string, pr: number, repo?: string): TaskRecord[] {
+  return listTasks(company).filter(
+    (t) => t.pr === pr && t.state !== "done" && (!repo || !t.repo || t.repo === repo),
+  );
 }
 
-export function findTaskByPr(company: string, pr: number): TaskRecord | null {
-  return findTasksByPr(company, pr)[0] ?? null;
+export function findTaskByPr(company: string, pr: number, repo?: string): TaskRecord | null {
+  return findTasksByPr(company, pr, repo)[0] ?? null;
 }
 
 /** Pull a GitHub PR number out of a reply message (…/pull/<n>). null if none. */

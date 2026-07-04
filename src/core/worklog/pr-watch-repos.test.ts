@@ -76,6 +76,36 @@ describe("findCardByPrAnywhere", () => {
   });
 });
 
+// kobo-99: a PR number is unique only WITHIN a repo. Merged owner/a#5 previously
+// flipped a card bound to owner/b#5 to done while it was still OPEN — board lied
+// across repos. When pr-watch scopes the lookup to the merged repo, only the
+// matching card is returned; the sibling in another repo is untouched.
+describe("findCardsByPrAnywhere scoped by repo (kobo-99 cross-repo collision)", () => {
+  it("matches only the card in the merged repo, never a same-number card in another repo", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?xrepo-scope");
+    card("kobo", "report-5", { state: "review", pr: 5, repo: "kob-bank/report-service" });
+    card("kobo", "helm-5", { state: "review", pr: 5, repo: "kob-bank/helm-charts" }); // still open, other repo
+
+    // merge of report-service#5 must flip ONLY report-5, not helm-5
+    expect(findCardsByPrAnywhere(5, "kob-bank/report-service").map((h) => h.taskId)).toEqual(["report-5"]);
+    expect(findCardsByPrAnywhere(5, "kob-bank/helm-charts").map((h) => h.taskId)).toEqual(["helm-5"]);
+  });
+
+  it("still finds a repo-less card by number alone (kobo-80 heal path preserved)", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?xrepo-repoless");
+    card("kobo", "no-repo", { state: "review", pr: 7 }); // no repo → heal backfills on flip
+    // a repo-less card has no repo to conflict, so any repo's poll still surfaces it
+    expect(findCardsByPrAnywhere(7, "kob-bank/anything").map((h) => h.taskId)).toEqual(["no-repo"]);
+  });
+
+  it("without a repo arg, matches by number alone (unchanged legacy behavior)", async () => {
+    const { findCardsByPrAnywhere } = await import("./pr-watch.ts?xrepo-norepoarg");
+    card("kobo", "a-5", { state: "review", pr: 5, repo: "kob-bank/report-service" });
+    card("kobo", "b-5", { state: "review", pr: 5, repo: "kob-bank/helm-charts" });
+    expect(findCardsByPrAnywhere(5).map((h) => h.taskId).sort()).toEqual(["a-5", "b-5"]);
+  });
+});
+
 // kobo-43: one PR can bind SEVERAL cards (PR #85 = kobo-38 + kobo-42). The old
 // single-card finder + single completeTask flipped only the first, stranding the
 // rest in review until a human hand-flipped. This is the gap single-card tests

@@ -123,16 +123,16 @@ export function openPrLinkedRepos(): string[] {
  * does NOT map the PR author to a company: a github merge login often maps to
  * none, which previously stranded the flip.
  */
-export function findCardsByPrAnywhere(pr: number): { company: string; taskId: string }[] {
+export function findCardsByPrAnywhere(pr: number, repo?: string): { company: string; taskId: string }[] {
   const hits: { company: string; taskId: string }[] = [];
   for (const company of listCompanies()) {
-    for (const task of findTasksByPr(company, pr)) hits.push({ company, taskId: task.id });
+    for (const task of findTasksByPr(company, pr, repo)) hits.push({ company, taskId: task.id });
   }
   return hits;
 }
 
-export function findCardByPrAnywhere(pr: number): { company: string; taskId: string } | null {
-  return findCardsByPrAnywhere(pr)[0] ?? null;
+export function findCardByPrAnywhere(pr: number, repo?: string): { company: string; taskId: string } | null {
+  return findCardsByPrAnywhere(pr, repo)[0] ?? null;
 }
 
 /** One poll pass over the fleet's repos. Returns the entries recorded. */
@@ -187,7 +187,9 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       // belongs to no company), which stranded the merge→done flip in _unscoped
       // and never reached the card (kobo-33 e2e). Prefer the card's own company
       // for the worklog entry too, so the event lands on that board's timeline.
-      const cardHits = findCardsByPrAnywhere(pr.number);
+      // Scope the card lookup to THIS repo — a PR number is unique only within a
+      // repo, so merged owner/a#5 must not flip a card bound to owner/b#5 (kobo-99).
+      const cardHits = findCardsByPrAnywhere(pr.number, repo);
       const company = cardHits[0]?.company ?? (author ? companyOfOracle(author) : null) ?? fallbackCompany;
       const base = { ts: Date.now(), iso: new Date().toISOString(), oracle: author || "unknown", company, repo, pr: pr.number };
 

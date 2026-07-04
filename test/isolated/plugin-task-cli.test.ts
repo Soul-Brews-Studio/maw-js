@@ -143,6 +143,17 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-2")!.repo).toBe("acme/thing"); // explicit --repo with a bare number
   });
 
+  test("pr rejects a bare repo (no owner) — an unpollable link never binds (kobo-99)", async () => {
+    await run(["add", "bare repo card", "--company", "pgw"]); // pgw-1
+    const r = await run(["pr", "pgw-1", "5", "--repo", "helm-charts", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("owner/name");
+    // link rejected → card untouched (no pr, still todo), not silently bound to an
+    // unpollable repo that gh pr list would error on
+    expect(readTask("pgw", "pgw-1")!.pr).toBeUndefined();
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
+  });
+
   test("missing id / unknown subcommand → clean error, not a throw", async () => {
     expect((await run(["claim", "--company", "pgw"])).error).toContain("usage");
     expect((await run(["bogus"])).ok).toBe(false);
