@@ -76,10 +76,14 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `banph
    tmux set-window-option pane-border-format " #{@role} · #{pane_title} "
    ```
    (ตั้งซ้ำหลัง respawn — @role ผูก pane; pane ใหม่ = ตั้งใหม่)
-6. **inbound routing → บานพับ** (wiring เต็มใน **kobo-152**): task-events (assign/comment card) route เข้าบานพับ, federation/peer → comm. re-run หลัง layout เปลี่ยน (route ผูก index):
+6. **inbound routing → บานพับ** (kobo-152): task-events (assign/comment/review/subcard-done card) route เข้า **บานพับ** ให้เป็นสัญญาณงาน แทน default main pane. resolve index สดจาก `$BANPHAB` pane-id (ห้ามจำ index — layout เลื่อนได้):
    ```bash
-   maw route set task-events <บานพับ-index-ปัจจุบัน>
+   BP_IDX=$(tmux display-message -t "$BANPHAB" -p '#{pane_index}')
+   maw route set task-events "$BP_IDX"     # อ้าง self oracle; --oracle <name> ถ้าตั้งแทนคนอื่น
+   maw route ls                            # verify: "<oracle>: task-events → .N"
    ```
+   **event path (ทำไม work):** `maw task comment/assign/review` → `notify.ts` ยิง `maw hey --channel task-events <assignee>` → `resolveOraclePane` consult pane-route registry → ถ้า pane ที่ map ยัง live = เด้งเข้า **บานพับ** ไม่ใช่ .0. ไม่มี route = fallback default pane (backward-compat).
+   ⚠️ **route ผูก index** → layout/respawn เปลี่ยน = **re-run** บล็อกนี้ (pane-id นิ่ง, index เลื่อน). federation/peer chatter ไม่ผูก channel → คง default (comm รับผ่าน hey ปกติ).
 
 ## Roster (banphab.md — บานพับ เป็นเจ้าของ)
 
@@ -135,8 +139,25 @@ lead ใหม่ (clock-in/seat): cat ψ/active/warroom/digest.md + banphab.md 
    → รู้ทันทีว่าเกิดอะไร → hey บานพับ/comm (resolve จาก pane-id) → ต่อ
 ```
 - lead ก่อน toilet: ไม่ต้องเตรียมอะไร — truth อยู่ที่ banphab.md/comm.md/digest.md ที่ pane maintain อยู่แล้ว
-- inbound route: lead ใหม่ re-run `maw route set task-events <บานพับ-index>` (index อาจเลื่อน)
-- toilet-per-pane (comm/บานพับ context เต็ม) = **kobo-152**
+- inbound route: lead ใหม่ re-run §6 (resolve `$BANPHAB` → `maw route set task-events`)
+
+## toilet-per-pane (context เต็มราย pane — ไม่ sync ทั้งทีม) ⭐ kobo-152
+
+> pane ไหน context เต็ม → ล้าง **เฉพาะ pane นั้น** ไม่ลากทีมล้างพร้อมกัน (คนละ process อิสระ — บานพับ clear ไม่แตะ comm/worker). แต่ **pane สั่ง `/clear` ตัวเองไม่ได้** (mid-turn) → **lead send-keys เข้า pane นั้น** (ไม่มี auto context-watch hook — scope-out, lead-kick พอ).
+
+**invariant กันงานหาย:** ทุก pane เขียน state ล่าสุดลงไฟล์ตลอด (comm.md · banphab.md · worker-N.md) — `/clear` ปลอดภัยทุกเมื่อเพราะ context หายแต่ไฟล์อยู่ + `--append-system-prompt` (identity+contract) รอด clear (verified kobo-91).
+
+**lead kick /clear+/seat เข้า pane เดียว** (ล้าง บานพับ ที่ context เต็ม — ตัวอย่าง):
+```bash
+BP=$(...pane-id ของบานพับ จาก roster...)     # resolve สดจาก banphab.md
+# (ถ้าไม่มั่นใจ state fresh: maw hey <BP-addr> "flush state ลง banphab.md ก่อน clear" → รอ ack)
+tmux send-keys -t "$BP" C-u                    # ล้าง input line (box อาจมีค้าง — ไม่งั้น /clear ต่อท้ายของเก่า)
+tmux send-keys -t "$BP" "/clear" Enter         # flush context (pane-id นิ่ง, roster ไม่พัง)
+tmux send-keys -t "$BP" "/seat" Enter          # soft clock-in: อ่าน state file + role + board เงียบๆ (ไม่ประกาศ)
+```
+- **per-pane = อิสระ:** ทำกับ pane ที่เต็มเท่านั้น. comm/worker อื่นวิ่งต่อไม่สะดุด (ไม่มี barrier ล้างพร้อมกัน).
+- **re-seat = อ่าน state กลับ** (AC4): `/seat` (หรือ contract re-seat instruction ถ้า /seat ไม่ทัน) อ่าน **banphab.md/comm.md/worker-N.md + roster + board** กลับมา → รู้ทันทีว่าค้างตรงไหน ทำต่อ. board = ความจำถาวร (card needs_input/PR) เสริมไฟล์ ephemeral.
+- **worker context เต็ม:** บานพับ (coordinator) kick แทน lead ด้วยบล็อกเดียวกัน (send-keys เข้า worker pane-id) — worker Contract §re-seat อ่าน worker-N.md เอง.
 
 ## Board = ความจำกลาง
 อะไรที่ Tony/lead ต้องเห็นหรือตอบ → card บน board (needs_input / done ผูก PR). **dispatch = card (durable), hey = chatter** (Board Truth 2/10). status ยิบย่อย → digest/ไฟล์ ไม่ขึ้น board (1 card ≈ 1 งานจริง).
@@ -146,7 +167,8 @@ lead ใหม่ (clock-in/seat): cat ψ/active/warroom/digest.md + banphab.md 
 - `cat ψ/active/warroom/banphab.md comm.md worker-*.md` — ดิบ · หรือ tmux / `maw ls -v`
 
 ## Teardown
-ตาม crew §9 (path warroom/): worker เขียน state → kill worker panes → kill บานพับ+comm → `rm -f ψ/active/warroom/*.md` → card ค้าง done/archive. **shutdown ≠ ต้อง delete อะไร** — fresh-start ล้างก่อนเสมอ.
+ตาม crew §9 (path warroom/): worker เขียน state → kill worker panes → kill บานพับ+comm → **`maw route rm task-events`** → `rm -f ψ/active/warroom/*.md` → card ค้าง done/archive. **shutdown ≠ ต้อง delete อะไร** — fresh-start ล้างก่อนเสมอ.
+> ⚠️ **rm route ตอน teardown บังคับ** (บทเรียน kobo-121 — stale-route debt): route ผูก pane-index ที่ตายไปแล้ว → warroom รอบหน้า/oracle เดียวกันยิง task-events เข้า pane index เก่าที่คนอื่นครองอยู่ = misroute เงียบ. `maw route rm task-events` = คืน default pane. (respawn ยังต้อง re-set §6 อยู่ดี ก็ set ทับได้)
 
 ---
 
