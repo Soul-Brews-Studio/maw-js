@@ -38,7 +38,9 @@ export type WorklogKind =
   | "interrupt"
   | "idle" // pane went idle (CC Stop hook) — durable per-pane state (kobo-109)
   | "error" // turn ended on an API error (CC Stop + isApiErrorMessage) — durable pane state (kobo-111)
-  | "away"; // oracle stepped away (toilet/flush) — park hey to inbox, deliver on seat (mawjs-3)
+  | "away" // oracle stepped away (toilet/flush) — park hey to inbox, deliver on seat (mawjs-3)
+  | "back"; // oracle returned/seated (presence back) — CLEARS an away. Distinct from idle so the
+  //           away gate can skip transparent idle turn-ends yet still see a deliberate return (kobo-120)
 
 export interface WorklogEntry {
   ts: number; // epoch ms (sort key)

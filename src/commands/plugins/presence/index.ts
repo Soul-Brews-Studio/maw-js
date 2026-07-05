@@ -17,7 +17,7 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { execFileSync } from "child_process";
 import { appendWorklog } from "../../../core/worklog/store";
-// Same barrel-free resolver the delivery gate reads with (isOracleAway) → the away
+// Same barrel-free resolver the delivery gate reads with (isPaneAway) → the away
 // event is written to, and read from, the same company worklog.
 import { companyOfOracleLight } from "../../../core/worklog/presence-away";
 
@@ -57,7 +57,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     oracle,
     company,
     ...(paneId ? { paneId } : {}),
-    kind: sub === "away" ? "away" : "idle",
+    // back → kind:"back" (NOT idle): the away gate skips transparent idle turn-ends,
+    // so a return must be a distinct kind or it would be skipped and away would stick (kobo-120).
+    kind: sub === "away" ? "away" : "back",
     summary: sub === "away" ? "away (stepped out)" : "back (returned)",
   });
 

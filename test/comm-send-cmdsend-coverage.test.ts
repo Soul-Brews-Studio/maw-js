@@ -957,7 +957,7 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
 
 
 
-  test("bare located repo with no live session queues inbox-only with clear warning (#2056)", async () => {
+  test("bare located repo with no live session HARD-REJECTS (kobo-119, Tony override of kobo-113 park)", async () => {
     const receiverWrites: any[] = [];
     listSessionsReturn = [];
     resolveTargetReturn = { type: "peer", target: "renamed", node: "remote", peerUrl: "http://remote:3456" };
@@ -970,14 +970,16 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
       },
     }));
 
-    expect(exitCode).toBeUndefined();
+    // offline = found repo, no active session → reject the new send, no inbox write.
+    expect(exitCode).toBe(1);
     expect(curlFetchCalls).toEqual([]);
-    expect(receiverWrites).toHaveLength(1);
-    expect(receiverWrites[0].target).toBe("/tmp/renamed-oracle");
-    expect(logs.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
-    expect(warns.join("\n")).toContain("inbox pane notify skipped for renamed: no live tmux pane resolved for inbox receiver 'renamed'");
-    expect(warns.join("\n")).toContain("⚠ target node offline — message written to inbox only, will not be seen until node wakes");
-    expect(emitFeedCalls.some((call) => call.data?.route === "inbox-notify" && String(call.data?.lastLine).includes("notify skipped"))).toBe(true);
+    expect(receiverWrites).toHaveLength(0); // no fresh inbox entry for a dead pane
+    expect(errs.join("\n")).toContain("offline");
+    expect(errs.join("\n")).toContain("no active session");
+    expect(errs.join("\n")).toContain("maw wake renamed");
+    // a "failed"/reject feed event, never an inbox-notify (which would inject the pane).
+    expect(emitFeedCalls.some((call) => call.data?.route === "reject" && call.data?.state === "failed")).toBe(true);
+    expect(emitFeedCalls.some((call) => call.data?.route === "inbox-notify")).toBe(false);
   });
 
   test("bare located repo resolves to active local session by cwd before inbox fallback (#2056)", async () => {
@@ -1001,9 +1003,10 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     await runCmd(() => cmdSend("renamed", "hello", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
-    expect(curlFetchCalls).toEqual([]);
-    expect(warns.join("\n")).toContain("renamed found at /tmp/renamed-oracle but no active session — written to inbox only");
-    expect(errs.join("\n")).toContain("found but no active session");
+    expect(curlFetchCalls).toEqual([]); // primary: never silently routes to the peer
+    // kobo-119 — offline now HARD-REJECTS instead of parking to inbox.
+    expect(errs.join("\n")).toContain("no active session");
+    expect(errs.join("\n")).toContain("offline");
   });
 
   test("bare locate coverage remains hermetic when TMUX is inherited (#2785)", async () => {
@@ -1021,8 +1024,10 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
       },
     }));
 
-    expect(exitCode).toBeUndefined();
-    expect(receiverWrites).toHaveLength(1);
+    // kobo-119 — offline now rejects (exit 1, no inbox write); the locate path stays
+    // hermetic either way (that is what this test guards).
+    expect(exitCode).toBe(1);
+    expect(receiverWrites).toHaveLength(0);
     expect(ghqFindCalls).toEqual(["/renamed-oracle", "/renamed"]);
     expect(fleetLoadCalls).toBe(1);
     expect(tmuxRunCalls).toEqual([["display-message", "-p", "#S"]]);

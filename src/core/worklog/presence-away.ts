@@ -20,6 +20,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { mawDataPath } from "../xdg";
 import { readWorklog } from "./store";
+import type { WorklogEntry } from "./types";
 
 /** Which company an oracle belongs to (manager or any dept member), or null.
  *  Barrel-free twin of companyOfOracle — used by BOTH the `maw presence` writer
@@ -48,12 +49,38 @@ export function companyOfOracleLight(oracle: string): string | null {
   return null;
 }
 
-/** True iff the oracle's newest worklog event is `away`. Cheap: one bounded read. */
-export function isOracleAway(oracle: string | null | undefined): boolean {
+// idle (CC Stop, kobo-109) and error (API-error turn-end, kobo-111) are TRANSPARENT to
+// presence: a pane whose operator stepped out will emit an idle right after (the turn
+// ended) — that must NOT clear the away, or the gate re-opens the moment they leave.
+// Neither reflects the operator returning, so both are skipped when deciding away.
+const AWAY_TRANSPARENT: WorklogEntry["kind"][] = ["idle", "error"];
+
+/**
+ * True iff the given PANE's newest presence-relevant event is `away` (kobo-120).
+ *
+ * Per-pane: one oracle can own several panes (crew/warroom = coord + workers, same
+ * oracle name). `away` is a property of the pane the operator stepped out of, not the
+ * whole oracle — so the newest event is scoped to `paneId` (the tmux `%N` id the worklog
+ * stamps, same JOIN key on every event). A deliberate `back` OR any real activity
+ * (tool/conversation/…) on that pane is newer-wins and clears it; only idle/error are
+ * skipped (see AWAY_TRANSPARENT).
+ *
+ * paneId unknown (non-tmux / unresolvable) → falls back to oracle-level: the newest
+ * non-transparent event across all the oracle's panes. Cheap: one bounded read.
+ */
+export function isPaneAway(oracle: string | null | undefined, paneId: string | null | undefined): boolean {
   const name = (oracle ?? "").trim();
   if (!name) return false;
+  const pid = (paneId ?? "").trim();
   const company = companyOfOracleLight(name);
-  // limit:1 after the oracle filter → the single newest event for this oracle.
-  const latest = readWorklog(company, { oracle: name, limit: 1 });
-  return latest.length > 0 && latest[0].kind === "away";
+  const events = readWorklog(company, { oracle: name, excludeKinds: AWAY_TRANSPARENT });
+  // Newest-first: the first event belonging to this pane decides. When paneId is known,
+  // events from OTHER panes of the same oracle are skipped (an event with no paneId is
+  // pane-agnostic → it still decides, preserving the oracle-level fallback).
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (pid && e.paneId && e.paneId !== pid) continue;
+    return e.kind === "away";
+  }
+  return false;
 }

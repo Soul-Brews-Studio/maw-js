@@ -21,10 +21,15 @@ import {
   resolveBareHeyByLocatePath,
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
-import { checkBusyGuard, queueForDispatch, extractOracleName } from "../../core/agent-status-guard";
+import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 import { getPaneRoute } from "../../core/pane-routes";
+// Pane-aware oracle extraction for the presence gate: unlike agent-status-guard's
+// (which takes the last `:`-segment → returns "0.2" for a crew pane address like
+// "13-patchwork:0.2"), this pulls the session slug → "patchwork". kobo-120: the gate
+// keys presence per-pane, so a pane-addressed hey must still resolve its owning oracle.
+import { extractOracleName as extractPaneOracle } from "./target-cwd";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -103,6 +108,28 @@ export async function resolveOraclePane(
     return `${target}.${Math.min(...agentIndexes)}`;
   } catch {
     return target;
+  }
+}
+
+/**
+ * Canonicalize a send-keys target to its stable tmux pane id (`%N`) — the same form
+ * the worklog stamps in `paneId` (kobo-120). Bridges the key-format gap between a
+ * resolved target (`session:window.N` | `session:window` | `%N`) and per-pane presence:
+ * `#{pane_id}` resolves every target form to one `%N`. A `%`-target is already an id.
+ * Returns undefined when tmux can't resolve it (non-tmux / dead pane) → the caller
+ * falls back to oracle-level presence.
+ */
+export async function paneIdOfTarget(
+  target: string,
+  tmuxRun?: (...args: string[]) => Promise<string>,
+): Promise<string | undefined> {
+  if (target.startsWith("%")) return target;
+  try {
+    const run = tmuxRun ?? ((...args: string[]) => new Tmux().run(...args));
+    const id = (await run("display-message", "-p", "-t", target, "#{pane_id}")).trim();
+    return id || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1066,9 +1093,6 @@ export async function cmdSend(
     console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
     return true;
   };
-  const warnOfflineInboxOnly = (): void => {
-    console.warn(`\x1b[33m⚠ target node offline — message written to inbox only, will not be seen until node wakes\x1b[0m`);
-  };
   const notifyQueuedInbox = async (inbox: ReceiverInboxResult | null, target: string, reason: string): Promise<void> => {
     if (!inbox?.ok) return;
     const notify = await notifyLiveInboxReceiver(inbox, senderIdentity.display, {
@@ -1124,12 +1148,19 @@ export async function cmdSend(
     // The message is durable in the inbox; /seat drains it on return.
     // Lazy import: keeps presence-away out of comm-send's static module graph so the
     // plugin-standalone / cache-busting isolated re-imports don't surface a barrel cycle.
-    const { isOracleAway } = await import("../../core/worklog/presence-away");
-    if (isOracleAway(extractOracleName(query))) {
+    // Per-pane (kobo-120): one oracle can own several panes (crew coord + workers). Resolve
+    // the target to its `%N` pane id so the gate parks only when THAT pane is away — a coord
+    // who stepped out parks, while an active worker pane of the same oracle still injects.
+    const { isPaneAway } = await import("../../core/worklog/presence-away");
+    const targetPaneId = await paneIdOfTarget(target);
+    // Pane-aware oracle (handles "patchwork", "13-patchwork:0.2", "m5:patchwork"); strip a
+    // trailing -oracle. This is the oracle whose worklog carries the away/back events.
+    const awayOracle = extractPaneOracle(query).replace(/-oracle$/i, "");
+    if (isPaneAway(awayOracle, targetPaneId)) {
       const inbox = await writeReceiverInbox(target);
-      const reason = `'${extractOracleName(query)}' is away (stepped out) — parked to inbox, delivered on their /seat`;
+      const reason = `'${awayOracle}' is away (stepped out) — parked to inbox, delivered on their /seat`;
       if (logQueuedInbox(inbox, target, reason)) return; // sender-side notice + feed; NO pane injection
-      console.log(`\x1b[33mparked\x1b[0m '${extractOracleName(query)}' is away — queued to inbox; they'll get it on /seat`);
+      console.log(`\x1b[33mparked\x1b[0m '${awayOracle}' is away — queued to inbox; they'll get it on /seat`);
       return;
     }
 
@@ -1386,26 +1417,39 @@ export async function cmdSend(
     process.exit(1);
   }
 
-  // Try receiver inbox queue before surfacing a local-only resolver miss.
+  // kobo-119 — OFFLINE (the oracle's repo was located but there is NO active session,
+  // i.e. the pane is dead) = HARD REJECT (Tony 2026-07-05, overriding kobo-113's
+  // durable-park). Don't write a fresh inbox entry for a pane that isn't there to read
+  // it — reject the new send and tell the sender it's offline so they can wake/retry.
+  // Rejects only the NEW send; existing inbox contents are untouched. `away` (park) +
+  // `online` (inject) are handled earlier and unchanged — only this offline branch flips.
   if (bareResolution.locate?.repoPath) {
-    const reason = `${query} found at ${bareResolution.locate.repoPath} but no active session — written to inbox only`;
-    const inbox = await writeReceiverInbox(bareResolution.locate.repoPath);
-    if (logQueuedInbox(inbox, query, reason)) {
-      await notifyQueuedInbox(inbox, query, reason);
-      warnOfflineInboxOnly();
-      return;
-    }
-    console.warn(`\x1b[33mwarn\x1b[0m: ${reason}`);
-  } else {
-    // eq3-005 — human-facing wording: this is NOT a failure. The message lands in
-    // the receiver's inbox and is read on their next poll. (Delivery state stays
-    // "queued" on the feed event; only the operator-visible reason changed.)
-    const reason = `delivered to ${query}'s inbox (not live now) — they'll read it on the next poll`;
-    const inbox = await writeReceiverInbox();
-    if (logQueuedInbox(inbox, query, reason)) {
-      await notifyQueuedInbox(inbox, query, reason);
-      return;
-    }
+    emitMessageFeed({
+      direction: "outbound",
+      state: "failed",
+      channel: "hey",
+      route: "reject",
+      from: senderIdentity.display,
+      to: query,
+      target: query,
+      text: outboundMessage,
+      lastLine: "target offline — not sent (no active session)",
+      signed: true,
+    }, config.port || 3456);
+    logMessage(senderName, query, outboundMessage, "reject");
+    console.error(`\x1b[31moffline\x1b[0m: '${query}' found at ${bareResolution.locate.repoPath} but no active session — ส่งไม่ได้ (offline, not sent)`);
+    console.error(`\x1b[33mhint\x1b[0m:  wake it first: maw wake ${query}`);
+    process.exit(1);
+  }
+
+  // No repo located (unknown target) — keep the existing default-inbox fallback so a
+  // genuinely-mis-typed / not-yet-resolved name is not silently dropped (eq3-005). This
+  // is NOT the "offline" case Tony rejected; it is "couldn't resolve the target at all".
+  const reason = `delivered to ${query}'s inbox (not live now) — they'll read it on the next poll`;
+  const inbox = await writeReceiverInbox();
+  if (logQueuedInbox(inbox, query, reason)) {
+    await notifyQueuedInbox(inbox, query, reason);
+    return;
   }
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
