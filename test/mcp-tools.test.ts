@@ -228,6 +228,23 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "block", id: "kobo-3" })).toThrow(/kind/);
   });
 
+  test("dep: op add/rm + id + exactly one parent (kobo-134)", () => {
+    expect(taskArgs({ action: "dep", id: "kobo-3", op: "add", parent: ["kobo-1"] })).toEqual([
+      "company", "task", "dep", "add", "kobo-3", "kobo-1",
+    ]);
+    expect(taskArgs({ action: "dep", id: "kobo-3", op: "rm", parent: ["kobo-1"], company: "kobo" })).toEqual([
+      "company", "task", "dep", "rm", "kobo-3", "kobo-1", "--company", "kobo",
+    ]);
+  });
+
+  test("dep: missing/invalid op, missing id, and not-exactly-one parent all throw", () => {
+    expect(() => taskArgs({ action: "dep", op: "add", parent: ["kobo-1"] })).toThrow(/requires an id/);
+    expect(() => taskArgs({ action: "dep", id: "kobo-3", parent: ["kobo-1"] })).toThrow(/op/);
+    expect(() => taskArgs({ action: "dep", id: "kobo-3", op: "bogus", parent: ["kobo-1"] })).toThrow(/op/);
+    expect(() => taskArgs({ action: "dep", id: "kobo-3", op: "add" })).toThrow(/exactly one parent/);
+    expect(() => taskArgs({ action: "dep", id: "kobo-3", op: "add", parent: ["a", "b"] })).toThrow(/exactly one parent/);
+  });
+
   test("archive: bare + --days + --company", () => {
     expect(taskArgs({ action: "archive" })).toEqual(["company", "task", "archive"]);
     expect(taskArgs({ action: "archive", days: 7, company: "kobo" })).toEqual([

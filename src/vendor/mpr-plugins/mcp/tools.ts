@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "review" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -41,6 +41,7 @@ export interface TaskInput {
   assignee?: string;   // add
   parent?: string[];   // add (repeatable deps)
   body?: string;       // add
+  op?: string;         // dep (required: add|rm)
   mine?: boolean;      // ls
   for?: string;        // ls (decision queue) / block (--for)
   to?: string;         // review / assign (target ball-holder)
@@ -215,6 +216,17 @@ export function taskArgs(input: TaskInput): string[] {
       const eid = needId("epic");
       if (input.epic) return ["company", "task", "epic", eid, input.epic, ...common()];
       return ["company", "task", "epic", eid, "--clear", ...common()];
+    }
+    case "dep": {
+      // kobo-134 — dep add/rm <id> <parentId>. The single parent id rides the
+      // existing `parent` field (same field the add verb uses for dep ids);
+      // exactly one is required so nothing is silently dropped.
+      const did = needId("dep");
+      if (input.op !== "add" && input.op !== "rm") throw new Error("task dep requires op (add|rm)");
+      if (!input.parent || input.parent.length !== 1) {
+        throw new Error("task dep requires exactly one parent id (parent: [<cardId>])");
+      }
+      return ["company", "task", "dep", input.op, did, input.parent[0], ...common()];
     }
     case "review": {
       const argv = ["company", "task", "review", needId("review")];

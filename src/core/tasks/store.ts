@@ -1034,6 +1034,73 @@ export function setTaskEpic(
 }
 
 /**
+ * Would adding dep `id 🚫→ newParent` close a dependency cycle? BFS UP the
+ * parentIds graph from newParent; reaching `id` means `id` already (transitively)
+ * blocks newParent, so the new link would deadlock both (each waits forever).
+ * The DERIVED blocked-by stays loop-safe either way (dependencyBlock is 1-hop by
+ * construction) — this guards the human-facing deadlock, not the derivation. The
+ * visited set terminates on a pre-existing upstream cycle (hand-edited files).
+ */
+export function createsDepLoop(
+  id: string,
+  newParent: string,
+  getParentIds: (cardId: string) => string[],
+): boolean {
+  const queue = [newParent];
+  const visited = new Set<string>();
+  while (queue.length) {
+    const cur = queue.shift()!;
+    if (cur === id) return true;
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    queue.push(...getParentIds(cur));
+  }
+  return false;
+}
+
+/**
+ * Add / remove ONE dependency link (parentIds, ADR 0003 A) after create — the
+ * dep-axis sibling of setTaskEpic (kobo-134; before this, deps were fixed at
+ * `add --parent` or hand-edited JSON). add guards: self-dep, a link duplicating
+ * the containment parent (the two axes must not contradict, kobo-72), and a dep
+ * cycle (mutual wait = deadlock). Both ops are idempotent: adding an existing
+ * link / removing an absent one returns the card unchanged (no write, no event).
+ * Returns null when the card is absent; throws on a guard violation.
+ */
+export function setTaskDep(
+  company: string,
+  id: string,
+  parentId: string,
+  op: "add" | "rm",
+  by: string,
+): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const dep = parentId.trim();
+  const cur = task.parentIds ?? [];
+  if (op === "add") {
+    if (dep === id) throw new Error(`dep rejected: ${id} cannot wait for itself`);
+    if (dep === task.epic) {
+      throw new Error(`dep rejected: ${dep} is already ${id}'s containment parent (epic) — wait-for and lives-under must not contradict`);
+    }
+    if (cur.includes(dep)) return task; // idempotent — link already there
+    if (createsDepLoop(id, dep, (cid) => readTask(company, cid)?.parentIds ?? [])) {
+      throw new Error(`dep loop rejected: ${id} 🚫→ ${dep} would create a wait cycle (mutual deadlock)`);
+    }
+    task.parentIds = [...cur, dep];
+  } else {
+    if (!cur.includes(dep)) return task; // idempotent — nothing to remove
+    const kept = cur.filter((p) => p !== dep);
+    if (kept.length) task.parentIds = kept;
+    else delete task.parentIds;
+  }
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", op === "add" ? `dep ${id} 🚫→ ${dep} (waits for)` : `dep removed ${id} ✂ ${dep}`);
+  return task;
+}
+
+/**
  * Direct containment children of a card — those whose `epic` === id. Pure over a
  * given card set so the CALLER controls scope: pass `listTasks` for on-board
  * children, or active+archived when a rollup must count swept-done children too.

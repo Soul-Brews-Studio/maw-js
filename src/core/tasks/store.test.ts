@@ -47,6 +47,8 @@ import {
   resolveEpicParent,
   reviewTask,
   moveTask,
+  createsDepLoop,
+  setTaskDep,
   setTaskEpic,
   setTaskPr,
   setTaskRepoIfMissing,
@@ -575,6 +577,47 @@ describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, 
     expect(readTask("pgw", child.id)!.state).toBe("backlog");
     moveTask("pgw", child.id, "ready", "tony");
     expect(readTask("pgw", child.id)!.state).toBe("ready");
+  });
+});
+
+describe("dep verbs (kobo-134 — setTaskDep edits parentIds after create)", () => {
+  test("add links a dep; rm unlinks; field dropped when the last dep goes", () => {
+    const p = addTask({ company: "pgw", title: "parent", by: "x" });
+    const c = addTask({ company: "pgw", title: "child", by: "x" });
+    expect(setTaskDep("pgw", c.id, p.id, "add", "x")!.parentIds).toEqual([p.id]);
+    expect(isBlockedByDependency(readTask("pgw", c.id)!, parentStateResolver("pgw"))).toBe(true); // derived kicks in
+    expect(setTaskDep("pgw", c.id, p.id, "rm", "x")!.parentIds).toBeUndefined(); // last dep → field dropped
+    expect(isBlockedByDependency(readTask("pgw", c.id)!, parentStateResolver("pgw"))).toBe(false);
+  });
+
+  test("idempotent both ways: re-add keeps one link, rm of an absent link is a no-op", () => {
+    const p = addTask({ company: "pgw", title: "parent", by: "x" });
+    const c = addTask({ company: "pgw", title: "child", by: "x", parentIds: [p.id] });
+    expect(setTaskDep("pgw", c.id, p.id, "add", "x")!.parentIds).toEqual([p.id]); // no dupe
+    expect(setTaskDep("pgw", c.id, "pgw-ghost", "rm", "x")!.parentIds).toEqual([p.id]); // unchanged
+  });
+
+  test("guards: self-dep, containment-conflict (epic), and a dep cycle all throw", () => {
+    const epic = addTask({ company: "pgw", title: "epic", by: "x", kind: "epic" });
+    const a = addTask({ company: "pgw", title: "a", by: "x", epic: epic.id });
+    const b = addTask({ company: "pgw", title: "b", by: "x", parentIds: [a.id] }); // b waits for a
+    expect(() => setTaskDep("pgw", a.id, a.id, "add", "x")).toThrow(/itself/);
+    expect(() => setTaskDep("pgw", a.id, epic.id, "add", "x")).toThrow(/containment/);
+    expect(() => setTaskDep("pgw", a.id, b.id, "add", "x")).toThrow(/loop/i); // a→b + b→a = deadlock
+  });
+
+  test("unresolvable parent id still links (backward-compat, board warns); missing card → null", () => {
+    const c = addTask({ company: "pgw", title: "child", by: "x" });
+    expect(setTaskDep("pgw", c.id, "pgw-ghost", "add", "x")!.parentIds).toEqual(["pgw-ghost"]);
+    expect(setTaskDep("pgw", "pgw-999", "pgw-1", "add", "x")).toBeNull();
+  });
+
+  test("createsDepLoop walks the parentIds graph transitively; visited set survives an upstream cycle", () => {
+    const parents: Record<string, string[]> = { b: ["c"], c: ["d"], d: [], x: ["y"], y: ["x"] };
+    const get = (id: string) => parents[id] ?? [];
+    expect(createsDepLoop("d", "b", get)).toBe(true); // d ← b→c→d transitive
+    expect(createsDepLoop("a", "b", get)).toBe(false); // a unreachable from b
+    expect(createsDepLoop("a", "x", get)).toBe(false); // pre-existing x↔y cycle terminates, not a's loop
   });
 });
 

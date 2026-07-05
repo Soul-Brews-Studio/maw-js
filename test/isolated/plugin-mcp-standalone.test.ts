@@ -64,9 +64,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
+    // `maw company task dep <op> <id> <parentId>` on the canonical surface.
+    expect(tools).toContain('["company", "task", "dep", input.op, did, input.parent[0]');
+    expect(server).toContain('"dep"'); // enum + title advertise the verb
     // mawjs-5: assign = pass-the-ball. maps to `maw company task assign <id> --to <who>`.
     expect(tools).toContain('["company", "task", "assign", aid, "--to", input.to');
     expect(server).toContain('"assign"'); // enum + title advertise the verb

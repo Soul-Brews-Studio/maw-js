@@ -17,6 +17,8 @@
  *   maw company task archive [--days N]    # bulk: sweep done cards older than N days → tasks/archive/
  *   maw company task block <id> --kind <dependency|needs_input|capability|transient> [--reason "..."] [--for tony|<oracle>|any]
  *   maw company task unblock <id>          # restore prevState
+ *   maw company task dep add <id> <parentId>  # link a dependency after create — <id> waits for <parentId> (kobo-134)
+ *   maw company task dep rm <id> <parentId>   # remove a dependency link
  *
  * State lives in the file-per-card store (companies/<c>/tasks/*.json); every
  * mutation also emits a worklog event so the activity feed stays the single
@@ -55,6 +57,7 @@ import {
   readTask,
   rejectTask,
   reviewTask,
+  setTaskDep,
   setTaskEpic,
   setTaskPr,
   moveTask,
@@ -528,6 +531,34 @@ export async function runTask(
       console.log(epicId
         ? `\x1b[36m↳ epic\x1b[0m ${t.id} ↳ ${epicId}: ${t.title}`
         : `\x1b[36m↳ epic\x1b[0m ${t.id} \x1b[90m(cleared)\x1b[0m: ${t.title}`);
+    } else if (subcmd === "dep") {
+      // kobo-134 — first-class dep-link management AFTER create (before this, the
+      // dep axis was fixed at `add --parent` or hand-edited JSON). Edits parentIds
+      // (ADR 0003 A) via setTaskDep: self/containment-conflict/cycle guarded,
+      // idempotent both ways. blocked-by stays DERIVED at read — no state flip here.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const op = flags._[0];
+      const id = flags._[1];
+      const parentId = flags._[2];
+      if ((op !== "add" && op !== "rm") || !id || !parentId) {
+        return { ok: false, error: "usage: maw company task dep <add|rm> <id> <parentId>" };
+      }
+      const badDep = badFlagValue("parentId", parentId); if (badDep) return { ok: false, error: badDep };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = setTaskDep(company, id, parentId, op, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      const deps = t.parentIds?.join(", ") || "—";
+      console.log(op === "add"
+        ? `\x1b[36m🔗 dep\x1b[0m ${t.id} 🚫→ ${parentId} \x1b[90m(deps: ${deps})\x1b[0m: ${t.title}`
+        : `\x1b[36m✂ dep\x1b[0m ${t.id} ✂ ${parentId} \x1b[90m(deps: ${deps})\x1b[0m: ${t.title}`);
+      // soft hint — same contract as `add --parent`: an unresolvable parent still
+      // links (backward-compat) but warns; the board shows the same faint ⚠.
+      if (op === "add") {
+        const resolve = parentStateResolver(company);
+        if (resolve(parentId) === null) console.log(`  \x1b[33m⚠ parent ไม่พบ (ยัง link ได้): ${parentId}\x1b[0m`);
+      }
     } else if (subcmd === "ask") {
       // ask-Tony 3-tier level 1 (kobo-126): a substantive question → its own
       // SUBCARD assigned to the answerer (default tony) + parent-linked, one shot.
@@ -568,7 +599,7 @@ export async function runTask(
         }
       }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|review|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

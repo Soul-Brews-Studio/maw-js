@@ -118,6 +118,32 @@ describe("maw company task runner (runTask)", () => {
     expect(t.parentIds).toBeUndefined(); // stale dep on the same id dropped
   });
 
+  test("dep add/rm edit parentIds after create; guards + usage errors are clean (kobo-134)", async () => {
+    await run(["add", "parent", "--company", "pgw"]); // pgw-1
+    await run(["add", "child", "--company", "pgw"]);  // pgw-2
+    const add = await run(["dep", "add", "pgw-2", "pgw-1", "--company", "pgw"]);
+    expect(add.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.parentIds).toEqual(["pgw-1"]);
+    // reverse link = wait cycle → clean error, not a throw
+    const loop = await run(["dep", "add", "pgw-1", "pgw-2", "--company", "pgw"]);
+    expect(loop.ok).toBe(false);
+    expect(loop.error).toMatch(/loop/i);
+    const rm = await run(["dep", "rm", "pgw-2", "pgw-1", "--company", "pgw"]);
+    expect(rm.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.parentIds).toBeUndefined();
+    expect((await run(["dep", "bogus", "pgw-2", "pgw-1", "--company", "pgw"])).error).toContain("usage");
+    expect((await run(["dep", "add", "pgw-2", "--company", "pgw"])).error).toContain("usage");
+    expect((await run(["dep", "add", "pgw-999", "pgw-1", "--company", "pgw"])).error).toContain("not found");
+  });
+
+  test("dep add warns (still links) when the parent id resolves to nothing (kobo-134)", async () => {
+    await run(["add", "child", "--company", "pgw"]); // pgw-1
+    const r = await run(["dep", "add", "pgw-1", "pgw-ghost", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.parentIds).toEqual(["pgw-ghost"]);
+    expect(r.output).toContain("ไม่พบ");
+  });
+
   test("epic rejects a containment loop; usage/not-found errors are clean (kobo-72)", async () => {
     await run(["add", "a", "--company", "pgw"]); // pgw-1
     await run(["add", "b", "--company", "pgw"]); // pgw-2

@@ -29,9 +29,10 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "review"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
+    expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
     expect(src).toContain("askTask"); // kobo-126: substantive question → parent-linked subcard (one shot)
     expect(src).toContain("pendingMentions"); // kobo-126: the @mention decision queue (read-only)
     expect(src).toContain("badFlagValue"); // kobo-126: reject flag-shaped ref values (pgw-35 epic:"--add" root cause)
