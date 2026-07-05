@@ -46,3 +46,35 @@ export function notifyTaskComment(
     return false; // best-effort — the note is already stored
   }
 }
+
+/**
+ * Poke a parent card's owner when one of its ask-subcards finishes (kobo-135, B3).
+ * askTask (kobo-126) hangs a question as a SUBCARD (epic=parent + assignee=answerer)
+ * under the asking card; the asker then had to eyeball the parent-badge ("⧉ open
+ * →who") to notice the answer landed. This turns that manual check into a push:
+ * when the answered subcard flips done, the parent's assignee (the asker) gets one
+ * task-events ping so a closed answer surfaces itself.
+ *
+ * Gates (no noise, no self-poke): the done card must have been ROUTED to someone
+ * (`child.assignee` set — a plain unassigned +subtask isn't an ask, so it's
+ * skipped); the parent must have an owner who ISN'T the one closing it (the asker
+ * closing their own subcard already knows). Returns true when a ping was
+ * dispatched, false when skipped. `send` is injectable so tests assert the argv
+ * without spawning.
+ */
+export function notifyParentOfSubcardDone(
+  child: TaskRecord,
+  parent: TaskRecord,
+  by: string,
+  send: (args: string[]) => void = spawnHey,
+): boolean {
+  if (!child.assignee) return false; // unassigned +subtask → not an ask, don't poke
+  const owner = parent.assignee;
+  if (!owner || owner === by) return false; // no asker to notify, or the asker closed it themselves
+  try {
+    send(["--channel", CHANNEL_TASK_EVENTS, owner, `[task] subcard ${child.id} done → ${parent.id} ตอบแล้ว: ${child.title}`]);
+    return true;
+  } catch {
+    return false; // best-effort — the state change is already durably stored
+  }
+}

@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { mawDataPath } from "../xdg";
 import { appendWorklog, openClaims, readWorklog } from "../worklog/store";
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
+import { notifyParentOfSubcardDone } from "./notify";
 
 export type TaskState =
   | "backlog"
@@ -493,6 +494,13 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
   releaseAllClaims(task); // free every claim on this card so open-claims doesn't go stale
   promoteReadyChildren(company, id, by); // kobo-133: this done may open a dependent's gate
+  // kobo-135 (B3): an answered ask-subcard finishing pokes its parent's owner (the
+  // asker) — replaces eyeballing the parent-badge. Containment axis (epic), so this
+  // is a NOTIFY only, never a parent state-flip (pr-watch lesson: auto-flip lies).
+  if (task.epic) {
+    const parent = readTask(company, task.epic);
+    if (parent) notifyParentOfSubcardDone(task, parent, by);
+  }
   return task;
 }
 

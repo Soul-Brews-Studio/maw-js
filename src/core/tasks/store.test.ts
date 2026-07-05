@@ -988,4 +988,16 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(pendingMentions("pgw", "tony")).toEqual([]);
     expect(pendingMentions("pgw", "patchwork").map((m) => m.id)).toEqual([b.id]); // B still pending
   });
+
+  // kobo-135 (B3): completing an ask-subcard runs the parent-notify hook. The poke
+  // itself is unit-tested in notify.test (injectable send); here we only guard that
+  // the wiring in completeTask doesn't disturb the done path (epic lookup + notify
+  // are best-effort, MAW_TEST_MODE suppresses the real spawn).
+  test("completing an ask-subcard still closes cleanly + leaves the parent untouched", () => {
+    const parent = addTask({ company: "pgw", title: "big work", by: "eq3", assignee: "patchwork", state: "in-progress" });
+    const q = askTask("pgw", parent.id, "ship X or Y?", "tony", "patchwork")!;
+    const done = completeTask("pgw", q.id, "tony");
+    expect(done!.state).toBe("done");
+    expect(readTask("pgw", parent.id)!.state).toBe("in-progress"); // notify only — parent state never flipped
+  });
 });
